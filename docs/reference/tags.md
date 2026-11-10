@@ -36,7 +36,9 @@ The new file is built next to the original, flushed to disk, and checked before 
 - The new file is read again from scratch. Its items, apart from the planned ones, must be the original items, byte for byte and in the same order. Each planned item must hold exactly what was meant to be written.
 - For MP4, the rest of `moov` must be unchanged, and every chunk offset must still point at the same audio.
 
-If any check fails, the write is refused and the file is not touched.
+Last of all, the original is read once more and must still hold the tag the write started from. If another program changed the file in the meantime, replacing it would undo that change.
+
+If any check fails, the write is refused, the new file is deleted, and the original is not touched. Between that last look and the replacement itself there remains a moment, far shorter than the write, in which a change by another program would still be lost; the formats offer no way to close it.
 
 ### Undo
 
@@ -54,13 +56,16 @@ The error names the file and the reason, and the file is not touched. `read_tags
 - A planned ID3v2 frame is compressed, encrypted or unsynchronised on its own. Such frames are kept untouched when they are not part of the plan.
 - The `meta` atom of an MP4 file lacks its version field, as some QuickTime style files have it.
 - A fragmented MP4 file would need its audio moved, because padding cannot take up the change in length.
+- The size in an ID3v2 tag header is damaged, so the end of the tag cannot be known. `read_tags` fails on such a file too.
+- The file has more than one hard link. See below.
+- Another program changed the file between the moment its tags were read and the moment the new file was ready. Make a new plan and apply that.
 
 ### Links, permissions and times
 
 - A symbolic link is followed. The file it points to is rewritten, and the link stays a link.
-- A file with several hard links is overwritten where it is, so all its names keep sharing the same contents. This one case is not a single step: if it is interrupted, the complete new file is left next to the original, named `.<file name>.<numbers>.euphoria-tmp`.
+- A file with more than one hard link, that is, one file that appears under several names, is not written at all. There is no safe way to do it. Putting a new file in place of one name leaves the other names with the old contents, so the names stop being the same file without anyone having asked for that. Overwriting the shared contents where they are keeps the names together, but an interruption halfway damages the track under every name at once. Refusing keeps the library exactly as it is and says why. To tag such a file, make it a file of its own first, for example by copying it and moving the copy over the name you use.
 - The modification time of the file is the time of the write.
-- The rewritten file keeps the permission bits of the original. Its owner, access control lists and extended attributes (such as Finder tags) are those of a newly created file, not carried over from the original. A file with several hard links is the exception: it is overwritten in place and keeps all of them.
+- The rewritten file keeps the permission bits of the original. Its owner, access control lists and extended attributes (such as Finder tags) are those of a newly created file, not carried over from the original.
 
 ## Tag formats
 

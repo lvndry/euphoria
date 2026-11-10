@@ -41,17 +41,26 @@ const VERSION_2_NAMES: [(&str, &str); 6] = [
 
 /// The length of the whole tag that starts with `header`, footer included,
 /// or `None` when `header` does not start a tag.
-pub(super) fn total_length(header: &[u8]) -> Option<u64> {
+///
+/// The size in a tag header is syncsafe: each of its four bytes uses seven
+/// bits. A header that sets the eighth bit does not say how long its tag
+/// is, so it is an error rather than a guess.
+pub(super) fn total_length(header: &[u8]) -> Result<Option<u64>, ErrorSource> {
     if header.len() < HEADER_LENGTH || &header[..3] != b"ID3" {
-        return None;
+        return Ok(None);
     }
-    let body = u64::from(syncsafe_to_number(&header[6..10]));
+    let size = &header[6..10];
+    if size.iter().any(|byte| byte & 0x80 != 0) {
+        return Err("the size in the ID3v2 tag header is damaged".into());
+    }
     let footer = if header[5] & FLAG_FOOTER != 0 {
         HEADER_LENGTH as u64
     } else {
         0
     };
-    Some(HEADER_LENGTH as u64 + body + footer)
+    Ok(Some(
+        HEADER_LENGTH as u64 + u64::from(syncsafe_to_number(size)) + footer,
+    ))
 }
 
 fn syncsafe_to_number(bytes: &[u8]) -> u32 {
@@ -137,7 +146,7 @@ impl Id3Tag {
     /// to the first thing that is not a frame; what stopped the reading is
     /// kept as the tag's problem.
     pub(super) fn parse(bytes: &[u8]) -> Result<Self, ErrorSource> {
-        let declared = total_length(bytes).ok_or("the ID3v2 tag has no header")?;
+        let declared = total_length(bytes)?.ok_or("the ID3v2 tag has no header")?;
         if (bytes.len() as u64) < declared {
             return Err("the ID3v2 tag is cut short".into());
         }
@@ -734,13 +743,33 @@ mod tests {
     fn footer_is_kept_and_such_a_tag_has_no_padding() {
         let mut original = tag_bytes(4, FLAG_FOOTER, b"TKEY\x00\x00\x00\x03\x00\x00\x00Cm");
         original.extend(b"3DI\x04\x00\x10\x00\x00\x00\x0D");
-        assert_eq!(total_length(&original), Some(original.len() as u64));
+        assert_eq!(
+            total_length(&original).unwrap(),
+            Some(original.len() as u64)
+        );
         let mut tag = Id3Tag::parse(&original).unwrap();
         assert_eq!(tag.serialize(&[original.len()]).unwrap(), original);
         tag.set("TKEY", Some("10A")).unwrap();
         let grown = tag.serialize(&[original.len()]).unwrap();
         assert_eq!(grown.len(), original.len() + 1);
         assert!(grown.ends_with(b"3DI\x04\x00\x10\x00\x00\x00\x0E"));
+    }
+
+    #[test]
+    fn header_size_with_the_eighth_bit_set_is_refused() {
+        assert_eq!(
+            total_length(b"ID3\x03\x00\x00\x00\x00\x02\x01").unwrap(),
+            Some(267)
+        );
+        assert_eq!(total_length(b"RIFF\x00\x00\x00\x80\x00\x00").unwrap(), None);
+        for position in 6..10 {
+            let mut header = *b"ID3\x03\x00\x00\x00\x00\x00\x0A";
+            header[position] |= 0x80;
+            assert!(total_length(&header).is_err(), "byte {position}");
+            let mut tag = header.to_vec();
+            tag.resize(300, 0);
+            assert!(Id3Tag::parse(&tag).is_err(), "byte {position}");
+        }
     }
 
     #[test]

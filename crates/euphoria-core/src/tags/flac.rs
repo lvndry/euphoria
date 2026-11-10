@@ -297,6 +297,6 @@ impl FlacFile {
 
 /// Where the FLAC stream starts in a file that begins with `beginning`:
 /// at the start, or after an ID3v2 tag.
-pub(super) fn stream_start(beginning: &[u8]) -> u64 {
-    id3v2::total_length(beginning).unwrap_or(0)
+pub(super) fn stream_start(beginning: &[u8]) -> Result<u64, ErrorSource> {
+    Ok(id3v2::total_length(beginning)?.unwrap_or(0))
 }

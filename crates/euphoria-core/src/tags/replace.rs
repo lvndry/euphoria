@@ -122,7 +122,6 @@ pub(super) struct Replacement {
     target: PathBuf,
     temporary_path: PathBuf,
     file: File,
-    target_link_count: u64,
 }
 
 impl Replacement {
@@ -131,6 +130,9 @@ impl Replacement {
     /// a symbolic link to it.
     pub(super) fn start(target: &Path) -> io::Result<Self> {
         let metadata = std::fs::metadata(target)?;
+        if has_several_links(&metadata) {
+            return Err(io::Error::other("the file has more than one hard link"));
+        }
         let (temporary_path, file) = create_temporary(target)?;
         if let Err(error) = file.set_permissions(metadata.permissions()) {
             // The permission error is the one reported; the new file is
@@ -142,7 +144,6 @@ impl Replacement {
             target: target.to_path_buf(),
             temporary_path,
             file,
-            target_link_count: link_count(&metadata),
         })
     }
 
@@ -157,20 +158,14 @@ impl Replacement {
         std::fs::remove_file(&self.temporary_path)
     }
 
-    /// Puts the copy in place of the original.
-    ///
-    /// A file with a single name is replaced by renaming the copy over it,
-    /// which is one step: readers see the old file or the new one. A file
-    /// with several hard links is overwritten where it is instead, so every
-    /// link keeps pointing at the same contents.
+    /// Puts the new file in place of the original by renaming it over the
+    /// original, which is one step: readers see the old file or the new
+    /// one, and the original is whole until that step.
     pub(super) fn commit(self) -> Result<(), ErrorSource> {
         if let Err(error) = self.file.sync_all() {
             // The sync error is the one reported.
             let _ = self.discard();
             return Err(error.into());
-        }
-        if self.target_link_count > 1 {
-            return self.overwrite_target();
         }
         if let Err(error) = std::fs::rename(&self.temporary_path, &self.target) {
             // The rename error is the one reported.
@@ -179,25 +174,6 @@ impl Replacement {
         }
         sync_directory(&self.target)?;
         Ok(())
-    }
-
-    fn overwrite_target(mut self) -> Result<(), ErrorSource> {
-        let overwrite = |copy: &mut File| -> io::Result<()> {
-            copy.rewind()?;
-            let mut target = OpenOptions::new().write(true).open(&self.target)?;
-            let length = io::copy(copy, &mut target)?;
-            target.set_len(length)?;
-            target.sync_all()
-        };
-        match overwrite(&mut self.file) {
-            Ok(()) => Ok(self.discard()?),
-            Err(error) => Err(format!(
-                "{error}; the file may be incomplete, and a complete copy with the new tags is \
-                 kept at {}",
-                self.temporary_path.display()
-            )
-            .into()),
-        }
     }
 }
 
@@ -232,14 +208,20 @@ fn create_temporary(target: &Path) -> io::Result<(PathBuf, File)> {
     Err(last_error.unwrap_or_else(|| io::Error::other("no temporary file name was tried")))
 }
 
+/// Whether the file has other names besides the one it was opened by.
+/// Renaming a new file over one name would leave the other names with the
+/// old contents, and overwriting the shared contents in place cannot be
+/// undone if it is interrupted, so such a file is not rewritten at all.
 #[cfg(unix)]
-fn link_count(metadata: &Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(metadata)
+pub(super) fn has_several_links(metadata: &Metadata) -> bool {
+    std::os::unix::fs::MetadataExt::nlink(metadata) > 1
 }
 
+/// Whether the file has other names besides the one it was opened by. The
+/// standard library cannot tell on this platform.
 #[cfg(not(unix))]
-fn link_count(_metadata: &Metadata) -> u64 {
-    1
+pub(super) fn has_several_links(_metadata: &Metadata) -> bool {
+    false
 }
 
 /// Flushes the directory entry of `path`, so the rename survives a power
@@ -359,12 +341,44 @@ mod tests {
         compose(&mut original, &mut splices, replacement.file()).unwrap();
         assert!(carried_over(&mut original, &splices, replacement.file()).unwrap());
 
+        replacement.commit().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"01abc45+679");
+        assert_eq!(entries(&path), ["track.bin"]);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn damage_to_the_new_file_is_detected() {
+        let path = scratch_file("damage", b"0123456789");
+        let mut original = File::open(&path).unwrap();
+        let mut splices = vec![Splice {
+            start: 2,
+            end: 4,
+            bytes: b"abc".to_vec(),
+        }];
+        let mut replacement = Replacement::start(&path).unwrap();
+        compose(&mut original, &mut splices, replacement.file()).unwrap();
+        assert!(carried_over(&mut original, &splices, replacement.file()).unwrap());
+
         replacement.file().seek(SeekFrom::Start(0)).unwrap();
         replacement.file().write_all(b"X").unwrap();
         assert!(!carried_over(&mut original, &splices, replacement.file()).unwrap());
 
-        replacement.commit().unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"X1abc45+679");
+        replacement.discard().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"0123456789");
+        assert_eq!(entries(&path), ["track.bin"]);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_with_several_hard_links_is_not_replaced() {
+        let path = scratch_file("links", b"original");
+        let other_name = path.with_file_name("other-name.bin");
+        std::fs::hard_link(&path, &other_name).unwrap();
+        assert!(Replacement::start(&path).is_err());
+        assert_eq!(entries(&path), ["other-name.bin", "track.bin"]);
+        assert_eq!(std::fs::read(&other_name).unwrap(), b"original");
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 

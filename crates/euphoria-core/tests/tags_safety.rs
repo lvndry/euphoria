@@ -745,7 +745,7 @@ fn symbolic_link_stays_a_link_and_the_real_file_is_written() {
 
 #[cfg(unix)]
 #[test]
-fn hard_links_keep_sharing_one_file() {
+fn file_with_several_hard_links_is_refused_and_left_alone() {
     use std::os::unix::fs::MetadataExt;
 
     for fixture in ALL_FIXTURES {
@@ -754,29 +754,40 @@ fn hard_links_keep_sharing_one_file() {
         if second.exists() {
             std::fs::remove_file(&second).unwrap();
         }
+        let single_plan = plan_write(&first, &a_minor(), &full_options()).unwrap();
         std::fs::hard_link(&first, &second).unwrap();
         let inode = std::fs::metadata(&first).unwrap().ino();
+        let bytes = std::fs::read(&first).unwrap();
 
-        let backup = apply_plan(&plan_write(&first, &a_minor(), &full_options()).unwrap()).unwrap();
+        assert_eq!(read_tags(&first).unwrap().key, None, "{fixture}");
+        // Refused when planning, and also when a plan made earlier is
+        // applied after the file gained a second name.
+        let errors = [
+            plan_write(&first, &a_minor(), &full_options()).unwrap_err(),
+            apply_plan(&single_plan).unwrap_err(),
+        ];
+        for error in errors {
+            assert!(
+                matches!(&error, EuphoriaError::TagWrite { path, .. } if *path == first),
+                "{fixture}: {error:?}"
+            );
+            assert!(
+                error.chain().contains("more than one hard link"),
+                "{fixture}: {}",
+                error.chain()
+            );
+        }
         for path in [&first, &second] {
             let metadata = std::fs::metadata(path).unwrap();
             assert_eq!(metadata.ino(), inode, "{fixture}");
             assert_eq!(metadata.nlink(), 2, "{fixture}");
-            assert_eq!(
-                read_tags(path).unwrap().key.as_deref(),
-                Some("8A"),
-                "{fixture}"
-            );
-            decode_mono(path).unwrap();
+            assert!(std::fs::read(path).unwrap() == bytes, "{fixture}");
         }
 
-        undo(&backup).unwrap();
-        assert_eq!(read_tags(&second).unwrap().key, None, "{fixture}");
-        assert_eq!(
-            std::fs::metadata(&second).unwrap().ino(),
-            inode,
-            "{fixture}"
-        );
+        // With the other name gone, the file is written as usual.
+        std::fs::remove_file(&second).unwrap();
+        apply_plan(&single_plan).unwrap();
+        assert_eq!(read_tags(&first).unwrap().key.as_deref(), Some("8A"));
     }
 }
 

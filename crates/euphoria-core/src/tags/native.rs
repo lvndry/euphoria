@@ -16,7 +16,7 @@ use super::TagFormat;
 use super::flac::{self, FlacFile};
 use super::id3v2::{self, Id3Tag};
 use super::mp4::Mp4File;
-use super::replace::{Replacement, Splice, carried_over, compose};
+use super::replace::{Replacement, Splice, carried_over, compose, has_several_links};
 use crate::error::{ErrorSource, EuphoriaError};
 
 const PROBE_LENGTH: usize = 16;
@@ -24,6 +24,8 @@ const MPEG_SEARCH_LENGTH: u64 = 64 * 1024;
 const IFF_HEADER_LENGTH: u64 = 12;
 const CHUNK_HEADER_LENGTH: u64 = 8;
 const ID3_CHUNK: &[u8; 4] = b"ID3 ";
+const SEVERAL_LINKS: &str = "it has more than one hard link, and replacing it would leave its other names \
+     with the old contents";
 
 /// What a file is loaded for.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,7 +97,7 @@ fn read_exactly(file: &mut File, start: u64, length: u64) -> Result<Vec<u8>, Err
 
 impl Id3File {
     fn at_start(file: &mut File, beginning: &[u8]) -> Result<Self, ErrorSource> {
-        let Some(length) = id3v2::total_length(beginning) else {
+        let Some(length) = id3v2::total_length(beginning)? else {
             return Ok(Self {
                 tag: Id3Tag::new(),
                 place: Id3Place::Start { length: 0 },
@@ -276,6 +278,7 @@ impl Id3File {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
 enum Document {
     Id3(Id3File),
     Mp4(Mp4File),
@@ -316,7 +319,7 @@ impl Document {
             return Err(unsupported());
         }
 
-        let after_id3 = flac::stream_start(beginning);
+        let after_id3 = flac::stream_start(beginning)?;
         let marker_after_id3 = read_exactly(file, after_id3, 4).unwrap_or_default();
         if marker_after_id3 == b"fLaC" {
             return Ok(Self::Flac(FlacFile::load(file, after_id3)?));
@@ -426,6 +429,9 @@ impl Document {
 pub(super) struct TagFile {
     path: PathBuf,
     file_length: u64,
+    /// The tag as it was loaded, to tell at the end of a write whether the
+    /// file changed in the meantime.
+    loaded: Document,
     document: Document,
     /// The items as they were loaded, with the index each touched field
     /// had among them.
@@ -445,20 +451,26 @@ impl TagFile {
             path: path.to_path_buf(),
             source,
         })?;
-        if let (Purpose::Rewriting, Some(problem)) = (purpose, document.problem()) {
+        let metadata = file.metadata().map_err(|source| EuphoriaError::Open {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let problem = if has_several_links(&metadata) {
+            Some(SEVERAL_LINKS)
+        } else {
+            document.problem()
+        };
+        if let (Purpose::Rewriting, Some(problem)) = (purpose, problem) {
             return Err(EuphoriaError::TagWrite {
                 path: path.to_path_buf(),
                 source: refusal(problem),
             });
         }
-        let file_length = file.metadata().map_err(|source| EuphoriaError::Open {
-            path: path.to_path_buf(),
-            source,
-        })?;
         Ok(Self {
             path: path.to_path_buf(),
-            file_length: file_length.len(),
+            file_length: metadata.len(),
             original_items: document.items(),
+            loaded: document.clone(),
             document,
             touched: Vec::new(),
         })
@@ -559,13 +571,26 @@ impl TagFile {
     }
 
     fn save_checked(&self) -> Result<(), ErrorSource> {
+        self.save_after(|_| Ok(()))
+    }
+
+    /// Builds the new file, runs `before_checks` on it, checks it, and puts
+    /// it in place. `before_checks` does nothing outside tests, where it
+    /// stands in for whatever could damage the new file or change the
+    /// original while a write is under way.
+    fn save_after(
+        &self,
+        before_checks: impl FnOnce(&mut File) -> std::io::Result<()>,
+    ) -> Result<(), ErrorSource> {
         let target = std::fs::canonicalize(&self.path)?;
         let mut original = File::open(&target)?;
         let mut splices = self.document.splices()?;
         let mut replacement = Replacement::start(&target)?;
         let written = compose(&mut original, &mut splices, replacement.file())
+            .and_then(|()| before_checks(replacement.file()))
             .map_err(ErrorSource::from)
-            .and_then(|()| self.check(&mut original, &splices, replacement.file()));
+            .and_then(|()| self.check(&mut original, &splices, replacement.file()))
+            .and_then(|()| self.check_source_is_unchanged(&target));
         match written {
             Ok(()) => replacement.commit(),
             Err(error) => {
@@ -573,6 +598,24 @@ impl TagFile {
                 let _ = replacement.discard();
                 Err(error)
             }
+        }
+    }
+
+    /// The new file was built from the tag as it was loaded. If another
+    /// program has changed the file since, by editing it or by putting a
+    /// new file in its place, replacing it now would undo that change, so
+    /// the file at `target` is read once more, last thing before the
+    /// replacement, and must hold the tag that was loaded.
+    fn check_source_is_unchanged(&self, target: &Path) -> Result<(), ErrorSource> {
+        let mut current = File::open(target)?;
+        let is_unchanged = current.metadata()?.len() == self.file_length
+            && Document::load(&mut current)? == self.loaded;
+        if is_unchanged {
+            Ok(())
+        } else {
+            Err(refusal(
+                "another program changed it while its tags were being written",
+            ))
         }
     }
 
@@ -753,6 +796,126 @@ mod tests {
             };
             let error = check_after(fixture, field, tamper).unwrap_err();
             assert!(error.to_string().contains("refusing"), "{fixture}: {error}");
+        }
+    }
+
+    /// A copy of `fixture` in a directory of its own.
+    fn fixture_copy(fixture: &str, test: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "euphoria-native-{}-{test}-{fixture}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(fixture);
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(fixture);
+        std::fs::copy(source, &path).unwrap();
+        path
+    }
+
+    fn directory_entries(path: &Path) -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect()
+    }
+
+    #[test]
+    fn damaged_replacement_is_discarded_and_the_original_is_untouched() {
+        for (fixture, field) in KEY_FIELDS {
+            let path = fixture_copy(fixture, "damaged");
+            let original = std::fs::read(&path).unwrap();
+            let mut tag_file = TagFile::load(&path, Purpose::Rewriting).unwrap();
+            tag_file.set(field, "8A").unwrap();
+
+            let error = tag_file
+                .save_after(|copy| {
+                    let middle = copy.metadata()?.len() / 2;
+                    let mut byte = [0];
+                    copy.seek(SeekFrom::Start(middle))?;
+                    copy.read_exact(&mut byte)?;
+                    copy.seek(SeekFrom::Start(middle))?;
+                    copy.write_all(&[byte[0] ^ 0x01])
+                })
+                .unwrap_err();
+            assert!(error.to_string().contains("refusing"), "{fixture}: {error}");
+            assert!(std::fs::read(&path).unwrap() == original, "{fixture}");
+            assert_eq!(directory_entries(&path), [fixture], "{fixture}");
+
+            tag_file.save().unwrap();
+            assert!(std::fs::read(&path).unwrap() != original, "{fixture}");
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn write_is_refused_when_another_program_changed_the_file_meanwhile() {
+        for (fixture, field) in KEY_FIELDS {
+            for replaces_the_file in [false, true] {
+                let path = fixture_copy(fixture, &format!("raced-{replaces_the_file}"));
+                let mut ours = TagFile::load(&path, Purpose::Rewriting).unwrap();
+                ours.set(field, "8A").unwrap();
+
+                // Another program writes the same field after our load,
+                // either by putting a new file in place or by overwriting
+                // the file where it is.
+                let written_file = if replaces_the_file {
+                    path.clone()
+                } else {
+                    let other = path.with_extension("other");
+                    std::fs::copy(&path, &other).unwrap();
+                    other
+                };
+                let mut theirs = TagFile::load(&written_file, Purpose::Rewriting).unwrap();
+                theirs.set(field, "11B").unwrap();
+                theirs.save().unwrap();
+                if !replaces_the_file {
+                    std::fs::write(&path, std::fs::read(&written_file).unwrap()).unwrap();
+                    std::fs::remove_file(&written_file).unwrap();
+                }
+                let after_their_write = std::fs::read(&path).unwrap();
+
+                let error = ours.save().unwrap_err();
+                assert!(
+                    error.chain().contains("another program changed it"),
+                    "{fixture}: {}",
+                    error.chain()
+                );
+                assert!(
+                    std::fs::read(&path).unwrap() == after_their_write,
+                    "{fixture}"
+                );
+                let read_back = TagFile::load(&path, Purpose::Reading).unwrap();
+                assert_eq!(read_back.get(field).unwrap().as_deref(), Some("11B"));
+                assert_eq!(directory_entries(&path), [fixture], "{fixture}");
+                std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn change_made_during_the_write_itself_is_caught_before_the_replacement() {
+        for (fixture, field) in KEY_FIELDS {
+            let path = fixture_copy(fixture, "raced-late");
+            let mut ours = TagFile::load(&path, Purpose::Rewriting).unwrap();
+            ours.set(field, "8A").unwrap();
+            let mut theirs = TagFile::load(&path, Purpose::Rewriting).unwrap();
+            theirs.set(field, "11B").unwrap();
+
+            // Their write lands after our new file is built.
+            let error = ours
+                .save_after(|_| theirs.save().map_err(std::io::Error::other))
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("another program changed it"),
+                "{fixture}: {error}"
+            );
+            let read_back = TagFile::load(&path, Purpose::Reading).unwrap();
+            assert_eq!(read_back.get(field).unwrap().as_deref(), Some("11B"));
+            assert_eq!(directory_entries(&path), [fixture], "{fixture}");
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
         }
     }
 
