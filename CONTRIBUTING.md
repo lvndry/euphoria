@@ -15,7 +15,7 @@ Please do not attach copyrighted audio.
 
 ## Setting up
 
-You need a Rust toolchain (1.88 or newer), CMake, pkg-config and libkeyfinder.
+You need a Rust toolchain (1.89 or newer), CMake, pkg-config and libkeyfinder.
 
 macOS:
 

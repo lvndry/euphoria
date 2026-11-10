@@ -12,7 +12,10 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use euphoria_core::{analyze_files, find_audio_files};
+use euphoria_core::{
+    Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, analyze_files, analyze_files_cached,
+    clear_cache, default_cache_path, find_audio_files,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 
 /// Each worker can hold 2 to 3 GB while analyzing a full length track, so the
@@ -44,7 +47,33 @@ enum Command {
         /// cores, at most 4.
         #[arg(long, short = 'j')]
         jobs: Option<NonZeroUsize>,
+        /// Analyze every file and neither read nor update the cache.
+        #[arg(long, conflicts_with = "reanalyze")]
+        no_cache: bool,
+        /// Analyze every file again and replace its cached result.
+        #[arg(long)]
+        reanalyze: bool,
     },
+    /// Manage the cache of analysis results.
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CacheCommand {
+    /// Print where the cache database is stored.
+    Path,
+    /// Forget every cached result, so every track is analyzed again.
+    Clear,
+}
+
+/// How `analyze` uses the cache.
+#[derive(Debug, Clone, Copy)]
+enum CacheUse {
+    Bypass,
+    Use(CachePolicy),
 }
 
 fn main() -> ExitCode {
@@ -59,16 +88,62 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
-        Command::Analyze { paths, json, jobs } => analyze(&paths, json, jobs),
+        Command::Analyze {
+            paths,
+            json,
+            jobs,
+            no_cache,
+            reanalyze,
+        } => {
+            let cache_use = if no_cache {
+                CacheUse::Bypass
+            } else if reanalyze {
+                CacheUse::Use(CachePolicy::Reanalyze)
+            } else {
+                CacheUse::Use(CachePolicy::UseCached)
+            };
+            analyze(&paths, json, jobs, cache_use)
+        }
+        Command::Cache { command } => manage_cache(command),
     }
 }
 
-fn analyze(paths: &[PathBuf], json: bool, jobs: Option<NonZeroUsize>) -> Result<ExitCode> {
-    let audio_files = find_audio_files(paths).map_err(|error| anyhow::anyhow!(error.chain()))?;
+fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
+    let cache_path = default_cache_path().map_err(with_causes)?;
+    match command {
+        CacheCommand::Path => println!("{}", cache_path.display()),
+        CacheCommand::Clear => {
+            if clear_cache(&cache_path).map_err(with_causes)? {
+                println!("Cleared the cache at {}", cache_path.display());
+            } else {
+                println!("There is no cache at {}", cache_path.display());
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn analyze(
+    paths: &[PathBuf],
+    json: bool,
+    jobs: Option<NonZeroUsize>,
+    cache_use: CacheUse,
+) -> Result<ExitCode> {
+    let audio_files = find_audio_files(paths).map_err(with_causes)?;
     if audio_files.is_empty() {
         eprintln!("No audio files found.");
         return Ok(ExitCode::SUCCESS);
     }
+    let mut cache = match cache_use {
+        CacheUse::Bypass => None,
+        CacheUse::Use(policy) => match open_cache() {
+            Ok(cache) => Some((cache, policy)),
+            Err(error) => {
+                output::write_cache_warning(&mut std::io::stderr().lock(), &error)?;
+                None
+            }
+        },
+    };
 
     let job_count = jobs
         .map(NonZeroUsize::get)
@@ -79,12 +154,36 @@ fn analyze(paths: &[PathBuf], json: bool, jobs: Option<NonZeroUsize>) -> Result<
         .context("starting the analysis workers")?;
 
     let progress_bar = progress_bar(audio_files.len());
-    let results = thread_pool.install(|| {
-        analyze_files(&audio_files, |progress| {
-            progress_bar.set_position(progress.completed as u64);
-        })
-    });
+    let on_progress = |progress: Progress<'_>| {
+        progress_bar.set_position(progress.completed as u64);
+    };
+    let analyze_without_cache = || CachedBatch {
+        results: thread_pool.install(|| analyze_files(&audio_files, on_progress)),
+        cached_count: 0,
+        store_error: None,
+    };
+    let batch = match &mut cache {
+        None => analyze_without_cache(),
+        Some((cache, policy)) => {
+            let cached_batch = thread_pool
+                .install(|| analyze_files_cached(cache, &audio_files, *policy, on_progress));
+            match cached_batch {
+                Ok(batch) => batch,
+                Err(error) => {
+                    progress_bar.suspend(|| {
+                        output::write_cache_warning(&mut std::io::stderr().lock(), &error)
+                    })?;
+                    analyze_without_cache()
+                }
+            }
+        }
+    };
     progress_bar.finish_and_clear();
+    let CachedBatch {
+        results,
+        cached_count,
+        store_error,
+    } = batch;
 
     let mut standard_output = std::io::stdout().lock();
     if json {
@@ -93,18 +192,33 @@ fn analyze(paths: &[PathBuf], json: bool, jobs: Option<NonZeroUsize>) -> Result<
         output::write_table(&mut standard_output, &results)?;
     }
     standard_output.flush()?;
+    if cached_count > 0 {
+        output::write_cache_summary(&mut std::io::stderr().lock(), cached_count, results.len())?;
+    }
 
     let failure_count = results
         .iter()
         .filter(|result| result.outcome.is_err())
         .count();
-    if failure_count == 0 {
-        return Ok(ExitCode::SUCCESS);
-    }
-    if !json {
+    if failure_count > 0 && !json {
         output::write_failures(&mut std::io::stderr().lock(), &results)?;
     }
-    Ok(ExitCode::FAILURE)
+    if let Some(store_error) = store_error {
+        return Err(with_causes(store_error).context("some results were not saved to the cache"));
+    }
+    Ok(if failure_count == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+fn open_cache() -> Result<Cache, EuphoriaError> {
+    Cache::open(&default_cache_path()?)
+}
+
+fn with_causes(error: EuphoriaError) -> anyhow::Error {
+    anyhow::anyhow!(error.chain())
 }
 
 fn default_job_count() -> usize {

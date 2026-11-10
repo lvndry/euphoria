@@ -8,10 +8,14 @@
 pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
+/// Remembering analyses between runs.
+pub mod cache;
 /// Key and tempo detectors.
 pub mod detect;
 /// The error type returned by the library.
 pub mod error;
+/// Writing analysis results in the formats of other DJ software.
+pub mod export;
 /// Key relations and ranking of the tracks that mix into another.
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
@@ -22,9 +26,15 @@ pub mod library;
 /// preview before and an undo after.
 pub mod tags;
 
-pub use analysis::{FileResult, Progress, TrackAnalysis, analyze_file, analyze_files};
+pub use analysis::{
+    ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
+};
 pub use audio::{AudioBuffer, decode_mono};
-pub use error::{DecodeFailure, ErrorSource, EuphoriaError};
+pub use cache::{
+    Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
+    clear_cache, default_cache_path,
+};
+pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };

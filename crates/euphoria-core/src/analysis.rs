@@ -12,6 +12,19 @@ use crate::detect::{KeyDetector, KeyFinderDetector};
 use crate::error::EuphoriaError;
 use crate::key::Key;
 
+/// Identifies the detection behind a [`TrackAnalysis`]. The analysis cache
+/// serves a stored result only when it was produced under the same version.
+///
+/// Raise the number whenever a change can alter the key, tempo or duration
+/// reported for a file: a detector upgrade, a tuning change, a decoding
+/// change. The suffix names the key detector, since builds with and without
+/// the `libkeyfinder` feature report different keys.
+pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
+    "1+libkeyfinder"
+} else {
+    "1+stratum"
+};
+
 /// What Euphoria found in one track.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackAnalysis {

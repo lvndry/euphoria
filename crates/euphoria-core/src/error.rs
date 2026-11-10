@@ -32,6 +32,34 @@ impl fmt::Display for DecodeFailure {
     }
 }
 
+/// Why a track could not be written to an export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportProblem {
+    /// The path is not an absolute path on a local drive.
+    NotAbsolutePath,
+    /// The path belongs to more than one track of the collection.
+    DuplicatePath,
+    /// A playlist names the path but the collection has no such track.
+    NotInCollection,
+    /// The tempo is not a number, or is below the smallest one an export
+    /// can hold.
+    InvalidTempo,
+    /// A hot cue is on a pad the track does not have.
+    InvalidHotCue,
+}
+
+impl fmt::Display for ExportProblem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            ExportProblem::NotAbsolutePath => "not an absolute local path",
+            ExportProblem::DuplicatePath => "listed more than once",
+            ExportProblem::NotInCollection => "in a playlist but not in the collection",
+            ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
+            ExportProblem::InvalidHotCue => "hot cue pad is out of range",
+        })
+    }
+}
+
 /// Everything that can go wrong in the library.
 #[derive(Debug, thiserror::Error)]
 pub enum EuphoriaError {
@@ -43,7 +71,8 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
-    /// A file or folder could not be read while looking for audio files.
+    /// A file or folder could not be read, while looking for audio files or
+    /// while identifying one for the analysis cache.
     #[error("cannot read {path}")]
     Scan {
         /// The file or folder that could not be read.
@@ -104,10 +133,45 @@ pub enum EuphoriaError {
         /// The tag field that holds an unexpected value.
         field: String,
     },
+    /// A track cannot be represented in an export.
+    #[error("cannot export {path}: {problem}")]
+    Export {
+        /// The audio file the export was asked to describe.
+        path: PathBuf,
+        /// What is wrong with it.
+        problem: ExportProblem,
+    },
+    /// The playlist folders of an export are nested too deeply.
+    #[error("cannot export folder {folder:?}: nested more than {maximum} folders deep")]
+    ExportFolderDepth {
+        /// Name of the first folder beyond the limit.
+        folder: String,
+        /// The deepest level a folder may sit at.
+        maximum: usize,
+    },
+    /// The destination of an export rejected the data.
+    #[error("cannot write the export")]
+    ExportWrite {
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
     /// Text could not be read as a key: a name such as "A minor", a Camelot
     /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]
     UnknownKeyText(String),
+    /// The analysis cache could not be opened, read or written.
+    #[error("cannot use the analysis cache at {path}")]
+    Cache {
+        /// The cache database file.
+        path: PathBuf,
+        /// What went wrong, usually the database library's own error.
+        source: ErrorSource,
+    },
+    /// No folder for Euphoria's data could be worked out from the environment.
+    #[error(
+        "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"
+    )]
+    NoDataDirectory,
 }
 
 impl EuphoriaError {

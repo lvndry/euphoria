@@ -22,6 +22,7 @@ Energy ratings, writing results into your DJ software, harmonic matching and a d
 
 - New here: [install Euphoria](getting-started/installation.md), then follow the [quick start](getting-started/quick-start.md).
 - Preparing a set: [analyze your library](guides/analyze-your-library.md).
+- Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Wondering how much to trust the results: [accuracy](concepts/accuracy.md).
 - Want to know what gets written to your files: [tags](reference/tags.md).
