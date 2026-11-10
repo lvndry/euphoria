@@ -25,8 +25,15 @@ pub struct Key {
     mode: Mode,
 }
 
-const NOTE_NAMES: [&str; 12] = [
-    "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B",
+/// Tonic names for major keys, spelled as their key signatures are written.
+const MAJOR_TONIC_NAMES: [&str; 12] = [
+    "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+];
+
+/// Tonic names for minor keys, spelled as their key signatures are written:
+/// C# minor has four sharps where Db minor would need eight flats.
+const MINOR_TONIC_NAMES: [&str; 12] = [
+    "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B",
 ];
 
 impl Key {
@@ -48,16 +55,34 @@ impl Key {
         self.mode
     }
 
-    /// Camelot code, for example "8A" for A minor and "8B" for C major.
-    pub fn camelot(&self) -> String {
+    /// Position on the Camelot wheel, 1 to 12. A minor and C major are both 8.
+    /// One step up the wheel is a fifth higher.
+    pub fn camelot_number(&self) -> u8 {
         let major_tonic = match self.mode {
             Mode::Major => self.tonic,
             Mode::Minor => (self.tonic + 3) % 12,
         };
-        let number = (u32::from(major_tonic) * 7 + 7) % 12 + 1;
+        (major_tonic * 7 + 7) % 12 + 1
+    }
+
+    /// Camelot code, for example "8A" for A minor and "8B" for C major.
+    pub fn camelot(&self) -> String {
         let letter = match self.mode {
             Mode::Major => 'B',
             Mode::Minor => 'A',
+        };
+        format!("{}{letter}", self.camelot_number())
+    }
+
+    /// Open Key code, for example "1m" for A minor and "1d" for C major.
+    ///
+    /// Open Key numbers the same wheel as Camelot starting from C major and
+    /// A minor, so Open Key 1 is Camelot 8.
+    pub fn open_key(&self) -> String {
+        let number = (self.camelot_number() + 4) % 12 + 1;
+        let letter = match self.mode {
+            Mode::Major => 'd',
+            Mode::Minor => 'm',
         };
         format!("{number}{letter}")
     }
@@ -65,24 +90,52 @@ impl Key {
     /// Short musical name in the form audio tags use, for example "Am" for
     /// A minor and "Db" for D flat major.
     pub fn short_name(&self) -> String {
-        let suffix = match self.mode {
-            Mode::Major => "",
-            Mode::Minor => "m",
+        let (tonic_names, suffix) = match self.mode {
+            Mode::Major => (&MAJOR_TONIC_NAMES, ""),
+            Mode::Minor => (&MINOR_TONIC_NAMES, "m"),
         };
-        format!("{}{suffix}", NOTE_NAMES[usize::from(self.tonic)])
+        format!("{}{suffix}", tonic_names[usize::from(self.tonic)])
+    }
+
+    /// Reads a Camelot code such as "8A" or an Open Key code such as "1m".
+    fn from_wheel_code(code: &str) -> Option<Self> {
+        let letter = code.chars().next_back()?;
+        let digits = &code[..code.len() - letter.len_utf8()];
+        if digits.is_empty()
+            || digits.len() > 2
+            || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        let number: u8 = digits.parse().ok()?;
+        if !(1..=12).contains(&number) {
+            return None;
+        }
+        let (camelot_number, mode) = match letter.to_ascii_uppercase() {
+            'A' => (number, Mode::Minor),
+            'B' => (number, Mode::Major),
+            'M' => ((number + 6) % 12 + 1, Mode::Minor),
+            'D' => ((number + 6) % 12 + 1, Mode::Major),
+            _ => return None,
+        };
+        let major_tonic = (camelot_number + 4) * 7 % 12;
+        Some(match mode {
+            Mode::Major => Key::new(major_tonic, mode),
+            Mode::Minor => Key::new(major_tonic + 9, mode),
+        })
     }
 }
 
 impl fmt::Display for Key {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mode_name = match self.mode {
-            Mode::Major => "major",
-            Mode::Minor => "minor",
+        let (tonic_names, mode_name) = match self.mode {
+            Mode::Major => (&MAJOR_TONIC_NAMES, "major"),
+            Mode::Minor => (&MINOR_TONIC_NAMES, "minor"),
         };
         write!(
             formatter,
             "{} {}",
-            NOTE_NAMES[usize::from(self.tonic)],
+            tonic_names[usize::from(self.tonic)],
             mode_name
         )
     }
@@ -91,9 +144,13 @@ impl fmt::Display for Key {
 impl FromStr for Key {
     type Err = EuphoriaError;
 
-    /// Parses text such as "A minor", "Db major" or "F# minor". Anything after
-    /// the mode is rejected.
+    /// Parses a musical name such as "A minor", "Db major" or "F# minor", a
+    /// Camelot code such as "8A", or an Open Key code such as "1m". Letter
+    /// case is ignored. Anything after the mode is rejected.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if let Some(key) = Key::from_wheel_code(text.trim()) {
+            return Ok(key);
+        }
         let unknown = || EuphoriaError::UnknownKeyText(text.to_string());
         let mut words = text.split_whitespace();
         let note = words.next().ok_or_else(unknown)?;
@@ -154,7 +211,13 @@ mod tests {
 
     #[test]
     fn short_names_follow_the_tag_convention() {
-        let expectations = [("A minor", "Am"), ("Db major", "Db"), ("F# minor", "Gbm")];
+        let expectations = [
+            ("A minor", "Am"),
+            ("Db major", "Db"),
+            ("F# minor", "F#m"),
+            ("C# minor", "C#m"),
+            ("G# minor", "G#m"),
+        ];
         for (text, short_name) in expectations {
             let key: Key = text.parse().unwrap();
             assert_eq!(key.short_name(), short_name, "{text}");
@@ -172,7 +235,38 @@ mod tests {
     }
 
     #[test]
+    fn spells_keys_as_their_key_signatures_are_written() {
+        let expectations = [
+            (1, Mode::Major, "Db major"),
+            (1, Mode::Minor, "C# minor"),
+            (8, Mode::Major, "Ab major"),
+            (8, Mode::Minor, "G# minor"),
+            (6, Mode::Major, "F# major"),
+            (6, Mode::Minor, "F# minor"),
+            (3, Mode::Major, "Eb major"),
+            (3, Mode::Minor, "Eb minor"),
+            (10, Mode::Minor, "Bb minor"),
+        ];
+        for (tonic, mode, name) in expectations {
+            assert_eq!(Key::new(tonic, mode).to_string(), name);
+        }
+    }
+
+    #[test]
+    fn parses_either_spelling_of_the_same_key() {
+        assert_eq!(
+            "C# minor".parse::<Key>().unwrap(),
+            "Db minor".parse::<Key>().unwrap()
+        );
+        assert_eq!(
+            "G# minor".parse::<Key>().unwrap(),
+            "Ab minor".parse::<Key>().unwrap()
+        );
+    }
+
+    #[test]
     fn tonic_is_always_a_valid_pitch_class() {
+        assert_eq!(Key::new(6, Mode::Minor).to_string(), "F# minor");
         let key = Key::new(12, Mode::Minor);
         assert_eq!(key.tonic(), 0);
         assert_eq!(key.to_string(), "C minor");
@@ -188,8 +282,102 @@ mod tests {
             "A dorian",
             "Abb minor",
             "A minor nonsense",
+            "0A",
+            "13A",
+            "13m",
+            "0d",
+            "8C",
+            "8",
+            "m",
+            "008A",
+            "+8A",
+            "8 A",
+            "8Am",
+            "8é",
         ] {
             assert!(text.parse::<Key>().is_err(), "{text:?} should not parse");
         }
+    }
+
+    #[test]
+    fn open_key_codes_match_the_published_chart() {
+        let expectations = [
+            ("C major", "1d"),
+            ("A minor", "1m"),
+            ("G major", "2d"),
+            ("E minor", "2m"),
+            ("D major", "3d"),
+            ("B minor", "3m"),
+            ("A major", "4d"),
+            ("F# minor", "4m"),
+            ("E major", "5d"),
+            ("C# minor", "5m"),
+            ("B major", "6d"),
+            ("G# minor", "6m"),
+            ("F# major", "7d"),
+            ("Eb minor", "7m"),
+            ("Db major", "8d"),
+            ("Bb minor", "8m"),
+            ("Ab major", "9d"),
+            ("F minor", "9m"),
+            ("Eb major", "10d"),
+            ("C minor", "10m"),
+            ("Bb major", "11d"),
+            ("G minor", "11m"),
+            ("F major", "12d"),
+            ("D minor", "12m"),
+        ];
+        for (text, open_key) in expectations {
+            let key: Key = text.parse().unwrap();
+            assert_eq!(key.open_key(), open_key, "{text}");
+        }
+    }
+
+    #[test]
+    fn open_key_number_is_the_camelot_number_minus_seven() {
+        for tonic in 0..12 {
+            for mode in [Mode::Major, Mode::Minor] {
+                let key = Key::new(tonic, mode);
+                let open_key = key.open_key();
+                let open_key_number: u8 = open_key[..open_key.len() - 1].parse().unwrap();
+                assert_eq!((open_key_number + 6) % 12 + 1, key.camelot_number());
+            }
+        }
+    }
+
+    #[test]
+    fn camelot_numbers_cover_the_wheel_once_per_mode() {
+        for mode in [Mode::Major, Mode::Minor] {
+            let mut numbers: Vec<u8> = (0..12)
+                .map(|tonic| Key::new(tonic, mode).camelot_number())
+                .collect();
+            numbers.sort_unstable();
+            assert_eq!(numbers, (1..=12).collect::<Vec<u8>>());
+        }
+    }
+
+    #[test]
+    fn camelot_and_open_key_codes_round_trip_through_parse() {
+        for tonic in 0..12 {
+            for mode in [Mode::Major, Mode::Minor] {
+                let key = Key::new(tonic, mode);
+                assert_eq!(key.camelot().parse::<Key>().unwrap(), key);
+                assert_eq!(key.open_key().parse::<Key>().unwrap(), key);
+            }
+        }
+    }
+
+    #[test]
+    fn parses_codes_in_either_case_with_padding() {
+        let a_minor = Key::new(9, Mode::Minor);
+        let c_major = Key::new(0, Mode::Major);
+        for text in ["8A", "8a", "08A", " 8A ", "1m", "1M", "01m"] {
+            assert_eq!(text.parse::<Key>().unwrap(), a_minor, "{text:?}");
+        }
+        for text in ["8B", "8b", "1d", "1D"] {
+            assert_eq!(text.parse::<Key>().unwrap(), c_major, "{text:?}");
+        }
+        assert_eq!("12B".parse::<Key>().unwrap(), Key::new(4, Mode::Major));
+        assert_eq!("12d".parse::<Key>().unwrap(), Key::new(5, Mode::Major));
     }
 }

@@ -1,98 +1,43 @@
 # Euphoria
 
-Key, tempo and energy analysis for DJ libraries. Free, open source, and fully offline.
+Find the key and BPM of every track in your music collection, so you can mix in key. Free, open source, and fully offline.
 
-Euphoria reads your music folder, works out the key, the BPM and an energy rating for every track, and writes the results where your DJ software can see them. It is a native desktop app and a command line tool built on the same core, so both always give the same answer.
+Euphoria reads your music, finds the key and tempo of every track, and will write the results where your DJ software can see them. It is an open alternative to paid harmonic mixing tools such as Mixed In Key: no account, no activation, and nothing leaves your computer.
 
-It is an open alternative to paid harmonic mixing tools such as Mixed In Key. There is no account, no activation and no network access. Nothing leaves your computer.
+## Features
 
-## What it does
+Available now:
 
-- **Key detection** in Camelot notation (8A), musical notation (A minor) and Open Key (1m), with a confidence score and the second most likely key.
-- **Tempo detection** in BPM with beat positions, and correction of half and double tempo mistakes.
-- **Energy rating** from 1 to 10, so you can shape a set and not only match keys.
-- **Harmonic matching**: pick a track and see what mixes with it, labelled by how (same key, adjacent, relative, energy boost), within a BPM range you choose.
-- **Tag writing** for rekordbox, Serato, Traktor and Engine DJ, with a preview of every change before anything is written and an undo afterwards.
-- **A review list** of tracks where the key is uncertain, with the reason (key change, sparse harmony, off pitch tuning) and a reference tone to check by ear.
-- **rekordbox export** and optional cue points that snap to the beat grid.
+- Key detection, shown in Camelot (8A) and musical (A minor) notation
+- Tempo detection in BPM
+- `euphoria analyze`, a command line tool with table and JSON output
+- MP3, M4A (AAC), FLAC, WAV and AIFF
 
-Supported formats: MP3, M4A (AAC), FLAC, WAV and AIFF.
-
-## Principles
-
-- **Your files are yours.** Euphoria never changes a file until you ask it to, shows you exactly what will change, and keeps the original tags so a write can be undone.
-- **Offline, always.** No sign in, no license server, no telemetry.
-- **Measured, not claimed.** Accuracy is benchmarked on public datasets and the numbers are published in this repository, including the misses.
-- **One core, two front ends.** The desktop app and the CLI call the same code.
+In development: energy ratings, tag writing for rekordbox, Serato, Traktor and Engine DJ, harmonic matching, and a desktop app.
 
 ## Install
 
-Packaged releases are not out yet. When they are, installation will be:
+Homebrew packages are coming. Until then, see [installation](docs/getting-started/installation.md).
+
+## Quick start
 
 ```
-brew install euphoria
+$ euphoria analyze ~/Music/DJ
+Key             BPM  Time  File
+8A   A minor  124.0  6:48  /Users/you/Music/DJ/Low Tide.flac
+9A   E minor  122.0  7:12  /Users/you/Music/DJ/Saffron.m4a
 ```
 
-Until then you can build from source, see below.
+## Documentation
 
-## Usage
+The full documentation is in [docs](docs/index.md):
 
-The command line tool analyzes a folder and prints a table, or JSON for scripting:
-
-```
-euphoria analyze ~/Music/DJ
-euphoria analyze ~/Music/DJ --json
-euphoria analyze ~/Music/DJ --write-tags --preset rekordbox
-```
-
-The desktop app does the same with a library view: drop a folder in, sort and filter by key, BPM and energy, and select a track to see its waveform, its key confidence and the tracks that mix with it.
-
-The command line tool and the desktop app are in development, so these commands are not available in a release yet.
-
-## Accuracy
-
-Detectors are scored on the [GiantSteps key](https://github.com/GiantSteps/giantsteps-key-dataset) and [GiantSteps tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset) datasets, which are made of electronic dance music. Key results use the MIREX weighted score, which gives partial credit for near misses such as the relative key. Tempo results count an estimate as correct within 4 percent.
-
-Results are published under `bench/results` as each detector is measured. You can reproduce them on your own machine with the steps below.
-
-## Build from source
-
-You need a Rust toolchain, CMake and libkeyfinder. On macOS:
-
-```
-brew install rust cmake libkeyfinder
-git clone https://github.com/lvndry/euphoria.git
-cd euphoria
-cargo test
-```
-
-To run the accuracy benchmark, download the datasets (about 1.7 GB) and run the benchmark crate:
-
-```
-./bench/download_datasets.sh
-cargo run --release -p euphoria-bench
-```
-
-An optional reference run scores Essentia on the same tracks. It needs [uv](https://docs.astral.sh/uv/):
-
-```
-uv run bench/essentia_reference.py bench/data
-```
-
-## How it is organized
-
-```
-crates/
-  euphoria-core/    decoding, key and tempo detection, harmony. No user interface.
-  euphoria-bench/   accuracy benchmark runner
-bench/              dataset download and reference scripts, results
-```
-
-The CLI and the desktop app will each be their own crate on top of `euphoria-core`.
-
-## Contributing
-
-Issues and pull requests are welcome. The most useful reports right now are tracks where the detected key or tempo is wrong: say what you expected, what Euphoria reported, and where the track can be found.
+- [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
+- [Analyze your library](docs/guides/analyze-your-library.md)
+- [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
+- [Accuracy](docs/concepts/accuracy.md)
+- [Command line reference](docs/reference/cli.md)
+- [Development](docs/development/index.md) and [contributing](CONTRIBUTING.md)
 
 ## License
 

@@ -1,15 +1,21 @@
+---
+title: Architecture
+description: How the Euphoria code base is organized.
+---
+
 # Architecture
 
 Euphoria is a Cargo workspace. All product logic lives in one library crate, and every front end is a thin crate on top of it.
 
 ```
 crates/
-  euphoria-core/    the library: decoding, detection, harmony
+  euphoria-core/    the library: decoding, detection, library scanning
+  euphoria-cli/     the `euphoria` command line tool
   euphoria-bench/   accuracy benchmark, not shipped to users
 bench/              dataset download script, Essentia reference script, results
 ```
 
-A command line tool (`euphoria-cli`) and a desktop app (`euphoria-app`) will join the workspace as separate crates.
+A desktop app (`euphoria-app`) will join the workspace as another crate.
 
 ## Rules between crates
 
@@ -21,8 +27,11 @@ A command line tool (`euphoria-cli`) and a desktop app (`euphoria-app`) will joi
 
 | Module | Responsibility |
 | --- | --- |
+| `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
+| `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. |
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
-| `key` | The `Key` type, Camelot codes and parsing of key names. |
+| `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
+| `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
@@ -32,6 +41,14 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 - `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config.
 - `StratumDetector` uses the pure Rust `stratum-dsp` crate for both key and tempo.
+
+`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and `stratum-dsp` for tempo.
+
+## euphoria-cli
+
+Parses arguments with clap, runs `analysis::analyze_files` on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. It contains no analysis logic.
+
+## Detector choice
 
 Which detector ships is decided by measurement. `euphoria-bench` scores every detector on the GiantSteps key and tempo datasets, and `bench/essentia_reference.py` scores Essentia on the same tracks as a reference point.
 
