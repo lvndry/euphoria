@@ -155,6 +155,21 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
+    /// The file an export was to be written to exists and was to be kept.
+    #[error("{path} already exists")]
+    ExportDestinationExists {
+        /// The file that is in the way.
+        path: PathBuf,
+    },
+    /// The file of an export could not be created, written or moved into
+    /// place.
+    #[error("cannot write {path}")]
+    ExportFile {
+        /// The file the export was to be written to.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
     /// Text could not be read as a key: a name such as "A minor", a Camelot
     /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]

@@ -1,0 +1,120 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Runs an analysis batch for a command: the cache options, the workers, the
+//! progress bar and the warning when the cache cannot be used.
+
+use std::io::IsTerminal;
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use clap::Args;
+use euphoria_core::{
+    Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, analyze_files, analyze_files_cached,
+    default_cache_path,
+};
+use indicatif::{ProgressBar, ProgressStyle};
+
+use crate::output;
+
+/// Each worker can hold 2 to 3 GB while analyzing a full length track, so the
+/// default stays well below the core count of most machines.
+const DEFAULT_MAXIMUM_JOBS: usize = 4;
+
+/// The options shared by every command that analyzes files.
+#[derive(Debug, Args)]
+pub struct AnalysisOptions {
+    /// Number of files to analyze at once. Defaults to the number of
+    /// cores, at most 4.
+    #[arg(long, short = 'j')]
+    jobs: Option<NonZeroUsize>,
+    /// Analyze every file and neither read nor update the cache.
+    #[arg(long, conflicts_with = "reanalyze")]
+    no_cache: bool,
+    /// Analyze every file again and replace its cached result.
+    #[arg(long)]
+    reanalyze: bool,
+}
+
+/// Analyzes `audio_files` as the options ask, showing a progress bar on a
+/// terminal. A cache that cannot be used is a warning on standard error, and
+/// the files are analyzed without it.
+pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<CachedBatch> {
+    let policy = if options.no_cache {
+        None
+    } else if options.reanalyze {
+        Some(CachePolicy::Reanalyze)
+    } else {
+        Some(CachePolicy::UseCached)
+    };
+    let mut cache = match policy {
+        None => None,
+        Some(policy) => match open_cache() {
+            Ok(cache) => Some((cache, policy)),
+            Err(error) => {
+                output::write_cache_warning(&mut std::io::stderr().lock(), &error)?;
+                None
+            }
+        },
+    };
+
+    let job_count = options
+        .jobs
+        .map(NonZeroUsize::get)
+        .unwrap_or_else(default_job_count);
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(job_count)
+        .build()
+        .context("starting the analysis workers")?;
+
+    let progress_bar = progress_bar(audio_files.len());
+    let on_progress = |progress: Progress<'_>| {
+        progress_bar.set_position(progress.completed as u64);
+    };
+    let analyze_without_cache = || CachedBatch {
+        results: thread_pool.install(|| analyze_files(audio_files, on_progress)),
+        cached_count: 0,
+        store_error: None,
+    };
+    let batch = match &mut cache {
+        None => analyze_without_cache(),
+        Some((cache, policy)) => {
+            let cached_batch = thread_pool
+                .install(|| analyze_files_cached(cache, audio_files, *policy, on_progress));
+            match cached_batch {
+                Ok(batch) => batch,
+                Err(error) => {
+                    progress_bar.suspend(|| {
+                        output::write_cache_warning(&mut std::io::stderr().lock(), &error)
+                    })?;
+                    analyze_without_cache()
+                }
+            }
+        }
+    };
+    progress_bar.finish_and_clear();
+    Ok(batch)
+}
+
+fn open_cache() -> Result<Cache, EuphoriaError> {
+    Cache::open(&default_cache_path()?)
+}
+
+fn default_job_count() -> usize {
+    std::thread::available_parallelism()
+        .map(NonZeroUsize::get)
+        .unwrap_or(1)
+        .min(DEFAULT_MAXIMUM_JOBS)
+}
+
+fn progress_bar(total: usize) -> ProgressBar {
+    if !std::io::stderr().is_terminal() {
+        return ProgressBar::hidden();
+    }
+    let progress_bar = ProgressBar::new(total as u64);
+    if let Ok(style) = ProgressStyle::with_template("Analyzing {pos}/{len} {wide_bar} {eta} left") {
+        progress_bar.set_style(style);
+    }
+    progress_bar
+}

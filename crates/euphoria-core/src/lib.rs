@@ -28,6 +28,8 @@ pub mod library;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;
+/// Reading the title and artist stored in audio files.
+pub mod track_name;
 
 pub use analysis::{
     ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
@@ -44,8 +46,13 @@ pub use energy::{
     rate_energy, rate_features,
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
+pub use export::{
+    AssembledLibrary, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library, playlist_count,
+    playlists_from_folders,
+};
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
+pub use track_name::{TrackName, read_track_name};

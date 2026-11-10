@@ -8,7 +8,7 @@ use std::path::Path;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
-use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
@@ -69,36 +69,14 @@ pub const MAXIMUM_SAMPLE_RATE: u32 = 384_000;
 
 /// Decodes a whole audio file and averages its channels into mono.
 pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
-    let decode_error = |error: SymphoniaError| EuphoriaError::Decode {
-        path: path.to_path_buf(),
-        failure: classify(&error),
-        source: Some(Box::new(error)),
-    };
+    let decode_error = |error: SymphoniaError| decode_error(path, error);
     let missing = |failure: DecodeFailure| EuphoriaError::Decode {
         path: path.to_path_buf(),
         failure,
         source: None,
     };
 
-    let file = File::open(path).map_err(|source| EuphoriaError::Open {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let stream = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
-        hint.with_extension(extension);
-    }
-
-    let mut format = symphonia::default::get_probe()
-        .probe(
-            &hint,
-            stream,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )
-        .map_err(decode_error)?;
+    let mut format = open_format(path)?;
 
     let track = format
         .default_track(TrackType::Audio)
@@ -161,6 +139,38 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
         });
     };
     Ok(AudioBuffer::new(mono_samples, sample_rate))
+}
+
+/// Opens a file and finds the reader for its container. Tags met on the way
+/// are kept in the reader's metadata.
+pub(crate) fn open_format(path: &Path) -> Result<Box<dyn FormatReader>, EuphoriaError> {
+    let file = File::open(path).map_err(|source| EuphoriaError::Open {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+        hint.with_extension(extension);
+    }
+
+    symphonia::default::get_probe()
+        .probe(
+            &hint,
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .map_err(|error| decode_error(path, error))
+}
+
+fn decode_error(path: &Path, error: SymphoniaError) -> EuphoriaError {
+    EuphoriaError::Decode {
+        path: path.to_path_buf(),
+        failure: classify(&error),
+        source: Some(Box::new(error)),
+    }
 }
 
 fn classify(error: &SymphoniaError) -> DecodeFailure {
