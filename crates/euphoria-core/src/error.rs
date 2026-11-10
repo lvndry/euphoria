@@ -71,6 +71,14 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
+    /// A file or folder could not be read while looking for audio files.
+    #[error("cannot read {path}")]
+    Scan {
+        /// The file or folder that could not be read.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
     /// The file was opened but its audio could not be decoded.
     #[error("cannot decode {path}: {failure}")]
     Decode {
@@ -121,7 +129,8 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
-    /// Text could not be read as a key name such as "A minor".
+    /// Text could not be read as a key: a name such as "A minor", a Camelot
+    /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]
     UnknownKeyText(String),
 }

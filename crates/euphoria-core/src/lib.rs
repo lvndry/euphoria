@@ -4,6 +4,8 @@
 //! Product logic for Euphoria: decoding, key and tempo detection, harmony.
 //! This crate has no user interface and prints nothing.
 
+/// Analyzing files and batches of files.
+pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
 /// Key and tempo detectors.
@@ -12,9 +14,18 @@ pub mod detect;
 pub mod error;
 /// Writing analysis results in the formats of other DJ software.
 pub mod export;
-/// Musical keys and Camelot notation.
+/// Key relations and ranking of the tracks that mix into another.
+pub mod harmony;
+/// Musical keys, Camelot and Open Key notation.
 pub mod key;
+/// Finding audio files in folders.
+pub mod library;
 
+pub use analysis::{FileResult, Progress, TrackAnalysis, analyze_file, analyze_files};
 pub use audio::{AudioBuffer, decode_mono};
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
+pub use harmony::{
+    MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
+};
 pub use key::{Key, Mode};
+pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
