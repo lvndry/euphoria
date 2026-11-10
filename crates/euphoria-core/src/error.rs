@@ -41,8 +41,11 @@ pub enum ExportProblem {
     DuplicatePath,
     /// A playlist names the path but the collection has no such track.
     NotInCollection,
-    /// The tempo is not a positive number.
+    /// The tempo is not a number, or is below the smallest one an export
+    /// can hold.
     InvalidTempo,
+    /// A hot cue is on a pad the track does not have.
+    InvalidHotCue,
 }
 
 impl fmt::Display for ExportProblem {
@@ -51,7 +54,8 @@ impl fmt::Display for ExportProblem {
             ExportProblem::NotAbsolutePath => "not an absolute local path",
             ExportProblem::DuplicatePath => "listed more than once",
             ExportProblem::NotInCollection => "in a playlist but not in the collection",
-            ExportProblem::InvalidTempo => "tempo is not a positive number",
+            ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
+            ExportProblem::InvalidHotCue => "hot cue pad is out of range",
         })
     }
 }
@@ -102,6 +106,14 @@ pub enum EuphoriaError {
         path: PathBuf,
         /// What is wrong with it.
         problem: ExportProblem,
+    },
+    /// The playlist folders of an export are nested too deeply.
+    #[error("cannot export folder {folder:?}: nested more than {maximum} folders deep")]
+    ExportFolderDepth {
+        /// Name of the first folder beyond the limit.
+        folder: String,
+        /// The deepest level a folder may sit at.
+        maximum: usize,
     },
     /// The destination of an export rejected the data.
     #[error("cannot write the export")]

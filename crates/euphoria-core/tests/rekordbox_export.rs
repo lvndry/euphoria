@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use euphoria_core::export::rekordbox::{
-    CueKind, CuePoint, ExportOptions, Folder, KeyNotation, Library, Playlist, PlaylistNode, Track,
-    write_xml,
+    CueKind, CuePoint, ExportOptions, Folder, HOT_CUE_PADS, KeyNotation, Library, MAX_FOLDER_DEPTH,
+    Playlist, PlaylistNode, Track, write_xml,
 };
 use euphoria_core::{EuphoriaError, ExportProblem, Key, Mode};
 
@@ -556,7 +556,15 @@ fn a_playlist_entry_outside_the_collection_is_refused() {
 
 #[test]
 fn a_tempo_that_is_not_a_positive_number_is_refused() {
-    for bpm in [0.0, -120.0, f64::NAN, f64::INFINITY] {
+    for bpm in [
+        0.0,
+        -120.0,
+        0.001,
+        0.004_9,
+        f64::MIN_POSITIVE,
+        f64::NAN,
+        f64::INFINITY,
+    ] {
         let library = single_track_library(Track {
             bpm: Some(bpm),
             ..untagged_track("/Music/tempo.mp3")
@@ -605,4 +613,218 @@ fn export_errors_name_the_path_and_the_problem() {
         error.to_string(),
         "cannot export relative.mp3: not an absolute local path"
     );
+}
+
+#[test]
+fn the_smallest_tempo_is_the_smallest_one_two_decimals_can_hold() {
+    for (bpm, written) in [(0.005, "0.01"), (0.01, "0.01"), (0.014, "0.01")] {
+        let xml = export(&single_track_library(Track {
+            bpm: Some(bpm),
+            first_beat: Some(Duration::ZERO),
+            ..untagged_track("/Music/slow.mp3")
+        }));
+        let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+        let track = collection_tracks(&document)[0];
+        assert_eq!(track.attribute("AverageBpm"), Some(written), "{bpm}");
+        let grid = track.first_element_child().expect("the track has a grid");
+        assert_eq!(grid.attribute("Bpm"), Some(written), "{bpm}");
+    }
+}
+
+fn track_with_hot_cue(pad: u8) -> Track {
+    Track {
+        cue_points: vec![
+            CuePoint {
+                name: "Intro".to_string(),
+                time: Duration::ZERO,
+                kind: CueKind::Memory,
+            },
+            CuePoint {
+                name: "Pad".to_string(),
+                time: Duration::from_secs(30),
+                kind: CueKind::Hot(pad),
+            },
+        ],
+        ..untagged_track("/Music/pads.mp3")
+    }
+}
+
+#[test]
+fn hot_cues_use_pads_a_to_p() {
+    assert_eq!(HOT_CUE_PADS, 16);
+    for pad in [0, 7, 8, HOT_CUE_PADS - 1] {
+        let xml = export(&single_track_library(track_with_hot_cue(pad)));
+        let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+        let numbers: Vec<_> = collection_tracks(&document)[0]
+            .children()
+            .filter(|node| node.has_tag_name("POSITION_MARK"))
+            .map(|mark| mark.attribute("Num").unwrap().to_string())
+            .collect();
+        assert_eq!(numbers, ["-1".to_string(), pad.to_string()]);
+    }
+}
+
+#[test]
+fn a_hot_cue_beyond_pad_p_is_refused() {
+    for pad in [HOT_CUE_PADS, HOT_CUE_PADS + 1, u8::MAX] {
+        let library = Library {
+            tracks: vec![untagged_track("/Music/fine.mp3"), track_with_hot_cue(pad)],
+            playlists: Vec::new(),
+        };
+        assert_eq!(
+            export_problem(&library),
+            (
+                PathBuf::from("/Music/pads.mp3"),
+                ExportProblem::InvalidHotCue
+            ),
+            "pad {pad}"
+        );
+    }
+}
+
+const FORBIDDEN_IN_XML: &str = "\u{0}\u{1}\u{8}\u{B}\u{C}\u{E}\u{1B}\u{1F}\u{FFFE}\u{FFFF}";
+
+fn with_forbidden_characters(text: &str) -> String {
+    let (start, end) = text.split_at(text.len() / 2);
+    format!("{FORBIDDEN_IN_XML}{start}{FORBIDDEN_IN_XML}{end}{FORBIDDEN_IN_XML}")
+}
+
+#[test]
+fn characters_xml_cannot_carry_are_removed_from_every_text_field() {
+    let path = "/Music/control.mp3";
+    let library = Library {
+        tracks: vec![Track {
+            title: Some(with_forbidden_characters("The Title")),
+            artist: Some(with_forbidden_characters("Artist\ttab")),
+            cue_points: vec![CuePoint {
+                name: with_forbidden_characters("Cue name"),
+                time: Duration::ZERO,
+                kind: CueKind::Hot(0),
+            }],
+            ..untagged_track(path)
+        }],
+        playlists: vec![PlaylistNode::Folder(Folder {
+            name: with_forbidden_characters("Folder name"),
+            children: vec![PlaylistNode::Playlist(Playlist {
+                name: with_forbidden_characters("Playlist name"),
+                tracks: vec![PathBuf::from(path)],
+            })],
+        })],
+    };
+    let xml = export(&library);
+    assert!(
+        !xml.chars()
+            .any(|character| FORBIDDEN_IN_XML.contains(character)),
+        "no forbidden character reaches the file"
+    );
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+
+    let track = collection_tracks(&document)[0];
+    assert_eq!(track.attribute("Name"), Some("The Title"));
+    assert_eq!(track.attribute("Artist"), Some("Artist\ttab"));
+    let cue = track.first_element_child().expect("the track has a cue");
+    assert_eq!(cue.attribute("Name"), Some("Cue name"));
+    let node_names: Vec<&str> = document
+        .descendants()
+        .filter(|node| node.has_tag_name("NODE"))
+        .filter_map(|node| node.attribute("Name"))
+        .collect();
+    assert_eq!(node_names, ["ROOT", "Folder name", "Playlist name"]);
+}
+
+#[test]
+fn text_made_only_of_forbidden_characters_becomes_empty() {
+    let xml = export(&single_track_library(Track {
+        title: Some(FORBIDDEN_IN_XML.to_string()),
+        ..untagged_track("/Music/control.mp3")
+    }));
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+    assert_eq!(collection_tracks(&document)[0].attribute("Name"), Some(""));
+}
+
+#[test]
+fn control_characters_in_a_path_are_kept_by_percent_encoding() {
+    assert_eq!(
+        exported_location("/Music/bell\u{7}tab\tline\nescape\u{1B}.mp3"),
+        "file://localhost/Music/bell%07tab%09line%0Aescape%1B.mp3"
+    );
+}
+
+fn nested_folders(depth: usize) -> PlaylistNode {
+    let mut node = PlaylistNode::Playlist(Playlist {
+        name: "Innermost".to_string(),
+        tracks: Vec::new(),
+    });
+    for level in (1..=depth).rev() {
+        node = PlaylistNode::Folder(Folder {
+            name: format!("Level {level}"),
+            children: vec![node],
+        });
+    }
+    node
+}
+
+// Takes the tree apart one level at a time, since dropping a very deep tree
+// in one go recurses once per level.
+fn dismantle(mut node: PlaylistNode) {
+    while let PlaylistNode::Folder(mut folder) = node {
+        match folder.children.pop() {
+            Some(child) => node = child,
+            None => break,
+        }
+    }
+}
+
+fn export_nested_folders(depth: usize) -> Result<String, EuphoriaError> {
+    let mut library = Library {
+        tracks: Vec::new(),
+        playlists: vec![nested_folders(depth)],
+    };
+    let mut output = Vec::new();
+    let result = write_xml(&mut output, &library, &ExportOptions::default());
+    library.playlists.drain(..).for_each(dismantle);
+    match result {
+        Ok(()) => Ok(String::from_utf8(output).expect("the export is UTF-8")),
+        Err(error) => {
+            assert!(output.is_empty(), "a refused library writes nothing");
+            Err(error)
+        }
+    }
+}
+
+#[test]
+fn folders_nest_up_to_the_documented_depth() {
+    let xml = export_nested_folders(MAX_FOLDER_DEPTH).expect("the deepest allowed tree exports");
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+    let innermost = document
+        .descendants()
+        .find(|node| node.attribute("Name") == Some("Innermost"))
+        .expect("the innermost playlist is written");
+    let folders_above = innermost
+        .ancestors()
+        .skip(1)
+        .filter(|node| node.has_tag_name("NODE") && node.attribute("Name") != Some("ROOT"))
+        .count();
+    assert_eq!(folders_above, MAX_FOLDER_DEPTH);
+}
+
+#[test]
+fn folders_nested_deeper_than_the_limit_are_refused() {
+    let first_refused_level = MAX_FOLDER_DEPTH + 1;
+    for depth in [first_refused_level, 100_000] {
+        let error = export_nested_folders(depth).expect_err("the tree is too deep");
+        match &error {
+            EuphoriaError::ExportFolderDepth { folder, maximum } => {
+                assert_eq!(folder, &format!("Level {first_refused_level}"));
+                assert_eq!(*maximum, MAX_FOLDER_DEPTH);
+            }
+            other => panic!("expected a folder depth error, got {other:?}"),
+        }
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "cannot export folder \"Level {first_refused_level}\": nested more than {MAX_FOLDER_DEPTH} folders deep"
+            )
+        );
+    }
 }

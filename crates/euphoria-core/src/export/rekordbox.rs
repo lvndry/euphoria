@@ -19,6 +19,14 @@ use crate::key::{Key, Mode};
 
 const LOCATION_PREFIX: &str = "file://localhost/";
 
+/// The number of hot cue pads a track has in rekordbox: 16, lettered A to P.
+/// Its export mode and the players it prepares drives for use the first 8.
+pub const HOT_CUE_PADS: u8 = 16;
+
+/// How many folders deep a playlist tree may go. A folder at the top level is
+/// at depth 1.
+pub const MAX_FOLDER_DEPTH: usize = 32;
+
 // Spelled as on the Camelot wheel, which uses flats except for F sharp.
 const TONIC_NAMES: [&str; 12] = [
     "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
@@ -66,6 +74,7 @@ pub struct Track {
     /// Detected key. The attribute is left out when this is `None`.
     pub key: Option<Key>,
     /// Tempo in beats per minute. The attribute is left out when this is `None`.
+    /// It is written with two decimals, so the smallest tempo is 0.01.
     pub bpm: Option<f64>,
     /// Position of the first beat. Together with `bpm` it becomes a beat grid
     /// with a constant tempo, counted in 4/4 with this beat as the first of a bar.
@@ -106,7 +115,8 @@ pub struct CuePoint {
 pub enum CueKind {
     /// A memory cue, listed along the waveform.
     Memory,
-    /// A hot cue on a pad, where 0 is pad A, 1 is pad B and so on.
+    /// A hot cue on a pad, where 0 is pad A, 1 is pad B and so on, up to
+    /// 15 for pad P. The number is below [`HOT_CUE_PADS`].
     Hot(u8),
 }
 
@@ -143,11 +153,20 @@ pub struct Playlist {
 /// The library is checked before anything is written, so a library that
 /// cannot be exported leaves `writer` untouched.
 ///
+/// Titles, artists, cue names, playlist names and folder names lose the
+/// characters XML 1.0 cannot carry: the control characters U+0000 to U+001F
+/// other than tab, line feed and carriage return, and U+FFFE and U+FFFF. The
+/// rest of the text is written unchanged. Paths lose nothing, because every
+/// such byte of a path is percent encoded.
+///
 /// # Errors
 ///
 /// Returns [`EuphoriaError::Export`] when a track path is not an absolute
-/// local path or appears twice, when a tempo is not a positive number, or
-/// when a playlist names a path that is not in the collection. Returns
+/// local path or appears twice, when a tempo is not a number that is at least
+/// 0.01 once rounded to two decimals, when a hot cue pad is not below
+/// [`HOT_CUE_PADS`], or when a playlist names a path that is not in the
+/// collection. Returns [`EuphoriaError::ExportFolderDepth`] when folders are
+/// nested deeper than [`MAX_FOLDER_DEPTH`]. Returns
 /// [`EuphoriaError::ExportWrite`] when `writer` fails.
 pub fn write_xml<W: Write>(
     mut writer: W,
@@ -189,7 +208,7 @@ fn render(library: &Library, options: &ExportOptions) -> Result<String, Euphoria
     push_attribute(&mut document, "Count", &library.playlists.len().to_string());
     document.push_str(">\n");
     for node in &library.playlists {
-        push_playlist_node(&mut document, node, 3, &track_ids)?;
+        push_playlist_node(&mut document, node, 1, &track_ids)?;
     }
     document.push_str("    </NODE>\n");
     document.push_str("  </PLAYLISTS>\n");
@@ -205,10 +224,19 @@ fn push_track(
 ) -> Result<(), EuphoriaError> {
     let location = location_url(&track.path)
         .ok_or_else(|| export_error(&track.path, ExportProblem::NotAbsolutePath))?;
-    if let Some(bpm) = track.bpm
-        && !(bpm.is_finite() && bpm > 0.0)
+    let tempo = match track.bpm {
+        Some(bpm) => Some(
+            tempo_text(bpm)
+                .ok_or_else(|| export_error(&track.path, ExportProblem::InvalidTempo))?,
+        ),
+        None => None,
+    };
+    if track
+        .cue_points
+        .iter()
+        .any(|cue_point| matches!(cue_point.kind, CueKind::Hot(pad) if pad >= HOT_CUE_PADS))
     {
-        return Err(export_error(&track.path, ExportProblem::InvalidTempo));
+        return Err(export_error(&track.path, ExportProblem::InvalidHotCue));
     }
 
     document.push_str("    <TRACK");
@@ -221,24 +249,24 @@ fn push_track(
     }
     let whole_seconds = track.duration.as_secs_f64().round();
     push_attribute(document, "TotalTime", &format!("{whole_seconds:.0}"));
-    if let Some(bpm) = track.bpm {
-        push_attribute(document, "AverageBpm", &format!("{bpm:.2}"));
+    if let Some(tempo) = &tempo {
+        push_attribute(document, "AverageBpm", tempo);
     }
     push_attribute(document, "Location", &location);
     if let Some(key) = track.key {
         push_attribute(document, "Tonality", &tonality(key, options.key_notation));
     }
 
-    let beat_grid = track.bpm.zip(track.first_beat);
+    let beat_grid = tempo.zip(track.first_beat);
     if beat_grid.is_none() && track.cue_points.is_empty() {
         document.push_str("/>\n");
         return Ok(());
     }
     document.push_str(">\n");
-    if let Some((bpm, first_beat)) = beat_grid {
+    if let Some((tempo, first_beat)) = beat_grid {
         document.push_str("      <TEMPO");
         push_attribute(document, "Inizio", &seconds(first_beat));
-        push_attribute(document, "Bpm", &format!("{bpm:.2}"));
+        push_attribute(document, "Bpm", &tempo);
         push_attribute(document, "Metro", "4/4");
         push_attribute(document, "Battito", "1");
         document.push_str("/>\n");
@@ -265,7 +293,16 @@ fn push_playlist_node(
     depth: usize,
     track_ids: &HashMap<&Path, usize>,
 ) -> Result<(), EuphoriaError> {
-    let indent = "  ".repeat(depth);
+    // The ROOT node sits two levels into the document.
+    let indent = "  ".repeat(depth + 2);
+    if let PlaylistNode::Folder(folder) = node
+        && depth > MAX_FOLDER_DEPTH
+    {
+        return Err(EuphoriaError::ExportFolderDepth {
+            folder: folder.name.clone(),
+            maximum: MAX_FOLDER_DEPTH,
+        });
+    }
     document.push_str(&indent);
     match node {
         PlaylistNode::Folder(folder) => {
@@ -316,6 +353,17 @@ fn export_error(path: &Path, problem: ExportProblem) -> EuphoriaError {
 
 fn seconds(position: Duration) -> String {
     format!("{:.3}", position.as_secs_f64())
+}
+
+/// The tempo with two decimals, or `None` when it is not a number or is
+/// written as zero or less at that precision.
+fn tempo_text(bpm: f64) -> Option<String> {
+    if !(bpm.is_finite() && bpm > 0.0) {
+        return None;
+    }
+    let text = format!("{bpm:.2}");
+    text.contains(|digit: char| ('1'..='9').contains(&digit))
+        .then_some(text)
 }
 
 fn tonality(key: Key, notation: KeyNotation) -> String {

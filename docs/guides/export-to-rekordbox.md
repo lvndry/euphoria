@@ -23,11 +23,15 @@ For each track:
 | Key | When Euphoria found one | As a Camelot code such as `8A`, or a musical name such as `Am`. |
 | Tempo | When Euphoria found one | The average BPM with two decimals, such as `128.00`. |
 | Beat grid | When both the tempo and the first beat are known | One anchor at the first beat with a constant tempo, counted in 4/4. |
-| Cue points | When there are any | Memory cues and hot cues, with their names. |
+| Cue points | When there are any | Memory cues and hot cues, with their names. Hot cues can sit on pads A to P. |
 
 A track with no key or no tempo has no key or tempo in the file. Euphoria never writes an empty key or a tempo of zero.
 
 The file also holds playlists and folders. Each playlist lists its tracks in order.
+
+Playlist folders can be nested up to 32 levels deep.
+
+rekordbox has 16 hot cue pads per track, A to P. Its export mode uses only A to H, so hot cues on pads I to P may not show on CDJ and XDJ players that read a drive prepared there. **(not verified)**
 
 Not in the file: album, genre, rating, comments, colours, play counts, loops and waveforms.
 
@@ -41,6 +45,19 @@ rekordbox shows the key text exactly as the file gives it, so the notation is ch
 | Musical | `Am` | `F#m` | `Db` |
 
 See [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) for how the two relate.
+
+### Characters that are removed
+
+The XML format cannot hold a small set of invisible control characters, which sometimes end up in tags written by faulty software. Euphoria removes them from titles, artist names, cue names, playlist names and folder names, and writes the rest of the text unchanged. Tabs and line breaks are kept. File locations are not affected: every character of a path is kept.
+
+### What the export refuses
+
+Euphoria stops before writing anything, and names the track or folder, when:
+
+- a tempo is not a number or would be written as `0.00`,
+- a hot cue is on a pad beyond P,
+- folders are nested more than 32 levels deep,
+- a track is listed twice, a playlist names a track that is not in the collection, or a path is not a full path on a local drive.
 
 ## Before you import
 
