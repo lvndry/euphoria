@@ -47,19 +47,7 @@ euphoria analyze ~/Music/DJ --write-tags --preset rekordbox
 
 The desktop app does the same with a library view: drop a folder in, sort and filter by key, BPM and energy, and select a track to see its waveform, its key confidence and the tracks that mix with it.
 
-These commands describe the interface being built. See the roadmap for what works today.
-
-## Roadmap
-
-- [x] Audio decoding for MP3, M4A, FLAC, WAV and AIFF
-- [x] Key and tempo detection behind swappable detectors
-- [x] Accuracy benchmark on the GiantSteps key and tempo datasets
-- [ ] Energy rating
-- [ ] Library cache, so a moved or renamed file is not analyzed twice
-- [ ] `euphoria analyze` command line tool and Homebrew formula
-- [ ] Tag writing with preview and undo
-- [ ] Desktop app for macOS, then Linux
-- [ ] rekordbox export and cue points
+The command line tool and the desktop app are in development, so these commands are not available in a release yet.
 
 ## Accuracy
 
