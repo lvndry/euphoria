@@ -1,7 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Product logic for Euphoria: decoding, key and tempo detection, harmony.
+//! Product logic for Euphoria: decoding, key and tempo detection, energy
+//! rating, harmony.
 //! This crate has no user interface and prints nothing.
 
 /// Analyzing files and batches of files.
@@ -12,6 +13,8 @@ pub mod audio;
 pub mod cache;
 /// Key and tempo detectors.
 pub mod detect;
+/// Energy rating from 1 to 10 and the features behind it.
+pub mod energy;
 /// The error type returned by the library.
 pub mod error;
 /// Writing analysis results in the formats of other DJ software.
@@ -23,7 +26,7 @@ pub mod key;
 /// Finding audio files in folders.
 pub mod library;
 /// Reading the title and artist stored in audio files.
-pub mod tags;
+pub mod track_name;
 
 pub use analysis::{
     ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
@@ -32,6 +35,12 @@ pub use audio::{AudioBuffer, decode_mono};
 pub use cache::{
     Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
     clear_cache, default_cache_path,
+};
+pub use energy::{
+    ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
+    ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,
+    EnergyFeatures, EnergyModel, EnergyRating, FeatureAnchor, energy_curve, energy_features,
+    rate_energy, rate_features,
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{
@@ -43,4 +52,4 @@ pub use harmony::{
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
-pub use tags::{TrackTags, read_tags};
+pub use track_name::{TrackName, read_track_name};

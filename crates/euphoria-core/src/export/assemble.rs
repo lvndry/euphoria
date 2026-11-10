@@ -12,7 +12,7 @@ use super::playlists::playlists_from_folders;
 use super::rekordbox::{Library, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
 use crate::error::EuphoriaError;
-use crate::tags::{TrackTags, read_tags};
+use crate::track_name::{TrackName, read_track_name};
 
 /// Which playlists an exported library gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +64,7 @@ pub struct AssembledLibrary {
 /// Builds the library to export from analysis results.
 ///
 /// Each analyzed file becomes a track with its duration, key and tempo. Its
-/// title and artist are read from the file's own tags with [`read_tags`]; a
+/// title and artist are read from the file's own tags with [`read_track_name`]; a
 /// file with no title is given its file name without the extension. So is a
 /// file whose tags cannot be read, which has no artist and is also returned
 /// in [`AssembledLibrary::unread_tags`] with the reason. A file whose
@@ -115,10 +115,10 @@ pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) ->
 }
 
 fn track_from_analysis(path: &Path, analysis: &TrackAnalysis) -> (Track, Option<UnreadTags>) {
-    let (tags, unread_tags) = match read_tags(path) {
+    let (tags, unread_tags) = match read_track_name(path) {
         Ok(tags) => (tags, None),
         Err(reason) => (
-            TrackTags::default(),
+            TrackName::default(),
             Some(UnreadTags {
                 path: path.to_path_buf(),
                 reason,

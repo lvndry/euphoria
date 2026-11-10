@@ -16,6 +16,7 @@ struct JsonTrack<'result> {
     duration_seconds: Option<f32>,
     key: Option<JsonKey>,
     bpm: Option<f32>,
+    energy: Option<u8>,
     error: Option<String>,
 }
 
@@ -45,6 +46,7 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
                 duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
                 key: analysis.key.map(JsonKey::from),
                 bpm: analysis.bpm.map(round_to_tenths),
+                energy: analysis.energy,
                 error: None,
             },
             Err(error) => JsonTrack {
@@ -52,6 +54,7 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
                 duration_seconds: None,
                 key: None,
                 bpm: None,
+                energy: None,
                 error: Some(error.chain()),
             },
         })
@@ -62,8 +65,8 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
 
 /// Writes an aligned table of the files that were analyzed.
 pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Result<()> {
-    let header = ["Key", "", "BPM", "Time", "File"];
-    let rows: Vec<[String; 5]> = results
+    let header = ["Key", "", "BPM", "Energy", "Time", "File"];
+    let rows: Vec<[String; 6]> = results
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
@@ -76,6 +79,10 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
                 analysis
                     .bpm
                     .map(|bpm| format!("{bpm:.1}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                analysis
+                    .energy
+                    .map(|energy| energy.to_string())
                     .unwrap_or_else(|| "-".to_string()),
                 format_duration(analysis.duration_seconds),
                 result.path.display().to_string(),
@@ -92,14 +99,15 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
 
     let header_cells = header.map(str::to_string);
     for row in std::iter::once(&header_cells).chain(&rows) {
-        let [camelot, key_name, bpm, duration, file] = row;
+        let [camelot, key_name, bpm, energy, duration, file] = row;
         writeln!(
             writer,
-            "{camelot:<camelot_width$}  {key_name:<key_name_width$}  {bpm:>bpm_width$}  {duration:>duration_width$}  {file}",
+            "{camelot:<camelot_width$}  {key_name:<key_name_width$}  {bpm:>bpm_width$}  {energy:>energy_width$}  {duration:>duration_width$}  {file}",
             camelot_width = widths[0],
             key_name_width = widths[1],
             bpm_width = widths[2],
-            duration_width = widths[3],
+            energy_width = widths[3],
+            duration_width = widths[4],
         )?;
     }
     Ok(())
@@ -270,6 +278,7 @@ mod tests {
                     duration_seconds: 408.4,
                     key: Some(Key::new(9, Mode::Minor)),
                     bpm: Some(124.04),
+                    energy: Some(7),
                 }),
             },
             FileResult {
@@ -278,6 +287,7 @@ mod tests {
                     duration_seconds: 59.6,
                     key: None,
                     bpm: None,
+                    energy: None,
                 }),
             },
             FileResult {
@@ -296,9 +306,9 @@ mod tests {
     #[test]
     fn table_aligns_columns_and_leaves_failures_out() {
         let expected = "\
-Key             BPM  Time  File
-8A   A minor  124.0  6:48  music/low tide.flac
--                 -  1:00  music/intro.wav
+Key             BPM  Energy  Time  File
+8A   A minor  124.0       7  6:48  music/low tide.flac
+-                 -       -  1:00  music/intro.wav
 ";
         assert_eq!(render(write_table), expected);
     }
@@ -310,7 +320,10 @@ Key             BPM  Time  File
         assert_eq!(parsed[0]["key"]["name"], "A minor");
         assert_eq!(parsed[0]["bpm"], 124.0);
         assert_eq!(parsed[0]["duration_seconds"], 408.4);
+        assert_eq!(parsed[0]["energy"], 7);
         assert!(parsed[1]["key"].is_null());
+        assert!(parsed[1]["energy"].is_null());
+        assert!(parsed[2]["energy"].is_null());
         assert!(parsed[2]["error"].as_str().unwrap().contains("example"));
         assert_eq!(parsed.as_array().unwrap().len(), 3);
     }

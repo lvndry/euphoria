@@ -26,6 +26,7 @@ fn analyzed(path: &Path) -> FileResult {
             duration_seconds: 61.4,
             key: Some(Key::new(9, Mode::Minor)),
             bpm: Some(124.0),
+            energy: Some(7),
         }),
     }
 }
@@ -90,6 +91,7 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 duration_seconds: 1.0,
                 key: None,
                 bpm: None,
+                energy: None,
             }),
         },
         analyzed(&damaged_tag),

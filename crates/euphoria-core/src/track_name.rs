@@ -15,7 +15,7 @@ const LONGEST_INFO_VALUE: u32 = 4096;
 
 /// What a file's own tags say about the track.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct TrackTags {
+pub struct TrackName {
     /// The track title, or `None` when the file has none.
     pub title: Option<String>,
     /// The artist, or `None` when the file has none.
@@ -36,10 +36,10 @@ pub struct TrackTags {
 /// Returns [`EuphoriaError::Open`] when the file cannot be opened and
 /// [`EuphoriaError::Decode`] when it is not an audio file the decoder
 /// recognises or reading it fails partway.
-pub fn read_tags(path: &Path) -> Result<TrackTags, EuphoriaError> {
+pub fn read_track_name(path: &Path) -> Result<TrackName, EuphoriaError> {
     let mut format = crate::audio::open_format(path)?;
     let mut metadata = format.metadata();
-    let mut tags = TrackTags::default();
+    let mut tags = TrackName::default();
     loop {
         if let Some(revision) = metadata.current() {
             fill_from_revision(&mut tags, revision);
@@ -54,7 +54,7 @@ pub fn read_tags(path: &Path) -> Result<TrackTags, EuphoriaError> {
     Ok(tags)
 }
 
-fn fill_from_revision(tags: &mut TrackTags, revision: &MetadataRevision) {
+fn fill_from_revision(tags: &mut TrackName, revision: &MetadataRevision) {
     let media_tags = revision.media.tags.iter();
     let track_tags = revision
         .per_track
@@ -65,7 +65,7 @@ fn fill_from_revision(tags: &mut TrackTags, revision: &MetadataRevision) {
     }
 }
 
-fn fill_from_tag(tags: &mut TrackTags, tag: &Tag) {
+fn fill_from_tag(tags: &mut TrackName, tag: &Tag) {
     let (slot, value) = match &tag.std {
         Some(StandardTag::TrackTitle(title)) => (&mut tags.title, title),
         Some(StandardTag::Artist(artist)) => (&mut tags.artist, artist),
@@ -84,7 +84,7 @@ fn fill_slot(slot: &mut Option<String>, value: &str) {
 /// Fills what is still missing from the `INFO` list of a WAV file. Symphonia
 /// parses that list and then drops it, so it is read here. Files that are not
 /// WAV are left alone.
-fn fill_from_wav_info_list(tags: &mut TrackTags, path: &Path) -> Result<(), EuphoriaError> {
+fn fill_from_wav_info_list(tags: &mut TrackName, path: &Path) -> Result<(), EuphoriaError> {
     let file = File::open(path).map_err(|source| EuphoriaError::Open {
         path: path.to_path_buf(),
         source,
@@ -98,14 +98,14 @@ fn fill_from_wav_info_list(tags: &mut TrackTags, path: &Path) -> Result<(), Euph
 
 /// Walks the chunks of a WAV file up to its first `INFO` list. A file that
 /// ends inside a chunk gives what was read before the cut.
-fn read_wav_info_list(tags: &mut TrackTags, reader: &mut (impl Read + Seek)) -> io::Result<()> {
+fn read_wav_info_list(tags: &mut TrackName, reader: &mut (impl Read + Seek)) -> io::Result<()> {
     match walk_wav_chunks(tags, reader) {
         Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
         outcome => outcome,
     }
 }
 
-fn walk_wav_chunks(tags: &mut TrackTags, reader: &mut (impl Read + Seek)) -> io::Result<()> {
+fn walk_wav_chunks(tags: &mut TrackName, reader: &mut (impl Read + Seek)) -> io::Result<()> {
     let mut file_header = [0_u8; 12];
     reader.read_exact(&mut file_header)?;
     if &file_header[..4] != b"RIFF" || &file_header[8..] != b"WAVE" {
@@ -127,7 +127,7 @@ fn walk_wav_chunks(tags: &mut TrackTags, reader: &mut (impl Read + Seek)) -> io:
 }
 
 fn read_info_values(
-    tags: &mut TrackTags,
+    tags: &mut TrackName,
     reader: &mut (impl Read + Seek),
     list_size: i64,
 ) -> io::Result<()> {
@@ -210,8 +210,8 @@ mod tests {
         chunk(b"LIST", &body)
     }
 
-    fn tags_of(file: Vec<u8>) -> TrackTags {
-        let mut tags = TrackTags::default();
+    fn tags_of(file: Vec<u8>) -> TrackName {
+        let mut tags = TrackName::default();
         read_wav_info_list(&mut tags, &mut Cursor::new(file)).unwrap();
         tags
     }
@@ -230,7 +230,7 @@ mod tests {
         ]);
         assert_eq!(
             tags_of(file),
-            TrackTags {
+            TrackName {
                 title: Some("Low Tide".to_string()),
                 artist: Some("Saffron".to_string()),
             }
@@ -256,7 +256,7 @@ mod tests {
             chunk(b"IART", &oversized),
             chunk(b"IART", b"  \0"),
         ])]);
-        let mut tags = TrackTags {
+        let mut tags = TrackName {
             title: Some("From ID3".to_string()),
             artist: None,
         };
@@ -268,9 +268,9 @@ mod tests {
     #[test]
     fn a_wav_without_an_info_list_and_a_file_that_is_not_wav_have_no_tags() {
         let untagged = wav(&[chunk(b"fmt ", &[0; 16]), chunk(b"data", &[128; 8])]);
-        assert_eq!(tags_of(untagged), TrackTags::default());
+        assert_eq!(tags_of(untagged), TrackName::default());
         let not_wav = b"fLaC and then twelve bytes or more".to_vec();
-        assert_eq!(tags_of(not_wav), TrackTags::default());
+        assert_eq!(tags_of(not_wav), TrackName::default());
     }
 
     #[test]

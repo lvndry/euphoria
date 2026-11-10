@@ -7,7 +7,7 @@ description: Every command, option, output format and exit status of the euphori
 
 ## euphoria analyze
 
-Detects the key and tempo of audio files.
+Detects the key, tempo and energy of audio files.
 
 ```
 euphoria analyze [OPTIONS] <PATHS>...
@@ -19,12 +19,14 @@ A symbolic link to an audio file is analyzed. A symbolic link to a folder is not
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key             BPM  Time  File
-8A   A minor  124.0  6:48  /Users/you/Music/DJ/Low Tide.flac
--                 -  1:00  /Users/you/Music/DJ/Intro.wav
+Key             BPM  Energy  Time  File
+8A   A minor  124.0       6  6:48  /Users/you/Music/DJ/Low Tide.flac
+-                 -       -  1:00  /Users/you/Music/DJ/Intro.wav
 ```
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
+
+The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
 ### Options
 
@@ -50,6 +52,7 @@ One object per file, in path order, including files that failed:
     "duration_seconds": 408.4,
     "key": { "camelot": "8A", "name": "A minor" },
     "bpm": 124.0,
+    "energy": 6,
     "error": null
   },
   {
@@ -57,12 +60,13 @@ One object per file, in path order, including files that failed:
     "duration_seconds": null,
     "key": null,
     "bpm": null,
+    "energy": null,
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
   }
 ]
 ```
 
-`key` and `bpm` are `null` when nothing was detected. `error` is set only when the file could not be analyzed.
+`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
 
 ### Progress and exit status
 
@@ -156,7 +160,7 @@ A track is recognised by its content, not by its name or folder:
 - A file that was renamed or moved is still recognised, and is not analyzed again.
 - A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
-- Results from a version of Euphoria that detected keys or tempo differently are ignored and replaced.
+- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, so the first run after that update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.
