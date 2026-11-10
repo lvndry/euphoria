@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use crate::detect::StratumDetector;
 #[cfg(feature = "libkeyfinder")]
 use crate::detect::{KeyDetector, KeyFinderDetector};
+use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
 
@@ -16,13 +17,18 @@ use crate::key::Key;
 /// serves a stored result only when it was produced under the same version.
 ///
 /// Raise the number whenever a change can alter the key, tempo or duration
-/// reported for a file: a detector upgrade, a tuning change, a decoding
-/// change. The suffix names the key detector, since builds with and without
-/// the `libkeyfinder` feature report different keys.
+/// reported for a file, or adds something to what is reported: a detector
+/// upgrade, a tuning change, a decoding change. The suffix names the key
+/// detector, since builds with and without the `libkeyfinder` feature report
+/// different keys.
+///
+/// The energy rating has a version of its own,
+/// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
+/// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "1+libkeyfinder"
+    "2+libkeyfinder"
 } else {
-    "1+stratum"
+    "2+stratum"
 };
 
 /// What Euphoria found in one track.
@@ -35,6 +41,10 @@ pub struct TrackAnalysis {
     /// The detected tempo in beats per minute, or `None` when the track has
     /// no detectable tempo.
     pub bpm: Option<f32>,
+    /// The energy rating from 1 (calm) to 10 (intense), or `None` when there
+    /// is nothing to rate, such as silence. It is Euphoria's own scale, set
+    /// by [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION).
+    pub energy: Option<u8>,
 }
 
 /// The result of analyzing one file.
@@ -57,10 +67,11 @@ pub struct Progress<'batch> {
     pub path: &'batch Path,
 }
 
-/// Decodes one file and detects its key and tempo.
+/// Decodes one file once and finds its key, its tempo and its energy.
 ///
 /// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
-/// as it is the more accurate detector; tempo comes from `stratum-dsp`.
+/// as it is the more accurate detector; tempo comes from `stratum-dsp`. The
+/// energy rating takes the detected tempo into account when there is one.
 pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     let audio = crate::audio::decode_mono(path)?;
     let stratum_analysis = StratumDetector.analyze(&audio)?;
@@ -70,10 +81,13 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     #[cfg(not(feature = "libkeyfinder"))]
     let key = stratum_analysis.key;
 
+    let energy = rate_energy(&audio, stratum_analysis.tempo)?.map(|rating| rating.rating);
+
     Ok(TrackAnalysis {
         duration_seconds: audio.duration_seconds(),
         key,
         bpm: stratum_analysis.tempo,
+        energy,
     })
 }
 

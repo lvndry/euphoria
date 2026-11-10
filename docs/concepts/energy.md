@@ -52,17 +52,33 @@ Onset rate, low frequency share and spectral flux do not depend on how loud the 
 | Spectral flux | 0.0045 | 0.0105 | 0.20 |
 | Tempo, when known | 100 BPM | 140 BPM | 0.10 |
 
-The anchors were chosen so that the 604 dance music previews of the [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset) dataset spread over the scale. Each feature's anchors sit near the values that the lowest and highest few percent of those tracks reach. Rated without tempo, the dataset comes out as:
+The anchors were chosen so that the 604 dance music previews of the [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset) dataset spread over the scale. Each feature's anchors sit near the values that the lowest and highest few percent of those tracks reach. The dataset comes out as:
 
 | Rating | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Tracks | 20 | 21 | 41 | 56 | 76 | 98 | 109 | 96 | 55 | 32 |
+| Tracks, rated without tempo | 20 | 21 | 41 | 56 | 76 | 98 | 109 | 96 | 55 | 32 |
+| Tracks, rated with the detected tempo | 14 | 18 | 25 | 71 | 72 | 109 | 121 | 98 | 52 | 24 |
 
 The weights reflect how much each feature can be trusted. Onset rate and spectral flux describe what happens in the music, so together they carry the most. Loudness matters, but it also reflects how a track was mastered, so it does not dominate. Loudness range rewards tracks that stay at full level. Low frequency share weighs little, because a deep, bass heavy warm up track is not an intense one. Tempo weighs little because tempo detection sometimes reports half or double the true value.
 
+## How well it works so far
+
+The scale was checked against a sample of 60 full length tracks that a DJ had sorted into warm up, build, peak and closing folders, across five styles of house music. Rated the way `euphoria analyze` rates them, with the detected tempo:
+
+| Folder | Average rating |
+| --- | --- |
+| Warm up | 4.5 |
+| Build | 5.4 |
+| Closing | 5.4 |
+| Peak | 5.8 |
+
+The average rises from warm up to peak, which is the direction a DJ expects. The steps are small, though, and single tracks often sit two or three points away from the average of their folder. The styles did not separate: tech house and deep house, for example, averaged about the same.
+
+Treat the rating as a first version. It tells calm tracks from intense ones more reliably than it orders tracks that are close. The scale will be recalibrated as better reference data comes in, and every stored rating records the model version that produced it, so Euphoria knows which ratings to compute again.
+
 ## Model version
 
-The anchors and weights live in one place in the code, the `ENERGY_MODEL` constant, with a version number, `ENERGY_MODEL_VERSION`. Every rating carries the version that produced it, together with the measured features. The same audio and the same version always give the same rating. When the anchors or weights change, the version changes, and ratings from different versions should not be mixed in one library.
+The anchors and weights live in one place in the code, the `ENERGY_MODEL` constant, with a version number, `ENERGY_MODEL_VERSION`. Every rating carries the version that produced it, together with the measured features. The same audio and the same version always give the same rating. When the anchors or weights change, the version changes, and ratings from different versions should not be mixed in one library. The [analysis cache](../reference/cli.md#the-analysis-cache) stores the model version next to each rating and analyzes a track again when its rating comes from another version.
 
 This page describes version 1.
 
@@ -76,7 +92,6 @@ A window is rated on its own, so the curve usually reaches higher and lower than
 
 - **It measures sound, not feeling.** A quiet track with a tense vocal can lift a room, and the rating cannot know that.
 - **Mastering affects it.** A heavily compressed master rates higher than a dynamic master of the same music.
-- **It separates extremes better than neighbours.** In a check on 60 tracks that a DJ had sorted into warm up, build, closing and peak folders, warm up tracks averaged 4.8, build 5.3, closing 5.6 and peak 5.6. The order is right, but the gaps are small and single tracks often sit a few points away from their folder's average. House subgenres did not differ on average.
 - **It is tuned on dance music.** Other genres get a rating, but the anchors were not chosen for them, so most acoustic or ambient music lands at the bottom of the scale and very dense music at the top.
 - **The whole track is averaged.** A track with a long quiet intro and a huge drop rates lower than its peak. Look at the energy curve for that.
 - **Tempo errors carry over.** If the detector reports half or double the true tempo, the rating shifts slightly.

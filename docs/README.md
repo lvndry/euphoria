@@ -8,7 +8,7 @@ Layout, which becomes the site navigation:
 | --- | --- |
 | `getting-started/` | Installation and a first run |
 | `guides/` | Task focused walkthroughs |
-| `concepts/` | Background: keys, the Camelot wheel, accuracy |
+| `concepts/` | Background: keys, the Camelot wheel, energy, accuracy |
 | `reference/` | Exhaustive details: commands, formats |
 | `development/` | Building, architecture, benchmarks |
 

@@ -58,7 +58,7 @@ Common reasons are a file in a format Euphoria does not read, a file that is dam
 
 ## When no key or tempo is shown
 
-A `-` in the Key or BPM column means Euphoria found nothing to measure, for example in silence or in a clip shorter than one second. It is not an error.
+A `-` in the Key, BPM or Energy column means Euphoria found nothing to measure, for example in silence or in a clip shorter than one second. It is not an error.
 
 ## Save the results
 

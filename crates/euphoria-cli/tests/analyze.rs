@@ -30,6 +30,11 @@ fn analyzes_a_folder_as_json() {
         assert!(track["error"].is_null(), "{track}");
         let duration = track["duration_seconds"].as_f64().expect("a duration");
         assert!((duration - 1.0).abs() < 0.1, "{track}");
+        let energy = &track["energy"];
+        assert!(
+            energy.is_null() || (1..=10).contains(&energy.as_u64().expect("a whole number")),
+            "{track}"
+        );
     }
 }
 
@@ -45,6 +50,8 @@ fn prints_a_table_with_a_header() {
 
     let table = String::from_utf8(output.stdout).expect("UTF-8 output");
     assert!(table.starts_with("Key"), "{table}");
+    let header = table.lines().next().expect("a header line");
+    assert!(header.contains("BPM  Energy  Time"), "{table}");
     assert!(table.contains("sine-440hz-mono.flac"), "{table}");
 }
 
