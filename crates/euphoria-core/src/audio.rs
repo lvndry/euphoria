@@ -56,6 +56,17 @@ impl AudioBuffer {
 
 const SILENCE_THRESHOLD: f32 = 1.0e-5;
 
+/// The lowest sample rate Euphoria analyzes, in samples per second.
+pub const MINIMUM_SAMPLE_RATE: u32 = 8_000;
+/// The highest sample rate Euphoria analyzes, in samples per second.
+///
+/// Audio files run from 8 kHz (telephone quality) to 384 kHz (the highest
+/// rate in use for high resolution audio). The working memory of every
+/// analysis grows with the sample rate, so a file that declares a rate
+/// outside this range, which only a damaged file does, is refused when it is
+/// decoded.
+pub const MAXIMUM_SAMPLE_RATE: u32 = 384_000;
+
 /// Decodes a whole audio file and averages its channels into mono.
 pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
     let decode_error = |error: SymphoniaError| decode_error(path, error);
@@ -101,6 +112,13 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
         match decoder.decode(&packet) {
             Ok(decoded) => {
                 sample_rate = decoded.spec().rate();
+                if !(MINIMUM_SAMPLE_RATE..=MAXIMUM_SAMPLE_RATE).contains(&sample_rate) {
+                    return Err(EuphoriaError::UnsupportedSampleRate {
+                        sample_rate,
+                        minimum: MINIMUM_SAMPLE_RATE,
+                        maximum: MAXIMUM_SAMPLE_RATE,
+                    });
+                }
                 let channel_count = decoded.num_planes().max(1);
                 decoded.copy_to_vec_interleaved(&mut interleaved);
                 mono_samples.extend(

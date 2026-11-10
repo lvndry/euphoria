@@ -19,8 +19,9 @@ Available now:
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos and a playlist per folder as a rekordbox XML file
 - MP3, M4A (AAC), FLAC, WAV and AIFF
+- An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
 
-In development: tag writing, exports for Serato, Traktor and Engine DJ, harmonic matching, and a desktop app.
+In development: tag writing, and exports for Serato, Traktor and Engine DJ.
 
 ## Install
 

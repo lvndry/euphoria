@@ -1,0 +1,281 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Tests that open the real root view in a headless window and use it with
+//! clicks and keys, as a person would.
+
+use gpui::test::TestWindowExt;
+use gpui::{
+    AnyWindowHandle, AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds,
+    WindowOptions, px, size,
+};
+
+use crate::app::EuphoriaApp;
+use crate::demo;
+use crate::library::{SortColumn, SortOrder};
+use crate::settings::Settings;
+use crate::state::Session;
+use crate::theme::{AppTheme, Layout, ThemeName};
+
+/// Index of the BPM column among the table's column headers.
+const BPM_COLUMN: usize = 4;
+
+/// Index of the Energy column among the table's column headers.
+const ENERGY_COLUMN: usize = 5;
+
+fn open_library(
+    track_count: usize,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    cx.update(|cx| {
+        gpui::init(cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: Point::default(),
+                size: size(px(1440.0), px(900.0)),
+            })),
+            ..Default::default()
+        };
+        gpui::open_window(options, cx, |window, cx| {
+            cx.new(|cx| {
+                let mut session = Session::start(None).unwrap();
+                session.add_demo_tracks(demo::tracks(track_count));
+                EuphoriaApp::new(session, Settings::default(), None, None, window, cx)
+            })
+        })
+        .unwrap()
+    })
+}
+
+fn track(index: usize) -> (&'static str, usize) {
+    ("track", index)
+}
+
+#[gpui::test]
+fn opens_with_the_first_track_selected(cx: &mut TestAppContext) {
+    let (_, view) = open_library(50, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.visible.len(), 50);
+        assert_eq!(app.selected, Some(0));
+    });
+}
+
+#[gpui::test]
+fn clicking_a_row_selects_its_track(cx: &mut TestAppContext) {
+    let (window, view) = open_library(50, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(track(5), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).selected, Some(5)));
+}
+
+#[gpui::test]
+fn arrow_keys_move_the_selection_through_the_rows(cx: &mut TestAppContext) {
+    let (window, view) = open_library(50, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(track(5), cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("up", cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).selected, Some(6)));
+}
+
+#[gpui::test]
+fn clicking_a_header_sorts_and_clicking_again_reverses(cx: &mut TestAppContext) {
+    let (window, view) = open_library(200, cx);
+    let tempos = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            app.visible
+                .iter()
+                .filter_map(|index| app.session.library().track(*index)?.bpm())
+                .collect::<Vec<f32>>()
+        })
+    };
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("column", BPM_COLUMN), cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).sort_order,
+            Some(SortOrder {
+                column: SortColumn::Bpm,
+                descending: false
+            })
+        );
+    });
+    let ascending = tempos(cx);
+    assert!(ascending.is_sorted(), "{ascending:?}");
+
+    cx.update_window(window, |_, window, cx| {
+        window.click(("column", BPM_COLUMN), cx);
+    })
+    .unwrap();
+    let descending = tempos(cx);
+    assert!(descending.iter().rev().is_sorted(), "{descending:?}");
+    assert_eq!(descending.len(), ascending.len());
+}
+
+#[gpui::test]
+fn clicking_the_energy_header_sorts_by_energy(cx: &mut TestAppContext) {
+    let (window, view) = open_library(200, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("column", ENERGY_COLUMN), cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let ratings: Vec<u8> = app
+            .visible
+            .iter()
+            .filter_map(|index| app.session.library().track(*index)?.energy())
+            .collect();
+        assert!(ratings.len() > 100);
+        assert!(ratings.is_sorted(), "{ratings:?}");
+        let last = app.session.library().track(app.visible[199]).unwrap();
+        assert_eq!(last.energy(), None);
+    });
+}
+
+#[gpui::test]
+fn typing_in_the_search_field_filters_the_table(cx: &mut TestAppContext) {
+    let (window, view) = open_library(500, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("search", cx);
+        window.input("8a", cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(!app.visible.is_empty());
+        assert!(app.visible.len() < 500);
+        for index in &app.visible {
+            let key = app.session.library().track(*index).unwrap().key().unwrap();
+            assert_eq!(key.camelot(), "8A");
+        }
+    });
+}
+
+#[gpui::test]
+fn the_sidebar_shows_the_tracks_that_need_review(cx: &mut TestAppContext) {
+    let (window, view) = open_library(2_000, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("needs-review", cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let failed = app.session.library().counts().failed;
+        assert!(failed > 0);
+        assert_eq!(app.visible.len(), failed);
+    });
+}
+
+#[gpui::test]
+fn only_the_rows_in_view_are_built_for_ten_thousand_tracks(cx: &mut TestAppContext) {
+    let (window, view) = open_library(10_000, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find(track(0)).is_some());
+        assert!(window.try_find(track(200)).is_none());
+        assert!(window.try_find(track(9_999)).is_none());
+
+        window.click(track(3), cx);
+        window.press("end", cx);
+        window.render_frame(cx);
+        assert!(window.try_find(track(9_999)).is_some());
+        assert!(window.try_find(track(0)).is_none());
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).selected, Some(9_999)));
+}
+
+#[gpui::test]
+fn each_theme_lays_the_window_out_as_it_should(cx: &mut TestAppContext) {
+    let (window, view) = open_library(50, cx);
+    let sidebar_width = px(220.0);
+    for name in ThemeName::ALL {
+        let expected = AppTheme::named(name);
+        cx.update(|cx| view.update(cx, |app, cx| app.set_theme(name, cx)));
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let viewport = window.viewport_size();
+            let inspector = window.find("inspector").bounds();
+            let first_row = window.find(track(view.read(cx).visible[0])).bounds();
+
+            match expected.layout {
+                Layout::InspectorRight => {
+                    assert_eq!(inspector.right(), viewport.width, "{name:?}");
+                    assert_eq!(inspector.size.width, px(320.0), "{name:?}");
+                    assert!(first_row.right() <= inspector.left(), "{name:?}");
+                    assert!(inspector.top() < first_row.top(), "{name:?}");
+                }
+                Layout::DeckBelow => {
+                    assert_eq!(inspector.left(), sidebar_width, "{name:?}");
+                    assert_eq!(inspector.right(), viewport.width, "{name:?}");
+                    assert_eq!(inspector.bottom(), viewport.height, "{name:?}");
+                    assert_eq!(first_row.right(), viewport.width, "{name:?}");
+                    assert!(inspector.top() > first_row.bottom(), "{name:?}");
+                }
+            }
+            assert_eq!(first_row.size.height, expected.row_height, "{name:?}");
+            assert_eq!(
+                gpui::component::ActiveTheme::theme(cx).mode.is_dark(),
+                expected.palette.is_dark,
+                "{name:?}"
+            );
+        })
+        .unwrap();
+        cx.update(|cx| {
+            let app = view.read(cx);
+            assert_eq!(app.theme, expected, "{name:?}");
+        });
+    }
+}
+
+#[gpui::test]
+fn the_expected_layout_of_each_theme_is_the_one_in_the_spec(_cx: &mut TestAppContext) {
+    let layout_and_rows = |name| {
+        let theme = AppTheme::named(name);
+        (theme.layout, theme.row_height, theme.shows_wheel)
+    };
+    let column = Layout::InspectorRight;
+    assert_eq!(layout_and_rows(ThemeName::Slate), (column, px(32.0), false));
+    assert_eq!(layout_and_rows(ThemeName::Paper), (column, px(32.0), false));
+    assert_eq!(
+        layout_and_rows(ThemeName::Deck),
+        (Layout::DeckBelow, px(32.0), false)
+    );
+    assert_eq!(
+        layout_and_rows(ThemeName::Graphite),
+        (column, px(26.0), false)
+    );
+    assert_eq!(
+        layout_and_rows(ThemeName::KeyFirst),
+        (column, px(32.0), true)
+    );
+}
+
+#[gpui::test]
+fn key_first_sorts_the_table_by_key(cx: &mut TestAppContext) {
+    let (_, view) = open_library(50, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.set_theme(ThemeName::KeyFirst, cx));
+        assert_eq!(
+            view.read(cx).sort_order.map(|order| order.column),
+            Some(SortColumn::Key)
+        );
+    });
+}

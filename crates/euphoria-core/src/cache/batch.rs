@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
 
 use rayon::prelude::*;
 
@@ -34,7 +34,7 @@ pub struct CachedBatch {
 }
 
 /// Where the analysis of one file came from.
-enum Origin {
+pub(super) enum Origin {
     Cache,
     Analyzer,
 }
@@ -85,10 +85,16 @@ fn analyze_files_cached_with(
         let results: Vec<FileResult> = paths
             .par_iter()
             .map(|path| {
-                let outcome = cached_or_analyzed(path, &snapshot, &analyze, &writes).map(
-                    |(analysis, origin)| {
+                let outcome = cached_or_analyzed(path, &snapshot, &analyze).map(
+                    |(analysis, origin, write)| {
                         if matches!(origin, Origin::Cache) {
                             cached_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                        if let Some(write) = write {
+                            // Sending fails only after the writer has stopped
+                            // on an error, and that error is the one the
+                            // batch reports.
+                            let _ = writes.send(write);
                         }
                         analysis
                     },
@@ -118,12 +124,13 @@ fn analyze_files_cached_with(
     })
 }
 
-fn cached_or_analyzed(
+/// The analysis of one file, where it came from, and the change to make to
+/// the database for it, if any.
+pub(super) fn cached_or_analyzed(
     path: &Path,
     snapshot: &Snapshot,
     analyze: impl Fn(&Path) -> Result<TrackAnalysis, EuphoriaError>,
-    writes: &Sender<CacheWrite>,
-) -> Result<(TrackAnalysis, Origin), EuphoriaError> {
+) -> Result<(TrackAnalysis, Origin, Option<CacheWrite>), EuphoriaError> {
     let unreadable = |source| EuphoriaError::Scan {
         path: path.to_path_buf(),
         source,
@@ -133,7 +140,7 @@ fn cached_or_analyzed(
         stamp: FileStamp::of(path).map_err(unreadable)?,
     };
     if let Some(analysis) = snapshot.at_location(&location) {
-        return Ok((analysis.clone(), Origin::Cache));
+        return Ok((analysis.clone(), Origin::Cache, None));
     }
 
     let content_hash = ContentHash::of_file(path).map_err(unreadable)?;
@@ -150,7 +157,7 @@ fn cached_or_analyzed(
             let analysis = analyze(path)?;
             let stamp_after_analysis = FileStamp::of(path).ok();
             if stamp_after_analysis != Some(location.stamp) {
-                return Ok((analysis, Origin::Analyzer));
+                return Ok((analysis, Origin::Analyzer, None));
             }
             let write = CacheWrite::Store {
                 content_hash,
@@ -160,10 +167,7 @@ fn cached_or_analyzed(
             (analysis, Origin::Analyzer, write)
         }
     };
-    // Sending fails only after the writer has stopped on an error, and that
-    // error is the one the batch reports.
-    let _ = writes.send(write);
-    Ok((analysis, origin))
+    Ok((analysis, origin, Some(write)))
 }
 
 #[cfg(test)]
