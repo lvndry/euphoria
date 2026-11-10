@@ -10,20 +10,7 @@ pub(crate) const PEAK_COUNT: usize = 720;
 /// absolute sample of each, scaled so the loudest peak of the track is 1.0.
 /// Silent audio gives all zeros.
 pub(crate) fn compute_peaks(samples: &[f32], peak_count: usize) -> Vec<f32> {
-    if samples.is_empty() || peak_count == 0 {
-        return Vec::new();
-    }
-    let mut peaks: Vec<f32> = (0..peak_count)
-        .map(|peak_index| {
-            let start = (peak_index * samples.len() / peak_count).min(samples.len() - 1);
-            let end = ((peak_index + 1) * samples.len() / peak_count)
-                .max(start + 1)
-                .min(samples.len());
-            samples[start..end]
-                .iter()
-                .fold(0.0_f32, |loudest, sample| loudest.max(sample.abs()))
-        })
-        .collect();
+    let mut peaks = loudest_of_each_span(samples, peak_count);
     let loudest = peaks.iter().copied().fold(0.0_f32, f32::max);
     if loudest > 0.0 {
         for peak in &mut peaks {
@@ -33,10 +20,30 @@ pub(crate) fn compute_peaks(samples: &[f32], peak_count: usize) -> Vec<f32> {
     peaks
 }
 
-/// Reduces `peaks` to at most `bar_count` bars, each the loudest peak it
-/// covers.
+/// Reduces a track's `peaks` to at most `bar_count` bars, each as tall as the
+/// loudest peak it covers. The peaks keep their scale, so a quiet passage
+/// stays short however few bars there are.
 pub(crate) fn bars_from_peaks(peaks: &[f32], bar_count: usize) -> Vec<f32> {
-    compute_peaks(peaks, bar_count.min(peaks.len()))
+    loudest_of_each_span(peaks, bar_count.min(peaks.len()))
+}
+
+/// The loudest absolute value in each of `span_count` equal spans of
+/// `values`. Nothing when there are no values or no spans.
+fn loudest_of_each_span(values: &[f32], span_count: usize) -> Vec<f32> {
+    if values.is_empty() || span_count == 0 {
+        return Vec::new();
+    }
+    (0..span_count)
+        .map(|span_index| {
+            let start = (span_index * values.len() / span_count).min(values.len() - 1);
+            let end = ((span_index + 1) * values.len() / span_count)
+                .max(start + 1)
+                .min(values.len());
+            values[start..end]
+                .iter()
+                .fold(0.0_f32, |loudest, value| loudest.max(value.abs()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -77,5 +84,24 @@ mod tests {
     fn bars_never_outnumber_peaks() {
         assert_eq!(bars_from_peaks(&[1.0, 0.5, 0.25], 10).len(), 3);
         assert_eq!(bars_from_peaks(&[1.0, 0.5, 0.25, 0.5], 2), vec![1.0, 0.5]);
+    }
+
+    #[test]
+    fn bars_keep_the_scale_of_the_peaks_they_cover() {
+        assert_eq!(bars_from_peaks(&[1.0, 0.1], 1), vec![1.0]);
+        assert_eq!(bars_from_peaks(&[0.2, 0.1], 1), vec![0.2]);
+        assert_eq!(
+            bars_from_peaks(&[1.0, 0.9, 0.1, 0.05, 0.3, 0.2], 3),
+            vec![1.0, 0.1, 0.3]
+        );
+    }
+
+    #[test]
+    fn a_quiet_stretch_of_the_track_is_not_stretched_to_full_height() {
+        let mut peaks = vec![0.1; 700];
+        peaks.extend([1.0; 20]);
+        let bars = bars_from_peaks(&peaks, 72);
+        assert!(bars[..60].iter().all(|bar| (*bar - 0.1).abs() < 1.0e-6));
+        assert_eq!(bars.last(), Some(&1.0));
     }
 }

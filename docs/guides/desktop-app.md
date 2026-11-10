@@ -23,7 +23,7 @@ Use `--release`: analysis is many times slower in a debug build.
 
 On first launch the window shows a drop zone. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder**. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
 
-Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. Each track appears at once as a pending row and fills in when its analysis finishes. The toolbar shows the progress, for example "Analyzing 12 of 340".
+Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a pending row and fills in when its analysis finishes. The toolbar shows the progress, for example "Analyzing 12 of 340".
 
 The app analyzes as many tracks at once as your computer has cores, up to 4, the same limit the command line tool uses by default. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
 
@@ -88,7 +88,19 @@ The folders you added and the theme are kept in `settings.json`:
 
 Set the `EUPHORIA_DATA_DIR` environment variable to keep it somewhere else.
 
-Results are not stored yet, so remembered folders are analyzed again each time the app starts. Files dropped on their own, outside a folder, are not remembered.
+Files dropped on their own, outside a folder, are not remembered.
+
+## Remembered results
+
+The app keeps each finished analysis in the same folder, in the cache the command line tool also uses. A track analyzed once, by the app or by `euphoria analyze`, is not analyzed again: when the app starts, the remembered folders are searched and their known tracks are filled in within a moment. Only new or changed files are analyzed. A file that was moved or renamed is recognised by its content when its turn comes.
+
+The count above the table says how many tracks were filled in this way, for example "48 tracks, 44 from cache".
+
+If the cache cannot be opened, the app says why in a notice along the bottom of the window and analyzes without it, so results are not remembered until the problem is fixed. `euphoria cache clear` resets a damaged cache. The [command reference](../reference/cli.md#the-analysis-cache) explains how files are recognised and when a track is analyzed again.
+
+## Quitting
+
+You can quit while tracks are being analyzed. The app closes at once: tracks already finished are remembered, and the ones that were waiting or in progress are analyzed the next time the app starts.
 
 ## Build Euphoria.app
 

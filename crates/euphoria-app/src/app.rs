@@ -4,9 +4,7 @@
 //! The window's root view: it owns the library session and what the user has
 //! chosen to see, and lays the screen out from the views.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::component::input::{InputEvent, InputState};
@@ -23,6 +21,7 @@ use crate::settings::Settings;
 use crate::state::{Scan, Session, scan};
 use crate::theme::{AppTheme, Layout, ThemeName};
 use crate::views;
+use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
 
 /// How often finished files are moved from the workers into the table.
 const COLLECT_INTERVAL: Duration = Duration::from_millis(80);
@@ -31,22 +30,13 @@ const COLLECT_INTERVAL: Duration = Duration::from_millis(80);
 /// waveform, so that moving quickly through the table decodes nothing.
 const WAVEFORM_DELAY: Duration = Duration::from_millis(180);
 
-/// How long quitting waits for the files in the middle of analysis.
-const QUIT_PATIENCE: Duration = Duration::from_secs(20);
+/// How long quitting gives the files in the middle of analysis to finish.
+/// The wait is off the main thread, and the app quits when it is over whether
+/// or not they finished: an abandoned file is analyzed again next time.
+const QUIT_PATIENCE: Duration = Duration::from_millis(150);
 
 /// How many tracks the "Mixes well with" list shows.
 const MIX_LIMIT: usize = 8;
-
-/// The waveform of one track.
-#[derive(Debug, Clone)]
-pub(crate) enum Waveform {
-    /// The audio is being decoded.
-    Reading,
-    /// Peaks from the start of the track to its end, each from 0.0 to 1.0.
-    Ready(Arc<[f32]>),
-    /// The audio could not be decoded; the text says why.
-    Unreadable(String),
-}
 
 /// The root view of the window.
 pub(crate) struct EuphoriaApp {
@@ -71,8 +61,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) toolbar_drag_armed: bool,
     query: String,
     settings_path: Option<PathBuf>,
-    waveforms: HashMap<PathBuf, Waveform>,
+    waveforms: WaveformCache,
     waveform_task: Option<Task<()>>,
+    /// The file the waveform task is decoding.
+    waveform_task_path: Option<PathBuf>,
     is_collecting: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -100,9 +92,12 @@ impl EuphoriaApp {
                 }
             },
         );
-        let quitting = cx.on_app_quit(|this: &mut Self, _| {
-            this.session.stop(QUIT_PATIENCE);
-            async {}
+        let quitting = cx.on_app_quit(|this: &mut Self, cx| {
+            let stop_signal = this.session.stop_signal();
+            stop_signal.skip_queued_files();
+            cx.background_executor().spawn(async move {
+                stop_signal.wait_for_files_in_progress(QUIT_PATIENCE);
+            })
         });
 
         let theme = AppTheme::named(settings.theme);
@@ -126,8 +121,9 @@ impl EuphoriaApp {
             toolbar_drag_armed: false,
             query: String::new(),
             settings_path,
-            waveforms: HashMap::new(),
+            waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
             waveform_task: None,
+            waveform_task_path: None,
             is_collecting: false,
             _subscriptions: vec![search_changed, quitting],
         };
@@ -184,45 +180,55 @@ impl EuphoriaApp {
     }
 
     /// Searches files and folders for audio in the background, then adds the
-    /// tracks as pending rows and queues them for analysis.
+    /// tracks: those the cache knows filled in, the rest as pending rows
+    /// queued for analysis.
     pub(crate) fn add_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<'_, Self>) {
         self.scans_in_progress += 1;
         cx.notify();
+        let cache = self.session.cache();
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
-                .spawn(async move { scan(&paths) })
+                .spawn(async move { scan(&paths, cache.as_deref()) })
                 .await;
-            this.update(cx, |this, cx| this.finish_scan(&found, cx))
-                .ok();
+            this.update(cx, |this, cx| this.finish_scan(found, cx)).ok();
         })
         .detach();
     }
 
-    fn finish_scan(&mut self, found: &Scan, cx: &mut Context<'_, Self>) {
+    fn finish_scan(&mut self, mut found: Scan, cx: &mut Context<'_, Self>) {
         self.scans_in_progress = self.scans_in_progress.saturating_sub(1);
         let folder_count_before = self.session.library().folders().len();
-        self.session.add(found);
 
-        let mut problems: Vec<String> = found
-            .problems
-            .iter()
+        let mut problems: Vec<String> = std::mem::take(&mut found.problems)
+            .into_iter()
             .map(|problem| format!("Could not add a folder: {problem}"))
             .collect();
-        if found.problems.is_empty() && found.files.is_empty() {
+        if problems.is_empty() && found.files.is_empty() {
             problems.push("No audio files found there.".to_string());
         }
+        self.session.add(found);
         if self.session.library().folders().len() != folder_count_before {
             problems.extend(self.save_settings());
         }
         if !problems.is_empty() {
-            self.notice = Some(problems.join(" "));
+            self.report(problems.join(" "));
         }
 
         self.refresh_visible();
+        self.refresh_mixes();
         self.select_first_track_if_none(cx);
         self.start_collecting(cx);
         cx.notify();
+    }
+
+    /// Shows a problem in the notice strip, after any that is already there
+    /// so that an earlier one is not lost.
+    fn report(&mut self, problem: String) {
+        self.notice = Some(match self.notice.take() {
+            Some(earlier) => format!("{earlier} {problem}"),
+            None => problem,
+        });
     }
 
     /// Selects the first row when nothing is selected, so the inspector has
@@ -250,6 +256,11 @@ impl EuphoriaApp {
                         this.refresh_visible();
                         this.refresh_mixes();
                         this.load_selected_waveform(cx);
+                        if let Some(problem) = this.session.take_cache_problem() {
+                            this.report(format!(
+                                "Results are not being saved to the cache: {problem}."
+                            ));
+                        }
                         cx.notify();
                     }
                     let is_active = this.session.progress().is_active();
@@ -400,17 +411,27 @@ impl EuphoriaApp {
     }
 
     /// Decodes the selected track in the background and keeps its peaks,
-    /// unless they are already known. Failed tracks are not decoded again.
+    /// unless they are already kept or already being decoded. Tracks without
+    /// an analysis are not decoded.
     fn load_selected_waveform(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(track) = self.selected_track() else {
+        let path = self
+            .selected_track()
+            .filter(|track| track.analysis().is_some())
+            .map(|track| track.path.clone());
+        let Some(path) = path else {
             self.waveform_task = None;
             return;
         };
-        if track.analysis().is_none() || self.waveforms.contains_key(&track.path) {
+        if self.waveform_task_path.as_ref() == Some(&path) && self.waveform_task.is_some() {
+            return;
+        }
+        let is_decoded = self.waveforms.touch(&path)
+            && !matches!(self.waveforms.get(&path), Some(Waveform::Reading));
+        if is_decoded {
             self.waveform_task = None;
             return;
         }
-        let path = track.path.clone();
+        self.waveform_task_path = Some(path.clone());
         self.waveform_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(WAVEFORM_DELAY).await;
             let marked = this.update(cx, |this, cx| {
@@ -434,6 +455,7 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.insert(path, waveform);
+                this.waveform_task_path = None;
                 cx.notify();
             })
             .ok();

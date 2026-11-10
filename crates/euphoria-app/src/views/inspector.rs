@@ -7,9 +7,9 @@
 
 use gpui::component::Icon;
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, SharedString, Stateful, div, px};
+use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, TestSupportExt, div, px};
 
-use crate::app::{EuphoriaApp, Waveform};
+use crate::app::EuphoriaApp;
 use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
 use crate::format;
@@ -20,6 +20,7 @@ use crate::views::key_chip::key_chip;
 use crate::views::waveform::waveform;
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
+use crate::waveforms::Waveform;
 
 const INSPECTOR_WIDTH: f32 = 320.0;
 
@@ -27,7 +28,7 @@ const INSPECTOR_WIDTH: f32 = 320.0;
 const DECK_MIX_COUNT: usize = 4;
 
 /// The inspector for the selected track, or a hint when nothing is selected.
-pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
+pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let theme = &app.theme;
     let palette = theme.palette;
     let is_column = theme.layout == Layout::InspectorRight;
@@ -56,11 +57,14 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
     .border_color(palette.line);
 
     let Some(track) = app.selected_track() else {
-        return container.child(
-            div()
-                .text_color(palette.text_tertiary)
-                .child("Select a track to see its key, tempo and waveform."),
-        );
+        return container
+            .child(
+                div()
+                    .text_color(palette.text_tertiary)
+                    .child("Select a track to see its key, tempo and waveform."),
+            )
+            .test_support()
+            .into_any_element();
     };
 
     // In the column every section fills the width. In the strip each has a
@@ -91,6 +95,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
         .when(is_column, |inspector| {
             inspector.child(divided(location(track, &palette)))
         })
+        .test_support()
+        .into_any_element()
 }
 
 /// Cover placeholder, file name, folder and format.

@@ -35,9 +35,38 @@ pub(crate) fn signed_percent(percent: f32) -> String {
     format!("{percent:+.1}%")
 }
 
+/// How many tracks the table shows out of the library, and how many of the
+/// library's tracks were filled in from the cache, for example
+/// "48 tracks, 44 from cache" or "18 of 1,284 tracks".
+pub(crate) fn track_summary(shown: usize, total: usize, from_cache: usize) -> String {
+    let noun = if total == 1 { "track" } else { "tracks" };
+    let mut summary = if shown == total {
+        format!("{} {noun}", count(total))
+    } else {
+        format!("{} of {} {noun}", count(shown), count(total))
+    };
+    if from_cache > 0 {
+        summary.push_str(&format!(", {} from cache", count(from_cache)));
+    }
+    summary
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summarises_the_tracks_shown_and_those_from_the_cache() {
+        assert_eq!(track_summary(48, 48, 44), "48 tracks, 44 from cache");
+        assert_eq!(track_summary(48, 48, 0), "48 tracks");
+        assert_eq!(track_summary(18, 1284, 0), "18 of 1,284 tracks");
+        assert_eq!(
+            track_summary(18, 1284, 1200),
+            "18 of 1,284 tracks, 1,200 from cache"
+        );
+        assert_eq!(track_summary(1, 1, 1), "1 track, 1 from cache");
+        assert_eq!(track_summary(0, 0, 0), "0 tracks");
+    }
 
     #[test]
     fn formats_signed_percentages() {

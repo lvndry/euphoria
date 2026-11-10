@@ -24,7 +24,11 @@ mod theme;
 #[cfg(test)]
 mod ui_tests;
 mod views;
+mod waveforms;
 
+use std::sync::Arc;
+
+use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError};
 use gpui::prelude::*;
 use gpui::{
     AnyWindowHandle, App, Bounds, Entity, KeyBinding, Menu, MenuItem, QuitMode, TitlebarOptions,
@@ -42,6 +46,13 @@ use crate::theme::ThemeName;
 
 const WINDOW_TITLE: &str = "Euphoria";
 
+/// Opens the analysis cache the command line tool also uses and reads what
+/// it holds.
+fn open_cache() -> Result<CachedAnalyzer, EuphoriaError> {
+    let cache = Cache::open(&euphoria_core::default_cache_path()?)?;
+    CachedAnalyzer::new(cache)
+}
+
 fn main() {
     gpui::application()
         .with_assets(assets::AppAssets)
@@ -57,7 +68,7 @@ fn main() {
 
 fn open_main_window(cx: &mut App) -> Result<(), String> {
     let settings_path = settings::settings_path();
-    let (settings, notice) = match settings_path.as_deref().map(Settings::load) {
+    let (settings, settings_problem) = match settings_path.as_deref().map(Settings::load) {
         Some(Ok(settings)) => (settings, None),
         Some(Err(error)) => (
             Settings::default(),
@@ -65,8 +76,21 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
         ),
         None => (Settings::default(), None),
     };
-    let mut session =
-        Session::start().map_err(|error| format!("cannot start the analysis workers: {error}"))?;
+    let (cache, cache_problem) = match open_cache() {
+        Ok(cache) => (Some(Arc::new(cache)), None),
+        Err(error) => (
+            None,
+            Some(format!(
+                "Analyzing without the cache, so results will not be remembered: {}.",
+                error.chain()
+            )),
+        ),
+    };
+    let problems: Vec<String> = settings_problem.into_iter().chain(cache_problem).collect();
+    let notice = (!problems.is_empty()).then(|| problems.join(" "));
+
+    let mut session = Session::start(cache)
+        .map_err(|error| format!("cannot start the analysis workers: {error}"))?;
     if let Some(count) = demo::requested_track_count() {
         session.add_demo_tracks(demo::tracks(count));
     }

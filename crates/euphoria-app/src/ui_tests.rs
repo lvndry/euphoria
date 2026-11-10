@@ -15,7 +15,7 @@ use crate::demo;
 use crate::library::{SortColumn, SortOrder};
 use crate::settings::Settings;
 use crate::state::Session;
-use crate::theme::ThemeName;
+use crate::theme::{AppTheme, Layout, ThemeName};
 
 /// Index of the BPM column among the table's column headers.
 const BPM_COLUMN: usize = 4;
@@ -35,7 +35,7 @@ fn open_library(
         };
         gpui::open_window(options, cx, |window, cx| {
             cx.new(|cx| {
-                let mut session = Session::start().unwrap();
+                let mut session = Session::start(None).unwrap();
                 session.add_demo_tracks(demo::tracks(track_count));
                 EuphoriaApp::new(session, Settings::default(), None, None, window, cx)
             })
@@ -178,19 +178,79 @@ fn only_the_rows_in_view_are_built_for_ten_thousand_tracks(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn choosing_a_theme_changes_layout_and_sort_order(cx: &mut TestAppContext) {
+fn each_theme_lays_the_window_out_as_it_should(cx: &mut TestAppContext) {
+    let (window, view) = open_library(50, cx);
+    let sidebar_width = px(220.0);
+    for name in ThemeName::ALL {
+        let expected = AppTheme::named(name);
+        cx.update(|cx| view.update(cx, |app, cx| app.set_theme(name, cx)));
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let viewport = window.viewport_size();
+            let inspector = window.find("inspector").bounds();
+            let first_row = window.find(track(view.read(cx).visible[0])).bounds();
+
+            match expected.layout {
+                Layout::InspectorRight => {
+                    assert_eq!(inspector.right(), viewport.width, "{name:?}");
+                    assert_eq!(inspector.size.width, px(320.0), "{name:?}");
+                    assert!(first_row.right() <= inspector.left(), "{name:?}");
+                    assert!(inspector.top() < first_row.top(), "{name:?}");
+                }
+                Layout::DeckBelow => {
+                    assert_eq!(inspector.left(), sidebar_width, "{name:?}");
+                    assert_eq!(inspector.right(), viewport.width, "{name:?}");
+                    assert_eq!(inspector.bottom(), viewport.height, "{name:?}");
+                    assert_eq!(first_row.right(), viewport.width, "{name:?}");
+                    assert!(inspector.top() > first_row.bottom(), "{name:?}");
+                }
+            }
+            assert_eq!(first_row.size.height, expected.row_height, "{name:?}");
+            assert_eq!(
+                gpui::component::ActiveTheme::theme(cx).mode.is_dark(),
+                expected.palette.is_dark,
+                "{name:?}"
+            );
+        })
+        .unwrap();
+        cx.update(|cx| {
+            let app = view.read(cx);
+            assert_eq!(app.theme, expected, "{name:?}");
+        });
+    }
+}
+
+#[gpui::test]
+fn the_expected_layout_of_each_theme_is_the_one_in_the_spec(_cx: &mut TestAppContext) {
+    let layout_and_rows = |name| {
+        let theme = AppTheme::named(name);
+        (theme.layout, theme.row_height, theme.shows_wheel)
+    };
+    let column = Layout::InspectorRight;
+    assert_eq!(layout_and_rows(ThemeName::Slate), (column, px(32.0), false));
+    assert_eq!(layout_and_rows(ThemeName::Paper), (column, px(32.0), false));
+    assert_eq!(
+        layout_and_rows(ThemeName::Deck),
+        (Layout::DeckBelow, px(32.0), false)
+    );
+    assert_eq!(
+        layout_and_rows(ThemeName::Graphite),
+        (column, px(26.0), false)
+    );
+    assert_eq!(
+        layout_and_rows(ThemeName::KeyFirst),
+        (column, px(32.0), true)
+    );
+}
+
+#[gpui::test]
+fn key_first_sorts_the_table_by_key(cx: &mut TestAppContext) {
     let (_, view) = open_library(50, cx);
     cx.update(|cx| {
         view.update(cx, |app, cx| app.set_theme(ThemeName::KeyFirst, cx));
-        let app = view.read(cx);
-        assert_eq!(app.theme.name, ThemeName::KeyFirst);
         assert_eq!(
-            app.sort_order.map(|order| order.column),
+            view.read(cx).sort_order.map(|order| order.column),
             Some(SortColumn::Key)
         );
-        assert!(gpui::component::ActiveTheme::theme(cx).mode.is_dark());
-
-        view.update(cx, |app, cx| app.set_theme(ThemeName::Paper, cx));
-        assert!(!gpui::component::ActiveTheme::theme(cx).mode.is_dark());
     });
 }

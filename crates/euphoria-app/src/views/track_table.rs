@@ -171,13 +171,11 @@ fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
             .unwrap_or_else(|| folder.to_string_lossy().into_owned())
             .into(),
     };
-    let total = app.session.library().counts().total;
-    let shown = app.visible.len();
-    let count = if shown == total {
-        format::count(total)
-    } else {
-        format!("{} of {}", format::count(shown), format::count(total))
-    };
+    let count = format::track_summary(
+        app.visible.len(),
+        app.session.library().counts().total,
+        app.session.cached_count(),
+    );
 
     div()
         .flex()

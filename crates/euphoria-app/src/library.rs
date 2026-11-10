@@ -37,6 +37,7 @@ pub(crate) struct Track {
     /// Where the track is in its analysis.
     pub(crate) status: TrackStatus,
     file_name_lowercase: String,
+    folder_lowercase: String,
 }
 
 impl Track {
@@ -56,6 +57,7 @@ impl Track {
             .unwrap_or_default();
         Self {
             file_name_lowercase: file_name.to_lowercase(),
+            folder_lowercase: folder.to_lowercase(),
             path,
             file_name,
             format,
@@ -307,10 +309,7 @@ fn compare_tracks(first: &Track, second: &Track, sort_order: SortOrder) -> Order
         ),
         SortColumn::Format => directed(first.format.cmp(&second.format), sort_order),
         SortColumn::Folder => directed(
-            first
-                .folder
-                .to_lowercase()
-                .cmp(&second.folder.to_lowercase()),
+            first.folder_lowercase.cmp(&second.folder_lowercase),
             sort_order,
         ),
         SortColumn::Key => compare_optional(
@@ -554,6 +553,28 @@ mod tests {
                 "Low Tide.aiff",
                 "saffron.mp3"
             ]
+        );
+    }
+
+    #[test]
+    fn sorts_folders_without_regard_to_letter_case() {
+        let mut library = Library::default();
+        library.add_files(
+            [
+                "/music/techno/b.mp3",
+                "/music/House/a.mp3",
+                "/music/ambient/c.mp3",
+            ]
+            .map(PathBuf::from)
+            .to_vec(),
+        );
+        assert_eq!(
+            visible(&library, "", ascending(SortColumn::Folder)),
+            ["c.mp3", "a.mp3", "b.mp3"]
+        );
+        assert_eq!(
+            visible(&library, "", descending(SortColumn::Folder)),
+            ["b.mp3", "a.mp3", "c.mp3"]
         );
     }
 

@@ -28,7 +28,7 @@ bench/              dataset download script, Essentia reference script, results
 | --- | --- |
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
 | `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. |
-| `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and runs batches that analyze only the files it does not know. |
+| `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and analyzes only the files it does not know, as a batch or one file at a time. |
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
@@ -51,7 +51,7 @@ Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::an
 
 ## euphoria-app
 
-The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, analyzes them with `analysis::analyze_file` on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. State that needs no window (the library, sorting and searching, progress, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
+The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, fills in the ones `cache::CachedAnalyzer` already knows, analyzes the rest through it on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. State that needs no window (the library, sorting and searching, progress, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
 
 ## Detector choice
 
