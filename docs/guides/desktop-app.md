@@ -25,7 +25,7 @@ On first launch the window shows a drop zone. Drop a folder, or several folders 
 
 Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a pending row and fills in when its analysis finishes. The toolbar shows the progress, for example "Analyzing 12 of 340".
 
-The app analyzes as many tracks at once as your computer has cores, up to 4, the same limit the command line tool uses by default. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
+The app analyzes as many tracks at once as your computer has cores, up to 8, the same limit the command line tool uses by default. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
 
 Your files are only read. The app does not write tags or change files.
 
