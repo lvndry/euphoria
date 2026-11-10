@@ -1,6 +1,3 @@
-// Copyright 2026 The Euphoria contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 use std::fmt;
 use std::str::FromStr;
 

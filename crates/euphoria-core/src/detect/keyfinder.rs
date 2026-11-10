@@ -1,6 +1,3 @@
-// Copyright 2026 The Euphoria contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 use std::os::raw::{c_int, c_uint, c_ulong};
 
 use crate::audio::AudioBuffer;

@@ -1,6 +1,3 @@
-// Copyright 2026 The Euphoria contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 //! Scoring rules shared by published key and tempo evaluations.
 
 use euphoria_core::Key;

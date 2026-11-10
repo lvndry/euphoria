@@ -44,7 +44,6 @@ Run the same checks as CI:
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-./.github/scripts/check-license-headers.sh
 ```
 
 CI also checks TOML formatting with [taplo](https://taplo.tamasfe.dev) and dependencies with [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). You can run both locally with `taplo fmt --check` and `cargo deny check`.
@@ -66,13 +65,6 @@ cargo run --release -p euphoria-bench
 - Open the pull request as a draft while it is still in progress.
 
 ## Code conventions
-
-- Every source file starts with the license header:
-
-  ```
-  // Copyright 2026 The Euphoria contributors
-  // SPDX-License-Identifier: GPL-3.0-or-later
-  ```
 
 - Public items in `euphoria-core` are documented.
 - Every `unsafe` block has a `// SAFETY:` comment explaining why it is sound.

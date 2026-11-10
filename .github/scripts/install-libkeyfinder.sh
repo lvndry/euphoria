@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Copyright 2026 The Euphoria contributors
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 # Builds and installs libkeyfinder from a checksummed release archive, for
 # Linux distributions that do not package it.
 set -euo pipefail

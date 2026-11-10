@@ -1,6 +1,3 @@
-// Copyright 2026 The Euphoria contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 //! Key and tempo detectors behind common traits, so the benchmark and the
 //! product can swap implementations.
 

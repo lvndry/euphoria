@@ -36,16 +36,6 @@ jobs:
       - name: Check TOML formatting
         run: taplo fmt --check --diff
 
-  license-headers:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check license headers
-        run: ./.github/scripts/check-license-headers.sh
-
   dependencies:
     runs-on: ubuntu-latest
     timeout-minutes: 10

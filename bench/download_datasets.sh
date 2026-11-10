@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Copyright 2026 The Euphoria contributors
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 # Downloads the GiantSteps key and tempo datasets (annotations and audio previews)
 # into bench/data, which is not tracked by git.
 set -euo pipefail
