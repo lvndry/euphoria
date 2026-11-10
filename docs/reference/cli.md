@@ -119,7 +119,7 @@ Playlists mirror the folders:
 - When one named folder is inside another, each gets its own entry.
 - An entry that would have the same name as an earlier entry beside it gets ` (2)`, ` (3)` and so on after its name.
 
-The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written.
+The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written. Without `--force` it only takes a name that is free: a file that another program creates at the output path while the export runs is kept, and the export fails.
 
 ### Output and exit status
 
@@ -146,6 +146,7 @@ A damaged tag does not cause the note. Either the file still opens and is export
 The command also exits with status 1, and writes no file, when:
 
 - the output file exists and `--force` was not given, or its folder does not exist,
+- the output file is one of the audio files to export, reached by any path or symbolic link, or it has an audio file extension and is inside a folder to export. `--force` does not change this, so an export never replaces a track,
 - no audio file was found, or none could be exported,
 - folders are nested more than 32 levels deep, the most a rekordbox XML file can hold. The error names the first folder beyond the limit.
 

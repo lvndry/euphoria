@@ -37,7 +37,13 @@ fn resolved(path: &Path) -> PathBuf {
 }
 
 fn assert_success(output: &Output) {
-    assert!(output.status.success(), "{}", standard_error(output));
+    assert!(
+        output.status.success(),
+        "the command ended with {}\nstandard error:\n{}\nstandard output:\n{}",
+        output.status,
+        standard_error(output),
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 /// The lines a successful export writes to standard error: the summary and
@@ -412,10 +418,12 @@ fn a_track_whose_tags_cannot_be_read_is_exported_under_its_file_name() {
     let music_folder = resolved(music.path());
     let readable = music_folder.join("readable.flac");
     let unreadable = music_folder.join("Locked Away.flac");
-    for copy in [&readable, &unreadable] {
-        std::fs::copy(tagged_fixtures_directory().join("tagged.flac"), copy)
-            .expect("the fixture is copied");
-    }
+    // The two files differ in content. The cache keeps one place per content,
+    // so of two identical files only one is found again without being opened.
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.flac"), &readable)
+        .expect("the fixture is copied");
+    std::fs::copy(tagged_fixtures_directory().join("tagged.flac"), &unreadable)
+        .expect("the fixture is copied");
     let output_file = music_folder.join("library.xml");
     let arguments = [
         "export",
@@ -426,6 +434,10 @@ fn a_track_whose_tags_cannot_be_read_is_exported_under_its_file_name() {
         text(&output_file),
     ];
     assert_success(&euphoria.run(&arguments));
+    let before = ExportedLibrary::read(&output_file);
+    let track_before = before.track(&unreadable);
+    assert_eq!(track_before.name.as_deref(), Some("Low Tide"));
+    assert_eq!(track_before.artist.as_deref(), Some("Saffron & Co"));
     let set_mode = |mode| {
         std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(mode))
             .expect("the file's permissions are set");
@@ -460,20 +472,160 @@ fn a_track_whose_tags_cannot_be_read_is_exported_under_its_file_name() {
     );
 
     let library = ExportedLibrary::read(&output_file);
-    let analyzed_track = library.track(&readable);
     let renamed_track = library.track(&unreadable);
     assert_eq!(renamed_track.name.as_deref(), Some("Locked Away"));
     assert_eq!(renamed_track.artist, None);
-    assert_eq!(analyzed_track.name.as_deref(), Some("Low Tide"));
     assert!(renamed_track.tonality.is_some());
-    assert_eq!(renamed_track.tonality, analyzed_track.tonality);
-    assert_eq!(renamed_track.total_time, analyzed_track.total_time);
+    assert_eq!(renamed_track.tonality, track_before.tonality);
+    assert_eq!(renamed_track.tempo, track_before.tempo);
+    assert_eq!(renamed_track.total_time, track_before.total_time);
+    assert_eq!(library.track(&readable), before.track(&readable));
     assert_eq!(
         library.playlists,
         vec![ExportedNode::Playlist(
             text(music_folder.file_name().map(Path::new).expect("a name")).to_string(),
             vec![unreadable, readable]
         )]
+    );
+}
+
+#[test]
+fn an_output_that_is_one_of_the_audio_files_is_refused_even_with_force() {
+    let euphoria = Euphoria::new();
+    let music = TemporaryFolder::new();
+    let music_folder = resolved(music.path());
+    let library_folder = music_folder.join("library");
+    std::fs::create_dir_all(&library_folder).expect("the folder is created");
+    let song = library_folder.join("song.flac");
+    let original = std::fs::read(fixtures_directory().join("sine-440hz-mono.flac"))
+        .expect("the fixture is read");
+    std::fs::write(&song, &original).expect("the song is written");
+    let assert_refused = |arguments: &[&str], expected: &str| {
+        let refused = euphoria
+            .command(arguments)
+            .current_dir(&music_folder)
+            .output()
+            .expect("the euphoria binary runs");
+        let errors = standard_error(&refused);
+        assert_eq!(refused.status.code(), Some(1), "{arguments:?}: {errors}");
+        assert!(errors.starts_with("error: "), "{arguments:?}: {errors}");
+        assert!(errors.contains(expected), "{arguments:?}: {errors}");
+        assert_eq!(
+            std::fs::read(&song).expect("the song is read"),
+            original,
+            "{arguments:?}"
+        );
+        assert!(
+            !euphoria.cache_path().exists(),
+            "{arguments:?}: the export stops before analyzing anything"
+        );
+    };
+    let is_an_input = "is one of the files to export";
+
+    assert_refused(
+        &[
+            "export",
+            "rekordbox",
+            text(&song),
+            "--force",
+            "-o",
+            text(&song),
+        ],
+        is_an_input,
+    );
+    assert_refused(
+        &[
+            "export",
+            "rekordbox",
+            "library/song.flac",
+            "--force",
+            "-o",
+            "library/../library/./song.flac",
+        ],
+        is_an_input,
+    );
+    assert_refused(
+        &[
+            "export",
+            "rekordbox",
+            "library",
+            "--force",
+            "-o",
+            "library/song.flac",
+        ],
+        is_an_input,
+    );
+    assert_refused(
+        &[
+            "export",
+            "rekordbox",
+            "library",
+            "--force",
+            "-o",
+            "library/new.MP3",
+        ],
+        "has the extension of an audio file and is inside",
+    );
+    assert!(!library_folder.join("new.MP3").exists());
+
+    #[cfg(unix)]
+    {
+        let link_to_song = music_folder.join("link.xml");
+        std::os::unix::fs::symlink(&song, &link_to_song).expect("the link is created");
+        assert_refused(
+            &[
+                "export",
+                "rekordbox",
+                "library",
+                "--force",
+                "-o",
+                "link.xml",
+            ],
+            is_an_input,
+        );
+        assert!(link_to_song.is_symlink());
+
+        let link_to_folder = music_folder.join("linked-library");
+        std::os::unix::fs::symlink(&library_folder, &link_to_folder).expect("the link is created");
+        assert_refused(
+            &[
+                "export",
+                "rekordbox",
+                "library",
+                "--force",
+                "-o",
+                "linked-library/song.flac",
+            ],
+            is_an_input,
+        );
+        assert_refused(
+            &[
+                "export",
+                "rekordbox",
+                "linked-library",
+                "--force",
+                "-o",
+                "library/new.wav",
+            ],
+            "has the extension of an audio file and is inside",
+        );
+    }
+
+    let allowed = euphoria
+        .command(&[
+            "export",
+            "rekordbox",
+            "library",
+            "-o",
+            "library/library.xml",
+        ])
+        .current_dir(&music_folder)
+        .output()
+        .expect("the euphoria binary runs");
+    assert_success(&allowed);
+    assert_eq!(
+        ExportedLibrary::read(&library_folder.join("library.xml")).tracks[0].path,
+        song
     );
 }
 

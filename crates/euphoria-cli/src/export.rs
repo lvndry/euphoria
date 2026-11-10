@@ -12,7 +12,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::export::rekordbox::{ExistingFile, ExportOptions, KeyNotation, write_xml_file};
 use euphoria_core::{
     AssembledLibrary, CachedBatch, PlaylistLayout, assemble_library, find_audio_files,
-    playlist_count,
+    is_supported_audio_file, playlist_count,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -87,6 +87,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     let paths = resolve(&arguments.paths)?;
     let folders: Vec<PathBuf> = paths.iter().filter(|path| path.is_dir()).cloned().collect();
     let audio_files = find_audio_files(&paths).map_err(with_causes)?;
+    check_output_is_not_an_input(&output_file, &audio_files, &folders)?;
     if audio_files.is_empty() {
         bail!("no audio files found, so nothing was exported");
     }
@@ -180,6 +181,59 @@ fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Refuses an output file that is one of the audio files, or that would be
+/// taken for one the next time its folder is exported. Paths are compared
+/// once resolved, so a symbolic link to an audio file and another spelling of
+/// its path are refused too.
+fn check_output_is_not_an_input(
+    output_file: &Path,
+    audio_files: &[PathBuf],
+    folders: &[PathBuf],
+) -> Result<()> {
+    let resolved_output = resolve_output(output_file)?;
+    for audio_file in audio_files {
+        // A file that cannot be resolved cannot be opened either, and is
+        // reported when its analysis fails.
+        if audio_file
+            .canonicalize()
+            .is_ok_and(|resolved_input| resolved_input == resolved_output)
+        {
+            bail!(
+                "{} is one of the files to export, and the export would replace it. Choose another output file.",
+                output_file.display()
+            );
+        }
+    }
+    if is_supported_audio_file(&resolved_output)
+        && let Some(folder) = folders
+            .iter()
+            .find(|folder| resolved_output.starts_with(folder))
+    {
+        bail!(
+            "{} has the extension of an audio file and is inside {}, a folder to export. Give the output file another extension, such as .xml.",
+            output_file.display(),
+            folder.display()
+        );
+    }
+    Ok(())
+}
+
+/// Where the output file really is: the file a symbolic link at that path
+/// leads to, or for a file that does not exist yet, its name in its resolved
+/// folder.
+fn resolve_output(output_file: &Path) -> Result<PathBuf> {
+    if let Ok(resolved) = output_file.canonicalize() {
+        return Ok(resolved);
+    }
+    let cannot_use = || format!("cannot use {} as the output", output_file.display());
+    let folder = output_file.parent().with_context(cannot_use)?;
+    let file_name = output_file.file_name().with_context(cannot_use)?;
+    Ok(folder
+        .canonicalize()
+        .with_context(cannot_use)?
+        .join(file_name))
 }
 
 /// The full path of each argument, with `..` and symbolic links in the
