@@ -33,6 +33,12 @@ Musical key names are hard to compare at a glance: it is not obvious that A mino
 
 Euphoria shows both: the Camelot code for mixing decisions and the musical key for reference. Keys are spelled the way their key signatures are written, so the minor key on 12A is C# minor and the major key on 3B is Db major, although both have the same tonic.
 
+## Open Key codes
+
+Open Key is a second way to number the same wheel, used by Traktor among others. It starts at C major and A minor, so its number is the Camelot number minus seven, wrapping around the wheel, and the letter is **m** for minor keys and **d** for major keys. A minor is 8A in Camelot and 1m in Open Key; C major is 8B and 1d; G# minor is 1A and 6m.
+
+Wherever Euphoria reads a key, it accepts a musical name (A minor), a Camelot code (8A) or an Open Key code (1m).
+
 ## Which keys mix well
 
 From a track in a given code, these moves stay in tune:
@@ -41,7 +47,30 @@ From a track in a given code, these moves stay in tune:
 - **One number up or down, same letter** (8A to 7A or 9A): a fifth apart. The most common move.
 - **Same number, other letter** (8A to 8B): the relative major or minor, which shares all its notes and changes the mood.
 
-Other moves can work too, but these are the safe ones.
+Euphoria looks for these three unless you ask for more.
+
+## Bolder moves
+
+Four more moves have a name in harmonic mixing. They change more notes, so the result is more noticeable, and most work best as a short mix. From smoothest to boldest:
+
+| Move | From 8A (A minor) | From 8B (C major) | How it sounds |
+| --- | --- | --- | --- |
+| **Diagonal** | 7B | 9A | One step and the other letter. The keys share six of their seven notes, so the blend holds together while the mood shifts. |
+| **Energy boost** | 10A | 10B | Two numbers up, same letter. The key rises by a whole tone, a clear lift in energy. |
+| **Mood change** | 11B | 5A | The same home note in the other mode, such as A minor to A major. A dramatic change of mood. |
+| **Semitone boost** | 3A | 3B | Seven numbers up, same letter. The key rises by a semitone, a dramatic lift whose melodies clash. |
+
+The diagonal and the mood change depend on the letter you start from. From a minor key the diagonal is one number down and the mood change is three numbers up; from a major key the diagonal is one number up and the mood change is three numbers down.
+
+The two boosts only go up. Going from 10A back to 8A is not an energy boost, and Euphoria does not suggest it.
+
+Numbers wrap around the wheel: one step up from 12A is 1A, and an energy boost from 11B lands on 1B.
+
+## What mixes into a track
+
+When you ask what can follow a track, Euphoria keeps the tracks whose key makes one of the moves you allow and whose tempo is close enough, 6 percent by default. A track at half or double the tempo can count as a tempo match if you allow it. Tracks without a detected key are left out; tracks without a detected tempo are kept and listed last.
+
+The list is ordered by move, from the same key to the boldest move you allowed, then by tempo difference, then by how close the energy is.
 
 ## How sure is the detected key?
 
