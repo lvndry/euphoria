@@ -28,8 +28,8 @@ pub use analysis::{
 };
 pub use audio::{AudioBuffer, decode_mono};
 pub use cache::{
-    Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
-    clear_cache, default_cache_path,
+    Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
+    DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use harmony::{
