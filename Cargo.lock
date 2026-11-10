@@ -1801,6 +1801,7 @@ dependencies = [
  "cc",
  "pkg-config",
  "rayon",
+ "roxmltree 0.21.2",
  "stratum-dsp",
  "symphonia 0.6.1",
  "thiserror 2.0.21",

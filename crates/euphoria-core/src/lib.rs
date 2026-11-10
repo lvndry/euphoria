@@ -12,6 +12,8 @@ pub mod audio;
 pub mod detect;
 /// The error type returned by the library.
 pub mod error;
+/// Writing analysis results in the formats of other DJ software.
+pub mod export;
 /// Key relations and ranking of the tracks that mix into another.
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
@@ -21,7 +23,7 @@ pub mod library;
 
 pub use analysis::{FileResult, Progress, TrackAnalysis, analyze_file, analyze_files};
 pub use audio::{AudioBuffer, decode_mono};
-pub use error::{DecodeFailure, ErrorSource, EuphoriaError};
+pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };

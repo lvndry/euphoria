@@ -33,6 +33,7 @@ A desktop app (`euphoria-app`) will join the workspace as another crate.
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
+| `export` | Writes analysis results for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
 ### Detectors
