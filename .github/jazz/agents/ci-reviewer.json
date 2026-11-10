@@ -6,7 +6,7 @@
     "persona": "coder",
     "llm": {
       "provider": "openrouter",
-      "model": "liquid/lfm-3-1.7b:free"
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free"
     },
     "tools": [
       "context_info",
