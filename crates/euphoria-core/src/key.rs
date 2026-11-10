@@ -25,8 +25,15 @@ pub struct Key {
     mode: Mode,
 }
 
-const NOTE_NAMES: [&str; 12] = [
+/// Tonic names for major keys, spelled as their key signatures are written.
+const MAJOR_TONIC_NAMES: [&str; 12] = [
     "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+];
+
+/// Tonic names for minor keys, spelled as their key signatures are written:
+/// C# minor has four sharps where Db minor would need eight flats.
+const MINOR_TONIC_NAMES: [&str; 12] = [
+    "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B",
 ];
 
 impl Key {
@@ -65,14 +72,14 @@ impl Key {
 
 impl fmt::Display for Key {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mode_name = match self.mode {
-            Mode::Major => "major",
-            Mode::Minor => "minor",
+        let (tonic_names, mode_name) = match self.mode {
+            Mode::Major => (&MAJOR_TONIC_NAMES, "major"),
+            Mode::Minor => (&MINOR_TONIC_NAMES, "minor"),
         };
         write!(
             formatter,
             "{} {}",
-            NOTE_NAMES[usize::from(self.tonic)],
+            tonic_names[usize::from(self.tonic)],
             mode_name
         )
     }
@@ -150,6 +157,36 @@ mod tests {
                 assert_eq!(key.to_string().parse::<Key>().unwrap(), key);
             }
         }
+    }
+
+    #[test]
+    fn spells_keys_as_their_key_signatures_are_written() {
+        let expectations = [
+            (1, Mode::Major, "Db major"),
+            (1, Mode::Minor, "C# minor"),
+            (8, Mode::Major, "Ab major"),
+            (8, Mode::Minor, "G# minor"),
+            (6, Mode::Major, "F# major"),
+            (6, Mode::Minor, "F# minor"),
+            (3, Mode::Major, "Eb major"),
+            (3, Mode::Minor, "Eb minor"),
+            (10, Mode::Minor, "Bb minor"),
+        ];
+        for (tonic, mode, name) in expectations {
+            assert_eq!(Key::new(tonic, mode).to_string(), name);
+        }
+    }
+
+    #[test]
+    fn parses_either_spelling_of_the_same_key() {
+        assert_eq!(
+            "C# minor".parse::<Key>().unwrap(),
+            "Db minor".parse::<Key>().unwrap()
+        );
+        assert_eq!(
+            "G# minor".parse::<Key>().unwrap(),
+            "Ab minor".parse::<Key>().unwrap()
+        );
     }
 
     #[test]

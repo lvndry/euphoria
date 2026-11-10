@@ -18,7 +18,7 @@ Musical key names are hard to compare at a glance: it is not obvious that A mino
 
 | Code | Key | Code | Key |
 | --- | --- | --- | --- |
-| 1A | Ab minor | 1B | B major |
+| 1A | G# minor | 1B | B major |
 | 2A | Eb minor | 2B | F# major |
 | 3A | Bb minor | 3B | Db major |
 | 4A | F minor | 4B | Ab major |
@@ -29,9 +29,9 @@ Musical key names are hard to compare at a glance: it is not obvious that A mino
 | 9A | E minor | 9B | G major |
 | 10A | B minor | 10B | D major |
 | 11A | F# minor | 11B | A major |
-| 12A | Db minor | 12B | E major |
+| 12A | C# minor | 12B | E major |
 
-Euphoria shows both: the Camelot code for mixing decisions and the musical key for reference.
+Euphoria shows both: the Camelot code for mixing decisions and the musical key for reference. Keys are spelled the way their key signatures are written, so the minor key on 12A is C# minor and the major key on 3B is Db major, although both have the same tonic.
 
 ## Which keys mix well
 
