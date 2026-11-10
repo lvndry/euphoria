@@ -82,6 +82,7 @@ struct ExportedTrack {
     total_time: String,
     tempo: Option<String>,
     tonality: Option<String>,
+    comment: Option<String>,
 }
 
 /// A playlist or folder: its name, and its tracks or its children.
@@ -131,6 +132,7 @@ impl ExportedLibrary {
                     total_time: attribute(node, "TotalTime").expect("a duration"),
                     tempo: attribute(node, "AverageBpm"),
                     tonality: attribute(node, "Tonality"),
+                    comment: attribute(node, "Comments"),
                 }
             })
             .collect();
@@ -234,6 +236,13 @@ fn exports_every_fixture_with_its_location_key_and_tempo() {
             analysis["key"]["camelot"].as_str(),
             "{track:?}"
         );
+        assert_eq!(
+            track.comment,
+            analysis["energy"]
+                .as_u64()
+                .map(|energy| format!("Energy {energy}")),
+            "{track:?}"
+        );
         match (&track.tempo, analysis["bpm"].as_f64()) {
             (None, None) => {}
             (Some(tempo), Some(analyzed_tempo)) => {
@@ -246,8 +255,9 @@ fn exports_every_fixture_with_its_location_key_and_tempo() {
     }
     assert!(
         library.tracks.iter().any(|track| track.tonality.is_some())
+            && library.tracks.iter().any(|track| track.comment.is_some())
             && library.tracks.iter().any(|track| track.tempo.is_some()),
-        "some fixture has a key and some fixture has a tempo"
+        "some fixture has a key, some an energy rating and some a tempo"
     );
     assert_eq!(
         library.playlists,
@@ -478,6 +488,7 @@ fn a_track_whose_tags_cannot_be_read_is_exported_under_its_file_name() {
     assert!(renamed_track.tonality.is_some());
     assert_eq!(renamed_track.tonality, track_before.tonality);
     assert_eq!(renamed_track.tempo, track_before.tempo);
+    assert_eq!(renamed_track.comment, track_before.comment);
     assert_eq!(renamed_track.total_time, track_before.total_time);
     assert_eq!(library.track(&readable), before.track(&readable));
     assert_eq!(

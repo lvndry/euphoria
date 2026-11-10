@@ -84,6 +84,9 @@ pub struct Track {
     /// Tempo in beats per minute. The attribute is left out when this is `None`.
     /// It is written with two decimals, so the smallest tempo is 0.01.
     pub bpm: Option<f64>,
+    /// Text for the comments column. The attribute is left out when this is
+    /// `None`.
+    pub comment: Option<String>,
     /// Position of the first beat. Together with `bpm` it becomes a beat grid
     /// with a constant tempo, counted in 4/4 with this beat as the first of a bar.
     pub first_beat: Option<Duration>,
@@ -101,6 +104,7 @@ impl Track {
             duration,
             key: None,
             bpm: None,
+            comment: None,
             first_beat: None,
             cue_points: Vec::new(),
         }
@@ -161,7 +165,7 @@ pub struct Playlist {
 /// The library is checked before anything is written, so a library that
 /// cannot be exported leaves `writer` untouched.
 ///
-/// Titles, artists, cue names, playlist names and folder names lose the
+/// Titles, artists, comments, cue names, playlist names and folder names lose the
 /// characters XML 1.0 cannot carry: the control characters U+0000 to U+001F
 /// other than tab, line feed and carriage return, and U+FFFE and U+FFFF. The
 /// rest of the text is written unchanged. Paths lose nothing, because every
@@ -430,6 +434,9 @@ fn push_track(
     push_attribute(document, "Location", &location);
     if let Some(key) = track.key {
         push_attribute(document, "Tonality", &tonality(key, options.key_notation));
+    }
+    if let Some(comment) = &track.comment {
+        push_attribute(document, "Comments", comment);
     }
 
     let beat_grid = tempo.zip(track.first_beat);

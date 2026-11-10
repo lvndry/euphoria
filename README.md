@@ -17,7 +17,7 @@ Available now:
 - Tempo detection in BPM
 - Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
 - `euphoria analyze`, a command line tool with table and JSON output
-- `euphoria export rekordbox`, which writes keys, tempos and a playlist per folder as a rekordbox XML file
+- `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - MP3, M4A (AAC), FLAC, WAV and AIFF
 - An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
 

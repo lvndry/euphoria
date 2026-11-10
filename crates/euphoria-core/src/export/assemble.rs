@@ -63,7 +63,8 @@ pub struct AssembledLibrary {
 
 /// Builds the library to export from analysis results.
 ///
-/// Each analyzed file becomes a track with its duration, key and tempo. Its
+/// Each analyzed file becomes a track with its duration, key and tempo, and
+/// with its energy rating as the comment "Energy 7" when it has one. Its
 /// title and artist are read from the file's own tags with [`read_track_name`]; a
 /// file with no title is given its file name without the extension. So is a
 /// file whose tags cannot be read, which has no artist and is also returned
@@ -136,6 +137,7 @@ fn track_from_analysis(path: &Path, analysis: &TrackAnalysis) -> (Track, Option<
         artist: tags.artist,
         key: analysis.key,
         bpm: analysis.bpm.map(f64::from),
+        comment: analysis.energy.map(|energy| format!("Energy {energy}")),
         ..Track::new(path, duration)
     };
     (track, unread_tags)

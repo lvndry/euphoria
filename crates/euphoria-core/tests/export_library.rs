@@ -107,6 +107,7 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 artist: Some("Saffron & Co".to_string()),
                 key: Some(Key::new(9, Mode::Minor)),
                 bpm: Some(124.0),
+                comment: Some("Energy 7".to_string()),
                 ..Track::new(&tagged, Duration::from_secs_f32(61.4))
             },
             Track {
@@ -117,6 +118,7 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 title: Some("Damaged Tag".to_string()),
                 key: Some(Key::new(9, Mode::Minor)),
                 bpm: Some(124.0),
+                comment: Some("Energy 7".to_string()),
                 ..Track::new(&damaged_tag, Duration::from_secs_f32(61.4))
             },
         ]

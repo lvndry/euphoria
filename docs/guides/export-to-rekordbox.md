@@ -5,7 +5,7 @@ description: Bring the keys and tempos Euphoria found into your rekordbox collec
 
 # Export to rekordbox
 
-One command analyzes your music and writes the keys and tempos as a rekordbox XML file:
+One command analyzes your music and writes the keys, tempos and energy ratings as a rekordbox XML file:
 
 ```
 euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
@@ -70,12 +70,15 @@ For each track:
 | Artist | When the file's tags have one | Left out otherwise. |
 | Key | When Euphoria found one | As a Camelot code such as `8A`, or a musical name such as `Am`. |
 | Tempo | When Euphoria found one | The average BPM with two decimals, such as `128.00`. |
+| Energy | When Euphoria rated the track | In the comments, as `Energy 7`. See [energy](../concepts/energy.md). |
 
 A track with no key or no tempo has no key or tempo in the file. Euphoria never writes an empty key or a tempo of zero.
 
 The file also holds the playlists and folders described above. Playlist folders can be nested up to 32 levels deep.
 
-Not in the file: beat grids, cue points, album, genre, rating, comments, colours, play counts, loops and waveforms.
+The comment of a track holds only the energy rating. If you keep your own notes in the comments of tracks that are already in your collection, check what rekordbox does with them on a few tracks before importing the rest: replacing a track's information may replace its comment. **(not verified)**
+
+Not in the file: beat grids, cue points, album, genre, rating, the comments in your files' tags, colours, play counts, loops and waveforms.
 
 The Euphoria library, in `euphoria_core::export::rekordbox`, can also write a beat grid with a constant tempo, memory cues and hot cues on pads A to P for programs built on it. The command does not write them, since Euphoria does not detect them yet. rekordbox's export mode uses only pads A to H, so hot cues on pads I to P may not show on CDJ and XDJ players that read a drive prepared there. **(not verified)**
 
