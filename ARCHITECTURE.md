@@ -22,7 +22,8 @@ A command line tool (`euphoria-cli`) and a desktop app (`euphoria-app`) will joi
 | Module | Responsibility |
 | --- | --- |
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
-| `key` | The `Key` type, Camelot codes and parsing of key names. |
+| `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
+| `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
