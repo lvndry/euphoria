@@ -35,9 +35,10 @@ pub use cache::{
     clear_cache, default_cache_path,
 };
 pub use energy::{
-    ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MODEL, ENERGY_MODEL_VERSION,
-    EnergyCurvePoint, EnergyFeatures, EnergyModel, EnergyRating, FeatureAnchor, energy_curve,
-    energy_features, rate_energy, rate_features,
+    ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
+    ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,
+    EnergyFeatures, EnergyModel, EnergyRating, FeatureAnchor, energy_curve, energy_features,
+    rate_energy, rate_features,
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use harmony::{

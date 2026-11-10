@@ -30,11 +30,14 @@ fn analyzes_a_folder_as_json() {
         assert!(track["error"].is_null(), "{track}");
         let duration = track["duration_seconds"].as_f64().expect("a duration");
         assert!((duration - 1.0).abs() < 0.1, "{track}");
+        let path = track["path"].as_str().expect("a path");
         let energy = &track["energy"];
-        assert!(
-            energy.is_null() || (1..=10).contains(&energy.as_u64().expect("a whole number")),
-            "{track}"
-        );
+        if path.contains("opposite-phase") {
+            assert!(energy.is_null(), "silence has no energy rating: {track}");
+        } else {
+            let rating = energy.as_u64().expect("a track with sound has a rating");
+            assert!((1..=10).contains(&rating), "{track}");
+        }
     }
 }
 

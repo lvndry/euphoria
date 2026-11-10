@@ -5,6 +5,7 @@ use std::num::NonZeroU32;
 
 use ebur128::{Channel, EbuR128, Mode};
 
+use super::check_sample_rate;
 use crate::error::EuphoriaError;
 
 /// Loudness of a stretch of audio, measured as EBU R128 describes.
@@ -19,10 +20,15 @@ pub(crate) struct Loudness {
 /// Measures integrated loudness and loudness range. Returns `Ok(None)` when
 /// the standard gives no loudness: the audio is shorter than one 400
 /// millisecond block or never rises above -70 LUFS.
+///
+/// The meter keeps three seconds of filtered audio, so its memory grows with
+/// the sample rate. A sample rate outside the supported range is an error
+/// before the meter is created.
 pub(crate) fn measure_loudness(
     samples: &[f32],
     sample_rate: NonZeroU32,
 ) -> Result<Option<Loudness>, EuphoriaError> {
+    check_sample_rate(sample_rate)?;
     let mut meter =
         EbuR128::new(1, sample_rate.get(), Mode::I | Mode::LRA).map_err(loudness_error)?;
     // The buffer is a mixdown that both speakers play, which is 3 dB louder
@@ -110,6 +116,24 @@ mod tests {
         }
         let loudness = measure_loudness(&samples, sample_rate()).unwrap().unwrap();
         assert!(loudness.range_lu > 10.0, "{}", loudness.range_lu);
+    }
+
+    #[test]
+    fn an_unsupported_sample_rate_is_an_error_whatever_the_length() {
+        for sample_count in [0, 4, 100_000] {
+            for rate in [1, 7_999, 384_001, u32::MAX] {
+                let outcome =
+                    measure_loudness(&vec![0.5; sample_count], NonZeroU32::new(rate).unwrap());
+                assert!(
+                    matches!(
+                        outcome,
+                        Err(EuphoriaError::UnsupportedSampleRate { sample_rate, .. })
+                            if sample_rate == rate
+                    ),
+                    "{rate} Hz with {sample_count} samples gave {outcome:?}"
+                );
+            }
+        }
     }
 
     #[test]

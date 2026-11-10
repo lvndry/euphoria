@@ -95,5 +95,6 @@ A window is rated on its own, so the curve usually reaches higher and lower than
 - **It is tuned on dance music.** Other genres get a rating, but the anchors were not chosen for them, so most acoustic or ambient music lands at the bottom of the scale and very dense music at the top.
 - **The whole track is averaged.** A track with a long quiet intro and a huge drop rates lower than its peak. Look at the energy curve for that.
 - **Tempo errors carry over.** If the detector reports half or double the true tempo, the rating shifts slightly.
+- **Sample rates from 8 kHz to 384 kHz.** A file that claims a rate outside that range is reported as a failure, since only a damaged file does.
 - **Mono analysis.** Euphoria mixes a track to mono before analysis, so stereo width plays no part.
 - **Lossy files differ a little.** The same track as MP3 and as FLAC can differ by a small amount in every feature, which now and then moves a rating by one.

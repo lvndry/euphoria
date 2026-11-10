@@ -8,8 +8,9 @@ use std::f32::consts::TAU;
 use std::num::NonZeroU32;
 
 use euphoria_core::{
-    AudioBuffer, ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MODEL_VERSION,
-    EnergyRating, energy_curve, energy_features, rate_energy, rate_features,
+    AudioBuffer, ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
+    ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, energy_curve,
+    energy_features, rate_energy, rate_features,
 };
 
 const SAMPLE_RATE: u32 = 44_100;
@@ -177,7 +178,8 @@ fn bassier_never_rates_lower() {
             ..thin.features
         },
         None,
-    );
+    )
+    .expect("the features are finite");
     assert_never_lower(&thin, &only_bass_differs);
     assert!(only_bass_differs.score > thin.score);
 }
@@ -269,4 +271,111 @@ fn audio_shorter_than_one_window_gives_a_single_point() {
 #[test]
 fn empty_audio_has_an_empty_curve() {
     assert!(energy_curve(&buffer(Vec::new()), None).unwrap().is_empty());
+}
+
+fn buffer_at(samples: Vec<f32>, rate: u32) -> AudioBuffer {
+    AudioBuffer::new(
+        samples,
+        NonZeroU32::new(rate).expect("the rate is not zero"),
+    )
+}
+
+fn is_unsupported_rate<Value>(outcome: &Result<Value, EuphoriaError>, rate: u32) -> bool {
+    matches!(
+        outcome,
+        Err(EuphoriaError::UnsupportedSampleRate { sample_rate, .. }) if *sample_rate == rate
+    )
+}
+
+#[test]
+fn an_unsupported_sample_rate_is_an_error_for_empty_short_and_long_audio() {
+    let rates = [
+        1,
+        ENERGY_MINIMUM_SAMPLE_RATE - 1,
+        ENERGY_MAXIMUM_SAMPLE_RATE + 1,
+        u32::MAX - 1,
+        u32::MAX,
+    ];
+    for rate in rates {
+        for sample_count in [0, 4, 500_000] {
+            let audio = buffer_at(
+                noise(0.5, 1.0)
+                    .into_iter()
+                    .cycle()
+                    .take(sample_count)
+                    .collect(),
+                rate,
+            );
+            let case = format!("{rate} Hz with {sample_count} samples");
+            assert!(
+                is_unsupported_rate(&energy_features(&audio), rate),
+                "{case}"
+            );
+            assert!(
+                is_unsupported_rate(&rate_energy(&audio, None), rate),
+                "{case}"
+            );
+            assert!(
+                is_unsupported_rate(&rate_energy(&audio, Some(128.0)), rate),
+                "{case}"
+            );
+            assert!(
+                is_unsupported_rate(&energy_curve(&audio, None), rate),
+                "{case}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_lowest_and_highest_supported_sample_rates_are_rated() {
+    for rate in [ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MAXIMUM_SAMPLE_RATE] {
+        let two_seconds = rate as usize * 2;
+        let samples: Vec<f32> = noise(0.5, 1.0)
+            .into_iter()
+            .cycle()
+            .take(two_seconds)
+            .collect();
+        let audio = buffer_at(samples, rate);
+        let rating = rate_energy(&audio, None).unwrap();
+        assert!(rating.is_some(), "{rate} Hz");
+        assert_eq!(energy_curve(&audio, None).unwrap().len(), 1, "{rate} Hz");
+    }
+}
+
+#[test]
+fn short_and_empty_audio_at_a_supported_rate_has_no_rating_and_no_error() {
+    for rate in [ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MAXIMUM_SAMPLE_RATE] {
+        for sample_count in [0, 4, rate as usize - 1] {
+            let audio = buffer_at(vec![0.5; sample_count], rate);
+            assert_eq!(energy_features(&audio).unwrap(), None);
+            assert_eq!(rate_energy(&audio, None).unwrap(), None);
+        }
+    }
+}
+
+#[test]
+fn an_unusable_tempo_is_an_error_even_for_silence() {
+    let sound = buffer(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 3.0));
+    let quiet = buffer(silence(3.0));
+    for tempo in [0.0, -128.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for audio in [&sound, &quiet] {
+            assert!(matches!(
+                rate_energy(audio, Some(tempo)),
+                Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
+            ));
+            assert!(matches!(
+                energy_curve(audio, Some(tempo)),
+                Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
+            ));
+        }
+    }
+}
+
+#[test]
+fn audio_with_a_sample_that_is_not_a_number_never_gets_an_invalid_rating() {
+    let mut samples = pulse_train(KICK_FREQUENCY, 4.0, 0.5, 3.0);
+    samples[1_000] = f32::NAN;
+    let outcome = rate_energy(&buffer(samples), None).unwrap();
+    assert!(outcome.is_none_or(|rating| rating.score.is_finite()));
 }

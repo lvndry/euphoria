@@ -13,6 +13,9 @@ use super::onsets::count_onsets;
 /// Frames are the power of two number of samples closest to this length.
 const FRAME_SECONDS: f32 = 0.04;
 const MINIMUM_FRAME_LENGTH: usize = 64;
+/// The frame at the highest supported sample rate. No frame is longer, so
+/// the working buffers stay small whatever sample rate a buffer claims.
+const MAXIMUM_FRAME_LENGTH: usize = 16_384;
 /// Each frame starts half a frame after the one before it.
 const FRAMES_PER_FRAME_LENGTH: usize = 2;
 /// Upper edge of the band that holds the kick drum and the bass.
@@ -137,7 +140,7 @@ impl SpectralAnalyzer {
 }
 
 fn frame_length(sample_rate: f32) -> usize {
-    let target = sample_rate * FRAME_SECONDS;
+    let target = (sample_rate * FRAME_SECONDS).min(MAXIMUM_FRAME_LENGTH as f32);
     let above = (target.ceil() as usize).next_power_of_two();
     let below = above / 2;
     let nearest = if target - below as f32 <= above as f32 - target {
@@ -145,7 +148,7 @@ fn frame_length(sample_rate: f32) -> usize {
     } else {
         above
     };
-    nearest.max(MINIMUM_FRAME_LENGTH)
+    nearest.clamp(MINIMUM_FRAME_LENGTH, MAXIMUM_FRAME_LENGTH)
 }
 
 fn hann_window(length: usize) -> Vec<f32> {
@@ -217,6 +220,22 @@ mod tests {
         assert_eq!(frame_length(22_050.0), 1_024);
         assert_eq!(frame_length(96_000.0), 4_096);
         assert_eq!(frame_length(100.0), MINIMUM_FRAME_LENGTH);
+    }
+
+    #[test]
+    fn frame_length_never_exceeds_the_frame_of_the_highest_supported_rate() {
+        let highest_supported = crate::energy::ENERGY_MAXIMUM_SAMPLE_RATE as f32;
+        assert_eq!(frame_length(highest_supported), MAXIMUM_FRAME_LENGTH);
+        assert_eq!(frame_length(1_000_000.0), MAXIMUM_FRAME_LENGTH);
+        assert_eq!(frame_length(u32::MAX as f32), MAXIMUM_FRAME_LENGTH);
+    }
+
+    #[test]
+    fn an_analyzer_for_an_extreme_sample_rate_has_small_buffers() {
+        let analyzer = SpectralAnalyzer::new(NonZeroU32::new(u32::MAX).unwrap());
+        assert_eq!(analyzer.window.len(), MAXIMUM_FRAME_LENGTH);
+        assert_eq!(analyzer.frame.len(), MAXIMUM_FRAME_LENGTH);
+        assert!(analyzer.scratch.len() <= MAXIMUM_FRAME_LENGTH);
     }
 
     #[test]
