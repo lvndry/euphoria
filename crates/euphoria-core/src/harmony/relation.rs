@@ -114,6 +114,60 @@ impl Key {
 mod tests {
     use super::*;
 
+    /// The seven pitch classes of a key's scale: major, or natural minor.
+    fn scale_notes(key: &Key) -> Vec<u8> {
+        let intervals: [u8; 7] = match key.mode() {
+            Mode::Major => [0, 2, 4, 5, 7, 9, 11],
+            Mode::Minor => [0, 2, 3, 5, 7, 8, 10],
+        };
+        intervals
+            .iter()
+            .map(|interval| (key.tonic() + interval) % 12)
+            .collect()
+    }
+
+    fn shared_note_count(first: &Key, second: &Key) -> usize {
+        let second_notes = scale_notes(second);
+        scale_notes(first)
+            .iter()
+            .filter(|note| second_notes.contains(note))
+            .count()
+    }
+
+    #[test]
+    fn descriptions_state_the_true_number_of_shared_notes() {
+        let mut checked_pairs = 0;
+        for tonic in 0..12 {
+            for mode in [Mode::Major, Mode::Minor] {
+                let reference = Key::new(tonic, mode);
+                for candidate_tonic in 0..12 {
+                    for candidate_mode in [Mode::Major, Mode::Minor] {
+                        let candidate = Key::new(candidate_tonic, candidate_mode);
+                        let expected_shared = match reference.relation_to(&candidate) {
+                            Some(Relation::Same | Relation::Relative) => 7,
+                            Some(Relation::Adjacent | Relation::Diagonal) => 6,
+                            _ => continue,
+                        };
+                        assert_eq!(
+                            shared_note_count(&reference, &candidate),
+                            expected_shared,
+                            "{reference} to {candidate}"
+                        );
+                        checked_pairs += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked_pairs, 24 * 5);
+    }
+
+    #[test]
+    fn diagonal_from_a_minor_is_f_major() {
+        assert_eq!(key("7B").to_string(), "F major");
+        assert_eq!(key("8A").relation_to(&key("7B")), Some(Relation::Diagonal));
+        assert_eq!(shared_note_count(&key("8A"), &key("7B")), 6);
+    }
+
     fn key(code: &str) -> Key {
         code.parse().unwrap()
     }
