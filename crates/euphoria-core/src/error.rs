@@ -79,7 +79,8 @@ pub enum EuphoriaError {
         #[source]
         source: Option<ErrorSource>,
     },
-    /// Text could not be read as a key name such as "A minor".
+    /// Text could not be read as a key: a name such as "A minor", a Camelot
+    /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]
     UnknownKeyText(String),
 }

@@ -30,7 +30,8 @@ A desktop app (`euphoria-app`) will join the workspace as another crate.
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
 | `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. |
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
-| `key` | The `Key` type, Camelot codes and parsing of key names. |
+| `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
+| `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
