@@ -6,10 +6,37 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+# Crates marked unmaintained that GPUI, the desktop app's interface library,
+# depends on. None has a known vulnerability and none can be replaced from
+# this workspace. Check the list again whenever GPUI is updated.
+ignore = [
+  { id = "RUSTSEC-2024-0384", reason = "instant is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained; required by GPUI and, in tests, by lofty" },
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is unmaintained; required by GPUI" },
+]
 
 [licenses]
 confidence-threshold = 0.9
-allow = ["Apache-2.0", "BSD-3-Clause", "GPL-3.0-or-later", "MIT", "MPL-2.0", "Unicode-3.0", "Zlib"]
+# 0BSD, BSD-2-Clause, CC0-1.0 and ISC come in through GPUI, the desktop app's
+# interface library. All four are permissive and compatible with the GPL.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "GPL-3.0-or-later",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Zlib",
+]
 
 [bans]
 multiple-versions = "warn"

@@ -9,8 +9,12 @@
 //! playlists refer to them by that number.
 
 use std::collections::HashMap;
+use std::collections::hash_map::RandomState;
+use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::io::Write;
+use std::fs::File;
+use std::hash::{BuildHasher, Hasher};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -18,6 +22,10 @@ use crate::error::{EuphoriaError, ExportProblem};
 use crate::key::{Key, Mode};
 
 const LOCATION_PREFIX: &str = "file://localhost/";
+
+/// How many names are tried for the temporary file of an export before
+/// giving up. Each is random, so even one collision is unlikely.
+const TEMPORARY_NAME_ATTEMPTS: usize = 16;
 
 /// The number of hot cue pads a track has in rekordbox: 16, lettered A to P.
 /// Its export mode and the players it prepares drives for use the first 8.
@@ -76,6 +84,9 @@ pub struct Track {
     /// Tempo in beats per minute. The attribute is left out when this is `None`.
     /// It is written with two decimals, so the smallest tempo is 0.01.
     pub bpm: Option<f64>,
+    /// Text for the comments column. The attribute is left out when this is
+    /// `None`.
+    pub comment: Option<String>,
     /// Position of the first beat. Together with `bpm` it becomes a beat grid
     /// with a constant tempo, counted in 4/4 with this beat as the first of a bar.
     pub first_beat: Option<Duration>,
@@ -93,6 +104,7 @@ impl Track {
             duration,
             key: None,
             bpm: None,
+            comment: None,
             first_beat: None,
             cue_points: Vec::new(),
         }
@@ -153,7 +165,7 @@ pub struct Playlist {
 /// The library is checked before anything is written, so a library that
 /// cannot be exported leaves `writer` untouched.
 ///
-/// Titles, artists, cue names, playlist names and folder names lose the
+/// Titles, artists, comments, cue names, playlist names and folder names lose the
 /// characters XML 1.0 cannot carry: the control characters U+0000 to U+001F
 /// other than tab, line feed and carriage return, and U+FFFE and U+FFFF. The
 /// rest of the text is written unchanged. Paths lose nothing, because every
@@ -178,6 +190,173 @@ pub fn write_xml<W: Write>(
         .write_all(document.as_bytes())
         .and_then(|()| writer.flush())
         .map_err(|source| EuphoriaError::ExportWrite { source })
+}
+
+/// What to do when the file an export is written to already exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExistingFile {
+    /// Leave it as it is and fail.
+    Keep,
+    /// Replace it with the export.
+    Replace,
+}
+
+/// Writes `library` as a rekordbox XML file at `destination`.
+///
+/// The document is written to a temporary file next to `destination` and
+/// moved into place once it is complete, so `destination` holds either the
+/// whole export or what it held before. The library is checked first, as in
+/// [`write_xml`].
+///
+/// # Errors
+///
+/// Returns the errors of [`write_xml`] for a library that cannot be
+/// exported. Returns [`EuphoriaError::ExportDestinationExists`] when
+/// `destination` exists and `existing` is [`ExistingFile::Keep`]. Returns
+/// [`EuphoriaError::ExportFile`] when the file cannot be created, written or
+/// moved into place.
+pub fn write_xml_file(
+    destination: &Path,
+    library: &Library,
+    options: &ExportOptions,
+    existing: ExistingFile,
+) -> Result<(), EuphoriaError> {
+    let document = render(library, options)?;
+    let file_error = |source: io::Error| EuphoriaError::ExportFile {
+        path: destination.to_path_buf(),
+        source,
+    };
+    // Looked at before writing so that nothing is created when the answer is
+    // already known. The install below is what guarantees it.
+    if existing == ExistingFile::Keep && is_present(destination).map_err(file_error)? {
+        return Err(EuphoriaError::ExportDestinationExists {
+            path: destination.to_path_buf(),
+        });
+    }
+
+    let (mut temporary_file, temporary_path) =
+        create_temporary_file(destination).map_err(file_error)?;
+    let installed = temporary_file
+        .write_all(document.as_bytes())
+        .and_then(|()| temporary_file.sync_all())
+        .map_err(file_error)
+        .and_then(|()| install(&temporary_path, destination, existing));
+    drop(temporary_file);
+    if installed.is_err() {
+        // The export has failed and that failure is what the caller needs to
+        // see, whether or not the temporary file could be removed.
+        let _ = std::fs::remove_file(&temporary_path);
+    }
+    installed
+}
+
+/// Creates an empty file next to `destination` under a name nothing else
+/// uses. The file is always a new one: a name that is taken, even by a
+/// symbolic link, is passed over, so no existing file is opened or emptied.
+fn create_temporary_file(destination: &Path) -> io::Result<(File, PathBuf)> {
+    let file_name = destination.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "the path does not name a file")
+    })?;
+    for _ in 0..TEMPORARY_NAME_ATTEMPTS {
+        let mut temporary_name = OsString::from(".");
+        temporary_name.push(file_name);
+        temporary_name.push(format!(".{:016x}.tmp", unpredictable_number()));
+        let temporary_path = destination.with_file_name(temporary_name);
+        match File::options()
+            .write(true)
+            .create_new(true)
+            .open(&temporary_path)
+        {
+            Ok(file) => return Ok((file, temporary_path)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "every temporary file name that was tried is taken",
+    ))
+}
+
+/// A number another program cannot guess, from the random keys the standard
+/// library gives each hash map.
+fn unpredictable_number() -> u64 {
+    RandomState::new().build_hasher().finish()
+}
+
+/// Gives the finished temporary file the name `destination` in one step.
+///
+/// With [`ExistingFile::Replace`] it takes the place of whatever is there.
+/// With [`ExistingFile::Keep`] it only takes a name that is free, so a file
+/// that another program created at `destination` a moment before is kept.
+fn install(
+    temporary_path: &Path,
+    destination: &Path,
+    existing: ExistingFile,
+) -> Result<(), EuphoriaError> {
+    let file_error = |source: io::Error| EuphoriaError::ExportFile {
+        path: destination.to_path_buf(),
+        source,
+    };
+    match existing {
+        ExistingFile::Replace => std::fs::rename(temporary_path, destination).map_err(file_error),
+        ExistingFile::Keep => match std::fs::hard_link(temporary_path, destination) {
+            Ok(()) => {
+                // The export is in place under its own name. A temporary name
+                // left behind does not make it a failure.
+                let _ = std::fs::remove_file(temporary_path);
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(EuphoriaError::ExportDestinationExists {
+                    path: destination.to_path_buf(),
+                })
+            }
+            // File systems such as FAT and exFAT have no hard links.
+            Err(_) => install_by_claiming_the_name(temporary_path, destination),
+        },
+    }
+}
+
+/// Installs without replacing on a file system that has no hard links: an
+/// empty file is created at `destination`, which fails when the name is
+/// taken, and the temporary file is then moved over it.
+fn install_by_claiming_the_name(
+    temporary_path: &Path,
+    destination: &Path,
+) -> Result<(), EuphoriaError> {
+    let file_error = |source: io::Error| EuphoriaError::ExportFile {
+        path: destination.to_path_buf(),
+        source,
+    };
+    match File::options()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+    {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(EuphoriaError::ExportDestinationExists {
+                path: destination.to_path_buf(),
+            });
+        }
+        Err(error) => return Err(file_error(error)),
+    }
+    std::fs::rename(temporary_path, destination).map_err(|error| {
+        // The empty file was created here, so removing it restores the
+        // folder to what it held before the export.
+        let _ = std::fs::remove_file(destination);
+        file_error(error)
+    })
+}
+
+/// True when something is at `path`, including a link that leads nowhere.
+fn is_present(path: &Path) -> io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 fn render(library: &Library, options: &ExportOptions) -> Result<String, EuphoriaError> {
@@ -255,6 +434,9 @@ fn push_track(
     push_attribute(document, "Location", &location);
     if let Some(key) = track.key {
         push_attribute(document, "Tonality", &tonality(key, options.key_notation));
+    }
+    if let Some(comment) = &track.comment {
+        push_attribute(document, "Comments", comment);
     }
 
     let beat_grid = tempo.zip(track.first_beat);
@@ -431,4 +613,132 @@ fn push_attribute(document: &mut String, name: &str, value: &str) {
         }
     }
     document.push('"');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_folder(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!(
+            "euphoria-export-install-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    fn file_names(folder: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    type Install = fn(&Path, &Path) -> Result<(), EuphoriaError>;
+
+    fn install_keeping(temporary_path: &Path, destination: &Path) -> Result<(), EuphoriaError> {
+        install(temporary_path, destination, ExistingFile::Keep)
+    }
+
+    const KEEPING_INSTALLS: [(&str, Install); 2] = [
+        ("hard-link", install_keeping),
+        ("claimed-name", install_by_claiming_the_name),
+    ];
+
+    #[test]
+    fn a_destination_that_appears_after_the_check_is_not_replaced() {
+        for (name, install_without_replacing) in KEEPING_INSTALLS {
+            let folder = scratch_folder(&format!("appears-{name}"));
+            let destination = folder.join("library.xml");
+            assert!(!is_present(&destination).unwrap());
+            let (mut temporary_file, temporary_path) = create_temporary_file(&destination).unwrap();
+            temporary_file.write_all(b"the export").unwrap();
+            drop(temporary_file);
+            std::fs::write(&destination, "written by someone else").unwrap();
+
+            let installed = install_without_replacing(&temporary_path, &destination);
+
+            assert!(
+                matches!(
+                    &installed,
+                    Err(EuphoriaError::ExportDestinationExists { path }) if *path == destination
+                ),
+                "{name}: {installed:?}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&destination).unwrap(),
+                "written by someone else",
+                "{name}"
+            );
+            std::fs::remove_dir_all(&folder).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_free_name_is_taken_and_the_temporary_name_is_gone() {
+        for (name, install_without_replacing) in KEEPING_INSTALLS {
+            let folder = scratch_folder(&format!("free-{name}"));
+            let destination = folder.join("library.xml");
+            let (mut temporary_file, temporary_path) = create_temporary_file(&destination).unwrap();
+            temporary_file.write_all(b"the export").unwrap();
+            drop(temporary_file);
+
+            install_without_replacing(&temporary_path, &destination).unwrap();
+
+            assert_eq!(std::fs::read_to_string(&destination).unwrap(), "the export");
+            assert_eq!(file_names(&folder), ["library.xml"], "{name}");
+            std::fs::remove_dir_all(&folder).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_the_destination_is_kept_and_its_target_untouched() {
+        for (name, install_without_replacing) in KEEPING_INSTALLS {
+            let folder = scratch_folder(&format!("link-{name}"));
+            let target = folder.join("precious.flac");
+            let destination = folder.join("library.xml");
+            std::fs::write(&target, "audio").unwrap();
+            let (_, temporary_path) = create_temporary_file(&destination).unwrap();
+            std::os::unix::fs::symlink(&target, &destination).unwrap();
+
+            let installed = install_without_replacing(&temporary_path, &destination);
+
+            assert!(
+                matches!(
+                    installed,
+                    Err(EuphoriaError::ExportDestinationExists { .. })
+                ),
+                "{name}"
+            );
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "audio", "{name}");
+            assert!(destination.is_symlink(), "{name}");
+            std::fs::remove_dir_all(&folder).unwrap();
+        }
+    }
+
+    #[test]
+    fn temporary_files_are_new_hidden_and_differently_named() {
+        let folder = scratch_folder("temporary-names");
+        let destination = folder.join("library.xml");
+
+        let (_, first_path) = create_temporary_file(&destination).unwrap();
+        let (_, second_path) = create_temporary_file(&destination).unwrap();
+
+        assert_ne!(first_path, second_path);
+        for path in [&first_path, &second_path] {
+            assert_eq!(path.parent(), Some(folder.as_path()));
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(
+                name.starts_with(".library.xml.") && name.ends_with(".tmp"),
+                "{name}"
+            );
+            assert_eq!(std::fs::read(path).unwrap(), b"");
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
 }
