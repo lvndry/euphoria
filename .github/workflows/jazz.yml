@@ -105,7 +105,7 @@ jobs:
         id: resolve
         env:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const homeRepository = process.env.JAZZ_HOME_REPOSITORY.toLowerCase();
@@ -241,7 +241,7 @@ jobs:
 
       - name: React with eyes on the triggering comment
         if: github.event_name == 'issue_comment' && steps.resolve.outputs.authorized == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             try {
@@ -302,7 +302,7 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             try {
@@ -319,7 +319,7 @@ jobs:
             }
 
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
@@ -429,7 +429,7 @@ jobs:
         env:
           STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             try {
@@ -450,7 +450,7 @@ jobs:
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -790,7 +790,7 @@ jobs:
       )
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
@@ -870,7 +870,7 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             try {
@@ -918,7 +918,7 @@ jobs:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
