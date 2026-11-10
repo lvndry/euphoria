@@ -12,6 +12,9 @@ use euphoria_core::{Key, TrackAnalysis};
 use crate::camelot::CamelotPosition;
 use crate::format;
 
+/// The dash shown where analysis found no value.
+pub(crate) const NOT_FOUND: &str = "\u{2013}";
+
 /// Where a track is in its analysis.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TrackStatus {
@@ -89,6 +92,18 @@ impl Track {
         self.analysis().map(|analysis| analysis.duration_seconds)
     }
 
+    /// The energy rating from 1 to 10, when the track has one.
+    pub(crate) fn energy(&self) -> Option<u8> {
+        self.analysis().and_then(|analysis| analysis.energy)
+    }
+
+    /// What a cell shows for a value analysis may not find: the value, a
+    /// dash when the track was analyzed and has none, and nothing while the
+    /// track is pending or failed.
+    pub(crate) fn value_or_dash(&self, value: Option<String>) -> Option<String> {
+        value.or_else(|| self.analysis().map(|_| NOT_FOUND.to_string()))
+    }
+
     /// Why analysis failed, when it did.
     pub(crate) fn failure(&self) -> Option<&str> {
         match &self.status {
@@ -124,6 +139,8 @@ pub(crate) enum SortColumn {
     Bpm,
     /// Length.
     Duration,
+    /// Energy rating.
+    Energy,
     /// File format.
     Format,
     /// Name of the containing folder.
@@ -323,6 +340,9 @@ fn compare_tracks(first: &Track, second: &Track, sort_order: SortOrder) -> Order
             Ord::cmp,
         ),
         SortColumn::Bpm => compare_optional(first.bpm(), second.bpm(), sort_order, f32::total_cmp),
+        SortColumn::Energy => {
+            compare_optional(first.energy(), second.energy(), sort_order, Ord::cmp)
+        }
         SortColumn::Duration => compare_optional(
             first.duration_seconds(),
             second.duration_seconds(),
@@ -363,6 +383,7 @@ mod tests {
             duration_seconds,
             key: key.map(|text| text.parse().unwrap()),
             bpm,
+            energy: None,
         }
     }
 
@@ -557,6 +578,76 @@ mod tests {
     }
 
     #[test]
+    fn sorts_energy_numerically_with_unrated_tracks_last() {
+        let mut library = Library::default();
+        let rated = [
+            ("calm.mp3", Some(2)),
+            ("peak.mp3", Some(10)),
+            ("silent.mp3", None),
+            ("warm.mp3", Some(6)),
+        ];
+        for (name, energy) in rated {
+            let path = PathBuf::from(format!("/music/{name}"));
+            library.add_files(vec![path.clone()]);
+            library.record_outcome(
+                &path,
+                Ok(TrackAnalysis {
+                    energy,
+                    ..analysis(None, None, 300.0)
+                }),
+            );
+        }
+        library.add_files(vec![PathBuf::from("/music/pending.mp3")]);
+
+        assert_eq!(library.tracks()[1].energy(), Some(10));
+        assert_eq!(library.tracks()[2].energy(), None);
+        assert_eq!(
+            visible(&library, "", ascending(SortColumn::Energy)),
+            [
+                "calm.mp3",
+                "warm.mp3",
+                "peak.mp3",
+                "silent.mp3",
+                "pending.mp3"
+            ]
+        );
+        assert_eq!(
+            visible(&library, "", descending(SortColumn::Energy)),
+            [
+                "peak.mp3",
+                "warm.mp3",
+                "calm.mp3",
+                "silent.mp3",
+                "pending.mp3"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_value_is_a_dash_only_once_the_track_is_analyzed() {
+        let mut library = sample_library();
+        library.record_outcome(
+            Path::new("/music/house/Low Tide.aiff"),
+            Ok(TrackAnalysis {
+                energy: Some(7),
+                ..analysis(Some("A minor"), Some(124.0), 408.0)
+            }),
+        );
+        let energy_cell = |name: &str| {
+            let track = library
+                .tracks()
+                .iter()
+                .find(|track| track.file_name == name)
+                .unwrap();
+            track.value_or_dash(track.energy().map(|energy| energy.to_string()))
+        };
+        assert_eq!(energy_cell("Low Tide.aiff").as_deref(), Some("7"));
+        assert_eq!(energy_cell("saffron.mp3").as_deref(), Some("\u{2013}"));
+        assert_eq!(energy_cell("broken.mp3"), None);
+        assert_eq!(energy_cell("waiting.m4a"), None);
+    }
+
+    #[test]
     fn sorts_folders_without_regard_to_letter_case() {
         let mut library = Library::default();
         library.add_files(
@@ -652,6 +743,7 @@ mod tests {
                     duration_seconds: 200.0 + (number % 240) as f32,
                     key: Some(key),
                     bpm: Some(90.0 + (number % 80) as f32),
+                    energy: Some((number % 10) as u8 + 1),
                 }),
             );
         }

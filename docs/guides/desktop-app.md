@@ -37,6 +37,7 @@ Your files are only read. The app does not write tags or change files.
 | Key | The Camelot code, coloured by its number |
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
+| Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
 | Time | The length |
 | Format | The file type |
 | Folder | The folder holding the file |
@@ -56,9 +57,9 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 
 ## The inspector
 
-The inspector shows the selected track: its name, format and length, its key, tempo and time in three boxes, and its waveform. The waveform is read from the file when you select the track.
+The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track.
 
-**Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
+**Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
 ## When a file fails
 
@@ -123,7 +124,7 @@ EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
 
 ## Not there yet
 
-- Playback, cue points and energy ratings.
+- Playback and cue points.
 - Writing tags and exporting to DJ software.
 - Artist and title from file tags: the table shows file names.
 - Filters for key and tempo ranges.

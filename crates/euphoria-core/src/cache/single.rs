@@ -126,6 +126,7 @@ mod tests {
                 duration_seconds: content.len() as f32,
                 key: Some(crate::Key::new(content.len() as u8, crate::Mode::Minor)),
                 bpm: Some(120.5),
+                energy: Some((content.len() % 10) as u8 + 1),
             })
         }
 
@@ -231,6 +232,48 @@ mod tests {
                 .analyze_file_with(&track, |path| counter.analyze(path))
                 .is_err()
         );
+        assert_eq!(counter.runs(), 2);
+    }
+
+    #[test]
+    fn the_energy_rating_is_stored_and_served() {
+        let folder = TemporaryFolder::new();
+        let track = write_track(&folder, "track.mp3", "some audio");
+        let counter = CountingAnalyzer::new();
+        let analyzed = open_analyzer(&folder)
+            .analyze_file_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        assert_eq!(analyzed.analysis.energy, Some(1));
+
+        let stored = open_analyzer(&folder).stored_analysis(&track).unwrap();
+        assert_eq!(stored.energy, Some(1));
+    }
+
+    #[test]
+    fn an_analysis_from_another_energy_model_is_ignored_and_replaced() {
+        let folder = TemporaryFolder::new();
+        let track = write_track(&folder, "track.mp3", "some audio");
+        let counter = CountingAnalyzer::new();
+        open_analyzer(&folder)
+            .analyze_file_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        let open_recalibrated = || {
+            let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache.energy_model_version += 1;
+            CachedAnalyzer::new(cache).unwrap()
+        };
+
+        let after_recalibration = open_recalibrated();
+        assert_eq!(after_recalibration.stored_analysis(&track), None);
+        let analyzed = after_recalibration
+            .analyze_file_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        assert!(!analyzed.from_cache);
+        assert!(analyzed.store_error.is_none(), "{:?}", analyzed.store_error);
+        drop(after_recalibration);
+
+        assert!(open_recalibrated().stored_analysis(&track).is_some());
+        assert_eq!(open_analyzer(&folder).stored_analysis(&track), None);
         assert_eq!(counter.runs(), 2);
     }
 

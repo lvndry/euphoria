@@ -9,12 +9,13 @@ use gpui::component::scroll::Scrollbar;
 use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px, uniform_list,
+    AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px, relative,
+    uniform_list,
 };
 
 use crate::app::EuphoriaApp;
 use crate::format;
-use crate::library::{LibraryFilter, SortColumn, Track, TrackStatus};
+use crate::library::{LibraryFilter, NOT_FOUND, SortColumn, Track, TrackStatus};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
@@ -71,6 +72,12 @@ const BPM: Column = Column {
     is_right_aligned: true,
     sorts_by: Some(SortColumn::Bpm),
 };
+const ENERGY: Column = Column {
+    label: "Energy",
+    width: ColumnWidth::Fixed(86.0),
+    is_right_aligned: false,
+    sorts_by: Some(SortColumn::Energy),
+};
 const TIME: Column = Column {
     label: "Time",
     width: ColumnWidth::Fixed(48.0),
@@ -90,7 +97,17 @@ const FOLDER: Column = Column {
     sorts_by: Some(SortColumn::Folder),
 };
 
-const COLUMNS: [Column; 8] = [NUMBER, TITLE, KEY, MUSICAL_KEY, BPM, TIME, FORMAT, FOLDER];
+const COLUMNS: [Column; 9] = [
+    NUMBER,
+    TITLE,
+    KEY,
+    MUSICAL_KEY,
+    BPM,
+    ENERGY,
+    TIME,
+    FORMAT,
+    FOLDER,
+];
 
 /// The table with its heading.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
@@ -332,6 +349,7 @@ fn row(
                     .children(track.key().map(|key| key.to_string())),
             )
             .child(cell(&BPM).child(optional_text(track, track.bpm().map(format::bpm), &palette)))
+            .child(cell(&ENERGY).child(energy(track, &palette)))
             .child(
                 cell(&TIME)
                     .text_color(palette.text_secondary)
@@ -359,13 +377,49 @@ fn row(
 /// The value of an analyzed track, a dash when analysis found none, and
 /// nothing while the track is pending or failed.
 fn optional_text(track: &Track, value: Option<String>, palette: &Palette) -> Div {
-    match value {
+    match track.value_or_dash(value) {
+        Some(text) if text == NOT_FOUND => missing_value(palette),
         Some(text) => div().child(text),
-        None if track.analysis().is_some() => missing_value(palette),
         None => div(),
     }
 }
 
 fn missing_value(palette: &Palette) -> Div {
-    div().text_color(palette.text_tertiary).child("\u{2013}")
+    div().text_color(palette.text_tertiary).child(NOT_FOUND)
+}
+
+/// The energy rating as a number beside a bar that fills with it, or a dash
+/// when the analyzed track has none.
+fn energy(track: &Track, palette: &Palette) -> Div {
+    let Some(rating) = track.energy() else {
+        return optional_text(track, None, palette);
+    };
+    div()
+        .flex()
+        .flex_1()
+        .items_center()
+        .gap(px(8.0))
+        .child(
+            div()
+                .flex()
+                .flex_shrink_0()
+                .justify_end()
+                .w(px(16.0))
+                .text_color(palette.text_secondary)
+                .child(rating.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .h(px(4.0))
+                .rounded(px(2.0))
+                .bg(palette.raised)
+                .child(
+                    div()
+                        .h_full()
+                        .w(relative(f32::from(rating) / 10.0))
+                        .rounded(px(2.0))
+                        .bg(palette.text_tertiary),
+                ),
+        )
 }

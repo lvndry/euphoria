@@ -20,7 +20,7 @@ impl MixTrack for Track {
     }
 
     fn energy(&self) -> Option<f32> {
-        None
+        Track::energy(self).map(f32::from)
     }
 }
 
@@ -96,6 +96,7 @@ mod tests {
                     duration_seconds: 300.0,
                     key: Some(key.parse().unwrap()),
                     bpm: Some(*bpm),
+                    energy: None,
                 }),
             );
         }
@@ -121,6 +122,29 @@ mod tests {
         assert_eq!(suggested[0].relation, Relation::Same);
         let faster = suggested[0].tempo_difference_percent.unwrap();
         assert!((faster - 100.0 / 124.0).abs() < 0.01, "{faster}");
+    }
+
+    #[test]
+    fn candidates_that_tie_on_key_and_tempo_are_ordered_by_closest_energy() {
+        let mut library = Library::default();
+        for (name, energy) in [("selected", 6), ("far", 10), ("near", 7), ("same", 6)] {
+            let path = PathBuf::from(format!("/music/{name}.flac"));
+            library.add_files(vec![path.clone()]);
+            library.record_outcome(
+                &path,
+                Ok(TrackAnalysis {
+                    duration_seconds: 300.0,
+                    key: Some("A minor".parse().unwrap()),
+                    bpm: Some(124.0),
+                    energy: Some(energy),
+                }),
+            );
+        }
+        let names: Vec<&str> = suggestions(&library, 0, 10)
+            .iter()
+            .map(|mix| library.tracks()[mix.track_index].file_name.as_str())
+            .collect();
+        assert_eq!(names, ["same.flac", "near.flac", "far.flac"]);
     }
 
     #[test]

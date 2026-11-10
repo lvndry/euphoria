@@ -155,7 +155,7 @@ fn summary(track: &Track, palette: &Palette) -> Div {
         )
 }
 
-/// Key, tempo and length in three boxes.
+/// Key, tempo and energy in three boxes.
 fn statistics(track: &Track, palette: &Palette) -> Div {
     let not_known_yet = match track.status {
         TrackStatus::Pending => "pending",
@@ -170,8 +170,9 @@ fn statistics(track: &Track, palette: &Palette) -> Div {
         Some(bpm) => (format::bpm(bpm), "per minute"),
         None => ("\u{2013}".to_string(), not_known_yet),
     };
-    let (length, length_note) = match track.duration_seconds() {
-        Some(seconds) => (format::duration(seconds), "minutes"),
+    let (energy, energy_note) = match track.energy() {
+        Some(rating) => (rating.to_string(), "of 10"),
+        None if track.analysis().is_some() => ("\u{2013}".to_string(), "not rated"),
         None => ("\u{2013}".to_string(), not_known_yet),
     };
 
@@ -187,7 +188,7 @@ fn statistics(track: &Track, palette: &Palette) -> Div {
                 .border_color(palette.line),
         )
         .child(
-            statistic("Time", length, length_note, palette)
+            statistic("Energy", energy, energy_note, palette)
                 .border_l_1()
                 .border_color(palette.line),
         )

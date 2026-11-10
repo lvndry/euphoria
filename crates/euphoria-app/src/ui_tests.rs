@@ -20,6 +20,9 @@ use crate::theme::{AppTheme, Layout, ThemeName};
 /// Index of the BPM column among the table's column headers.
 const BPM_COLUMN: usize = 4;
 
+/// Index of the Energy column among the table's column headers.
+const ENERGY_COLUMN: usize = 5;
+
 fn open_library(
     track_count: usize,
     cx: &mut TestAppContext,
@@ -120,6 +123,28 @@ fn clicking_a_header_sorts_and_clicking_again_reverses(cx: &mut TestAppContext) 
     let descending = tempos(cx);
     assert!(descending.iter().rev().is_sorted(), "{descending:?}");
     assert_eq!(descending.len(), ascending.len());
+}
+
+#[gpui::test]
+fn clicking_the_energy_header_sorts_by_energy(cx: &mut TestAppContext) {
+    let (window, view) = open_library(200, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("column", ENERGY_COLUMN), cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let ratings: Vec<u8> = app
+            .visible
+            .iter()
+            .filter_map(|index| app.session.library().track(*index)?.energy())
+            .collect();
+        assert!(ratings.len() > 100);
+        assert!(ratings.is_sorted(), "{ratings:?}");
+        let last = app.session.library().track(app.visible[199]).unwrap();
+        assert_eq!(last.energy(), None);
+    });
 }
 
 #[gpui::test]
