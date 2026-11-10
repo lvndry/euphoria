@@ -35,7 +35,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Detect the key and tempo of audio files and folders.
+    /// Detect the key, tempo and energy of audio files and folders.
     Analyze {
         /// Audio files, or folders to search recursively.
         #[arg(required = true)]
