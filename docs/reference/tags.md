@@ -68,7 +68,16 @@ The tempo is written only when asked for.
 
 ### Label
 
-An optional label, such as the Camelot code, can be put in front of the comment or the grouping. The existing text is kept after it: a comment `warm up` becomes `8A - warm up`. A field that already starts with the label is not changed.
+An optional label, such as the Camelot code, can be put in front of the comment or the grouping. It is written between braces, followed by a space and the text the field already holds: a comment `warm up` becomes `{8A} warm up`, and an empty field becomes `{8A}`.
+
+The braces are how Euphoria recognises its own label later:
+
+- Writing the same label again changes nothing.
+- Writing a different label replaces the one in braces and keeps the rest: `{Energy 7} warm up` becomes `{Energy 8} warm up`. A field never holds more than one label.
+- Only `{...}` at the very start of the field, followed by a space or by the end of the field, counts as a label. Anything else is your own text and is kept after the new label, including text such as `8A - warm up`, `[8A] warm up`, `warm {8A} up` or `{8A}warm up`.
+- A comment you wrote yourself in exactly that shape, such as `{demo} warm up`, cannot be told apart from a label, and its braced part is replaced.
+
+The label text cannot contain a brace. Braces are plain ASCII, so the label is stored unchanged in all three tag formats and displays as written in DJ software columns.
 
 | Target | ID3v2 | MP4 | Vorbis comments |
 | --- | --- | --- | --- |

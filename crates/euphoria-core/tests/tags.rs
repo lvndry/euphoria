@@ -259,7 +259,7 @@ fn assert_round_trip(fixture: &str, seeded: bool) {
     assert_eq!(written.title, original_read.title, "{fixture}");
     assert_eq!(written.artist, original_read.artist, "{fixture}");
     assert_eq!(written.grouping, original_read.grouping, "{fixture}");
-    let expected_comment = if seeded { "8A - warm up" } else { "8A" };
+    let expected_comment = if seeded { "{8A} warm up" } else { "{8A}" };
     assert_eq!(
         written.comment.as_deref(),
         Some(expected_comment),
@@ -399,9 +399,158 @@ fn label_keeps_the_existing_comment_and_grouping() {
             );
         }
         let tags = read_tags(&path).unwrap();
-        assert_eq!(tags.comment.as_deref(), Some("8A - warm up"), "{fixture}");
-        assert_eq!(tags.grouping.as_deref(), Some("Energy 7"), "{fixture}");
+        assert_eq!(tags.comment.as_deref(), Some("{8A} warm up"), "{fixture}");
+        assert_eq!(tags.grouping.as_deref(), Some("{Energy 7}"), "{fixture}");
     }
+}
+
+fn label_options(text: &str, target: LabelTarget) -> TagWriteOptions {
+    TagWriteOptions {
+        label: Some(Label {
+            text: text.to_string(),
+            target,
+        }),
+        ..TagWriteOptions::default()
+    }
+}
+
+fn labelled_field(path: &Path, target: LabelTarget) -> Option<String> {
+    let tags = read_tags(path).expect("the scratch copy can be read and written");
+    match target {
+        LabelTarget::Comment => tags.comment,
+        LabelTarget::Grouping => tags.grouping,
+    }
+}
+
+/// Replaces the file's tag with one that holds only `comment`, written the
+/// way another program would.
+fn write_user_comment(path: &Path, comment: &str) {
+    let saved = match extension(path) {
+        "mp3" | "wav" | "aiff" => {
+            let mut tag = Id3v2Tag::new();
+            tag.insert(Frame::Comment(CommentFrame::new(
+                TextEncoding::UTF8,
+                *b"eng",
+                "",
+                comment.to_string(),
+            )));
+            tag.save_to_path(path, WriteOptions::new())
+        }
+        "m4a" => {
+            let mut ilst = Ilst::new();
+            ilst.insert(Atom::new(
+                AtomIdent::Fourcc(*b"\xa9cmt"),
+                AtomData::UTF8(comment.to_string()),
+            ));
+            ilst.save_to_path(path, WriteOptions::new())
+        }
+        "flac" => {
+            let mut comments = VorbisComments::new();
+            comments.push("COMMENT".to_string(), comment.to_string());
+            comments.save_to_path(path, WriteOptions::new())
+        }
+        other => panic!("no comment writer for {other}"),
+    };
+    saved.expect("the scratch copy can be read and written");
+}
+
+#[test]
+fn same_label_twice_plans_nothing() {
+    for fixture in ALL_FIXTURES {
+        for target in [LabelTarget::Comment, LabelTarget::Grouping] {
+            let path = scratch_copy(fixture, "label-twice");
+            seed(&path);
+            let options = label_options("Energy 7", target);
+            apply_plan(&plan_write(&path, &Analysis::default(), &options).unwrap()).unwrap();
+            let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
+            assert!(
+                plan.is_empty(),
+                "{fixture} {target:?}: {:?}",
+                plan.changes()
+            );
+        }
+    }
+}
+
+#[test]
+fn changed_label_replaces_the_previous_one() {
+    for fixture in ALL_FIXTURES {
+        for (target, own_text) in [
+            (LabelTarget::Comment, " warm up"),
+            (LabelTarget::Grouping, ""),
+        ] {
+            let path = scratch_copy(fixture, "label-changed");
+            seed(&path);
+            for energy in 7..=9 {
+                let options = label_options(&format!("Energy {energy}"), target);
+                let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
+                assert_eq!(plan.changes().len(), 1, "{fixture} {target:?}");
+                let new = plan.changes()[0].new.clone().unwrap();
+                assert_eq!(new, format!("{{Energy {energy}}}{own_text}"), "{fixture}");
+                assert_eq!(new.matches("Energy").count(), 1, "{fixture}");
+                apply_plan(&plan).unwrap();
+                assert_eq!(labelled_field(&path, target), Some(new), "{fixture}");
+            }
+        }
+    }
+}
+
+#[test]
+fn user_text_that_resembles_a_label_is_kept() {
+    let look_alikes = [
+        "8A - warm up",
+        "[8A] warm up",
+        "warm {8A} up",
+        "{8A}warm up",
+        "{8A warm up",
+    ];
+    for fixture in ALL_FIXTURES {
+        for user_text in look_alikes {
+            let path = scratch_copy(fixture, "label-look-alike");
+            write_user_comment(&path, user_text);
+            for label in ["9A", "10A"] {
+                let options = label_options(label, LabelTarget::Comment);
+                let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
+                apply_plan(&plan).unwrap();
+                assert_eq!(
+                    labelled_field(&path, LabelTarget::Comment),
+                    Some(format!("{{{label}}} {user_text}")),
+                    "{fixture}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn undoing_a_changed_label_brings_back_the_previous_one() {
+    for fixture in [MP3, FLAC] {
+        let path = scratch_copy(fixture, "label-undo");
+        seed(&path);
+        let first = label_options("Energy 7", LabelTarget::Comment);
+        apply_plan(&plan_write(&path, &Analysis::default(), &first).unwrap()).unwrap();
+        let second = label_options("Energy 8", LabelTarget::Comment);
+        let backup =
+            apply_plan(&plan_write(&path, &Analysis::default(), &second).unwrap()).unwrap();
+
+        undo(&backup).unwrap();
+        assert_eq!(
+            labelled_field(&path, LabelTarget::Comment).as_deref(),
+            Some("{Energy 7} warm up"),
+            "{fixture}"
+        );
+    }
+}
+
+#[test]
+fn label_with_a_brace_is_refused() {
+    let path = scratch_copy(FLAC, "label-brace");
+    let options = label_options("8A}", LabelTarget::Comment);
+    let error = plan_write(&path, &Analysis::default(), &options).unwrap_err();
+    assert!(
+        matches!(&error, EuphoriaError::TagWrite { .. }),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -425,7 +574,7 @@ fn id3_comment_keeps_its_language_and_described_comments() {
     assert_eq!(
         comments,
         [
-            (*b"fra", String::new(), "8A - warm up".to_string()),
+            (*b"fra", String::new(), "{8A} warm up".to_string()),
             (*b"eng", "iTunNORM".to_string(), "0000 0000".to_string()),
         ]
     );

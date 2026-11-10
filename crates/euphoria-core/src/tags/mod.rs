@@ -16,7 +16,8 @@ use crate::error::EuphoriaError;
 use native::{ID3_COMMENT, MP4_TEMPO, TagFile};
 pub use preset::DjSoftware;
 
-const LABEL_SEPARATOR: &str = " - ";
+const LABEL_OPEN: char = '{';
+const LABEL_CLOSE: char = '}';
 const BPM_MATCH_TOLERANCE: f64 = 0.005;
 
 /// The kind of tag a file stores its metadata in.
@@ -135,6 +136,10 @@ pub enum LabelTarget {
 }
 
 /// Extra text, such as "8A", put in front of what a field already holds.
+///
+/// It is written between braces, as in `{8A} warm up`, which is how a later
+/// write finds the label and replaces it instead of adding a second one.
+/// The text itself cannot contain a brace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
     /// The text to put first.
@@ -293,14 +298,20 @@ pub fn plan_write(
     if let Some(label) = options
         .label
         .as_ref()
-        .filter(|label| !label.text.is_empty())
+        .filter(|label| !label.text.trim().is_empty())
     {
+        if label.text.contains([LABEL_OPEN, LABEL_CLOSE]) {
+            return Err(EuphoriaError::TagWrite {
+                path: path.to_path_buf(),
+                source: format!("the label {:?} contains a brace", label.text).into(),
+            });
+        }
         let field = match label.target {
             LabelTarget::Comment => format.comment_fields()[0],
             LabelTarget::Grouping => format.grouping_fields()[0],
         };
         let current = file.get(field)?;
-        let new = with_label(&label.text, current.as_deref());
+        let new = with_label(label.text.trim(), current.as_deref());
         if current.as_deref() != Some(new.as_str()) {
             changes.push(FieldChange {
                 field: field.to_string(),
@@ -390,19 +401,34 @@ fn same_bpm(current: &str, new: &str) -> bool {
     }
 }
 
-/// Puts `label` in front of `existing`, unless it is already there.
+/// Splits a field into the label a previous write put first and the text
+/// after it. Only `{label}` at the very start, followed by a space or by
+/// nothing, counts; braces anywhere else are the user's own text.
+fn split_label(text: &str) -> (Option<&str>, &str) {
+    let Some((label, rest)) = text
+        .strip_prefix(LABEL_OPEN)
+        .and_then(|after_open| after_open.split_once(LABEL_CLOSE))
+    else {
+        return (None, text);
+    };
+    if label.trim().is_empty() || label.contains(LABEL_OPEN) {
+        return (None, text);
+    }
+    match rest.strip_prefix(' ') {
+        Some(own_text) => (Some(label), own_text),
+        None if rest.is_empty() => (Some(label), rest),
+        None => (None, text),
+    }
+}
+
+/// Puts `label` in front of the user's own text in `existing`, in place of
+/// the label a previous write left there.
 fn with_label(label: &str, existing: Option<&str>) -> String {
-    match existing {
-        None | Some("") => label.to_string(),
-        Some(existing) if existing == label => existing.to_string(),
-        Some(existing)
-            if existing
-                .strip_prefix(label)
-                .is_some_and(|rest| rest.starts_with(LABEL_SEPARATOR)) =>
-        {
-            existing.to_string()
-        }
-        Some(existing) => format!("{label}{LABEL_SEPARATOR}{existing}"),
+    let (_, own_text) = split_label(existing.unwrap_or_default());
+    if own_text.is_empty() {
+        format!("{LABEL_OPEN}{label}{LABEL_CLOSE}")
+    } else {
+        format!("{LABEL_OPEN}{label}{LABEL_CLOSE} {own_text}")
     }
 }
 
@@ -428,15 +454,49 @@ mod tests {
     }
 
     #[test]
-    fn label_goes_first_and_is_added_once() {
-        assert_eq!(with_label("8A", None), "8A");
-        assert_eq!(with_label("8A", Some("")), "8A");
-        assert_eq!(with_label("8A", Some("great intro")), "8A - great intro");
+    fn label_goes_first_in_braces() {
+        assert_eq!(with_label("8A", None), "{8A}");
+        assert_eq!(with_label("8A", Some("")), "{8A}");
+        assert_eq!(with_label("8A", Some("great intro")), "{8A} great intro");
+    }
+
+    #[test]
+    fn same_label_is_left_as_it_is() {
+        assert_eq!(with_label("8A", Some("{8A}")), "{8A}");
         assert_eq!(
-            with_label("8A", Some("8A - great intro")),
-            "8A - great intro"
+            with_label("8A", Some("{8A} great intro")),
+            "{8A} great intro"
         );
-        assert_eq!(with_label("8A", Some("8A")), "8A");
-        assert_eq!(with_label("8A", Some("8Ax")), "8A - 8Ax");
+    }
+
+    #[test]
+    fn changed_label_replaces_the_previous_one() {
+        assert_eq!(with_label("Energy 8", Some("{Energy 7}")), "{Energy 8}");
+        assert_eq!(
+            with_label("Energy 8", Some("{Energy 7} great intro")),
+            "{Energy 8} great intro"
+        );
+        assert_eq!(
+            with_label("9A", Some("{8A} {live} great intro")),
+            "{9A} {live} great intro"
+        );
+    }
+
+    #[test]
+    fn text_that_only_resembles_a_label_is_kept() {
+        let look_alikes = [
+            "8A - great intro",
+            "[8A] great intro",
+            "great {8A} intro",
+            " {8A} great intro",
+            "{8A}great intro",
+            "{8A great intro",
+            "{} great intro",
+            "{{8A} great intro",
+        ];
+        for text in look_alikes {
+            assert_eq!(split_label(text), (None, text));
+            assert_eq!(with_label("9A", Some(text)), format!("{{9A}} {text}"));
+        }
     }
 }
