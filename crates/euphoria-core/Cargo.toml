@@ -21,6 +21,9 @@ symphonia = { workspace = true, features = ["mp3", "aac", "isomp4", "aiff", "fla
 thiserror.workspace = true
 walkdir.workspace = true
 
+[dev-dependencies]
+roxmltree.workspace = true
+
 [features]
 default = ["libkeyfinder"]
 # Key detection through libkeyfinder, a C++ library found with pkg-config.

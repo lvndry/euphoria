@@ -14,6 +14,8 @@ pub mod cache;
 pub mod detect;
 /// The error type returned by the library.
 pub mod error;
+/// Writing analysis results in the formats of other DJ software.
+pub mod export;
 /// Key relations and ranking of the tracks that mix into another.
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
@@ -29,7 +31,7 @@ pub use cache::{
     Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
     clear_cache, default_cache_path,
 };
-pub use error::{DecodeFailure, ErrorSource, EuphoriaError};
+pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };
