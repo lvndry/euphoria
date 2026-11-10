@@ -42,6 +42,7 @@ mod tests {
             let icon = AppAssets.load(path).unwrap();
             assert!(icon.is_some_and(|bytes| !bytes.is_empty()), "{path}");
         }
-        assert!(AppAssets.load("icons/not-an-icon.svg").unwrap().is_none());
+        let missing = AppAssets.load("icons/not-an-icon.svg");
+        assert!(missing.ok().flatten().is_none());
     }
 }

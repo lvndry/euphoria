@@ -11,11 +11,10 @@ Euphoria is a Cargo workspace. All product logic lives in one library crate, and
 crates/
   euphoria-core/    the library: decoding, detection, library scanning
   euphoria-cli/     the `euphoria` command line tool
+  euphoria-app/     the desktop app
   euphoria-bench/   accuracy benchmark, not shipped to users
 bench/              dataset download script, Essentia reference script, results
 ```
-
-A desktop app (`euphoria-app`) will join the workspace as another crate.
 
 ## Rules between crates
 
@@ -48,6 +47,10 @@ Key and tempo detection sit behind traits so implementations can be compared and
 ## euphoria-cli
 
 Parses arguments with clap, runs `analysis::analyze_files` on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. It contains no analysis logic.
+
+## euphoria-app
+
+The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, analyzes them with `analysis::analyze_file` on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. State that needs no window (the library, sorting and searching, progress, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
 
 ## Detector choice
 

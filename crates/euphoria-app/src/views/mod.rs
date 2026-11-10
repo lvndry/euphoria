@@ -7,6 +7,7 @@
 pub(crate) mod empty_state;
 pub(crate) mod inspector;
 pub(crate) mod key_chip;
+pub(crate) mod logo;
 pub(crate) mod notice;
 pub(crate) mod sidebar;
 pub(crate) mod toolbar;

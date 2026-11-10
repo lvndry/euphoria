@@ -14,6 +14,7 @@ use gpui::{Context, Div, FontWeight, MouseButton, Stateful, div, px, relative};
 use crate::actions;
 use crate::app::EuphoriaApp;
 use crate::theme::{Palette, ThemeName};
+use crate::views::logo::logo;
 use crate::views::{CONTROL_HEIGHT, CONTROL_RADIUS, SMALL_TEXT_SIZE, secondary_button};
 
 /// Room left for the window's close, minimize and zoom buttons on macOS.
@@ -58,9 +59,13 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
         }))
         .child(
             div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
                 .w(px(APP_NAME_WIDTH))
                 .flex_shrink_0()
                 .font_weight(FontWeight::SEMIBOLD)
+                .child(logo(px(18.0), palette.text))
                 .child("Euphoria"),
         )
         .when(has_tracks, |toolbar| {

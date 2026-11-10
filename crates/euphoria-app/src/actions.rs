@@ -3,10 +3,6 @@
 
 //! The commands menus and keyboard shortcuts can trigger.
 
-// The macro defines public structs without documentation of their own; the
-// list below says what each one does.
-#![allow(missing_docs)]
-
 use gpui::{Action, actions};
 
 use crate::theme::ThemeName;
@@ -14,17 +10,21 @@ use crate::theme::ThemeName;
 actions!(
     euphoria,
     [
-        // Quits the app.
+        /// Quits the app.
         Quit,
-        // Opens the folder picker.
+        /// Opens the folder picker.
         AddFolder,
-        // Moves the keyboard to the search field.
+        /// Moves the keyboard to the search field.
         FocusSearch,
-        // Switch to one of the built in themes.
+        /// Switches to the Slate theme.
         UseSlateTheme,
+        /// Switches to the Paper theme.
         UsePaperTheme,
+        /// Switches to the Deck theme.
         UseDeckTheme,
+        /// Switches to the Graphite theme.
         UseGraphiteTheme,
+        /// Switches to the Key first theme.
         UseKeyFirstTheme,
     ]
 );

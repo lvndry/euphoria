@@ -3,12 +3,12 @@
 
 //! What the window shows before any music has been added.
 
-use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{Context, Div, FontWeight, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::theme::Palette;
+use crate::views::logo::logo;
 use crate::views::{SMALL_TEXT_SIZE, primary_button};
 
 /// The first run screen: a drop zone, a folder button and three facts.
@@ -27,11 +27,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .border_dashed()
         .border_color(palette.text_tertiary)
         .bg(palette.panel)
-        .child(
-            Icon::new(IconName::Folder)
-                .size(px(32.0))
-                .text_color(palette.text_tertiary),
-        )
+        .child(logo(px(56.0), palette.text))
         .child(
             div()
                 .text_size(px(18.0))
