@@ -1,0 +1,984 @@
+# Jazz: AI pull-request review and assistance through the `jazz-ai` CLI.
+#
+# Jobs:
+#   resolve      checks who triggered the run and resolves the PR number and SHAs
+#   code-review  inline line-level review          (agent: ci-reviewer)
+#   assistant    conversational PR and codebase Q&A (agent: pr-assistant)
+#
+# Triggers, all limited to the repository owner and to branches of this repository:
+#   PR opened or marked ready  -> code-review
+#   comment "/jazz-review"     -> code-review
+#   comment "/jazz <request>"  -> assistant
+#   Actions tab dispatch       -> either job
+#   jazz.yml changed on a branch with an open PR -> code-review
+#
+# Configuration lives in .github/jazz/ (agent configs and workflow prompts).
+# Secrets: GITHUB_TOKEN (automatic) and OPENAI_API_KEY.
+
+name: Jazz
+
+run-name: >-
+  ${{ (github.event_name == 'workflow_dispatch' && format('Jazz {0} #{1}', inputs.job, inputs.pull_request_number))
+  || (github.event_name == 'pull_request' && format('Jazz code-review #{0}', github.event.pull_request.number))
+  || (github.event_name == 'issue_comment' && format('Jazz comment on #{0}', github.event.issue.number))
+  || format('Jazz {0}', github.event_name) }}
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  issue_comment:
+    types: [created]
+  push:
+    branches:
+      - "**"
+    paths:
+      - ".github/workflows/jazz.yml"
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: "PR number"
+        required: true
+        type: number
+      job:
+        description: "Which job to run"
+        required: false
+        default: assistant
+        type: choice
+        options:
+          - code-review
+          - assistant
+      request:
+        description: "Request to send to Jazz (assistant job only)"
+        required: false
+        type: string
+
+permissions: {}
+
+env:
+  # Job-level `if:` conditions cannot read `env`, so they repeat this name as a literal.
+  JAZZ_HOME_REPOSITORY: lvndry/euphoria
+  # Per-run spend ceiling passed as --max-cost-usd.
+  JAZZ_MAX_COST_USD: "2"
+  # The agent's own time budget: 27 of the model jobs' 30 timeout-minutes, so it
+  # writes its answer while there is still time left to post it.
+  JAZZ_MAX_DURATION_MS: "1620000"
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      issues: write
+    if: |
+      github.repository == 'lvndry/euphoria' &&
+      github.triggering_actor == github.repository_owner && (
+        (
+          github.event_name == 'pull_request' &&
+          (github.event.action == 'opened' || github.event.action == 'ready_for_review') &&
+          github.event.pull_request.user.login == github.repository_owner &&
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+        ) || (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null &&
+          github.event.comment.user.login == github.repository_owner &&
+          contains(github.event.comment.body, '/jazz')
+        ) || (
+          github.event_name == 'workflow_dispatch' &&
+          github.actor == github.repository_owner
+        ) || (
+          github.event_name == 'push' &&
+          github.actor == github.repository_owner
+        )
+      )
+    outputs:
+      authorized: ${{ steps.resolve.outputs.authorized }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      pr_head_repo_full_name: ${{ steps.resolve.outputs.pr_head_repo_full_name }}
+      request: ${{ steps.resolve.outputs.request }}
+      command: ${{ steps.resolve.outputs.command }}
+    steps:
+      - name: Authorize the trigger and resolve PR context
+        id: resolve
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const homeRepository = process.env.JAZZ_HOME_REPOSITORY.toLowerCase();
+            const ownerLogin = context.repo.owner.toLowerCase();
+            const isOwner = (login) => typeof login === 'string' && login.toLowerCase() === ownerLogin;
+            const isHomeRepository = (fullName) =>
+              typeof fullName === 'string' && fullName.toLowerCase() === homeRepository;
+
+            const deny = (reason) => {
+              core.notice(`Jazz did not run: ${reason}`);
+              core.setOutput('authorized', 'false');
+            };
+
+            const fetchPullRequest = async (pullNumber) => {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+              });
+              return data;
+            };
+
+            // Text after "/jazz" is the assistant request. "/jazz-review" is excluded
+            // so a review comment never has "-review" captured as a request.
+            const extractRequest = (body) => {
+              const match = (body || '').trim().match(/^\/jazz(?!-review)(?:\s*[:,-])?\s*([\s\S]*)/i);
+              return match?.[1]?.trim() ?? '';
+            };
+
+            if (!isHomeRepository(`${context.repo.owner}/${context.repo.repo}`)) {
+              return deny('this is not the original repository.');
+            }
+            if (!isOwner(process.env.TRIGGERING_ACTOR)) {
+              return deny('the run was not started by the repository owner.');
+            }
+
+            let pullRequest;
+            let command;
+            let request = '';
+            let headShaOverride = '';
+
+            if (context.eventName === 'pull_request') {
+              const eventPullRequest = context.payload.pull_request;
+              if (!['opened', 'ready_for_review'].includes(context.payload.action)) {
+                return deny(`pull_request action "${context.payload.action}" is not reviewed automatically.`);
+              }
+              if (!isOwner(eventPullRequest.user?.login)) {
+                return deny('the pull request author is not the repository owner.');
+              }
+              if (eventPullRequest.draft) {
+                return deny('the pull request is a draft.');
+              }
+              if (eventPullRequest.head.repo?.full_name !== eventPullRequest.base.repo.full_name) {
+                return deny('the pull request head is in another repository.');
+              }
+              pullRequest = eventPullRequest;
+              command = 'review';
+            } else if (context.eventName === 'issue_comment') {
+              if (!context.payload.issue?.pull_request) {
+                return deny('the comment is not on a pull request.');
+              }
+              if (!isOwner(context.payload.comment?.user?.login)) {
+                return deny('the comment author is not the repository owner.');
+              }
+              const body = context.payload.comment?.body || '';
+              if (/(^|\s)\/jazz-review([\s.,!?]|$)/.test(body)) {
+                command = 'review';
+              } else if (/(^|\s)\/jazz(?=[\s.,!?]|$)/.test(body)) {
+                command = 'assist';
+              } else {
+                return deny('the comment holds no /jazz command.');
+              }
+              // issue_comment payloads carry no head repository, so read the PR itself.
+              pullRequest = await fetchPullRequest(context.payload.issue.number);
+              request = extractRequest(body);
+            } else if (context.eventName === 'workflow_dispatch') {
+              if (!isOwner(context.actor)) {
+                return deny('the dispatch was not started by the repository owner.');
+              }
+              const pullNumber = Number(context.payload.inputs?.pull_request_number);
+              if (!Number.isInteger(pullNumber) || pullNumber <= 0) {
+                return deny('the dispatch did not name a pull request number.');
+              }
+              pullRequest = await fetchPullRequest(pullNumber);
+              command = context.payload.inputs.job === 'code-review' ? 'review' : 'assist';
+              request = String(context.payload.inputs.request ?? '').trim();
+            } else if (context.eventName === 'push') {
+              if (!isOwner(context.actor)) {
+                return deny('the push was not made by the repository owner.');
+              }
+              const ref = context.payload.ref ?? '';
+              if (!ref.startsWith('refs/heads/')) {
+                return deny(`${ref || 'the pushed ref'} is not a branch.`);
+              }
+              const branch = ref.slice('refs/heads/'.length);
+              if (branch === context.payload.repository?.default_branch) {
+                return deny('a push to the default branch has no pull request to review.');
+              }
+              const { data: openPullRequests } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head: `${context.repo.owner}:${branch}`,
+                state: 'open',
+              });
+              if (openPullRequests.length === 0) {
+                return deny(`branch ${branch} has no open pull request.`);
+              }
+              pullRequest = openPullRequests[0];
+              command = 'review';
+              headShaOverride = context.payload.after ?? '';
+            } else {
+              return deny(`event ${context.eventName} is not handled.`);
+            }
+
+            if (!isHomeRepository(pullRequest.head.repo?.full_name)) {
+              return deny('the pull request head is in another repository.');
+            }
+            if (!isHomeRepository(pullRequest.base.repo?.full_name)) {
+              return deny('the pull request base is in another repository.');
+            }
+
+            if (!request) {
+              request = 'Review this pull request and call out anything important.';
+            }
+
+            core.setOutput('authorized', 'true');
+            core.setOutput('pr_number', String(pullRequest.number));
+            core.setOutput('base_sha', pullRequest.base.sha);
+            core.setOutput('head_sha', headShaOverride || pullRequest.head.sha);
+            core.setOutput('pr_head_repo_full_name', pullRequest.head.repo.full_name);
+            core.setOutput('request', request);
+            core.setOutput('command', command);
+
+      - name: React with eyes on the triggering comment
+        if: github.event_name == 'issue_comment' && steps.resolve.outputs.authorized == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: 'eyes',
+              });
+            } catch (error) {
+              // The reaction is cosmetic, so a duplicate (422) or a refused token (403)
+              // must not fail the run.
+              core.warning(`Could not react with eyes: ${error.message}`);
+            }
+
+  code-review:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      # One model run at a time per pull request. Only the two model jobs join the
+      # group, so comments that trigger nothing never queue behind a review.
+      group: jazz-${{ github.repository }}-pr-${{ needs.resolve.outputs.pr_number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    if: |
+      github.repository == 'lvndry/euphoria' &&
+      github.triggering_actor == github.repository_owner &&
+      needs.resolve.outputs.authorized == 'true' &&
+      needs.resolve.outputs.command == 'review' &&
+      needs.resolve.outputs.pr_number != '' &&
+      needs.resolve.outputs.pr_head_repo_full_name == github.repository && (
+        (
+          github.event_name == 'pull_request' &&
+          (github.event.action == 'opened' || github.event.action == 'ready_for_review') &&
+          github.event.pull_request.user.login == github.repository_owner &&
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+        ) || (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null &&
+          github.event.comment.user.login == github.repository_owner
+        ) || (
+          github.event_name == 'workflow_dispatch' &&
+          github.actor == github.repository_owner &&
+          inputs.job == 'code-review'
+        ) || (
+          github.event_name == 'push' &&
+          github.actor == github.repository_owner
+        )
+      )
+    steps:
+      - name: Post status comment
+        id: status
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              const { data } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parseInt(process.env.PR_NUMBER, 10),
+                body: `## Jazz Code Review\n\nReview in progress ([workflow run](${process.env.RUN_URL})).`,
+              });
+              core.setOutput('comment_id', String(data.id));
+            } catch (error) {
+              core.warning(`Could not post status comment: ${error.message}`);
+              core.setOutput('comment_id', '');
+            }
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Jazz
+        # --trust lets the package's postinstall script run; that script installs the binary.
+        run: bun install -g jazz-ai@latest --trust
+
+      - name: Setup Jazz agent and workflow
+        env:
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.jazz/agents" workflows/code-review
+          cp .github/jazz/agents/ci-reviewer.json "$HOME/.jazz/agents/"
+          sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" -e "s|__WORKSPACE__|$WORKSPACE|g" \
+            .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
+
+      - name: Snapshot PR context
+        # The agent never holds a GitHub token, so the PR title, body and labels are
+        # fetched here into a file it reads. Anyone can comment on a public PR, so only
+        # comments and reviews written by the repository owner or by this workflow's
+        # own github-actions bot are kept.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -uo pipefail
+          CONTEXT_FILE=/tmp/jazz-pr-context.json
+          if gh pr view "$PR_NUMBER" --repo "$REPO" \
+               --json title,body,labels,comments,reviews \
+               > /tmp/pr-base.json \
+             && gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
+                  | jq 'add // []' > /tmp/pr-review-comments.json; then
+            jq -s --arg owner "$REPO_OWNER" '
+              def trusted:
+                ((.author.login // .user.login // "") | ascii_downcase) as $login
+                | $login == ($owner | ascii_downcase)
+                  or ($login | IN("github-actions", "github-actions[bot]"));
+              .[0] + {comments: (.[0].comments | map(select(trusted))),
+                      reviews: (.[0].reviews | map(select(trusted))),
+                      reviewComments: (.[1] | map(select(trusted)))}' \
+              /tmp/pr-base.json /tmp/pr-review-comments.json > "$CONTEXT_FILE"
+          else
+            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$CONTEXT_FILE"
+          fi
+
+      - name: Run code review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: |
+          set +e -uo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::error::Add the model provider key as the OPENAI_API_KEY Actions secret."
+            echo "No API key is configured: the OPENAI_API_KEY secret is missing." > /tmp/jazz-error.txt
+            : > /tmp/jazz-review.txt
+            echo 1 > /tmp/jazz-review-exit
+            exit 0
+          fi
+          jazz workflow run code-review --auto-approve --agent ci-reviewer \
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
+            --json --events tools | tee /tmp/jazz-review.txt
+          echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
+          # A failed run prints {"ok":false,"error":...}. Its cause, with keys redacted,
+          # goes to the PR comment and the job summary.
+          failure_cause="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-review.txt 2>/dev/null \
+            | sed -E 's/(sk|rk|pk)-[A-Za-z0-9_*-]{6,}/[redacted key]/g')"
+          if [ -n "$failure_cause" ]; then
+            printf '%s\n' "$failure_cause" > /tmp/jazz-error.txt
+            printf '### Jazz Code Review\n\nSkipped: %s\n' "$failure_cause" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Mark the status comment cancelled
+        if: cancelled() && steps.status.outputs.comment_id != ''
+        env:
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: parseInt(process.env.STATUS_COMMENT_ID, 10),
+                body: `## Jazz Code Review\n\nReview cancelled before it finished ([workflow run](${process.env.RUN_URL})). Comment \`/jazz-review\` to run one.`,
+              });
+            } catch (error) {
+              core.warning(`Could not update the status comment: ${error.message}`);
+            }
+
+      - name: Post review comments
+        if: always() && !cancelled()
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let rawOutput = '';
+            let reviewOutputMissing = false;
+            try {
+              rawOutput = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            } catch {
+              reviewOutputMissing = true;
+            }
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const headSha = process.env.PR_HEAD_SHA;
+            const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
+            const runUrl = process.env.RUN_URL;
+
+            // --json wraps the answer in a JSON envelope; take its answer field.
+            let answer = rawOutput;
+            try {
+              const firstBrace = rawOutput.indexOf('{');
+              const envelope = JSON.parse(firstBrace > 0 ? rawOutput.slice(firstBrace) : rawOutput);
+              answer = envelope.answer ?? rawOutput;
+            } catch {}
+
+            // Name the reviewed commit, and say so when the PR moved while the review ran.
+            let provenance = `\n\n*Reviewed commit \`${headSha.slice(0, 7)}\`*`;
+            try {
+              const { data: currentPullRequest } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              if (currentPullRequest.head.sha !== headSha) {
+                provenance += `\n\n> The PR head moved to \`${currentPullRequest.head.sha.slice(0, 7)}\` while this ran, so this review covers an older commit. Comment \`/jazz-review\` to review the new head.`;
+              }
+            } catch (error) {
+              core.warning(`Could not re-read the PR head: ${error.message}`);
+            }
+
+            const postOrUpdate = async (bodyWithoutProvenance) => {
+              const body = bodyWithoutProvenance + provenance;
+              if (statusCommentId > 0) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: statusCommentId,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            };
+
+            // The run step records the exit code without failing, so this step decides
+            // whether a failure is worth a red job. No exit-code file and no output
+            // means a setup step failed before the review started.
+            let jazzExitCode = 0;
+            try {
+              jazzExitCode = parseInt(fs.readFileSync('/tmp/jazz-review-exit', 'utf8').trim(), 10) || 0;
+            } catch {
+              jazzExitCode = reviewOutputMissing ? 1 : 0;
+            }
+
+            let modelLabel = '';
+            try {
+              const agent = JSON.parse(fs.readFileSync('.github/jazz/agents/ci-reviewer.json', 'utf8'));
+              if (agent.config?.llm?.provider && agent.config?.llm?.model) {
+                modelLabel = `\n\n*Model: ${agent.config.llm.provider}/${agent.config.llm.model}*`;
+              }
+            } catch {}
+
+            if (jazzExitCode !== 0) {
+              let cause = '';
+              try {
+                cause = fs.readFileSync('/tmp/jazz-error.txt', 'utf8').trim();
+              } catch {}
+              if (!cause && reviewOutputMissing) {
+                cause = 'a setup step failed before the review started.';
+              }
+              const detail = cause ? `\n\n> ${cause.split('\n').join('\n> ')}` : '';
+              const headline = /authentication|api key/i.test(cause) ? 'provider authentication failed' : 'the run failed';
+              await postOrUpdate(`## Jazz Code Review\n\nReview skipped: ${headline}.${detail}\n\nSee the [workflow run](${runUrl}) for the job log.${modelLabel}`);
+              // A throttled provider only warns; a broken setup (bad or missing key) fails the job.
+              if (/rate.?limit|429|too many requests/i.test(cause)) {
+                core.warning(`Jazz code review skipped: ${cause}`);
+              } else {
+                core.setFailed(`Jazz code review skipped: ${headline}.`);
+              }
+              return;
+            }
+
+            // Block 1, the verdict. The three-backtick fallback keeps a verdict from
+            // models that ignore the four-backtick rule.
+            const extractFencedMarkdown = (text) => {
+              const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
+              const threeFence = text.match(/```markdown\s*\n([\s\S]*?)\n?```/);
+              if (threeFence) return threeFence[1].trim();
+              return null;
+            };
+
+            // Block 2, the inline comments. The three-backtick fallback scans from the
+            // last opening fence to the last closing fence so code samples inside a
+            // comment body do not cut the block short.
+            const extractFencedJson = (text) => {
+              const fourFence = text.match(/````json\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return fourFence[1].trim();
+
+              const openIndex = text.lastIndexOf('```json');
+              if (openIndex < 0) return null;
+              const afterOpen = text.slice(openIndex + '```json'.length);
+              const closeIndex = afterOpen.lastIndexOf('```');
+              if (closeIndex < 0) return null;
+              return afterOpen.slice(0, closeIndex).trim();
+            };
+
+            const markdownSummary = extractFencedMarkdown(answer);
+
+            let comments = [];
+            const jsonText = extractFencedJson(answer);
+            if (jsonText) {
+              try {
+                comments = JSON.parse(jsonText);
+              } catch (error) {
+                core.warning(`Could not parse the inline comments block: ${error.message}`);
+              }
+            }
+            if (!Array.isArray(comments)) comments = [];
+
+            // A run that produced neither block did not finish the review. Reporting
+            // "no issues" there would present a failed review as a clean pass.
+            const reviewCompleted = markdownSummary !== null || comments.length > 0;
+            const summarySection = markdownSummary
+              || (comments.length > 0
+                ? `Found ${comments.length} issue(s). See inline comments below.`
+                : `The review agent did not produce a parseable verdict (its output contained neither the summary block nor the comments block). Treat this PR as **not reviewed**. See the [workflow run](${runUrl}) for the cause, then re-run the workflow or review manually.`);
+            if (!reviewCompleted) {
+              core.warning('Jazz code review produced no parseable output; posted a not-reviewed notice instead of a verdict.');
+            }
+
+            if (comments.length === 0) {
+              await postOrUpdate(`## Jazz Code Review\n\n${summarySection}${modelLabel}`);
+              return;
+            }
+
+            // The API requires start_line to be a positive integer strictly below line.
+            const hasValidRange = (comment) =>
+              Number.isInteger(comment.start_line) &&
+              Number.isInteger(comment.line) &&
+              comment.start_line > 0 &&
+              comment.start_line < comment.line;
+
+            const sanitizedComments = comments
+              .filter((comment) => comment && typeof comment === 'object')
+              .map((comment) => {
+                const copy = { ...comment };
+                if (!hasValidRange(copy)) delete copy.start_line;
+                return copy;
+              });
+            const isAddressable = (comment) =>
+              typeof comment.path === 'string' &&
+              comment.path !== '' &&
+              !comment.path.startsWith('/') &&
+              comment.path !== 'NO_DIFF' &&
+              Number.isInteger(comment.line) &&
+              comment.line > 0;
+            const addressableComments = sanitizedComments.filter(isAddressable);
+            const generalComments = sanitizedComments.filter((comment) => !isAddressable(comment));
+
+            let reviewBody = `## Jazz Code Review\n\n${summarySection}${modelLabel}`;
+            if (generalComments.length > 0) {
+              reviewBody += '\n\n### General Comments\n\n';
+              reviewBody += generalComments.map((comment) => `- ${comment.body}`).join('\n');
+            }
+
+            if (addressableComments.length === 0) {
+              await postOrUpdate(reviewBody);
+              return;
+            }
+
+            const pullRequestFiles = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            const deletedPaths = new Set(
+              pullRequestFiles.filter((file) => file.status === 'removed').map((file) => file.filename)
+            );
+
+            // Collects the line numbers a unified diff shows on each side. GitHub
+            // rejects an inline comment on any other line.
+            const parseHunks = (patchText) => {
+              const left = new Set();
+              const right = new Set();
+              let oldLine = 0;
+              let newLine = 0;
+              let insideHunk = false;
+              for (const patchLine of patchText.split('\n')) {
+                const hunkHeader = patchLine.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                if (hunkHeader) {
+                  oldLine = parseInt(hunkHeader[1], 10);
+                  newLine = parseInt(hunkHeader[2], 10);
+                  insideHunk = true;
+                  continue;
+                }
+                if (!insideHunk || patchLine.startsWith('\\ ')) continue;
+                if (patchLine.startsWith('-')) {
+                  left.add(oldLine);
+                  oldLine++;
+                } else if (patchLine.startsWith('+')) {
+                  right.add(newLine);
+                  newLine++;
+                } else {
+                  left.add(oldLine);
+                  right.add(newLine);
+                  oldLine++;
+                  newLine++;
+                }
+              }
+              return { left, right };
+            };
+
+            // GitHub omits `patch` for very large files, so those files are read from
+            // the full PR diff instead.
+            const diffBlocksByPath = new Map();
+            if (pullRequestFiles.some((file) => !file.patch)) {
+              try {
+                const diffResponse = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  mediaType: { format: 'diff' },
+                });
+                for (const fileBlock of String(diffResponse.data).split(/^diff --git /m)) {
+                  const pathMatch = fileBlock.match(/^a\/(.*?) b\//);
+                  if (pathMatch) diffBlocksByPath.set(pathMatch[1].trim(), fileBlock);
+                }
+              } catch (error) {
+                core.warning(`Could not fetch the full PR diff for large-file validation: ${error.message}`);
+              }
+            }
+
+            const diffLinesByPath = new Map();
+            for (const file of pullRequestFiles) {
+              if (file.patch) {
+                diffLinesByPath.set(file.filename, parseHunks(file.patch));
+              } else if (diffBlocksByPath.has(file.filename)) {
+                diffLinesByPath.set(file.filename, parseHunks(diffBlocksByPath.get(file.filename)));
+              }
+            }
+
+            const sideOf = (comment) =>
+              deletedPaths.has(comment.path) ? 'LEFT' : (comment.side === 'LEFT' ? 'LEFT' : 'RIGHT');
+
+            const isLineInDiff = (comment) => {
+              const fileDiff = diffLinesByPath.get(comment.path);
+              if (!fileDiff) return false;
+              const validLines = sideOf(comment) === 'LEFT' ? fileDiff.left : fileDiff.right;
+              if (!validLines.has(comment.line)) return false;
+              return !hasValidRange(comment) || validLines.has(comment.start_line);
+            };
+
+            const inlineComments = addressableComments.filter(isLineInDiff);
+            const outsideDiffComments = addressableComments.filter((comment) => !isLineInDiff(comment));
+
+            if (outsideDiffComments.length > 0) {
+              core.info(`${outsideDiffComments.length} comment(s) reference lines outside the diff and are posted as general comments.`);
+              reviewBody += '\n\n### Comments on lines outside the diff\n\n';
+              reviewBody += outsideDiffComments
+                .map((comment) => `- **${comment.path}:${comment.line}**: ${comment.body}`)
+                .join('\n');
+            }
+
+            if (inlineComments.length === 0) {
+              await postOrUpdate(reviewBody);
+              return;
+            }
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              commit_id: headSha,
+              event: 'COMMENT',
+              body: reviewBody + provenance,
+              comments: inlineComments.map((comment) => ({
+                path: comment.path,
+                line: comment.line,
+                ...(hasValidRange(comment) && {
+                  start_line: comment.start_line,
+                  start_side: sideOf(comment),
+                }),
+                side: sideOf(comment),
+                body: String(comment.body ?? ''),
+              })),
+            });
+            if (statusCommentId > 0) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: statusCommentId,
+              }).catch(() => {});
+            }
+
+  assistant:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: jazz-${{ github.repository }}-pr-${{ needs.resolve.outputs.pr_number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    if: |
+      github.repository == 'lvndry/euphoria' &&
+      github.triggering_actor == github.repository_owner &&
+      needs.resolve.outputs.authorized == 'true' &&
+      needs.resolve.outputs.command == 'assist' &&
+      needs.resolve.outputs.pr_number != '' &&
+      needs.resolve.outputs.pr_head_repo_full_name == github.repository && (
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null &&
+          github.event.comment.user.login == github.repository_owner
+        ) || (
+          github.event_name == 'workflow_dispatch' &&
+          github.actor == github.repository_owner &&
+          inputs.job == 'assistant'
+        )
+      )
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Jazz
+        # --trust lets the package's postinstall script run; that script installs the binary.
+        run: bun install -g jazz-ai@latest --trust
+
+      - name: Setup Jazz agent and workflow
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          REQUEST: ${{ needs.resolve.outputs.request }}
+          REPO: ${{ github.repository }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.jazz/agents" workflows/pr-assistant
+          cp .github/jazz/agents/pr-assistant.json "$HOME/.jazz/agents/"
+          # The request is free text, so the placeholders are filled by string
+          # replacement in node rather than by sed, where it would act as a pattern.
+          node - <<'NODE'
+          const fs = require('fs');
+          const template = fs.readFileSync('.github/jazz/workflows/pr-assistant/WORKFLOW.md', 'utf8');
+          const replacements = {
+            '__PR_NUMBER__': process.env.PR_NUMBER,
+            '__PR_BASE_SHA__': process.env.PR_BASE_SHA,
+            '__PR_HEAD_SHA__': process.env.PR_HEAD_SHA,
+            '__REPO__': process.env.REPO,
+            '__WORKSPACE__': process.env.WORKSPACE,
+            '__REQUEST__': process.env.REQUEST,
+          };
+          let filled = template;
+          for (const [placeholder, value] of Object.entries(replacements)) {
+            filled = filled.split(placeholder).join(value);
+          }
+          fs.writeFileSync('workflows/pr-assistant/WORKFLOW.md', filled);
+          NODE
+
+      - name: Snapshot PR context
+        # Same trusted-author filter as the code-review job.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -uo pipefail
+          CONTEXT_FILE=/tmp/jazz-pr-context.json
+          if gh pr view "$PR_NUMBER" --repo "$REPO" \
+               --json title,body,labels,comments,reviews \
+               > /tmp/pr-base.json \
+             && gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
+                  | jq 'add // []' > /tmp/pr-review-comments.json; then
+            jq -s --arg owner "$REPO_OWNER" '
+              def trusted:
+                ((.author.login // .user.login // "") | ascii_downcase) as $login
+                | $login == ($owner | ascii_downcase)
+                  or ($login | IN("github-actions", "github-actions[bot]"));
+              .[0] + {comments: (.[0].comments | map(select(trusted))),
+                      reviews: (.[0].reviews | map(select(trusted))),
+                      reviewComments: (.[1] | map(select(trusted)))}' \
+              /tmp/pr-base.json /tmp/pr-review-comments.json > "$CONTEXT_FILE"
+          else
+            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$CONTEXT_FILE"
+          fi
+
+      - name: Post status comment
+        id: status
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              const { data } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parseInt(process.env.PR_NUMBER, 10),
+                body: `## Jazz PR Assistant\n\nWorking on it ([workflow run](${process.env.RUN_URL})).`,
+              });
+              core.setOutput('comment_id', String(data.id));
+            } catch (error) {
+              core.warning(`Could not post status comment: ${error.message}`);
+              core.setOutput('comment_id', '');
+            }
+
+      - name: Run Jazz assistant
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+        run: |
+          set -uo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::error::Add the model provider key as the OPENAI_API_KEY Actions secret."
+            echo "No API key is configured: the OPENAI_API_KEY secret is missing." > /tmp/jazz-error.txt
+            exit 1
+          fi
+          jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
+            --json --events tools | tee /tmp/jazz-pr-assistant.txt
+          jazz_exit_code="${PIPESTATUS[0]}"
+          # A failed run prints {"ok":false,"error":...}. Its cause, with keys redacted,
+          # goes to the PR comment and the job summary.
+          failure_cause="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-pr-assistant.txt 2>/dev/null \
+            | sed -E 's/(sk|rk|pk)-[A-Za-z0-9_*-]{6,}/[redacted key]/g')"
+          if [ -n "$failure_cause" ]; then
+            printf '%s\n' "$failure_cause" > /tmp/jazz-error.txt
+            printf '### Jazz PR Assistant\n\nSkipped: %s\n' "$failure_cause" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$jazz_exit_code"
+
+      - name: Post PR comment
+        if: always() && !cancelled()
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
+            const runUrl = process.env.RUN_URL;
+
+            let rawOutput = '';
+            try {
+              rawOutput = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
+            } catch {}
+
+            // --json wraps the answer in a JSON envelope; take its answer field.
+            let answer = rawOutput;
+            try {
+              const firstBrace = rawOutput.indexOf('{');
+              const envelope = JSON.parse(firstBrace > 0 ? rawOutput.slice(firstBrace) : rawOutput);
+              answer = envelope.answer ?? rawOutput;
+            } catch {}
+
+            const postOrUpdate = async (body) => {
+              if (statusCommentId > 0) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: statusCommentId,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            };
+
+            // Prefers the contract's four-backtick markdown block, then a three-backtick
+            // one, then the last fenced block of any language, flagged as off-contract.
+            const extractAnswer = (text) => {
+              const fourFence = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
+              if (fourFence) return { body: fourFence[1].trim(), followsContract: true };
+
+              const openIndex = text.lastIndexOf('```markdown');
+              if (openIndex >= 0) {
+                const afterOpen = text.slice(openIndex + '```markdown'.length);
+                const closeIndex = afterOpen.lastIndexOf('```');
+                if (closeIndex >= 0) return { body: afterOpen.slice(0, closeIndex).trim(), followsContract: true };
+              }
+
+              const fencedBlocks = [...text.matchAll(/`{3,4}([a-zA-Z0-9_-]*)\n([\s\S]*?)\n`{3,4}/g)];
+              const lastBlock = fencedBlocks.pop();
+              if (lastBlock) {
+                return { body: lastBlock[2].trim(), followsContract: false, language: lastBlock[1] || 'unknown' };
+              }
+              return null;
+            };
+
+            let cause = '';
+            try {
+              cause = fs.readFileSync('/tmp/jazz-error.txt', 'utf8').trim();
+            } catch {}
+
+            const extracted = extractAnswer(answer);
+            let commentBody;
+            if (cause) {
+              commentBody = `Answer skipped: the run failed.\n\n> ${cause.split('\n').join('\n> ')}\n\n` +
+                `See the [workflow run](${runUrl}) for details.`;
+            } else if (!extracted || !extracted.body) {
+              commentBody = `_The Jazz assistant did not produce a usable answer. ` +
+                `See the [workflow run](${runUrl}) for details._`;
+            } else if (extracted.followsContract) {
+              commentBody = extracted.body;
+            } else {
+              commentBody =
+                `> _The assistant did not follow the markdown output contract ` +
+                `(it emitted a \`${extracted.language}\` block instead). The raw content is below; ` +
+                `see the [workflow run](${runUrl}) for the full transcript._\n\n` +
+                '```' + extracted.language + '\n' + extracted.body + '\n```';
+            }
+
+            await postOrUpdate(`## Jazz PR Assistant\n\n${commentBody}`);
