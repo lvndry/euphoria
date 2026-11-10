@@ -8,7 +8,7 @@ use rayon::prelude::*;
 
 use crate::detect::StratumDetector;
 #[cfg(feature = "libkeyfinder")]
-use crate::detect::{KeyDetector, KeyFinderDetector};
+use crate::detect::{KeyDetector, KeyFinderDetector, TempoDetector};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -26,9 +26,9 @@ use crate::key::Key;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "2+libkeyfinder"
+    "3+libkeyfinder"
 } else {
-    "2+stratum"
+    "3+stratum"
 };
 
 /// What Euphoria found in one track.
@@ -70,26 +70,36 @@ pub struct Progress<'batch> {
 /// Decodes one file once and finds its key, its tempo and its energy.
 ///
 /// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
-/// as it is the more accurate detector; tempo comes from `stratum-dsp`. The
-/// energy rating takes the detected tempo into account when there is one.
+/// as it is the more accurate detector, and tempo comes from the tempo only
+/// path of `stratum-dsp`, so its costly key analysis does not run. Without
+/// the feature, `stratum-dsp` finds both. The energy rating takes the
+/// detected tempo into account when there is one.
 ///
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].
 pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     let audio = crate::audio::decode_mono(path)?;
-    let stratum_analysis = StratumDetector.analyze(&audio)?;
 
+    // Tempo runs first because it has the larger peak. libkeyfinder then
+    // reuses the memory tempo released, where the other order keeps
+    // libkeyfinder's released memory resident under the tempo peak.
     #[cfg(feature = "libkeyfinder")]
-    let key = KeyFinderDetector.detect_key(&audio)?;
+    let (tempo, key) = (
+        StratumDetector.detect_tempo(&audio)?,
+        KeyFinderDetector.detect_key(&audio)?,
+    );
     #[cfg(not(feature = "libkeyfinder"))]
-    let key = stratum_analysis.key;
+    let (key, tempo) = {
+        let analysis = StratumDetector.analyze(&audio)?;
+        (analysis.key, analysis.tempo)
+    };
 
-    let energy = rate_energy(&audio, stratum_analysis.tempo)?.map(|rating| rating.rating);
+    let energy = rate_energy(&audio, tempo)?.map(|rating| rating.rating);
 
     Ok(TrackAnalysis {
         duration_seconds: audio.duration_seconds(),
         key,
-        bpm: stratum_analysis.tempo,
+        bpm: tempo,
         energy,
     })
 }

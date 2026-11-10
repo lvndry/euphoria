@@ -54,6 +54,11 @@ impl AudioBuffer {
 
 const SILENCE_THRESHOLD: f32 = 1.0e-5;
 
+/// The most samples reserved up front from the length a file declares, one
+/// hour at 48 kHz, so a wrong length in a header cannot reserve unbounded
+/// memory. Longer audio grows the buffer as it decodes.
+const MAXIMUM_RESERVED_FRAMES: usize = 60 * 60 * 48_000;
+
 /// True when no sample rises above roughly -100 dBFS.
 pub(crate) fn is_silent(samples: &[f32]) -> bool {
     samples
@@ -98,6 +103,7 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
         .default_track(TrackType::Audio)
         .ok_or_else(|| missing(DecodeFailure::NoAudioTrack))?;
     let track_id = track.id;
+    let expected_frames = track.num_frames;
     let codec_parameters = track
         .codec_params
         .as_ref()
@@ -107,7 +113,11 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
         .make_audio_decoder(codec_parameters, &AudioDecoderOptions::default())
         .map_err(decode_error)?;
 
-    let mut mono_samples: Vec<f32> = Vec::new();
+    let expected_frames = expected_frames
+        .and_then(|frames| usize::try_from(frames).ok())
+        .unwrap_or(0)
+        .min(MAXIMUM_RESERVED_FRAMES);
+    let mut mono_samples: Vec<f32> = Vec::with_capacity(expected_frames);
     let mut interleaved: Vec<f32> = Vec::new();
     let mut sample_rate: u32 = 0;
 
