@@ -15,6 +15,10 @@ const A_MINOR_CHORD_FREQUENCIES: [f32; 4] = [220.0, 261.63, 329.63, 440.0];
 const CHORD_NOTE_AMPLITUDE: f32 = 0.2;
 const SILENCE_SECONDS: f32 = 2.0;
 const VERY_SHORT_SAMPLES: [f32; 4] = [0.5, -0.25, 0.75, -0.5];
+const CLICK_TRACK_TEMPO: f32 = 120.0;
+const CLICK_TRACK_SECONDS: f32 = 12.0;
+const CLICK_FREQUENCY: f32 = 1_000.0;
+const CLICK_DECAY_SECONDS: f32 = 0.02;
 
 /// What a key detector must report for the A minor chord.
 enum ChordExpectation {
@@ -48,6 +52,22 @@ fn a_minor_chord(seconds: f32) -> AudioBuffer {
         })
         .collect();
     AudioBuffer::new(samples, sample_rate())
+}
+
+/// A decaying tone burst on every beat.
+fn click_track(sample_rate: u32) -> AudioBuffer {
+    let beat_seconds = 60.0 / CLICK_TRACK_TEMPO;
+    let sample_count = (sample_rate as f32 * CLICK_TRACK_SECONDS) as usize;
+    let samples = (0..sample_count)
+        .map(|index| {
+            let since_beat = (index as f32 / sample_rate as f32) % beat_seconds;
+            (TAU * CLICK_FREQUENCY * since_beat).sin() * (-since_beat / CLICK_DECAY_SECONDS).exp()
+        })
+        .collect();
+    AudioBuffer::new(
+        samples,
+        NonZeroU32::new(sample_rate).expect("the sample rate is not zero"),
+    )
 }
 
 fn check_silence_has_no_key(detector: &dyn KeyDetector) {
@@ -149,6 +169,20 @@ key_detector_contract!(keyfinder_key, euphoria_core::detect::KeyFinderDetector, 
 // stratum-dsp is slow in debug builds and gives the same answer from half a second on.
 key_detector_contract!(stratum_key, StratumDetector, chord_seconds: 2.0, expect: ChordExpectation::AnyKey);
 tempo_detector_contract!(stratum_tempo, StratumDetector);
+
+#[test]
+fn stratum_finds_the_tempo_of_a_click_track_at_common_sample_rates() {
+    for sample_rate in [44_100, 48_000] {
+        let tempo = StratumDetector
+            .detect_tempo(&click_track(sample_rate))
+            .expect("tempo detection failed on the click track")
+            .expect("no tempo found in the click track");
+        assert!(
+            (tempo - CLICK_TRACK_TEMPO).abs() < 0.04 * CLICK_TRACK_TEMPO,
+            "{tempo} BPM at {sample_rate} Hz"
+        );
+    }
+}
 
 #[test]
 fn stratum_analyze_matches_the_trait_methods() {

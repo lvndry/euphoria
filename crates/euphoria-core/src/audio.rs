@@ -48,13 +48,18 @@ impl AudioBuffer {
     /// True when no sample rises above roughly -100 dBFS, so there is nothing
     /// to analyze.
     pub fn is_silent(&self) -> bool {
-        self.samples
-            .iter()
-            .all(|sample| sample.abs() < SILENCE_THRESHOLD)
+        is_silent(&self.samples)
     }
 }
 
 const SILENCE_THRESHOLD: f32 = 1.0e-5;
+
+/// True when no sample rises above roughly -100 dBFS.
+pub(crate) fn is_silent(samples: &[f32]) -> bool {
+    samples
+        .iter()
+        .all(|sample| sample.abs() < SILENCE_THRESHOLD)
+}
 
 /// Decodes a whole audio file and averages its channels into mono.
 pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
