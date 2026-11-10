@@ -402,6 +402,81 @@ fn a_file_that_fails_is_reported_and_the_others_are_exported() {
     assert!(library.tracks.iter().all(|track| track.path != readme));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_track_whose_tags_cannot_be_read_is_exported_under_its_file_name() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let euphoria = Euphoria::new();
+    let music = TemporaryFolder::new();
+    let music_folder = resolved(music.path());
+    let readable = music_folder.join("readable.flac");
+    let unreadable = music_folder.join("Locked Away.flac");
+    for copy in [&readable, &unreadable] {
+        std::fs::copy(tagged_fixtures_directory().join("tagged.flac"), copy)
+            .expect("the fixture is copied");
+    }
+    let output_file = music_folder.join("library.xml");
+    let arguments = [
+        "export",
+        "rekordbox",
+        text(&music_folder),
+        "--force",
+        "-o",
+        text(&output_file),
+    ];
+    assert_success(&euphoria.run(&arguments));
+    let set_mode = |mode| {
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(mode))
+            .expect("the file's permissions are set");
+    };
+
+    // The analysis comes from the cache, which does not open a file it has
+    // seen at the same place with the same size and modification time.
+    set_mode(0o000);
+    let exported = euphoria.run(&arguments);
+    set_mode(0o644);
+
+    assert_success(&exported);
+    assert!(exported.stdout.is_empty());
+    let errors = standard_error(&exported);
+    let lines: Vec<&str> = errors.lines().collect();
+    assert_eq!(lines.len(), 5, "{errors}");
+    assert_eq!(
+        lines[0],
+        "Could not read the title of 1 file, used its file name:"
+    );
+    assert_eq!(
+        lines[1],
+        format!(
+            "  {path}: cannot open {path}: Permission denied (os error 13)",
+            path = unreadable.display()
+        )
+    );
+    assert!(
+        lines[2].starts_with("Exported 2 tracks in 1 playlist to ")
+            && lines[2].ends_with("(2 from the cache)"),
+        "{errors}"
+    );
+
+    let library = ExportedLibrary::read(&output_file);
+    let analyzed_track = library.track(&readable);
+    let renamed_track = library.track(&unreadable);
+    assert_eq!(renamed_track.name.as_deref(), Some("Locked Away"));
+    assert_eq!(renamed_track.artist, None);
+    assert_eq!(analyzed_track.name.as_deref(), Some("Low Tide"));
+    assert!(renamed_track.tonality.is_some());
+    assert_eq!(renamed_track.tonality, analyzed_track.tonality);
+    assert_eq!(renamed_track.total_time, analyzed_track.total_time);
+    assert_eq!(
+        library.playlists,
+        vec![ExportedNode::Playlist(
+            text(music_folder.file_name().map(Path::new).expect("a name")).to_string(),
+            vec![unreadable, readable]
+        )]
+    );
+}
+
 #[test]
 fn nothing_is_written_when_no_file_can_be_exported() {
     let euphoria = Euphoria::new();

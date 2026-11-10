@@ -35,7 +35,7 @@ pub use cache::{
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{
-    AssembledLibrary, PlaylistLayout, SkippedTrack, assemble_library, playlist_count,
+    AssembledLibrary, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library, playlist_count,
     playlists_from_folders,
 };
 pub use harmony::{

@@ -109,7 +109,11 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             loose_playlist_name: &loose_playlist_name,
         }
     };
-    let AssembledLibrary { library, skipped } = assemble_library(results, layout);
+    let AssembledLibrary {
+        library,
+        skipped,
+        unread_tags,
+    } = assemble_library(results, layout);
 
     let mut standard_error = std::io::stderr().lock();
     if !skipped.is_empty() {
@@ -117,6 +121,9 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     }
     if library.tracks.is_empty() {
         bail!("none of the files could be exported, so nothing was written");
+    }
+    if !unread_tags.is_empty() {
+        output::write_unread_tags(&mut standard_error, &unread_tags)?;
     }
 
     let options = ExportOptions {

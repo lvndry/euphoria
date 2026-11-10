@@ -12,7 +12,7 @@ use super::playlists::playlists_from_folders;
 use super::rekordbox::{Library, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
 use crate::error::EuphoriaError;
-use crate::tags::read_tags;
+use crate::tags::{TrackTags, read_tags};
 
 /// Which playlists an exported library gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +34,17 @@ pub enum PlaylistLayout<'paths> {
 pub struct SkippedTrack {
     /// The file that was left out.
     pub path: PathBuf,
-    /// Why: its analysis failed, or its tags could not be read.
+    /// Why its analysis failed.
+    pub reason: EuphoriaError,
+}
+
+/// A track that was exported under its file name because its tags could not
+/// be read.
+#[derive(Debug)]
+pub struct UnreadTags {
+    /// The file whose tags could not be read.
+    pub path: PathBuf,
+    /// Why they could not be read.
     pub reason: EuphoriaError,
 }
 
@@ -46,24 +56,29 @@ pub struct AssembledLibrary {
     pub library: Library,
     /// The files that were left out, in the order of the results.
     pub skipped: Vec<SkippedTrack>,
+    /// The tracks of the library whose tags could not be read, in the order
+    /// of the results.
+    pub unread_tags: Vec<UnreadTags>,
 }
 
 /// Builds the library to export from analysis results.
 ///
 /// Each analyzed file becomes a track with its duration, key and tempo. Its
 /// title and artist are read from the file's own tags with [`read_tags`]; a
-/// file with no title is given its file name without the extension. A file
-/// whose analysis failed, or whose tags cannot be read, is not in the library
-/// and is returned in [`AssembledLibrary::skipped`] with the reason.
+/// file with no title is given its file name without the extension. So is a
+/// file whose tags cannot be read, which has no artist and is also returned
+/// in [`AssembledLibrary::unread_tags`] with the reason. A file whose
+/// analysis failed is not in the library and is returned in
+/// [`AssembledLibrary::skipped`] with the reason.
 ///
 /// Tags are read in parallel on the current Rayon thread pool.
 pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) -> AssembledLibrary {
-    let outcomes: Vec<Result<Track, SkippedTrack>> = results
+    let outcomes: Vec<Result<(Track, Option<UnreadTags>), SkippedTrack>> = results
         .into_par_iter()
         .map(|result| {
             let FileResult { path, outcome } = result;
-            match outcome.and_then(|analysis| track_from_analysis(&path, &analysis)) {
-                Ok(track) => Ok(track),
+            match outcome {
+                Ok(analysis) => Ok(track_from_analysis(&path, &analysis)),
                 Err(reason) => Err(SkippedTrack { path, reason }),
             }
         })
@@ -71,9 +86,13 @@ pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) ->
 
     let mut tracks = Vec::new();
     let mut skipped = Vec::new();
+    let mut unread_tags = Vec::new();
     for outcome in outcomes {
         match outcome {
-            Ok(track) => tracks.push(track),
+            Ok((track, track_unread_tags)) => {
+                tracks.push(track);
+                unread_tags.extend(track_unread_tags);
+            }
             Err(skipped_track) => skipped.push(skipped_track),
         }
     }
@@ -91,22 +110,33 @@ pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) ->
     AssembledLibrary {
         library: Library { tracks, playlists },
         skipped,
+        unread_tags,
     }
 }
 
-fn track_from_analysis(path: &Path, analysis: &TrackAnalysis) -> Result<Track, EuphoriaError> {
-    let tags = read_tags(path)?;
+fn track_from_analysis(path: &Path, analysis: &TrackAnalysis) -> (Track, Option<UnreadTags>) {
+    let (tags, unread_tags) = match read_tags(path) {
+        Ok(tags) => (tags, None),
+        Err(reason) => (
+            TrackTags::default(),
+            Some(UnreadTags {
+                path: path.to_path_buf(),
+                reason,
+            }),
+        ),
+    };
     let title = tags.title.or_else(|| {
         path.file_stem()
             .map(|file_stem| file_stem.to_string_lossy().into_owned())
     });
     // A duration that is not a positive number of seconds is written as zero.
     let duration = Duration::try_from_secs_f32(analysis.duration_seconds).unwrap_or_default();
-    Ok(Track {
+    let track = Track {
         title,
         artist: tags.artist,
         key: analysis.key,
         bpm: analysis.bpm.map(f64::from),
         ..Track::new(path, duration)
-    })
+    };
+    (track, unread_tags)
 }

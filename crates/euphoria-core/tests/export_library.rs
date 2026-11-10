@@ -60,7 +60,7 @@ fn one_track_library() -> Library {
 }
 
 #[test]
-fn tracks_carry_the_analysis_and_the_tags_and_failed_files_are_skipped() {
+fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
     let tagged = tests_directory()
         .join("tagged-fixtures")
         .join("tagged.flac");
@@ -68,7 +68,14 @@ fn tracks_carry_the_analysis_and_the_tags_and_failed_files_are_skipped() {
         .join("fixtures")
         .join("sine-440hz-mono.wav");
     let failed = tests_directory().join("fixtures").join("failed.mp3");
-    let not_audio = tests_directory().join("fixtures").join("README.md");
+    let damaged_tag = scratch_folder("export-damaged-tag").join("Damaged Tag.mp3");
+    let mut damaged_bytes =
+        std::fs::read(tests_directory().join("tagged-fixtures").join("tagged.mp3"))
+            .expect("the fixture is read");
+    assert_eq!(&damaged_bytes[..3], b"ID3");
+    // No ID3v2 tag has version 9, so the tag cannot be read.
+    damaged_bytes[3] = 9;
+    std::fs::write(&damaged_tag, damaged_bytes).expect("the damaged copy is written");
     let results = vec![
         analyzed(&tagged),
         FileResult {
@@ -85,7 +92,7 @@ fn tracks_carry_the_analysis_and_the_tags_and_failed_files_are_skipped() {
                 bpm: None,
             }),
         },
-        analyzed(&not_audio),
+        analyzed(&damaged_tag),
     ];
 
     let assembled = assemble_library(results, PlaylistLayout::CollectionOnly);
@@ -104,18 +111,25 @@ fn tracks_carry_the_analysis_and_the_tags_and_failed_files_are_skipped() {
                 title: Some("sine-440hz-mono".to_string()),
                 ..Track::new(&untagged, Duration::from_secs(1))
             },
+            Track {
+                title: Some("Damaged Tag".to_string()),
+                key: Some(Key::new(9, Mode::Minor)),
+                bpm: Some(124.0),
+                ..Track::new(&damaged_tag, Duration::from_secs_f32(61.4))
+            },
         ]
     );
     assert!(assembled.library.playlists.is_empty());
-    assert_eq!(assembled.skipped.len(), 2);
+    assert_eq!(assembled.skipped.len(), 1);
     assert_eq!(assembled.skipped[0].path, failed);
     assert!(matches!(
         assembled.skipped[0].reason,
         EuphoriaError::EmptyAudio { .. }
     ));
-    assert_eq!(assembled.skipped[1].path, not_audio);
+    assert_eq!(assembled.unread_tags.len(), 1);
+    assert_eq!(assembled.unread_tags[0].path, damaged_tag);
     assert!(matches!(
-        assembled.skipped[1].reason,
+        assembled.unread_tags[0].reason,
         EuphoriaError::Decode { .. }
     ));
 }
@@ -124,11 +138,15 @@ fn tracks_carry_the_analysis_and_the_tags_and_failed_files_are_skipped() {
 fn playlists_hold_only_the_tracks_that_were_exported() {
     let fixtures = tests_directory().join("fixtures");
     let exported = fixtures.join("sine-440hz-mono.flac");
-    let failed = fixtures.join("README.md");
+    let failed = fixtures.join("failed.mp3");
     let folders = [fixtures.clone()];
+    let failed_result = FileResult {
+        path: failed.clone(),
+        outcome: Err(EuphoriaError::EmptyAudio { path: failed }),
+    };
 
     let assembled = assemble_library(
-        vec![analyzed(&exported), analyzed(&failed)],
+        vec![analyzed(&exported), failed_result],
         PlaylistLayout::MirrorFolders {
             folders: &folders,
             loose_playlist_name: "export",

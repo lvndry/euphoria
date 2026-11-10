@@ -104,7 +104,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 
 ### What is written
 
-Each track has its full path, its duration, its key and tempo when Euphoria found them, and its title and artist. Title and artist are read from the file's own tags: ID3 in MP3 and AIFF, Vorbis comments in FLAC, MP4 metadata in M4A and the `INFO` list in WAV. A file with no title is given its file name without the extension.
+Each track has its full path, its duration, its key and tempo when Euphoria found them, and its title and artist. Title and artist are read from the file's own tags: ID3 in MP3 and AIFF, Vorbis comments in FLAC, MP4 metadata in M4A and the `INFO` list in WAV. A file with no title is given its file name without the extension. So is a file whose tags cannot be read, which is exported without an artist.
 
 Playlists mirror the folders:
 
@@ -121,13 +121,23 @@ The file is written under a temporary name in the folder of the output file and 
 
 Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
 
-A file that could not be analyzed, or whose tags could not be read, is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
+Only a file that could not be analyzed is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
 
 ```
 Left 1 file out of the export:
   /Users/you/Music/DJ/notes.txt: cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found
 Exported 339 tracks in 12 playlists to /Users/you/Music/euphoria.xml
 ```
+
+A track whose key and tempo are known but whose tags cannot be read is still exported, under its file name and without an artist. This happens when the result came from the cache and the file can no longer be opened, for example after its permissions changed. Such tracks are listed in a note before the summary, and the note alone does not change the exit status:
+
+```
+Could not read the title of 1 file, used its file name:
+  /Users/you/Music/DJ/Low Tide.flac: cannot open /Users/you/Music/DJ/Low Tide.flac: Permission denied (os error 13)
+Exported 340 tracks in 12 playlists to /Users/you/Music/euphoria.xml (340 from the cache)
+```
+
+A damaged tag does not cause the note. Either the file still opens and is exported under its file name, or the damage stops the file from being decoded and it is listed as left out.
 
 The command also exits with status 1, and writes no file, when:
 

@@ -7,7 +7,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use euphoria_core::{EuphoriaError, FileResult, Key, SkippedTrack};
+use euphoria_core::{EuphoriaError, FileResult, Key, SkippedTrack, UnreadTags};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -214,6 +214,32 @@ pub fn write_skipped_tracks(writer: &mut impl Write, skipped: &[SkippedTrack]) -
     Ok(())
 }
 
+/// Writes the exported tracks that are named after their file because their
+/// tags could not be read, and why.
+pub fn write_unread_tags(writer: &mut impl Write, unread_tags: &[UnreadTags]) -> io::Result<()> {
+    if unread_tags.len() == 1 {
+        writeln!(
+            writer,
+            "Could not read the title of 1 file, used its file name:"
+        )?;
+    } else {
+        writeln!(
+            writer,
+            "Could not read the title of {} files, used their file names:",
+            unread_tags.len()
+        )?;
+    }
+    for track in unread_tags {
+        writeln!(
+            writer,
+            "  {}: {}",
+            track.path.display(),
+            track.reason.chain()
+        )?;
+    }
+    Ok(())
+}
+
 fn counted(count: usize, singular: &str, plural: &str) -> String {
     let noun = if count == 1 { singular } else { plural };
     format!("{count} {noun}")
@@ -373,6 +399,21 @@ Key             BPM  Time  File
         assert_eq!(
             String::from_utf8(buffer).unwrap(),
             "Left 1 file out of the export:\n  music/broken.mp3: unrecognised key text: \"example\"\n"
+        );
+    }
+
+    #[test]
+    fn unread_tags_are_a_note_with_the_reason() {
+        let unread = |name: &str| UnreadTags {
+            path: PathBuf::from(name),
+            reason: EuphoriaError::UnknownKeyText("example".to_string()),
+        };
+        let mut buffer = Vec::new();
+        write_unread_tags(&mut buffer, &[unread("music/a.mp3")]).unwrap();
+        write_unread_tags(&mut buffer, &[unread("music/a.mp3"), unread("music/b.mp3")]).unwrap();
+        assert_eq!(
+            String::from_utf8(buffer).unwrap(),
+            "Could not read the title of 1 file, used its file name:\n  music/a.mp3: unrecognised key text: \"example\"\nCould not read the title of 2 files, used their file names:\n  music/a.mp3: unrecognised key text: \"example\"\n  music/b.mp3: unrecognised key text: \"example\"\n"
         );
     }
 
