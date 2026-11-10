@@ -66,7 +66,9 @@ pub struct TempoTally {
 }
 
 const TOLERANCE: f32 = 0.04;
-const OCTAVE_FACTORS: [f32; 5] = [1.0, 2.0, 0.5, 3.0, 1.0 / 3.0];
+/// Tempo multiples accepted by Accuracy 2, the standard lenient tempo score.
+/// Triple and third tempo count as correct along with double and half.
+const ACCURACY_2_FACTORS: [f32; 5] = [1.0, 2.0, 0.5, 3.0, 1.0 / 3.0];
 
 fn within_tolerance(reference: f32, estimate: f32) -> bool {
     (estimate - reference).abs() <= TOLERANCE * reference
@@ -78,7 +80,7 @@ impl TempoTally {
         if within_tolerance(reference, estimate) {
             self.accurate += 1;
         }
-        if OCTAVE_FACTORS
+        if ACCURACY_2_FACTORS
             .iter()
             .any(|factor| within_tolerance(reference * factor, estimate))
         {
@@ -118,12 +120,15 @@ mod tests {
     }
 
     #[test]
-    fn tempo_octave_errors_only_count_in_the_lenient_score() {
+    fn accuracy_2_accepts_double_half_triple_and_third_tempo() {
         let mut tally = TempoTally::default();
-        tally.record(124.0, 62.0);
-        tally.record(124.0, 125.0);
-        tally.record(124.0, 140.0);
+        tally.record(120.0, 121.0);
+        tally.record(120.0, 60.0);
+        tally.record(120.0, 240.0);
+        tally.record(120.0, 360.0);
+        tally.record(120.0, 40.0);
+        tally.record(120.0, 140.0);
         assert_eq!(tally.accurate, 1);
-        assert_eq!(tally.accurate_with_octaves, 2);
+        assert_eq!(tally.accurate_with_octaves, 5);
     }
 }

@@ -19,7 +19,7 @@ KEY_PROFILES = ["edma", "bgate", "shaath", "krumhansl"]
 NATURAL_PITCH_CLASSES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 ACCIDENTAL_OFFSETS = {"": 0, "b": -1, "#": 1}
 TEMPO_TOLERANCE = 0.04
-OCTAVE_FACTORS = [1.0, 2.0, 0.5, 3.0, 1.0 / 3.0]
+ACCURACY_2_FACTORS = [1.0, 2.0, 0.5, 3.0, 1.0 / 3.0]
 
 
 def pitch_class(note_name: str) -> int:
@@ -138,14 +138,14 @@ def report_tempo(data_directory: Path) -> None:
             accurate += 1
         if any(
             abs(estimate - reference * factor) <= TEMPO_TOLERANCE * reference * factor
-            for factor in OCTAVE_FACTORS
+            for factor in ACCURACY_2_FACTORS
         ):
             accurate_with_octaves += 1
 
     total = len(tracks)
     print("## Tempo detection, GiantSteps Tempo (Essentia reference)\n")
     print(f"{total} tracks.\n")
-    print("| Detector | Within 4% | Within 4%, octave errors allowed |")
+    print("| Detector | Accuracy 1 | Accuracy 2 |")
     print("| --- | --- | --- |")
     print(
         f"| Essentia, RhythmExtractor2013 "

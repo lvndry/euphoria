@@ -25,6 +25,9 @@ impl KeyDetector for StratumDetector {
     }
 
     fn detect_key(&self, audio: &AudioBuffer) -> Result<Option<Key>, EuphoriaError> {
+        if audio.is_silent() {
+            return Ok(None);
+        }
         let result = analyze_audio(&audio.samples, audio.sample_rate, AnalysisConfig::default())
             .map_err(analysis_error)?;
         let key = match result.key {
@@ -40,9 +43,27 @@ impl TempoDetector for StratumDetector {
         "stratum-dsp"
     }
 
-    fn detect_tempo(&self, audio: &AudioBuffer) -> Result<f32, EuphoriaError> {
+    fn detect_tempo(&self, audio: &AudioBuffer) -> Result<Option<f32>, EuphoriaError> {
+        if audio.is_silent() {
+            return Ok(None);
+        }
         let result = analyze_audio(&audio.samples, audio.sample_rate, AnalysisConfig::default())
             .map_err(analysis_error)?;
-        Ok(result.bpm)
+        Ok(Some(result.bpm))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn silence_has_no_key_and_no_tempo() {
+        let silence = AudioBuffer {
+            samples: vec![0.0; 44_100 * 2],
+            sample_rate: 44_100,
+        };
+        assert_eq!(StratumDetector.detect_key(&silence).unwrap(), None);
+        assert_eq!(StratumDetector.detect_tempo(&silence).unwrap(), None);
     }
 }

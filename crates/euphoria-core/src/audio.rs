@@ -27,7 +27,17 @@ impl AudioBuffer {
     pub fn duration_seconds(&self) -> f32 {
         self.samples.len() as f32 / self.sample_rate as f32
     }
+
+    /// True when no sample rises above roughly -100 dBFS, so there is nothing
+    /// to analyze.
+    pub fn is_silent(&self) -> bool {
+        self.samples
+            .iter()
+            .all(|sample| sample.abs() < SILENCE_THRESHOLD)
+    }
 }
+
+const SILENCE_THRESHOLD: f32 = 1.0e-5;
 
 /// Decodes a whole audio file and averages its channels into mono.
 pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {

@@ -101,4 +101,13 @@ mod tests {
         let detected = KeyFinderDetector.detect_key(&audio).unwrap();
         assert_eq!(detected, Some("A minor".parse().unwrap()));
     }
+
+    #[test]
+    fn silence_has_no_key() {
+        let silence = AudioBuffer {
+            samples: vec![0.0; 44_100 * 2],
+            sample_rate: 44_100,
+        };
+        assert_eq!(KeyFinderDetector.detect_key(&silence).unwrap(), None);
+    }
 }

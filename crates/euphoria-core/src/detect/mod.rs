@@ -19,7 +19,8 @@ pub trait KeyDetector: Sync {
     /// Short name of the implementation, used in reports.
     fn name(&self) -> &'static str;
 
-    /// Returns `None` when the audio has no detectable key, such as silence.
+    /// Returns `Ok(None)` when the audio has no detectable key, such as
+    /// silence. Errors are reserved for analysis that failed.
     fn detect_key(&self, audio: &AudioBuffer) -> Result<Option<Key>, EuphoriaError>;
 }
 
@@ -28,6 +29,8 @@ pub trait TempoDetector: Sync {
     /// Short name of the implementation, used in reports.
     fn name(&self) -> &'static str;
 
-    /// Tempo in beats per minute.
-    fn detect_tempo(&self, audio: &AudioBuffer) -> Result<f32, EuphoriaError>;
+    /// Tempo in beats per minute, or `Ok(None)` when the audio has no
+    /// detectable tempo, such as silence. Errors are reserved for analysis
+    /// that failed.
+    fn detect_tempo(&self, audio: &AudioBuffer) -> Result<Option<f32>, EuphoriaError>;
 }
