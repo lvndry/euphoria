@@ -1836,6 +1836,7 @@ dependencies = [
  "euphoria-core",
  "indicatif",
  "rayon",
+ "roxmltree 0.21.2",
  "rusqlite",
  "serde",
  "serde_json",

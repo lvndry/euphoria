@@ -19,7 +19,17 @@ rayon.workspace = true
 rusqlite.workspace = true
 rustfft.workspace = true
 stratum-dsp.workspace = true
-symphonia = { workspace = true, features = ["mp3", "aac", "isomp4", "aiff", "flac", "wav", "pcm"] }
+symphonia = { workspace = true, features = [
+  "mp3",
+  "aac",
+  "isomp4",
+  "aiff",
+  "flac",
+  "wav",
+  "pcm",
+  "id3v1",
+  "id3v2",
+] }
 thiserror.workspace = true
 walkdir.workspace = true
 

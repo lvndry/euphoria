@@ -373,6 +373,24 @@ fn key_notation_chooses_the_tonality_text() {
 }
 
 #[test]
+fn a_comment_is_written_and_left_out_when_there_is_none() {
+    let library = single_track_library(Track {
+        comment: Some("Energy 7 & \"rising\"".to_string()),
+        ..untagged_track("/Music/commented.mp3")
+    });
+    let xml = export(&library);
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+    assert_eq!(
+        collection_tracks(&document)[0].attribute("Comments"),
+        Some("Energy 7 & \"rising\"")
+    );
+
+    let xml = export(&single_track_library(untagged_track("/Music/plain.mp3")));
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+    assert_eq!(collection_tracks(&document)[0].attribute("Comments"), None);
+}
+
+#[test]
 fn default_key_notation_is_camelot() {
     assert_eq!(ExportOptions::default().key_notation, KeyNotation::Camelot);
 }
