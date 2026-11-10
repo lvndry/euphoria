@@ -79,8 +79,11 @@ jobs:
       fail-fast: false
       matrix:
         system:
-          - { name: macOS, runner: macos-latest }
-          - { name: Linux, runner: ubuntu-latest }
+          - { name: macOS, runner: macos-latest, packages: --workspace }
+          # The desktop app needs the X11, Wayland and font development packages
+          # that GPUI links against on Linux. Until those are installed and the
+          # app is checked there, the Linux job tests every other crate.
+          - { name: Linux, runner: ubuntu-latest, packages: --workspace --exclude euphoria-app }
     runs-on: ${{ matrix.system.runner }}
     timeout-minutes: 30
     steps:
@@ -99,8 +102,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Unit tests
-        run: cargo test --workspace --lib --bins --locked
+        run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
       - name: Audio decoding and detector integration tests
-        run: cargo test --workspace --test '*' --locked
+        run: cargo test ${{ matrix.system.packages }} --test '*' --locked
       - name: Core tests without libkeyfinder
         run: cargo test -p euphoria-core --no-default-features --locked
