@@ -9,7 +9,7 @@ Euphoria is a Cargo workspace. All product logic lives in one library crate, and
 
 ```
 crates/
-  euphoria-core/    the library: decoding, detection, library scanning
+  euphoria-core/    the library: decoding, detection, library scanning, the analysis cache
   euphoria-cli/     the `euphoria` command line tool
   euphoria-app/     the desktop app
   euphoria-bench/   accuracy benchmark, not shipped to users
@@ -28,6 +28,7 @@ bench/              dataset download script, Essentia reference script, results
 | --- | --- |
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
 | `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. |
+| `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and runs batches that analyze only the files it does not know. |
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
@@ -46,7 +47,7 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 ## euphoria-cli
 
-Parses arguments with clap, runs `analysis::analyze_files` on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. It contains no analysis logic.
+Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. It contains no analysis logic.
 
 ## euphoria-app
 

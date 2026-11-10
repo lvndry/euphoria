@@ -7,7 +7,7 @@ description: Build, test and benchmark Euphoria from a source checkout.
 
 ## Requirements
 
-- Rust 1.88 or newer
+- Rust 1.89 or newer
 - CMake and pkg-config
 - libkeyfinder
 

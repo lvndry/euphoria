@@ -5,7 +5,7 @@
 
 use std::io::{self, Write};
 
-use euphoria_core::{FileResult, Key};
+use euphoria_core::{EuphoriaError, FileResult, Key};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -117,6 +117,33 @@ pub fn write_failures(writer: &mut impl Write, results: &[FileResult]) -> io::Re
     Ok(())
 }
 
+/// Writes how many of the tracks were served from the cache.
+pub fn write_cache_summary(
+    writer: &mut impl Write,
+    cached_count: usize,
+    total: usize,
+) -> io::Result<()> {
+    let noun = if total == 1 { "track" } else { "tracks" };
+    writeln!(
+        writer,
+        "{cached_count} of {total} {noun} came from the cache."
+    )
+}
+
+/// Writes that the cache could not be used and why, that the files are
+/// analyzed regardless, and how to make the warning go away.
+pub fn write_cache_warning(writer: &mut impl Write, error: &EuphoriaError) -> io::Result<()> {
+    writeln!(
+        writer,
+        "warning: analyzing without the cache: {}",
+        error.chain()
+    )?;
+    writeln!(
+        writer,
+        "  Run `euphoria cache clear` to reset the cache, or pass --no-cache to skip it."
+    )
+}
+
 fn format_duration(seconds: f32) -> String {
     let whole_seconds = seconds.round() as u64;
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
@@ -130,7 +157,7 @@ fn round_to_tenths(value: f32) -> f32 {
 mod tests {
     use std::path::PathBuf;
 
-    use euphoria_core::{EuphoriaError, Mode, TrackAnalysis};
+    use euphoria_core::{Mode, TrackAnalysis};
 
     use super::*;
 
@@ -185,6 +212,29 @@ Key             BPM  Time  File
         assert!(parsed[1]["key"].is_null());
         assert!(parsed[2]["error"].as_str().unwrap().contains("example"));
         assert_eq!(parsed.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn cache_summary_counts_cached_tracks() {
+        let mut buffer = Vec::new();
+        write_cache_summary(&mut buffer, 5, 7).unwrap();
+        write_cache_summary(&mut buffer, 1, 1).unwrap();
+        assert_eq!(
+            String::from_utf8(buffer).unwrap(),
+            "5 of 7 tracks came from the cache.\n1 of 1 track came from the cache.\n"
+        );
+    }
+
+    #[test]
+    fn cache_warning_gives_the_cause_and_the_two_ways_out() {
+        let mut buffer = Vec::new();
+        let error = EuphoriaError::UnknownKeyText("example".to_string());
+        write_cache_warning(&mut buffer, &error).unwrap();
+        let warning = String::from_utf8(buffer).unwrap();
+        assert!(warning.starts_with("warning: analyzing without the cache: "));
+        assert!(warning.contains("example"));
+        assert!(warning.contains("euphoria cache clear"));
+        assert!(warning.contains("--no-cache"));
     }
 
     #[test]

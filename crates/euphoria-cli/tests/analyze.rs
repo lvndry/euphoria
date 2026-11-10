@@ -3,24 +3,15 @@
 
 //! Runs the `euphoria` binary on the core crate's audio fixtures.
 
-use std::path::PathBuf;
-use std::process::{Command, Output};
+mod support;
 
-fn fixtures_directory() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures")
-}
-
-fn euphoria(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_euphoria"))
-        .args(arguments)
-        .output()
-        .expect("the euphoria binary runs")
-}
+use support::{Euphoria, fixtures_directory};
 
 #[test]
 fn analyzes_a_folder_as_json() {
     let fixtures = fixtures_directory();
-    let output = euphoria(&["analyze", "--json", fixtures.to_str().expect("UTF-8 path")]);
+    let output =
+        Euphoria::new().run(&["analyze", "--json", fixtures.to_str().expect("UTF-8 path")]);
     assert!(
         output.status.success(),
         "{}",
@@ -45,7 +36,7 @@ fn analyzes_a_folder_as_json() {
 #[test]
 fn prints_a_table_with_a_header() {
     let fixture = fixtures_directory().join("sine-440hz-mono.flac");
-    let output = euphoria(&["analyze", fixture.to_str().expect("UTF-8 path")]);
+    let output = Euphoria::new().run(&["analyze", fixture.to_str().expect("UTF-8 path")]);
     assert!(
         output.status.success(),
         "{}",
@@ -60,7 +51,7 @@ fn prints_a_table_with_a_header() {
 #[test]
 fn reports_an_unreadable_file_and_exits_with_failure() {
     let readme = fixtures_directory().join("README.md");
-    let output = euphoria(&["analyze", readme.to_str().expect("UTF-8 path")]);
+    let output = Euphoria::new().run(&["analyze", readme.to_str().expect("UTF-8 path")]);
     assert!(!output.status.success());
     let errors = String::from_utf8_lossy(&output.stderr);
     assert!(errors.contains("Could not analyze 1 file:"), "{errors}");
@@ -69,7 +60,35 @@ fn reports_an_unreadable_file_and_exits_with_failure() {
 
 #[test]
 fn a_missing_path_is_an_error() {
-    let output = euphoria(&["analyze", "/definitely/not/here"]);
+    let output = Euphoria::new().run(&["analyze", "/definitely/not/here"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("/definitely/not/here"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reader_that_stops_early_is_not_an_error() {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_euphoria"))
+        .args(["analyze", "--no-cache"])
+        .arg(fixtures_directory())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the euphoria binary runs");
+    drop(child.stdout.take());
+
+    let mut errors = String::new();
+    child
+        .stderr
+        .take()
+        .expect("standard error is piped")
+        .read_to_string(&mut errors)
+        .expect("standard error is readable");
+    let status = child.wait().expect("the process exits");
+
+    assert!(status.success(), "{errors}");
+    assert!(!errors.contains("Broken pipe"), "{errors}");
 }
