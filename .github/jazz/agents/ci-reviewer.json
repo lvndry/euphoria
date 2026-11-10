@@ -5,8 +5,8 @@
   "config": {
     "persona": "coder",
     "llm": {
-      "provider": "openai",
-      "model": "gpt-5.4-mini",
+      "provider": "openrouter",
+      "model": "openrouter/free",
       "reasoning": "medium"
     },
     "tools": [

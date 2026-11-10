@@ -13,7 +13,7 @@
 #   jazz.yml changed on a branch with an open PR -> code-review
 #
 # Configuration lives in .github/jazz/ (agent configs and workflow prompts).
-# Secrets: GITHUB_TOKEN (automatic) and OPENAI_API_KEY.
+# Secrets: GITHUB_TOKEN (automatic) and OPENROUTER_API_KEY.
 
 name: Jazz
 
@@ -379,14 +379,14 @@ jobs:
 
       - name: Run code review
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set +e -uo pipefail
-          if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "::error::Add the model provider key as the OPENAI_API_KEY Actions secret."
-            echo "No API key is configured: the OPENAI_API_KEY secret is missing." > /tmp/jazz-error.txt
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+            echo "::error::Add the model provider key as the OPENROUTER_API_KEY Actions secret."
+            echo "No API key is configured: the OPENROUTER_API_KEY secret is missing." > /tmp/jazz-error.txt
             : > /tmp/jazz-review.txt
             echo 1 > /tmp/jazz-review-exit
             exit 0
@@ -868,14 +868,14 @@ jobs:
 
       - name: Run Jazz assistant
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -uo pipefail
-          if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "::error::Add the model provider key as the OPENAI_API_KEY Actions secret."
-            echo "No API key is configured: the OPENAI_API_KEY secret is missing." > /tmp/jazz-error.txt
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+            echo "::error::Add the model provider key as the OPENROUTER_API_KEY Actions secret."
+            echo "No API key is configured: the OPENROUTER_API_KEY secret is missing." > /tmp/jazz-error.txt
             exit 1
           fi
           jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
