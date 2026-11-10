@@ -16,11 +16,15 @@ use crate::key::{Key, Mode};
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StratumDetector;
 
+/// Below this length `stratum-dsp` still answers, but with a key and tempo
+/// that do not come from the audio.
+const MINIMUM_ANALYSIS_SECONDS: f32 = 1.0;
+
 impl StratumDetector {
-    /// Runs one analysis and returns both key and tempo. Silent audio yields
-    /// an analysis with neither.
+    /// Runs one analysis and returns both key and tempo. Silent audio, or
+    /// audio shorter than one second, yields an analysis with neither.
     pub fn analyze(&self, audio: &AudioBuffer) -> Result<Analysis, EuphoriaError> {
-        if audio.is_silent() {
+        if audio.is_silent() || audio.duration_seconds() < MINIMUM_ANALYSIS_SECONDS {
             return Ok(Analysis::default());
         }
         let result = analyze_audio(
@@ -39,7 +43,7 @@ impl StratumDetector {
         };
         Ok(Analysis {
             key: Some(key),
-            tempo: Some(result.bpm),
+            tempo: Some(result.bpm).filter(|tempo| tempo.is_finite() && *tempo > 0.0),
         })
     }
 }
