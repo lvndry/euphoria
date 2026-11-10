@@ -32,6 +32,34 @@ impl fmt::Display for DecodeFailure {
     }
 }
 
+/// Why a track could not be written to an export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportProblem {
+    /// The path is not an absolute path on a local drive.
+    NotAbsolutePath,
+    /// The path belongs to more than one track of the collection.
+    DuplicatePath,
+    /// A playlist names the path but the collection has no such track.
+    NotInCollection,
+    /// The tempo is not a number, or is below the smallest one an export
+    /// can hold.
+    InvalidTempo,
+    /// A hot cue is on a pad the track does not have.
+    InvalidHotCue,
+}
+
+impl fmt::Display for ExportProblem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            ExportProblem::NotAbsolutePath => "not an absolute local path",
+            ExportProblem::DuplicatePath => "listed more than once",
+            ExportProblem::NotInCollection => "in a playlist but not in the collection",
+            ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
+            ExportProblem::InvalidHotCue => "hot cue pad is out of range",
+        })
+    }
+}
+
 /// Everything that can go wrong in the library.
 #[derive(Debug, thiserror::Error)]
 pub enum EuphoriaError {
@@ -39,6 +67,15 @@ pub enum EuphoriaError {
     #[error("cannot open {path}")]
     Open {
         /// The file that failed to open.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
+    /// A file or folder could not be read, while looking for audio files or
+    /// while identifying one for the analysis cache.
+    #[error("cannot read {path}")]
+    Scan {
+        /// The file or folder that could not be read.
         path: PathBuf,
         /// The underlying input or output error.
         source: std::io::Error,
@@ -71,9 +108,66 @@ pub enum EuphoriaError {
         #[source]
         source: Option<ErrorSource>,
     },
-    /// Text could not be read as a key name such as "A minor".
+    /// A track cannot be represented in an export.
+    #[error("cannot export {path}: {problem}")]
+    Export {
+        /// The audio file the export was asked to describe.
+        path: PathBuf,
+        /// What is wrong with it.
+        problem: ExportProblem,
+    },
+    /// The playlist folders of an export are nested too deeply.
+    #[error("cannot export folder {folder:?}: nested more than {maximum} folders deep")]
+    ExportFolderDepth {
+        /// Name of the first folder beyond the limit.
+        folder: String,
+        /// The deepest level a folder may sit at.
+        maximum: usize,
+    },
+    /// The destination of an export rejected the data.
+    #[error("cannot write the export")]
+    ExportWrite {
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
+    /// Text could not be read as a key: a name such as "A minor", a Camelot
+    /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]
     UnknownKeyText(String),
+    /// The analysis cache could not be opened, read or written.
+    #[error("cannot use the analysis cache at {path}")]
+    Cache {
+        /// The cache database file.
+        path: PathBuf,
+        /// What went wrong, usually the database library's own error.
+        source: ErrorSource,
+    },
+    /// The audio has a sample rate that energy analysis does not support.
+    #[error(
+        "cannot rate the energy of audio at {sample_rate} Hz: sample rates from {minimum} to {maximum} Hz are supported"
+    )]
+    UnsupportedSampleRate {
+        /// The sample rate of the audio, in samples per second.
+        sample_rate: u32,
+        /// The lowest supported sample rate.
+        minimum: u32,
+        /// The highest supported sample rate.
+        maximum: u32,
+    },
+    /// A number given to the energy rating is not usable: not finite, or a
+    /// tempo that is not positive.
+    #[error("cannot rate energy: {name} is {value}")]
+    InvalidEnergyInput {
+        /// Which input it was, such as "onset rate" or "tempo".
+        name: &'static str,
+        /// The value that was given.
+        value: f32,
+    },
+    /// No folder for Euphoria's data could be worked out from the environment.
+    #[error(
+        "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"
+    )]
+    NoDataDirectory,
 }
 
 impl EuphoriaError {
