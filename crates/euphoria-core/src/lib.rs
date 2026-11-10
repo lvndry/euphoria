@@ -10,9 +10,14 @@ pub mod audio;
 pub mod detect;
 /// The error type returned by the library.
 pub mod error;
-/// Musical keys and Camelot notation.
+/// Key relations and ranking of the tracks that mix into another.
+pub mod harmony;
+/// Musical keys, Camelot and Open Key notation.
 pub mod key;
 
 pub use audio::{AudioBuffer, decode_mono};
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError};
+pub use harmony::{
+    MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
+};
 pub use key::{Key, Mode};
