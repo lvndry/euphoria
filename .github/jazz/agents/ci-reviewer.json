@@ -1,0 +1,23 @@
+{
+  "id": "ci-reviewer",
+  "name": "ci-reviewer",
+  "description": "Adversarial CI review board lead: spawns specialist sub-agents and cross-examines their findings",
+  "config": {
+    "persona": "coder",
+    "llm": {
+      "provider": "openrouter",
+      "model": "openrouter/free",
+      "reasoning": "medium"
+    },
+    "tools": [
+      "context_info",
+      "find",
+      "grep",
+      "execute_command",
+      "ls",
+      "read_file",
+      "spawn_subagent",
+      "summarize_context"
+    ]
+  }
+}
