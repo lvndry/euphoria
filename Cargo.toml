@@ -25,7 +25,7 @@ stratum-dsp = "1.0.0"
 symphonia = { version = "0.6.1", default-features = false }
 thiserror = "2.0.21"
 cc = "1.11.1"
-gpui-kit = "=0.9.1"
+gpui = { package = "gpui-kit", version = "=0.9.1" }
 pkg-config = "0.3.34"
 
 [workspace.lints.rust]

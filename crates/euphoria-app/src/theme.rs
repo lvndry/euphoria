@@ -4,8 +4,8 @@
 //! Colour tokens, palettes and the five built in themes. Every view takes its
 //! colours and sizes from an [`AppTheme`], never from literal values.
 
-use gpui_kit::component::{Theme as ComponentTheme, ThemeMode, oklch};
-use gpui_kit::{App, Hsla, Pixels, px, rgb};
+use gpui::component::{Theme as ComponentTheme, ThemeMode, oklch};
+use gpui::{App, Hsla, Pixels, px, rgb};
 use serde::{Deserialize, Serialize};
 
 use crate::camelot::CamelotPosition;
@@ -301,7 +301,7 @@ impl AppTheme {
             colours.list = palette.background;
             colours.list_hover = palette.raised;
             colours.list_active = palette.selection;
-            colours.scrollbar = gpui_kit::transparent_black();
+            colours.scrollbar = gpui::transparent_black();
             colours.scrollbar_thumb = palette.text_tertiary.opacity(0.45);
             colours.scrollbar_thumb_hover = palette.text_tertiary.opacity(0.7);
         });
@@ -310,7 +310,7 @@ impl AppTheme {
 
 #[cfg(test)]
 mod tests {
-    use gpui_kit::Rgba;
+    use gpui::Rgba;
 
     use super::*;
 
