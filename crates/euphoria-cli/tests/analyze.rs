@@ -30,6 +30,14 @@ fn analyzes_a_folder_as_json() {
         assert!(track["error"].is_null(), "{track}");
         let duration = track["duration_seconds"].as_f64().expect("a duration");
         assert!((duration - 1.0).abs() < 0.1, "{track}");
+        let path = track["path"].as_str().expect("a path");
+        let energy = &track["energy"];
+        if path.contains("opposite-phase") {
+            assert!(energy.is_null(), "silence has no energy rating: {track}");
+        } else {
+            let rating = energy.as_u64().expect("a track with sound has a rating");
+            assert!((1..=10).contains(&rating), "{track}");
+        }
     }
 }
 
@@ -45,6 +53,8 @@ fn prints_a_table_with_a_header() {
 
     let table = String::from_utf8(output.stdout).expect("UTF-8 output");
     assert!(table.starts_with("Key"), "{table}");
+    let header = table.lines().next().expect("a header line");
+    assert!(header.contains("BPM  Energy  Time"), "{table}");
     assert!(table.contains("sine-440hz-mono.flac"), "{table}");
 }
 
@@ -63,4 +73,32 @@ fn a_missing_path_is_an_error() {
     let output = Euphoria::new().run(&["analyze", "/definitely/not/here"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("/definitely/not/here"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reader_that_stops_early_is_not_an_error() {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_euphoria"))
+        .args(["analyze", "--no-cache"])
+        .arg(fixtures_directory())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the euphoria binary runs");
+    drop(child.stdout.take());
+
+    let mut errors = String::new();
+    child
+        .stderr
+        .take()
+        .expect("standard error is piped")
+        .read_to_string(&mut errors)
+        .expect("standard error is readable");
+    let status = child.wait().expect("the process exits");
+
+    assert!(status.success(), "{errors}");
+    assert!(!errors.contains("Broken pipe"), "{errors}");
 }

@@ -167,6 +167,27 @@ pub enum EuphoriaError {
         /// What went wrong, usually the database library's own error.
         source: ErrorSource,
     },
+    /// The audio has a sample rate that energy analysis does not support.
+    #[error(
+        "cannot rate the energy of audio at {sample_rate} Hz: sample rates from {minimum} to {maximum} Hz are supported"
+    )]
+    UnsupportedSampleRate {
+        /// The sample rate of the audio, in samples per second.
+        sample_rate: u32,
+        /// The lowest supported sample rate.
+        minimum: u32,
+        /// The highest supported sample rate.
+        maximum: u32,
+    },
+    /// A number given to the energy rating is not usable: not finite, or a
+    /// tempo that is not positive.
+    #[error("cannot rate energy: {name} is {value}")]
+    InvalidEnergyInput {
+        /// Which input it was, such as "onset rate" or "tempo".
+        name: &'static str,
+        /// The value that was given.
+        value: f32,
+    },
     /// No folder for Euphoria's data could be worked out from the environment.
     #[error(
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"

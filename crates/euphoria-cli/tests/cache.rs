@@ -186,6 +186,76 @@ fn a_cache_with_a_damaged_row_is_a_warning_and_the_files_are_still_analyzed() {
     assert_analyzed_with_a_cache_warning(&output, &euphoria.cache_path());
 }
 
+/// The schema that the first release of the cache created.
+const VERSION_1_SCHEMA: &str = "
+    CREATE TABLE analyses (
+        content_hash     BLOB    NOT NULL PRIMARY KEY,
+        duration_seconds REAL    NOT NULL,
+        key              TEXT,
+        bpm              REAL,
+        analyzer_version TEXT    NOT NULL,
+        analyzed_at      INTEGER NOT NULL,
+        last_known_path  TEXT,
+        file_size        INTEGER NOT NULL,
+        modified_at      INTEGER NOT NULL
+    ) WITHOUT ROWID;
+    CREATE UNIQUE INDEX analyses_last_known_path ON analyses (last_known_path);
+    PRAGMA user_version = 1;
+";
+
+#[test]
+fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_again() {
+    let euphoria = Euphoria::new();
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let arguments = ["analyze", "--json", text(&fixture)];
+    assert_success(&euphoria.run(&arguments));
+    std::fs::remove_file(euphoria.cache_path()).expect("the new cache is removed");
+    let old_cache = rusqlite::Connection::open(euphoria.cache_path()).expect("the cache opens");
+    old_cache
+        .execute_batch(VERSION_1_SCHEMA)
+        .expect("the old schema is created");
+    old_cache
+        .execute(
+            "INSERT INTO analyses
+             VALUES (x'07', 300.0, 'A minor', 124.0, '1+libkeyfinder', 0, NULL, 1, 1)",
+            [],
+        )
+        .expect("an old row is stored");
+    drop(old_cache);
+
+    let after_upgrade = euphoria.run(&arguments);
+    let next_run = euphoria.run(&arguments);
+
+    assert_success(&after_upgrade);
+    assert_eq!(standard_error(&after_upgrade), "");
+    assert_eq!(
+        standard_error(&next_run),
+        "1 of 1 track came from the cache.\n"
+    );
+    assert_eq!(after_upgrade.stdout, next_run.stdout);
+    let upgraded = rusqlite::Connection::open(euphoria.cache_path()).expect("the cache opens");
+    let schema_version: u32 = upgraded
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("a schema version");
+    assert_eq!(schema_version, 2);
+    let old_rows: u32 = upgraded
+        .query_row(
+            "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("a count");
+    assert_eq!(old_rows, 1, "rows of other tracks are kept");
+    let with_energy_model: u32 = upgraded
+        .query_row(
+            "SELECT COUNT(*) FROM analyses WHERE energy_model_version IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("a count");
+    assert_eq!(with_energy_model, 1);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_read_only_data_folder_is_a_warning_and_the_files_are_still_analyzed() {
