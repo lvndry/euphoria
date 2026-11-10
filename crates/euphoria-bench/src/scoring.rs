@@ -17,9 +17,9 @@ pub struct KeyTally {
 
 impl KeyTally {
     pub fn record(&mut self, reference: Key, estimate: Key) {
-        let interval = (i32::from(estimate.tonic) - i32::from(reference.tonic)).rem_euclid(12);
-        let same_mode = estimate.mode == reference.mode;
-        let reference_is_major = matches!(reference.mode, euphoria_core::Mode::Major);
+        let interval = (i32::from(estimate.tonic()) - i32::from(reference.tonic())).rem_euclid(12);
+        let same_mode = estimate.mode() == reference.mode();
+        let reference_is_major = matches!(reference.mode(), euphoria_core::Mode::Major);
         let relative_interval = if reference_is_major { 9 } else { 3 };
 
         if same_mode && interval == 0 {
