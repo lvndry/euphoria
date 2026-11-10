@@ -7,7 +7,7 @@ all-features = true
 [advisories]
 yanked = "deny"
 ignore = [
-  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, not vulnerable; lofty uses it at compile time only" },
+  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, not vulnerable; lofty, used only in tests, needs it at compile time" },
 ]
 
 [licenses]

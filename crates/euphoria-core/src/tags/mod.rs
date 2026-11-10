@@ -6,6 +6,9 @@
 //! writes them and returns a [`TagBackup`] of the values it replaced.
 //! [`undo`] puts those values back.
 
+mod flac;
+mod id3v2;
+mod mp4;
 mod native;
 mod preset;
 mod replace;
@@ -14,7 +17,9 @@ use std::path::{Path, PathBuf};
 
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
-use native::{ID3_COMMENT, MP4_TEMPO, Purpose, TagFile};
+use id3v2::COMMENT as ID3_COMMENT;
+use mp4::TEMPO as MP4_TEMPO;
+use native::{Purpose, TagFile};
 pub use preset::DjSoftware;
 
 const LABEL_OPEN: char = '{';
@@ -182,6 +187,10 @@ pub struct WritePlan {
     path: PathBuf,
     format: TagFormat,
     changes: Vec<FieldChange>,
+    /// For each change, the bytes the field's item has in the file now.
+    current_items: Vec<Option<Vec<u8>>>,
+    tag_length: u64,
+    file_length: u64,
 }
 
 impl WritePlan {
@@ -212,12 +221,16 @@ impl WritePlan {
     pub fn backup(&self) -> TagBackup {
         TagBackup {
             path: self.path.clone(),
+            original_tag_length: Some(self.tag_length),
+            original_file_length: Some(self.file_length),
             fields: self
                 .changes
                 .iter()
-                .map(|change| BackupField {
+                .zip(&self.current_items)
+                .map(|(change, item)| BackupField {
                     field: change.field.clone(),
                     original: change.current.clone(),
+                    original_item: item.clone(),
                     written: change.new.clone(),
                 })
                 .collect(),
@@ -232,16 +245,32 @@ pub struct BackupField {
     pub field: String,
     /// The value before the write, `None` when the field did not exist.
     pub original: Option<String>,
+    /// The field's whole item before the write, as the bytes the file
+    /// held: an ID3v2 frame, an MP4 item or a Vorbis comment. [`undo`] puts
+    /// these bytes back, so the restored field is identical to the
+    /// original and not merely equal in value. When this is `None` and
+    /// `original` is not, undo writes `original` as a new value instead.
+    pub original_item: Option<Vec<u8>>,
     /// The value the write left, `None` when it removed the field.
     pub written: Option<String>,
 }
 
 /// What a write replaced in one file, kept by the caller so [`undo`] can
-/// restore it. All of it is plain text, so it can be stored in any form.
+/// restore it. All of it is plain text and bytes, so it can be stored in
+/// any form.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagBackup {
     /// The file that was written.
     pub path: PathBuf,
+    /// The length in bytes of the area the tag occupied before the write:
+    /// the ID3v2 tag, the MP4 `moov` atom, or all FLAC metadata blocks.
+    /// [`undo`] gives the area this length again when padding allows,
+    /// which makes the file identical to the original down to its padding.
+    /// Without it, undo still restores every field.
+    pub original_tag_length: Option<u64>,
+    /// The length of the file in bytes before the write, used like
+    /// `original_tag_length`.
+    pub original_file_length: Option<u64>,
     /// The touched fields.
     pub fields: Vec<BackupField>,
 }
@@ -322,67 +351,82 @@ pub fn plan_write(
         }
     }
 
+    let current_items = changes
+        .iter()
+        .map(|change| file.raw(&change.field))
+        .collect::<Result<_, _>>()?;
     Ok(WritePlan {
         path: path.to_path_buf(),
         format,
         changes,
+        current_items,
+        tag_length: file.tag_length(),
+        file_length: file.file_length(),
     })
 }
 
 /// Writes the changes of `plan` and returns the record that undoes them.
-/// Every other tag and the audio are kept. An empty plan leaves the file
+/// Nothing else in the file changes: every other tag item, the artwork and
+/// the audio keep the bytes they had. An empty plan leaves the file
 /// untouched.
 ///
 /// Fails with [`EuphoriaError::TagConflict`], writing nothing, when a field
-/// no longer holds the value the plan was made from.
+/// no longer holds what the plan was made from.
 pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
     let backup = plan.backup();
-    write_fields(
-        &plan.path,
-        plan.changes
-            .iter()
-            .map(|change| (change.field.as_str(), &change.current, &change.new)),
-    )?;
+    if plan.is_empty() {
+        return Ok(backup);
+    }
+    let mut file = TagFile::load(&plan.path, Purpose::Rewriting)?;
+    for (change, planned_item) in plan.changes.iter().zip(&plan.current_items) {
+        let is_as_planned =
+            file.get(&change.field)? == change.current && file.raw(&change.field)? == *planned_item;
+        if !is_as_planned {
+            return Err(conflict(&plan.path, &change.field));
+        }
+    }
+    for change in &plan.changes {
+        match &change.new {
+            Some(new) => file.set(&change.field, new)?,
+            None => file.remove(&change.field)?,
+        }
+    }
+    file.save()?;
     Ok(backup)
 }
 
-/// Restores the values a write replaced, removing the fields it created.
+/// Restores what a write replaced: each field gets back the exact bytes it
+/// had, and the fields the write created are removed.
 ///
 /// Fails with [`EuphoriaError::TagConflict`], writing nothing, when a field
 /// no longer holds the value the write left, so that a later edit is not
 /// overwritten.
 pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
-    write_fields(
-        &backup.path,
-        backup
-            .fields
-            .iter()
-            .map(|field| (field.field.as_str(), &field.written, &field.original)),
-    )
-}
-
-/// Moves each field from its expected value to its new one, after checking
-/// that every field still holds what is expected.
-fn write_fields<'a>(
-    path: &Path,
-    fields: impl Iterator<Item = (&'a str, &'a Option<String>, &'a Option<String>)> + Clone,
-) -> Result<(), EuphoriaError> {
-    if fields.clone().next().is_none() {
+    if backup.fields.is_empty() {
         return Ok(());
     }
-    let mut file = TagFile::load(path, Purpose::Rewriting)?;
-    for (field, expected, _) in fields.clone() {
-        if file.get(field)? != *expected {
-            return Err(EuphoriaError::TagConflict {
-                path: path.to_path_buf(),
-                field: field.to_string(),
-            });
+    let mut file = TagFile::load(&backup.path, Purpose::Rewriting)?;
+    for field in &backup.fields {
+        if file.get(&field.field)? != field.written {
+            return Err(conflict(&backup.path, &field.field));
         }
     }
-    for (field, _, new) in fields {
-        file.set(field, new.as_deref())?;
+    file.prefer_lengths(backup.original_tag_length, backup.original_file_length);
+    for field in &backup.fields {
+        match (&field.original_item, &field.original) {
+            (Some(item), _) => file.restore(&field.field, Some(item))?,
+            (None, Some(original)) => file.set(&field.field, original)?,
+            (None, None) => file.restore(&field.field, None)?,
+        }
     }
     file.save()
+}
+
+fn conflict(path: &Path, field: &str) -> EuphoriaError {
+    EuphoriaError::TagConflict {
+        path: path.to_path_buf(),
+        field: field.to_string(),
+    }
 }
 
 fn format_bpm(tempo: f32, fractional: bool) -> String {

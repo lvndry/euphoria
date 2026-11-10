@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::TagFormat;
-use super::native::MP4_TEMPO;
+use super::mp4::TEMPO as MP4_TEMPO;
 
 pub(super) const ID3_KEY: &str = "TKEY";
 pub(super) const ID3_BPM: &str = "TBPM";

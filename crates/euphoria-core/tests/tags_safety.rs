@@ -479,6 +479,7 @@ fn everything_else_survives_apply_and_undo() {
                 seed_everything(&path);
             }
             let original = snapshot(&path);
+            let original_bytes = std::fs::read(&path).unwrap();
             assert_eq!(original.pictures.is_empty(), !seeded, "{context}");
             assert_eq!(original.has_chapter_atom, seeded && fixture == M4A);
 
@@ -500,6 +501,10 @@ fn everything_else_survives_apply_and_undo() {
             let restored = snapshot(&path);
             assert_eq!(restored.tags, original.tags, "{context}");
             assert_same_except_tags(&restored, &original, &context);
+            assert!(
+                std::fs::read(&path).unwrap() == original_bytes,
+                "{context}: the file is not byte for byte what it was"
+            );
         }
     }
 }
@@ -582,7 +587,7 @@ fn id3v2_tag_in_front_of_a_flac_stream_is_left_in_place() {
 fn tag_with_an_unparsable_frame_is_read_but_not_rewritten() {
     let tag = id3v23_tag(&[
         ("TIT2", latin1_text("Odd tag")),
-        ("TPE1", Vec::new()),
+        ("tpe1", latin1_text("not a frame")),
         ("TALB", latin1_text("Kept album")),
     ]);
     let path = mp3_with_tag("odd-frame.mp3", &tag);
@@ -600,18 +605,15 @@ fn tag_with_an_unparsable_frame_is_read_but_not_rewritten() {
         "{}",
         error.chain()
     );
-    assert!(
-        std::error::Error::source(&error)
-            .unwrap()
-            .source()
-            .is_some()
-    );
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
 
 #[test]
 fn unparsable_frame_in_a_wav_or_aiff_chunk_is_refused_too() {
-    let tag = id3v23_tag(&[("TIT2", latin1_text("Odd tag")), ("TPE1", Vec::new())]);
+    let tag = id3v23_tag(&[
+        ("TIT2", latin1_text("Odd tag")),
+        ("tpe1", latin1_text("not a frame")),
+    ]);
     for fixture in [WAV, AIFF] {
         let mut bytes = fixture_bytes(fixture);
         let chunk_size = tag.len() as u32;
@@ -707,7 +709,7 @@ fn version_4_frames_in_a_version_3_tag_are_kept() {
         .id3v2()
         .unwrap()
         .original_version();
-    assert_eq!(version, Id3v2Version::V4);
+    assert_eq!(version, Id3v2Version::V3);
 }
 
 #[cfg(unix)]
@@ -792,7 +794,7 @@ fn writes_leave_no_temporary_files() {
         undo(&backup).unwrap();
     }
     let refused = directory.join("odd.mp3");
-    let tag = id3v23_tag(&[("TPE1", Vec::new())]);
+    let tag = id3v23_tag(&[("tpe1", latin1_text("not a frame"))]);
     std::fs::copy(mp3_with_tag("leftovers-odd.mp3", &tag), &refused).unwrap();
     plan_write(&refused, &a_minor(), &full_options()).unwrap_err();
 

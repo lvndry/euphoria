@@ -1,380 +1,506 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Access to the tag a file format stores natively, one named field at a
-//! time, so that everything the caller does not name is written back as it
-//! was read. A write is checked against the original before it replaces the
-//! file, and refused when anything else would change.
+//! The tag a file format stores natively, as a list of items kept as the
+//! bytes they were read from. A write exchanges the items a caller names
+//! and carries every other byte of the file over unchanged. Before the
+//! result replaces the file it is read back and compared, item by item,
+//! with the original.
 
-use std::borrow::Cow;
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use lofty::TextEncoding;
-use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
-use lofty::file::{AudioFile, FileType};
-use lofty::flac::FlacFile;
-use lofty::id3::v2::{CommentFrame, Frame, FrameId, Id3v2Tag, Id3v2Version, TextInformationFrame};
-use lofty::iff::aiff::AiffFile;
-use lofty::iff::wav::WavFile;
-use lofty::mp4::{Atom, AtomData, AtomIdent, DataType, Ilst, Mp4File};
-use lofty::mpeg::MpegFile;
-use lofty::ogg::OggPictureStorage;
-use lofty::ogg::tag::VorbisComments;
-use lofty::picture::{Picture, PictureInformation};
-use lofty::probe::Probe;
-use lofty::tag::TagExt;
-
 use super::TagFormat;
-use super::replace::Replacement;
+use super::flac::{self, FlacFile};
+use super::id3v2::{self, Id3Tag};
+use super::mp4::Mp4File;
+use super::replace::{Replacement, Splice, carried_over, compose};
 use crate::error::{ErrorSource, EuphoriaError};
 
-/// The ID3v2 comment frame. Only the comment with an empty description is
-/// read or written; described comments belong to other programs.
-pub(super) const ID3_COMMENT: &str = "COMM";
-/// The MP4 tempo atom, which holds a whole number.
-pub(super) const MP4_TEMPO: &str = "tmpo";
-
-const MP4_FREEFORM_PREFIX: &str = "----:";
-const MP4_COPYRIGHT_SIGN_BYTE: u8 = 0xA9;
-const ID3_DEFAULT_LANGUAGE: [u8; 3] = *b"eng";
-const ID3_ENCODING_NAMES: [&str; 4] = ["UTF16BE", "UTF16", "UTF8", "Latin1"];
-const ID3_HEADER_LENGTH: usize = 10;
-const ID3_FOOTER_FLAG: u8 = 0x10;
+const PROBE_LENGTH: usize = 16;
+const MPEG_SEARCH_LENGTH: u64 = 64 * 1024;
 const IFF_HEADER_LENGTH: u64 = 12;
-const STRICT_CHECK_PADDING: usize = 512;
-const UNPARSABLE: &str = "its tags hold data that cannot be parsed and would be lost";
+const CHUNK_HEADER_LENGTH: u64 = 8;
+const ID3_CHUNK: &[u8; 4] = b"ID3 ";
 
 /// What a file is loaded for.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Purpose {
     /// Showing its tags. Damaged parts of a tag are skipped.
     Reading,
-    /// Changing its tags. A tag with parts that cannot be parsed is refused,
-    /// because writing it back would drop them.
+    /// Changing its tags. A tag with parts that cannot be told apart is
+    /// refused, because writing it back could lose them.
     Rewriting,
-}
-
-enum NativeTag {
-    Id3v2(Id3v2Tag),
-    Mp4(Ilst),
-    /// The whole file, because FLAC keeps pictures in blocks of their own
-    /// that are written together with the comments.
-    Flac(Box<FlacFile>),
-}
-
-/// The metadata of a file that lives outside the tag being written. A write
-/// must leave all of it equal.
-#[derive(PartialEq)]
-struct Bystanders {
-    other_tags: String,
-    pictures: Vec<(Picture, PictureInformation)>,
-}
-
-struct Contents {
-    tag: NativeTag,
-    bystanders: Bystanders,
-    id3v2_version: Option<Id3v2Version>,
 }
 
 /// Why a file that can be read is not rewritten.
 #[derive(Debug)]
-struct Refusal {
-    reason: &'static str,
-    source: Option<ErrorSource>,
-}
-
-impl Refusal {
-    fn boxed(reason: &'static str) -> ErrorSource {
-        Box::new(Self {
-            reason,
-            source: None,
-        })
-    }
-}
+struct Refusal(&'static str);
 
 impl fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "refusing to rewrite the file: {}", self.reason)
+        write!(formatter, "refusing to rewrite the file: {}", self.0)
     }
 }
 
-impl std::error::Error for Refusal {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source
-            .as_deref()
-            .map(|source| source as &(dyn std::error::Error + 'static))
+impl std::error::Error for Refusal {}
+
+fn refusal(reason: &'static str) -> ErrorSource {
+    Box::new(Refusal(reason))
+}
+
+/// Where a file keeps its ID3v2 tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Id3Place {
+    /// At the very start, as in MP3. `length` is zero when there is none.
+    Start { length: u64 },
+    /// In a chunk of a RIFF or AIFF container.
+    Chunk {
+        little_endian: bool,
+        /// The chunk with its header and padding byte, when there is one.
+        chunk: Option<std::ops::Range<u64>>,
+        /// The size the chunk declares, which leaves out its padding byte.
+        tag_length: u64,
+        /// The chunk's name as the file spells it.
+        name: [u8; 4],
+        /// The size the container declares for itself.
+        container_size: u32,
+        /// Where the container's chunks end.
+        container_end: u64,
+    },
+}
+
+/// A file whose native tag is ID3v2: MP3, WAV or AIFF.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Id3File {
+    tag: Id3Tag,
+    place: Id3Place,
+    /// A length the tag should get back when it fits, set by an undo.
+    preferred_length: Option<u64>,
+    problem: Option<&'static str>,
+}
+
+fn read_exactly(file: &mut File, start: u64, length: u64) -> Result<Vec<u8>, ErrorSource> {
+    let mut bytes = Vec::new();
+    file.seek(SeekFrom::Start(start))?;
+    file.take(length).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 == length {
+        Ok(bytes)
+    } else {
+        Err("the file is shorter than its structure says".into())
     }
 }
 
-fn parse_options(purpose: Purpose) -> ParseOptions {
-    let parsing_mode = match purpose {
-        Purpose::Reading => ParsingMode::BestAttempt,
-        Purpose::Rewriting => ParsingMode::Strict,
-    };
-    // Implicit conversions rewrite frames the caller never asked to touch,
-    // such as ID3v2.3 dates, so they stay off.
-    ParseOptions::new()
-        .read_properties(false)
-        .implicit_conversions(false)
-        .parsing_mode(parsing_mode)
-}
-
-fn read_contents<R: Read + Seek>(reader: R, purpose: Purpose) -> Result<Contents, ErrorSource> {
-    let probe = Probe::new(reader).guess_file_type()?;
-    let file_type = probe.file_type();
-    let mut reader = probe.into_inner();
-    reader.rewind()?;
-    let options = parse_options(purpose);
-    // The other tags of an ID3 file are never rewritten, so their flaws must
-    // not stop a write: the file is parsed leniently and the ID3v2 tag is
-    // then checked strictly on its own.
-    let lenient = parse_options(Purpose::Reading);
-    let check_id3v2 = |reader: &mut R, layout: Id3v2Layout, found: bool| {
-        if purpose == Purpose::Rewriting && found {
-            check_id3v2_strictly(reader, layout)
-        } else {
-            Ok(())
-        }
-    };
-
-    let id3v2 = |tag: Option<Id3v2Tag>, other_tags: String| Contents {
-        id3v2_version: tag.as_ref().map(Id3v2Tag::original_version),
-        tag: NativeTag::Id3v2(tag.unwrap_or_default()),
-        bystanders: Bystanders {
-            other_tags,
-            pictures: Vec::new(),
-        },
-    };
-    match file_type {
-        Some(FileType::Mpeg) => {
-            let mut file = MpegFile::read_from(&mut reader, lenient)?;
-            check_id3v2(
-                &mut reader,
-                Id3v2Layout::StartOfFile,
-                file.id3v2().is_some(),
-            )?;
-            let other_tags = format!("{:?}", (file.id3v1(), file.ape()));
-            Ok(id3v2(file.remove_id3v2(), other_tags))
-        }
-        Some(FileType::Wav) => {
-            let mut file = WavFile::read_from(&mut reader, lenient)?;
-            check_id3v2(&mut reader, Id3v2Layout::RiffChunk, file.id3v2().is_some())?;
-            let other_tags = format!("{:?}", file.riff_info());
-            Ok(id3v2(file.remove_id3v2(), other_tags))
-        }
-        Some(FileType::Aiff) => {
-            let mut file = AiffFile::read_from(&mut reader, lenient)?;
-            check_id3v2(&mut reader, Id3v2Layout::AiffChunk, file.id3v2().is_some())?;
-            let other_tags = format!("{:?}", file.text_chunks());
-            Ok(id3v2(file.remove_id3v2(), other_tags))
-        }
-        Some(FileType::Mp4) => {
-            let mut file = Mp4File::read_from(&mut reader, options)?;
-            Ok(Contents {
-                tag: NativeTag::Mp4(file.remove_ilst().unwrap_or_default()),
-                bystanders: Bystanders {
-                    other_tags: String::new(),
-                    pictures: Vec::new(),
-                },
-                id3v2_version: None,
-            })
-        }
-        Some(FileType::Flac) => {
-            let mut file = FlacFile::read_from(&mut reader, options)?;
-            // An ID3v2 tag in front of a FLAC stream is left where it is:
-            // taken out of the file here, it is not written back, and the
-            // writer skips over its bytes.
-            let other_tags = format!("{:?}", file.remove_id3v2());
-            let pictures = file.pictures().to_vec();
-            if file.vorbis_comments().is_none() {
-                file.set_vorbis_comments(VorbisComments::default());
-            }
-            Ok(Contents {
-                tag: NativeTag::Flac(Box::new(file)),
-                bystanders: Bystanders {
-                    other_tags,
-                    pictures,
-                },
-                id3v2_version: None,
-            })
-        }
-        _ => Err("not an MP3, WAV, AIFF, M4A or FLAC file".into()),
-    }
-}
-
-/// Where a file format keeps its ID3v2 tag.
-#[derive(Clone, Copy)]
-enum Id3v2Layout {
-    /// At the very start, as in MP3.
-    StartOfFile,
-    /// In an `ID3 ` chunk with little endian sizes, as in WAV.
-    RiffChunk,
-    /// In an `ID3 ` chunk with big endian sizes, as in AIFF.
-    AiffChunk,
-}
-
-/// The bytes of the file's ID3v2 tag, or `None` when it is not where the
-/// format puts it.
-fn raw_id3v2<R: Read + Seek>(
-    reader: &mut R,
-    layout: Id3v2Layout,
-) -> Result<Option<Vec<u8>>, ErrorSource> {
-    let mut tag = Vec::new();
-    match layout {
-        Id3v2Layout::StartOfFile => {
-            reader.rewind()?;
-            let mut header = [0; ID3_HEADER_LENGTH];
-            if reader.read_exact(&mut header).is_err() || &header[..3] != b"ID3" {
-                return Ok(None);
-            }
-            let body_length = header[6..].iter().fold(0_u64, |length, byte| {
-                (length << 7) | u64::from(*byte & 0x7F)
+impl Id3File {
+    fn at_start(file: &mut File, beginning: &[u8]) -> Result<Self, ErrorSource> {
+        let Some(length) = id3v2::total_length(beginning) else {
+            return Ok(Self {
+                tag: Id3Tag::new(),
+                place: Id3Place::Start { length: 0 },
+                preferred_length: None,
+                problem: None,
             });
-            let has_footer = header[5] & ID3_FOOTER_FLAG != 0;
-            let footer_length = if has_footer {
-                ID3_HEADER_LENGTH as u64
+        };
+        let tag = Id3Tag::parse(&read_exactly(file, 0, length)?)?;
+        let mut next = [0; 3];
+        let has_second_tag = file.read_exact(&mut next).is_ok() && &next == b"ID3";
+        Ok(Self {
+            tag,
+            place: Id3Place::Start { length },
+            preferred_length: None,
+            problem: has_second_tag.then_some("it holds more than one ID3v2 tag"),
+        })
+    }
+
+    fn in_chunk(
+        file: &mut File,
+        beginning: &[u8],
+        little_endian: bool,
+    ) -> Result<Self, ErrorSource> {
+        let number = |bytes: &[u8]| {
+            let word = [bytes[0], bytes[1], bytes[2], bytes[3]];
+            if little_endian {
+                u32::from_le_bytes(word)
             } else {
-                0
-            };
-            tag.extend(header);
-            reader
-                .take(body_length + footer_length)
-                .read_to_end(&mut tag)?;
-            let mut next = [0; 3];
-            if reader.read_exact(&mut next).is_ok() && &next == b"ID3" {
-                return Err(Refusal::boxed("it holds more than one ID3v2 tag"));
+                u32::from_be_bytes(word)
             }
+        };
+        let container_size = number(&beginning[4..8]);
+        let file_length = file.metadata()?.len();
+        let container_end = CHUNK_HEADER_LENGTH + u64::from(container_size);
+        let mut problem = None;
+        if container_end > file_length {
+            problem = Some("its container is larger than the file");
         }
-        Id3v2Layout::RiffChunk | Id3v2Layout::AiffChunk => {
-            reader.seek(SeekFrom::Start(IFF_HEADER_LENGTH))?;
-            loop {
-                let mut chunk_header = [0; 8];
-                if reader.read_exact(&mut chunk_header).is_err() {
-                    return Ok(None);
-                }
-                let size_bytes = [
-                    chunk_header[4],
-                    chunk_header[5],
-                    chunk_header[6],
-                    chunk_header[7],
-                ];
-                let size = match layout {
-                    Id3v2Layout::RiffChunk => u32::from_le_bytes(size_bytes),
-                    _ => u32::from_be_bytes(size_bytes),
-                };
-                if chunk_header[..4].eq_ignore_ascii_case(b"ID3 ") {
-                    reader.take(u64::from(size)).read_to_end(&mut tag)?;
+
+        let mut found: Option<(std::ops::Range<u64>, u64, [u8; 4], Id3Tag)> = None;
+        let mut offset = IFF_HEADER_LENGTH;
+        while offset < container_end.min(file_length) {
+            let Ok(header) = read_exactly(file, offset, CHUNK_HEADER_LENGTH) else {
+                problem = Some("a chunk is cut short");
+                break;
+            };
+            let size = u64::from(number(&header[4..8]));
+            let unpadded_end = offset + CHUNK_HEADER_LENGTH + size;
+            // Some programs leave out the padding byte of the last chunk.
+            let end = if unpadded_end == container_end {
+                unpadded_end
+            } else {
+                unpadded_end + size % 2
+            };
+            if end > container_end.min(file_length) {
+                problem = Some("a chunk runs past the end of its container");
+                break;
+            }
+            if header[..4].eq_ignore_ascii_case(ID3_CHUNK) {
+                if found.is_some() {
+                    problem = Some("it holds more than one ID3v2 tag");
                     break;
                 }
-                let padded_size = i64::from(size) + i64::from(size % 2);
-                reader.seek(SeekFrom::Current(padded_size))?;
+                let content = read_exactly(file, offset + CHUNK_HEADER_LENGTH, size)?;
+                let name = [header[0], header[1], header[2], header[3]];
+                found = Some((offset..end, size, name, Id3Tag::parse(&content)?));
+            }
+            offset = end;
+        }
+
+        let (chunk, tag_length, name, tag) = match found {
+            Some((chunk, tag_length, name, tag)) => (Some(chunk), tag_length, name, tag),
+            None => (None, 0, *ID3_CHUNK, Id3Tag::new()),
+        };
+        Ok(Self {
+            tag,
+            place: Id3Place::Chunk {
+                little_endian,
+                chunk,
+                tag_length,
+                name,
+                container_size,
+                container_end,
+            },
+            preferred_length: None,
+            problem,
+        })
+    }
+
+    fn problem(&self) -> Option<&'static str> {
+        self.problem.or(self.tag.problem())
+    }
+
+    /// The length of the tag in the file, zero when there is none.
+    fn tag_length(&self) -> u64 {
+        match &self.place {
+            Id3Place::Start { length } => *length,
+            Id3Place::Chunk { tag_length, .. } => *tag_length,
+        }
+    }
+
+    /// The change that writes the tag back to the file. A tag that fits
+    /// in the preferred length, or where the old one was, is padded to
+    /// that length. A tag without frames is taken out of the file.
+    fn splices(&self) -> Result<Vec<Splice>, ErrorSource> {
+        let has_frames = !self.tag.frames().is_empty();
+        let rooms: Vec<usize> = [self.preferred_length, Some(self.tag_length())]
+            .into_iter()
+            .flatten()
+            .filter(|length| *length > 0)
+            .map(|length| length as usize)
+            .collect();
+        match &self.place {
+            Id3Place::Start { length } => {
+                let bytes = if has_frames {
+                    self.tag.serialize(&rooms)?
+                } else {
+                    Vec::new()
+                };
+                Ok(vec![Splice {
+                    start: 0,
+                    end: *length,
+                    bytes,
+                }])
+            }
+            Id3Place::Chunk {
+                little_endian,
+                chunk,
+                name,
+                container_size,
+                container_end,
+                ..
+            } => {
+                let number = |number: u32| {
+                    if *little_endian {
+                        number.to_le_bytes()
+                    } else {
+                        number.to_be_bytes()
+                    }
+                };
+                let mut bytes = Vec::new();
+                if has_frames {
+                    let tag = self.tag.serialize(&rooms)?;
+                    let size = u32::try_from(tag.len())
+                        .map_err(|_| "the tag is too large for its chunk")?;
+                    bytes.extend(name);
+                    bytes.extend(number(size));
+                    bytes.extend(tag);
+                    if bytes.len() % 2 != 0 {
+                        bytes.push(0);
+                    }
+                }
+                if chunk.is_none() && !bytes.is_empty() && !container_end.is_multiple_of(2) {
+                    // The last chunk lacks its padding byte, and a chunk
+                    // must start at an even offset.
+                    bytes.insert(0, 0);
+                }
+                let place = chunk.clone().unwrap_or(*container_end..*container_end);
+                let old_length = place.end - place.start;
+                let new_container_size = (u64::from(*container_size) + bytes.len() as u64)
+                    .checked_sub(old_length)
+                    .and_then(|size| u32::try_from(size).ok())
+                    .ok_or("the file would be larger than its container format allows")?;
+                Ok(vec![
+                    Splice {
+                        start: 4,
+                        end: 8,
+                        bytes: number(new_container_size).to_vec(),
+                    },
+                    Splice {
+                        start: place.start,
+                        end: place.end,
+                        bytes,
+                    },
+                ])
             }
         }
     }
-    Ok(Some(tag))
 }
 
-/// Parses the file's ID3v2 tag alone and strictly, so that a frame the
-/// lenient parse of the whole file skipped is reported instead of dropped
-/// by the next write.
-fn check_id3v2_strictly<R: Read + Seek>(
-    reader: &mut R,
-    layout: Id3v2Layout,
-) -> Result<(), ErrorSource> {
-    let Some(mut stream) = raw_id3v2(reader, layout)? else {
-        return Err(Refusal::boxed(
-            "its ID3v2 tag is not where the format keeps it",
-        ));
-    };
-    // The MP3 reader is the one way to parse a bare ID3v2 tag. It looks
-    // for other tags in the last bytes of the stream, which this padding
-    // keeps away from the tag.
-    stream.extend([0; STRICT_CHECK_PADDING]);
-    MpegFile::read_from(&mut Cursor::new(stream), parse_options(Purpose::Rewriting))
-        .map(|_| ())
-        .map_err(|error| -> ErrorSource {
-            Box::new(Refusal {
-                reason: UNPARSABLE,
-                source: Some(error.into()),
-            })
+enum Document {
+    Id3(Id3File),
+    Mp4(Mp4File),
+    Flac(FlacFile),
+}
+
+/// Whether `bytes` start with a plausible MPEG audio frame header.
+fn is_mpeg_frame_header(bytes: &[u8]) -> bool {
+    matches!(bytes, [0xFF, second, third, ..]
+        if second & 0xE0 == 0xE0
+            && second & 0x18 != 0x08
+            && second & 0x06 != 0
+            && third & 0xF0 != 0xF0
+            && third & 0x0C != 0x0C)
+}
+
+fn has_mpeg_audio(file: &mut File, start: u64) -> Result<bool, ErrorSource> {
+    let mut window = Vec::new();
+    file.seek(SeekFrom::Start(start))?;
+    file.take(MPEG_SEARCH_LENGTH).read_to_end(&mut window)?;
+    Ok(window.windows(3).any(is_mpeg_frame_header))
+}
+
+impl Document {
+    fn load(file: &mut File) -> Result<Self, ErrorSource> {
+        let mut beginning = [0; PROBE_LENGTH];
+        let mut read = 0;
+        file.seek(SeekFrom::Start(0))?;
+        while read < PROBE_LENGTH {
+            match file.read(&mut beginning[read..])? {
+                0 => break,
+                count => read += count,
+            }
+        }
+        let beginning = &beginning[..read];
+        let unsupported = || "not an MP3, WAV, AIFF, M4A or FLAC file".into();
+        if beginning.len() < PROBE_LENGTH {
+            return Err(unsupported());
+        }
+
+        let after_id3 = flac::stream_start(beginning);
+        let marker_after_id3 = read_exactly(file, after_id3, 4).unwrap_or_default();
+        if marker_after_id3 == b"fLaC" {
+            return Ok(Self::Flac(FlacFile::load(file, after_id3)?));
+        }
+        match (&beginning[..4], &beginning[8..12]) {
+            (b"RIFF", b"WAVE") => Ok(Self::Id3(Id3File::in_chunk(file, beginning, true)?)),
+            (b"FORM", b"AIFF" | b"AIFC") => {
+                Ok(Self::Id3(Id3File::in_chunk(file, beginning, false)?))
+            }
+            (_, _) if &beginning[4..8] == b"ftyp" => Ok(Self::Mp4(Mp4File::load(file)?)),
+            _ if has_mpeg_audio(file, after_id3)? => {
+                Ok(Self::Id3(Id3File::at_start(file, beginning)?))
+            }
+            _ => Err(unsupported()),
+        }
+    }
+
+    fn problem(&self) -> Option<&'static str> {
+        match self {
+            Self::Id3(file) => file.problem(),
+            Self::Mp4(file) => file.problem(),
+            Self::Flac(file) => file.problem(),
+        }
+    }
+
+    /// The length of the area the tag occupies in the file: the ID3v2 tag,
+    /// the `moov` atom, or all FLAC metadata blocks.
+    fn tag_length(&self) -> u64 {
+        match self {
+            Self::Id3(file) => file.tag_length(),
+            Self::Mp4(file) => file.moov_length(),
+            Self::Flac(file) => file.metadata_length(),
+        }
+    }
+
+    fn prefer_lengths(&mut self, tag: Option<u64>, file_length: Option<u64>) {
+        match self {
+            Self::Id3(file) => file.preferred_length = tag,
+            Self::Mp4(file) => file.prefer_lengths(tag, file_length),
+            Self::Flac(file) => file.prefer_metadata_length(tag),
+        }
+    }
+
+    /// Every item of the tag, whole and in order.
+    fn items(&self) -> Vec<Vec<u8>> {
+        match self {
+            Self::Id3(file) => file.tag.frames().to_vec(),
+            Self::Mp4(file) => file.items().to_vec(),
+            Self::Flac(file) => file.items(),
+        }
+    }
+
+    /// The index among [`Document::items`] of the item `field` names.
+    fn position(&self, field: &str) -> Result<Option<usize>, ErrorSource> {
+        match self {
+            Self::Id3(file) => Ok(file.tag.position(field)),
+            Self::Mp4(file) => file.position(field),
+            Self::Flac(file) => Ok(file.position(field)),
+        }
+    }
+
+    fn raw(&self, field: &str) -> Result<Option<Vec<u8>>, ErrorSource> {
+        Ok(match self {
+            Self::Id3(file) => file.tag.raw(field).map(<[u8]>::to_vec),
+            Self::Mp4(file) => file.raw(field)?.map(<[u8]>::to_vec),
+            Self::Flac(file) => file.raw(field).map(<[u8]>::to_vec),
         })
+    }
+
+    fn get(&self, field: &str) -> Result<Option<String>, ErrorSource> {
+        match self {
+            Self::Id3(file) => file.tag.get(field),
+            Self::Mp4(file) => file.get(field),
+            Self::Flac(file) => Ok(file.get(field)),
+        }
+    }
+
+    fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
+        match self {
+            Self::Id3(file) => file.tag.set(field, value),
+            Self::Mp4(file) => file.set(field, value),
+            Self::Flac(file) => {
+                file.set(field, value);
+                Ok(())
+            }
+        }
+    }
+
+    fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
+        match self {
+            Self::Id3(file) => file.tag.restore(field, raw),
+            Self::Mp4(file) => file.restore(field, raw),
+            Self::Flac(file) => file.restore(field, raw),
+        }
+    }
+
+    fn splices(&self) -> Result<Vec<Splice>, ErrorSource> {
+        match self {
+            Self::Id3(file) => file.splices(),
+            Self::Mp4(file) => file.splices(),
+            Self::Flac(file) => file.splices(),
+        }
+    }
 }
 
-/// The native tag of one file, loaded in full.
+/// The native tag of one file.
 pub(super) struct TagFile {
     path: PathBuf,
-    contents: Contents,
-    touched: Vec<String>,
+    file_length: u64,
+    document: Document,
+    /// The items as they were loaded, with the index each touched field
+    /// had among them.
+    original_items: Vec<Vec<u8>>,
+    touched: Vec<(String, Option<usize>)>,
 }
 
 impl TagFile {
     /// Reads the native tag of the file at `path`. A file with no tag yet
     /// loads as an empty one.
     pub(super) fn load(path: &Path, purpose: Purpose) -> Result<Self, EuphoriaError> {
-        let open = || {
-            File::open(path)
-                .map(BufReader::new)
-                .map_err(|source| EuphoriaError::Open {
-                    path: path.to_path_buf(),
-                    source,
-                })
-        };
-        let contents = match read_contents(open()?, purpose) {
-            Ok(contents) => contents,
-            Err(source) if purpose == Purpose::Reading => {
-                return Err(EuphoriaError::TagRead {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
-            Err(refusal) if refusal.is::<Refusal>() => {
-                return Err(EuphoriaError::TagWrite {
-                    path: path.to_path_buf(),
-                    source: refusal,
-                });
-            }
-            Err(strict_error) => {
-                // A file that only a lenient parse accepts is readable, but
-                // rewriting it would drop whatever the parser skipped.
-                return Err(match read_contents(open()?, Purpose::Reading) {
-                    Ok(_) => EuphoriaError::TagWrite {
-                        path: path.to_path_buf(),
-                        source: Box::new(Refusal {
-                            reason: UNPARSABLE,
-                            source: Some(strict_error),
-                        }),
-                    },
-                    Err(_) => EuphoriaError::TagRead {
-                        path: path.to_path_buf(),
-                        source: strict_error,
-                    },
-                });
-            }
-        };
+        let mut file = File::open(path).map_err(|source| EuphoriaError::Open {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let document = Document::load(&mut file).map_err(|source| EuphoriaError::TagRead {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if let (Purpose::Rewriting, Some(problem)) = (purpose, document.problem()) {
+            return Err(EuphoriaError::TagWrite {
+                path: path.to_path_buf(),
+                source: refusal(problem),
+            });
+        }
+        let file_length = file.metadata().map_err(|source| EuphoriaError::Open {
+            path: path.to_path_buf(),
+            source,
+        })?;
         Ok(Self {
             path: path.to_path_buf(),
-            contents,
+            file_length: file_length.len(),
+            original_items: document.items(),
+            document,
             touched: Vec::new(),
         })
     }
 
     pub(super) fn format(&self) -> TagFormat {
-        match self.contents.tag {
-            NativeTag::Id3v2(_) => TagFormat::Id3v2,
-            NativeTag::Mp4(_) => TagFormat::Mp4,
-            NativeTag::Flac(_) => TagFormat::VorbisComments,
+        match self.document {
+            Document::Id3(_) => TagFormat::Id3v2,
+            Document::Mp4(_) => TagFormat::Mp4,
+            Document::Flac(_) => TagFormat::VorbisComments,
         }
     }
 
     /// The text of `field`, or `None` when the tag does not have it.
     pub(super) fn get(&self, field: &str) -> Result<Option<String>, EuphoriaError> {
-        native_get(&self.contents.tag, field).map_err(|source| EuphoriaError::TagRead {
-            path: self.path.clone(),
-            source,
-        })
+        self.document
+            .get(field)
+            .map_err(|source| self.read_error(source))
+    }
+
+    /// The whole item `field` names, as the bytes the file holds.
+    pub(super) fn raw(&self, field: &str) -> Result<Option<Vec<u8>>, EuphoriaError> {
+        self.document
+            .raw(field)
+            .map_err(|source| self.read_error(source))
+    }
+
+    /// The length of the area the tag occupies in the file.
+    pub(super) fn tag_length(&self) -> u64 {
+        self.document.tag_length()
+    }
+
+    /// The length of the file when it was loaded.
+    pub(super) fn file_length(&self) -> u64 {
+        self.file_length
+    }
+
+    /// Asks for the tag area and the file to get these lengths again when
+    /// padding allows, which is what makes an undone file identical to
+    /// the original.
+    pub(super) fn prefer_lengths(&mut self, tag: Option<u64>, file_length: Option<u64>) {
+        self.document.prefer_lengths(tag, file_length);
     }
 
     /// The first of `fields` that holds text.
@@ -387,32 +513,46 @@ impl TagFile {
         Ok(None)
     }
 
-    /// Sets `field` to `value` in memory, or removes it when `value` is
-    /// `None`. A field that already exists keeps its place in the tag.
-    pub(super) fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), EuphoriaError> {
-        let changed = match &mut self.contents.tag {
-            NativeTag::Id3v2(tag) => id3v2_set(tag, field, value),
-            NativeTag::Mp4(ilst) => mp4_set(ilst, field, value),
-            NativeTag::Flac(file) => {
-                if let Some(comments) = file.vorbis_comments_mut() {
-                    vorbis_set(comments, field, value);
-                }
-                Ok(())
-            }
-        };
-        changed.map_err(|source| self.write_error(source))?;
-        self.touched.push(field.to_string());
+    fn touch(&mut self, field: &str) -> Result<(), ErrorSource> {
+        if !self.touched.iter().any(|(touched, _)| touched == field) {
+            let position = self.document.position(field)?;
+            self.touched.push((field.to_string(), position));
+        }
         Ok(())
+    }
+
+    /// Sets `field` to `value` in memory. A field that already exists
+    /// keeps its place in the tag.
+    pub(super) fn set(&mut self, field: &str, value: &str) -> Result<(), EuphoriaError> {
+        self.touch(field)
+            .and_then(|()| self.document.set(field, Some(value)))
+            .map_err(|source| self.write_error(source))
+    }
+
+    /// Puts the exact bytes of an item back in memory, or removes the item
+    /// when `raw` is `None`.
+    pub(super) fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), EuphoriaError> {
+        self.touch(field)
+            .and_then(|()| self.document.restore(field, raw))
+            .map_err(|source| self.write_error(source))
+    }
+
+    /// Removes `field` in memory.
+    pub(super) fn remove(&mut self, field: &str) -> Result<(), EuphoriaError> {
+        self.touch(field)
+            .and_then(|()| self.document.set(field, None))
+            .map_err(|source| self.write_error(source))
     }
 
     /// Writes the tag to the file.
     ///
-    /// The new contents are built in a copy next to the real file, read
-    /// back, and compared with the original. Only when nothing but the
-    /// fields passed to [`TagFile::set`] differs does the copy take the
-    /// file's place, so a failed or refused write leaves the file as it was.
-    /// A symbolic link is followed: the file it points to is rewritten and
-    /// the link stays a link.
+    /// The new file is built next to the real one: the original with the
+    /// tag's bytes exchanged and everything else copied. It is then read
+    /// back and compared with the original, and takes the file's place
+    /// only when nothing but the touched fields differs. A failed or
+    /// refused write leaves the file as it was. A symbolic link is
+    /// followed: the file it points to is rewritten and the link stays a
+    /// link.
     pub(super) fn save(&self) -> Result<(), EuphoriaError> {
         self.save_checked()
             .map_err(|source| self.write_error(source))
@@ -420,18 +560,13 @@ impl TagFile {
 
     fn save_checked(&self) -> Result<(), ErrorSource> {
         let target = std::fs::canonicalize(&self.path)?;
+        let mut original = File::open(&target)?;
+        let mut splices = self.document.splices()?;
         let mut replacement = Replacement::start(&target)?;
-        // An ID3v2.3 tag stays ID3v2.3 when that loses nothing. Frames that
-        // only exist in ID3v2.4 are common in ID3v2.3 tags and are dropped
-        // by an ID3v2.3 write, so such a tag is written as ID3v2.4 instead.
-        if self.prefers_id3v23() {
-            if self.write_checked(replacement.file(), true).is_ok() {
-                return replacement.commit();
-            }
-            replacement.discard()?;
-            replacement = Replacement::start(&target)?;
-        }
-        match self.write_checked(replacement.file(), false) {
+        let written = compose(&mut original, &mut splices, replacement.file())
+            .map_err(ErrorSource::from)
+            .and_then(|()| self.check(&mut original, &splices, replacement.file()));
+        match written {
             Ok(()) => replacement.commit(),
             Err(error) => {
                 // The write error is the one reported.
@@ -441,47 +576,66 @@ impl TagFile {
         }
     }
 
-    fn prefers_id3v23(&self) -> bool {
-        matches!(self.contents.tag, NativeTag::Id3v2(_))
-            && self.contents.id3v2_version != Some(Id3v2Version::V4)
-    }
-
-    /// Writes the tag into `copy`, then reads `copy` back and checks it.
-    fn write_checked(&self, copy: &mut File, use_id3v23: bool) -> Result<(), ErrorSource> {
-        let options = WriteOptions::new()
-            .use_id3v23(use_id3v23)
-            .parse_options(parse_options(Purpose::Rewriting));
-        copy.rewind()?;
-        match &self.contents.tag {
-            NativeTag::Id3v2(tag) => tag.save_to(copy, options)?,
-            NativeTag::Mp4(ilst) => ilst.save_to(copy, options)?,
-            NativeTag::Flac(file) => file.save_to(copy, options)?,
+    /// Compares the new file with the original, without relying on how the
+    /// new file was put together: every byte outside the rewritten ranges,
+    /// every untouched item, and the value of every touched field.
+    fn check(
+        &self,
+        original: &mut File,
+        splices: &[Splice],
+        copy: &mut File,
+    ) -> Result<(), ErrorSource> {
+        if !carried_over(original, splices, copy)? {
+            return Err(refusal("data outside the tag would change"));
         }
-        copy.rewind()?;
-        let written = read_contents(BufReader::new(&*copy), Purpose::Rewriting)?;
-
-        if written.bystanders != self.contents.bystanders {
-            return Err(Refusal::boxed(
-                "tags or pictures outside the tag being written would change",
-            ));
+        let written = Document::load(copy)?;
+        if written.problem().is_some() {
+            return Err(refusal("the rewritten tag would not be readable"));
         }
-        if untouched_items(&written.tag, &self.touched)?
-            != untouched_items(&self.contents.tag, &self.touched)?
+
+        let without = |mut items: Vec<Vec<u8>>, mut positions: Vec<usize>| {
+            positions.sort_unstable();
+            for position in positions.into_iter().rev() {
+                items.remove(position);
+            }
+            items
+        };
+        let original_positions = self
+            .touched
+            .iter()
+            .filter_map(|(_, position)| *position)
+            .collect();
+        let mut written_positions = Vec::new();
+        for (field, _) in &self.touched {
+            written_positions.extend(written.position(field)?);
+        }
+        if without(self.original_items.clone(), original_positions)
+            != without(written.items(), written_positions)
         {
-            return Err(Refusal::boxed(
+            return Err(refusal(
                 "tag data that was not meant to change would be lost or altered",
             ));
         }
-        for field in &self.touched {
-            let wanted = native_get(&self.contents.tag, field)?.filter(|text| !text.is_empty());
-            let found = native_get(&written.tag, field)?.filter(|text| !text.is_empty());
-            if wanted != found {
-                return Err(Refusal::boxed(
-                    "a field did not take the value written to it",
-                ));
+        for (field, _) in &self.touched {
+            if written.raw(field)? != self.document.raw(field)? {
+                return Err(refusal("a field did not take the value written to it"));
             }
         }
+        if let (Document::Mp4(loaded), Document::Mp4(written)) = (&self.document, &written) {
+            loaded
+                .check_rewrite(original, written, copy)
+                .map_err(|error| -> ErrorSource {
+                    format!("refusing to rewrite the file: {error}").into()
+                })?;
+        }
         Ok(())
+    }
+
+    fn read_error(&self, source: ErrorSource) -> EuphoriaError {
+        EuphoriaError::TagRead {
+            path: self.path.clone(),
+            source,
+        }
     }
 
     fn write_error(&self, source: ErrorSource) -> EuphoriaError {
@@ -492,306 +646,121 @@ impl TagFile {
     }
 }
 
-fn native_get(tag: &NativeTag, field: &str) -> Result<Option<String>, ErrorSource> {
-    match tag {
-        NativeTag::Id3v2(tag) => id3v2_get(tag, field),
-        NativeTag::Mp4(ilst) => mp4_get(ilst, field),
-        NativeTag::Flac(file) => Ok(file
-            .vorbis_comments()
-            .and_then(|comments| comments.get(field))
-            .map(str::to_string)),
-    }
-}
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
 
-/// Every item of the tag except the `touched` fields, as text that is equal
-/// only when the item is, in an order that does not depend on the tag's.
-fn untouched_items(tag: &NativeTag, touched: &[String]) -> Result<Vec<String>, ErrorSource> {
-    let mut items: Vec<String> = match tag {
-        NativeTag::Id3v2(tag) => tag
-            .into_iter()
-            .filter(|frame| !id3v2_frame_is_empty(frame))
-            .filter(|frame| {
-                !touched.iter().any(|field| {
-                    if field == ID3_COMMENT {
-                        is_plain_comment(frame)
-                    } else {
-                        frame.id().as_str() == field
-                    }
-                })
-            })
-            .map(id3v2_frame_text)
-            .collect(),
-        NativeTag::Mp4(ilst) => {
-            let touched_idents = touched
-                .iter()
-                .map(|field| mp4_ident(field))
-                .collect::<Result<Vec<_>, _>>()?;
-            ilst.into_iter()
-                .filter(|atom| {
-                    !touched_idents
-                        .iter()
-                        .any(|ident| mp4_ident_matches(atom.ident(), ident))
-                })
-                .map(|atom| format!("{atom:?}"))
-                .collect()
-        }
-        NativeTag::Flac(file) => file
-            .vorbis_comments()
-            .into_iter()
-            .flat_map(VorbisComments::items)
-            .filter(|(key, _)| !touched.iter().any(|field| key.eq_ignore_ascii_case(field)))
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect(),
-    };
-    items.sort();
-    Ok(items)
-}
+    use super::*;
 
-/// Frames without content are not written at all, so they do not count as
-/// lost.
-fn id3v2_frame_is_empty(frame: &Frame<'_>) -> bool {
-    match frame {
-        Frame::Text(text) => text.value.is_empty(),
-        Frame::UserText(text) => text.content.is_empty(),
-        Frame::UserUrl(link) => link.content.is_empty(),
-        Frame::Comment(comment) => comment.content.is_empty(),
-        Frame::UnsynchronizedText(text) => text.content.is_empty(),
-        Frame::Private(private) => private.private_data.is_empty(),
-        Frame::Binary(binary) => binary.data.is_empty(),
-        _ => false,
-    }
-}
+    const KEY_FIELDS: [(&str, &str); 5] = [
+        ("sine-440hz-mono.mp3", "TKEY"),
+        ("sine-440hz-mono.wav", "TKEY"),
+        ("sine-440hz-mono.aiff", "TKEY"),
+        ("sine-440hz-mono.flac", "INITIALKEY"),
+        ("sine-440hz-mono.m4a", "----:com.apple.iTunes:initialkey"),
+    ];
 
-/// The frame as text, with the text encoding left out: ID3v2.3 cannot store
-/// UTF-8, so a write may change the encoding without changing the text.
-fn id3v2_frame_text(frame: &Frame<'_>) -> String {
-    let mut text = format!("{frame:?}");
-    for name in ID3_ENCODING_NAMES {
-        text = text.replace(&format!("encoding: {name}"), "encoding: any");
-    }
-    text
-}
+    /// Writes a key to a copy of `fixture`, lets `tamper` change the new
+    /// file, and returns what the check before the replacement says.
+    fn check_after(
+        fixture: &str,
+        field: &str,
+        tamper: impl Fn(&mut Vec<u8>),
+    ) -> Result<(), ErrorSource> {
+        static NEXT_DIRECTORY: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let directory =
+            std::env::temp_dir().join(format!("euphoria-native-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(fixture);
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(fixture);
+        std::fs::copy(source, &path).unwrap();
 
-fn is_plain_comment(frame: &Frame<'_>) -> bool {
-    matches!(frame, Frame::Comment(comment) if comment.description.is_empty())
-}
+        let mut tag_file = TagFile::load(&path, Purpose::Rewriting).unwrap();
+        tag_file.set(field, "8A").unwrap();
+        let mut original = File::open(&path).unwrap();
+        let mut splices = tag_file.document.splices().unwrap();
+        let mut replacement = Replacement::start(&path).unwrap();
+        compose(&mut original, &mut splices, replacement.file()).unwrap();
 
-fn id3v2_get(tag: &Id3v2Tag, field: &str) -> Result<Option<String>, ErrorSource> {
-    if field == ID3_COMMENT {
-        return Ok(tag
-            .comments()
-            .next()
-            .map(|comment| comment.content.to_string()));
-    }
-    let frame_id = FrameId::new(field)?;
-    match tag.get(&frame_id) {
-        None => Ok(None),
-        Some(Frame::Text(frame)) => Ok(Some(frame.value.to_string())),
-        Some(_) => Err(format!("{field} is not a text frame").into()),
-    }
-}
+        let copy = replacement.file();
+        let mut bytes = Vec::new();
+        copy.rewind().unwrap();
+        copy.read_to_end(&mut bytes).unwrap();
+        tamper(&mut bytes);
+        copy.set_len(0).unwrap();
+        copy.rewind().unwrap();
+        copy.write_all(&bytes).unwrap();
 
-/// The encoding to store `value` in, given the encoding the frame has now.
-/// Latin-1 frames stay Latin-1 while the text fits, which keeps them
-/// identical when a change is undone.
-fn id3v2_encoding(current: TextEncoding, value: &str) -> TextEncoding {
-    let fits_latin1 = value.chars().all(|character| u32::from(character) <= 0xFF);
-    if current == TextEncoding::Latin1 && !fits_latin1 {
-        TextEncoding::UTF16
-    } else {
-        current
-    }
-}
-
-fn id3v2_set(tag: &mut Id3v2Tag, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
-    let frame_id = FrameId::new(field)?.into_owned();
-    let is_target = |frame: &Frame<'_>| {
-        if field == ID3_COMMENT {
-            is_plain_comment(frame)
-        } else {
-            *frame.id() == frame_id
-        }
-    };
-
-    let mut found = false;
-    tag.retain_mut(|frame| {
-        if found || !is_target(frame) {
-            return true;
-        }
-        found = true;
-        let Some(value) = value else {
-            return false;
-        };
-        match frame {
-            Frame::Comment(comment) => {
-                comment.encoding = id3v2_encoding(comment.encoding, value);
-                comment.content = Cow::Owned(value.to_string());
-            }
-            Frame::Text(text) => {
-                text.encoding = id3v2_encoding(text.encoding, value);
-                text.value = Cow::Owned(value.to_string());
-            }
-            other => {
-                *other = Frame::Text(TextInformationFrame::new(
-                    frame_id.clone(),
-                    TextEncoding::UTF8,
-                    value.to_string(),
-                ));
-            }
-        }
-        true
-    });
-
-    if let (false, Some(value)) = (found, value) {
-        let frame = if field == ID3_COMMENT {
-            Frame::Comment(CommentFrame::new(
-                TextEncoding::UTF8,
-                ID3_DEFAULT_LANGUAGE,
-                "",
-                value.to_string(),
-            ))
-        } else {
-            Frame::Text(TextInformationFrame::new(
-                frame_id,
-                TextEncoding::UTF8,
-                value.to_string(),
-            ))
-        };
-        tag.insert(frame);
-    }
-    Ok(())
-}
-
-fn mp4_ident(field: &str) -> Result<AtomIdent<'static>, ErrorSource> {
-    if let Some(freeform) = field.strip_prefix(MP4_FREEFORM_PREFIX) {
-        let (mean, name) = freeform
-            .split_once(':')
-            .ok_or_else(|| format!("{field} is not a freeform atom name"))?;
-        return Ok(AtomIdent::Freeform {
-            mean: Cow::Owned(mean.to_string()),
-            name: Cow::Owned(name.to_string()),
-        });
-    }
-    let bytes: Vec<u8> = field
-        .chars()
-        .map(|character| match character {
-            '©' => Some(MP4_COPYRIGHT_SIGN_BYTE),
-            other => u8::try_from(other).ok().filter(u8::is_ascii),
-        })
-        .collect::<Option<_>>()
-        .ok_or_else(|| format!("{field} is not an atom name"))?;
-    let fourcc: [u8; 4] = bytes
-        .try_into()
-        .map_err(|_| format!("{field} is not a four character atom name"))?;
-    Ok(AtomIdent::Fourcc(fourcc))
-}
-
-/// Freeform atom names differ in letter case between programs, so they
-/// match in any case. Four character names match exactly.
-fn mp4_ident_matches(candidate: &AtomIdent<'_>, wanted: &AtomIdent<'_>) -> bool {
-    match (candidate, wanted) {
-        (
-            AtomIdent::Freeform { mean, name },
-            AtomIdent::Freeform {
-                mean: wanted_mean,
-                name: wanted_name,
-            },
-        ) => mean.eq_ignore_ascii_case(wanted_mean) && name.eq_ignore_ascii_case(wanted_name),
-        _ => candidate == wanted,
-    }
-}
-
-fn mp4_get(ilst: &Ilst, field: &str) -> Result<Option<String>, ErrorSource> {
-    let ident = mp4_ident(field)?;
-    let Some(atom) = ilst
-        .into_iter()
-        .find(|atom| mp4_ident_matches(atom.ident(), &ident))
-    else {
-        return Ok(None);
-    };
-    match atom.data().next() {
-        None => Ok(None),
-        Some(AtomData::UTF8(text) | AtomData::UTF16(text)) => Ok(Some(text.clone())),
-        Some(AtomData::SignedInteger(number)) => Ok(Some(number.to_string())),
-        Some(AtomData::UnsignedInteger(number)) => Ok(Some(number.to_string())),
-        // The form a tempo set in memory has before it is written.
-        Some(AtomData::Unknown {
-            code: DataType::BeSignedInteger,
-            data,
-        }) if data.len() == 2 => Ok(Some(u16::from_be_bytes([data[0], data[1]]).to_string())),
-        // Refusing here keeps the planner from replacing data that a
-        // backup could not hold as text.
-        Some(_) => Err(format!("{field} holds data that is not text or a number").into()),
-    }
-}
-
-fn mp4_atom(
-    ident: AtomIdent<'static>,
-    field: &str,
-    value: &str,
-) -> Result<Atom<'static>, ErrorSource> {
-    if field != MP4_TEMPO {
-        return Ok(Atom::new(ident, AtomData::UTF8(value.to_string())));
-    }
-    let tempo: u16 = value
-        .parse()
-        .map_err(|_| format!("{value:?} is not a whole tempo that fits in {MP4_TEMPO}"))?;
-    // Players expect exactly two bytes here, and the integer variant of
-    // AtomData picks its own width.
-    Ok(Atom::new(
-        ident,
-        AtomData::Unknown {
-            code: DataType::BeSignedInteger,
-            data: tempo.to_be_bytes().to_vec(),
-        },
-    ))
-}
-
-fn mp4_set(ilst: &mut Ilst, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
-    let ident = mp4_ident(field)?;
-    let mut replacement = None;
-    if let Some(value) = value {
-        let existing_ident = (&*ilst)
-            .into_iter()
-            .find(|atom| mp4_ident_matches(atom.ident(), &ident))
-            .map(|atom| atom.ident().clone().into_owned());
-        replacement = Some(mp4_atom(
-            existing_ident.unwrap_or(ident.clone()),
-            field,
-            value,
-        )?);
+        let checked = tag_file.check(&mut original, &splices, replacement.file());
+        replacement.discard().unwrap();
+        std::fs::remove_dir_all(&directory).unwrap();
+        checked
     }
 
-    // Ilst has no way to edit an atom where it sits, so the list is rebuilt
-    // in its original order.
-    let atoms: Vec<Atom<'static>> = std::mem::take(ilst).into_iter().collect();
-    for atom in atoms {
-        if !mp4_ident_matches(atom.ident(), &ident) {
-            ilst.insert(atom);
-        } else if let Some(replacement) = replacement.take() {
-            ilst.insert(replacement);
+    fn flip_last(bytes: &mut [u8], pattern: &[u8]) {
+        let position = bytes
+            .windows(pattern.len())
+            .rposition(|window| window == pattern)
+            .unwrap();
+        bytes[position] ^= 0x01;
+    }
+
+    #[test]
+    fn check_accepts_an_exact_write() {
+        for (fixture, field) in KEY_FIELDS {
+            check_after(fixture, field, |_| {}).unwrap();
         }
     }
-    if let Some(replacement) = replacement {
-        ilst.insert(replacement);
-    }
-    Ok(())
-}
 
-fn vorbis_set(comments: &mut VorbisComments, field: &str, value: Option<&str>) {
-    let mut found = false;
-    let items: Vec<(String, String)> = comments.take_items().collect();
-    for (key, existing) in items {
-        if found || !key.eq_ignore_ascii_case(field) {
-            comments.push(key, existing);
-            continue;
-        }
-        found = true;
-        if let Some(value) = value {
-            comments.push(key, value.to_string());
+    #[test]
+    fn check_refuses_a_change_to_data_outside_the_plan() {
+        for (fixture, field) in KEY_FIELDS {
+            // Every fixture but the AIFF names its encoder, in a tag item
+            // or in a chunk of its own.
+            let untouched = if fixture.ends_with("aiff") {
+                &b"SSND"[..]
+            } else {
+                &b"Lavf"[..]
+            };
+            let error =
+                check_after(fixture, field, |bytes| flip_last(bytes, untouched)).unwrap_err();
+            assert!(error.to_string().contains("refusing"), "{fixture}: {error}");
         }
     }
-    if let (false, Some(value)) = (found, value) {
-        comments.push(field.to_string(), value.to_string());
+
+    #[test]
+    fn check_refuses_a_field_that_did_not_take_its_value() {
+        for (fixture, field) in KEY_FIELDS {
+            let error = check_after(fixture, field, |bytes| flip_last(bytes, b"8A")).unwrap_err();
+            assert!(
+                error.to_string().contains("did not take the value"),
+                "{fixture}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn check_refuses_a_change_to_the_audio() {
+        for (fixture, field) in KEY_FIELDS {
+            let tamper = |bytes: &mut Vec<u8>| {
+                let middle = bytes.len() / 2;
+                bytes[middle] ^= 0x01;
+            };
+            let error = check_after(fixture, field, tamper).unwrap_err();
+            assert!(error.to_string().contains("refusing"), "{fixture}: {error}");
+        }
+    }
+
+    #[test]
+    fn check_refuses_a_lost_or_added_byte() {
+        for (fixture, field) in KEY_FIELDS {
+            check_after(fixture, field, |bytes| bytes.truncate(bytes.len() - 1)).unwrap_err();
+            check_after(fixture, field, |bytes| bytes.push(0)).unwrap_err();
+        }
     }
 }
