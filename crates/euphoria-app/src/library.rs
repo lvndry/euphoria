@@ -196,6 +196,11 @@ impl Library {
         self.tracks.get(index)
     }
 
+    /// The index of the track for the file at `path`.
+    pub(crate) fn index_of(&self, path: &Path) -> Option<usize> {
+        self.index_by_path.get(path).copied()
+    }
+
     /// The folders the user added, in the order they were added.
     pub(crate) fn folders(&self) -> &[PathBuf] {
         &self.folders

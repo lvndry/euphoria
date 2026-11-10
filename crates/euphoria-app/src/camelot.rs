@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Reading the Camelot code the core gives a key, for sorting and colouring.
+//! Where the core places a key on the Camelot wheel, for sorting and colouring.
 
 use euphoria_core::{Key, Mode};
 
@@ -16,15 +16,10 @@ pub(crate) struct CamelotPosition {
 }
 
 impl CamelotPosition {
-    /// Reads the position from the code the core prints for `key`.
+    /// The position of `key`.
     pub(crate) fn of(key: &Key) -> Self {
-        let code = key.camelot();
-        let digits: String = code
-            .chars()
-            .take_while(|character| character.is_ascii_digit())
-            .collect();
         Self {
-            number: digits.parse().unwrap_or(0),
+            number: key.camelot_number(),
             is_major: key.mode() == Mode::Major,
         }
     }
@@ -50,7 +45,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_number_and_ring_from_the_core_code() {
+    fn reads_number_and_ring_from_the_key() {
         assert_eq!(
             position("A minor"),
             CamelotPosition {

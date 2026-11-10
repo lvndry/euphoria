@@ -27,9 +27,25 @@ pub(crate) fn count(value: usize) -> String {
     grouped
 }
 
+/// A signed percentage with one decimal, for example "+1.6%" or "-0.8%".
+pub(crate) fn signed_percent(percent: f32) -> String {
+    if percent.abs() < 0.05 {
+        return "0.0%".to_string();
+    }
+    format!("{percent:+.1}%")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_signed_percentages() {
+        assert_eq!(signed_percent(1.61), "+1.6%");
+        assert_eq!(signed_percent(-0.8), "-0.8%");
+        assert_eq!(signed_percent(0.01), "0.0%");
+        assert_eq!(signed_percent(-0.01), "0.0%");
+    }
 
     #[test]
     fn formats_durations_as_minutes_and_seconds() {

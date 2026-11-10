@@ -12,13 +12,17 @@ mod analysis;
 mod app;
 mod assets;
 mod camelot;
+mod demo;
 mod format;
 mod library;
+mod mixes;
 mod peaks;
 mod progress;
 mod settings;
 mod state;
 mod theme;
+#[cfg(test)]
+mod ui_tests;
 mod views;
 
 use gpui::prelude::*;
@@ -61,8 +65,11 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
         ),
         None => (Settings::default(), None),
     };
-    let session =
+    let mut session =
         Session::start().map_err(|error| format!("cannot start the analysis workers: {error}"))?;
+    if let Some(count) = demo::requested_track_count() {
+        session.add_demo_tracks(demo::tracks(count));
+    }
 
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

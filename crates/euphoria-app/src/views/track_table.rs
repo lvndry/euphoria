@@ -8,7 +8,9 @@
 use gpui::component::scroll::Scrollbar;
 use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, SharedString, Stateful, div, px, uniform_list};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px, uniform_list,
+};
 
 use crate::app::EuphoriaApp;
 use crate::format;
@@ -229,6 +231,7 @@ fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp
                     .hover(move |style| style.text_color(hover_colour))
                     .on_click(cx.listener(move |this, _, _, cx| this.sort_by(sort_column, cx)))
             })
+            .test_support()
     });
 
     div()
@@ -267,7 +270,7 @@ fn row(
     app: &EuphoriaApp,
     row_index: usize,
     cx: &mut Context<'_, EuphoriaApp>,
-) -> Option<Stateful<Div>> {
+) -> Option<AnyElement> {
     let theme = &app.theme;
     let palette = theme.palette;
     let track_index = *app.visible.get(row_index)?;
@@ -293,6 +296,7 @@ fn row(
         div()
             .id(("track", track_index))
             .flex()
+            .w_full()
             .items_center()
             .gap(px(COLUMN_GAP))
             .h(theme.row_height)
@@ -348,7 +352,9 @@ fn row(
                         .text_color(palette.text_tertiary)
                         .child(track.folder.clone()),
                 ),
-            ),
+            )
+            .test_support()
+            .into_any_element(),
     )
 }
 

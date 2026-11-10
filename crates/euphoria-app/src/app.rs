@@ -17,6 +17,7 @@ use gpui::{
 };
 
 use crate::library::{LibraryFilter, SortColumn, SortOrder, Track};
+use crate::mixes::{MixSuggestion, suggestions};
 use crate::peaks::{PEAK_COUNT, compute_peaks};
 use crate::settings::Settings;
 use crate::state::{Scan, Session, scan};
@@ -32,6 +33,9 @@ const WAVEFORM_DELAY: Duration = Duration::from_millis(180);
 
 /// How long quitting waits for the files in the middle of analysis.
 const QUIT_PATIENCE: Duration = Duration::from_secs(20);
+
+/// How many tracks the "Mixes well with" list shows.
+const MIX_LIMIT: usize = 8;
 
 /// The waveform of one track.
 #[derive(Debug, Clone)]
@@ -55,6 +59,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) visible: Vec<usize>,
     /// Index into the library of the selected track.
     pub(crate) selected: Option<usize>,
+    /// Tracks that mix with the selected one, smoothest first.
+    pub(crate) mixes: Vec<MixSuggestion>,
     pub(crate) table_scroll: UniformListScrollHandle,
     pub(crate) table_focus: FocusHandle,
     /// A problem to tell the user about, shown until dismissed.
@@ -112,6 +118,7 @@ impl EuphoriaApp {
             }),
             visible: Vec::new(),
             selected: None,
+            mixes: Vec::new(),
             table_scroll: UniformListScrollHandle::new(),
             table_focus: cx.focus_handle(),
             notice,
@@ -127,6 +134,8 @@ impl EuphoriaApp {
         if !settings.folders.is_empty() {
             this.add_paths(settings.folders, cx);
         }
+        this.refresh_visible();
+        this.select_first_track_if_none(cx);
         this
     }
 
@@ -211,8 +220,19 @@ impl EuphoriaApp {
         }
 
         self.refresh_visible();
+        self.select_first_track_if_none(cx);
         self.start_collecting(cx);
         cx.notify();
+    }
+
+    /// Selects the first row when nothing is selected, so the inspector has
+    /// a track to show as soon as the library has one.
+    fn select_first_track_if_none(&mut self, cx: &mut Context<'_, Self>) {
+        if self.selected.is_none()
+            && let Some(first) = self.visible.first().copied()
+        {
+            self.select(first, cx);
+        }
     }
 
     /// Moves finished files into the table a few times a second for as long
@@ -228,6 +248,7 @@ impl EuphoriaApp {
                 let still_analyzing = this.update(cx, |this, cx| {
                     if this.session.collect_finished() > 0 {
                         this.refresh_visible();
+                        this.refresh_mixes();
                         this.load_selected_waveform(cx);
                         cx.notify();
                     }
@@ -273,8 +294,27 @@ impl EuphoriaApp {
             return;
         }
         self.selected = Some(index);
+        self.refresh_mixes();
         self.load_selected_waveform(cx);
         cx.notify();
+    }
+
+    /// Selects the track at `index` in the library and scrolls the table to
+    /// it when it is among the rows shown.
+    pub(crate) fn select_and_reveal(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        if let Some(row) = self.visible.iter().position(|visible| *visible == index) {
+            self.table_scroll
+                .scroll_to_item(row, ScrollStrategy::Center);
+        }
+        self.select(index, cx);
+    }
+
+    /// Asks the core which tracks mix with the selected one.
+    fn refresh_mixes(&mut self) {
+        self.mixes = self
+            .selected
+            .map(|selected| suggestions(self.session.library(), selected, MIX_LIMIT))
+            .unwrap_or_default();
     }
 
     /// Moves the selection up or down the visible rows.

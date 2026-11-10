@@ -17,7 +17,7 @@ use crate::theme::{Palette, ThemeName};
 use crate::views::{CONTROL_HEIGHT, CONTROL_RADIUS, SMALL_TEXT_SIZE, secondary_button};
 
 /// Room left for the window's close, minimize and zoom buttons on macOS.
-const WINDOW_BUTTONS_WIDTH: f32 = if cfg!(target_os = "macos") { 66.0 } else { 0.0 };
+const WINDOW_BUTTONS_WIDTH: f32 = if cfg!(target_os = "macos") { 72.0 } else { 0.0 };
 
 /// Width of the app name, chosen so the search field starts where the
 /// sidebar ends.
@@ -108,6 +108,7 @@ fn search_field(app: &EuphoriaApp, palette: &Palette) -> Div {
         .child(
             div().flex_1().min_w_0().child(
                 Input::new(&app.search_input)
+                    .id("search")
                     .appearance(false)
                     .cleanable(true),
             ),

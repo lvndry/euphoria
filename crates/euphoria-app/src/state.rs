@@ -9,6 +9,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use crate::analysis::{AnalysisWorkers, FinishedFile};
+use crate::demo::DemoTrack;
 use crate::library::Library;
 use crate::progress::AnalysisProgress;
 
@@ -84,6 +85,16 @@ impl Session {
         self.progress.enqueue(queued);
         self.workers.enqueue(new_files);
         queued
+    }
+
+    /// Adds made up tracks with their invented results, without analyzing
+    /// anything.
+    pub(crate) fn add_demo_tracks(&mut self, tracks: Vec<DemoTrack>) {
+        self.library
+            .add_files(tracks.iter().map(|track| track.path.clone()).collect());
+        for track in tracks {
+            self.library.record_outcome(&track.path, track.outcome);
+        }
     }
 
     /// Moves every result the workers have finished into the library.

@@ -14,15 +14,20 @@ use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
 use crate::format;
 use crate::library::{Track, TrackStatus};
+use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
+use crate::views::key_chip::key_chip;
 use crate::views::waveform::waveform;
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 
 const INSPECTOR_WIDTH: f32 = 320.0;
 
+/// How many mixing suggestions fit in the strip under the table.
+const DECK_MIX_COUNT: usize = 4;
+
 /// The inspector for the selected track, or a hint when nothing is selected.
-pub(crate) fn render(app: &EuphoriaApp, _cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
+pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
     let theme = &app.theme;
     let palette = theme.palette;
     let is_column = theme.layout == Layout::InspectorRight;
@@ -75,14 +80,17 @@ pub(crate) fn render(app: &EuphoriaApp, _cx: &mut Context<'_, EuphoriaApp>) -> S
 
     container
         .child(sized(summary(track, &palette), Some(220.0)))
-        .child(sized(statistics(track, &palette), Some(210.0)))
+        .child(sized(statistics(track, &palette), Some(264.0)))
         .child(sized(
             waveform_section(track, app.selected_waveform(), &palette),
             None,
         ))
         .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
-        .child(sized(divided(location(track, &palette)), Some(280.0)))
+        .children(mixes(app, cx).map(|section| sized(divided(section), Some(300.0))))
+        .when(is_column, |inspector| {
+            inspector.child(divided(location(track, &palette)))
+        })
 }
 
 /// Cover placeholder, file name, folder and format.
@@ -201,6 +209,7 @@ fn statistic(
         )
         .child(
             div()
+                .whitespace_nowrap()
                 .text_size(px(20.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(value.into()),
@@ -245,6 +254,100 @@ fn waveform_section(track: &Track, state: Option<&Waveform>, palette: &Palette) 
                 .child(note),
         )
         .child(waveform(peaks, palette.waveform))
+        .children(match state {
+            Some(Waveform::Unreadable(reason)) => Some(
+                div()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_secondary)
+                    .child(reason.clone()),
+            ),
+            _ => None,
+        })
+}
+
+/// The tracks in the library that mix with the selected one.
+fn mixes(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
+    let theme = &app.theme;
+    let palette = theme.palette;
+    app.selected_track()?.key()?;
+
+    let shown_count = match theme.layout {
+        Layout::InspectorRight => app.mixes.len(),
+        Layout::DeckBelow => DECK_MIX_COUNT,
+    };
+    let rows: Vec<Stateful<Div>> = app
+        .mixes
+        .iter()
+        .take(shown_count)
+        .filter_map(|mix| {
+            let track_index = mix.track_index;
+            let track = app.session.library().track(track_index)?;
+            Some(
+                div()
+                    .id(("mix", track_index))
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap(px(10.0))
+                    .h(px(28.0))
+                    .rounded(px(4.0))
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(palette.raised))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select_and_reveal(track_index, cx);
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .w(px(38.0))
+                            .children(track.key().map(|key| key_chip(&key, theme))),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(track.file_name.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .justify_end()
+                            .w(px(46.0))
+                            .text_color(palette.text_secondary)
+                            .children(mix.tempo_difference_percent.map(format::signed_percent)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .justify_end()
+                            .w(px(62.0))
+                            .text_size(SMALL_TEXT_SIZE)
+                            .text_color(palette.text_tertiary)
+                            .child(mix.relation.label()),
+                    ),
+            )
+        })
+        .collect();
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(section_label("Mixes well with", &palette).pb(px(4.0)))
+            .when(rows.is_empty(), |section| {
+                section.child(
+                    div()
+                        .text_color(palette.text_tertiary)
+                        .child("No track in the library mixes with this one yet."),
+                )
+            })
+            .children(rows),
+    )
 }
 
 /// The Camelot wheel, in themes that show it, for a track with a key.
@@ -261,14 +364,23 @@ fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
             .gap(px(14.0))
             .child(wheel(
                 key.camelot(),
-                emphasis_for(CamelotPosition::of(&key), []),
+                emphasis_for(
+                    CamelotPosition::of(&key),
+                    compatible_keys(&key).iter().map(CamelotPosition::of),
+                ),
                 palette,
             ))
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .text_size(SMALL_TEXT_SIZE)
                     .text_color(palette.text_secondary)
-                    .child(format!("{} is {}.", key.camelot(), key)),
+                    .child(format!(
+                        "Highlighted keys mix with {}, {}.",
+                        key.camelot(),
+                        key
+                    )),
             ),
     )
 }

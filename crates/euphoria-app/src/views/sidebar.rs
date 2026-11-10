@@ -4,7 +4,7 @@
 //! The column on the left: parts of the library and the folders added.
 
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, SharedString, Stateful, div, px};
+use gpui::{AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::format;
@@ -26,7 +26,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let library = app.session.library();
     let counts = library.counts();
 
-    let folder_rows: Vec<Stateful<Div>> = library
+    let folder_rows: Vec<AnyElement> = library
         .folders()
         .iter()
         .enumerate()
@@ -118,7 +118,7 @@ fn filter_row(
     app: &EuphoriaApp,
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
-) -> Stateful<Div> {
+) -> AnyElement {
     let is_current = app.filter == filter;
     let hover_background = palette.raised;
     row(label, count, is_current, palette)
@@ -128,6 +128,8 @@ fn filter_row(
             row.hover(move |style| style.bg(hover_background.opacity(0.6)))
         })
         .on_click(cx.listener(move |this, _, _, cx| this.set_filter(filter.clone(), cx)))
+        .test_support()
+        .into_any_element()
 }
 
 fn row(
