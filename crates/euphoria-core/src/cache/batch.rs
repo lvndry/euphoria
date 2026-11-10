@@ -207,6 +207,7 @@ mod tests {
                 duration_seconds: content.len() as f32,
                 key: Some(crate::Key::new((checksum % 12) as u8, crate::Mode::Minor)),
                 bpm: Some(60.0 + (checksum % 120) as f32 + 0.37),
+                energy: Some((checksum % 10) as u8 + 1),
             })
         }
 
@@ -407,6 +408,46 @@ mod tests {
         assert_eq!(after_upgrade.cached_count, 0);
         assert_eq!(next_run.cached_count, 1);
         assert_eq!(library.analyzer.runs(), 2);
+        assert_eq!(library.cache.entry_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn an_analysis_from_another_energy_model_is_ignored_and_replaced() {
+        let mut library = Library::new();
+        let track = library.add_track("track.wav", "a track");
+        library.analyze(std::slice::from_ref(&track));
+
+        library.cache.energy_model_version += 1;
+        let after_recalibration = library.analyze(std::slice::from_ref(&track));
+        let next_run = library.analyze(std::slice::from_ref(&track));
+
+        assert_eq!(after_recalibration.cached_count, 0);
+        assert_eq!(next_run.cached_count, 1);
+        assert_eq!(library.analyzer.runs(), 2);
+        assert_eq!(library.cache.entry_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_track_stored_by_a_version_1_database_is_analyzed_again_and_replaced() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, "a track").unwrap();
+        crate::cache::test_support::create_version_1_database(&database, &track);
+        let mut library = Library {
+            cache: Cache::open(&database).unwrap(),
+            folder,
+            analyzer: CountingAnalyzer::new(),
+        };
+
+        let after_upgrade = library.analyze(std::slice::from_ref(&track));
+        let next_run = library.analyze(std::slice::from_ref(&track));
+
+        assert_eq!(after_upgrade.cached_count, 0);
+        assert_eq!(library.analyzer.runs(), 1);
+        assert!(analyses(&after_upgrade)[0].energy.is_some());
+        assert_eq!(next_run.cached_count, 1);
+        assert_eq!(analyses(&after_upgrade), analyses(&next_run));
         assert_eq!(library.cache.entry_count().unwrap(), 1);
     }
 

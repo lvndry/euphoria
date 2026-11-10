@@ -37,9 +37,16 @@
 //!
 //! # Analyzer versions
 //!
-//! Each analysis records the [`ANALYZER_VERSION`] that produced it. Analyses
-//! from any other version are never served, and are replaced when their file
-//! is analyzed again.
+//! Each analysis records the [`ANALYZER_VERSION`] that produced it and the
+//! [`ENERGY_MODEL_VERSION`] behind its energy rating. Analyses from any other
+//! version of either are never served, and are replaced when their file is
+//! analyzed again.
+//!
+//! The energy model version has a column of its own, apart from the analyzer
+//! version, because the energy scale is recalibrated on its own schedule.
+//! Raising the one constant next to the model is then enough to mark every
+//! stored rating as stale, and the database still says which model produced
+//! each number.
 
 mod batch;
 mod identity;
@@ -60,6 +67,7 @@ pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
 pub use single::{CachedAnalysis, CachedAnalyzer};
 
 use crate::analysis::{ANALYZER_VERSION, TrackAnalysis};
+use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
 use identity::FileStamp;
@@ -67,7 +75,8 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 1] = ["
+const MIGRATIONS: [&str; 2] = [
+    "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
         duration_seconds REAL    NOT NULL,
@@ -80,7 +89,12 @@ const MIGRATIONS: [&str; 1] = ["
         modified_at      INTEGER NOT NULL
     ) WITHOUT ROWID;
     CREATE UNIQUE INDEX analyses_last_known_path ON analyses (last_known_path);
-"];
+",
+    "
+    ALTER TABLE analyses ADD COLUMN energy INTEGER;
+    ALTER TABLE analyses ADD COLUMN energy_model_version INTEGER;
+",
+];
 
 const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 
@@ -103,11 +117,15 @@ enum Schema {
 /// In its `analyses` table, `key` is a key name such as "A minor",
 /// `analyzed_at` is in seconds and `modified_at` in nanoseconds since the Unix
 /// epoch, and `last_known_path` is absolute and belongs to at most one row.
+/// `energy` is a rating from 1 to 10 and `energy_model_version` the model
+/// that decided it, which is recorded for a track with no rating too. Rows
+/// stored before energy existed have neither.
 #[derive(Debug)]
 pub struct Cache {
     connection: Connection,
     path: PathBuf,
     analyzer_version: String,
+    energy_model_version: u32,
 }
 
 /// A change to the database, sent by analysis workers to the one thread that
@@ -184,6 +202,7 @@ impl Cache {
             connection,
             path: path.to_path_buf(),
             analyzer_version: ANALYZER_VERSION.to_string(),
+            energy_model_version: ENERGY_MODEL_VERSION,
         })
     }
 
@@ -209,10 +228,12 @@ impl Cache {
     fn read_snapshot(&self) -> rusqlite::Result<Snapshot> {
         let mut statement = self.connection.prepare(
             "SELECT content_hash, duration_seconds, key, bpm,
-                    last_known_path, file_size, modified_at
-             FROM analyses WHERE analyzer_version = ?1",
+                    last_known_path, file_size, modified_at, energy
+             FROM analyses
+             WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
-        let mut rows = statement.query([&self.analyzer_version])?;
+        let mut rows =
+            statement.query(params![self.analyzer_version, self.energy_model_version])?;
         let mut snapshot = Snapshot::default();
         while let Some(row) = rows.next()? {
             let content_hash = ContentHash::from_bytes(row.get(0)?);
@@ -222,6 +243,7 @@ impl Cache {
                     duration_seconds: row.get(1)?,
                     key: key_in_column(row, 2)?,
                     bpm: row.get(3)?,
+                    energy: energy_in_column(row, 7)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -273,8 +295,9 @@ impl Cache {
             CacheWrite::Store { analysis, .. } => transaction.execute(
                 "INSERT OR REPLACE INTO analyses (
                      content_hash, duration_seconds, key, bpm, analyzer_version,
-                     analyzed_at, last_known_path, file_size, modified_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     analyzed_at, last_known_path, file_size, modified_at,
+                     energy, energy_model_version
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -285,6 +308,8 @@ impl Cache {
                     last_known_path,
                     location.stamp.size,
                     location.stamp.modified_nanoseconds,
+                    analysis.energy,
+                    self.energy_model_version,
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -423,6 +448,23 @@ fn key_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<Key>> 
         })
 }
 
+fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
+    let Some(stored) = row.get::<_, Option<i64>>(column)? else {
+        return Ok(None);
+    };
+    u8::try_from(stored)
+        .ok()
+        .filter(|rating| (1..=10).contains(rating))
+        .map(Some)
+        .ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                column,
+                Type::Integer,
+                format!("energy rating {stored} is not between 1 and 10").into(),
+            )
+        })
+}
+
 fn seconds_since_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -467,6 +509,33 @@ pub(crate) mod test_support {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
+
+    /// The analyzer version that schema version 1 databases were filled by.
+    pub(crate) const VERSION_1_ANALYZER: &str = "1+libkeyfinder";
+
+    /// Creates a database as the first release of the cache left it: schema
+    /// version 1, with one analysis of `track` stored at its current path.
+    pub(crate) fn create_version_1_database(database: &Path, track: &Path) {
+        use super::identity::FileStamp;
+        use super::{ContentHash, MIGRATIONS};
+
+        let stamp = FileStamp::of(track).unwrap();
+        let connection = rusqlite::Connection::open(database).unwrap();
+        connection.execute_batch(MIGRATIONS[0]).unwrap();
+        connection.pragma_update(None, "user_version", 1).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, ?3, ?4, ?5)",
+                rusqlite::params![
+                    ContentHash::of_file(track).unwrap().as_bytes(),
+                    VERSION_1_ANALYZER,
+                    track.to_str().unwrap(),
+                    stamp.size,
+                    stamp.modified_nanoseconds,
+                ],
+            )
+            .unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -504,6 +573,7 @@ mod tests {
             duration_seconds: 301.25,
             key: Some("F# minor".parse().unwrap()),
             bpm: Some(127.98),
+            energy: Some(7),
         };
 
         let mut cache = Cache::open(&database).unwrap();
@@ -553,14 +623,128 @@ mod tests {
         cache
             .connection
             .execute(
-                "INSERT INTO analyses VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1)",
-                params![[7u8; 32], ANALYZER_VERSION],
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3)",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
 
         let description = cache.snapshot().unwrap_err().chain();
 
         assert!(description.contains("H dorian"), "{description}");
+    }
+
+    #[test]
+    fn an_energy_rating_outside_the_scale_is_an_error_and_not_a_panic() {
+        let folder = TemporaryFolder::new();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .connection
+            .execute(
+                "INSERT INTO analyses VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3)",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+
+        let description = cache.snapshot().unwrap_err().chain();
+
+        assert!(description.contains("energy rating 11"), "{description}");
+    }
+
+    #[test]
+    fn a_track_with_no_energy_rating_keeps_none_and_records_the_model() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("silence.wav");
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        store_track(&mut cache, &track, "silence");
+
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot
+            .of_content(&ContentHash::of_file(&track).unwrap())
+            .unwrap();
+        assert_eq!(stored.energy, None);
+        let recorded_model: u32 = cache
+            .connection
+            .query_row("SELECT energy_model_version FROM analyses", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(recorded_model, ENERGY_MODEL_VERSION);
+    }
+
+    #[test]
+    fn a_version_1_database_upgrades_in_place_and_keeps_its_rows() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, b"audio").unwrap();
+        test_support::create_version_1_database(&database, &track);
+
+        let cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), 2);
+        assert_eq!(cache.entry_count().unwrap(), 1);
+        let (key, bpm, energy, energy_model_version): (String, f64, Option<u8>, Option<u32>) =
+            cache
+                .connection
+                .query_row(
+                    "SELECT key, bpm, energy, energy_model_version FROM analyses",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap();
+        assert_eq!(key, "A minor");
+        assert_eq!(bpm, 124.0);
+        assert_eq!(energy, None);
+        assert_eq!(energy_model_version, None);
+    }
+
+    #[test]
+    fn rows_from_a_version_1_database_are_not_served() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, b"audio").unwrap();
+        test_support::create_version_1_database(&database, &track);
+
+        let mut cache = Cache::open(&database).unwrap();
+        assert!(cache.snapshot().unwrap().analyses.is_empty());
+
+        // Even an analyzer that kept the old version name does not get rows
+        // that have no energy model recorded.
+        cache.analyzer_version = test_support::VERSION_1_ANALYZER.to_string();
+        assert!(cache.snapshot().unwrap().analyses.is_empty());
+    }
+
+    #[test]
+    fn a_version_1_database_opened_from_many_threads_at_once_upgrades_for_all() {
+        for _ in 0..10 {
+            let folder = TemporaryFolder::new();
+            let database = folder.path().join("cache.sqlite3");
+            let track = folder.path().join("track.wav");
+            std::fs::write(&track, b"audio").unwrap();
+            test_support::create_version_1_database(&database, &track);
+            let start = std::sync::Barrier::new(8);
+
+            let outcomes: Vec<Result<u64, EuphoriaError>> = std::thread::scope(|scope| {
+                let openers: Vec<_> = (0..8)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            start.wait();
+                            Cache::open(&database)?.entry_count()
+                        })
+                    })
+                    .collect();
+                openers
+                    .into_iter()
+                    .map(|opener| opener.join().unwrap())
+                    .collect()
+            });
+
+            for outcome in outcomes {
+                assert_eq!(outcome.map_err(|error| error.chain()), Ok(1));
+            }
+        }
     }
 
     #[test]
@@ -615,6 +799,7 @@ mod tests {
                     duration_seconds: 1.0,
                     key: None,
                     bpm: None,
+                    energy: None,
                 },
                 location: FileLocation {
                     absolute_path: track.to_path_buf(),

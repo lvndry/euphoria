@@ -5,9 +5,9 @@
 
 # Euphoria
 
-Find the key and BPM of every track in your music collection, so you can mix in key. Free, open source, and fully offline.
+Find the key, BPM and energy of every track in your music collection, so you can mix in key. Free, open source, and fully offline.
 
-Euphoria reads your music, finds the key and tempo of every track, and will write the results where your DJ software can see them. It is an open alternative to paid harmonic mixing tools such as Mixed In Key: no account, no activation, and nothing leaves your computer.
+Euphoria reads your music, finds the key and tempo of every track, rates its energy, and will write the results where your DJ software can see them. It is an open alternative to paid harmonic mixing tools such as Mixed In Key: no account, no activation, and nothing leaves your computer.
 
 ## Features
 
@@ -15,11 +15,12 @@ Available now:
 
 - Key detection, shown in Camelot (8A) and musical (A minor) notation
 - Tempo detection in BPM
+- Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
 - `euphoria analyze`, a command line tool with table and JSON output
 - MP3, M4A (AAC), FLAC, WAV and AIFF
 - An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
 
-In development: energy ratings, and tag writing for rekordbox, Serato, Traktor and Engine DJ.
+In development: tag writing for rekordbox, Serato, Traktor and Engine DJ.
 
 ## Install
 
@@ -29,9 +30,9 @@ Homebrew packages are coming. Until then, see [installation](docs/getting-starte
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key             BPM  Time  File
-8A   A minor  124.0  6:48  /Users/you/Music/DJ/Low Tide.flac
-9A   E minor  122.0  7:12  /Users/you/Music/DJ/Saffron.m4a
+Key             BPM  Energy  Time  File
+8A   A minor  124.0       6  6:48  /Users/you/Music/DJ/Low Tide.flac
+9A   E minor  122.0       4  7:12  /Users/you/Music/DJ/Saffron.m4a
 ```
 
 ## Documentation

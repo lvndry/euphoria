@@ -9,7 +9,7 @@ Euphoria is a Cargo workspace. All product logic lives in one library crate, and
 
 ```
 crates/
-  euphoria-core/    the library: decoding, detection, library scanning, the analysis cache
+  euphoria-core/    the library: decoding, detection, energy, library scanning, the analysis cache
   euphoria-cli/     the `euphoria` command line tool
   euphoria-app/     the desktop app
   euphoria-bench/   accuracy benchmark, not shipped to users
@@ -33,6 +33,7 @@ bench/              dataset download script, Essentia reference script, results
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
+| `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `export` | Writes analysis results for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
