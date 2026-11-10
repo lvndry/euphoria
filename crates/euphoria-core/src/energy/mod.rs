@@ -26,17 +26,14 @@ pub const ENERGY_CURVE_WINDOW_SECONDS: f32 = 8.0;
 /// Time from the start of one window of the energy curve to the next.
 pub const ENERGY_CURVE_HOP_SECONDS: f32 = 4.0;
 
-/// The lowest sample rate the energy functions accept, in samples per second.
-pub const ENERGY_MINIMUM_SAMPLE_RATE: u32 = 8_000;
-/// The highest sample rate the energy functions accept, in samples per
-/// second.
-///
-/// Audio files run from 8 kHz (telephone quality) to 384 kHz (the highest
-/// rate in use for high resolution audio). The working memory of the
-/// analysis grows with the sample rate, so a rate outside this range, which
-/// only a damaged file or a mistaken caller produces, is refused with
-/// [`EuphoriaError::UnsupportedSampleRate`] before anything is allocated.
-pub const ENERGY_MAXIMUM_SAMPLE_RATE: u32 = 384_000;
+/// The lowest sample rate the energy functions accept, the same as the
+/// decoder's.
+pub const ENERGY_MINIMUM_SAMPLE_RATE: u32 = crate::audio::MINIMUM_SAMPLE_RATE;
+/// The highest sample rate the energy functions accept, the same as the
+/// decoder's. A buffer built by a caller with a rate outside the range is
+/// refused with [`EuphoriaError::UnsupportedSampleRate`] before anything is
+/// allocated.
+pub const ENERGY_MAXIMUM_SAMPLE_RATE: u32 = crate::audio::MAXIMUM_SAMPLE_RATE;
 
 /// Audio shorter than this has no features and no rating.
 const MINIMUM_ANALYSIS_SECONDS: f32 = 1.0;
