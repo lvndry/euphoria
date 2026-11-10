@@ -17,13 +17,13 @@ use rayon::prelude::*;
 use crate::dataset::Track;
 use crate::scoring::{KeyTally, TempoTally};
 
-/// Results for both benchmarks.
+/// Results for the benchmarks that were run.
 #[derive(Debug)]
 pub struct Report {
-    /// Key detection on GiantSteps Key.
-    pub key: Evaluation<KeyTally>,
-    /// Tempo detection on GiantSteps Tempo.
-    pub tempo: Evaluation<TempoTally>,
+    /// Key detection on GiantSteps Key, when it was run.
+    pub key: Option<Evaluation<KeyTally>>,
+    /// Tempo detection on GiantSteps Tempo, when it was run.
+    pub tempo: Option<Evaluation<TempoTally>>,
 }
 
 /// Results of running a set of detectors over one dataset.

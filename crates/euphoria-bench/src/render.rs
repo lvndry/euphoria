@@ -63,8 +63,13 @@ struct MarkdownReport<'report>(&'report Report);
 
 impl Display for MarkdownReport<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        write_key_section(formatter, &self.0.key)?;
-        write_tempo_section(formatter, &self.0.tempo)
+        if let Some(key) = &self.0.key {
+            write_key_section(formatter, key)?;
+        }
+        if let Some(tempo) = &self.0.tempo {
+            write_tempo_section(formatter, tempo)?;
+        }
+        Ok(())
     }
 }
 
@@ -234,7 +239,7 @@ mod tests {
         tempo_tally.record(120.0, 60.0);
 
         Report {
-            key: Evaluation {
+            key: Some(Evaluation {
                 track_count: 3,
                 decode_failures: vec![failure("broken", "cannot decode broken.mp3: read error")],
                 detectors: vec![detector(
@@ -243,12 +248,12 @@ mod tests {
                     2,
                     vec![failure("quiet", "libkeyfinder failed: no chroma")],
                 )],
-            },
-            tempo: Evaluation {
+            }),
+            tempo: Some(Evaluation {
                 track_count: 2,
                 decode_failures: Vec::new(),
                 detectors: vec![detector("stratum-dsp", tempo_tally, 2, Vec::new())],
-            },
+            }),
         }
     }
 
@@ -283,6 +288,19 @@ Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also 
 
 ";
         assert_eq!(render_report(&sample_report()), expected);
+    }
+
+    #[test]
+    fn renders_only_the_benchmarks_that_were_run() {
+        let report = Report {
+            key: None,
+            ..sample_report()
+        };
+
+        let rendered = render_report(&report);
+
+        assert!(rendered.starts_with("## Tempo detection, GiantSteps Tempo\n"));
+        assert!(!rendered.contains("Key detection"));
     }
 
     #[test]

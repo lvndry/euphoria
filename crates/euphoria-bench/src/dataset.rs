@@ -22,7 +22,9 @@ pub struct Track<Annotation> {
 
 /// Loads the GiantSteps Key dataset, rooted at `dataset_directory`.
 pub fn load_key_tracks(dataset_directory: &Path) -> Result<Vec<Track<Key>>> {
-    let tracks = load_tracks(dataset_directory, "annotations/key", parse_key_annotation)?;
+    let tracks = load_tracks(dataset_directory, "annotations/key", |text| {
+        parse_key_annotation(text).map(Some)
+    })?;
     if tracks.is_empty() {
         bail!("no key dataset audio found, run bench/download_datasets.sh first");
     }
@@ -30,7 +32,8 @@ pub fn load_key_tracks(dataset_directory: &Path) -> Result<Vec<Track<Key>>> {
 }
 
 /// Loads the GiantSteps Tempo dataset, rooted at `dataset_directory`, using
-/// the version 2 annotations.
+/// the version 2 annotations. Tracks annotated as having no tempo are left
+/// out.
 pub fn load_tempo_tracks(dataset_directory: &Path) -> Result<Vec<Track<f32>>> {
     let tracks = load_tracks(
         dataset_directory,
@@ -44,11 +47,12 @@ pub fn load_tempo_tracks(dataset_directory: &Path) -> Result<Vec<Track<f32>>> {
 }
 
 /// Pairs each annotation file with `audio/<name>.mp3`, skipping annotations
-/// whose audio is absent, and returns the tracks sorted by name.
+/// whose audio is absent or that `parse` reads as no reference value, and
+/// returns the tracks sorted by name.
 fn load_tracks<Annotation>(
     dataset_directory: &Path,
     annotation_subdirectory: &str,
-    parse: impl Fn(&str) -> Result<Annotation>,
+    parse: impl Fn(&str) -> Result<Option<Annotation>>,
 ) -> Result<Vec<Track<Annotation>>> {
     let annotation_directory = dataset_directory.join(annotation_subdirectory);
     let mut tracks = Vec::new();
@@ -67,8 +71,11 @@ fn load_tracks<Annotation>(
         }
         let text = fs::read_to_string(&annotation_path)
             .with_context(|| format!("reading {}", annotation_path.display()))?;
-        let annotation = parse(&text)
-            .with_context(|| format!("bad annotation in {}", annotation_path.display()))?;
+        let Some(annotation) = parse(&text)
+            .with_context(|| format!("bad annotation in {}", annotation_path.display()))?
+        else {
+            continue;
+        };
         tracks.push(Track {
             name: name.to_string(),
             audio_path,
@@ -85,8 +92,9 @@ pub fn parse_key_annotation(text: &str) -> Result<Key> {
 }
 
 /// Parses a tempo annotation. The first column is the tempo in beats per
-/// minute; any further columns are ignored.
-pub fn parse_tempo_annotation(text: &str) -> Result<f32> {
+/// minute; any further columns are ignored. A tempo of zero marks a track
+/// the annotators gave no tempo, and parses as `None`.
+pub fn parse_tempo_annotation(text: &str) -> Result<Option<f32>> {
     let Some(first_column) = text.split_whitespace().next() else {
         bail!("tempo annotation is empty");
     };
@@ -94,10 +102,10 @@ pub fn parse_tempo_annotation(text: &str) -> Result<f32> {
         .parse()
         .with_context(|| format!("tempo {first_column:?} is not a number"))?;
     ensure!(
-        tempo.is_finite() && tempo > 0.0,
-        "tempo {first_column:?} is not a positive number"
+        tempo.is_finite() && tempo >= 0.0,
+        "tempo {first_column:?} is not zero or a positive number"
     );
-    Ok(tempo)
+    Ok((tempo > 0.0).then_some(tempo))
 }
 
 #[cfg(test)]
@@ -121,13 +129,22 @@ mod tests {
 
     #[test]
     fn tempo_reads_the_first_column_and_ignores_the_rest() {
-        assert_eq!(parse_tempo_annotation("128.5\t1.0\n").unwrap(), 128.5);
-        assert_eq!(parse_tempo_annotation("  90 0.7 extra").unwrap(), 90.0);
+        assert_eq!(parse_tempo_annotation("128.5\t1.0\n").unwrap(), Some(128.5));
+        assert_eq!(
+            parse_tempo_annotation("  90 0.7 extra").unwrap(),
+            Some(90.0)
+        );
+    }
+
+    #[test]
+    fn a_tempo_of_zero_is_no_reference() {
+        assert_eq!(parse_tempo_annotation("0.0").unwrap(), None);
+        assert_eq!(parse_tempo_annotation("0\n").unwrap(), None);
     }
 
     #[test]
     fn rejects_bad_tempo_text() {
-        for text in ["", "  \n", "fast 1.0", "0", "-120", "NaN"] {
+        for text in ["", "  \n", "fast 1.0", "-120", "NaN"] {
             assert!(
                 parse_tempo_annotation(text).is_err(),
                 "{text:?} should not parse"
