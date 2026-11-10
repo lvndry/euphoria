@@ -142,9 +142,9 @@ pub enum EuphoriaError {
         /// What went wrong, usually the database library's own error.
         source: ErrorSource,
     },
-    /// The audio has a sample rate that energy analysis does not support.
+    /// The audio has a sample rate outside the range Euphoria analyzes.
     #[error(
-        "cannot rate the energy of audio at {sample_rate} Hz: sample rates from {minimum} to {maximum} Hz are supported"
+        "audio at {sample_rate} Hz is not supported: sample rates from {minimum} to {maximum} Hz are"
     )]
     UnsupportedSampleRate {
         /// The sample rate of the audio, in samples per second.

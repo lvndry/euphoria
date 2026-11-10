@@ -29,7 +29,7 @@ pub mod library;
 pub use analysis::{
     ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
 };
-pub use audio::{AudioBuffer, decode_mono};
+pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
 pub use cache::{
     Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
     clear_cache, default_cache_path,
