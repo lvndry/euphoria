@@ -26,6 +26,10 @@
 //!   tags were edited is analyzed once more.
 //! - The quick check trusts the file system. A file rewritten in place with
 //!   the same size and the same modification time keeps its old analysis.
+//! - The file is read once for the hash and once more for the analysis. An
+//!   analysis is stored only when the size and modification time are the same
+//!   after it as before the hash, so a file that changed in between is left
+//!   for the next run.
 //! - One analysis remembers one path. Byte for byte copies of a track share
 //!   an analysis, and all but one of them are hashed again on every run.
 //! - A path that is not valid Unicode is not recorded, so such a file is
@@ -44,10 +48,10 @@ mod location;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::types::Type;
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, ErrorCode, Row, TransactionBehavior, params};
 
 pub use batch::{CachePolicy, CachedBatch, analyze_files_cached};
 pub use identity::ContentHash;
@@ -77,6 +81,20 @@ const MIGRATIONS: [&str; 1] = ["
 "];
 
 const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
+
+/// How long to wait for another process that holds the database, such as a
+/// second `analyze` started at the same moment, before giving up.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
+const BUSY_RETRY_PAUSE: Duration = Duration::from_millis(20);
+
+/// What preparing a database found.
+enum Schema {
+    Ready,
+    /// The database has this schema version, which is newer than
+    /// [`SCHEMA_VERSION`].
+    Newer(u32),
+}
 
 /// The analysis cache: an open SQLite database.
 ///
@@ -140,7 +158,8 @@ impl Snapshot {
 
 impl Cache {
     /// Opens the database at `path`, creating it and its folder when missing
-    /// and bringing an older schema up to date.
+    /// and bringing an older schema up to date. Several processes may open
+    /// the same new database at once: each waits for the others.
     ///
     /// Fails with [`EuphoriaError::Cache`] naming the file when it cannot be
     /// created, is not a SQLite database, or was written by a newer Euphoria.
@@ -150,10 +169,15 @@ impl Cache {
         }
         let mut connection = Connection::open(path).map_err(cache_error(path))?;
         connection
-            .pragma_update(None, "journal_mode", "WAL")
-            .and_then(|()| connection.pragma_update(None, "synchronous", "NORMAL"))
+            .busy_timeout(BUSY_TIMEOUT)
             .map_err(cache_error(path))?;
-        migrate(&mut connection, path)?;
+        let schema = retry_while_busy(|| prepare(&mut connection)).map_err(cache_error(path))?;
+        if let Schema::Newer(found) = schema {
+            return Err(cache_error(path)(format!(
+                "the cache has schema version {found} and this version of Euphoria reads up to \
+                 {SCHEMA_VERSION}; update Euphoria or clear the cache"
+            )));
+        }
         Ok(Self {
             connection,
             path: path.to_path_buf(),
@@ -233,7 +257,9 @@ impl Cache {
             } => (content_hash, location),
         };
         let last_known_path = location.absolute_path.to_str();
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(last_known_path) = last_known_path {
             transaction.execute(
                 "UPDATE analyses SET last_known_path = NULL
@@ -273,21 +299,75 @@ impl Cache {
         };
         transaction.commit()
     }
+
+    fn remove_every_analysis(&mut self) -> rusqlite::Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute("DELETE FROM analyses", [])?;
+        transaction.commit()
+    }
 }
 
-/// Deletes the database at `path` so the next run starts empty. Returns
-/// whether there was a database to delete.
+/// Forgets every analysis in the database at `path`. Returns whether there
+/// was a database to clear.
 ///
-/// The file is removed, not emptied, so this also recovers from a database
-/// that can no longer be opened.
+/// A database that opens is emptied in one transaction and its file is kept,
+/// so an analysis running at the same time goes on writing to the same
+/// database: what it stores after the clear is kept. A database that cannot
+/// be opened, such as a damaged file or one written by a newer Euphoria, is
+/// deleted instead, which is what makes clearing a way to recover from it.
+/// A database that is only busy is left alone and reported as an error.
 pub fn clear_cache(path: &Path) -> Result<bool, EuphoriaError> {
-    let database_existed = remove_if_present(path).map_err(cache_error(path))?;
-    for suffix in ["-wal", "-shm"] {
-        let mut companion = path.as_os_str().to_owned();
-        companion.push(suffix);
-        remove_if_present(Path::new(&companion)).map_err(cache_error(path))?;
+    if !path.try_exists().map_err(cache_error(path))? {
+        return Ok(false);
     }
-    Ok(database_existed)
+    match Cache::open(path) {
+        Ok(mut cache) => cache.remove_every_analysis().map_err(cache_error(path))?,
+        Err(error) if is_busy_failure(&error) => return Err(error),
+        Err(_) => {
+            remove_if_present(path).map_err(cache_error(path))?;
+            for suffix in ["-wal", "-shm"] {
+                let mut companion = path.as_os_str().to_owned();
+                companion.push(suffix);
+                remove_if_present(Path::new(&companion)).map_err(cache_error(path))?;
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn is_busy_failure(error: &EuphoriaError) -> bool {
+    match error {
+        EuphoriaError::Cache { source, .. } => source
+            .downcast_ref::<rusqlite::Error>()
+            .is_some_and(is_busy),
+        _ => false,
+    }
+}
+
+fn is_busy(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
+}
+
+/// Runs `operation` again while it reports that another connection holds the
+/// database. SQLite's own busy timeout does not cover every case: switching
+/// the journal mode, for one, can fail at once.
+fn retry_while_busy<Value>(
+    mut operation: impl FnMut() -> rusqlite::Result<Value>,
+) -> rusqlite::Result<Value> {
+    let deadline = Instant::now() + BUSY_TIMEOUT;
+    loop {
+        match operation() {
+            Err(error) if is_busy(&error) && Instant::now() < deadline => {
+                std::thread::sleep(BUSY_RETRY_PAUSE);
+            }
+            outcome => return outcome,
+        }
+    }
 }
 
 fn remove_if_present(path: &Path) -> std::io::Result<bool> {
@@ -298,25 +378,38 @@ fn remove_if_present(path: &Path) -> std::io::Result<bool> {
     }
 }
 
-fn migrate(connection: &mut Connection, path: &Path) -> Result<(), EuphoriaError> {
-    let applied: u32 = connection
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(cache_error(path))?;
+/// Switches the database to write ahead logging and applies the migrations
+/// it lacks.
+///
+/// The schema version is read again inside an immediate transaction, which
+/// holds the write lock, so of several processes that find a new database
+/// only one creates the schema and the others see it done.
+fn prepare(connection: &mut Connection) -> rusqlite::Result<Schema> {
+    let journal_mode: String =
+        connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+    if !journal_mode.eq_ignore_ascii_case("wal") {
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+    }
+    connection.pragma_update(None, "synchronous", "NORMAL")?;
+    if schema_version(connection)? == SCHEMA_VERSION {
+        return Ok(Schema::Ready);
+    }
+
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let applied = schema_version(&transaction)?;
     if applied > SCHEMA_VERSION {
-        return Err(cache_error(path)(format!(
-            "the cache has schema version {applied} and this version of Euphoria reads up to \
-             {SCHEMA_VERSION}; update Euphoria or clear the cache"
-        )));
+        return Ok(Schema::Newer(applied));
     }
-    for (version, migration) in (1..=SCHEMA_VERSION).zip(MIGRATIONS).skip(applied as usize) {
-        let transaction = connection.transaction().map_err(cache_error(path))?;
-        transaction
-            .execute_batch(migration)
-            .and_then(|()| transaction.pragma_update(None, "user_version", version))
-            .and_then(|()| transaction.commit())
-            .map_err(cache_error(path))?;
+    for migration in MIGRATIONS.iter().skip(applied as usize) {
+        transaction.execute_batch(migration)?;
     }
-    Ok(())
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    transaction.commit()?;
+    Ok(Schema::Ready)
+}
+
+fn schema_version(connection: &Connection) -> rusqlite::Result<u32> {
+    connection.pragma_query_value(None, "user_version", |row| row.get(0))
 }
 
 fn key_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<Key>> {
@@ -484,13 +577,92 @@ mod tests {
     }
 
     #[test]
-    fn clearing_deletes_the_database_and_reports_whether_one_existed() {
+    fn a_new_database_opened_from_many_threads_at_once_opens_for_all() {
+        for _ in 0..20 {
+            let folder = TemporaryFolder::new();
+            let database = folder.path().join("cache.sqlite3");
+            let start = std::sync::Barrier::new(8);
+
+            let outcomes: Vec<Result<u64, EuphoriaError>> = std::thread::scope(|scope| {
+                let openers: Vec<_> = (0..8)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            start.wait();
+                            Cache::open(&database)?.entry_count()
+                        })
+                    })
+                    .collect();
+                openers
+                    .into_iter()
+                    .map(|opener| opener.join().unwrap())
+                    .collect()
+            });
+
+            for outcome in outcomes {
+                assert_eq!(outcome.map_err(|error| error.chain()), Ok(0));
+            }
+        }
+    }
+
+    fn store_track(cache: &mut Cache, track: &Path, content: &str) {
+        std::fs::write(track, content).unwrap();
+        cache
+            .apply_write(&CacheWrite::Store {
+                content_hash: ContentHash::of_file(track).unwrap(),
+                analysis: TrackAnalysis {
+                    duration_seconds: 1.0,
+                    key: None,
+                    bpm: None,
+                },
+                location: FileLocation {
+                    absolute_path: track.to_path_buf(),
+                    stamp: FileStamp::of(track).unwrap(),
+                },
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn clearing_empties_a_database_that_another_connection_keeps_writing_to() {
         let folder = TemporaryFolder::new();
         let database = folder.path().join("cache.sqlite3");
-        drop(Cache::open(&database).unwrap());
+        let mut running_analysis = Cache::open(&database).unwrap();
+        store_track(
+            &mut running_analysis,
+            &folder.path().join("before.wav"),
+            "before",
+        );
+
+        assert!(clear_cache(&database).unwrap());
+        assert!(database.is_file());
+        assert_eq!(running_analysis.entry_count().unwrap(), 0);
+
+        store_track(
+            &mut running_analysis,
+            &folder.path().join("after.wav"),
+            "after",
+        );
+        drop(running_analysis);
+        assert_eq!(Cache::open(&database).unwrap().entry_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn clearing_deletes_a_database_that_cannot_be_opened() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        std::fs::write(&database, "this is not a database, ".repeat(400)).unwrap();
 
         assert!(clear_cache(&database).unwrap());
         assert!(!database.exists());
+        assert_eq!(Cache::open(&database).unwrap().entry_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn clearing_where_there_is_no_database_creates_none() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+
         assert!(!clear_cache(&database).unwrap());
+        assert!(!database.exists());
     }
 }

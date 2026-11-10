@@ -7,21 +7,30 @@ use std::path::PathBuf;
 use crate::error::EuphoriaError;
 
 /// Environment variable naming the folder that holds Euphoria's data. When
-/// set and not empty it replaces the platform's data folder.
+/// set and not empty it replaces the platform's data folder. A relative
+/// value is taken from the current directory.
 pub const DATA_DIRECTORY_VARIABLE: &str = "EUPHORIA_DATA_DIR";
 
 const DATABASE_FILE_NAME: &str = "analysis-cache.sqlite3";
 
 /// Where the analysis cache lives unless the caller chooses another file.
 ///
-/// The folder is the value of `EUPHORIA_DATA_DIR` when set. Otherwise it is
+/// The result is always absolute. The folder is the value of
+/// `EUPHORIA_DATA_DIR` when set, made absolute against the current directory
+/// at the time of the call. Otherwise it is
 /// `~/Library/Application Support/euphoria` on macOS, `%APPDATA%\euphoria` on
 /// Windows, and elsewhere `$XDG_DATA_HOME/euphoria`, or
 /// `~/.local/share/euphoria` when `XDG_DATA_HOME` is unset or not absolute.
 pub fn default_cache_path() -> Result<PathBuf, EuphoriaError> {
-    data_directory(|name| std::env::var_os(name))
-        .map(|directory| directory.join(DATABASE_FILE_NAME))
-        .ok_or(EuphoriaError::NoDataDirectory)
+    let directory =
+        data_directory(|name| std::env::var_os(name)).ok_or(EuphoriaError::NoDataDirectory)?;
+    match std::path::absolute(&directory) {
+        Ok(absolute_directory) => Ok(absolute_directory.join(DATABASE_FILE_NAME)),
+        Err(source) => Err(EuphoriaError::Scan {
+            path: directory,
+            source,
+        }),
+    }
 }
 
 fn data_directory(variable: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {

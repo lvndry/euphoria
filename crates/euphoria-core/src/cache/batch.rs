@@ -43,7 +43,9 @@ enum Origin {
 /// the cache already knows and stores each new analysis as it completes.
 ///
 /// A file that fails is reported in its result and is not stored, so it is
-/// tried again on the next run. Lookups use the analyses stored when the
+/// tried again on the next run. Nor is the analysis of a file that changed
+/// while it was being analyzed, since it may not belong to the content that
+/// was hashed. Lookups use the analyses stored when the
 /// batch starts, so two identical files met for the first time in one batch
 /// are both analyzed.
 ///
@@ -146,6 +148,10 @@ fn cached_or_analyzed(
         ),
         None => {
             let analysis = analyze(path)?;
+            let stamp_after_analysis = FileStamp::of(path).ok();
+            if stamp_after_analysis != Some(location.stamp) {
+                return Ok((analysis, Origin::Analyzer));
+            }
             let write = CacheWrite::Store {
                 content_hash,
                 analysis: analysis.clone(),
@@ -328,6 +334,42 @@ mod tests {
 
         assert_eq!(second_run.cached_count, 1);
         assert_eq!(library.analyzer.runs(), 1);
+        let snapshot = library.cache.snapshot().unwrap();
+        let (recorded_stamp, _) = snapshot.locations[&track];
+        assert_eq!(recorded_stamp, FileStamp::of(&track).unwrap());
+    }
+
+    #[test]
+    fn a_file_that_changes_during_its_analysis_is_not_stored() {
+        let mut library = Library::new();
+        let track = library.add_track("track.wav", "version one");
+        let tracks = std::slice::from_ref(&track);
+
+        let interrupted_run = analyze_files_cached_with(
+            &mut library.cache,
+            tracks,
+            CachePolicy::UseCached,
+            |path| {
+                let analysis = library.analyzer.analyze(path);
+                std::fs::write(path, "version two").unwrap();
+                set_modified_later(path);
+                analysis
+            },
+            |_| {},
+        )
+        .unwrap();
+
+        assert!(interrupted_run.results[0].outcome.is_ok());
+        assert!(interrupted_run.store_error.is_none());
+        assert_eq!(library.cache.entry_count().unwrap(), 0);
+
+        let next_run = library.analyze(tracks);
+        let last_run = library.analyze(tracks);
+
+        assert_eq!(next_run.cached_count, 0);
+        assert_eq!(last_run.cached_count, 1);
+        assert_eq!(library.analyzer.runs(), 2);
+        assert_ne!(analyses(&interrupted_run), analyses(&next_run));
     }
 
     #[test]
