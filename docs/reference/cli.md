@@ -15,6 +15,8 @@ euphoria analyze [OPTIONS] <PATHS>...
 
 Each path is a file or a folder. Folders are searched recursively for [supported audio files](supported-formats.md). Hidden files and folders are skipped, including the `._` copies macOS leaves on external drives. A file named directly is always analyzed, so an unsupported file is reported as a failure instead of being ignored.
 
+A symbolic link to an audio file is analyzed. A symbolic link to a folder is not entered, so a scan stays inside the folders you named; to include a linked folder, name it on the command line.
+
 ```
 $ euphoria analyze ~/Music/DJ
 Key             BPM  Time  File
