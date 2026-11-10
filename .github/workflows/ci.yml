@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_BACKTRACE: 1
+  # Debug info bloats the cache without helping CI.
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: taplo-cli
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Check TOML formatting
+        run: taplo fmt --check --diff
+
+  dependencies:
+    name: Dependency advisories and licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  lint:
+    name: Lint
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install system libraries on macOS
+        if: runner.os == 'macOS'
+        run: brew install libkeyfinder
+      - name: Install system libraries on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libfftw3-dev pkg-config
+          ./.github/scripts/install-libkeyfinder.sh
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Clippy without libkeyfinder
+        run: cargo clippy -p euphoria-core --no-default-features --all-targets --locked -- -D warnings
+
+  test:
+    name: Tests on ${{ matrix.system.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        system:
+          - { name: macOS, runner: macos-latest }
+          - { name: Linux, runner: ubuntu-latest }
+    runs-on: ${{ matrix.system.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install system libraries on macOS
+        if: runner.os == 'macOS'
+        run: brew install libkeyfinder
+      - name: Install system libraries on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libfftw3-dev pkg-config
+          ./.github/scripts/install-libkeyfinder.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Unit tests
+        run: cargo test --workspace --lib --bins --locked
+      - name: Audio decoding and detector integration tests
+        run: cargo test --workspace --test '*' --locked
+      - name: Core tests without libkeyfinder
+        run: cargo test -p euphoria-core --no-default-features --locked

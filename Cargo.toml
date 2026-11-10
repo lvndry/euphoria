@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = ["crates/euphoria-core", "crates/euphoria-bench"]
+
+[workspace.package]
+authors = ["The Euphoria contributors"]
+homepage = "https://github.com/lvndry/euphoria"
+repository = "https://github.com/lvndry/euphoria"
+categories = ["multimedia::audio"]
+keywords = ["dj", "music", "key-detection", "bpm", "camelot"]
+license = "GPL-3.0-or-later"
+edition = "2024"
+rust-version = "1.88"
+
+[workspace.dependencies]
+euphoria-core = { version = "0.1.0", path = "crates/euphoria-core" }
+anyhow = "1.0.100"
+rayon = "1.11.0"
+stratum-dsp = "1.0.0"
+symphonia = { version = "0.6.1", default-features = false }
+thiserror = "2.0.21"
+cc = "1.11.1"
+pkg-config = "0.3.34"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+unwrap_used = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
