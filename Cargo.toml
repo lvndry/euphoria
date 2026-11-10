@@ -16,6 +16,7 @@ rust-version = "1.88"
 euphoria-core = { version = "0.1.0", path = "crates/euphoria-core" }
 anyhow = "1.0.100"
 rayon = "1.11.0"
+roxmltree = "0.21.2"
 stratum-dsp = "1.0.0"
 symphonia = { version = "0.6.1", default-features = false }
 thiserror = "2.0.21"

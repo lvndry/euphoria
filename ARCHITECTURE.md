@@ -24,6 +24,7 @@ A command line tool (`euphoria-cli`) and a desktop app (`euphoria-app`) will joi
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
 | `key` | The `Key` type, Camelot codes and parsing of key names. |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
+| `export` | Writes analysis results for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
 ### Detectors
