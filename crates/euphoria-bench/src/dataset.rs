@@ -20,42 +20,53 @@ pub struct Track<Annotation> {
     pub annotation: Annotation,
 }
 
+/// The tracks of a dataset that can be scored.
+#[derive(Debug)]
+pub struct Dataset<Annotation> {
+    /// Tracks with audio and a reference annotation, sorted by name.
+    pub tracks: Vec<Track<Annotation>>,
+    /// Tracks with audio that were left out because their annotation holds
+    /// no reference value.
+    pub unannotated_count: usize,
+}
+
 /// Loads the GiantSteps Key dataset, rooted at `dataset_directory`.
-pub fn load_key_tracks(dataset_directory: &Path) -> Result<Vec<Track<Key>>> {
-    let tracks = load_tracks(dataset_directory, "annotations/key", |text| {
+pub fn load_key_tracks(dataset_directory: &Path) -> Result<Dataset<Key>> {
+    let dataset = load_tracks(dataset_directory, "annotations/key", |text| {
         parse_key_annotation(text).map(Some)
     })?;
-    if tracks.is_empty() {
+    if dataset.tracks.is_empty() {
         bail!("no key dataset audio found, run bench/download_datasets.sh first");
     }
-    Ok(tracks)
+    Ok(dataset)
 }
 
 /// Loads the GiantSteps Tempo dataset, rooted at `dataset_directory`, using
 /// the version 2 annotations. Tracks annotated as having no tempo are left
-/// out.
-pub fn load_tempo_tracks(dataset_directory: &Path) -> Result<Vec<Track<f32>>> {
-    let tracks = load_tracks(
+/// out and counted.
+pub fn load_tempo_tracks(dataset_directory: &Path) -> Result<Dataset<f32>> {
+    let dataset = load_tracks(
         dataset_directory,
         "annotations_v2/tempo",
         parse_tempo_annotation,
     )?;
-    if tracks.is_empty() {
+    if dataset.tracks.is_empty() {
         bail!("no tempo dataset audio found, run bench/download_datasets.sh first");
     }
-    Ok(tracks)
+    Ok(dataset)
 }
 
 /// Pairs each annotation file with `audio/<name>.mp3`, skipping annotations
-/// whose audio is absent or that `parse` reads as no reference value, and
-/// returns the tracks sorted by name.
+/// whose audio is absent, and counting apart those that `parse` reads as no
+/// reference value.
 fn load_tracks<Annotation>(
     dataset_directory: &Path,
     annotation_subdirectory: &str,
     parse: impl Fn(&str) -> Result<Option<Annotation>>,
-) -> Result<Vec<Track<Annotation>>> {
+) -> Result<Dataset<Annotation>> {
     let annotation_directory = dataset_directory.join(annotation_subdirectory);
     let mut tracks = Vec::new();
+    let mut unannotated_count = 0;
     for entry in fs::read_dir(&annotation_directory)
         .with_context(|| format!("reading {}", annotation_directory.display()))?
     {
@@ -74,6 +85,7 @@ fn load_tracks<Annotation>(
         let Some(annotation) = parse(&text)
             .with_context(|| format!("bad annotation in {}", annotation_path.display()))?
         else {
+            unannotated_count += 1;
             continue;
         };
         tracks.push(Track {
@@ -83,7 +95,10 @@ fn load_tracks<Annotation>(
         });
     }
     tracks.sort_by(|first, second| first.name.cmp(&second.name));
-    Ok(tracks)
+    Ok(Dataset {
+        tracks,
+        unannotated_count,
+    })
 }
 
 /// Parses a key annotation such as "A minor" or "Eb major".

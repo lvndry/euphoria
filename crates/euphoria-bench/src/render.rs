@@ -143,13 +143,21 @@ fn write_track_summary<Scores>(
     evaluation: &Evaluation<Scores>,
 ) -> fmt::Result {
     let failed = evaluation.decode_failures.len();
-    writeln!(
+    write!(
         formatter,
-        "{} tracks with audio, {} decoded, {} failed to decode.\n",
+        "{} tracks with audio, {} decoded, {} failed to decode.",
         evaluation.track_count,
         evaluation.track_count - failed,
         failed
-    )
+    )?;
+    if evaluation.unannotated_count > 0 {
+        write!(
+            formatter,
+            " {} more left out because their annotation has no reference value.",
+            evaluation.unannotated_count
+        )?;
+    }
+    writeln!(formatter, "\n")
 }
 
 fn write_failures<Scores>(
@@ -241,6 +249,7 @@ mod tests {
         Report {
             key: Some(Evaluation {
                 track_count: 3,
+                unannotated_count: 0,
                 decode_failures: vec![failure("broken", "cannot decode broken.mp3: read error")],
                 detectors: vec![detector(
                     "libkeyfinder",
@@ -251,6 +260,7 @@ mod tests {
             }),
             tempo: Some(Evaluation {
                 track_count: 2,
+                unannotated_count: 3,
                 decode_failures: Vec::new(),
                 detectors: vec![detector("stratum-dsp", tempo_tally, 2, Vec::new())],
             }),
@@ -278,7 +288,7 @@ Tracks where libkeyfinder failed:
 
 ## Tempo detection, GiantSteps Tempo
 
-2 tracks with audio, 2 decoded, 0 failed to decode.
+2 tracks with audio, 2 decoded, 0 failed to decode. 3 more left out because their annotation has no reference value.
 
 | Detector | Accuracy 1 | Accuracy 2 | No tempo or error | CPU seconds per track |
 | --- | --- | --- | --- | --- |

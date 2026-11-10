@@ -73,8 +73,8 @@ fn main() -> Result<()> {
         .transpose()?;
 
     let key =
-        key_tracks.map(|tracks| evaluate_keys(&tracks, &[&KeyFinderDetector, &StratumDetector]));
-    let tempo = tempo_tracks.map(|tracks| evaluate_tempo(&tracks, &[&StratumDetector]));
+        key_tracks.map(|dataset| evaluate_keys(&dataset, &[&KeyFinderDetector, &StratumDetector]));
+    let tempo = tempo_tracks.map(|dataset| evaluate_tempo(&dataset, &[&StratumDetector]));
 
     print!("{}", render::render_report(&Report { key, tempo }));
     Ok(())
