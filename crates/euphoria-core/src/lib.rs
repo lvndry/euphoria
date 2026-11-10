@@ -22,6 +22,8 @@ pub mod harmony;
 pub mod key;
 /// Finding audio files in folders.
 pub mod library;
+/// Reading the title and artist stored in audio files.
+pub mod tags;
 
 pub use analysis::{
     ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
@@ -32,8 +34,13 @@ pub use cache::{
     clear_cache, default_cache_path,
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
+pub use export::{
+    AssembledLibrary, PlaylistLayout, SkippedTrack, assemble_library, playlist_count,
+    playlists_from_folders,
+};
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
+pub use tags::{TrackTags, read_tags};

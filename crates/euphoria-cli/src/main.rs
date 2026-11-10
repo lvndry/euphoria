@@ -3,24 +3,22 @@
 
 //! The `euphoria` command line tool.
 
+mod batch;
+mod export;
 mod output;
 
-use std::io::{IsTerminal, Write};
-use std::num::NonZeroUsize;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use euphoria_core::{
-    Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, analyze_files, analyze_files_cached,
-    clear_cache, default_cache_path, find_audio_files,
+    CachedBatch, EuphoriaError, clear_cache, default_cache_path, find_audio_files,
 };
-use indicatif::{ProgressBar, ProgressStyle};
 
-/// Each worker can hold 2 to 3 GB while analyzing a full length track, so the
-/// default stays well below the core count of most machines.
-const DEFAULT_MAXIMUM_JOBS: usize = 4;
+use crate::batch::AnalysisOptions;
+use crate::export::ExportTarget;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -43,16 +41,13 @@ enum Command {
         /// Print JSON instead of a table.
         #[arg(long)]
         json: bool,
-        /// Number of files to analyze at once. Defaults to the number of
-        /// cores, at most 4.
-        #[arg(long, short = 'j')]
-        jobs: Option<NonZeroUsize>,
-        /// Analyze every file and neither read nor update the cache.
-        #[arg(long, conflicts_with = "reanalyze")]
-        no_cache: bool,
-        /// Analyze every file again and replace its cached result.
-        #[arg(long)]
-        reanalyze: bool,
+        #[command(flatten)]
+        analysis: AnalysisOptions,
+    },
+    /// Analyze audio files and write the results for other DJ software.
+    Export {
+        #[command(subcommand)]
+        target: ExportTarget,
     },
     /// Manage the cache of analysis results.
     Cache {
@@ -67,13 +62,6 @@ enum CacheCommand {
     Path,
     /// Forget every cached result, so every track is analyzed again.
     Clear,
-}
-
-/// How `analyze` uses the cache.
-#[derive(Debug, Clone, Copy)]
-enum CacheUse {
-    Bypass,
-    Use(CachePolicy),
 }
 
 fn main() -> ExitCode {
@@ -91,19 +79,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Analyze {
             paths,
             json,
-            jobs,
-            no_cache,
-            reanalyze,
-        } => {
-            let cache_use = if no_cache {
-                CacheUse::Bypass
-            } else if reanalyze {
-                CacheUse::Use(CachePolicy::Reanalyze)
-            } else {
-                CacheUse::Use(CachePolicy::UseCached)
-            };
-            analyze(&paths, json, jobs, cache_use)
-        }
+            analysis,
+        } => analyze(&paths, json, &analysis),
+        Command::Export { target } => export::run(target),
         Command::Cache { command } => manage_cache(command),
     }
 }
@@ -123,67 +101,17 @@ fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn analyze(
-    paths: &[PathBuf],
-    json: bool,
-    jobs: Option<NonZeroUsize>,
-    cache_use: CacheUse,
-) -> Result<ExitCode> {
+fn analyze(paths: &[PathBuf], json: bool, analysis: &AnalysisOptions) -> Result<ExitCode> {
     let audio_files = find_audio_files(paths).map_err(with_causes)?;
     if audio_files.is_empty() {
         eprintln!("No audio files found.");
         return Ok(ExitCode::SUCCESS);
     }
-    let mut cache = match cache_use {
-        CacheUse::Bypass => None,
-        CacheUse::Use(policy) => match open_cache() {
-            Ok(cache) => Some((cache, policy)),
-            Err(error) => {
-                output::write_cache_warning(&mut std::io::stderr().lock(), &error)?;
-                None
-            }
-        },
-    };
-
-    let job_count = jobs
-        .map(NonZeroUsize::get)
-        .unwrap_or_else(default_job_count);
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(job_count)
-        .build()
-        .context("starting the analysis workers")?;
-
-    let progress_bar = progress_bar(audio_files.len());
-    let on_progress = |progress: Progress<'_>| {
-        progress_bar.set_position(progress.completed as u64);
-    };
-    let analyze_without_cache = || CachedBatch {
-        results: thread_pool.install(|| analyze_files(&audio_files, on_progress)),
-        cached_count: 0,
-        store_error: None,
-    };
-    let batch = match &mut cache {
-        None => analyze_without_cache(),
-        Some((cache, policy)) => {
-            let cached_batch = thread_pool
-                .install(|| analyze_files_cached(cache, &audio_files, *policy, on_progress));
-            match cached_batch {
-                Ok(batch) => batch,
-                Err(error) => {
-                    progress_bar.suspend(|| {
-                        output::write_cache_warning(&mut std::io::stderr().lock(), &error)
-                    })?;
-                    analyze_without_cache()
-                }
-            }
-        }
-    };
-    progress_bar.finish_and_clear();
     let CachedBatch {
         results,
         cached_count,
         store_error,
-    } = batch;
+    } = batch::analyze(&audio_files, analysis)?;
 
     let mut standard_output = std::io::stdout().lock();
     if json {
@@ -213,28 +141,6 @@ fn analyze(
     })
 }
 
-fn open_cache() -> Result<Cache, EuphoriaError> {
-    Cache::open(&default_cache_path()?)
-}
-
 fn with_causes(error: EuphoriaError) -> anyhow::Error {
     anyhow::anyhow!(error.chain())
-}
-
-fn default_job_count() -> usize {
-    std::thread::available_parallelism()
-        .map(NonZeroUsize::get)
-        .unwrap_or(1)
-        .min(DEFAULT_MAXIMUM_JOBS)
-}
-
-fn progress_bar(total: usize) -> ProgressBar {
-    if !std::io::stderr().is_terminal() {
-        return ProgressBar::hidden();
-    }
-    let progress_bar = ProgressBar::new(total as u64);
-    if let Ok(style) = ProgressStyle::with_template("Analyzing {pos}/{len} {wide_bar} {eta} left") {
-        progress_bar.set_style(style);
-    }
-    progress_bar
 }

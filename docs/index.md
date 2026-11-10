@@ -14,9 +14,10 @@ It is an open alternative to paid harmonic mixing tools such as Mixed In Key.
 - Detects the key of a track, shown in Camelot notation (8A) and as a musical key (A minor).
 - Detects the tempo in beats per minute.
 - Analyzes whole folders from the command line, as a table or as JSON.
+- Exports keys, tempos and a playlist per folder to rekordbox, with `euphoria export rekordbox`.
 - Reads MP3, M4A (AAC), FLAC, WAV and AIFF.
 
-Energy ratings, writing results into your DJ software, harmonic matching and a desktop app are in development.
+Energy ratings, exports for other DJ software, harmonic matching and a desktop app are in development.
 
 ## Where to start
 

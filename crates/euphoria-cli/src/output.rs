@@ -1,16 +1,18 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Formats analysis results as a table, as JSON, and as a failure summary.
+//! Formats analysis results as a table, as JSON, and as a failure summary,
+//! and reports what an export wrote.
 
 use std::io::{self, Write};
+use std::path::Path;
 
-use euphoria_core::{EuphoriaError, FileResult, Key};
+use euphoria_core::{EuphoriaError, FileResult, Key, SkippedTrack};
 use serde::Serialize;
 
 #[derive(Serialize)]
 struct JsonTrack<'result> {
-    path: &'result std::path::Path,
+    path: &'result Path,
     duration_seconds: Option<f32>,
     key: Option<JsonKey>,
     bpm: Option<f32>,
@@ -144,6 +146,79 @@ pub fn write_cache_warning(writer: &mut impl Write, error: &EuphoriaError) -> io
     )
 }
 
+/// What an export wrote.
+pub struct ExportSummary<'export> {
+    /// Tracks in the exported file.
+    pub track_count: usize,
+    /// Playlists in the exported file, or `None` when playlists were not
+    /// asked for.
+    pub playlist_count: Option<usize>,
+    /// How many of the tracks were served from the cache.
+    pub cached_count: usize,
+    /// The file that was written.
+    pub output_file: &'export Path,
+}
+
+/// Writes one line saying how much was exported and where.
+pub fn write_export_summary(
+    writer: &mut impl Write,
+    summary: &ExportSummary<'_>,
+) -> io::Result<()> {
+    write!(
+        writer,
+        "Exported {}",
+        counted(summary.track_count, "track", "tracks")
+    )?;
+    if let Some(playlist_count) = summary.playlist_count {
+        write!(
+            writer,
+            " in {}",
+            counted(playlist_count, "playlist", "playlists")
+        )?;
+    }
+    write!(writer, " to {}", summary.output_file.display())?;
+    if summary.cached_count > 0 {
+        write!(writer, " ({} from the cache)", summary.cached_count)?;
+    }
+    writeln!(writer)
+}
+
+/// Writes how to bring an exported file into rekordbox, and where the full
+/// guide is.
+pub fn write_rekordbox_import_steps(writer: &mut impl Write) -> io::Result<()> {
+    writeln!(
+        writer,
+        "In rekordbox: 1. Preferences > View > Layout: tick rekordbox xml. 2. Preferences > Advanced > Database: choose this file. 3. Refresh rekordbox xml in the tree, then import its tracks or playlists."
+    )?;
+    writeln!(
+        writer,
+        "Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-rekordbox.md"
+    )
+}
+
+/// Writes the files an export left out and why.
+pub fn write_skipped_tracks(writer: &mut impl Write, skipped: &[SkippedTrack]) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Left {} out of the export:",
+        counted(skipped.len(), "file", "files")
+    )?;
+    for skipped_track in skipped {
+        writeln!(
+            writer,
+            "  {}: {}",
+            skipped_track.path.display(),
+            skipped_track.reason.chain()
+        )?;
+    }
+    Ok(())
+}
+
+fn counted(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
+}
+
 fn format_duration(seconds: f32) -> String {
     let whole_seconds = seconds.round() as u64;
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
@@ -235,6 +310,70 @@ Key             BPM  Time  File
         assert!(warning.contains("example"));
         assert!(warning.contains("euphoria cache clear"));
         assert!(warning.contains("--no-cache"));
+    }
+
+    fn export_summary(summary: &ExportSummary<'_>) -> String {
+        let mut buffer = Vec::new();
+        write_export_summary(&mut buffer, summary).unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn export_summary_counts_tracks_and_playlists_on_one_line() {
+        let output_file = PathBuf::from("/Users/dj/library.xml");
+        let mut summary = ExportSummary {
+            track_count: 340,
+            playlist_count: Some(12),
+            cached_count: 0,
+            output_file: &output_file,
+        };
+        assert_eq!(
+            export_summary(&summary),
+            "Exported 340 tracks in 12 playlists to /Users/dj/library.xml\n"
+        );
+
+        summary.track_count = 1;
+        summary.playlist_count = Some(1);
+        summary.cached_count = 1;
+        assert_eq!(
+            export_summary(&summary),
+            "Exported 1 track in 1 playlist to /Users/dj/library.xml (1 from the cache)\n"
+        );
+
+        summary.playlist_count = None;
+        summary.cached_count = 0;
+        assert_eq!(
+            export_summary(&summary),
+            "Exported 1 track to /Users/dj/library.xml\n"
+        );
+    }
+
+    #[test]
+    fn import_steps_are_two_lines_ending_with_the_guide() {
+        let mut buffer = Vec::new();
+        write_rekordbox_import_steps(&mut buffer).unwrap();
+        let steps = String::from_utf8(buffer).unwrap();
+        let lines: Vec<&str> = steps.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("In rekordbox: 1. "), "{steps}");
+        assert!(
+            lines[1].ends_with("docs/guides/export-to-rekordbox.md"),
+            "{steps}"
+        );
+    }
+
+    #[test]
+    fn skipped_tracks_are_listed_with_the_reason() {
+        let skipped = [SkippedTrack {
+            path: PathBuf::from("music/broken.mp3"),
+            reason: EuphoriaError::UnknownKeyText("example".to_string()),
+        }];
+        let mut buffer = Vec::new();
+        write_skipped_tracks(&mut buffer, &skipped).unwrap();
+        assert_eq!(
+            String::from_utf8(buffer).unwrap(),
+            "Left 1 file out of the export:\n  music/broken.mp3: unrecognised key text: \"example\"\n"
+        );
     }
 
     #[test]

@@ -18,6 +18,20 @@ The opposite-phase file mixes down to silence, which shows that the decoder
 averages channels. The stereo WAV and the AIFF use 8-bit samples, and the
 opposite-phase file uses FLAC, to keep the fixtures under 300 KB in total.
 
+## Tagged fixtures
+
+`../tagged-fixtures` holds one file per format with the title "Low Tide" and the artist "Saffron & Co", for the tests of tag reading in `tests/tags.rs`. Each is a quarter of a second of the same tone at 8 kHz. They live outside this folder so that tests that scan it keep finding the seven files above.
+
+Run these commands from `../tagged-fixtures` to regenerate them:
+
+```sh
+ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.25" -ac 1 -c:a libmp3lame -b:a 16k -metadata "title=Low Tide" -metadata "artist=Saffron & Co" tagged.mp3
+ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.25" -ac 1 -c:a aac -b:a 16k -metadata "title=Low Tide" -metadata "artist=Saffron & Co" tagged.m4a
+ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.25" -ac 1 -c:a flac -metadata "title=Low Tide" -metadata "artist=Saffron & Co" tagged.flac
+ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.25" -ac 1 -c:a pcm_u8 -metadata "title=Low Tide" -metadata "artist=Saffron & Co" tagged.wav
+ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.25" -ac 1 -c:a pcm_s8 -write_id3v2 1 -metadata "title=Low Tide" -metadata "artist=Saffron & Co" tagged.aiff
+```
+
 ## Regenerating
 
 Run these commands from this directory:

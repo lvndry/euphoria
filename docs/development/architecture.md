@@ -34,7 +34,8 @@ A desktop app (`euphoria-app`) will join the workspace as another crate.
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
-| `export` | Writes analysis results for other DJ software, starting with rekordbox XML. |
+| `tags` | Reads the title and artist stored in an audio file. |
+| `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
 ### Detectors
@@ -48,7 +49,7 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 ## euphoria-cli
 
-Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. It contains no analysis logic.
+Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. `analyze` and `export` share that batch code in `batch.rs`. `export rekordbox` passes the results to `export::assemble_library` and `export::rekordbox::write_xml_file`. The crate contains no analysis or export logic.
 
 ## Detector choice
 

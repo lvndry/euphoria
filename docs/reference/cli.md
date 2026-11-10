@@ -72,9 +72,74 @@ When some results came from the cache, a line such as `120 of 124 tracks came fr
 
 The command exits with status 0 when every file was analyzed. If any file failed, the table is followed by a list of the failed files and the reason, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
 
+## euphoria export rekordbox
+
+Analyzes audio files and writes the results as a rekordbox XML file, which rekordbox imports with keys, tempos and playlists. [Export to rekordbox](../guides/export-to-rekordbox.md) walks through the export and the import.
+
+```
+euphoria export rekordbox [OPTIONS] --output <FILE> <PATHS>...
+```
+
+Paths are searched as in [`euphoria analyze`](#euphoria-analyze), and results come from the [cache](#the-analysis-cache) when the tracks were analyzed before. Each path is turned into a full path first, taken from the current directory when it is relative, with any symbolic link in it followed, because rekordbox finds tracks by their full path.
+
+```
+$ euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
+Exported 340 tracks in 12 playlists to /Users/you/Music/euphoria.xml (336 from the cache)
+In rekordbox: 1. Preferences > View > Layout: tick rekordbox xml. 2. Preferences > Advanced > Database: choose this file. 3. Refresh rekordbox xml in the tree, then import its tracks or playlists.
+Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-rekordbox.md
+```
+
+### Options
+
+| Option | Effect |
+| --- | --- |
+| `-o`, `--output <FILE>` | The file to write. Required. |
+| `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
+| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
+| `--no-playlists` | Write the tracks only, without playlists. |
+| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 4. |
+| `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
+| `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `-h`, `--help` | Show help. |
+
+### What is written
+
+Each track has its full path, its duration, its key and tempo when Euphoria found them, and its title and artist. Title and artist are read from the file's own tags: ID3 in MP3 and AIFF, Vorbis comments in FLAC, MP4 metadata in M4A and the `INFO` list in WAV. A file with no title is given its file name without the extension.
+
+Playlists mirror the folders:
+
+- Each folder named on the command line becomes one entry at the top level, in the order given.
+- A folder holding only tracks becomes a playlist. A folder holding other folders with tracks becomes a playlist folder, and tracks sitting directly in it go into a playlist of the same name, first inside it.
+- A folder with no tracks anywhere inside is left out.
+- Files named directly go into one last playlist, named after the output file without its extension.
+- When one named folder is inside another, each gets its own entry.
+- An entry that would have the same name as an earlier entry beside it gets ` (2)`, ` (3)` and so on after its name.
+
+The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written.
+
+### Output and exit status
+
+Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
+
+A file that could not be analyzed, or whose tags could not be read, is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
+
+```
+Left 1 file out of the export:
+  /Users/you/Music/DJ/notes.txt: cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found
+Exported 339 tracks in 12 playlists to /Users/you/Music/euphoria.xml
+```
+
+The command also exits with status 1, and writes no file, when:
+
+- the output file exists and `--force` was not given, or its folder does not exist,
+- no audio file was found, or none could be exported,
+- folders are nested more than 32 levels deep, the most a rekordbox XML file can hold. The error names the first folder beyond the limit.
+
+As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
+
 ## The analysis cache
 
-`euphoria analyze` remembers every result in a SQLite database on your computer, so a track is analyzed once. A later run prints the remembered result instead of analyzing the file again.
+`euphoria analyze` and `euphoria export` remember every result in a SQLite database on your computer, so a track is analyzed once. A later run uses the remembered result instead of analyzing the file again.
 
 A track is recognised by its content, not by its name or folder:
 
@@ -101,11 +166,11 @@ EUPHORIA_DATA_DIR=/Volumes/Music/.euphoria euphoria analyze /Volumes/Music
 
 A relative value is taken from the directory the command is run in, so `EUPHORIA_DATA_DIR=data` run in `/Users/you` means `/Users/you/data`. `euphoria cache path` prints the absolute location that results.
 
-Several `euphoria analyze` commands can run at the same time and share one database.
+Several `euphoria analyze` and `euphoria export` commands can run at the same time and share one database.
 
 ### When the cache cannot be used
 
-The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` prints a warning on standard error and analyzes every file without the cache:
+The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` and `euphoria export` print a warning on standard error and analyze every file without the cache:
 
 ```
 warning: analyzing without the cache: cannot use the analysis cache at /Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3: file is not a database
@@ -127,7 +192,7 @@ euphoria cache <COMMAND>
 | `path` | Print the location of the cache database. |
 | `clear` | Forget every cached result. Every track is analyzed again on the next run. |
 
-`clear` empties the database and keeps the file, so it is safe while an analysis is running: that analysis carries on, and the results it saves after the clear are kept. A database that cannot be opened, such as a damaged file, is deleted instead, and the next run creates a new one. Unlike `euphoria analyze`, both commands report a problem as an error and exit with status 1.
+`clear` empties the database and keeps the file, so it is safe while an analysis is running: that analysis carries on, and the results it saves after the clear are kept. A database that cannot be opened, such as a damaged file, is deleted instead, and the next run creates a new one. Unlike `euphoria analyze` and `euphoria export`, both commands report a problem as an error and exit with status 1.
 
 ```
 $ euphoria cache path

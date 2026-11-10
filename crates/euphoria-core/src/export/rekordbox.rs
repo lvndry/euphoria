@@ -9,8 +9,10 @@
 //! playlists refer to them by that number.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::io::Write;
+use std::fs::File;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -178,6 +180,90 @@ pub fn write_xml<W: Write>(
         .write_all(document.as_bytes())
         .and_then(|()| writer.flush())
         .map_err(|source| EuphoriaError::ExportWrite { source })
+}
+
+/// What to do when the file an export is written to already exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExistingFile {
+    /// Leave it as it is and fail.
+    Keep,
+    /// Replace it with the export.
+    Replace,
+}
+
+/// Writes `library` as a rekordbox XML file at `destination`.
+///
+/// The document is written to a temporary file next to `destination` and
+/// moved into place once it is complete, so `destination` holds either the
+/// whole export or what it held before. The library is checked first, as in
+/// [`write_xml`].
+///
+/// # Errors
+///
+/// Returns the errors of [`write_xml`] for a library that cannot be
+/// exported. Returns [`EuphoriaError::ExportDestinationExists`] when
+/// `destination` exists and `existing` is [`ExistingFile::Keep`]. Returns
+/// [`EuphoriaError::ExportFile`] when the file cannot be created, written or
+/// moved into place.
+pub fn write_xml_file(
+    destination: &Path,
+    library: &Library,
+    options: &ExportOptions,
+    existing: ExistingFile,
+) -> Result<(), EuphoriaError> {
+    let document = render(library, options)?;
+    let file_error = |source: io::Error| EuphoriaError::ExportFile {
+        path: destination.to_path_buf(),
+        source,
+    };
+    let destination_exists = || EuphoriaError::ExportDestinationExists {
+        path: destination.to_path_buf(),
+    };
+    if existing == ExistingFile::Keep && is_present(destination).map_err(file_error)? {
+        return Err(destination_exists());
+    }
+
+    let file_name = destination.file_name().ok_or_else(|| {
+        file_error(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the path does not name a file",
+        ))
+    })?;
+    let mut temporary_name = OsString::from(".");
+    temporary_name.push(file_name);
+    temporary_name.push(format!(".{}.tmp", std::process::id()));
+    let temporary_path = destination.with_file_name(temporary_name);
+
+    let moved_into_place = write_and_sync(&temporary_path, document.as_bytes())
+        .map_err(file_error)
+        .and_then(|()| {
+            // Looked at again because the export may have taken a while.
+            if existing == ExistingFile::Keep && is_present(destination).map_err(file_error)? {
+                return Err(destination_exists());
+            }
+            std::fs::rename(&temporary_path, destination).map_err(file_error)
+        });
+    if moved_into_place.is_err() {
+        // The export has failed and that failure is what the caller needs to
+        // see, whether or not the temporary file could be removed.
+        let _ = std::fs::remove_file(&temporary_path);
+    }
+    moved_into_place
+}
+
+/// True when something is at `path`, including a link that leads nowhere.
+fn is_present(path: &Path) -> io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn write_and_sync(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
 }
 
 fn render(library: &Library, options: &ExportOptions) -> Result<String, EuphoriaError> {
