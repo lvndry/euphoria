@@ -39,10 +39,10 @@ If the remembered results cannot be used, for example because their file is dama
 
 ## Large libraries and memory
 
-Euphoria analyzes several tracks at once: as many as your computer has cores, up to 4. Each one can use 2 to 3 GB of memory on a full length track. On a computer with 8 GB of memory or less, analyze fewer tracks at once:
+Euphoria analyzes several tracks at once: as many as your computer has cores, up to 8. Each one peaks near 0.6 GB of memory on a seven minute track, and 8 at once peaked between 4.8 and 6.2 GB on full length tracks. On a computer with 8 GB of memory or less, analyze fewer tracks at once:
 
 ```
-euphoria analyze --jobs 2 ~/Music/DJ
+euphoria analyze --jobs 4 ~/Music/DJ
 ```
 
 ## When a file fails

@@ -56,6 +56,12 @@ Download the datasets (about 1.7 GB, into `bench/data`, which git ignores) and r
 cargo run --release -p euphoria-bench
 ```
 
+`--only key` or `--only tempo` runs one of the two benchmarks:
+
+```
+cargo run --release -p euphoria-bench -- bench/data --only tempo
+```
+
 An optional reference run scores Essentia on the same tracks. It needs [uv](https://docs.astral.sh/uv/):
 
 ```

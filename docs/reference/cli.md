@@ -33,13 +33,13 @@ The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It
 | Option | Effect |
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
-| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 4. |
+| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
-Each worker can use 2 to 3 GB of memory on a full length track, which is why the default stops at 4. Lower `--jobs` on a machine with little memory.
+Analyzing one seven minute track peaks near 0.6 GB of memory. On full length tracks, 4 workers peaked near 2 GB in total and 8 workers between 4.8 and 6.2 GB, which is why the default stops at 8. Lower `--jobs` on a machine with 8 GB of memory or less.
 
 ### JSON output
 
@@ -85,7 +85,7 @@ A track is recognised by its content, not by its name or folder:
 - A file that was renamed or moved is still recognised, and is not analyzed again.
 - A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
-- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, so the first run after that update analyzes every track once more.
+- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, and results stored before tempo detection dropped its multi-resolution pass, which changed the tempo of some tracks. The first run after such an update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.

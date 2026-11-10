@@ -10,7 +10,7 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 ## Datasets
 
 - [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset): 604 two minute previews of electronic dance music, each with a key labelled by people.
-- [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset): 664 previews with labelled tempo, scored against the version 2 annotations.
+- [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset): 664 previews, scored against the version 2 annotations. 3 of them are labelled as having no tempo and are left out, so 661 are scored.
 
 ## Scores
 
@@ -24,11 +24,12 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 
 | | Key exact | Key MIREX score | Tempo Accuracy 1 | Tempo Accuracy 2 | CPU seconds per track |
 | --- | --- | --- | --- | --- | --- |
-| libkeyfinder | 60.4% | 69.0% | | | 0.22 |
-| stratum-dsp | 30.6% | 45.4% | 59.6% | 84.5% | 2.86 |
+| libkeyfinder, key | 60.4% | 69.0% | | | 0.22 |
+| stratum-dsp, key | 30.6% | 45.4% | | | 1.99 |
+| stratum-dsp, tempo | | | 62.2% | 84.7% | 0.39 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
 
-Euphoria uses libkeyfinder for key and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+Euphoria uses libkeyfinder for key and stratum-dsp for tempo. Tempo detection runs the stratum-dsp tempogram estimate on its own, without the key analysis and without the multi-resolution pass, which lowered Accuracy 1 on this dataset. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
 ## Reproducing
 

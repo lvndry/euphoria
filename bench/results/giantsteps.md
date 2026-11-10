@@ -3,7 +3,7 @@
 Measured on 10 November 2026 on an Apple M5 (10 cores), macOS 27.2, with 4 worker threads.
 
 - Key: [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset), 604 two minute previews of electronic dance music. All 604 decoded.
-- Tempo: [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset), 664 previews, scored against the version 2 annotations. 3 previews are annotated as having no tempo and are left out. All of the other 661 decoded.
+- Tempo: [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset), 664 previews, scored against the version 2 annotations. 3 previews are annotated with a tempo of zero, meaning no tempo, and are left out, so 661 are scored. All 661 decoded.
 
 ## Key detection
 
@@ -23,7 +23,7 @@ Fifth, relative and parallel are near misses that still mix acceptably. The MIRE
 | Detector | Accuracy 1 | Accuracy 2 | CPU seconds per track |
 | --- | --- | --- | --- |
 | stratum-dsp 1.0.0, tempo only | 62.2% | 84.7% | 0.39 |
-| stratum-dsp 1.0.0, full analysis with default settings | 59.9% | 84.9% | 3.30 |
+| stratum-dsp 1.0.0, full analysis with default settings (not used) | 59.9% | 84.9% | 3.30 |
 | Essentia RhythmExtractor2013 (reference) | 59.8% | 82.5% | not measured |
 
 Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also accepts 2, 1/2, 3 and 1/3 times the annotated tempo, as in the standard tempo evaluation.
@@ -32,20 +32,26 @@ Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also 
 
 - libkeyfinder is level with Essentia's best profile on key (69.0% against 69.5% MIREX) and about 9 times cheaper than stratum-dsp.
 - stratum-dsp is far behind on key (45.4%) but at least level with Essentia on tempo.
-- Tempo only is what `detect_tempo` runs: the stratum-dsp tempogram estimate without its multi-resolution pass, and without the onset lists, beat grid and key that a full analysis also computes. The full analysis row is what `detect_tempo` ran before, measured in the same session for comparison. Dropping the multi-resolution pass changes the estimate on 262 previews, for 15 more within 4% and 1 fewer within the Accuracy 2 factors.
+- Tempo only is what `detect_tempo` runs: the stratum-dsp tempogram estimate without its multi-resolution pass, and without the onset lists, beat grid and key that a full analysis also computes. The full analysis row is `analyze_audio` with its default settings, which `detect_tempo` ran before, measured in the same session for comparison. Dropping the multi-resolution pass changes the estimate on 262 previews, for 15 more within 4% and 1 fewer within the Accuracy 2 factors.
 - CPU seconds are the CPU time of each detector call on its own thread, averaged over tracks, so they do not depend on how many threads run in parallel. They were measured while other work ran on the machine, so compare them with each other and not with other sessions.
-- The tempo benchmark alone took 85 seconds and peaked at 2.0 GB of memory with 4 worker threads. With the full analysis it took 10.6 minutes and peaked at 5.7 GB. The whole run, key and tempo, took 8.6 minutes and peaked at 4.8 GB, which comes from stratum-dsp key detection.
+- The tempo benchmark alone takes 76 seconds and peaks at 0.7 GB of memory with 4 worker threads, at 0.36 CPU seconds per track in that run. With the full analysis it took 10.6 minutes and peaked at 5.7 GB. The whole run, key and tempo, took 8.6 minutes and peaked at 4.8 GB, which comes from stratum-dsp key detection.
 
-## Memory of tempo detection
+## Cost of a whole analysis
 
-Peak memory of one process that decodes one file and detects its tempo, measured with `/usr/bin/time -l`:
+What `euphoria analyze --no-cache` costs for decoding, key (libkeyfinder), tempo and energy together, measured with `/usr/bin/time -l` on the same machine. Memory is the peak memory footprint of the process. The full length tracks are 40 tracks of 4 to 8 minutes from a private library, and the 80 track runs analyze each of them twice.
 
-| Audio | Tempo only | Full analysis with default settings |
+| Run | CPU seconds | Peak memory |
 | --- | --- | --- |
-| Two minute preview | 222 MB | 839 MB |
-| Six minute file | 497 MB | 2513 MB |
+| One two minute preview, 1 worker | 0.8 | 221 MB |
+| One seven minute track, 1 worker | 2.6 | 559 MB |
+| 40 full length tracks, 4 workers | 100 | 1.9 GB |
+| 40 full length tracks, 8 workers | 121 | 4.8 GB |
+| 80 full length tracks, 4 workers | 204 | 2.1 GB |
+| 80 full length tracks, 8 workers | 245 | 6.2 GB |
 
-Decoding alone accounts for 44 MB and 125 MB of these. Tempo detection reads at most the middle ten minutes of a file, so longer files cost no more than a ten minute one.
+With the full stratum-dsp analysis for tempo, the same build took 2.8 CPU seconds and 871 MB on the preview, 10.9 CPU seconds and 2.7 GB on the seven minute track, and 539 CPU seconds and 9.8 GB on the 40 tracks with 4 workers.
+
+Tempo detection reads at most the middle ten minutes of a file, so its share of the memory stops growing there. Decoding and key detection read the whole file.
 
 ## Reproducing
 
