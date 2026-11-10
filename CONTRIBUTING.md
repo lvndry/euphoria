@@ -75,7 +75,7 @@ cargo run --release -p euphoria-bench
 - Public items in `euphoria-core` are documented.
 - Every `unsafe` block has a `// SAFETY:` comment explaining why it is sound.
 - Errors are returned, not swallowed. A batch reports which files failed and why.
-- `euphoria-core` has no user interface code and prints nothing. See [docs/architecture.md](docs/architecture.md).
+- `euphoria-core` has no user interface code and prints nothing. See [architecture](docs/development/architecture.md).
 
 ## License
 

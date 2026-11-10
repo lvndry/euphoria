@@ -1,3 +1,8 @@
+---
+title: Architecture
+description: How the Euphoria code base is organized.
+---
+
 # Architecture
 
 Euphoria is a Cargo workspace. All product logic lives in one library crate, and every front end is a thin crate on top of it.

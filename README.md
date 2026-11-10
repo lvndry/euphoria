@@ -17,7 +17,7 @@ In development: energy ratings, tag writing for rekordbox, Serato, Traktor and E
 
 ## Install
 
-Homebrew packages are coming. Until then, [build from source](docs/building.md).
+Homebrew packages are coming. Until then, see [installation](docs/getting-started/installation.md).
 
 ## Quick start
 
@@ -30,11 +30,14 @@ Key             BPM  Time  File
 
 ## Documentation
 
-- [Usage](docs/usage.md): every command and option
-- [Accuracy](docs/accuracy.md): how detection is measured, and the results
-- [Building from source](docs/building.md)
-- [Architecture](docs/architecture.md): how the code is organized
-- [Contributing](CONTRIBUTING.md)
+The full documentation is in [docs](docs/index.md):
+
+- [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
+- [Analyze your library](docs/guides/analyze-your-library.md)
+- [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
+- [Accuracy](docs/concepts/accuracy.md)
+- [Command line reference](docs/reference/cli.md)
+- [Development](docs/development/index.md) and [contributing](CONTRIBUTING.md)
 
 ## License
 

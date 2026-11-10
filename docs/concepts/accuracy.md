@@ -1,3 +1,8 @@
+---
+title: Accuracy
+description: How Euphoria's key and tempo detection is measured, and the results.
+---
+
 # Accuracy
 
 Euphoria's detectors are measured on public datasets, and the numbers are published here including the misses.
@@ -23,8 +28,8 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 | stratum-dsp | 30.6% | 45.4% | 59.6% | 84.5% | 2.86 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
 
-Euphoria uses libkeyfinder for key and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](../bench/results/giantsteps.md).
+Euphoria uses libkeyfinder for key and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
 ## Reproducing
 
-See [Building from source](building.md#accuracy-benchmark).
+See [running the accuracy benchmark](../development/building.md#accuracy-benchmark).

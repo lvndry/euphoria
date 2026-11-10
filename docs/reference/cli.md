@@ -1,4 +1,9 @@
-# Usage
+---
+title: Command line
+description: Every command, option, output format and exit status of the euphoria command.
+---
+
+# Command line
 
 ## euphoria analyze
 
@@ -8,7 +13,7 @@ Detects the key and tempo of audio files.
 euphoria analyze [OPTIONS] <PATHS>...
 ```
 
-Each path is a file or a folder. Folders are searched recursively for MP3, M4A, FLAC, WAV and AIFF files, in any letter case. Hidden files and folders are skipped, including the `._` copies macOS leaves on external drives. A file named directly is always analyzed, so an unsupported file is reported as a failure instead of being ignored.
+Each path is a file or a folder. Folders are searched recursively for [supported audio files](supported-formats.md). Hidden files and folders are skipped, including the `._` copies macOS leaves on external drives. A file named directly is always analyzed, so an unsupported file is reported as a failure instead of being ignored.
 
 ```
 $ euphoria analyze ~/Music/DJ

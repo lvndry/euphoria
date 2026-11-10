@@ -1,3 +1,8 @@
+---
+title: Building from source
+description: Build, test and benchmark Euphoria from a source checkout.
+---
+
 # Building from source
 
 ## Requirements
