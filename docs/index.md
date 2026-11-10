@@ -1,6 +1,6 @@
 ---
 title: Euphoria
-description: Free, open source key, tempo and energy analysis for DJ libraries.
+description: Find the key and BPM of every track in your music collection, so you can mix in key.
 ---
 
 # Euphoria

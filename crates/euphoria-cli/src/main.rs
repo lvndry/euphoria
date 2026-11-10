@@ -23,7 +23,7 @@ const DEFAULT_MAXIMUM_JOBS: usize = 4;
 #[command(
     name = "euphoria",
     version,
-    about = "Key, tempo and energy analysis for DJ libraries"
+    about = "Find the key and BPM of every track in your music collection"
 )]
 struct Cli {
     #[command(subcommand)]

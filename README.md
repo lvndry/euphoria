@@ -1,6 +1,6 @@
 # Euphoria
 
-Key, tempo and energy analysis for DJ libraries. Free, open source, and fully offline.
+Find the key and BPM of every track in your music collection, so you can mix in key. Free, open source, and fully offline.
 
 Euphoria reads your music, finds the key and tempo of every track, and will write the results where your DJ software can see them. It is an open alternative to paid harmonic mixing tools such as Mixed In Key: no account, no activation, and nothing leaves your computer.
 
