@@ -46,13 +46,18 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   lint-and-test:
-    name: ${{ matrix.toolchain }} on ${{ matrix.os }}
+    name: test (${{ matrix.system.name }}, ${{ matrix.rust.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
-        toolchain: [stable, "1.88"]
-    runs-on: ${{ matrix.os }}
+        system:
+          - { name: macOS, runner: macos-latest }
+          - { name: Linux, runner: ubuntu-latest }
+        rust:
+          - { name: latest Rust, toolchain: stable }
+          # The minimum supported Rust version, the rust-version in Cargo.toml.
+          - { name: oldest supported Rust, toolchain: "1.88" }
+    runs-on: ${{ matrix.system.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -69,13 +74,13 @@ jobs:
           ./.github/scripts/install-libkeyfinder.sh
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.toolchain }}
+          toolchain: ${{ matrix.rust.toolchain }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.toolchain }}
+          key: ${{ matrix.rust.toolchain }}
       - name: Lint
-        if: matrix.toolchain == 'stable'
+        if: matrix.rust.toolchain == 'stable'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
