@@ -189,3 +189,13 @@ fn a_file_at_the_edge_of_the_supported_range_decodes() {
         assert_eq!(audio.sample_rate().get(), sample_rate);
     }
 }
+
+#[test]
+fn the_unsupported_sample_rate_message_reads_as_a_full_sentence() {
+    let path = wav_declaring_sample_rate("rate-message.wav", 100);
+    let message = decode_mono(&path).unwrap_err().to_string();
+    assert_eq!(
+        message,
+        "a sample rate of 100 Hz is not supported: Euphoria reads audio from 8000 to 384000 Hz"
+    );
+}

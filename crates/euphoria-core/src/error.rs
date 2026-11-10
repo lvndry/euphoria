@@ -144,7 +144,7 @@ pub enum EuphoriaError {
     },
     /// The audio has a sample rate outside the range Euphoria analyzes.
     #[error(
-        "audio at {sample_rate} Hz is not supported: sample rates from {minimum} to {maximum} Hz are"
+        "a sample rate of {sample_rate} Hz is not supported: Euphoria reads audio from {minimum} to {maximum} Hz"
     )]
     UnsupportedSampleRate {
         /// The sample rate of the audio, in samples per second.
