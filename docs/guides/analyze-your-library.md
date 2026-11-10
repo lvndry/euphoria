@@ -15,6 +15,26 @@ euphoria analyze ~/Music/DJ "/Volumes/USB DRIVE/Promos" ~/Downloads/new-track.fl
 
 Folders are searched recursively. Hidden files are skipped, including the `._` copies macOS leaves on external drives, so a USB stick prepared on a Mac does not show every track twice.
 
+## Analyze again after adding music
+
+Euphoria remembers every result, so run the same command again whenever you add tracks. Only the new ones are analyzed, and the rest are printed straight away:
+
+```
+$ euphoria analyze ~/Music/DJ
+...
+120 of 124 tracks came from the cache.
+```
+
+You can rename files and reorganize folders freely. A track is recognised by its content, so it is not analyzed again after it moves. Editing a file's tags changes its content, so a retagged track is analyzed once more.
+
+To analyze tracks again whatever is remembered, for example after a result looked wrong:
+
+```
+euphoria analyze --reanalyze ~/Music/DJ/track.flac
+```
+
+`--no-cache` analyzes without reading or saving anything. `euphoria cache path` prints where the results are kept and `euphoria cache clear` forgets all of them. The [command reference](../reference/cli.md#the-analysis-cache) has the details.
+
 ## Large libraries and memory
 
 Euphoria analyzes several tracks at once: as many as your computer has cores, up to 4. Each one can use 2 to 3 GB of memory on a full length track. On a computer with 8 GB of memory or less, analyze fewer tracks at once:

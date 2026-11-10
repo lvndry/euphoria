@@ -13,7 +13,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+blake3.workspace = true
 rayon.workspace = true
+rusqlite.workspace = true
 stratum-dsp.workspace = true
 symphonia = { workspace = true, features = ["mp3", "aac", "isomp4", "aiff", "flac", "wav", "pcm"] }
 thiserror.workspace = true

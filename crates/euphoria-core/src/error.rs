@@ -43,7 +43,8 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
-    /// A file or folder could not be read while looking for audio files.
+    /// A file or folder could not be read, while looking for audio files or
+    /// while identifying one for the analysis cache.
     #[error("cannot read {path}")]
     Scan {
         /// The file or folder that could not be read.
@@ -82,6 +83,19 @@ pub enum EuphoriaError {
     /// Text could not be read as a key name such as "A minor".
     #[error("unrecognised key text: {0:?}")]
     UnknownKeyText(String),
+    /// The analysis cache could not be opened, read or written.
+    #[error("cannot use the analysis cache at {path}")]
+    Cache {
+        /// The cache database file.
+        path: PathBuf,
+        /// What went wrong, usually the database library's own error.
+        source: ErrorSource,
+    },
+    /// No folder for Euphoria's data could be worked out from the environment.
+    #[error(
+        "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"
+    )]
+    NoDataDirectory,
 }
 
 impl EuphoriaError {

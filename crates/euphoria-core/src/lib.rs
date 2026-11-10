@@ -8,6 +8,8 @@
 pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
+/// Remembering analyses between runs.
+pub mod cache;
 /// Key and tempo detectors.
 pub mod detect;
 /// The error type returned by the library.
@@ -17,8 +19,14 @@ pub mod key;
 /// Finding audio files in folders.
 pub mod library;
 
-pub use analysis::{FileResult, Progress, TrackAnalysis, analyze_file, analyze_files};
+pub use analysis::{
+    ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
+};
 pub use audio::{AudioBuffer, decode_mono};
+pub use cache::{
+    Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
+    clear_cache, default_cache_path,
+};
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError};
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};

@@ -30,6 +30,8 @@ A `-` means nothing was detected, for example in silence or a track shorter than
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 4. |
+| `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
+| `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
@@ -64,4 +66,52 @@ One object per file, in path order, including files that failed:
 
 A progress bar is shown when the output goes to a terminal, and hidden when it is piped to another program.
 
-The command exits with status 0 when every file was analyzed. If any file failed, the table is followed by a list of the failed files and the reason, and the command exits with status 1.
+When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
+
+The command exits with status 0 when every file was analyzed. If any file failed, the table is followed by a list of the failed files and the reason, and the command exits with status 1. It also exits with status 1, after printing the results, if they could not be saved to the cache.
+
+## The analysis cache
+
+`euphoria analyze` remembers every result in a SQLite database on your computer, so a track is analyzed once. A later run prints the remembered result instead of analyzing the file again.
+
+A track is recognised by its content, not by its name or folder:
+
+- A file that was renamed or moved is still recognised, and is not analyzed again.
+- A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
+- A file that could not be analyzed is not remembered, and is tried again on the next run.
+- Results from a version of Euphoria that detected keys or tempo differently are ignored and replaced.
+
+A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.
+
+### Where the cache is stored
+
+| System | Location |
+| --- | --- |
+| macOS | `~/Library/Application Support/euphoria/analysis-cache.sqlite3` |
+| Linux | `$XDG_DATA_HOME/euphoria/analysis-cache.sqlite3`, or `~/.local/share/euphoria/analysis-cache.sqlite3` when `XDG_DATA_HOME` is not set |
+
+Set the `EUPHORIA_DATA_DIR` environment variable to keep the database in another folder:
+
+```
+EUPHORIA_DATA_DIR=/Volumes/Music/.euphoria euphoria analyze /Volumes/Music
+```
+
+If the database cannot be opened, for example because the file is damaged, the command stops with an error that names the file. `euphoria cache clear` deletes it.
+
+## euphoria cache
+
+Manages the analysis cache.
+
+```
+euphoria cache <COMMAND>
+```
+
+| Command | Effect |
+| --- | --- |
+| `path` | Print the location of the cache database. |
+| `clear` | Delete the cache database. Every track is analyzed again on the next run. |
+
+```
+$ euphoria cache path
+/Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3
+```

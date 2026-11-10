@@ -117,6 +117,19 @@ pub fn write_failures(writer: &mut impl Write, results: &[FileResult]) -> io::Re
     Ok(())
 }
 
+/// Writes how many of the tracks were served from the cache.
+pub fn write_cache_summary(
+    writer: &mut impl Write,
+    cached_count: usize,
+    total: usize,
+) -> io::Result<()> {
+    let noun = if total == 1 { "track" } else { "tracks" };
+    writeln!(
+        writer,
+        "{cached_count} of {total} {noun} came from the cache."
+    )
+}
+
 fn format_duration(seconds: f32) -> String {
     let whole_seconds = seconds.round() as u64;
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
@@ -185,6 +198,17 @@ Key             BPM  Time  File
         assert!(parsed[1]["key"].is_null());
         assert!(parsed[2]["error"].as_str().unwrap().contains("example"));
         assert_eq!(parsed.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn cache_summary_counts_cached_tracks() {
+        let mut buffer = Vec::new();
+        write_cache_summary(&mut buffer, 5, 7).unwrap();
+        write_cache_summary(&mut buffer, 1, 1).unwrap();
+        assert_eq!(
+            String::from_utf8(buffer).unwrap(),
+            "5 of 7 tracks came from the cache.\n1 of 1 track came from the cache.\n"
+        );
     }
 
     #[test]
