@@ -51,6 +51,7 @@
 mod batch;
 mod identity;
 mod location;
+mod single;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -63,6 +64,7 @@ use rusqlite::{Connection, ErrorCode, Row, TransactionBehavior, params};
 pub use batch::{CachePolicy, CachedBatch, analyze_files_cached};
 pub use identity::ContentHash;
 pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
+pub use single::{CachedAnalysis, CachedAnalyzer};
 
 use crate::analysis::{ANALYZER_VERSION, TrackAnalysis};
 use crate::energy::ENERGY_MODEL_VERSION;

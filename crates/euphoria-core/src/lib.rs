@@ -31,8 +31,8 @@ pub use analysis::{
 };
 pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
 pub use cache::{
-    Cache, CachePolicy, CachedBatch, ContentHash, DATA_DIRECTORY_VARIABLE, analyze_files_cached,
-    clear_cache, default_cache_path,
+    Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
+    DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,

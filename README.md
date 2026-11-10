@@ -18,8 +18,9 @@ Available now:
 - Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
 - `euphoria analyze`, a command line tool with table and JSON output
 - MP3, M4A (AAC), FLAC, WAV and AIFF
+- An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
 
-In development: tag writing for rekordbox, Serato, Traktor and Engine DJ, harmonic matching, and a desktop app.
+In development: tag writing for rekordbox, Serato, Traktor and Engine DJ.
 
 ## Install
 
