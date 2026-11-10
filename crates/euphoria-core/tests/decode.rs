@@ -149,3 +149,53 @@ fn empty_file_is_an_unsupported_format() {
     let path = scratch_file("empty.wav", &[]);
     assert_eq!(decode_failure(&path), DecodeFailure::UnsupportedFormat);
 }
+
+/// A copy of the mono WAV fixture whose header declares another sample rate.
+fn wav_declaring_sample_rate(name: &str, sample_rate: u32) -> PathBuf {
+    let mut bytes =
+        std::fs::read(fixture("sine-440hz-mono.wav")).expect("the WAV fixture is readable");
+    assert_eq!(&bytes[..4], b"RIFF");
+    assert_eq!(&bytes[12..16], b"fmt ");
+    bytes[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+    scratch_file(name, &bytes)
+}
+
+#[test]
+fn a_file_declaring_an_absurd_sample_rate_is_refused() {
+    for (name, sample_rate) in [
+        ("rate-too-high.wav", 4_000_000_000_u32),
+        ("rate-just-too-high.wav", 384_001),
+        ("rate-too-low.wav", 100),
+    ] {
+        let path = wav_declaring_sample_rate(name, sample_rate);
+        match decode_mono(&path) {
+            Err(EuphoriaError::UnsupportedSampleRate {
+                sample_rate: reported,
+                ..
+            }) => assert_eq!(reported, sample_rate),
+            other => panic!("{name}: expected an unsupported sample rate, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_file_at_the_edge_of_the_supported_range_decodes() {
+    for (name, sample_rate) in [
+        ("rate-lowest.wav", 8_000_u32),
+        ("rate-highest.wav", 384_000),
+    ] {
+        let path = wav_declaring_sample_rate(name, sample_rate);
+        let audio = decode_mono(&path).unwrap();
+        assert_eq!(audio.sample_rate().get(), sample_rate);
+    }
+}
+
+#[test]
+fn the_unsupported_sample_rate_message_reads_as_a_full_sentence() {
+    let path = wav_declaring_sample_rate("rate-message.wav", 100);
+    let message = decode_mono(&path).unwrap_err().to_string();
+    assert_eq!(
+        message,
+        "a sample rate of 100 Hz is not supported: Euphoria reads audio from 8000 to 384000 Hz"
+    );
+}
