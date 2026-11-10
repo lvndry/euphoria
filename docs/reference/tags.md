@@ -46,13 +46,14 @@ The backup also holds the original length of the tag area and of the file. Undo 
 
 ### When a write is refused
 
-The error names the file and the reason, and the file is not touched. `read_tags` still reads these files.
+The error names the file and the reason, and the file is not touched. `read_tags` does not fail on these files; it returns the fields it can reach, which for the extended header and `meta` cases below is none.
 
 - The tag area holds something that cannot be told apart into items: data that is not a frame, an item that runs past its container, padding that holds data.
 - An ID3v2 tag has an extended header, or an ID3v2.2 tag is compressed.
 - A file holds more than one ID3v2 tag where one is expected, more than one Vorbis comment block, or more than one `moov`, `udta`, `meta` or `ilst` atom.
 - A planned ID3v2 frame is compressed, encrypted or unsynchronised on its own. Such frames are kept untouched when they are not part of the plan.
-- A fragmented MP4 file would need its audio moved.
+- The `meta` atom of an MP4 file lacks its version field, as some QuickTime style files have it.
+- A fragmented MP4 file would need its audio moved, because padding cannot take up the change in length.
 
 ### Links, permissions and times
 
