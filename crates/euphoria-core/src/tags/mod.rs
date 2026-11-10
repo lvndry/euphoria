@@ -8,12 +8,13 @@
 
 mod native;
 mod preset;
+mod replace;
 
 use std::path::{Path, PathBuf};
 
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
-use native::{ID3_COMMENT, MP4_TEMPO, TagFile};
+use native::{ID3_COMMENT, MP4_TEMPO, Purpose, TagFile};
 pub use preset::DjSoftware;
 
 const LABEL_OPEN: char = '{';
@@ -103,7 +104,7 @@ pub struct TrackTags {
 
 /// Reads the title, artist, key, tempo, comment and grouping of a file.
 pub fn read_tags(path: &Path) -> Result<TrackTags, EuphoriaError> {
-    let file = TagFile::load(path)?;
+    let file = TagFile::load(path, Purpose::Reading)?;
     let format = file.format();
     Ok(TrackTags {
         format,
@@ -252,7 +253,7 @@ pub fn plan_write(
     analysis: &Analysis,
     options: &TagWriteOptions,
 ) -> Result<WritePlan, EuphoriaError> {
-    let file = TagFile::load(path)?;
+    let file = TagFile::load(path, Purpose::Rewriting)?;
     let format = file.format();
     let mut wanted: Vec<(&str, String)> = Vec::new();
 
@@ -369,7 +370,7 @@ fn write_fields<'a>(
     if fields.clone().next().is_none() {
         return Ok(());
     }
-    let mut file = TagFile::load(path)?;
+    let mut file = TagFile::load(path, Purpose::Rewriting)?;
     for (field, expected, _) in fields.clone() {
         if file.get(field)? != *expected {
             return Err(EuphoriaError::TagConflict {

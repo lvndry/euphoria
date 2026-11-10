@@ -18,13 +18,16 @@ use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::AudioFile;
 use lofty::flac::FlacFile;
 use lofty::id3::v2::{
-    CommentFrame, Frame, FrameId, Id3v2Tag, Id3v2Version, PrivateFrame, TextInformationFrame,
+    AttachedPictureFrame, CommentFrame, Frame, FrameId, Id3v2Tag, Id3v2Version, PrivateFrame,
+    TextInformationFrame,
 };
 use lofty::iff::aiff::AiffFile;
 use lofty::iff::wav::WavFile;
 use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst, Mp4File};
 use lofty::mpeg::MpegFile;
+use lofty::ogg::OggPictureStorage;
 use lofty::ogg::tag::VorbisComments;
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::TagExt;
 
 const MP3: &str = "sine-440hz-mono.mp3";
@@ -39,6 +42,22 @@ const ARTIST: &str = "Sine Wave";
 const ALBUM: &str = "Fixtures";
 const COMMENT: &str = "warm up";
 const CUE_DATA: &str = "cue points of another program";
+/// A PNG image of one transparent pixel.
+const ARTWORK: [u8; 67] = [
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82,
+];
+
+fn artwork() -> Picture {
+    Picture::unchecked(ARTWORK.to_vec())
+        .pic_type(PictureType::CoverFront)
+        .mime_type(MimeType::Png)
+        .description("cover")
+        .build()
+}
 
 fn scratch_copy(fixture: &str, test: &str) -> PathBuf {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -65,8 +84,8 @@ fn text_frame(id: &'static str, value: &'static str) -> Frame<'static> {
     ))
 }
 
-/// Gives the file a title, artist, album and comment, plus data of the kind
-/// DJ programs keep for themselves. The MP3 gets an ID3v2.3 tag, the other
+/// Gives the file a title, artist, album, comment and artwork, plus data of
+/// the kind DJ programs keep for themselves. The MP3 gets an ID3v2.3 tag, the other
 /// ID3 formats ID3v2.4.
 fn seed(path: &Path) {
     match extension(path) {
@@ -95,6 +114,10 @@ fn seed(path: &Path) {
                 "TRAKTOR4",
                 CUE_DATA.as_bytes().to_vec(),
             )));
+            tag.insert(Frame::Picture(AttachedPictureFrame::new(
+                TextEncoding::Latin1,
+                artwork(),
+            )));
             tag.save_to_path(path, WriteOptions::new().use_id3v23(version_3))
                 .expect("the scratch copy can be read and written");
         }
@@ -118,6 +141,7 @@ fn seed(path: &Path) {
                 },
                 AtomData::UTF8(CUE_DATA.to_string()),
             ));
+            ilst.insert_picture(artwork());
             ilst.save_to_path(path, WriteOptions::new())
                 .expect("the scratch copy can be read and written");
         }
@@ -132,6 +156,9 @@ fn seed(path: &Path) {
             ] {
                 comments.push(key.to_string(), value.to_string());
             }
+            comments
+                .insert_picture(artwork(), None)
+                .expect("the scratch copy can be read and written");
             comments
                 .save_to_path(path, WriteOptions::new())
                 .expect("the scratch copy can be read and written");
@@ -184,13 +211,43 @@ fn all_tags(path: &Path) -> String {
                 .expect("the scratch copy can be read and written")
                 .ilst()
         ),
-        "flac" => format!(
-            "{:?}",
-            FlacFile::read_from(&mut file, options)
-                .expect("the scratch copy can be read and written")
-                .vorbis_comments()
-        ),
+        "flac" => {
+            let file = FlacFile::read_from(&mut file, options)
+                .expect("the scratch copy can be read and written");
+            format!("{:?}", (file.vorbis_comments(), file.pictures()))
+        }
         other => panic!("no tag reader for {other}"),
+    }
+}
+
+/// The bytes of every picture embedded in the file.
+fn pictures(path: &Path) -> Vec<Vec<u8>> {
+    let options = ParseOptions::new().implicit_conversions(false);
+    let mut file = File::open(path).expect("the scratch copy can be read and written");
+    match extension(path) {
+        "mp3" | "wav" | "aiff" => id3v2(path)
+            .into_iter()
+            .flatten()
+            .filter_map(|frame| match frame {
+                Frame::Picture(frame) => Some(frame.picture.data().to_vec()),
+                _ => None,
+            })
+            .collect(),
+        "m4a" => Mp4File::read_from(&mut file, options)
+            .expect("the scratch copy can be read and written")
+            .ilst()
+            .and_then(Ilst::pictures)
+            .into_iter()
+            .flatten()
+            .map(|picture| picture.data().to_vec())
+            .collect(),
+        "flac" => FlacFile::read_from(&mut file, options)
+            .expect("the scratch copy can be read and written")
+            .pictures()
+            .iter()
+            .map(|(picture, _)| picture.data().to_vec())
+            .collect(),
+        other => panic!("no picture reader for {other}"),
     }
 }
 
@@ -231,6 +288,9 @@ fn assert_round_trip(fixture: &str, seeded: bool) {
     }
     let original_bytes = std::fs::read(&path).expect("the scratch copy can be read and written");
     let original_tags = all_tags(&path);
+    let original_pictures = pictures(&path);
+    let expected_pictures: &[Vec<u8>] = if seeded { &[ARTWORK.to_vec()] } else { &[] };
+    assert_eq!(original_pictures, expected_pictures, "{fixture}");
     let original_read = read_tags(&path).expect("the scratch copy can be read and written");
     let original_sample_count = decode_mono(&path)
         .expect("the scratch copy can be read and written")
@@ -273,6 +333,7 @@ fn assert_round_trip(fixture: &str, seeded: bool) {
         original_sample_count,
         "{fixture}"
     );
+    assert_eq!(pictures(&path), original_pictures, "{fixture}");
     if seeded {
         let tags = all_tags(&path);
         for kept in [TITLE, ARTIST, ALBUM] {
@@ -292,6 +353,7 @@ fn assert_round_trip(fixture: &str, seeded: bool) {
 
     undo(&backup).expect("the scratch copy can be read and written");
     assert_eq!(all_tags(&path), original_tags, "{fixture}");
+    assert_eq!(pictures(&path), original_pictures, "{fixture}");
     assert_eq!(
         read_tags(&path).expect("the scratch copy can be read and written"),
         original_read,
