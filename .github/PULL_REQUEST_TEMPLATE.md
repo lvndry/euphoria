@@ -15,4 +15,3 @@ See CONTRIBUTING.md for the checks to run before opening the pull request.
 
 - [ ] `cargo fmt`, `cargo clippy` and `cargo test` pass
 - [ ] Tests cover the change
-- [ ] CHANGELOG.md updated for user-visible changes

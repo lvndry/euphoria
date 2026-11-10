@@ -60,7 +60,6 @@ cargo run --release -p euphoria-bench
 - Give the pull request a descriptive title in the form `type(scope): summary`, for example `fix(core): handle mono AIFF files` or `feat(cli): add --json output`. Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`.
 - Keep each pull request to one change. Large changes are easier to review as a short series.
 - Add tests for new behaviour and for bugs you fix.
-- Add a line to the Unreleased section of [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 - Sign your commits. GitHub explains how in [Signing commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
 - Open the pull request as a draft while it is still in progress.
 
