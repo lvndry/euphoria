@@ -6,7 +6,7 @@
     "persona": "coder",
     "llm": {
       "provider": "openrouter",
-      "model": "openrouter/free",
+      "model": "liquid/lfm-3-1.7b:free",
       "reasoning": "medium"
     },
     "tools": [

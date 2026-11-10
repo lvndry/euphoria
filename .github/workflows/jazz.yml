@@ -59,9 +59,9 @@ env:
   JAZZ_HOME_REPOSITORY: lvndry/euphoria
   # Per-run spend ceiling passed as --max-cost-usd.
   JAZZ_MAX_COST_USD: "2"
-  # The agent's own time budget: 27 of the model jobs' 30 timeout-minutes, so it
-  # writes its answer while there is still time left to post it.
-  JAZZ_MAX_DURATION_MS: "1620000"
+  # The agent's time budget per attempt: 25 minutes. The code review may run two
+  # attempts, so its job allows 60 minutes; the assistant job allows 30.
+  JAZZ_MAX_DURATION_MS: "1500000"
 
 jobs:
   resolve:
@@ -260,7 +260,7 @@ jobs:
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       # One model run at a time per pull request. Only the two model jobs join the
       # group, so comments that trigger nothing never queue behind a review.
@@ -391,10 +391,30 @@ jobs:
             echo 1 > /tmp/jazz-review-exit
             exit 0
           fi
-          jazz workflow run code-review --auto-approve --agent ci-reviewer \
-            --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
-            --json --events tools | tee /tmp/jazz-review.txt
-          echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
+          # Runs the review once. The event stream goes to the job log, and only the
+          # final {"ok":...} envelope is kept in /tmp/jazz-review.txt for the posting step.
+          run_review() {
+            jazz workflow run code-review --auto-approve --agent ci-reviewer \
+              --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
+              --json --events tools | tee /tmp/jazz-review-events.txt
+            echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
+            jq -cR 'fromjson? | select(type == "object" and has("ok"))' /tmp/jazz-review-events.txt \
+              | tail -n 1 > /tmp/jazz-review.txt
+          }
+
+          # A run that finishes but returns no verdict block is retried once with a
+          # fresh agent. Failed runs are not retried: Jazz already retries temporary
+          # model errors, and errors such as a bad key would fail again.
+          has_verdict() {
+            jq -e 'select(.ok == true) | .answer // "" | test("```+markdown")' /tmp/jazz-review.txt > /dev/null 2>&1
+          }
+
+          run_review
+          if [ "$(cat /tmp/jazz-review-exit)" = "0" ] && ! has_verdict; then
+            echo "::warning::The review returned no verdict block. Retrying once."
+            printf '### Jazz Code Review\n\nFirst attempt returned no verdict, retried once.\n' >> "$GITHUB_STEP_SUMMARY"
+            run_review
+          fi
           # A failed run prints {"ok":false,"error":...}. Its cause, with keys redacted,
           # goes to the PR comment and the job summary.
           failure_cause="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-review.txt 2>/dev/null \
