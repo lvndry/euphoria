@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::export::rekordbox::{ExistingFile, ExportOptions, KeyNotation, write_xml_file};
 use euphoria_core::{
@@ -115,21 +115,27 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         unread_tags,
     } = assemble_library(results, layout);
 
+    // The file is written before anything is reported, so that a reader of
+    // standard error that goes away cannot stop the export.
+    let written = if library.tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else {
+        let options = ExportOptions {
+            key_notation: arguments.key_notation.into(),
+        };
+        write_xml_file(&output_file, &library, &options, existing).map_err(with_causes)
+    };
+
     let mut standard_error = std::io::stderr().lock();
     if !skipped.is_empty() {
         output::write_skipped_tracks(&mut standard_error, &skipped)?;
     }
-    if library.tracks.is_empty() {
-        bail!("none of the files could be exported, so nothing was written");
-    }
+    written?;
     if !unread_tags.is_empty() {
         output::write_unread_tags(&mut standard_error, &unread_tags)?;
     }
-
-    let options = ExportOptions {
-        key_notation: arguments.key_notation.into(),
-    };
-    write_xml_file(&output_file, &library, &options, existing).map_err(with_causes)?;
     output::write_export_summary(
         &mut standard_error,
         &output::ExportSummary {
