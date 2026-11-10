@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/mark-white.svg">
+  <img src="assets/logo/mark.svg" alt="" width="72" height="72">
+</picture>
+
 # Euphoria
 
 Find the key and BPM of every track in your music collection, so you can mix in key. Free, open source, and fully offline.
