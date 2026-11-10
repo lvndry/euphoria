@@ -34,6 +34,8 @@ thiserror.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
+# An independent reader and writer of tags, to check ours against.
+lofty.workspace = true
 roxmltree.workspace = true
 
 [features]

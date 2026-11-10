@@ -25,6 +25,9 @@ pub mod harmony;
 pub mod key;
 /// Finding audio files in folders.
 pub mod library;
+/// Reading audio file tags and writing analysis results into them, with a
+/// preview before and an undo after.
+pub mod tags;
 /// Reading the title and artist stored in audio files.
 pub mod track_name;
 

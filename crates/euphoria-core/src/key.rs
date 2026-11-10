@@ -87,6 +87,16 @@ impl Key {
         format!("{number}{letter}")
     }
 
+    /// Short musical name in the form audio tags use, for example "Am" for
+    /// A minor and "Db" for D flat major.
+    pub fn short_name(&self) -> String {
+        let (tonic_names, suffix) = match self.mode {
+            Mode::Major => (&MAJOR_TONIC_NAMES, ""),
+            Mode::Minor => (&MINOR_TONIC_NAMES, "m"),
+        };
+        format!("{}{suffix}", tonic_names[usize::from(self.tonic)])
+    }
+
     /// Reads a Camelot code such as "8A" or an Open Key code such as "1m".
     fn from_wheel_code(code: &str) -> Option<Self> {
         let letter = code.chars().next_back()?;
@@ -196,6 +206,21 @@ mod tests {
         for (text, camelot) in expectations {
             let key: Key = text.parse().unwrap();
             assert_eq!(key.camelot(), camelot, "{text}");
+        }
+    }
+
+    #[test]
+    fn short_names_follow_the_tag_convention() {
+        let expectations = [
+            ("A minor", "Am"),
+            ("Db major", "Db"),
+            ("F# minor", "F#m"),
+            ("C# minor", "C#m"),
+            ("G# minor", "G#m"),
+        ];
+        for (text, short_name) in expectations {
+            let key: Key = text.parse().unwrap();
+            assert_eq!(key.short_name(), short_name, "{text}");
         }
     }
 

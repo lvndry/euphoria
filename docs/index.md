@@ -30,3 +30,4 @@ Writing tags into your files and exports for other DJ software are in developmen
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Curious what the energy number means: [energy rating](concepts/energy.md).
 - Wondering how much to trust the results: [accuracy](concepts/accuracy.md).
+- Want to know what gets written to your files: [tags](reference/tags.md).

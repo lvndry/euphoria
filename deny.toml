@@ -11,7 +11,7 @@ yanked = "deny"
 # this workspace. Check the list again whenever GPUI is updated.
 ignore = [
   { id = "RUSTSEC-2024-0384", reason = "instant is unmaintained; required by GPUI" },
-  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained; required by GPUI and, in tests, by lofty" },
   { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is unmaintained; required by GPUI" },
   { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; required by GPUI" },
   { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained; required by GPUI" },
