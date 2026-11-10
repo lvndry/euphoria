@@ -3,7 +3,7 @@
 
 //! Turns the folders a library is sorted into into a playlist tree.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -42,27 +42,37 @@ pub fn playlists_from_folders(
     loose_playlist_name: &str,
 ) -> Vec<PlaylistNode> {
     let mut used_folders: Vec<&Path> = Vec::new();
+    let mut tree_of_folder: HashMap<&Path, usize> = HashMap::new();
     for folder in folders {
-        if !used_folders.contains(&folder.as_path()) {
+        if !tree_of_folder.contains_key(folder.as_path()) {
+            tree_of_folder.insert(folder, used_folders.len());
             used_folders.push(folder);
         }
     }
 
-    let mut nodes = Vec::new();
-    for folder in &used_folders {
-        let mut tree = FolderTree::default();
-        for track in tracks {
-            if let Ok(inside_folder) = track.strip_prefix(folder) {
-                tree.insert(inside_folder, track);
+    // Each track is looked up through the folders above it, so the work
+    // grows with the number of tracks and not with tracks times folders.
+    let mut trees: Vec<FolderTree> = used_folders.iter().map(|_| FolderTree::default()).collect();
+    let mut loose_tracks: Vec<PathBuf> = Vec::new();
+    for track in tracks {
+        let mut is_inside_a_folder = false;
+        for folder_above in track.ancestors().skip(1) {
+            if let Some(&tree_index) = tree_of_folder.get(folder_above)
+                && let Ok(inside_folder) = track.strip_prefix(folder_above)
+            {
+                trees[tree_index].insert(inside_folder, track);
+                is_inside_a_folder = true;
             }
         }
-        nodes.extend(tree.into_node(folder_name(folder)));
+        if !is_inside_a_folder {
+            loose_tracks.push(track.clone());
+        }
     }
 
-    let loose_tracks: Vec<PathBuf> = tracks
+    let mut nodes: Vec<PlaylistNode> = used_folders
         .iter()
-        .filter(|track| !used_folders.iter().any(|folder| track.starts_with(folder)))
-        .cloned()
+        .zip(trees)
+        .filter_map(|(folder, tree)| tree.into_node(folder_name(folder)))
         .collect();
     if !loose_tracks.is_empty() {
         nodes.push(PlaylistNode::Playlist(Playlist {
@@ -341,6 +351,48 @@ mod tests {
             playlists_from_folders(&paths(&["/"]), &paths(&tracks), "export"),
             vec![playlist("/", &tracks)]
         );
+    }
+
+    #[test]
+    fn a_large_library_with_many_folders_is_mapped_in_one_pass() {
+        const GENRES: usize = 3000;
+        const TRACKS_PER_GENRE: usize = 8;
+        let genre_folder = |genre: usize| format!("/music/genre {genre:04}");
+        let mut folders = vec![PathBuf::from("/music")];
+        folders.extend((0..GENRES).map(|genre| PathBuf::from(genre_folder(genre))));
+        let mut tracks = Vec::new();
+        for genre in 0..GENRES {
+            for track in 0..TRACKS_PER_GENRE {
+                tracks.push(PathBuf::from(format!(
+                    "{}/track {track}.mp3",
+                    genre_folder(genre)
+                )));
+            }
+        }
+        tracks.push(PathBuf::from("/downloads/new.mp3"));
+
+        let nodes = playlists_from_folders(&folders, &tracks, "export");
+
+        assert_eq!(nodes.len(), GENRES + 2);
+        let PlaylistNode::Folder(music) = &nodes[0] else {
+            panic!("the first entry is the music folder");
+        };
+        assert_eq!(music.children.len(), GENRES);
+        for (genre, (inside_music, on_its_own)) in
+            music.children.iter().zip(&nodes[1..]).enumerate()
+        {
+            let expected = PlaylistNode::Playlist(Playlist {
+                name: format!("genre {genre:04}"),
+                tracks: tracks[genre * TRACKS_PER_GENRE..(genre + 1) * TRACKS_PER_GENRE].to_vec(),
+            });
+            assert_eq!(inside_music, &expected);
+            assert_eq!(on_its_own, &expected);
+        }
+        assert_eq!(
+            nodes[GENRES + 1],
+            playlist("export", &["/downloads/new.mp3"])
+        );
+        assert_eq!(playlist_count(&nodes), 2 * GENRES + 1);
     }
 
     #[test]
