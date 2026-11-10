@@ -23,10 +23,11 @@ macOS:
 brew install rust cmake libkeyfinder
 ```
 
-Debian and Ubuntu:
+Debian and Ubuntu, which do not package libkeyfinder, so the script builds it from source:
 
 ```
-sudo apt-get install cargo cmake pkg-config libkeyfinder-dev libfftw3-dev
+sudo apt-get install cargo cmake pkg-config libfftw3-dev
+./.github/scripts/install-libkeyfinder.sh
 ```
 
 Then:

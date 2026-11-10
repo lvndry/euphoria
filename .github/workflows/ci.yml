@@ -75,7 +75,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libkeyfinder-dev libfftw3-dev pkg-config
+          sudo apt-get install -y cmake libfftw3-dev pkg-config
+          ./.github/scripts/install-libkeyfinder.sh
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
