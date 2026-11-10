@@ -5,8 +5,9 @@
   "config": {
     "persona": "coder",
     "llm": {
-      "provider": "openrouter",
-      "model": "nvidia/nemotron-3-ultra-550b-a55b:free"
+      "provider": "chatgpt",
+      "model": "gpt-6-luna",
+      "reasoning": "medium"
     },
     "tools": [
       "context_info",
