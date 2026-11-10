@@ -71,6 +71,31 @@ pub enum EuphoriaError {
         #[source]
         source: Option<ErrorSource>,
     },
+    /// The tags of a file could not be read.
+    #[error("cannot read tags of {path}")]
+    TagRead {
+        /// The file whose tags could not be read.
+        path: PathBuf,
+        /// The tag reader's own error.
+        source: ErrorSource,
+    },
+    /// The tags of a file could not be written. The file is left as it was.
+    #[error("cannot write tags of {path}")]
+    TagWrite {
+        /// The file whose tags could not be written.
+        path: PathBuf,
+        /// The tag writer's own error.
+        source: ErrorSource,
+    },
+    /// A tag field does not hold the value a write plan or a backup expects,
+    /// so nothing was written.
+    #[error("{field} of {path} does not hold the expected value")]
+    TagConflict {
+        /// The file whose tags changed.
+        path: PathBuf,
+        /// The tag field that holds an unexpected value.
+        field: String,
+    },
     /// Text could not be read as a key name such as "A minor".
     #[error("unrecognised key text: {0:?}")]
     UnknownKeyText(String),

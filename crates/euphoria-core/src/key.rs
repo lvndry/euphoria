@@ -61,6 +61,16 @@ impl Key {
         };
         format!("{number}{letter}")
     }
+
+    /// Short musical name in the form audio tags use, for example "Am" for
+    /// A minor and "Db" for D flat major.
+    pub fn short_name(&self) -> String {
+        let suffix = match self.mode {
+            Mode::Major => "",
+            Mode::Minor => "m",
+        };
+        format!("{}{suffix}", NOTE_NAMES[usize::from(self.tonic)])
+    }
 }
 
 impl fmt::Display for Key {
@@ -139,6 +149,15 @@ mod tests {
         for (text, camelot) in expectations {
             let key: Key = text.parse().unwrap();
             assert_eq!(key.camelot(), camelot, "{text}");
+        }
+    }
+
+    #[test]
+    fn short_names_follow_the_tag_convention() {
+        let expectations = [("A minor", "Am"), ("Db major", "Db"), ("F# minor", "Gbm")];
+        for (text, short_name) in expectations {
+            let key: Key = text.parse().unwrap();
+            assert_eq!(key.short_name(), short_name, "{text}");
         }
     }
 

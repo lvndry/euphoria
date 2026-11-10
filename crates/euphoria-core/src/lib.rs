@@ -12,6 +12,9 @@ pub mod detect;
 pub mod error;
 /// Musical keys and Camelot notation.
 pub mod key;
+/// Reading audio file tags and writing analysis results into them, with a
+/// preview before and an undo after.
+pub mod tags;
 
 pub use audio::{AudioBuffer, decode_mono};
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError};

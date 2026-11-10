@@ -20,6 +20,7 @@ stratum-dsp = "1.0.0"
 symphonia = { version = "0.6.1", default-features = false }
 thiserror = "2.0.21"
 cc = "1.11.1"
+lofty = "0.25.5"
 pkg-config = "0.3.34"
 
 [workspace.lints.rust]

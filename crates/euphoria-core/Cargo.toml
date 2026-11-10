@@ -13,6 +13,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+lofty.workspace = true
 stratum-dsp.workspace = true
 symphonia = { workspace = true, features = ["mp3", "aac", "isomp4", "aiff", "flac", "wav", "pcm"] }
 thiserror.workspace = true

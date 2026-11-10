@@ -6,6 +6,9 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, not vulnerable; lofty uses it at compile time only" },
+]
 
 [licenses]
 confidence-threshold = 0.9
