@@ -65,7 +65,7 @@ enum Command {
 enum CacheCommand {
     /// Print where the cache database is stored.
     Path,
-    /// Delete the cache, so every track is analyzed again.
+    /// Forget every cached result, so every track is analyzed again.
     Clear,
 }
 
@@ -114,7 +114,7 @@ fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
         CacheCommand::Path => println!("{}", cache_path.display()),
         CacheCommand::Clear => {
             if clear_cache(&cache_path).map_err(with_causes)? {
-                println!("Deleted {}", cache_path.display());
+                println!("Cleared the cache at {}", cache_path.display());
             } else {
                 println!("There is no cache at {}", cache_path.display());
             }
@@ -136,10 +136,13 @@ fn analyze(
     }
     let mut cache = match cache_use {
         CacheUse::Bypass => None,
-        CacheUse::Use(policy) => {
-            let cache_path = default_cache_path().map_err(with_causes)?;
-            Some((Cache::open(&cache_path).map_err(with_causes)?, policy))
-        }
+        CacheUse::Use(policy) => match open_cache() {
+            Ok(cache) => Some((cache, policy)),
+            Err(error) => {
+                output::write_cache_warning(&mut std::io::stderr().lock(), &error)?;
+                None
+            }
+        },
     };
 
     let job_count = jobs
@@ -151,27 +154,36 @@ fn analyze(
         .context("starting the analysis workers")?;
 
     let progress_bar = progress_bar(audio_files.len());
-    let batch = thread_pool.install(|| {
-        let on_progress = |progress: Progress<'_>| {
-            progress_bar.set_position(progress.completed as u64);
-        };
-        match &mut cache {
-            Some((cache, policy)) => {
-                analyze_files_cached(cache, &audio_files, *policy, on_progress)
+    let on_progress = |progress: Progress<'_>| {
+        progress_bar.set_position(progress.completed as u64);
+    };
+    let analyze_without_cache = || CachedBatch {
+        results: thread_pool.install(|| analyze_files(&audio_files, on_progress)),
+        cached_count: 0,
+        store_error: None,
+    };
+    let batch = match &mut cache {
+        None => analyze_without_cache(),
+        Some((cache, policy)) => {
+            let cached_batch = thread_pool
+                .install(|| analyze_files_cached(cache, &audio_files, *policy, on_progress));
+            match cached_batch {
+                Ok(batch) => batch,
+                Err(error) => {
+                    progress_bar.suspend(|| {
+                        output::write_cache_warning(&mut std::io::stderr().lock(), &error)
+                    })?;
+                    analyze_without_cache()
+                }
             }
-            None => Ok(CachedBatch {
-                results: analyze_files(&audio_files, on_progress),
-                cached_count: 0,
-                store_error: None,
-            }),
         }
-    });
+    };
     progress_bar.finish_and_clear();
     let CachedBatch {
         results,
         cached_count,
         store_error,
-    } = batch.map_err(with_causes)?;
+    } = batch;
 
     let mut standard_output = std::io::stdout().lock();
     if json {
@@ -199,6 +211,10 @@ fn analyze(
     } else {
         ExitCode::FAILURE
     })
+}
+
+fn open_cache() -> Result<Cache, EuphoriaError> {
+    Cache::open(&default_cache_path()?)
 }
 
 fn with_causes(error: EuphoriaError) -> anyhow::Error {

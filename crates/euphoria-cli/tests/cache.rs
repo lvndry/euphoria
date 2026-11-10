@@ -113,24 +113,152 @@ fn a_failed_file_is_tried_again_on_the_next_run() {
     }
 }
 
+/// Asserts that the run analyzed the file and warned that it did so without
+/// the cache at `cache_path`.
+fn assert_analyzed_with_a_cache_warning(output: &Output, cache_path: &Path) {
+    assert_success(output);
+    let table = String::from_utf8_lossy(&output.stdout);
+    assert!(table.starts_with("Key"), "{table}");
+    assert!(table.contains("sine-440hz-mono.wav"), "{table}");
+    let errors = standard_error(output);
+    assert!(
+        errors.starts_with("warning: analyzing without the cache: "),
+        "{errors}"
+    );
+    assert!(errors.contains(text(cache_path)), "{errors}");
+    assert!(errors.contains("euphoria cache clear"), "{errors}");
+    assert!(errors.contains("--no-cache"), "{errors}");
+    assert!(!errors.contains(FROM_THE_CACHE), "{errors}");
+}
+
 #[test]
-fn a_damaged_cache_is_an_error_naming_the_file() {
+fn a_damaged_cache_is_a_warning_and_the_files_are_still_analyzed() {
     let euphoria = Euphoria::new();
-    std::fs::write(euphoria.cache_path(), "not a database ".repeat(500))
-        .expect("the damaged cache is written");
+    let damaged_content = "not a database ".repeat(500);
+    std::fs::write(euphoria.cache_path(), &damaged_content).expect("the damaged cache is written");
     let fixture = fixtures_directory().join("sine-440hz-mono.wav");
 
     let output = euphoria.run(&["analyze", text(&fixture)]);
 
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let errors = standard_error(&output);
-    assert!(errors.starts_with("error: "), "{errors}");
-    assert!(errors.contains(text(&euphoria.cache_path())), "{errors}");
-    assert!(!errors.contains("panicked"), "{errors}");
+    assert_analyzed_with_a_cache_warning(&output, &euphoria.cache_path());
+    assert!(standard_error(&output).contains("not a database"));
+    assert_eq!(
+        std::fs::read_to_string(euphoria.cache_path()).expect("the damaged cache is read"),
+        damaged_content
+    );
 
     assert_success(&euphoria.run(&["cache", "clear"]));
+    let after_clearing = euphoria.run(&["analyze", text(&fixture)]);
+    assert_success(&after_clearing);
+    assert_eq!(standard_error(&after_clearing), "");
+}
+
+#[test]
+fn a_damaged_cache_does_not_hide_a_failed_file() {
+    let euphoria = Euphoria::new();
+    std::fs::write(euphoria.cache_path(), "not a database ".repeat(500))
+        .expect("the damaged cache is written");
+    let readme = fixtures_directory().join("README.md");
+
+    let output = euphoria.run(&["analyze", "--reanalyze", text(&readme)]);
+
+    assert!(!output.status.success());
+    let errors = standard_error(&output);
+    assert!(
+        errors.contains("warning: analyzing without the cache"),
+        "{errors}"
+    );
+    assert!(errors.contains("Could not analyze 1 file:"), "{errors}");
+}
+
+#[test]
+fn a_cache_with_a_damaged_row_is_a_warning_and_the_files_are_still_analyzed() {
+    let euphoria = Euphoria::new();
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
     assert_success(&euphoria.run(&["analyze", text(&fixture)]));
+    rusqlite::Connection::open(euphoria.cache_path())
+        .expect("the cache opens")
+        .execute("UPDATE analyses SET key = 'H dorian'", [])
+        .expect("the row is damaged");
+
+    let output = euphoria.run(&["analyze", text(&fixture)]);
+
+    assert_analyzed_with_a_cache_warning(&output, &euphoria.cache_path());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_data_folder_is_a_warning_and_the_files_are_still_analyzed() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let euphoria = Euphoria::new();
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let set_mode = |mode| {
+        std::fs::set_permissions(
+            euphoria.data_directory(),
+            std::fs::Permissions::from_mode(mode),
+        )
+        .expect("the folder's permissions are set");
+    };
+
+    set_mode(0o555);
+    let without_database = euphoria.run(&["analyze", text(&fixture)]);
+    set_mode(0o755);
+    assert_analyzed_with_a_cache_warning(&without_database, &euphoria.cache_path());
+    assert!(!euphoria.cache_path().exists());
+
+    assert_success(&euphoria.run(&["analyze", text(&fixture)]));
+    set_mode(0o555);
+    let with_database = euphoria.run(&["analyze", "--reanalyze", text(&fixture)]);
+    set_mode(0o755);
+    assert_analyzed_with_a_cache_warning(&with_database, &euphoria.cache_path());
+}
+
+#[test]
+fn processes_started_together_on_an_empty_data_folder_all_succeed() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    for round in 0..25 {
+        let euphoria = Euphoria::new();
+        let processes: Vec<_> = (0..6)
+            .map(|_| {
+                euphoria
+                    .command(&["analyze", text(&fixture)])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .expect("the euphoria binary starts")
+            })
+            .collect();
+        for process in processes {
+            let output = process.wait_with_output().expect("the process finishes");
+            let errors = standard_error(&output);
+            assert!(output.status.success(), "round {round}: {errors}");
+            assert!(!errors.contains("warning"), "round {round}: {errors}");
+            assert!(String::from_utf8_lossy(&output.stdout).starts_with("Key"));
+        }
+    }
+}
+
+#[test]
+fn a_relative_data_folder_is_taken_from_the_current_directory() {
+    let working_directory = TemporaryFolder::new();
+    let working_directory = working_directory
+        .path()
+        .canonicalize()
+        .expect("the temporary folder resolves");
+
+    let output = Euphoria::new()
+        .command(&["cache", "path"])
+        .env("EUPHORIA_DATA_DIR", "relative/data")
+        .current_dir(&working_directory)
+        .output()
+        .expect("the euphoria binary runs");
+
+    assert_success(&output);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim_end(),
+        text(&working_directory.join("relative/data/analysis-cache.sqlite3"))
+    );
 }
 
 #[test]
@@ -145,21 +273,27 @@ fn cache_path_prints_the_database_location() {
 }
 
 #[test]
-fn cache_clear_deletes_the_database() {
+fn cache_clear_forgets_every_result() {
     let euphoria = Euphoria::new();
     let fixture = fixtures_directory().join("sine-440hz-mono.wav");
     assert_success(&euphoria.run(&["analyze", text(&fixture)]));
 
     let cleared = euphoria.run(&["cache", "clear"]);
     assert_success(&cleared);
-    assert!(String::from_utf8_lossy(&cleared.stdout).starts_with("Deleted "));
-    assert!(!euphoria.cache_path().exists());
-
-    let cleared_again = euphoria.run(&["cache", "clear"]);
-    assert_success(&cleared_again);
-    assert!(String::from_utf8_lossy(&cleared_again.stdout).starts_with("There is no cache at "));
+    assert!(String::from_utf8_lossy(&cleared.stdout).starts_with("Cleared the cache at "));
 
     let after_clearing = euphoria.run(&["analyze", text(&fixture)]);
     assert_success(&after_clearing);
     assert!(!standard_error(&after_clearing).contains(FROM_THE_CACHE));
+}
+
+#[test]
+fn cache_clear_without_a_cache_says_so_and_creates_none() {
+    let euphoria = Euphoria::new();
+
+    let cleared = euphoria.run(&["cache", "clear"]);
+
+    assert_success(&cleared);
+    assert!(String::from_utf8_lossy(&cleared.stdout).starts_with("There is no cache at "));
+    assert!(!euphoria.cache_path().exists());
 }

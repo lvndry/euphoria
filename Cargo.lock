@@ -282,6 +282,7 @@ dependencies = [
  "euphoria-core",
  "indicatif",
  "rayon",
+ "rusqlite",
  "serde",
  "serde_json",
 ]

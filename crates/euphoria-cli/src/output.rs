@@ -5,7 +5,7 @@
 
 use std::io::{self, Write};
 
-use euphoria_core::{FileResult, Key};
+use euphoria_core::{EuphoriaError, FileResult, Key};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -130,6 +130,20 @@ pub fn write_cache_summary(
     )
 }
 
+/// Writes that the cache could not be used and why, that the files are
+/// analyzed regardless, and how to make the warning go away.
+pub fn write_cache_warning(writer: &mut impl Write, error: &EuphoriaError) -> io::Result<()> {
+    writeln!(
+        writer,
+        "warning: analyzing without the cache: {}",
+        error.chain()
+    )?;
+    writeln!(
+        writer,
+        "  Run `euphoria cache clear` to reset the cache, or pass --no-cache to skip it."
+    )
+}
+
 fn format_duration(seconds: f32) -> String {
     let whole_seconds = seconds.round() as u64;
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
@@ -143,7 +157,7 @@ fn round_to_tenths(value: f32) -> f32 {
 mod tests {
     use std::path::PathBuf;
 
-    use euphoria_core::{EuphoriaError, Mode, TrackAnalysis};
+    use euphoria_core::{Mode, TrackAnalysis};
 
     use super::*;
 
@@ -209,6 +223,18 @@ Key             BPM  Time  File
             String::from_utf8(buffer).unwrap(),
             "5 of 7 tracks came from the cache.\n1 of 1 track came from the cache.\n"
         );
+    }
+
+    #[test]
+    fn cache_warning_gives_the_cause_and_the_two_ways_out() {
+        let mut buffer = Vec::new();
+        let error = EuphoriaError::UnknownKeyText("example".to_string());
+        write_cache_warning(&mut buffer, &error).unwrap();
+        let warning = String::from_utf8(buffer).unwrap();
+        assert!(warning.starts_with("warning: analyzing without the cache: "));
+        assert!(warning.contains("example"));
+        assert!(warning.contains("euphoria cache clear"));
+        assert!(warning.contains("--no-cache"));
     }
 
     #[test]

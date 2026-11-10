@@ -33,6 +33,8 @@ To analyze tracks again whatever is remembered, for example after a result looke
 euphoria analyze --reanalyze ~/Music/DJ/track.flac
 ```
 
+If the remembered results cannot be used, for example because their file is damaged, Euphoria says so in a warning and analyzes every track anyway. `euphoria cache clear` fixes a damaged file.
+
 `--no-cache` analyzes without reading or saving anything. `euphoria cache path` prints where the results are kept and `euphoria cache clear` forgets all of them. The [command reference](../reference/cli.md#the-analysis-cache) has the details.
 
 ## Large libraries and memory

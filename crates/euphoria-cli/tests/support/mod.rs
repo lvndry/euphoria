@@ -48,11 +48,22 @@ impl Euphoria {
     }
 
     pub fn run(&self, arguments: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_euphoria"))
-            .args(arguments)
-            .env("EUPHORIA_DATA_DIR", self.data_directory.path())
+        self.command(arguments)
             .output()
             .expect("the euphoria binary runs")
+    }
+
+    pub fn command(&self, arguments: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_euphoria"));
+        command
+            .args(arguments)
+            .env("EUPHORIA_DATA_DIR", self.data_directory.path());
+        command
+    }
+
+    #[allow(dead_code)]
+    pub fn data_directory(&self) -> &Path {
+        self.data_directory.path()
     }
 
     #[allow(dead_code)]
