@@ -15,7 +15,7 @@ use clap::{Parser, Subcommand};
 use euphoria_core::{analyze_files, find_audio_files};
 use indicatif::{ProgressBar, ProgressStyle};
 
-/// Each worker can hold about a gigabyte while analyzing a track, so the
+/// Each worker can hold 2 to 3 GB while analyzing a full length track, so the
 /// default stays well below the core count of most machines.
 const DEFAULT_MAXIMUM_JOBS: usize = 4;
 

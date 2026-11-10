@@ -26,7 +26,7 @@ pub struct Key {
 }
 
 const NOTE_NAMES: [&str; 12] = [
-    "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B",
+    "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
 ];
 
 impl Key {
@@ -154,6 +154,7 @@ mod tests {
 
     #[test]
     fn tonic_is_always_a_valid_pitch_class() {
+        assert_eq!(Key::new(6, Mode::Minor).to_string(), "F# minor");
         let key = Key::new(12, Mode::Minor);
         assert_eq!(key.tonic(), 0);
         assert_eq!(key.to_string(), "C minor");

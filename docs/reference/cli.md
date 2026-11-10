@@ -33,7 +33,7 @@ A `-` means nothing was detected, for example in silence or a track shorter than
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
-Each worker can use about 2 GB of memory on a full length track, which is why the default stops at 4. Lower `--jobs` on a machine with little memory.
+Each worker can use 2 to 3 GB of memory on a full length track, which is why the default stops at 4. Lower `--jobs` on a machine with little memory.
 
 ### JSON output
 

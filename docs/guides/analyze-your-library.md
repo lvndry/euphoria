@@ -17,7 +17,7 @@ Folders are searched recursively. Hidden files are skipped, including the `._` c
 
 ## Large libraries and memory
 
-Euphoria analyzes several tracks at once: as many as your computer has cores, up to 4. Each one can use about 2 GB of memory on a full length track. On a computer with 8 GB of memory or less, analyze fewer tracks at once:
+Euphoria analyzes several tracks at once: as many as your computer has cores, up to 4. Each one can use 2 to 3 GB of memory on a full length track. On a computer with 8 GB of memory or less, analyze fewer tracks at once:
 
 ```
 euphoria analyze --jobs 2 ~/Music/DJ
