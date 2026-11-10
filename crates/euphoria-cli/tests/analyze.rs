@@ -71,3 +71,31 @@ fn a_missing_path_is_an_error() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("/definitely/not/here"));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_reader_that_stops_early_is_not_an_error() {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_euphoria"))
+        .args(["analyze", "--no-cache"])
+        .arg(fixtures_directory())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the euphoria binary runs");
+    drop(child.stdout.take());
+
+    let mut errors = String::new();
+    child
+        .stderr
+        .take()
+        .expect("standard error is piped")
+        .read_to_string(&mut errors)
+        .expect("standard error is readable");
+    let status = child.wait().expect("the process exits");
+
+    assert!(status.success(), "{errors}");
+    assert!(!errors.contains("Broken pipe"), "{errors}");
+}

@@ -79,11 +79,23 @@ enum CacheUse {
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(exit_code) => exit_code,
+        Err(error) if is_broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error:#}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// True when output failed because the reader went away, as when the command
+/// is piped into `head`. The reader has what it wanted, so this is not an
+/// error worth reporting.
+fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_error| io_error.kind() == std::io::ErrorKind::BrokenPipe)
+    })
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
@@ -237,4 +249,27 @@ fn progress_bar(total: usize) -> ProgressBar {
         progress_bar.set_style(style);
     }
     progress_bar
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Context;
+
+    use super::*;
+
+    #[test]
+    fn recognises_a_broken_pipe_under_added_context() {
+        let broken_pipe = std::io::Error::from(std::io::ErrorKind::BrokenPipe);
+        let error = Err::<(), _>(broken_pipe)
+            .context("writing the table")
+            .unwrap_err();
+        assert!(is_broken_pipe(&error));
+    }
+
+    #[test]
+    fn other_errors_are_still_reported() {
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(!is_broken_pipe(&anyhow::Error::from(denied)));
+        assert!(!is_broken_pipe(&anyhow::anyhow!("no audio files")));
+    }
 }
