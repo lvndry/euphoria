@@ -250,3 +250,26 @@ fn progress_bar(total: usize) -> ProgressBar {
     }
     progress_bar
 }
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Context;
+
+    use super::*;
+
+    #[test]
+    fn recognises_a_broken_pipe_under_added_context() {
+        let broken_pipe = std::io::Error::from(std::io::ErrorKind::BrokenPipe);
+        let error = Err::<(), _>(broken_pipe)
+            .context("writing the table")
+            .unwrap_err();
+        assert!(is_broken_pipe(&error));
+    }
+
+    #[test]
+    fn other_errors_are_still_reported() {
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(!is_broken_pipe(&anyhow::Error::from(denied)));
+        assert!(!is_broken_pipe(&anyhow::anyhow!("no audio files")));
+    }
+}
