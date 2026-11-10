@@ -17,9 +17,14 @@ stratum-dsp.workspace = true
 symphonia = { workspace = true, features = ["mp3", "aac", "isomp4", "aiff", "flac", "wav", "pcm"] }
 thiserror.workspace = true
 
+[features]
+default = ["libkeyfinder"]
+# Key detection through libkeyfinder, a C++ library found with pkg-config.
+libkeyfinder = ["dep:cc", "dep:pkg-config"]
+
 [build-dependencies]
-cc.workspace = true
-pkg-config.workspace = true
+cc = { workspace = true, optional = true }
+pkg-config = { workspace = true, optional = true }
 
 [lints]
 workspace = true

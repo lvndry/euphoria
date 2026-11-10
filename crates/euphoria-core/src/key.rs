@@ -15,13 +15,14 @@ pub enum Mode {
     Minor,
 }
 
-/// A musical key. `tonic` is a pitch class where 0 is C and 11 is B.
+/// A musical key: a tonic pitch class and a mode.
+///
+/// The tonic is always in the range 0 (C) to 11 (B); [`Key::new`] wraps any
+/// other value into that range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key {
-    /// Pitch class of the tonic, 0 to 11.
-    pub tonic: u8,
-    /// Major or minor.
-    pub mode: Mode,
+    tonic: u8,
+    mode: Mode,
 }
 
 const NOTE_NAMES: [&str; 12] = [
@@ -35,6 +36,16 @@ impl Key {
             tonic: tonic % 12,
             mode,
         }
+    }
+
+    /// Pitch class of the tonic, 0 (C) to 11 (B).
+    pub fn tonic(&self) -> u8 {
+        self.tonic
+    }
+
+    /// Major or minor.
+    pub fn mode(&self) -> Mode {
+        self.mode
     }
 
     /// Camelot code, for example "8A" for A minor and "8B" for C major.
@@ -70,7 +81,8 @@ impl fmt::Display for Key {
 impl FromStr for Key {
     type Err = EuphoriaError;
 
-    /// Parses text such as "A minor", "Db major" or "F# minor".
+    /// Parses text such as "A minor", "Db major" or "F# minor". Anything after
+    /// the mode is rejected.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let unknown = || EuphoriaError::UnknownKeyText(text.to_string());
         let mut words = text.split_whitespace();
@@ -80,6 +92,9 @@ impl FromStr for Key {
             Some("minor") => Mode::Minor,
             _ => return Err(unknown()),
         };
+        if words.next().is_some() {
+            return Err(unknown());
+        }
 
         let mut characters = note.chars();
         let letter = characters.next().ok_or_else(unknown)?.to_ascii_uppercase();
@@ -138,7 +153,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_text_without_a_mode() {
-        assert!("A".parse::<Key>().is_err());
+    fn tonic_is_always_a_valid_pitch_class() {
+        let key = Key::new(12, Mode::Minor);
+        assert_eq!(key.tonic(), 0);
+        assert_eq!(key.to_string(), "C minor");
+        assert_eq!(Key::new(u8::MAX, Mode::Major).tonic(), u8::MAX % 12);
+    }
+
+    #[test]
+    fn rejects_malformed_text() {
+        for text in [
+            "",
+            "A",
+            "H minor",
+            "A dorian",
+            "Abb minor",
+            "A minor nonsense",
+        ] {
+            assert!(text.parse::<Key>().is_err(), "{text:?} should not parse");
+        }
     }
 }

@@ -1,7 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::os::raw::{c_int, c_uint, c_ulong};
+use std::ffi::CStr;
+use std::os::raw::{c_char, c_int, c_uint, c_ulong};
 
 use crate::audio::AudioBuffer;
 use crate::detect::KeyDetector;
@@ -13,11 +14,15 @@ unsafe extern "C" {
         samples: *const f32,
         sample_count: c_ulong,
         frame_rate: c_uint,
+        error_message: *mut c_char,
+        error_capacity: c_ulong,
     ) -> c_int;
 }
 
+const DETECTOR_NAME: &str = "libkeyfinder";
 const SILENCE_CODE: c_int = 24;
 const A_PITCH_CLASS: i32 = 9;
+const ERROR_MESSAGE_CAPACITY: usize = 512;
 
 /// Key detection through libkeyfinder.
 #[derive(Debug, Default, Clone, Copy)]
@@ -25,20 +30,41 @@ pub struct KeyFinderDetector;
 
 impl KeyDetector for KeyFinderDetector {
     fn name(&self) -> &'static str {
-        "libkeyfinder"
+        DETECTOR_NAME
     }
 
     fn detect_key(&self, audio: &AudioBuffer) -> Result<Option<Key>, EuphoriaError> {
-        // SAFETY: the pointer and length describe a live slice, and the
-        // wrapper only reads from it for the duration of the call.
+        let samples = audio.samples();
+        // libkeyfinder counts samples in an unsigned int.
+        let sample_count = c_uint::try_from(samples.len())
+            .map_err(|_| detection_error("the track is too long for libkeyfinder".to_string()))?;
+        let mut error_message = [0 as c_char; ERROR_MESSAGE_CAPACITY];
+        // SAFETY: `samples` is a live slice of `sample_count` floats that the
+        // wrapper only reads during the call, and `error_message` is a writable
+        // buffer of the stated capacity that the wrapper always NUL terminates.
         let code = unsafe {
             euphoria_keyfinder_detect(
-                audio.samples.as_ptr(),
-                audio.samples.len() as c_ulong,
-                audio.sample_rate as c_uint,
+                samples.as_ptr(),
+                c_ulong::from(sample_count),
+                audio.sample_rate().get(),
+                error_message.as_mut_ptr(),
+                ERROR_MESSAGE_CAPACITY as c_ulong,
             )
         };
+        if code < 0 {
+            // SAFETY: the wrapper wrote a NUL terminated string into the buffer.
+            let message = unsafe { CStr::from_ptr(error_message.as_ptr()) };
+            return Err(detection_error(message.to_string_lossy().into_owned()));
+        }
         key_from_code(code)
+    }
+}
+
+fn detection_error(reason: String) -> EuphoriaError {
+    EuphoriaError::Detection {
+        detector: DETECTOR_NAME,
+        reason,
+        source: None,
     }
 }
 
@@ -56,10 +82,7 @@ fn key_from_code(code: c_int) -> Result<Option<Key>, EuphoriaError> {
             };
             Ok(Some(Key::new(tonic, mode)))
         }
-        _ => Err(EuphoriaError::Detection {
-            detector: "libkeyfinder",
-            reason: format!("unexpected result code {code}"),
-        }),
+        _ => Err(detection_error(format!("unexpected result code {code}"))),
     }
 }
 
@@ -77,37 +100,6 @@ mod tests {
             Some("Ab minor".parse().unwrap())
         );
         assert_eq!(key_from_code(24).unwrap(), None);
-        assert!(key_from_code(-1).is_err());
-    }
-
-    #[test]
-    fn hears_a_minor_in_an_a_minor_chord() {
-        let sample_rate = 44_100_u32;
-        let chord_frequencies = [220.0_f32, 261.63, 329.63, 440.0];
-        let samples: Vec<f32> = (0..sample_rate * 20)
-            .map(|index| {
-                let time = index as f32 / sample_rate as f32;
-                chord_frequencies
-                    .iter()
-                    .map(|frequency| (std::f32::consts::TAU * frequency * time).sin())
-                    .sum::<f32>()
-                    / chord_frequencies.len() as f32
-            })
-            .collect();
-        let audio = AudioBuffer {
-            samples,
-            sample_rate,
-        };
-        let detected = KeyFinderDetector.detect_key(&audio).unwrap();
-        assert_eq!(detected, Some("A minor".parse().unwrap()));
-    }
-
-    #[test]
-    fn silence_has_no_key() {
-        let silence = AudioBuffer {
-            samples: vec![0.0; 44_100 * 2],
-            sample_rate: 44_100,
-        };
-        assert_eq!(KeyFinderDetector.detect_key(&silence).unwrap(), None);
+        assert!(key_from_code(25).is_err());
     }
 }

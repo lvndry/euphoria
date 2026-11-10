@@ -79,3 +79,5 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+      - name: Test without libkeyfinder
+        run: cargo test -p euphoria-core --no-default-features --locked

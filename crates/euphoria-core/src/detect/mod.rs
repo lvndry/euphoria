@@ -4,9 +4,11 @@
 //! Key and tempo detectors behind common traits, so the benchmark and the
 //! product can swap implementations.
 
+#[cfg(feature = "libkeyfinder")]
 mod keyfinder;
 mod stratum;
 
+#[cfg(feature = "libkeyfinder")]
 pub use keyfinder::KeyFinderDetector;
 pub use stratum::StratumDetector;
 
@@ -33,4 +35,14 @@ pub trait TempoDetector: Sync {
     /// detectable tempo, such as silence. Errors are reserved for analysis
     /// that failed.
     fn detect_tempo(&self, audio: &AudioBuffer) -> Result<Option<f32>, EuphoriaError>;
+}
+
+/// Key and tempo from one analysis pass. Either is `None` when it could not
+/// be detected.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Analysis {
+    /// The detected key.
+    pub key: Option<Key>,
+    /// The detected tempo in beats per minute.
+    pub tempo: Option<f32>,
 }

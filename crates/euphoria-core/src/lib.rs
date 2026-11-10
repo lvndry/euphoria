@@ -14,5 +14,5 @@ pub mod error;
 pub mod key;
 
 pub use audio::{AudioBuffer, decode_mono};
-pub use error::EuphoriaError;
+pub use error::{DecodeFailure, ErrorSource, EuphoriaError};
 pub use key::{Key, Mode};

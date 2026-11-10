@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::fs::File;
+use std::num::NonZeroU32;
 use std::path::Path;
 
 use symphonia::core::codecs::audio::AudioDecoderOptions;
@@ -11,21 +12,37 @@ use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
-use crate::error::EuphoriaError;
+use crate::error::{DecodeFailure, EuphoriaError};
 
 /// Decoded audio mixed down to one channel.
 #[derive(Debug, Clone)]
 pub struct AudioBuffer {
-    /// Mono samples in the range -1.0 to 1.0.
-    pub samples: Vec<f32>,
-    /// Samples per second.
-    pub sample_rate: u32,
+    samples: Vec<f32>,
+    sample_rate: NonZeroU32,
 }
 
 impl AudioBuffer {
+    /// Wraps mono samples, nominally in the range -1.0 to 1.0.
+    pub fn new(samples: Vec<f32>, sample_rate: NonZeroU32) -> Self {
+        Self {
+            samples,
+            sample_rate,
+        }
+    }
+
+    /// The mono samples.
+    pub fn samples(&self) -> &[f32] {
+        &self.samples
+    }
+
+    /// Samples per second.
+    pub fn sample_rate(&self) -> NonZeroU32 {
+        self.sample_rate
+    }
+
     /// Length of the audio in seconds.
     pub fn duration_seconds(&self) -> f32 {
-        self.samples.len() as f32 / self.sample_rate as f32
+        self.samples.len() as f32 / self.sample_rate.get() as f32
     }
 
     /// True when no sample rises above roughly -100 dBFS, so there is nothing
@@ -41,9 +58,15 @@ const SILENCE_THRESHOLD: f32 = 1.0e-5;
 
 /// Decodes a whole audio file and averages its channels into mono.
 pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
-    let decode_error = |reason: String| EuphoriaError::Decode {
+    let decode_error = |error: SymphoniaError| EuphoriaError::Decode {
         path: path.to_path_buf(),
-        reason,
+        failure: classify(&error),
+        source: Some(Box::new(error)),
+    };
+    let missing = |failure: DecodeFailure| EuphoriaError::Decode {
+        path: path.to_path_buf(),
+        failure,
+        source: None,
     };
 
     let file = File::open(path).map_err(|source| EuphoriaError::Open {
@@ -64,20 +87,20 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
             FormatOptions::default(),
             MetadataOptions::default(),
         )
-        .map_err(|error| decode_error(error.to_string()))?;
+        .map_err(decode_error)?;
 
     let track = format
         .default_track(TrackType::Audio)
-        .ok_or_else(|| decode_error("no audio track".to_string()))?;
+        .ok_or_else(|| missing(DecodeFailure::NoAudioTrack))?;
     let track_id = track.id;
     let codec_parameters = track
         .codec_params
         .as_ref()
         .and_then(|parameters| parameters.audio())
-        .ok_or_else(|| decode_error("no audio codec parameters".to_string()))?;
+        .ok_or_else(|| missing(DecodeFailure::NoAudioTrack))?;
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(codec_parameters, &AudioDecoderOptions::default())
-        .map_err(|error| decode_error(error.to_string()))?;
+        .map_err(decode_error)?;
 
     let mut mono_samples: Vec<f32> = Vec::new();
     let mut interleaved: Vec<f32> = Vec::new();
@@ -92,7 +115,7 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
             {
                 break;
             }
-            Err(error) => return Err(decode_error(error.to_string())),
+            Err(error) => return Err(decode_error(error)),
         };
         if packet.track_id != track_id {
             continue;
@@ -109,18 +132,23 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
                 );
             }
             Err(SymphoniaError::DecodeError(_)) => continue,
-            Err(error) => return Err(decode_error(error.to_string())),
+            Err(error) => return Err(decode_error(error)),
         }
     }
 
-    if mono_samples.is_empty() || sample_rate == 0 {
+    let sample_rate = NonZeroU32::new(sample_rate).filter(|_| !mono_samples.is_empty());
+    let Some(sample_rate) = sample_rate else {
         return Err(EuphoriaError::EmptyAudio {
             path: path.to_path_buf(),
         });
-    }
+    };
+    Ok(AudioBuffer::new(mono_samples, sample_rate))
+}
 
-    Ok(AudioBuffer {
-        samples: mono_samples,
-        sample_rate,
-    })
+fn classify(error: &SymphoniaError) -> DecodeFailure {
+    match error {
+        SymphoniaError::Unsupported(_) => DecodeFailure::UnsupportedFormat,
+        SymphoniaError::IoError(_) => DecodeFailure::Read,
+        _ => DecodeFailure::Malformed,
+    }
 }
