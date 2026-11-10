@@ -1,3 +1,6 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Measures key and tempo detectors against the GiantSteps datasets and
 //! prints a Markdown report.
 

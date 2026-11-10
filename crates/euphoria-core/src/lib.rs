@@ -1,3 +1,6 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Product logic for Euphoria: decoding, key and tempo detection, harmony.
 //! This crate has no user interface and prints nothing.
 

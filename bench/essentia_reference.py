@@ -1,3 +1,6 @@
+# Copyright 2026 The Euphoria contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # /// script
 # requires-python = ">=3.12,<3.14"
 # dependencies = ["essentia", "numpy"]

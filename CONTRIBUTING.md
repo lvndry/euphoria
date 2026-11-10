@@ -66,6 +66,13 @@ cargo run --release -p euphoria-bench
 
 ## Code conventions
 
+- Start each new source file with the license notice, in that file's comment syntax:
+
+  ```
+  // Copyright 2026 The Euphoria contributors
+  // SPDX-License-Identifier: GPL-3.0-or-later
+  ```
+
 - Public items in `euphoria-core` are documented.
 - Every `unsafe` block has a `// SAFETY:` comment explaining why it is sound.
 - Errors are returned, not swallowed. A batch reports which files failed and why.
