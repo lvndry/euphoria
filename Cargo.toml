@@ -15,7 +15,9 @@ rust-version = "1.88"
 [workspace.dependencies]
 euphoria-core = { version = "0.1.0", path = "crates/euphoria-core" }
 anyhow = "1.0.100"
+ebur128 = "0.1.11"
 rayon = "1.11.0"
+rustfft = "6.4.1"
 stratum-dsp = "1.0.0"
 symphonia = { version = "0.6.1", default-features = false }
 thiserror = "2.0.21"

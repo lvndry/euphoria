@@ -4,7 +4,7 @@ Euphoria is a Cargo workspace. All product logic lives in one library crate, and
 
 ```
 crates/
-  euphoria-core/    the library: decoding, detection, harmony
+  euphoria-core/    the library: decoding, detection, energy, harmony
   euphoria-bench/   accuracy benchmark, not shipped to users
 bench/              dataset download script, Essentia reference script, results
 ```
@@ -24,6 +24,7 @@ A command line tool (`euphoria-cli`) and a desktop app (`euphoria-app`) will joi
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
 | `key` | The `Key` type, Camelot codes and parsing of key names. |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
+| `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
 ### Detectors
