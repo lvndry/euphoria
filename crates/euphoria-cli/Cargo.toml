@@ -1,0 +1,29 @@
+[package]
+name = "euphoria-cli"
+version = "0.1.0"
+description = "Command line tool for key, tempo and energy analysis of DJ libraries"
+readme = "../../README.md"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "euphoria"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+euphoria-core.workspace = true
+indicatif.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

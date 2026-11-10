@@ -43,6 +43,14 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
+    /// A file or folder could not be read while looking for audio files.
+    #[error("cannot read {path}")]
+    Scan {
+        /// The file or folder that could not be read.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
     /// The file was opened but its audio could not be decoded.
     #[error("cannot decode {path}: {failure}")]
     Decode {

@@ -13,9 +13,11 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rayon.workspace = true
 stratum-dsp.workspace = true
 symphonia = { workspace = true, features = ["mp3", "aac", "isomp4", "aiff", "flac", "wav", "pcm"] }
 thiserror.workspace = true
+walkdir.workspace = true
 
 [features]
 default = ["libkeyfinder"]

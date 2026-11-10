@@ -37,17 +37,20 @@ Until then you can build from source, see below.
 
 ## Usage
 
-The command line tool analyzes a folder and prints a table, or JSON for scripting:
+`euphoria analyze` takes audio files or folders, searches folders recursively, and prints the key and tempo of every track:
 
 ```
-euphoria analyze ~/Music/DJ
-euphoria analyze ~/Music/DJ --json
-euphoria analyze ~/Music/DJ --write-tags --preset rekordbox
+$ euphoria analyze ~/Music/DJ
+Key             BPM  Time  File
+8A   A minor  124.0  6:48  /Users/you/Music/DJ/Low Tide.flac
+9A   E minor  122.0  7:12  /Users/you/Music/DJ/Saffron.m4a
 ```
 
-The desktop app does the same with a library view: drop a folder in, sort and filter by key, BPM and energy, and select a track to see its waveform, its key confidence and the tracks that mix with it.
+Add `--json` for output a script can read, with one object per file including files that failed and why. `--jobs` sets how many files are analyzed at once; the default is the number of cores, up to 4, because each worker can use about 2 GB of memory on a full length track.
 
-The command line tool and the desktop app are in development, so these commands are not available in a release yet.
+The command exits with status 1 when any file could not be analyzed, after listing those files and the reason.
+
+Writing tags, energy ratings and the desktop app are in development.
 
 ## Accuracy
 
@@ -83,12 +86,13 @@ uv run bench/essentia_reference.py bench/data
 
 ```
 crates/
-  euphoria-core/    decoding, key and tempo detection, harmony. No user interface.
+  euphoria-core/    decoding, key and tempo detection, library scanning. No user interface.
+  euphoria-cli/     the `euphoria` command line tool
   euphoria-bench/   accuracy benchmark runner
 bench/              dataset download and reference scripts, results
 ```
 
-The CLI and the desktop app will each be their own crate on top of `euphoria-core`.
+The desktop app will be another crate on top of `euphoria-core`. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Contributing
 
