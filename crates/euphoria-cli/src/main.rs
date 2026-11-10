@@ -79,11 +79,23 @@ enum CacheUse {
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(exit_code) => exit_code,
+        Err(error) if is_broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error:#}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// True when output failed because the reader went away, as when the command
+/// is piped into `head`. The reader has what it wanted, so this is not an
+/// error worth reporting.
+fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_error| io_error.kind() == std::io::ErrorKind::BrokenPipe)
+    })
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
