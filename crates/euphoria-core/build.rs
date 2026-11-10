@@ -1,3 +1,8 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Compiles the C++ wrapper around libkeyfinder and links the library.
+
 fn main() {
     let keyfinder = pkg_config::Config::new()
         .probe("libkeyfinder")

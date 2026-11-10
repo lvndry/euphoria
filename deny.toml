@@ -1,0 +1,21 @@
+# Dependency policy checked by cargo-deny in CI: known vulnerabilities,
+# licenses compatible with GPL-3.0-or-later, and where crates come from.
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+confidence-threshold = 0.9
+allow = ["Apache-2.0", "BSD-3-Clause", "GPL-3.0-or-later", "MIT", "MPL-2.0", "Unicode-3.0", "Zlib"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

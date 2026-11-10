@@ -1,18 +1,26 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::fmt;
 use std::str::FromStr;
 
 use crate::error::EuphoriaError;
 
+/// Whether a key is major or minor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mode {
+    /// A major key.
     Major,
+    /// A minor key.
     Minor,
 }
 
 /// A musical key. `tonic` is a pitch class where 0 is C and 11 is B.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key {
+    /// Pitch class of the tonic, 0 to 11.
     pub tonic: u8,
+    /// Major or minor.
     pub mode: Mode,
 }
 
@@ -21,6 +29,7 @@ const NOTE_NAMES: [&str; 12] = [
 ];
 
 impl Key {
+    /// Creates a key, wrapping `tonic` into the range 0 to 11.
     pub fn new(tonic: u8, mode: Mode) -> Self {
         Self {
             tonic: tonic % 12,

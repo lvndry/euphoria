@@ -1,3 +1,6 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::fs::File;
 use std::path::Path;
 
@@ -13,11 +16,14 @@ use crate::error::EuphoriaError;
 /// Decoded audio mixed down to one channel.
 #[derive(Debug, Clone)]
 pub struct AudioBuffer {
+    /// Mono samples in the range -1.0 to 1.0.
     pub samples: Vec<f32>,
+    /// Samples per second.
     pub sample_rate: u32,
 }
 
 impl AudioBuffer {
+    /// Length of the audio in seconds.
     pub fn duration_seconds(&self) -> f32 {
         self.samples.len() as f32 / self.sample_rate as f32
     }

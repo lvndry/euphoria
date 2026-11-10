@@ -1,0 +1,53 @@
+name: Wrong analysis result
+description: Euphoria reported the wrong key, tempo or energy for a track
+labels: ["accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not attach copyrighted audio. A link to a store page or a free preview is enough.
+  - type: input
+    id: track
+    attributes:
+      label: Track
+      description: Artist and title, plus a link if there is one.
+      placeholder: Artist, Title (Extended Mix), https://...
+    validations:
+      required: true
+  - type: dropdown
+    id: field
+    attributes:
+      label: What is wrong
+      options:
+        - Key
+        - Tempo
+        - Energy
+        - Cue points
+    validations:
+      required: true
+  - type: input
+    id: reported
+    attributes:
+      label: What Euphoria reported
+      placeholder: 8A, 124.0 BPM
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: 9A
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How you know
+      description: By ear, a published key, another tool, and so on.
+  - type: input
+    id: version
+    attributes:
+      label: Euphoria version
+      placeholder: Output of `euphoria --version`, or the commit you built
+    validations:
+      required: true
