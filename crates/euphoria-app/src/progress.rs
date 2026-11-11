@@ -40,11 +40,11 @@ impl AnalysisProgress {
         self.finished as f32 / self.queued as f32
     }
 
-    /// Toolbar text such as "Analyzing 12 of 340", or `None` when idle.
+    /// Toolbar text such as "12 of 340 done", counting failed files too, or `None` when idle.
     pub(crate) fn label(&self) -> Option<String> {
         self.is_active().then(|| {
             format!(
-                "Analyzing {} of {}",
+                "{} of {} done",
                 format::count(self.finished),
                 format::count(self.queued)
             )
@@ -71,7 +71,7 @@ mod tests {
         for _ in 0..12 {
             progress.finish_one();
         }
-        assert_eq!(progress.label().as_deref(), Some("Analyzing 12 of 340"));
+        assert_eq!(progress.label().as_deref(), Some("12 of 340 done"));
         assert!((progress.fraction() - 12.0 / 340.0).abs() < f32::EPSILON);
     }
 
@@ -81,7 +81,7 @@ mod tests {
         progress.enqueue(2);
         progress.finish_one();
         progress.enqueue(1200);
-        assert_eq!(progress.label().as_deref(), Some("Analyzing 1 of 1,202"));
+        assert_eq!(progress.label().as_deref(), Some("1 of 1,202 done"));
     }
 
     #[test]
@@ -92,6 +92,6 @@ mod tests {
         progress.finish_one();
         assert!(!progress.is_active());
         progress.enqueue(1);
-        assert_eq!(progress.label().as_deref(), Some("Analyzing 0 of 1"));
+        assert_eq!(progress.label().as_deref(), Some("0 of 1 done"));
     }
 }

@@ -11,7 +11,7 @@ use std::sync::mpsc::Receiver;
 
 use euphoria_core::{CachedAnalyzer, TrackAnalysis};
 
-use crate::analysis::{AnalysisWorkers, FinishedFile, StopSignal};
+use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
 use crate::demo::DemoTrack;
 use crate::library::Library;
 use crate::progress::AnalysisProgress;
@@ -62,7 +62,7 @@ pub(crate) struct Session {
     library: Library,
     progress: AnalysisProgress,
     workers: AnalysisWorkers,
-    finished: Receiver<FinishedFile>,
+    events: Receiver<AnalysisEvent>,
     cache: Option<Arc<CachedAnalyzer>>,
     cached_count: usize,
     cache_problem: Option<String>,
@@ -75,12 +75,12 @@ impl Session {
     pub(crate) fn start(
         cache: Option<Arc<CachedAnalyzer>>,
     ) -> Result<Self, rayon::ThreadPoolBuildError> {
-        let (workers, finished) = AnalysisWorkers::start(cache.clone())?;
+        let (workers, events) = AnalysisWorkers::start(cache.clone())?;
         Ok(Self {
             library: Library::default(),
             progress: AnalysisProgress::default(),
             workers,
-            finished,
+            events,
             cache,
             cached_count: 0,
             cache_problem: None,
@@ -151,22 +151,36 @@ impl Session {
         }
     }
 
-    /// Moves every result the workers have finished into the library.
-    /// Returns how many arrived.
+    /// Applies everything the workers have reported to the library: which
+    /// files they started and the results of the ones they finished. Returns
+    /// how many reports arrived.
     pub(crate) fn collect_finished(&mut self) -> usize {
         let mut collected = 0;
-        while let Ok(file) = self.finished.try_recv() {
-            self.library.record_outcome(&file.path, file.outcome);
-            self.progress.finish_one();
-            if file.from_cache {
-                self.cached_count += 1;
-            }
-            if self.cache_problem.is_none() {
-                self.cache_problem = file.cache_problem;
-            }
+        while let Ok(event) = self.events.try_recv() {
+            self.apply(event);
             collected += 1;
         }
         collected
+    }
+
+    /// Applies one report from a worker. Only a finished file moves the
+    /// progress on.
+    fn apply(&mut self, event: AnalysisEvent) {
+        let file = match event {
+            AnalysisEvent::Started(path) => {
+                self.library.mark_analyzing(&path);
+                return;
+            }
+            AnalysisEvent::Finished(file) => file,
+        };
+        self.library.record_outcome(&file.path, file.outcome);
+        self.progress.finish_one();
+        if file.from_cache {
+            self.cached_count += 1;
+        }
+        if self.cache_problem.is_none() {
+            self.cache_problem = file.cache_problem;
+        }
     }
 }
 
@@ -178,6 +192,7 @@ mod tests {
     use euphoria_core::Cache;
 
     use super::*;
+    use crate::analysis::FinishedFile;
     use crate::library::TrackStatus;
 
     fn fixtures_folder() -> PathBuf {
@@ -261,6 +276,41 @@ mod tests {
                 .stop_signal()
                 .wait_for_files_in_progress(Duration::from_secs(30))
         );
+    }
+
+    #[test]
+    fn a_started_file_shows_as_analyzing_and_only_a_finished_one_counts_as_done() {
+        let mut session = Session::start(None).unwrap();
+        session.stop_signal().skip_queued_files();
+        let first = PathBuf::from("/music/first.mp3");
+        let second = PathBuf::from("/music/second.mp3");
+        let found = Scan {
+            files: vec![first.clone(), second.clone()],
+            ..Scan::default()
+        };
+        assert_eq!(session.add(found), 2);
+        let status_of = |session: &Session, path: &Path| {
+            let index = session.library().index_of(path).unwrap();
+            session.library().track(index).unwrap().status.clone()
+        };
+
+        session.apply(AnalysisEvent::Started(first.clone()));
+        assert_eq!(status_of(&session, &first), TrackStatus::Analyzing);
+        assert_eq!(status_of(&session, &second), TrackStatus::Queued);
+        assert_eq!(session.progress().label().as_deref(), Some("0 of 2 done"));
+
+        session.apply(AnalysisEvent::Finished(FinishedFile {
+            path: first.clone(),
+            outcome: Err("cannot open the file".to_string()),
+            from_cache: false,
+            cache_problem: None,
+        }));
+        assert_eq!(
+            status_of(&session, &first),
+            TrackStatus::Failed("cannot open the file".to_string())
+        );
+        assert_eq!(status_of(&session, &second), TrackStatus::Queued);
+        assert_eq!(session.progress().label().as_deref(), Some("1 of 2 done"));
     }
 
     #[test]

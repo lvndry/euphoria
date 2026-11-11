@@ -158,7 +158,8 @@ fn summary(track: &Track, palette: &Palette) -> Div {
 /// Key, tempo and energy in three boxes.
 fn statistics(track: &Track, palette: &Palette) -> Div {
     let not_known_yet = match track.status {
-        TrackStatus::Pending => "pending",
+        TrackStatus::Queued => "queued",
+        TrackStatus::Analyzing => "analyzing",
         TrackStatus::Failed(_) => "not analyzed",
         TrackStatus::Analyzed(_) => "not detected",
     };
@@ -241,7 +242,8 @@ fn waveform_section(track: &Track, state: Option<&Waveform>, palette: &Palette) 
                 .into(),
         ),
         (Some(Waveform::Unreadable(_)), _) => (None, "Could not read this file".into()),
-        (_, TrackStatus::Pending) => (None, "Waiting for analysis".into()),
+        (_, TrackStatus::Queued) => (None, "Waiting for analysis".into()),
+        (_, TrackStatus::Analyzing) => (None, "Analyzing now".into()),
         (_, TrackStatus::Failed(_)) => (None, "Not available".into()),
         (Some(Waveform::Reading) | None, TrackStatus::Analyzed(_)) => {
             (None, "Reading audio".into())
@@ -392,16 +394,24 @@ fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
     )
 }
 
-/// Why a failed track failed, or that a pending one is waiting.
+/// Why a failed track failed, or that an unfinished one is queued or
+/// being analyzed.
 fn status(track: &Track, palette: &Palette) -> Option<Div> {
     let section = div().flex().flex_col().gap(px(8.0));
     match &track.status {
         TrackStatus::Analyzed(_) => None,
-        TrackStatus::Pending => Some(
+        TrackStatus::Queued => Some(
             section.child(section_label("Analysis", palette)).child(
                 div()
                     .text_color(palette.text_secondary)
-                    .child("Waiting to be analyzed."),
+                    .child("Queued. It will be analyzed when the tracks ahead of it are done."),
+            ),
+        ),
+        TrackStatus::Analyzing => Some(
+            section.child(section_label("Analysis", palette)).child(
+                div()
+                    .text_color(palette.text_secondary)
+                    .child("Being analyzed now."),
             ),
         ),
         TrackStatus::Failed(reason) => Some(
