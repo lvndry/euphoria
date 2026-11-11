@@ -5,7 +5,7 @@
 //! needs a window.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 
@@ -25,6 +25,8 @@ pub(crate) struct Scan {
     pub(crate) files: Vec<PathBuf>,
     /// The analyses the cache already holds for those files.
     pub(crate) cached: HashMap<PathBuf, TrackAnalysis>,
+    /// The keys and tempos the user set for those files.
+    pub(crate) corrections: HashMap<PathBuf, euphoria_core::Correction>,
     /// One message for each path that could not be read.
     pub(crate) problems: Vec<String>,
 }
@@ -51,6 +53,9 @@ pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
         for file in &scan.files {
             if let Some(analysis) = cache.stored_analysis(file) {
                 scan.cached.insert(file.clone(), analysis);
+            }
+            if let Ok(Some(correction)) = cache.correction_for(file) {
+                scan.corrections.insert(file.clone(), correction);
             }
         }
     }
@@ -135,10 +140,21 @@ impl Session {
                 None => files_to_analyze.push(file),
             }
         }
+        for (file, correction) in scan.corrections {
+            self.library.set_correction(&file, correction);
+        }
         let queued = files_to_analyze.len();
         self.progress.enqueue(queued);
         self.workers.enqueue(files_to_analyze);
         queued
+    }
+
+    /// Sets the key and tempo the user chose for the track at `path`, in the
+    /// library at once. Keeping it in the cache is
+    /// [`CachedAnalyzer::set_correction`], which reads the file and so runs
+    /// off the main thread.
+    pub(crate) fn set_correction(&mut self, path: &Path, correction: euphoria_core::Correction) {
+        self.library.set_correction(path, correction);
     }
 
     /// Shows every tempo in `range`, without analyzing anything again.
@@ -273,6 +289,38 @@ mod tests {
         assert!(found.cached.is_empty());
         assert_eq!(found.problems.len(), 1);
         assert!(found.problems[0].starts_with("cannot read /definitely/not/here"));
+    }
+
+    #[test]
+    fn a_correction_kept_in_the_cache_comes_back_on_the_next_launch() {
+        let folder = TemporaryFolder::new("corrections");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let e_minor = euphoria_core::Key::new(4, euphoria_core::Mode::Minor);
+        let correction = euphoria_core::Correction::of_key(e_minor)
+            .with_bpm(Some(87.0))
+            .unwrap();
+        {
+            let cache = folder.open_cache();
+            let mut session = Session::start(Some(cache.clone())).unwrap();
+            session.add(scan(std::slice::from_ref(&folder.0), Some(&cache)));
+            wait_until_idle(&mut session);
+            session.set_correction(&track, correction);
+            cache.set_correction(&track, &correction).unwrap();
+        }
+
+        let cache = folder.open_cache();
+        let found = scan(std::slice::from_ref(&folder.0), Some(&cache));
+        assert_eq!(found.corrections.get(&track), Some(&correction));
+        let mut session = Session::start(Some(cache)).unwrap();
+        session.add(found);
+        let reopened = &session.library().tracks()[0];
+        assert_eq!(reopened.key(), Some(e_minor));
+        assert_eq!(reopened.bpm(), Some(87.0));
+        assert!(
+            reopened.analysis().is_some(),
+            "the analysis came from the cache"
+        );
     }
 
     #[test]

@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use euphoria_core::{AudioStream, EuphoriaError};
 
+use crate::reference_sound::ReferenceSound;
+
 /// How many decoded chunks wait between the decoder and the audio output. A
 /// chunk is one packet of the file, from about 25 milliseconds of an MP3 to
 /// about 90 of a FLAC, so this is one to four seconds of sound.
@@ -484,6 +486,10 @@ pub(crate) trait Voice {
 pub(crate) trait AudioOutput {
     /// Starts playing `source` at once.
     fn play(&mut self, source: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem>;
+
+    /// Starts playing a reference sound at once, mixed over whatever else
+    /// is playing.
+    fn play_reference(&mut self, sound: ReferenceSound) -> Result<Box<dyn Voice>, PlaybackProblem>;
 }
 
 /// The computer's default audio output, opened the first time a track is
@@ -493,8 +499,10 @@ pub(crate) struct SystemOutput {
     device: Option<rodio::MixerDeviceSink>,
 }
 
-impl AudioOutput for SystemOutput {
-    fn play(&mut self, source: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem> {
+impl SystemOutput {
+    /// A player of its own on the output's mixer, so that it adds to what
+    /// the others play.
+    fn new_player(&mut self) -> Result<rodio::Player, PlaybackProblem> {
         let device = match &mut self.device {
             Some(device) => device,
             unopened => {
@@ -504,8 +512,20 @@ impl AudioOutput for SystemOutput {
                 unopened.insert(device)
             }
         };
-        let player = rodio::Player::connect_new(device.mixer());
+        Ok(rodio::Player::connect_new(device.mixer()))
+    }
+}
+
+impl AudioOutput for SystemOutput {
+    fn play(&mut self, source: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem> {
+        let player = self.new_player()?;
         player.append(source);
+        Ok(Box::new(SystemVoice(player)))
+    }
+
+    fn play_reference(&mut self, sound: ReferenceSound) -> Result<Box<dyn Voice>, PlaybackProblem> {
+        let player = self.new_player()?;
+        player.append(sound);
         Ok(Box::new(SystemVoice(player)))
     }
 }
@@ -524,6 +544,8 @@ impl Voice for SystemVoice {
 
 #[cfg(test)]
 pub(crate) mod testing {
+    use std::sync::atomic::AtomicBool;
+
     use super::*;
 
     /// An output that makes no sound and needs no audio device: it accepts
@@ -531,9 +553,9 @@ pub(crate) mod testing {
     #[derive(Default)]
     pub(crate) struct SilentOutput;
 
-    struct SilentVoice(#[allow(dead_code)] TrackSource);
+    struct SilentVoice<Sound>(#[allow(dead_code)] Sound);
 
-    impl Voice for SilentVoice {
+    impl<Sound> Voice for SilentVoice<Sound> {
         fn pause(&self) {}
 
         fn resume(&self) {}
@@ -543,6 +565,92 @@ pub(crate) mod testing {
         fn play(&mut self, source: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Ok(Box::new(SilentVoice(source)))
         }
+
+        fn play_reference(
+            &mut self,
+            sound: ReferenceSound,
+        ) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(sound)))
+        }
+    }
+
+    /// A reference sound a [`ListeningOutput`] was given, and whether it is
+    /// still sounding.
+    #[derive(Debug, Clone)]
+    pub(crate) struct Heard {
+        /// The frequencies the sound is made of.
+        pub(crate) frequencies: Vec<f32>,
+        /// True for a drone, false for a piano note.
+        pub(crate) is_drone: bool,
+        sounding: Arc<AtomicBool>,
+    }
+
+    impl Heard {
+        /// True until the sound is stopped.
+        pub(crate) fn is_sounding(&self) -> bool {
+            self.sounding.load(Ordering::Relaxed)
+        }
+    }
+
+    /// A silent output that notes every reference sound it is given, so a
+    /// test can tell what would be heard over the track.
+    #[derive(Default, Clone)]
+    pub(crate) struct ListeningOutput {
+        heard: Arc<Mutex<Vec<Heard>>>,
+    }
+
+    impl ListeningOutput {
+        /// Every reference sound given so far, oldest first.
+        pub(crate) fn heard(&self) -> Vec<Heard> {
+            self.heard
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        }
+
+        /// The reference sounds still sounding, oldest first.
+        pub(crate) fn sounding(&self) -> Vec<Heard> {
+            self.heard()
+                .into_iter()
+                .filter(Heard::is_sounding)
+                .collect()
+        }
+    }
+
+    struct ListenedVoice(Arc<AtomicBool>);
+
+    impl Voice for ListenedVoice {
+        fn pause(&self) {}
+
+        fn resume(&self) {}
+    }
+
+    impl Drop for ListenedVoice {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Relaxed);
+        }
+    }
+
+    impl AudioOutput for ListeningOutput {
+        fn play(&mut self, source: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(source)))
+        }
+
+        fn play_reference(
+            &mut self,
+            sound: ReferenceSound,
+        ) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            let sounding = Arc::new(AtomicBool::new(true));
+            self.heard
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(Heard {
+                    frequencies: sound.frequencies(),
+                    is_drone: sound.is_drone(),
+                    sounding: sounding.clone(),
+                });
+            Ok(Box::new(ListenedVoice(sounding)))
+        }
     }
 
     /// An output on a computer with no audio device.
@@ -551,6 +659,10 @@ pub(crate) mod testing {
 
     impl AudioOutput for NoOutput {
         fn play(&mut self, _: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Err(PlaybackProblem::NoOutput)
+        }
+
+        fn play_reference(&mut self, _: ReferenceSound) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Err(PlaybackProblem::NoOutput)
         }
     }

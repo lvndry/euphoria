@@ -133,6 +133,7 @@ impl EuphoriaApp {
             .map(|track| WriteTarget {
                 path: track.path.clone(),
                 analysis: track.analysis().cloned(),
+                correction: track.correction,
             })
             .collect();
         let settings = self.tag_settings;

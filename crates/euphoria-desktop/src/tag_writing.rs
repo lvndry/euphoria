@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use euphoria_core::tags::{
     FieldChange, LoggedWrite, TagWriteOptions, WriteLog, WritePlan, plan_write, undo_last_write,
 };
-use euphoria_core::{CachedAnalyzer, TrackAnalysis};
+use euphoria_core::{CachedAnalyzer, Correction, TrackAnalysis};
 
 /// A file and what it should say about itself, or `None` when it has no
 /// analysis to write.
@@ -27,8 +27,11 @@ use euphoria_core::{CachedAnalyzer, TrackAnalysis};
 pub(crate) struct WriteTarget {
     /// The audio file.
     pub(crate) path: PathBuf,
-    /// The analysis to write.
+    /// The analysis found, which the cache keeps.
     pub(crate) analysis: Option<TrackAnalysis>,
+    /// The key and tempo the user set, which are written in place of the
+    /// detected ones.
+    pub(crate) correction: Correction,
 }
 
 /// A file left out of a write, and why.
@@ -45,7 +48,9 @@ pub(crate) struct LeftOut {
 pub(crate) struct PlannedWrite {
     /// The files that would change, each with its changes.
     pub(crate) plans: Vec<WritePlan>,
-    /// The analysis written into each of those files, in the same order.
+    /// The analysis found for each of those files, in the same order. The
+    /// cache records it for the written file, so a correction can still be
+    /// reset to it afterwards.
     pub(crate) analyses: Vec<TrackAnalysis>,
     /// How many files already hold the values.
     pub(crate) up_to_date: usize,
@@ -66,7 +71,8 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], options: &TagWriteOptions) ->
             });
             continue;
         };
-        match plan_write(&target.path, analysis, options) {
+        let written = target.correction.apply(analysis.clone());
+        match plan_write(&target.path, &written, options) {
             Ok(plan) if plan.is_empty() => planned.up_to_date += 1,
             Ok(plan) => {
                 planned.plans.push(plan);
@@ -300,6 +306,7 @@ mod tests {
             .map(|path| WriteTarget {
                 path: path.clone(),
                 analysis: Some(analysis()),
+                correction: Correction::default(),
             })
             .collect()
     }
@@ -449,6 +456,7 @@ mod tests {
             .map(|path| WriteTarget {
                 path: path.clone(),
                 analysis: Some(first_launch.analyze_file(path).unwrap().analysis),
+                correction: Correction::default(),
             })
             .collect();
         let planned = plan_writes(&targets, &TagSettings::default().write_options());
