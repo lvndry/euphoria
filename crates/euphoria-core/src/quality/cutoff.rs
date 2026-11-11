@@ -353,6 +353,41 @@ mod tests {
     }
 
     #[test]
+    fn the_bins_that_mirror_themselves_keep_their_full_power() {
+        // DC and the Nyquist bin are their own mirror, where half of twice a
+        // bin's power is that bin's power, so pairing must not halve them.
+        let left: Vec<f32> = noise(1.0).iter().map(|sample| sample * 0.2 + 0.5).collect();
+        let right: Vec<f32> = (0..left.len())
+            .map(|index| if index % 2 == 0 { 0.3 } else { -0.3 })
+            .collect();
+        let mut together = Spectrum::new(RATE, 2);
+        let interleaved: Vec<f32> = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(left_sample, right_sample)| [*left_sample, *right_sample])
+            .collect();
+        together.add(&interleaved);
+        let mut left_alone = Spectrum::new(RATE, 1);
+        left_alone.add(&left);
+        let mut right_alone = Spectrum::new(RATE, 1);
+        right_alone.add(&right);
+
+        let nyquist = together.frame.len() / 2;
+        for bin in [0, nyquist] {
+            let separate = left_alone.power[bin] + right_alone.power[bin];
+            assert!(
+                separate > 1.0,
+                "bin {bin} should carry power, has {separate}"
+            );
+            assert!(
+                (together.power[bin] - separate).abs() <= separate * 1.0e-3,
+                "bin {bin}: {} against {separate}",
+                together.power[bin]
+            );
+        }
+    }
+
+    #[test]
     fn frame_length_follows_the_sample_rate() {
         assert_eq!(frame_length(44_100.0), 4_096);
         assert_eq!(frame_length(48_000.0), 4_096);
