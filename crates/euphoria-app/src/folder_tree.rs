@@ -39,6 +39,9 @@ pub(crate) struct FolderTree {
     nodes: Vec<FolderNode>,
     roots: Vec<usize>,
     index_by_path: HashMap<PathBuf, usize>,
+    /// For each track, by its index in the library, the folder holding it,
+    /// or `None` when it is outside every added folder.
+    folder_of_track: Vec<Option<usize>>,
 }
 
 /// A key pressed while the folder tree has the keyboard.
@@ -108,6 +111,7 @@ impl FolderTree {
             tree.roots.push(index);
         }
         for track in tracks {
+            tree.folder_of_track.push(None);
             let Some(root) = outermost.iter().find(|root| track.path.starts_with(root)) else {
                 continue;
             };
@@ -133,6 +137,9 @@ impl FolderTree {
                     }
                 };
                 tree.count(current, is_failed);
+            }
+            if let Some(folder) = tree.folder_of_track.last_mut() {
+                *folder = Some(current);
             }
         }
         for index in 0..tree.nodes.len() {
@@ -166,6 +173,25 @@ impl FolderTree {
         node.track_count += 1;
         if is_failed {
             node.failed_count += 1;
+        }
+    }
+
+    /// Counts again how many tracks failed under each folder, after results
+    /// came in for `tracks`, the same tracks the tree was built from. No
+    /// paths are looked at: each track's folder is already known.
+    pub(crate) fn recount_failures(&mut self, tracks: &[Track]) {
+        for node in &mut self.nodes {
+            node.failed_count = 0;
+        }
+        for (track, folder) in tracks.iter().zip(&self.folder_of_track) {
+            if track.failure().is_none() {
+                continue;
+            }
+            let mut candidate = *folder;
+            while let Some(index) = candidate {
+                self.nodes[index].failed_count += 1;
+                candidate = self.nodes[index].parent;
+            }
         }
     }
 
@@ -265,7 +291,14 @@ pub(crate) struct FolderLabel {
     pub(crate) text: String,
     /// The track's folder, in full.
     pub(crate) full_path: PathBuf,
-    sort_key: Vec<String>,
+    /// Where the added folder holding the track comes among the added
+    /// folders, when the label starts from one; 0 when it starts from the
+    /// folder on show, and after every added folder for a track outside
+    /// them.
+    root_rank: usize,
+    /// The folder names below that start, which order tracks as the tree
+    /// orders folders.
+    names_below: Vec<String>,
 }
 
 /// The Folder column's text for the track at `track_path`.
@@ -280,25 +313,29 @@ pub(crate) fn folder_label(
     outermost: &[&Path],
 ) -> FolderLabel {
     let parent = track_path.parent().unwrap_or(Path::new(""));
-    let names: Vec<String> = match shown_folder.filter(|folder| parent.starts_with(folder)) {
-        Some(folder) => names_between(folder, parent),
-        None => match outermost.iter().find(|root| parent.starts_with(root)) {
-            Some(root) => {
-                let mut names = Vec::new();
-                if outermost.len() > 1 {
-                    names.push(folder_name(root));
+    let (root_rank, root_name, names_below) =
+        match shown_folder.filter(|folder| parent.starts_with(folder)) {
+            Some(folder) => (0, None, names_between(folder, parent)),
+            None => match outermost.iter().position(|root| parent.starts_with(root)) {
+                Some(rank) => {
+                    let root = outermost[rank];
+                    let root_name = (outermost.len() > 1).then(|| folder_name(root));
+                    (rank, root_name, names_between(root, parent))
                 }
-                names.extend(names_between(root, parent));
-                names
-            }
-            None if parent.as_os_str().is_empty() => Vec::new(),
-            None => vec![folder_name(parent)],
-        },
-    };
+                None if parent.as_os_str().is_empty() => (outermost.len(), None, Vec::new()),
+                None => (outermost.len(), None, vec![folder_name(parent)]),
+            },
+        };
+    let shown_names: Vec<&str> = root_name
+        .iter()
+        .chain(&names_below)
+        .map(String::as_str)
+        .collect();
     FolderLabel {
-        text: names.join(MAIN_SEPARATOR_STR),
+        text: shown_names.join(MAIN_SEPARATOR_STR),
         full_path: parent.to_path_buf(),
-        sort_key: names.iter().map(|name| name.to_lowercase()).collect(),
+        root_rank,
+        names_below,
     }
 }
 
@@ -338,17 +375,23 @@ impl FolderColumn {
         self.labels.get(index)
     }
 
-    /// Orders two tracks by their folder path, a folder at a time, so that
-    /// tracks directly in the folder on show come first and the rest group
-    /// by subfolder in the order of the tree.
+    /// Orders two tracks by their folder path in the order of the sidebar
+    /// tree: added folders in the order they were added, then a folder at a
+    /// time by name, so that tracks directly in a folder come before those
+    /// in the folders inside it.
     pub(crate) fn compare(&self, first: usize, second: usize) -> Ordering {
-        let key = |index: usize| {
-            self.labels
-                .get(index)
-                .map(|label| label.sort_key.as_slice())
-                .unwrap_or_default()
-        };
-        key(first).cmp(key(second))
+        match (self.labels.get(first), self.labels.get(second)) {
+            (Some(first), Some(second)) => first.root_rank.cmp(&second.root_rank).then_with(|| {
+                first
+                    .names_below
+                    .iter()
+                    .zip(&second.names_below)
+                    .map(|(first, second)| compare_names(first, second))
+                    .find(|ordering| ordering.is_ne())
+                    .unwrap_or_else(|| first.names_below.len().cmp(&second.names_below.len()))
+            }),
+            (first, second) => first.is_some().cmp(&second.is_some()).reverse(),
+        }
     }
 }
 
@@ -550,6 +593,87 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_millis(500));
         assert_eq!(tree.node(tree.roots[0]).unwrap().track_count, 20_000);
         assert!(rows.len() > 400, "{}", rows.len());
+    }
+
+    #[test]
+    fn sorting_by_folder_follows_the_tree_with_added_folders_in_the_order_added() {
+        let library = library(
+            &["/zeta", "/alpha"],
+            &[
+                "/alpha/x/1.mp3",
+                "/zeta/b/2.mp3",
+                "/zeta/B/3.mp3",
+                "/zeta/a/4.mp3",
+                "/zeta/5.mp3",
+                "/outside/6.mp3",
+            ],
+        );
+        let tree = tree_of(&library);
+        assert_eq!(
+            outline(&tree, &everything_expanded(&tree)),
+            ["zeta 4", "  a 1", "  B 1", "  b 1", "alpha 1", "  x 1"]
+        );
+        let column = FolderColumn::new(library.tracks(), library.folders(), None);
+        let mut order: Vec<usize> = (0..library.tracks().len()).collect();
+        order.sort_by(|first, second| column.compare(*first, *second));
+        let names: Vec<&str> = order
+            .iter()
+            .map(|index| library.tracks()[*index].file_name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["5.mp3", "4.mp3", "3.mp3", "2.mp3", "1.mp3", "6.mp3"]
+        );
+    }
+
+    /// A library of 20,000 tracks in a few hundred folders, every tenth
+    /// track failed.
+    fn large_library() -> Library {
+        let files: Vec<String> = (0..20_000)
+            .map(|number| {
+                format!(
+                    "/music/DJ/genre {}/label {}/year {}/track {number}.mp3",
+                    number % 12,
+                    number % 37,
+                    number % 5
+                )
+            })
+            .collect();
+        let file_refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let mut library = library(&["/music/DJ"], &file_refs);
+        for file in files.iter().step_by(10) {
+            library.record_outcome(Path::new(file), Err("cannot decode".to_string()));
+        }
+        library
+    }
+
+    #[test]
+    fn results_coming_in_recount_failures_as_a_fresh_build_would_and_faster() {
+        let mut library = large_library();
+        let started = std::time::Instant::now();
+        let mut tree = tree_of(&library);
+        let build_time = started.elapsed();
+
+        for file in (0..20_000).step_by(7).map(|number| {
+            format!(
+                "/music/DJ/genre {}/label {}/year {}/track {number}.mp3",
+                number % 12,
+                number % 37,
+                number % 5
+            )
+        }) {
+            library.record_outcome(Path::new(&file), Err("cannot decode".to_string()));
+        }
+        let started = std::time::Instant::now();
+        tree.recount_failures(library.tracks());
+        let recount_time = started.elapsed();
+
+        let fresh = tree_of(&library);
+        assert_eq!(tree.nodes, fresh.nodes);
+        assert!(
+            recount_time * 4 < build_time,
+            "recount {recount_time:?}, build {build_time:?}"
+        );
     }
 
     fn index(tree: &FolderTree, path: &str) -> usize {

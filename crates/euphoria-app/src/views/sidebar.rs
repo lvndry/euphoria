@@ -40,14 +40,7 @@ const DISCLOSURE_WIDTH: f32 = 16.0;
 /// The sidebar.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
-    let library = app.session.library();
-    let shown_folder = app
-        .folder
-        .as_ref()
-        .and_then(|folder| app.folder_tree.index_of(folder))
-        .and_then(|index| app.folder_tree.node(index));
-    let total = library.counts().total;
-    let failed = shown_folder.map_or(library.counts().failed, |node| node.failed_count);
+    let counts = app.sidebar_counts();
     let hover_background = palette.raised;
 
     let all_tracks_is_current = app.filter == LibraryFilter::AllTracks && app.folder.is_none();
@@ -67,19 +60,24 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .border_color(palette.line)
         .child(section_label("Library", &palette).px(px(8.0)).py(px(4.0)))
         .child(
-            row("All tracks", Some(total), all_tracks_is_current, &palette)
-                .id("all-tracks")
-                .cursor_pointer()
-                .when(!all_tracks_is_current, |row| {
-                    row.hover(move |style| style.bg(hover_background.opacity(0.6)))
-                })
-                .on_click(cx.listener(|this, _, _, cx| this.show_all_tracks(cx)))
-                .test_support(),
+            row(
+                "All tracks",
+                Some(counts.total),
+                all_tracks_is_current,
+                &palette,
+            )
+            .id("all-tracks")
+            .cursor_pointer()
+            .when(!all_tracks_is_current, |row| {
+                row.hover(move |style| style.bg(hover_background.opacity(0.6)))
+            })
+            .on_click(cx.listener(|this, _, _, cx| this.show_all_tracks(cx)))
+            .test_support(),
         )
         .child(
             row(
                 "Needs review",
-                Some(failed),
+                Some(counts.failed),
                 needs_review_is_current,
                 &palette,
             )

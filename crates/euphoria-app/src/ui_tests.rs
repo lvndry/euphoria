@@ -1558,3 +1558,115 @@ fn a_tree_of_hundreds_of_folders_scrolls_and_builds_only_the_rows_in_view(cx: &m
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn all_tracks_counts_the_whole_library_while_a_folder_is_on_show(cx: &mut TestAppContext) {
+    let mut tracks = dj_tracks();
+    tracks.push(DemoTrack {
+        path: PathBuf::from("/promos/label/new.mp3"),
+        outcome: Err("cannot decode".to_string()),
+    });
+    let (window, view) = open_folders(
+        &[DJ_TRACKS, "/promos"],
+        tracks,
+        Settings::default(),
+        None,
+        cx,
+    );
+    let counts = |view: &Entity<EuphoriaApp>, cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let counts = view.read(cx).sidebar_counts();
+            (counts.total, counts.failed)
+        })
+    };
+    assert_eq!(counts(&view, cx), (6, 2));
+
+    let root = folder_index(&view, "", cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(folder_row_id(root), cx);
+    })
+    .unwrap();
+    assert_eq!(shown_titles(&view, cx).len(), 5);
+    assert_eq!(counts(&view, cx), (6, 1));
+
+    let deep = folder_index(&view, "deep", cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(folder_row_id(deep), cx);
+    })
+    .unwrap();
+    assert_eq!(counts(&view, cx), (6, 0));
+}
+
+/// How wide `text` is in the table's text size.
+fn text_width(window: &mut gpui::Window, text: &str) -> gpui::Pixels {
+    let run = window.text_style().to_run(text.len());
+    window
+        .text_system()
+        .shape_line(
+            text.to_string().into(),
+            crate::views::TEXT_SIZE,
+            &[run],
+            None,
+        )
+        .width
+}
+
+#[gpui::test]
+fn two_level_folder_paths_show_in_full_at_the_usual_window_size(cx: &mut TestAppContext) {
+    let (window, view) = open_dj_folder(Settings::default(), None, cx);
+    let root = folder_index(&view, "", cx);
+    let one = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .tracks()
+            .iter()
+            .position(|track| track.file_name == "one.mp3")
+            .unwrap()
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(folder_row_id(root), cx);
+        window.render_frame(cx);
+        let path = joined(&["afro_house", "warmup"]);
+        let needed = text_width(window, &path);
+        let folder_cell = window.find(("folder-cell", one)).bounds();
+        let title = window.find(("column", 1_usize)).bounds();
+        assert!(
+            folder_cell.size.width >= needed,
+            "{folder_cell:?} for {needed:?}"
+        );
+        assert!(title.size.width >= px(160.0), "{title:?}");
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut TestAppContext) {
+    for sidebar_folded in [false, true] {
+        let panels = Panels {
+            sidebar_folded,
+            ..Panels::default()
+        };
+        let (window, _) = open_arranged(ThemeName::Slate, panels, SMALLEST_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let title = window.find(("column", 1_usize)).bounds();
+            let energy = window.find(("column", ENERGY_COLUMN)).bounds();
+            let row = window.find(track(0)).bounds();
+            assert!(
+                title.size.width >= px(150.0),
+                "folded {sidebar_folded}: {title:?}"
+            );
+            assert!(energy.right() <= row.right(), "folded {sidebar_folded}");
+            assert!(window.try_find(("column", BPM_COLUMN)).is_some());
+            assert!(window.try_find(("column", FORMAT_COLUMN)).is_none());
+        })
+        .unwrap();
+    }
+}
+
+/// Index of the Format column among the table's column headers.
+const FORMAT_COLUMN: usize = 7;

@@ -206,6 +206,7 @@ pub(crate) struct Library {
     folders: Vec<PathBuf>,
     failed_count: usize,
     revision: u64,
+    structure_revision: u64,
 }
 
 impl Library {
@@ -238,6 +239,7 @@ impl Library {
         }
         self.folders.push(folder);
         self.revision += 1;
+        self.structure_revision += 1;
         true
     }
 
@@ -255,6 +257,7 @@ impl Library {
         }
         if !added.is_empty() {
             self.revision += 1;
+            self.structure_revision += 1;
         }
         added
     }
@@ -308,6 +311,12 @@ impl Library {
     /// track's result comes in.
     pub(crate) fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// A number that changes only when a folder or a track is added, not
+    /// when a result comes in.
+    pub(crate) fn structure_revision(&self) -> u64 {
+        self.structure_revision
     }
 
     /// How many tracks are in each state.

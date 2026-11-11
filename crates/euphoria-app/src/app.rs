@@ -15,12 +15,12 @@ use gpui::component::input::{InputEvent, InputState};
 use gpui::prelude::*;
 use gpui::{
     Context, Div, Entity, ExternalPaths, FocusHandle, KeyDownEvent, MouseButton, MouseMoveEvent,
-    PathPromptOptions, Pixels, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window,
-    canvas, div, px, relative,
+    PathPromptOptions, Pixels, ScrollStrategy, SharedString, Subscription, Task,
+    UniformListScrollHandle, Window, canvas, div, px, relative,
 };
 
 use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
-use crate::library::{LibraryFilter, SortColumn, SortOrder, Track};
+use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
 use crate::panels::{PanelEdge, Panels};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
@@ -76,6 +76,11 @@ pub(crate) struct EuphoriaApp {
     pub(crate) expanded_folders: HashSet<PathBuf>,
     /// The Folder column of every track, relative to the folder on show.
     pub(crate) folder_column: FolderColumn,
+    /// The longest folder path among the rows shown.
+    pub(crate) longest_folder_path: SharedString,
+    /// Which columns the table shows and how wide its Folder column is,
+    /// worked out each frame from the room the table has.
+    pub(crate) table_layout: views::track_table::TableLayout,
     pub(crate) folder_scroll: UniformListScrollHandle,
     pub(crate) tree_focus: FocusHandle,
     pub(crate) sort_order: Option<SortOrder>,
@@ -121,8 +126,9 @@ pub(crate) struct EuphoriaApp {
     /// The file the waveform task is decoding.
     waveform_task_path: Option<PathBuf>,
     is_collecting: bool,
-    /// The library revision the folder tree was built from.
-    folder_tree_revision: Option<u64>,
+    /// The library's structure revision the folder tree was built from,
+    /// and the revision its failure counts were last brought up to date at.
+    folder_tree_revisions: Option<(u64, u64)>,
     /// What the Folder column was worked out for: how many tracks and
     /// folders the library had, and the folder on show.
     folder_column_basis: Option<(usize, usize, Option<PathBuf>)>,
@@ -182,6 +188,8 @@ impl EuphoriaApp {
             folder_rows: Vec::new(),
             expanded_folders,
             folder_column: FolderColumn::default(),
+            longest_folder_path: SharedString::default(),
+            table_layout: views::track_table::TableLayout::default(),
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
             sort_order: theme.opens_sorted_by_key.then_some(SortOrder {
@@ -213,7 +221,7 @@ impl EuphoriaApp {
             waveform_task: None,
             waveform_task_path: None,
             is_collecting: false,
-            folder_tree_revision: None,
+            folder_tree_revisions: None,
             folder_column_basis: None,
             _subscriptions: vec![search_changed, quitting],
         };
@@ -402,11 +410,18 @@ impl EuphoriaApp {
     /// folder tree and the Folder column when they depend on what changed.
     pub(crate) fn refresh_visible(&mut self) {
         let library = self.session.library();
-        if self.folder_tree_revision != Some(library.revision()) {
-            self.folder_tree = FolderTree::build(library.folders(), library.tracks());
-            self.folder_tree_revision = Some(library.revision());
-            self.folder_rows = self.folder_tree.visible_rows(&self.expanded_folders);
+        let revisions = (library.structure_revision(), library.revision());
+        match self.folder_tree_revisions {
+            Some(built) if built == revisions => {}
+            Some((structure, _)) if structure == revisions.0 => {
+                self.folder_tree.recount_failures(library.tracks());
+            }
+            _ => {
+                self.folder_tree = FolderTree::build(library.folders(), library.tracks());
+                self.folder_rows = self.folder_tree.visible_rows(&self.expanded_folders);
+            }
         }
+        self.folder_tree_revisions = Some(revisions);
         let basis = (
             library.tracks().len(),
             library.folders().len(),
@@ -424,6 +439,54 @@ impl EuphoriaApp {
             self.sort_order,
             &self.folder_column,
         );
+        self.longest_folder_path = self
+            .visible
+            .iter()
+            .filter_map(|index| self.folder_column.label(*index))
+            .map(|label| &label.text)
+            .max_by_key(|text| text.chars().count())
+            .cloned()
+            .unwrap_or_default()
+            .into();
+    }
+
+    /// Works out which columns fit the table in the window as it is now,
+    /// and how wide to draw the Folder column: wide enough for the longest
+    /// path shown when there is room.
+    fn lay_out_table(&mut self, window: &Window) {
+        let mut table_width = window.viewport_size().width / px(1.0) - self.panels.sidebar_width();
+        if self.theme.layout == Layout::InspectorRight {
+            table_width -= self.inspector_width(window) / px(1.0);
+        }
+        let text = self.longest_folder_path.clone();
+        let longest_path = if text.is_empty() {
+            0.0
+        } else {
+            let run = window.text_style().to_run(text.len());
+            window
+                .text_system()
+                .shape_line(text, views::TEXT_SIZE, &[run], None)
+                .width
+                / px(1.0)
+        };
+        self.table_layout = views::track_table::TableLayout::for_width(table_width, longest_path);
+    }
+
+    /// The counts beside All tracks and Needs review. All tracks always
+    /// counts the whole library; Needs review counts within the folder on
+    /// show, since that is what it shows.
+    pub(crate) fn sidebar_counts(&self) -> LibraryCounts {
+        let counts = self.session.library().counts();
+        let failed_in_folder = self
+            .folder
+            .as_ref()
+            .and_then(|folder| self.folder_tree.index_of(folder))
+            .and_then(|index| self.folder_tree.node(index))
+            .map(|node| node.failed_count);
+        LibraryCounts {
+            total: counts.total,
+            failed: failed_in_folder.unwrap_or(counts.failed),
+        }
     }
 
     /// A remembered folder that is no longer in the library is not shown.
@@ -958,6 +1021,7 @@ impl Render for EuphoriaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let palette = self.theme.palette;
         let shows_sidebar = !self.panels.sidebar_folded;
+        self.lay_out_table(window);
         let body = if self.is_empty() {
             div()
                 .flex()
