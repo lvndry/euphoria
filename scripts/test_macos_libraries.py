@@ -257,6 +257,8 @@ def compile_library(folder, name, links=(), architecture="arm64", minimum="13.0"
         "-L",
         folder,
         *[f"-l{link}" for link in links],
+        # Room for the run paths some tests add to it.
+        "-Wl,-headerpad_max_install_names",
     )
     return folder / f"lib{name}.dylib"
 
@@ -298,6 +300,85 @@ class SyntheticLibraryTests(unittest.TestCase):
     def bundle_and_verify(self):
         macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
         return macos_libraries.verify(self.app, self.executable)
+
+    def replace_run_paths(self, binary, run_paths):
+        for existing in macos_libraries.MachO(binary).run_paths:
+            run("install_name_tool", "-delete_rpath", existing, binary)
+        for run_path in run_paths:
+            run("install_name_tool", "-add_rpath", run_path, binary)
+
+    def test_an_rpath_search_passes_over_what_dyld_cannot_load(self):
+        compile_library(self.outside, "first")
+        compile_executable(self.executable, self.outside, ["first"])
+        # Earlier run paths hold a folder and a text file named like the
+        # library; the real one is in the last.
+        folder_decoy = self.folder / "folder-decoy"
+        (folder_decoy / "libfirst.dylib").mkdir(parents=True)
+        file_decoy = self.folder / "file-decoy"
+        file_decoy.mkdir()
+        (file_decoy / "libfirst.dylib").write_text("not a library\n")
+        self.replace_run_paths(
+            self.executable, [str(folder_decoy), str(file_decoy), str(self.outside)]
+        )
+        chain = [(self.executable, macos_libraries.MachO(self.executable).run_paths)]
+        self.assertEqual(
+            macos_libraries.resolve("@rpath/libfirst.dylib", chain, self.executable),
+            self.outside / "libfirst.dylib",
+        )
+        self.assertEqual(self.bundle_and_verify(), [])
+        self.assertTrue(macos_libraries.is_mach_o(self.frameworks / "libfirst.dylib"))
+
+    def test_nothing_loadable_on_any_run_path_stops_the_build(self):
+        compile_library(self.outside, "first")
+        compile_executable(self.executable, self.outside, ["first"])
+        folder_decoy = self.folder / "folder-decoy"
+        (folder_decoy / "libfirst.dylib").mkdir(parents=True)
+        self.replace_run_paths(self.executable, [str(folder_decoy)])
+        with self.assertRaisesRegex(macos_libraries.LibraryError, "libfirst.dylib"):
+            macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
+
+    def test_run_paths_inside_the_bundle_are_kept_and_others_removed(self):
+        compile_library(self.outside, "first")
+        compile_executable(self.executable, self.outside, ["first"])
+        kept = [
+            "@executable_path/../Frameworks",
+            "@executable_path",
+            "@loader_path/../Frameworks",
+            "@loader_path",
+        ]
+        removed = [
+            str(self.outside),
+            # Contents/MacOS/../../.. is the folder holding the app.
+            "@loader_path/../../..",
+            "@executable_path/../../../outside",
+            "relative/folder",
+        ]
+        self.replace_run_paths(self.executable, [*removed[:1], *kept, *removed[1:]])
+        self.assertEqual(self.bundle_and_verify(), [])
+        self.assertEqual(macos_libraries.MachO(self.executable).run_paths, kept)
+
+        # A library in the bundle keeps @loader_path run paths that lead into
+        # the bundle from where it is, and loses one that leads out of it.
+        library = self.frameworks / "libfirst.dylib"
+        run("install_name_tool", "-add_rpath", "@loader_path", library)
+        run("install_name_tool", "-add_rpath", "@loader_path/../../..", library)
+        self.assertEqual(
+            macos_libraries.verify(self.app, self.executable),
+            [f"{library} has the run path @loader_path/../../.., outside {self.app}"],
+        )
+        macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
+        self.assertEqual(macos_libraries.MachO(library).run_paths, ["@loader_path"])
+        self.assertEqual(macos_libraries.verify(self.app, self.executable), [])
+
+    def test_a_run_path_dyld_does_not_expand_stops_the_build(self):
+        compile_library(self.outside, "first")
+        compile_executable(self.executable, self.outside, ["first"])
+        self.replace_run_paths(self.executable, ["@rpath/../lib", str(self.outside)])
+        message = "names @rpath/../lib, a form that cannot be expanded"
+        with self.assertRaisesRegex(macos_libraries.LibraryError, message):
+            macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
+        with self.assertRaisesRegex(macos_libraries.LibraryError, message):
+            macos_libraries.verify(self.app, self.executable)
 
     def test_a_cycle_between_libraries_is_bundled_and_the_walk_ends(self):
         # first needs second and second needs first. A first build of

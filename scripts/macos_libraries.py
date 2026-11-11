@@ -17,9 +17,10 @@ the main executable, `@loader_path` from the binary that refers to it, and
 `@rpath` through the run paths of that binary and of every binary that loaded
 it. A library outside the system (`/usr/lib`, `/System`) and outside `--root`
 is copied into `--libraries` with the install name `@rpath/<file>`, and the
-reference to it is changed to match. A reference that does not resolve to an
-existing file is an error. Afterwards, run paths that lead outside `--root`
-are removed and the executable gets `--run-path`.
+reference to it is changed to match. A reference that does not resolve to a
+Mach-O file is an error. Afterwards, run paths that lead outside `--root` are
+removed, those that lead inside are kept, and the executable gets
+`--run-path`. A run path in a form dyld does not expand is an error.
 
 `minimum-macos` prints the newest minimum macOS of any architecture of any
 Mach-O file under `--root`, for LSMinimumSystemVersion.
@@ -161,13 +162,36 @@ class MachO:
 
 
 def expand(path, executable, loader):
-    """`path` with `@executable_path` and `@loader_path` replaced, where
-    `loader` is the file whose load command holds `path`."""
-    if path.startswith("@executable_path/"):
-        return str(executable.parent / path[len("@executable_path/") :])
-    if path.startswith("@loader_path/"):
-        return str(loader.parent / path[len("@loader_path/") :])
+    """`path` with a leading `@executable_path` or `@loader_path` replaced by
+    the folder of the main executable or of `loader`, the file whose load
+    command holds `path`, as dyld does. Any other form starting with `@`,
+    which dyld does not expand there, is an error."""
+    for prefix, binary in (
+        ("@executable_path", executable),
+        ("@loader_path", loader),
+    ):
+        if path == prefix:
+            return str(binary.parent)
+        if path.startswith(prefix + "/"):
+            return str(binary.parent / path[len(prefix) + 1 :])
+    if path.startswith("@"):
+        raise LibraryError(f"{loader} names {path}, a form that cannot be expanded")
     return path
+
+
+def is_loadable(path):
+    """Whether dyld could load `path`: a regular file that is Mach-O. A
+    folder or another file of the same name does not stop an @rpath
+    search."""
+    return path.is_file() and is_mach_o(path)
+
+
+def leads_inside(run_path, executable, carrier, root):
+    """Whether a run path of `carrier` names a folder under `root`. A
+    relative run path depends on the folder the app is started from, so it
+    never counts as inside."""
+    directory = expand(run_path, executable, carrier)
+    return os.path.isabs(directory) and inside(directory, root)
 
 
 def resolve(install_name, chain, executable):
@@ -182,14 +206,14 @@ def resolve(install_name, chain, executable):
         for loader, run_paths in reversed(chain):
             for run_path in run_paths:
                 directory = expand(run_path, executable, loader)
-                if directory.startswith("@"):
+                if not os.path.isabs(directory):
                     continue
                 candidate = pathlib.Path(directory) / rest
-                if candidate.exists():
+                if is_loadable(candidate):
                     return candidate.resolve()
         return None
     candidate = pathlib.Path(expand(install_name, executable, referrer))
-    if candidate.is_absolute() and candidate.exists():
+    if candidate.is_absolute() and is_loadable(candidate):
         return candidate.resolve()
     return None
 
@@ -265,8 +289,7 @@ def bundle(root, executable, libraries, run_path):
 
     for path in mach_o_files(root):
         for existing in MachO(path).run_paths:
-            directory = expand(existing, executable, path)
-            if directory.startswith("@") or not inside(directory, root):
+            if not leads_inside(existing, executable, path, root):
                 run("install_name_tool", "-delete_rpath", existing, path)
     if run_path not in MachO(executable).run_paths:
         run("install_name_tool", "-add_rpath", run_path, executable)
@@ -302,8 +325,7 @@ def verify(root, executable):
             reached.add(path)
             binary = MachO(path)
             for run_path in binary.run_paths:
-                directory = expand(run_path, executable, path)
-                if directory.startswith("@") or not inside(directory, root):
+                if not leads_inside(run_path, executable, path, root):
                     problems.append(
                         f"{path} has the run path {run_path}, outside {root}"
                     )
