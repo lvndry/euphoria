@@ -2389,6 +2389,10 @@ fn track_changing_key() -> DemoTrack {
             bpm: Some(124.0),
             energy: Some(6),
             tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: vec![
                 euphoria_core::KeySection {
                     start_seconds: 0.0,
