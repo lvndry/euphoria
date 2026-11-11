@@ -181,7 +181,7 @@ The waveform is also where you move through the track. A line marks where playin
 
 ### Cue points
 
-A row of markers above the waveform shows the track's cues, each at its place on the waveform with its hot cue letter and its name, for example "A Start" and "B Drop", and a line in the accent colour runs down the waveform at each one. A track starts with the [cues analysis placed](../concepts/accuracy.md#cue-points) on the bars of its beat grid, on hot cue pads from A in order. Click a marker to play from its cue.
+A row of markers above the waveform shows the track's cues, each at its place on the waveform with its hot cue letter and its name, for example "A Start" and "B Drop", and a line in the accent colour runs down the waveform at each one. When analysis places [automatic cues](../concepts/accuracy.md#cue-points), the track starts with them on the bars of its beat grid, on hot cue pads from A in order. Click a marker to play from its cue.
 
 To change the cues:
 

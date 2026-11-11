@@ -57,17 +57,30 @@ pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
         }
     }
     if let Some(cache) = cache {
-        for file in &scan.files {
+        scan.files.retain(|file| {
+            match cache.edited_cues_for(file) {
+                Ok(Some(cues)) => {
+                    scan.edited_cues.insert(file.clone(), cues);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    // An unread saved set must not become an editable automatic set.
+                    scan.problems.push(format!(
+                        "cannot read saved cues for {}: {}",
+                        file.display(),
+                        error.chain()
+                    ));
+                    return false;
+                }
+            }
             if let Some(analysis) = cache.stored_analysis(file) {
                 scan.cached.insert(file.clone(), analysis);
             }
             if let Ok(Some(correction)) = cache.correction_for(file) {
                 scan.corrections.insert(file.clone(), correction);
             }
-            if let Ok(Some(cues)) = cache.edited_cues_for(file) {
-                scan.edited_cues.insert(file.clone(), cues);
-            }
-        }
+            true
+        });
     }
     scan
 }
@@ -669,6 +682,72 @@ mod tests {
                 current
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_saved_cues_are_reported_and_retried_without_replacing_edits() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let folder = TemporaryFolder::new("unreadable-cues");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let mine = vec![euphoria_core::Cue {
+            seconds: 0.5,
+            name: "Mine".to_string(),
+            hot_cue: None,
+        }];
+        {
+            let cache = folder.open_cache();
+            cache.analyze_file(&track).unwrap();
+            cache.set_edited_cues(&track, Some(&mine)).unwrap();
+        }
+        let cache_path = folder.0.join("analysis-cache.sqlite3");
+        euphoria_core::clear_cache(&cache_path).unwrap();
+        let cache = folder.open_cache();
+        assert!(cache.stored_analysis(&track).is_none());
+        assert_eq!(cache.edited_cues_for(&track).unwrap(), Some(mine.clone()));
+        let unreadable_scan = || {
+            let permissions = std::fs::metadata(&track).unwrap().permissions();
+            std::fs::set_permissions(&track, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let found = scan(std::slice::from_ref(&track), Some(&cache));
+            std::fs::set_permissions(&track, permissions).unwrap();
+            found
+        };
+
+        let failed = unreadable_scan();
+        assert_eq!(failed.problems.len(), 1, "{failed:?}");
+        assert!(failed.problems[0].contains(&track.display().to_string()));
+        assert!(failed.files.is_empty());
+        let mut session = Session::start(Some(cache.clone())).unwrap();
+        assert_eq!(session.add(failed), 0);
+        assert!(session.library().track_by_path(&track).is_none());
+
+        let retried = scan(std::slice::from_ref(&track), Some(&cache));
+        assert!(retried.problems.is_empty());
+        assert_eq!(retried.edited_cues.get(&track), Some(&mine));
+        assert_eq!(session.add(retried), 1);
+        wait_until_idle(&mut session);
+        assert_eq!(
+            session.library().track_by_path(&track).unwrap().cues().cues,
+            mine
+        );
+        assert_eq!(cache.edited_cues_for(&track).unwrap(), Some(mine));
+
+        let current = vec![euphoria_core::Cue {
+            seconds: 0.75,
+            name: "Current edit".to_string(),
+            hot_cue: None,
+        }];
+        session.set_edited_cues(&track, Some(current.clone()));
+        euphoria_core::clear_cache(&cache_path).unwrap();
+        let failed = unreadable_scan();
+        assert_eq!(failed.problems.len(), 1);
+        assert_eq!(session.add(failed), 0);
+        assert_eq!(
+            session.library().track_by_path(&track).unwrap().cues().cues,
+            current
+        );
     }
 
     #[test]
