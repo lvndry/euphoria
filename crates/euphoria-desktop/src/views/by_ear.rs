@@ -10,7 +10,7 @@ use euphoria_core::{Key, Mode};
 use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, SharedString, TestSupportExt, div, px, relative};
+use gpui::{Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, hsla, px, relative};
 
 use crate::app::EuphoriaApp;
 use crate::key_by_ear::{LEVEL_STEPS, scale_of};
@@ -247,13 +247,26 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
     let scale = scale_of(key);
     let in_scale = |pitch_class: u8| scale.contains(&pitch_class);
     let is_root = |pitch_class: u8| pitch_class == key.tonic();
-    let pressed = palette.selection;
+    // A piano has ivory and ebony keys in every theme; the scale is marked
+    // in the theme's accent, light on the white keys and deep on the black.
+    let ivory = hsla(0.0, 0.0, 0.95, 1.0);
+    let ebony = hsla(0.0, 0.0, 0.14, 1.0);
+    let ink = hsla(0.0, 0.0, 0.2, 1.0);
+    let light_accent = Hsla {
+        l: 0.8,
+        ..palette.accent
+    };
+    let deep_accent = Hsla {
+        l: 0.4,
+        ..palette.accent
+    };
+    let pressed = palette.accent;
 
     let white_keys = WHITE_KEYS.iter().map(|&pitch_class| {
         let background = if in_scale(pitch_class) {
-            palette.accent.opacity(0.22)
+            light_accent
         } else {
-            palette.raised
+            ivory
         };
         div()
             .id(("piano-key", usize::from(pitch_class)))
@@ -271,13 +284,9 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
             .cursor_pointer()
             .active(move |style| style.bg(pressed))
             .text_size(px(10.0))
-            .text_color(if is_root(pitch_class) {
-                palette.accent
-            } else {
-                palette.text_tertiary
-            })
+            .text_color(ink)
             .when(is_root(pitch_class), |key| {
-                key.font_weight(FontWeight::BOLD)
+                key.font_weight(FontWeight::BOLD).underline()
             })
             .when(in_scale(pitch_class), |key| {
                 key.child(NOTE_NAMES[usize::from(pitch_class)])
@@ -292,9 +301,9 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
     let black_keys = BLACK_KEYS.iter().map(|&(pitch_class, after_white)| {
         let left = (after_white + 1) as f32 / WHITE_KEYS.len() as f32 - BLACK_KEY_WIDTH / 2.0;
         let background = if in_scale(pitch_class) {
-            palette.accent
+            deep_accent
         } else {
-            palette.text.opacity(0.78)
+            ebony
         };
         div()
             .id(("piano-key", usize::from(pitch_class)))
@@ -306,7 +315,7 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
             .rounded_b(px(3.0))
             .bg(background)
             .when(is_root(pitch_class), |key| {
-                key.border_2().border_color(palette.text)
+                key.border_2().border_color(ivory)
             })
             .cursor_pointer()
             .active(move |style| style.bg(pressed))

@@ -273,6 +273,21 @@ mod tests {
     }
 
     #[test]
+    fn clearing_the_cache_keeps_the_corrections() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        cache.record_retagged_file(&track, &analysis()).unwrap();
+        cache.set_correction(&track, &e_minor()).unwrap();
+        drop(cache);
+        assert!(super::super::clear_cache(&folder.path().join("cache.sqlite3")).unwrap());
+        let reopened = open(&folder);
+        assert_eq!(reopened.entry_count().unwrap(), 0);
+        assert_eq!(reopened.correction_for(&track).unwrap(), Some(e_minor()));
+    }
+
+    #[test]
     fn a_correction_follows_its_file_through_a_tag_write_and_an_undo() {
         let folder = TemporaryFolder::new();
         let track = folder.path().join("track.mp3");
