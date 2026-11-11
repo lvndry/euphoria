@@ -9,6 +9,12 @@ name: Release
 # pushed to main. It sits on top of main's commit and only the tag v<version>
 # points at it, so main's ruleset, which requires a pull request, applies
 # unchanged.
+#
+# A run that failed after pushing the tag is finished by running the workflow
+# again: when the newest tag has no release, or one without all its files,
+# the run checks that the tag points at a release commit made on a commit of
+# main that passed CI, rebuilds that version from it and publishes it. The
+# tag is never moved.
 
 on:
   workflow_dispatch:
@@ -30,36 +36,77 @@ jobs:
       contents: read
       actions: read
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      previous_tag: ${{ steps.version.outputs.previous_tag }}
+      mode: ${{ steps.plan.outputs.mode }}
+      version: ${{ steps.plan.outputs.version }}
+      previous_tag: ${{ steps.plan.outputs.previous_tag }}
+      base: ${{ steps.base.outputs.base }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Check that CI passed on this commit
+      - name: Choose a new version or the one to finish
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release/plan_release.py | tee -a "$GITHUB_OUTPUT"
+      - name: Find the commit to build
+        id: base
+        env:
+          MODE: ${{ steps.plan.outputs.mode }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          if [ "$MODE" = new ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+              echo "::error::The tag v$VERSION exists already."
+              exit 1
+            fi
+            echo "base=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "Releasing $VERSION from $GITHUB_SHA."
+            exit 0
+          fi
+
+          # Finishing a release: the tag must point at the release commit the
+          # workflow made, on top of a commit of main, holding exactly that
+          # commit's files with the version set.
+          tag_commit=$(git rev-parse "v$VERSION^{commit}")
+          if [ "$(git log -1 --format=%s "$tag_commit")" != "chore(release): $VERSION" ]; then
+            echo "::error::v$VERSION does not point at a release commit."
+            exit 1
+          fi
+          if [ "$(git rev-list --parents -n 1 "$tag_commit" | wc -w)" -ne 2 ]; then
+            echo "::error::The release commit of v$VERSION does not have exactly one parent."
+            exit 1
+          fi
+          base=$(git rev-parse "$tag_commit^")
+          if ! git merge-base --is-ancestor "$base" origin/main; then
+            echo "::error::v$VERSION was not made on a commit of main."
+            exit 1
+          fi
+          git worktree add --quiet --detach "$RUNNER_TEMP/base" "$base"
+          (
+            cd "$RUNNER_TEMP/base"
+            python3 scripts/release/set_version.py "$VERSION" > /dev/null
+            git add --all
+            [ "$(git write-tree)" = "$(git rev-parse "$tag_commit^{tree}")" ]
+          ) || {
+            echo "::error::v$VERSION holds other changes than its version."
+            exit 1
+          }
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "Finishing $VERSION, tagged on $base."
+      - name: Check that CI passed on the commit to build
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ steps.base.outputs.base }}
         run: |
           passed=$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&status=success" --jq '.total_count')
           if [ "$passed" -eq 0 ]; then
             echo "::error::CI has not passed on $SHA. Wait for it to finish, or fix main first."
             exit 1
           fi
-      - name: Choose the version
-        id: version
-        run: |
-          version=$(python3 scripts/release/next_version.py)
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
-            echo "::error::The tag v$version exists already."
-            exit 1
-          fi
-          previous_tag=$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
-          echo "Releasing $version, after ${previous_tag:-no earlier release}."
 
   build:
     name: Build for macOS
@@ -78,6 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare.outputs.base }}
           persist-credentials: false
       - name: Set the version
         id: version
@@ -122,15 +170,27 @@ jobs:
     permissions:
       contents: write
     env:
+      MODE: ${{ needs.prepare.outputs.mode }}
       VERSION: ${{ needs.prepare.outputs.version }}
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+      BASE: ${{ needs.prepare.outputs.base }}
       BUILT_TREE: ${{ needs.build.outputs.tree }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Make the release commit and tag
+      - name: Make the release commit and tag, or check the existing tag
         run: |
+          if [ "$MODE" = resume ]; then
+            tree=$(git rev-parse "v$VERSION^{tree}")
+            if [ "$tree" != "$BUILT_TREE" ]; then
+              echo "::error::v$VERSION holds other files than were built ($tree, built $BUILT_TREE)."
+              exit 1
+            fi
+            echo "v$VERSION exists and matches the build; it stays where it is."
+            exit 0
+          fi
+          git checkout --quiet --detach "$BASE"
           python3 scripts/release/set_version.py "$VERSION"
           git add --all
           tree=$(git write-tree)
@@ -149,7 +209,7 @@ jobs:
             since=(--since "$PREVIOUS_TAG")
           fi
           python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" \
-            --until "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/notes.md"
+            --until "$BASE" --repository "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -159,13 +219,23 @@ jobs:
         working-directory: dist
         run: sha256sum --check SHA256SUMS
       - name: Push the tag
+        if: env.MODE == 'new'
         run: git push origin "refs/tags/v$VERSION"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$VERSION" dist/* \
-            --verify-tag \
-            --latest \
-            --title "Euphoria $VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            # An earlier run made the release but not all its files.
+            gh release upload "v$VERSION" dist/* --clobber
+            gh release edit "v$VERSION" \
+              --latest \
+              --title "Euphoria $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "v$VERSION" dist/* \
+              --verify-tag \
+              --latest \
+              --title "Euphoria $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi

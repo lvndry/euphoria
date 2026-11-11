@@ -28,16 +28,23 @@ TAG = re.compile(
 )
 
 
+def parse_tag(tag):
+    """The (year, month, number) a calendar release tag names, or None for
+    any other tag, including those with a leading zero."""
+    match = TAG.match(tag)
+    if not match:
+        return None
+    return (int(match["year"]), int(match["month"]), int(match["number"]))
+
+
 def release_tags(tags):
     """The (year, month, number) of every tag that names a calendar release."""
-    found = []
-    for tag in tags:
-        match = TAG.match(tag)
-        if match:
-            found.append(
-                (int(match["year"]), int(match["month"]), int(match["number"]))
-            )
-    return found
+    return [parts for tag in tags if (parts := parse_tag(tag))]
+
+
+def today():
+    """Today's date in UTC, the calendar a release is numbered by."""
+    return datetime.datetime.now(datetime.UTC).date()
 
 
 def next_version(tags, today):
@@ -74,8 +81,7 @@ def main():
         tags = listed.stdout.split()
     else:
         tags = arguments.tags
-    today = arguments.date or datetime.datetime.now(datetime.UTC).date()
-    print(next_version(tags, today))
+    print(next_version(tags, arguments.date or today()))
 
 
 if __name__ == "__main__":

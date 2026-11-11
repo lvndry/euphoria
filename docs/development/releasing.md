@@ -46,9 +46,21 @@ The workflow works the number out itself from the date and the existing tags, wi
 
 The release commit is not pushed to `main`. `main` is protected by a ruleset that requires a pull request for every change, which the workflow's token cannot bypass, and a release should not need one. The tag is not covered by that ruleset, so the workflow pushes only the tag, and the commit is reachable through it. The ruleset needs no change.
 
+## When a run fails
+
+Run the workflow again. Nothing has to be cleaned up first:
+
+- A run that failed before pushing the tag left nothing behind, and the next run releases the same version.
+- A run that failed after pushing the tag, for example while uploading the files, left a tag without a release, or a release without all its files. The next run sees that the newest tag is unfinished and finishes it instead of starting a new version. It checks that the tag points at a commit `chore(release): <version>` with exactly one parent, that the parent is a commit of `main` on which CI passed, and that the tagged files are exactly the parent's files with the version set. Then it rebuilds that version from the parent, checks the build against the tag, and publishes it, completing a release that is missing files. The tag is never moved or pushed again, so a version that was downloaded once always means the same files.
+- A tag that fails those checks stops the run with the reason. It was not made by this workflow, and the owner decides what to do with it.
+
+A release that is finished in a later month keeps its version: it is the version of the tag.
+
+`scripts/release/plan_release.py` makes this choice, and `python3 -m unittest discover -s scripts/release -p 'test_*.py'` tests it together with the version, the manifest changes and the release notes.
+
 ## Release notes
 
-`scripts/release/release_notes.py` writes the notes from the commit messages since the previous tag, which follow Conventional Commits. It groups them under Features (`feat`), Fixes (`fix`), Performance (`perf`) and Documentation (`docs`), and lists breaking changes first. Each line links its pull request. Commits that make no difference to someone using Euphoria (`chore`, `ci`, `test`, `refactor`, `style`, `build`) are left out. The notes start with how to install the app.
+`scripts/release/release_notes.py` writes the notes from the commit messages since the previous tag, which follow Conventional Commits. It groups them under Features (`feat`), Fixes (`fix`), Performance (`perf`) and Documentation (`docs`), and lists breaking changes first: those marked with `!` after the type, or with a `BREAKING CHANGE:` footer, whose text is shown under the subject. Each line links its pull request. Commits that make no difference to someone using Euphoria (`chore`, `ci`, `test`, `refactor`, `style`, `build`) are left out. The notes start with how to install the app.
 
 To see the notes for the next release before running the workflow:
 
