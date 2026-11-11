@@ -52,8 +52,8 @@ def commit_of(repository, tag):
     return target["sha"]
 
 
-def extract(repository, tag, destination):
-    archive = fetch(f"https://github.com/{repository}/archive/refs/tags/{tag}.tar.gz")
+def extract(repository, commit, destination):
+    archive = fetch(f"https://github.com/{repository}/archive/{commit}.tar.gz")
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         for member in tar.getmembers():
             if not member.isfile():
@@ -82,15 +82,17 @@ def vendored_files():
 def update(stretch_tag):
     work = Path(__import__("tempfile").mkdtemp())
     try:
+        stretch_commit = commit_of(STRETCH, stretch_tag)
         stretch_source = work / "stretch"
-        extract(STRETCH, stretch_tag, stretch_source)
+        extract(STRETCH, stretch_commit, stretch_source)
         cmake = (stretch_source / "CMakeLists.txt").read_text()
         pinned = re.search(r"GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git\s+GIT_TAG (\S+)", cmake)
         if pinned is None:
             raise SystemExit("cannot find the Signalsmith Linear tag in CMakeLists.txt")
         linear_tag = pinned.group(1)
+        linear_commit = commit_of(LINEAR, linear_tag)
         linear_source = work / "linear"
-        extract(LINEAR, linear_tag, linear_source)
+        extract(LINEAR, linear_commit, linear_source)
 
         if VENDOR.exists():
             shutil.rmtree(VENDOR)
@@ -114,8 +116,8 @@ def update(stretch_tag):
             "",
             "| Library | Tag | Commit |",
             "| --- | --- | --- |",
-            f"| [Signalsmith Stretch](https://github.com/{STRETCH}) | {stretch_tag} | `{commit_of(STRETCH, stretch_tag)}` |",
-            f"| [Signalsmith Linear](https://github.com/{LINEAR}) | {linear_tag} | `{commit_of(LINEAR, linear_tag)}` |",
+            f"| [Signalsmith Stretch](https://github.com/{STRETCH}) | {stretch_tag} | `{stretch_commit}` |",
+            f"| [Signalsmith Linear](https://github.com/{LINEAR}) | {linear_tag} | `{linear_commit}` |",
             "",
             "| File | SHA-256 |",
             "| --- | --- |",
