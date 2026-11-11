@@ -6,6 +6,7 @@
 mod batch;
 mod export;
 mod output;
+mod tags;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use euphoria_core::{
 
 use crate::batch::AnalysisOptions;
 use crate::export::ExportTarget;
+use crate::tags::TagsCommand;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -48,6 +50,11 @@ enum Command {
     Export {
         #[command(subcommand)]
         target: ExportTarget,
+    },
+    /// Write the analysis into the tags of audio files, or undo that.
+    Tags {
+        #[command(subcommand)]
+        command: TagsCommand,
     },
     /// Manage the cache of analysis results.
     Cache {
@@ -94,6 +101,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             analysis,
         } => analyze(&paths, json, &analysis),
         Command::Export { target } => export::run(target),
+        Command::Tags { command } => tags::run(command),
         Command::Cache { command } => manage_cache(command),
     }
 }
