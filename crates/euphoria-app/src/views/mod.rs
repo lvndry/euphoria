@@ -9,6 +9,7 @@ pub(crate) mod inspector;
 pub(crate) mod key_chip;
 pub(crate) mod logo;
 pub(crate) mod notice;
+pub(crate) mod player;
 pub(crate) mod sidebar;
 pub(crate) mod toolbar;
 pub(crate) mod track_table;
@@ -19,6 +20,10 @@ use gpui::prelude::*;
 use gpui::{Div, FontWeight, Pixels, SharedString, div, px};
 
 use crate::theme::Palette;
+
+/// The key context of the window, which keyboard shortcuts for the library
+/// and the player are bound in.
+pub(crate) const LIBRARY_KEY_CONTEXT: &str = "Library";
 
 /// Size of ordinary interface text.
 pub(crate) const TEXT_SIZE: Pixels = px(13.0);

@@ -5,10 +5,10 @@
 //! key's number in the accent colour.
 
 use gpui::prelude::*;
-use gpui::{Bounds, Div, FontWeight, Hsla, PathBuilder, Pixels, Point, canvas, div, point, px};
+use gpui::{Bounds, Div, FontWeight, PathBuilder, Pixels, Point, canvas, div, point, px};
 
 use crate::camelot::CamelotPosition;
-use crate::theme::Palette;
+use crate::theme::{Palette, blend};
 
 const WHEEL_SIZE: f32 = 96.0;
 const HOLE_SIZE: f32 = 52.0;
@@ -116,19 +116,6 @@ fn segment_path(centre: Point<Pixels>, number: u8) -> Option<gpui::Path<Pixels>>
     builder.build().ok()
 }
 
-/// `amount` of `colour` over `base`, mixed channel by channel.
-fn blend(colour: Hsla, base: Hsla, amount: f32) -> Hsla {
-    let colour = colour.to_rgb();
-    let base = base.to_rgb();
-    let mix = |first: f32, second: f32| first * amount + second * (1.0 - amount);
-    Hsla::from(gpui::Rgba {
-        r: mix(colour.r, base.r),
-        g: mix(colour.g, base.g),
-        b: mix(colour.b, base.b),
-        a: 1.0,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,14 +138,5 @@ mod tests {
                 (9, Emphasis::Compatible)
             ]
         );
-    }
-
-    #[test]
-    fn a_blend_lies_between_its_two_colours() {
-        let white = gpui::white();
-        let black = gpui::black();
-        let grey = blend(white, black, 0.5).to_rgb();
-        assert!((grey.r - 0.5).abs() < 0.01);
-        assert_eq!(blend(white, black, 1.0).to_rgb().r, 1.0);
     }
 }

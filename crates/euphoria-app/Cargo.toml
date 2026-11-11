@@ -16,6 +16,7 @@ rust-version.workspace = true
 euphoria-core.workspace = true
 gpui.workspace = true
 rayon.workspace = true
+rodio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

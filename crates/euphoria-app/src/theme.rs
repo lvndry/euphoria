@@ -105,6 +105,67 @@ impl Palette {
     }
 }
 
+/// How much of its colour the played part of the waveform keeps; the rest
+/// is the surface behind it.
+const PLAYED_WAVEFORM_STRENGTH: f32 = 0.38;
+
+/// The colours of the three frequency bands of the waveform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct BandColours {
+    /// Bass: kick drums and bass lines.
+    pub(crate) low: Hsla,
+    /// The middle: vocals, chords and snares.
+    pub(crate) mid: Hsla,
+    /// Treble: hi hats and cymbals.
+    pub(crate) high: Hsla,
+}
+
+impl Palette {
+    /// The band colours of the part of the waveform still to be played: blue
+    /// bass, amber middle and a treble close to the text colour, each chosen
+    /// to stand out from the panel behind it in this palette.
+    pub(crate) fn band_colours(&self) -> BandColours {
+        if self.is_dark {
+            BandColours {
+                low: oklch(0.62, 0.17, 262.0),
+                mid: oklch(0.78, 0.15, 70.0),
+                high: oklch(0.96, 0.01, 90.0),
+            }
+        } else {
+            BandColours {
+                low: oklch(0.50, 0.19, 264.0),
+                mid: oklch(0.62, 0.15, 55.0),
+                high: oklch(0.27, 0.02, 264.0),
+            }
+        }
+    }
+
+    /// The band colours of the part already played: the same hues faded
+    /// towards the panel, so the playhead divides the waveform at a glance.
+    pub(crate) fn played_band_colours(&self) -> BandColours {
+        let bands = self.band_colours();
+        let fade = |colour| blend(colour, self.panel, PLAYED_WAVEFORM_STRENGTH);
+        BandColours {
+            low: fade(bands.low),
+            mid: fade(bands.mid),
+            high: fade(bands.high),
+        }
+    }
+}
+
+/// `amount` of `colour` over `base`, mixed channel by channel.
+pub(crate) fn blend(colour: Hsla, base: Hsla, amount: f32) -> Hsla {
+    let colour = colour.to_rgb();
+    let base = base.to_rgb();
+    let mix = |first: f32, second: f32| first * amount + second * (1.0 - amount);
+    Hsla::from(gpui::Rgba {
+        r: mix(colour.r, base.r),
+        g: mix(colour.g, base.g),
+        b: mix(colour.b, base.b),
+        a: 1.0,
+    })
+}
+
 fn hex(value: u32) -> Hsla {
     rgb(value).into()
 }
@@ -412,6 +473,61 @@ mod tests {
                 assert!(ratio >= 4.5, "{name:?} key {number}: contrast {ratio:.2}");
             }
         }
+    }
+
+    #[test]
+    fn waveform_bands_stand_out_from_the_panel_and_from_each_other() {
+        for name in ThemeName::ALL {
+            let palette = AppTheme::named(name).palette;
+            let bands = palette.band_colours();
+            for (band, colour) in [("low", bands.low), ("mid", bands.mid), ("high", bands.high)] {
+                let ratio = contrast(colour, palette.panel);
+                assert!(ratio >= 3.0, "{name:?} {band}: contrast {ratio:.2}");
+            }
+            assert!(
+                contrast(bands.low, bands.mid) >= 1.5,
+                "{name:?} low and mid"
+            );
+            assert!(
+                contrast(bands.mid, bands.high) >= 1.5,
+                "{name:?} mid and high"
+            );
+            assert!(
+                contrast(bands.low, bands.high) >= 2.0,
+                "{name:?} low and high"
+            );
+        }
+    }
+
+    #[test]
+    fn the_played_part_is_fainter_but_still_visible() {
+        for name in ThemeName::ALL {
+            let palette = AppTheme::named(name).palette;
+            let unplayed = palette.band_colours();
+            let played = palette.played_band_colours();
+            let pairs = [
+                (unplayed.low, played.low),
+                (unplayed.mid, played.mid),
+                (unplayed.high, played.high),
+            ];
+            for (unplayed, played) in pairs {
+                let played_ratio = contrast(played, palette.panel);
+                let unplayed_ratio = contrast(unplayed, palette.panel);
+                assert!(played_ratio >= 1.25, "{name:?}: played {played_ratio:.2}");
+                assert!(
+                    unplayed_ratio >= played_ratio * 1.6,
+                    "{name:?}: {unplayed_ratio:.2} against {played_ratio:.2}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_blend_lies_between_its_two_colours() {
+        let grey = blend(gpui::white(), gpui::black(), 0.5).to_rgb();
+        assert!((grey.r - 0.5).abs() < 0.01);
+        assert_eq!(blend(gpui::white(), gpui::black(), 1.0).to_rgb().r, 1.0);
+        assert_eq!(blend(gpui::white(), gpui::black(), 0.0).to_rgb().r, 0.0);
     }
 
     #[test]
