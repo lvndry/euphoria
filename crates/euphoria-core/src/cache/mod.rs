@@ -52,6 +52,7 @@
 //! each number.
 
 mod batch;
+mod corrections;
 mod identity;
 mod location;
 mod rewritten;
@@ -82,7 +83,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 7] = [
+const MIGRATIONS: [&str; 8] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -119,6 +120,14 @@ const MIGRATIONS: [&str; 7] = [
     ALTER TABLE analyses ADD COLUMN grid_bpm REAL;
     ALTER TABLE analyses ADD COLUMN grid_salience REAL;
     ALTER TABLE analyses ADD COLUMN grid_drift REAL;
+",
+    "
+    CREATE TABLE corrections (
+        content_hash BLOB    NOT NULL PRIMARY KEY,
+        key          TEXT,
+        bpm          REAL,
+        corrected_at INTEGER NOT NULL
+    ) WITHOUT ROWID;
 ",
     "
     ALTER TABLE analyses ADD COLUMN cues TEXT;
@@ -321,6 +330,16 @@ impl Cache {
     }
 
     fn apply_write(&mut self, write: &CacheWrite) -> rusqlite::Result<()> {
+        self.apply_write_then(write, |_| Ok(()))
+    }
+
+    /// Applies `write` and then `then`, in one transaction: both are kept
+    /// or neither is.
+    fn apply_write_then(
+        &mut self,
+        write: &CacheWrite,
+        then: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+    ) -> rusqlite::Result<()> {
         let (content_hash, location) = match write {
             CacheWrite::Store {
                 content_hash,
@@ -391,6 +410,7 @@ impl Cache {
                 ],
             )?,
         };
+        then(&transaction)?;
         transaction.commit()
     }
 
@@ -1349,6 +1369,89 @@ mod tests {
 
         let stored = snapshot.analyses.values().next().unwrap();
         assert_eq!(stored.beat_grid, None);
+    }
+
+    #[test]
+    fn a_version_6_database_gains_corrections_and_keeps_its_analyses_current() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..6] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 6).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, 124.0, 0.5, NULL, NULL, NULL, NULL, NULL)",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+        drop(connection);
+
+        let cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 8);
+        let snapshot = cache.snapshot().unwrap();
+        assert_eq!(
+            snapshot.analyses.len(),
+            1,
+            "corrections need no new analysis: the analyzer version is unchanged"
+        );
+        let corrections: i64 = cache
+            .connection
+            .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(corrections, 0);
+    }
+
+    #[test]
+    fn a_version_7_database_gains_cues_keeps_its_corrections_and_its_rows_are_analyzed_again() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..7] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 7).unwrap();
+        let version_7_analyzer = "9+libkeyfinder";
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, 124.0, 0.5, NULL, 0.25, 124.0, 10.0, NULL)",
+                params![[7u8; 32], version_7_analyzer, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO corrections VALUES (?1, 'C major', NULL, 0)",
+                params![[7u8; 32]],
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), 8);
+        assert_eq!(SCHEMA_VERSION, 8);
+        assert_ne!(ANALYZER_VERSION, version_7_analyzer);
+        assert!(
+            cache.snapshot().unwrap().analyses.is_empty(),
+            "an analysis from before the cues must not be served"
+        );
+        let corrections: i64 = cache
+            .connection
+            .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(corrections, 1, "corrections survive the upgrade");
+        cache.analyzer_version = version_7_analyzer.to_string();
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot.analyses.values().next().unwrap();
+        assert!(stored.beat_grid.is_some());
+        assert!(stored.cues.is_empty());
     }
 
     #[test]

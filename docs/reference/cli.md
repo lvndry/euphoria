@@ -27,7 +27,7 @@ Quality: 1 lossless, 1 weak on a big system.
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
 
-The Conf column rates how far to trust the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low. `H/M` is a key rated high and a tempo rated medium. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with an `L` are worth checking by ear, and `--needs-review` lists only those.
+The Conf column rates how far to trust the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low. `H/M` is a key rated high and a tempo rated medium. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with an `L` are worth checking by ear, and `--needs-review` lists only those. A `U` is a key or tempo you set yourself in the desktop app, which replaces the detected one: see [Corrections](#corrections).
 
 The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
@@ -89,6 +89,7 @@ One object per file, in path order, including files that failed:
       { "seconds": 361.775, "name": "Outro" }
     ],
     "needs_review": false,
+    "set_by_user": [],
     "quality": {
       "codec": "flac",
       "lossless": true,
@@ -119,6 +120,7 @@ One object per file, in path order, including files that failed:
     "beat_grid": null,
     "cues": [],
     "needs_review": null,
+    "set_by_user": [],
     "quality": null,
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
   }
@@ -131,7 +133,9 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
 
-`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed.
+`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
+
+`set_by_user` lists the values you [corrected](#corrections), `"key"`, `"bpm"` or both, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid` and no `cues`, since both were fitted to the detected tempo.
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
@@ -362,6 +366,12 @@ A track is recognised by its content, not by its name or folder:
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.
 
+### Corrections
+
+When you correct a key or a tempo in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `U` in the Conf column and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
+
+Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction.
+
 ### Where the cache is stored
 
 | System | Location |
@@ -381,7 +391,7 @@ Several `euphoria analyze` and `euphoria export` commands can run at the same ti
 
 ### When the cache cannot be used
 
-The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` and `euphoria export` print a warning on standard error and analyze every file without the cache:
+The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` prints a warning on standard error and analyzes every file without the cache:
 
 ```
 warning: analyzing without the cache: cannot use the analysis cache at /Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3: file is not a database
@@ -389,6 +399,8 @@ warning: analyzing without the cache: cannot use the analysis cache at /Users/yo
 ```
 
 The results and the exit status are the same as with `--no-cache`. Nothing is read from or saved to the cache in that run.
+
+`euphoria tags write` and `euphoria export rekordbox` stop instead, before analyzing anything, and write nothing: the cache may hold keys and tempos you [corrected](#corrections), and the detected values must not replace them without your knowing. Pass `--no-cache` to go on with the detected values, or run `euphoria cache clear` to reset a damaged cache.
 
 ## euphoria cache
 
@@ -401,7 +413,7 @@ euphoria cache <COMMAND>
 | Command | Effect |
 | --- | --- |
 | `path` | Print the location of the cache database. |
-| `clear` | Forget every cached result. Every track is analyzed again on the next run. |
+| `clear` | Forget every cached result. Every track is analyzed again on the next run. [Corrections](#corrections) are kept. |
 
 `clear` empties the database and keeps the file, so it is safe while an analysis is running: that analysis carries on, and the results it saves after the clear are kept. A database that cannot be opened, such as a damaged file, is deleted instead, and the next run creates a new one. Unlike `euphoria analyze` and `euphoria export`, both commands report a problem as an error and exit with status 1.
 

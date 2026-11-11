@@ -8,6 +8,7 @@ use super::batch::{Origin, cached_or_analyzed};
 use super::identity::FileStamp;
 use super::{Cache, FileLocation, Snapshot};
 use crate::analysis::{TrackAnalysis, analyze_file};
+use crate::correction::Correction;
 use crate::error::EuphoriaError;
 
 /// The analysis of one file through the cache.
@@ -80,6 +81,38 @@ impl CachedAnalyzer {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .record_retagged_file(path, analysis)
+    }
+
+    /// [`Cache::correction_for`] on the cache this analyzer stores into.
+    pub fn correction_for(&self, path: &Path) -> Result<Option<Correction>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .correction_for(path)
+    }
+
+    /// [`Cache::verified_correction_for`] on the cache this analyzer stores
+    /// into.
+    pub fn verified_correction_for(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Correction>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .verified_correction_for(path)
+    }
+
+    /// [`Cache::set_correction`] on the cache this analyzer stores into.
+    pub fn set_correction(
+        &self,
+        path: &Path,
+        correction: &Correction,
+    ) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_correction(path, correction)
     }
 
     /// [`Cache::recognise_file`] on the cache this analyzer stores into.
