@@ -1,6 +1,7 @@
-demucs
-numpy
-onnx
-safetensors
-soundfile
-torch
+# Direct versions recorded in the environment that produced htdemucs.onnx.
+demucs==4.1.0
+numpy==2.5.4
+onnx==1.23.2
+safetensors==0.8.0
+soundfile==0.14.0
+torch==2.15.0

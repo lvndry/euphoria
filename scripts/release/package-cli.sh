@@ -64,6 +64,8 @@ for file in "$folder/lib"/*.dylib "$folder/bin/euphoria"; do
   codesign --force --sign - --timestamp=none "$file"
 done
 cp "$repository/LICENSE" "$repository/README.md" "$folder/"
+mkdir -p "$folder/licenses"
+cp "$repository/licenses/webpki-root-certs-CDLA-Permissive-2.0.txt" "$repository/licenses/demucs-NOTICE.txt" "$folder/licenses/"
 
 python3 "$repository/scripts/macos_libraries.py" verify --root "$folder" --executable "$folder/bin/euphoria"
 "$folder/bin/euphoria" --version > /dev/null
