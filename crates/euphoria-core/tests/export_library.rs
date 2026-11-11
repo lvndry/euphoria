@@ -33,6 +33,7 @@ fn analyzed(path: &Path) -> FileResult {
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
+            quality: None,
         }),
     }
 }
@@ -104,6 +105,7 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 key_timeline: Vec::new(),
+                quality: None,
             }),
         },
         analyzed(&damaged_tag),

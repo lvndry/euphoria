@@ -713,6 +713,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Quality => track
+                    .quality()
+                    .map(|report| Cow::Borrowed(crate::format::quality_verdict(report.verdict))),
                 ColumnId::Time => track
                     .duration_seconds()
                     .map(|seconds| Cow::Owned(crate::format::duration(seconds))),
@@ -824,6 +827,10 @@ impl EuphoriaApp {
         LibraryCounts {
             total: counts.total,
             failed: failed_in_folder.unwrap_or(counts.failed),
+            quality_to_check: self
+                .session
+                .library()
+                .quality_to_check_in(self.folder.as_deref()),
         }
     }
 
@@ -851,6 +858,14 @@ impl EuphoriaApp {
     /// Shows only the tracks that need review, within the folder on show.
     pub(crate) fn show_tracks_needing_review(&mut self, cx: &mut Context<'_, Self>) {
         self.filter = LibraryFilter::NeedsReview;
+        self.refresh_visible();
+        cx.notify();
+    }
+
+    /// Shows only the tracks whose quality is weak on a big system or likely
+    /// re-encoded, within the folder on show.
+    pub(crate) fn show_tracks_with_quality_to_check(&mut self, cx: &mut Context<'_, Self>) {
+        self.filter = LibraryFilter::QualityToCheck;
         self.refresh_visible();
         cx.notify();
     }

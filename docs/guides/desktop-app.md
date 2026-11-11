@@ -39,6 +39,7 @@ Your files are only read, until you choose to [write tags](#write-tags) into the
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
+| Quality | The [audio quality](../concepts/audio-quality.md) verdict: Lossless, Good, Acceptable, Weak, or Re-encoded? for a file likely made from a lower quality one. Weak and Re-encoded? stand out; the others are quieter. |
 | Time | The length |
 | Format | The file type |
 | Folder | Where the file is, from the folder on show |
@@ -51,9 +52,9 @@ Titles and artists are read from the files after they appear, so the file name s
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
 
-Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Format, then Folder, Artist, Time, Musical key and the row number. The title, key, tempo and energy always stay.
+Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Format and Quality, which the inspector also shows, so that folder paths keep their room; then Folder, Artist, Time, Musical key and the row number. In a 1440 pixel wide window with both the sidebar and the inspector open, Quality is left out; fold the sidebar or close the inspector to bring it back. The title, key, tempo and energy always stay.
 
-Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Tracks with no value in the sorted column come last.
+Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Sorting by Quality puts the files most worth checking first: likely re-encoded, then weak, acceptable, good and lossless. Tracks with no value in the sorted column come last.
 
 Type in the search field, or press Command F first, to filter as you type. Each word must match part of the file name, the title or the artist, the whole key code (`8a`), or the start of the tempo (`124`).
 
@@ -63,6 +64,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 
 - **All tracks** shows the whole library.
 - **Needs review** shows the tracks that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder.
+- **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
@@ -93,7 +95,7 @@ To give the table more room, fold the sidebar away. Any of these folds it, and t
 
 ## The inspector
 
-The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track.
+The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track. Below them, **Sound quality** gives the quality verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak.
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
@@ -149,6 +151,8 @@ When a track changes key, a strip under the energy curve shows each stretch in i
 
 The app can write the key, tempo and energy it found into the files themselves, with the same safety as [`euphoria tags write`](write-tags.md): you see every change before anything is written, and one step puts the old tags back.
 
+![The Write tags preview over the window, for rekordbox. It says keys are written in Camelot, the energy label at the start of the comment and the tempo, and that nothing is written until you confirm. Buttons choose between the 11 selected tracks and all 11 shown. A list gives each file with its changes, such as TKEY from none to 8A, TBPM from none to 125, and the comment from "Purchased at Beatport.com" to "8A - Energy 5 - Purchased at Beatport.com". Cancel and Write 11 files buttons close it.](../images/desktop-app/write-tags-preview.png)
+
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The DJ program the tags are written for is shown beside the button.
 3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
@@ -185,6 +189,10 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
 | Key first | Slate colours with solid key chips, a Camelot wheel in the inspector, and the table sorted by key. The wheel has the minor keys (A) on its inner ring and the major keys (B) on its outer ring; the selected track's key is filled in the accent colour and the keys that mix with it, its neighbours and its relative major or minor, in a lighter tint. |
+
+![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
+
+![The Key first theme: the table sorted by key from 1A to 12A, with solid key chips. The inspector shows the selected track in 5A with a Camelot wheel under its waveform, where 5A is filled in the accent colour and 4A, 6A and 5B, the keys that mix with it, are tinted.](../images/desktop-app/key-first.png)
 
 ## What the app remembers
 
@@ -230,6 +238,10 @@ To see how the interface behaves with a large library, start the app with made u
 ```
 EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
 ```
+
+## About the screenshots
+
+The screenshots on this page and in the README show a demo library of GiantSteps Key previews, the clips the benchmarks use, never anyone's own music. [`make_screenshots.py`](https://github.com/lvndry/euphoria/blob/main/docs/images/desktop-app/make_screenshots.py) builds that library, runs the app on it and captures the window again when the app changes.
 
 ## Not there yet
 

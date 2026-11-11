@@ -136,6 +136,7 @@ mod tests {
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
+            quality: None,
         }
     }
 

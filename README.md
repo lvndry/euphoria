@@ -9,6 +9,8 @@ Find the key, BPM and energy of every track in your music collection, so you can
 
 Euphoria reads your music, finds the key and tempo of every track, rates its energy, and exports the results to your DJ software. It is an open alternative to paid harmonic mixing tools such as Mixed In Key: no account, no activation, and nothing leaves your computer.
 
+![The Euphoria desktop app in its dark theme. A sidebar holds a folder tree of house and techno subfolders with track counts. The table lists eleven house tracks with their title, artist, Camelot key chip, musical key, tempo, an energy rating with a bar, length, format and subfolder. The selected track, Lady Paris by Francesco Bonora and SeHou, is shown on the right with its key 8A, 124.9 BPM, energy 5, its coloured waveform with the energy curve under it, and four tracks that mix well with it.](docs/images/desktop-app/main-window.png)
+
 ## Features
 
 Available now:
@@ -16,6 +18,7 @@ Available now:
 - Key detection, shown in Camelot (8A) and musical (A minor) notation
 - Tempo detection in BPM
 - Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
+- [Audio quality](docs/concepts/audio-quality.md) for DJ use: codec, real bit rate, where the content stops, and files that were likely re-encoded from a lower quality source
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, and `euphoria tags undo`, which puts the old tags back byte for byte
@@ -54,6 +57,7 @@ The full documentation is in [docs](docs/index.md):
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
 - [Accuracy](docs/concepts/accuracy.md)
+- [Audio quality](docs/concepts/audio-quality.md)
 - [Command line reference](docs/reference/cli.md)
 - [Development](docs/development/index.md) and [contributing](CONTRIBUTING.md)
 

@@ -79,6 +79,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
+            quality: None,
         }),
     })
     .collect()
@@ -1109,7 +1110,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 9;
+const FOLDER_COLUMN: usize = 10;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1136,6 +1137,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 key_timeline: Vec::new(),
+                quality: None,
             })
         } else {
             Err("cannot decode".to_string())
@@ -1693,7 +1695,7 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 8;
+const FORMAT_COLUMN: usize = 9;
 
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
@@ -2385,6 +2387,7 @@ fn track_changing_key() -> DemoTrack {
         path: fixtures.join("sine-440hz-mono.flac"),
         outcome: Ok(TrackAnalysis {
             duration_seconds: 100.0,
+            quality: None,
             key: Some(euphoria_core::Key::new(9, euphoria_core::Mode::Minor)),
             bpm: Some(124.0),
             energy: Some(6),

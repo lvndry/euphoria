@@ -15,6 +15,7 @@ use crate::detect::{KeyReading, KeySection, StratumDetector};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
+use crate::quality::{QualityReport, decode_measuring_quality};
 use crate::tempo_range::TempoRange;
 
 /// Identifies the detection behind a [`TrackAnalysis`]. The analysis cache
@@ -65,6 +66,10 @@ pub struct TrackAnalysis {
     /// builds without the `libkeyfinder` feature. It is reported only: `key`
     /// is decided from the whole track at once.
     pub key_timeline: Vec<KeySection>,
+    /// How the file is encoded and how good it sounds for DJ use, measured
+    /// while it was decoded for the other analyses. `None` only for an
+    /// analysis made without it.
+    pub quality: Option<QualityReport>,
     /// The key that matched the track second best, or `None` when there is
     /// no key or the key detector does not rank keys, as in builds without
     /// the `libkeyfinder` feature.
@@ -148,7 +153,8 @@ pub struct Progress<'batch> {
     pub path: &'batch Path,
 }
 
-/// Decodes one file once and finds its key, its tempo and its energy.
+/// Decodes one file once and finds its key, its tempo, its energy and its
+/// audio quality.
 ///
 /// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
 /// as it is the more accurate detector, and tempo comes from the tempo only
@@ -160,7 +166,7 @@ pub struct Progress<'batch> {
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].
 pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
-    let audio = crate::audio::decode_mono(path)?;
+    let (audio, pending_quality) = decode_measuring_quality(path)?;
 
     // Tempo runs first because it has the larger peak. libkeyfinder then
     // reuses the memory tempo released, where the other order keeps
@@ -185,7 +191,10 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     // The energy rating was set with tempos in the default range, so it uses
     // that tempo whatever range the tempo is reported in.
     let tempo = tempo_reading.map(|reading| reading.tempo_in(TempoRange::DEFAULT));
-    let energy = rate_energy(&audio, tempo)?.map(|rating| rating.rating);
+    let energy_rating = rate_energy(&audio, tempo)?;
+    let energy = energy_rating.map(|rating| rating.rating);
+    let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
+    let quality = pending_quality.finish(&audio, loudness);
 
     Ok(TrackAnalysis {
         duration_seconds: audio.duration_seconds(),
@@ -194,6 +203,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         energy,
         tuning_cents,
         key_timeline: timeline,
+        quality: Some(quality),
         key_runner_up: runner_up,
         key_score_margin: score_margin,
         tempo_estimate: tempo_reading.map(|reading| reading.estimate),
