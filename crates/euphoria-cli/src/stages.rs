@@ -153,7 +153,12 @@ impl DebugBuildHint {
                     "this is a debug build of euphoria, which analyzes many times slower \
                      than a release build. Use `cargo run --release` or an installed euphoria.",
                 );
-                let _ = progress.println(String::from_utf8_lossy(&note).trim_end());
+                let note = String::from_utf8_lossy(&note);
+                let note = match crate::view::standard_error_width() {
+                    Some(width) => crate::view::wrap_lines(&note, width),
+                    None => note.into_owned(),
+                };
+                let _ = progress.println(note.trim_end());
             }
         });
         Self {
