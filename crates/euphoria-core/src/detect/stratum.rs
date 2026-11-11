@@ -1,6 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::ops::Range;
+
 use stratum_dsp::features::chroma::extractor::compute_stft;
 use stratum_dsp::features::period::tempogram::{
     TempogramBandFusionConfig, estimate_bpm_tempogram_band_fusion,
@@ -10,6 +12,7 @@ use stratum_dsp::preprocessing::silence::{SilenceDetector, detect_and_trim};
 use stratum_dsp::{AnalysisConfig, AnalysisResult, Key as StratumKey, analyze_audio};
 
 use crate::audio::AudioBuffer;
+use crate::detect::decimate::decimate;
 use crate::detect::{Analysis, KeyDetector, TempoDetector};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
@@ -17,9 +20,11 @@ use crate::key::{Key, Mode};
 /// Key and tempo detection through the pure Rust `stratum-dsp` crate.
 ///
 /// Tempo detection is the cheap half. It reads at most the middle ten
-/// minutes of a track and computes one spectrogram of them. Key detection
-/// analyzes the whole track and holds several larger spectrograms of it in
-/// memory, so it costs several times more time and memory.
+/// minutes of a track, at less than twice 44.1 kHz, and computes one
+/// spectrogram of them. It reports the tempo between 90 and 180 beats per
+/// minute. Key detection analyzes the whole track and holds several larger
+/// spectrograms of it in memory, so it costs several times more time and
+/// memory.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StratumDetector;
 
@@ -32,6 +37,18 @@ const MINIMUM_ANALYSIS_SECONDS: f32 = 1.0;
 /// Nearly all single tracks are shorter and are analyzed whole. Shorter
 /// excerpts cost less but change the estimate on about one track in ten.
 const TEMPO_EXCERPT_SECONDS: usize = 600;
+
+/// Tempo analysis decimates audio to the lowest whole fraction of its sample
+/// rate that stays at or above this rate, the one the `stratum-dsp` frame
+/// lengths are set for. A high resolution file then costs about what a
+/// 44.1 kHz file does.
+const TEMPO_SAMPLE_RATE_FLOOR: u32 = 44_100;
+
+/// The octave a tempo is reported in, in beats per minute. The estimate
+/// often lands on half or double the tempo a DJ counts, and most dance music
+/// sits in this octave, so an estimate outside it is doubled or halved into
+/// it.
+const TEMPO_OCTAVE: Range<f32> = 90.0..180.0;
 
 impl StratumDetector {
     /// Returns both key and tempo, the same values as the two trait methods.
@@ -70,18 +87,54 @@ impl TempoDetector for StratumDetector {
     }
 
     fn detect_tempo(&self, audio: &AudioBuffer) -> Result<Option<f32>, EuphoriaError> {
-        let sample_rate = audio.sample_rate().get();
-        let excerpt = middle_excerpt(audio.samples(), sample_rate);
-        if !is_analyzable(excerpt, sample_rate) {
-            return Ok(None);
-        }
-        let config = tempo_config();
-        let tempo = match tempogram_tempo(excerpt, sample_rate, &config) {
-            Some(tempo) => tempo,
-            None => run_analysis(excerpt, sample_rate, config)?.bpm,
-        };
-        Ok(Some(tempo).filter(|tempo| tempo.is_finite() && *tempo > 0.0))
+        tempo_of_middle(audio, TEMPO_EXCERPT_SECONDS)
     }
+}
+
+/// The tempo of the middle `excerpt_seconds` of the audio, or of all of it
+/// when it is shorter than that.
+fn tempo_of_middle(
+    audio: &AudioBuffer,
+    excerpt_seconds: usize,
+) -> Result<Option<f32>, EuphoriaError> {
+    let sample_rate = audio.sample_rate().get();
+    let excerpt = middle_excerpt(audio.samples(), sample_rate, excerpt_seconds);
+    if !is_analyzable(excerpt, sample_rate) {
+        return Ok(None);
+    }
+    let factor = decimation_factor(sample_rate);
+    let analysis_rate = sample_rate / factor as u32;
+    let config = tempo_config();
+    let tempo = match tempogram_tempo(decimate(excerpt, factor), analysis_rate, &config) {
+        Some(tempo) => Some(tempo),
+        None => {
+            let samples = decimate(excerpt, factor);
+            valid_tempo(run_analysis(&samples, analysis_rate, config)?.bpm)
+        }
+    };
+    Ok(tempo.map(fold_into_tempo_octave))
+}
+
+/// How many input samples become one sample of tempo analysis.
+fn decimation_factor(sample_rate: u32) -> usize {
+    (sample_rate / TEMPO_SAMPLE_RATE_FLOOR).max(1) as usize
+}
+
+/// A tempo a detector can report: a positive, finite number.
+fn valid_tempo(tempo: f32) -> Option<f32> {
+    Some(tempo).filter(|tempo| tempo.is_finite() && *tempo > 0.0)
+}
+
+/// Doubles or halves a valid tempo until it lies in [`TEMPO_OCTAVE`].
+fn fold_into_tempo_octave(tempo: f32) -> f32 {
+    let mut folded = tempo;
+    while folded < TEMPO_OCTAVE.start {
+        folded *= 2.0;
+    }
+    while folded >= TEMPO_OCTAVE.end {
+        folded /= 2.0;
+    }
+    folded
 }
 
 /// False for silence and for audio too short to analyze.
@@ -102,10 +155,10 @@ fn run_analysis(
     })
 }
 
-/// The middle [`TEMPO_EXCERPT_SECONDS`] of the samples, or all of them when
-/// the audio is shorter than that.
-fn middle_excerpt(samples: &[f32], sample_rate: u32) -> &[f32] {
-    let excerpt_length = TEMPO_EXCERPT_SECONDS.saturating_mul(sample_rate as usize);
+/// The middle `excerpt_seconds` of the samples, or all of them when the
+/// audio is shorter than that.
+fn middle_excerpt(samples: &[f32], sample_rate: u32, excerpt_seconds: usize) -> &[f32] {
+    let excerpt_length = excerpt_seconds.saturating_mul(sample_rate as usize);
     if samples.len() <= excerpt_length {
         return samples;
     }
@@ -116,10 +169,17 @@ fn middle_excerpt(samples: &[f32], sample_rate: u32) -> &[f32] {
 /// The tempogram estimate that `analyze_audio` reports under
 /// [`tempo_config`], computed through the same `stratum-dsp` steps but
 /// without the onset lists, beat grid and key that `analyze_audio` also
-/// builds. Returns `None` when a step fails, which is when `analyze_audio`
-/// falls back to its estimate from onset intervals.
-fn tempogram_tempo(samples: &[f32], sample_rate: u32, config: &AnalysisConfig) -> Option<f32> {
-    let mut normalized = samples.to_vec();
+/// builds. Returns `None` when a step fails or the estimate is not a valid
+/// tempo, which is when `analyze_audio` falls back to its estimate from
+/// onset intervals.
+///
+/// Takes the samples by value and normalizes them in place, so the only
+/// full length copy of the audio is the one the caller made.
+fn tempogram_tempo(
+    mut normalized: Vec<f32>,
+    sample_rate: u32,
+    config: &AnalysisConfig,
+) -> Option<f32> {
     let normalization = NormalizationConfig {
         method: config.normalization,
         ..NormalizationConfig::default()
@@ -148,7 +208,7 @@ fn tempogram_tempo(samples: &[f32], sample_rate: u32, config: &AnalysisConfig) -
         band_fusion_config(config),
     )
     .ok()
-    .map(|estimate| estimate.bpm)
+    .and_then(|estimate| valid_tempo(estimate.bpm))
 }
 
 /// The tempogram settings `analyze_audio` derives from its configuration.
@@ -217,18 +277,117 @@ fn key_config() -> AnalysisConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU32;
+
     use super::*;
 
-    /// Six seconds of decaying tone bursts, 130 to the minute.
-    fn click_track() -> Vec<f32> {
-        let sample_rate = 44_100.0;
-        let beat_seconds = 60.0 / 130.0;
-        (0..(6.0 * sample_rate) as usize)
+    /// Decaying tone bursts, `tempo` to the minute.
+    fn clicks(tempo: f32, seconds: f32, sample_rate: u32) -> Vec<f32> {
+        let beat_seconds = 60.0 / tempo;
+        (0..(seconds * sample_rate as f32) as usize)
             .map(|index| {
-                let since_beat = (index as f32 / sample_rate) % beat_seconds;
+                let since_beat = (index as f32 / sample_rate as f32) % beat_seconds;
                 (std::f32::consts::TAU * 800.0 * since_beat).sin() * (-since_beat / 0.03).exp()
             })
             .collect()
+    }
+
+    fn click_track() -> Vec<f32> {
+        clicks(130.0, 6.0, 44_100)
+    }
+
+    fn buffer(samples: Vec<f32>, sample_rate: u32) -> AudioBuffer {
+        AudioBuffer::new(samples, NonZeroU32::new(sample_rate).unwrap())
+    }
+
+    #[test]
+    fn only_positive_finite_numbers_are_valid_tempos() {
+        assert_eq!(valid_tempo(126.0), Some(126.0));
+        for tempo in [0.0, -126.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(valid_tempo(tempo), None, "{tempo}");
+        }
+    }
+
+    #[test]
+    fn tempos_are_folded_into_the_reported_octave() {
+        let expectations = [
+            (125.5, 125.5),
+            (90.0, 90.0),
+            (62.75, 125.5),
+            (89.9, 179.8),
+            (180.0, 90.0),
+            (251.0, 125.5),
+            (31.5, 126.0),
+            (350.0, 175.0),
+        ];
+        for (tempo, folded) in expectations {
+            assert_eq!(fold_into_tempo_octave(tempo), folded, "{tempo}");
+        }
+    }
+
+    #[test]
+    fn high_sample_rates_are_decimated_to_at_least_the_floor() {
+        let expectations = [
+            (8_000, 1),
+            (44_100, 1),
+            (48_000, 1),
+            (88_199, 1),
+            (88_200, 2),
+            (96_000, 2),
+            (176_400, 4),
+            (192_000, 4),
+            (384_000, 8),
+        ];
+        for (sample_rate, factor) in expectations {
+            assert_eq!(decimation_factor(sample_rate), factor, "{sample_rate} Hz");
+        }
+    }
+
+    #[test]
+    fn a_failed_tempogram_falls_back_to_the_full_analysis() {
+        let sample_rate = 44_100;
+        let mut samples = vec![0.0; 2 * sample_rate as usize];
+        for (index, sample) in samples.iter_mut().take(500).enumerate() {
+            *sample = (std::f32::consts::TAU * 800.0 * index as f32 / sample_rate as f32).sin();
+        }
+        let config = tempo_config();
+        assert_eq!(tempogram_tempo(samples.clone(), sample_rate, &config), None);
+
+        let fallback = run_analysis(&samples, sample_rate, config).unwrap().bpm;
+        let detected = StratumDetector
+            .detect_tempo(&buffer(samples, sample_rate))
+            .unwrap();
+
+        assert_eq!(detected, valid_tempo(fallback).map(fold_into_tempo_octave));
+    }
+
+    #[test]
+    fn a_track_longer_than_the_excerpt_gets_the_tempo_of_its_middle() {
+        let sample_rate = 44_100;
+        let excerpt_seconds = 8;
+        let middle_tempo = 132.0;
+        let edge = clicks(100.0, 2.0 * excerpt_seconds as f32, sample_rate);
+        let middle = clicks(middle_tempo, excerpt_seconds as f32, sample_rate);
+        let whole: Vec<f32> = [edge.as_slice(), middle.as_slice(), edge.as_slice()].concat();
+        assert_eq!(
+            middle_excerpt(&whole, sample_rate, excerpt_seconds),
+            middle.as_slice()
+        );
+        let whole = buffer(whole, sample_rate);
+
+        let tempo_of_excerpt = tempo_of_middle(&whole, excerpt_seconds).unwrap().unwrap();
+        let tempo_of_whole = tempo_of_middle(&whole, 5 * excerpt_seconds)
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            (tempo_of_excerpt - middle_tempo).abs() < 0.04 * middle_tempo,
+            "{tempo_of_excerpt}"
+        );
+        assert!(
+            (tempo_of_whole - 100.0).abs() < 4.0,
+            "the edges should set the tempo of the whole track, not {tempo_of_whole}"
+        );
     }
 
     #[test]
@@ -236,7 +395,7 @@ mod tests {
         let samples = click_track();
         let config = tempo_config();
 
-        let direct = tempogram_tempo(&samples, 44_100, &config);
+        let direct = tempogram_tempo(samples.clone(), 44_100, &config);
         let reported = run_analysis(&samples, 44_100, config).unwrap().bpm;
 
         assert_eq!(direct, Some(reported));
@@ -247,10 +406,13 @@ mod tests {
         let sample_rate = 10;
         let samples = vec![0.5; TEMPO_EXCERPT_SECONDS * sample_rate];
         assert_eq!(
-            middle_excerpt(&samples, sample_rate as u32).len(),
+            middle_excerpt(&samples, sample_rate as u32, TEMPO_EXCERPT_SECONDS).len(),
             samples.len()
         );
-        assert_eq!(middle_excerpt(&samples[..7], sample_rate as u32).len(), 7);
+        assert_eq!(
+            middle_excerpt(&samples[..7], sample_rate as u32, TEMPO_EXCERPT_SECONDS).len(),
+            7
+        );
     }
 
     #[test]
@@ -261,7 +423,7 @@ mod tests {
             .map(|index| index as f32)
             .collect();
 
-        let excerpt = middle_excerpt(&samples, sample_rate as u32);
+        let excerpt = middle_excerpt(&samples, sample_rate as u32, TEMPO_EXCERPT_SECONDS);
 
         assert_eq!(excerpt.len(), excerpt_length);
         assert_eq!(excerpt.first(), Some(&50.0));

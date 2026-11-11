@@ -172,7 +172,7 @@ tempo_detector_contract!(stratum_tempo, StratumDetector);
 
 #[test]
 fn stratum_finds_the_tempo_of_a_click_track_at_common_sample_rates() {
-    for sample_rate in [44_100, 48_000] {
+    for sample_rate in [44_100, 48_000, 96_000] {
         let tempo = StratumDetector
             .detect_tempo(&click_track(sample_rate))
             .expect("tempo detection failed on the click track")

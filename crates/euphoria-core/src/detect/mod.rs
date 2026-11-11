@@ -4,6 +4,7 @@
 //! Key and tempo detectors behind common traits, so the benchmark and the
 //! product can swap implementations.
 
+mod decimate;
 #[cfg(feature = "libkeyfinder")]
 mod keyfinder;
 mod stratum;
