@@ -191,6 +191,16 @@ pub enum EuphoriaError {
         /// What went wrong, usually the database library's own error.
         source: ErrorSource,
     },
+    /// Whether the user corrected the file's key or tempo could not be
+    /// checked, so the file is left out of a tag write or an export rather
+    /// than given the detected values against the user's choice.
+    #[error("cannot check whether the key or tempo of {path} was corrected, so it was left out")]
+    CorrectionUnchecked {
+        /// The audio file.
+        path: PathBuf,
+        /// Why the check failed: the file or the cache could not be read.
+        source: ErrorSource,
+    },
     /// The audio has a sample rate outside the range Euphoria analyzes.
     #[error(
         "a sample rate of {sample_rate} Hz is not supported: Euphoria reads audio from {minimum} to {maximum} Hz"
@@ -228,6 +238,12 @@ pub enum EuphoriaError {
         "cannot read the tempo range {0:?}: write it as two numbers joined by a hyphen, such as 70-140"
     )]
     UnreadableTempoRange(String),
+    /// A key or tempo correction that cannot be kept.
+    #[error("cannot keep this correction: {reason}")]
+    InvalidCorrection {
+        /// What is wrong with it.
+        reason: &'static str,
+    },
     /// No folder for Euphoria's data could be worked out from the environment.
     #[error(
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"

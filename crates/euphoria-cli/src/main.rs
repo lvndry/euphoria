@@ -144,6 +144,8 @@ fn analyze(
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, analysis)?;
+    let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
+    let results = batch::corrected(results, &corrections);
     let analyzed_count = results.len();
     let results: Vec<FileResult> = if needs_review {
         results
@@ -161,9 +163,14 @@ fn analyze(
 
     let mut standard_output = std::io::stdout().lock();
     if json {
-        output::write_json(&mut standard_output, &results, analysis.tempo_range())?;
+        output::write_json(
+            &mut standard_output,
+            &results,
+            analysis.tempo_range(),
+            &corrections,
+        )?;
     } else {
-        output::write_table(&mut standard_output, &results)?;
+        output::write_table(&mut standard_output, &results, &corrections)?;
     }
     standard_output.flush()?;
     if !json {
