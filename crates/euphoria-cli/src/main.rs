@@ -5,6 +5,7 @@
 
 mod batch;
 mod collection;
+mod corrections;
 mod export;
 mod help;
 mod output;
@@ -30,6 +31,7 @@ use euphoria_core::{
 };
 
 use crate::batch::AnalysisOptions;
+use crate::corrections::CorrectionsCommand;
 use crate::export::ExportTarget;
 use crate::output::Narrowing;
 use crate::style::{ColorChoice, Theme};
@@ -85,6 +87,12 @@ enum Command {
     Export {
         #[command(subcommand)]
         target: ExportTarget,
+    },
+    /// Export the keys and tempos you corrected, to train a key model.
+    #[command(after_help = help::corrections_examples())]
+    Corrections {
+        #[command(subcommand)]
+        command: CorrectionsCommand,
     },
     /// Show where the saved analyses are, or forget them.
     #[command(after_help = help::cache_examples())]
@@ -205,6 +213,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
+        Command::Corrections { command } => corrections::run(command),
         Command::Cache { command } => manage_cache(command),
     }
 }

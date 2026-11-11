@@ -457,7 +457,7 @@ fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
     before - library.tracks.len()
 }
 
-fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {
+pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {
     if output_file.is_dir() {
         bail!(
             "{} is a folder. Give --output the name of a file.",
