@@ -23,7 +23,10 @@
 //! - The hash covers tags and artwork as well as audio. Finding the audio
 //!   inside every supported container is a parser per format, and a mistake
 //!   in one would serve a wrong result. The consequence is that a file whose
-//!   tags were edited is analyzed once more.
+//!   tags were edited by another program is analyzed once more. Euphoria's
+//!   own tag writes record the analysis for the new bytes as they write, and
+//!   an undo records where the old bytes are again, so neither costs an
+//!   analysis.
 //! - The quick check trusts the file system. A file rewritten in place with
 //!   the same size and the same modification time keeps its old analysis.
 //! - The file is read once for the hash and once more for the analysis. An
@@ -51,6 +54,7 @@
 mod batch;
 mod identity;
 mod location;
+mod rewritten;
 mod single;
 
 use std::collections::HashMap;

@@ -1,0 +1,378 @@
+"""Writes the charts of docs/concepts/energy.md as SVG files next to this script.
+
+Run it with any Python 3 from the repository root:
+
+    python3 docs/images/energy/make_charts.py
+
+Every number comes from docs/concepts/energy.md. Change the page and the data
+below together.
+"""
+
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+OUTPUT_DIRECTORY = Path(__file__).resolve().parent
+
+# "From measurements to a rating", anchor table: onset rate scores 0 at 2.5
+# per second and 1 at 7 per second.
+ONSET_RATE_LOW = 2.5
+ONSET_RATE_HIGH = 7.0
+
+# "From measurements to a rating", step 3: 0.2 maps to the bottom of the
+# scale and 0.8 to the top, cut into ten equal steps.
+COMBINED_LOW = 0.2
+COMBINED_HIGH = 0.8
+RATING_COUNT = 10
+
+# "From measurements to a rating", the Weight column of the anchor table.
+FEATURE_WEIGHTS = [
+    ("Integrated loudness", 0.25),
+    ("Loudness range", 0.20),
+    ("Onset rate", 0.25),
+    ("Low frequency share", 0.10),
+    ("Spectral flux", 0.20),
+    ("Tempo, when known", 0.10),
+]
+
+# "From measurements to a rating", the row "Tracks, rated with the detected
+# tempo" for ratings 1 to 10 of the 604 GiantSteps Key previews.
+GIANTSTEPS_TRACKS_PER_RATING = [13, 13, 30, 63, 65, 115, 114, 102, 56, 33]
+
+# "How well it works", One DJ's folders: the average rating of each folder.
+DJ_FOLDER_AVERAGES = [("Warm up", 5.0), ("Build", 5.9), ("Peak", 6.3)]
+
+# "Energy curve": energy_curve on a two minute preview from the GiantSteps
+# benchmark set, 8 second windows every 4 seconds, as (window centre in
+# seconds, rating), and the rating of the whole preview.
+CURVE_WINDOW_SECONDS = 8
+CURVE_STEP_SECONDS = 4
+CURVE_POINTS = [
+    (4, 10), (8, 10), (12, 10), (16, 9), (20, 8), (24, 8), (28, 7), (32, 7),
+    (36, 7), (40, 1), (44, 1), (48, 1), (52, 1), (56, 1), (60, 2), (64, 10),
+    (68, 10), (72, 10), (76, 10), (80, 10), (84, 10), (88, 10), (92, 10),
+    (96, 10), (100, 10), (104, 8), (108, 9), (112, 10), (116, 10),
+]
+CURVE_WHOLE_TRACK_RATING = 6
+
+STYLE = """
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .series-line { stroke: #3987e5; }
+  .series-fill, .series-wash { fill: #3987e5; }
+  .ring { stroke: #1a1a19; }
+}
+"""
+
+FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'
+
+
+def number(value):
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def text(x, y, content, css_class, anchor="start"):
+    return (
+        f'<text x="{number(x)}" y="{number(y)}" class="{css_class}" '
+        f'text-anchor="{anchor}">{escape(content)}</text>'
+    )
+
+
+def line(x1, y1, x2, y2, css_class):
+    return (
+        f'<line x1="{number(x1)}" y1="{number(y1)}" x2="{number(x2)}" '
+        f'y2="{number(y2)}" class="{css_class}"/>'
+    )
+
+
+def polyline(points, css_class):
+    joined = " ".join(f"{number(x)},{number(y)}" for x, y in points)
+    return f'<polyline points="{joined}" class="{css_class}"/>'
+
+
+def dot(x, y, radius=5):
+    return (
+        f'<circle cx="{number(x)}" cy="{number(y)}" r="{radius}" '
+        'class="series-fill ring"/>'
+    )
+
+
+def bar_path(left, top, width, height, round_end):
+    """A bar with a 4px rounded data end and a square baseline end."""
+    radius = min(4, width / 2, height / 2)
+    right = left + width
+    bottom = top + height
+    if round_end == "top":
+        return (
+            f'<path class="series-fill" d="M{number(left)},{number(bottom)} '
+            f"V{number(top + radius)} Q{number(left)},{number(top)} {number(left + radius)},{number(top)} "
+            f"H{number(right - radius)} Q{number(right)},{number(top)} {number(right)},{number(top + radius)} "
+            f'V{number(bottom)} Z"/>'
+        )
+    return (
+        f'<path class="series-fill" d="M{number(left)},{number(top)} '
+        f"H{number(right - radius)} Q{number(right)},{number(top)} {number(right)},{number(top + radius)} "
+        f"V{number(bottom - radius)} Q{number(right)},{number(bottom)} {number(right - radius)},{number(bottom)} "
+        f'H{number(left)} Z"/>'
+    )
+
+
+def scale(domain_low, domain_high, range_low, range_high):
+    def mapped(value):
+        fraction = (value - domain_low) / (domain_high - domain_low)
+        return range_low + fraction * (range_high - range_low)
+
+    return mapped
+
+
+def document(width, height, title, description, body):
+    return "\n".join(
+        [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+            f'viewBox="0 0 {width} {height}" role="img" '
+            'aria-labelledby="chart-title chart-desc" '
+            f"font-family='{FONT_STACK}'>",
+            f'<title id="chart-title">{escape(title)}</title>',
+            f'<desc id="chart-desc">{escape(description)}</desc>',
+            f"<style>{STYLE}</style>",
+            f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="12" class="surface"/>',
+            *body,
+            "</svg>",
+            "",
+        ]
+    )
+
+
+def feature_to_score_chart():
+    width = 800
+    height = 360
+    body = [
+        text(24, 36, "From a measurement to a rating", "title"),
+        text(24, 58, "Each feature becomes a score, and the weighted average of the scores becomes the rating.", "subtitle"),
+    ]
+
+    panel_top = 100
+    panel_bottom = 300
+    body.append(text(64, panel_top - 14, "Onset rate to score", "label"))
+    to_x = scale(0, 10, 64, 340)
+    to_y = scale(0, 1, panel_bottom, panel_top)
+    for score_tick in (0, 0.5, 1):
+        body.append(line(to_x(0), to_y(score_tick), to_x(10), to_y(score_tick), "grid" if score_tick else "axis"))
+        body.append(text(to_x(0) - 10, to_y(score_tick) + 4, number(score_tick), "tick", "end"))
+    for rate_tick in (0, 2.5, 5, 7, 10):
+        body.append(text(to_x(rate_tick), panel_bottom + 20, number(rate_tick), "tick", "middle"))
+    body.append(text(to_x(5), panel_bottom + 42, "Percussive events per second", "label", "middle"))
+    body.append(
+        polyline(
+            [(to_x(0), to_y(0)), (to_x(ONSET_RATE_LOW), to_y(0)), (to_x(ONSET_RATE_HIGH), to_y(1)), (to_x(10), to_y(1))],
+            "series-line",
+        )
+    )
+    body.append(dot(to_x(ONSET_RATE_LOW), to_y(0)))
+    body.append(dot(to_x(ONSET_RATE_HIGH), to_y(1)))
+    body.append(text(to_x(ONSET_RATE_LOW) + 24, to_y(0) - 10, "2.5 per second scores 0", "label"))
+    body.append(text(to_x(ONSET_RATE_HIGH) + 8, to_y(1) + 22, "7 per second scores 1", "label"))
+
+    body.append(text(490, panel_top - 14, "Weighted average to rating", "label"))
+    to_x = scale(0, 1, 490, 766)
+    to_y = scale(0.5, 10.5, panel_bottom, panel_top)
+    for rating_tick in (1, 5, 10):
+        body.append(line(to_x(0), to_y(rating_tick), to_x(1), to_y(rating_tick), "grid"))
+        body.append(text(to_x(0) - 10, to_y(rating_tick) + 4, str(rating_tick), "tick", "end"))
+    body.append(line(to_x(0), panel_bottom, to_x(1), panel_bottom, "axis"))
+    for average_tick in (0, COMBINED_LOW, 0.5, COMBINED_HIGH, 1):
+        body.append(text(to_x(average_tick), panel_bottom + 20, number(average_tick), "tick", "middle"))
+    body.append(text(to_x(0.5), panel_bottom + 42, "Weighted average of the scores", "label", "middle"))
+    for anchor in (COMBINED_LOW, COMBINED_HIGH):
+        body.append(line(to_x(anchor), panel_top, to_x(anchor), panel_bottom, "reference"))
+    step_width = (COMBINED_HIGH - COMBINED_LOW) / RATING_COUNT
+    staircase = [(to_x(0), to_y(1))]
+    for rating in range(1, RATING_COUNT):
+        edge = COMBINED_LOW + step_width * rating
+        staircase.append((to_x(edge), to_y(rating)))
+        staircase.append((to_x(edge), to_y(rating + 1)))
+    staircase.append((to_x(1), to_y(RATING_COUNT)))
+    body.append(polyline(staircase, "series-line"))
+    body.append(text(to_x(COMBINED_LOW) + 8, to_y(9.6), "0.2 is the bottom", "label"))
+    body.append(text(to_x(COMBINED_HIGH) - 8, to_y(1.4), "0.8 is the top", "label", "end"))
+
+    description = (
+        "Left: onset rate scores 0 at or below 2.5 percussive events per second, "
+        "rises in a straight line, and scores 1 at or above 7 per second. "
+        "Right: the weighted average of the feature scores maps to the rating as a "
+        "staircase. An average of 0.2 or less gives 1, 0.8 or more gives 10, and "
+        "the stretch between is cut into ten equal steps."
+    )
+    return document(width, height, "From a measurement to a rating", description, body)
+
+
+def weights_chart():
+    ranked = sorted(FEATURE_WEIGHTS, key=lambda feature: -feature[1])
+    row_height = 36
+    chart_top = 92
+    width = 800
+    height = chart_top + row_height * len(ranked) + 20
+    to_x = scale(0, 0.25, 220, 700)
+    body = [
+        text(24, 36, "How much each feature counts", "title"),
+        text(24, 58, "Weights of the six features in the average. Onset rate and loudness count most.", "subtitle"),
+    ]
+    for index, (name, weight) in enumerate(ranked):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(0) - 14, row_middle + 4.5, name, "label", "end"))
+        body.append(bar_path(to_x(0), row_middle - 10, to_x(weight) - to_x(0), 20, "right"))
+        body.append(text(to_x(weight) + 10, row_middle + 4.5, f"{weight:.2f}", "value"))
+    body.append(line(to_x(0), chart_top, to_x(0), chart_top + row_height * len(ranked), "axis"))
+
+    description = (
+        "Horizontal bars of the weights: integrated loudness 0.25, onset rate 0.25, "
+        "loudness range 0.20, spectral flux 0.20, low frequency share 0.10, and tempo, "
+        "when known, 0.10."
+    )
+    return document(width, height, "How much each feature counts", description, body)
+
+
+def giantsteps_spread_chart():
+    width = 800
+    height = 360
+    plot_top = 96
+    plot_bottom = 290
+    to_x = scale(0.5, 10.5, 80, 770)
+    to_y = scale(0, 120, plot_bottom, plot_top)
+    body = [
+        text(24, 36, "How the GiantSteps previews spread over the scale", "title"),
+        text(24, 58, "Number of the 604 previews at each rating, rated with the detected tempo.", "subtitle"),
+    ]
+    for count_tick in (0, 40, 80, 120):
+        body.append(line(to_x(0.5), to_y(count_tick), to_x(10.5), to_y(count_tick), "grid" if count_tick else "axis"))
+        body.append(text(to_x(0.5) - 10, to_y(count_tick) + 4, str(count_tick), "tick", "end"))
+    bar_width = 24
+    peak_count = max(GIANTSTEPS_TRACKS_PER_RATING)
+    for rating, count in enumerate(GIANTSTEPS_TRACKS_PER_RATING, start=1):
+        center = to_x(rating)
+        body.append(bar_path(center - bar_width / 2, to_y(count), bar_width, plot_bottom - to_y(count), "top"))
+        body.append(text(center, plot_bottom + 20, str(rating), "tick", "middle"))
+        if count == peak_count:
+            body.append(text(center, to_y(count) - 10, f"{count} tracks", "value", "middle"))
+    body.append(text(to_x(5.5), plot_bottom + 44, "Energy rating", "label", "middle"))
+
+    description = (
+        "Column chart of how many of the 604 GiantSteps Key previews get each rating "
+        "with the detected tempo: 13, 13, 30, 63, 65, 115, 114, 102, 56 and 33 tracks "
+        "for ratings 1 to 10. The previews cover the whole scale, with most between 4 and 8 "
+        "and the peak at 6."
+    )
+    return document(width, height, "How the GiantSteps previews spread over the scale", description, body)
+
+
+def dj_folders_chart():
+    width = 800
+    row_height = 40
+    chart_top = 96
+    height = chart_top + row_height * len(DJ_FOLDER_AVERAGES) + 60
+    to_x = scale(1, 10, 130, 760)
+    chart_bottom = chart_top + row_height * len(DJ_FOLDER_AVERAGES)
+    body = [
+        text(24, 36, "Average rating of one DJ's folders", "title"),
+        text(24, 58, "494 house tracks sorted by their owner. The order is right, the steps are small.", "subtitle"),
+    ]
+    for rating_tick in range(1, 11):
+        body.append(line(to_x(rating_tick), chart_top, to_x(rating_tick), chart_bottom, "grid"))
+        body.append(text(to_x(rating_tick), chart_bottom + 20, str(rating_tick), "tick", "middle"))
+    body.append(text(to_x(5.5), chart_bottom + 44, "Energy rating", "label", "middle"))
+    for index, (folder, average) in enumerate(DJ_FOLDER_AVERAGES):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(1) - 18, row_middle + 4.5, folder, "label", "end"))
+        body.append(dot(to_x(average), row_middle, radius=6))
+        body.append(text(to_x(average) + 14, row_middle + 4.5, f"{average:.1f}", "value"))
+
+    description = (
+        "Dot plot on the rating scale from 1 to 10 of the average rating of three "
+        "folders in one DJ's library of 494 house tracks: warm up 5.0, build 5.9 and "
+        "peak 6.3. The rating rises in the right order, but the three averages sit "
+        "within about one point of each other."
+    )
+    return document(width, height, "Average rating of one DJ's folders", description, body)
+
+
+def minutes_and_seconds(seconds):
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def energy_curve_chart():
+    width = 800
+    height = 360
+    plot_top = 100
+    plot_bottom = 300
+    plot_right = 680
+    to_x = scale(0, 120, 64, plot_right)
+    to_y = scale(1, 10, plot_bottom, plot_top)
+    body = [
+        text(24, 36, "Energy curve of a two minute preview", "title"),
+        text(24, 58, "A rating every 4 seconds, each over an 8 second window, against the rating of the whole preview.", "subtitle"),
+    ]
+    for rating_tick in (1, 4, 7, 10):
+        body.append(line(to_x(0), to_y(rating_tick), to_x(120), to_y(rating_tick), "grid"))
+        body.append(text(to_x(0) - 10, to_y(rating_tick) + 4, str(rating_tick), "tick", "end"))
+    body.append(line(to_x(0), plot_bottom, to_x(120), plot_bottom, "axis"))
+    for second_tick in range(0, 121, 20):
+        body.append(text(to_x(second_tick), plot_bottom + 20, minutes_and_seconds(second_tick), "tick", "middle"))
+    body.append(text(to_x(60), plot_bottom + 44, "Time in the preview", "label", "middle"))
+
+    half_step = CURVE_STEP_SECONDS / 2
+    steps = []
+    for centre, rating in CURVE_POINTS:
+        steps.append((to_x(centre - half_step), to_y(rating)))
+        steps.append((to_x(centre + half_step), to_y(rating)))
+    wash = [(steps[0][0], plot_bottom), *steps, (steps[-1][0], plot_bottom)]
+    wash_points = " ".join(f"{number(x)},{number(y)}" for x, y in wash)
+    body.append(f'<polygon points="{wash_points}" class="series-wash"/>')
+    body.append(line(to_x(0), to_y(CURVE_WHOLE_TRACK_RATING), to_x(120), to_y(CURVE_WHOLE_TRACK_RATING), "reference"))
+    body.append(polyline(steps, "series-line"))
+    body.append(text(plot_right + 10, to_y(CURVE_WHOLE_TRACK_RATING) - 4, "Whole preview", "label"))
+    body.append(text(plot_right + 10, to_y(CURVE_WHOLE_TRACK_RATING) + 13, f"rates {CURVE_WHOLE_TRACK_RATING}", "label"))
+    body.append(text(to_x(49), to_y(1) - 14, "Breakdown", "label", "middle"))
+    body.append(text(to_x(62) - 10, to_y(9.2), "Drop", "label", "end"))
+
+    description = (
+        "Step chart of the energy rating of a two minute preview from the benchmark set, "
+        "one rating every 4 seconds over 8 second windows. It starts at 10, eases down to 7, "
+        "falls to 1 in a breakdown between about 40 and 60 seconds, jumps back to 10 at the "
+        "drop just after one minute and stays near 10 to the end. The whole preview rates 6, "
+        "so the windows reach both higher and lower than the rating of the whole track."
+    )
+    return document(width, height, "Energy curve of a two minute preview", description, body)
+
+
+CHARTS = {
+    "feature-to-rating.svg": feature_to_score_chart,
+    "weights.svg": weights_chart,
+    "giantsteps-spread.svg": giantsteps_spread_chart,
+    "dj-folders.svg": dj_folders_chart,
+    "energy-curve.svg": energy_curve_chart,
+}
+
+
+def main():
+    for file_name, build in CHARTS.items():
+        (OUTPUT_DIRECTORY / file_name).write_text(build(), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

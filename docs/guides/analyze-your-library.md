@@ -25,7 +25,7 @@ $ euphoria analyze ~/Music/DJ
 120 of 124 tracks came from the cache.
 ```
 
-You can rename files and reorganize folders freely. A track is recognised by its content, so it is not analyzed again after it moves. Editing a file's tags changes its content, so a retagged track is analyzed once more.
+You can rename files and reorganize folders freely. A track is recognised by its content, so it is not analyzed again after it moves. Editing a file's tags in another program changes its content, so a track retagged that way is analyzed once more. Tags written by Euphoria, and undone by it, do not cost an analysis.
 
 To analyze tracks again whatever is remembered, for example after a result looked wrong:
 

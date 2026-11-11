@@ -34,8 +34,12 @@ pub(crate) enum TrackStatus {
 pub(crate) struct Track {
     /// The audio file.
     pub(crate) path: PathBuf,
-    /// The file name, shown as the title.
+    /// The file name, shown as the title when the tags have none.
     pub(crate) file_name: String,
+    /// The title in the file's tags, once read.
+    pub(crate) tag_title: Option<String>,
+    /// The artist in the file's tags, once read.
+    pub(crate) artist: Option<String>,
     /// The file extension in upper case, for example "FLAC".
     pub(crate) format: String,
     /// The name of the folder holding the file.
@@ -43,6 +47,8 @@ pub(crate) struct Track {
     /// Where the track is in its analysis.
     pub(crate) status: TrackStatus,
     file_name_lowercase: String,
+    title_lowercase: String,
+    artist_lowercase: Option<String>,
 }
 
 impl Track {
@@ -62,12 +68,29 @@ impl Track {
             .unwrap_or_default();
         Self {
             file_name_lowercase: file_name.to_lowercase(),
+            title_lowercase: file_name.to_lowercase(),
+            artist_lowercase: None,
             path,
+            tag_title: None,
+            artist: None,
             file_name,
             format,
             folder,
             status: TrackStatus::Queued,
         }
+    }
+
+    /// The title to show: the one in the tags, or the file name.
+    pub(crate) fn title(&self) -> &str {
+        self.tag_title.as_deref().unwrap_or(&self.file_name)
+    }
+
+    /// Takes the title and artist from the file's tags.
+    fn set_names(&mut self, title: Option<String>, artist: Option<String>) {
+        self.title_lowercase = title.as_deref().unwrap_or(&self.file_name).to_lowercase();
+        self.artist_lowercase = artist.as_deref().map(str::to_lowercase);
+        self.tag_title = title;
+        self.artist = artist;
     }
 
     /// True while the track has no result yet: queued or being analyzed.
@@ -119,11 +142,16 @@ impl Track {
     }
 
     /// True when every word of `query_lowercase` matches the track: as part
-    /// of the file name, as the whole Camelot code, or as the start of the
-    /// tempo.
+    /// of the file name, the title or the artist, as the whole Camelot code,
+    /// or as the start of the tempo.
     fn matches(&self, query_lowercase: &str) -> bool {
         query_lowercase.split_whitespace().all(|word| {
             self.file_name_lowercase.contains(word)
+                || self.title_lowercase.contains(word)
+                || self
+                    .artist_lowercase
+                    .as_deref()
+                    .is_some_and(|artist| artist.contains(word))
                 || self
                     .key()
                     .is_some_and(|key| key.camelot().eq_ignore_ascii_case(word))
@@ -137,8 +165,10 @@ impl Track {
 /// The column the table is sorted by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SortColumn {
-    /// File name, ignoring letter case.
+    /// Title, or file name where the tags have none, ignoring letter case.
     Title,
+    /// Artist, ignoring letter case.
+    Artist,
     /// Position around the Camelot wheel: number, then minor before major.
     Key,
     /// Tempo.
@@ -319,6 +349,25 @@ impl Library {
         self.structure_revision
     }
 
+    /// Takes the title and artist of the track at `path` from its tags.
+    /// Returns false when the file is not in the library.
+    pub(crate) fn set_names(
+        &mut self,
+        path: &Path,
+        title: Option<String>,
+        artist: Option<String>,
+    ) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        track.set_names(title, artist);
+        true
+    }
+
     /// How many tracks are in each state.
     pub(crate) fn counts(&self) -> LibraryCounts {
         LibraryCounts {
@@ -368,8 +417,14 @@ impl Library {
 fn compare_tracks(first: &Track, second: &Track, sort_order: SortOrder) -> Ordering {
     match sort_order.column {
         SortColumn::Title => directed(
-            first.file_name_lowercase.cmp(&second.file_name_lowercase),
+            first.title_lowercase.cmp(&second.title_lowercase),
             sort_order,
+        ),
+        SortColumn::Artist => compare_optional(
+            first.artist_lowercase.as_ref(),
+            second.artist_lowercase.as_ref(),
+            sort_order,
+            Ord::cmp,
         ),
         SortColumn::Format => directed(first.format.cmp(&second.format), sort_order),
         SortColumn::Folder => Ordering::Equal,
@@ -515,6 +570,59 @@ mod tests {
             column,
             descending: true,
         })
+    }
+
+    #[test]
+    fn the_title_comes_from_the_tags_with_the_file_name_as_fallback() {
+        let mut library = sample_library();
+        assert_eq!(library.tracks()[0].title(), "Low Tide.aiff");
+        assert!(library.set_names(
+            Path::new("/music/house/Low Tide.aiff"),
+            Some("Low Tide (Extended Mix)".to_string()),
+            Some("Marine Layer".to_string()),
+        ));
+        assert!(!library.set_names(Path::new("/nowhere.mp3"), None, None));
+        let track = &library.tracks()[0];
+        assert_eq!(track.title(), "Low Tide (Extended Mix)");
+        assert_eq!(track.artist.as_deref(), Some("Marine Layer"));
+        assert_eq!(track.file_name, "Low Tide.aiff");
+    }
+
+    #[test]
+    fn search_finds_the_title_and_the_artist_as_well_as_the_file_name() {
+        let mut library = sample_library();
+        library.set_names(
+            Path::new("/music/techno/Undertow.wav"),
+            Some("Deep Water".to_string()),
+            Some("Kaito Sato".to_string()),
+        );
+        assert_eq!(visible(&library, "kaito", None), ["Undertow.wav"]);
+        assert_eq!(visible(&library, "deep water", None), ["Undertow.wav"]);
+        assert_eq!(visible(&library, "undertow", None), ["Undertow.wav"]);
+    }
+
+    #[test]
+    fn sorting_by_title_uses_the_tags_and_by_artist_puts_tracks_without_one_last() {
+        let mut library = sample_library();
+        library.set_names(
+            Path::new("/music/techno/waiting.m4a"),
+            Some("Aaa first by title".to_string()),
+            Some("Zed".to_string()),
+        );
+        library.set_names(
+            Path::new("/music/house/saffron.mp3"),
+            None,
+            Some("anna".to_string()),
+        );
+        assert_eq!(
+            visible(&library, "", ascending(SortColumn::Title))[0],
+            "waiting.m4a"
+        );
+        let by_artist = visible(&library, "", ascending(SortColumn::Artist));
+        assert_eq!(by_artist[..2], ["saffron.mp3", "waiting.m4a"]);
+        let by_artist_descending = visible(&library, "", descending(SortColumn::Artist));
+        assert_eq!(by_artist_descending[..2], ["waiting.m4a", "saffron.mp3"]);
+        assert_eq!(by_artist_descending.len(), 6);
     }
 
     #[test]

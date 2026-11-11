@@ -116,6 +116,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .ml_auto()
                 .children(progress(app, &palette))
                 .when(has_tracks, |commands| {
+                    commands.child(write_tags(app, &palette, cx))
+                })
+                .when(has_tracks, |commands| {
                     commands.child(
                         secondary_button("Add folder", &palette)
                             .id("add-folder")
@@ -124,6 +127,36 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                     )
                 })
                 .child(theme_menu(app.theme.name)),
+        )
+}
+
+/// Write tags, with the DJ program they are written for beside it, so the
+/// fields of the wrong program are not written by mistake. Clicking the
+/// program opens the settings.
+fn write_tags(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let hover_colour = palette.text;
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(6.0))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            secondary_button("Write tags", palette)
+                .id("write-tags")
+                .on_click(cx.listener(|this, _, _, cx| this.open_tag_writer(cx)))
+                .test_support(),
+        )
+        .child(
+            div()
+                .id("tag-program")
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .cursor_pointer()
+                .hover(move |style| style.text_color(hover_colour))
+                .on_click(cx.listener(|this, _, _, cx| this.open_settings(cx)))
+                .child(format!("for {}", app.tag_settings.program.label()))
+                .test_support(),
         )
 }
 

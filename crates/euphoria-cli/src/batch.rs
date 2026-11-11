@@ -121,8 +121,16 @@ fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
     batch
 }
 
-fn open_cache() -> Result<Cache, EuphoriaError> {
+/// Opens the analysis cache in the data folder.
+pub fn open_cache() -> Result<Cache, EuphoriaError> {
     Cache::open(&default_cache_path()?)
+}
+
+impl AnalysisOptions {
+    /// True unless the cache is turned off with `--no-cache`.
+    pub fn uses_cache(&self) -> bool {
+        !self.no_cache
+    }
 }
 
 fn default_job_count() -> usize {

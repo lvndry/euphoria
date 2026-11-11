@@ -683,3 +683,52 @@ fn text_from_files_cannot_act_on_the_terminal() {
     let json = run(&euphoria, &["analyze", "--json", text(&track)]);
     assert!(standard_output(&json).contains("track\\r\\u001b[2Kinnocent.wav"));
 }
+
+#[test]
+fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
+    let euphoria = Euphoria::new();
+    let library = Library::new();
+    let analyze = ["analyze", "--json", text(library.path())];
+    let first = run(&euphoria, &analyze);
+    assert_success(&first);
+    assert!(!standard_error(&first).contains("came from the cache"));
+
+    let written = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
+    assert_success(&written);
+    assert!(
+        !standard_error(&written).contains("warning"),
+        "{}",
+        standard_error(&written)
+    );
+    let after_write = run(&euphoria, &analyze);
+    assert_success(&after_write);
+    assert_eq!(
+        standard_error(&after_write),
+        "5 of 5 tracks came from the cache.\n"
+    );
+    assert_eq!(after_write.stdout, first.stdout);
+
+    let undone = run(&euphoria, &["tags", "undo"]);
+    assert_success(&undone);
+    let after_undo = run(&euphoria, &analyze);
+    assert_success(&after_undo);
+    assert_eq!(
+        standard_error(&after_undo),
+        "5 of 5 tracks came from the cache.\n"
+    );
+    assert_eq!(after_undo.stdout, first.stdout);
+}
+
+#[test]
+fn a_write_without_the_cache_leaves_no_cache_behind() {
+    let euphoria = Euphoria::new();
+    let library = Library::new();
+    let written = run(
+        &euphoria,
+        &["tags", "write", "--yes", "--no-cache", text(library.path())],
+    );
+    assert_success(&written);
+    assert!(!euphoria.cache_path().exists());
+    assert_success(&run(&euphoria, &["tags", "undo"]));
+    assert!(!euphoria.cache_path().exists());
+}
