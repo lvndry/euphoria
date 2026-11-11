@@ -176,7 +176,7 @@ pub(super) fn cached_or_analyzed(
             }
             let write = CacheWrite::Store {
                 content_hash,
-                analysis: analysis.clone(),
+                analysis: Box::new(analysis.clone()),
                 location,
             };
             (analysis, Origin::Analyzer, write)
@@ -229,6 +229,7 @@ mod tests {
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
+                cues: Vec::new(),
                 key_timeline: vec![
                     crate::KeySection {
                         start_seconds: 0.0,

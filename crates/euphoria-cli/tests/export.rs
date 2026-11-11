@@ -1083,6 +1083,159 @@ fn beat_grid_writes_the_grid_of_a_track_with_a_clear_beat() {
     assert!(grid["confidence"].is_string());
 }
 
+/// The cue points of the only track in an exported file, as (name, number).
+fn exported_cues(file: &Path) -> Vec<(String, String)> {
+    let document = std::fs::read_to_string(file).expect("the export is read");
+    let xml = roxmltree::Document::parse(&document).expect("the export is well formed XML");
+    xml.descendants()
+        .filter(|node| node.has_tag_name("POSITION_MARK"))
+        .map(|node| {
+            (
+                attribute(node, "Name").expect("a name"),
+                attribute(node, "Num").expect("a number"),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let empty_collection = output.join("empty-collection.xml");
+    std::fs::write(
+        &empty_collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let cued_collection = output.join("cued-collection.xml");
+    std::fs::write(
+        &cued_collection,
+        format!(
+            "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"1\">\
+             <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
+             <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
+             </TRACK></COLLECTION></DJ_PLAYLISTS>",
+            text(&track)
+        ),
+    )
+    .expect("the collection is written");
+    let export = |name: &str, extra: &[&str]| {
+        let file = output.join(name);
+        let mut arguments = vec!["export", "rekordbox", text(&track), "-o", text(&file)];
+        arguments.extend_from_slice(extra);
+        (euphoria.run(&arguments), file)
+    };
+
+    let (without_collection, _) = export("refused.xml", &["--beat-grid", "--cues"]);
+    let (without_grid, _) = export(
+        "refused-too.xml",
+        &["--cues", "--collection", text(&empty_collection)],
+    );
+    let (new_track, new_track_file) = export(
+        "new.xml",
+        &[
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&empty_collection),
+        ],
+    );
+    let (cued_track, cued_track_file) = export(
+        "cued.xml",
+        &[
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&cued_collection),
+        ],
+    );
+
+    assert_eq!(without_collection.status.code(), Some(2));
+    assert!(standard_error(&without_collection).contains("--collection"));
+    assert_eq!(without_grid.status.code(), Some(2));
+    assert!(standard_error(&without_grid).contains("--beat-grid"));
+
+    assert_success(&new_track);
+    assert_eq!(
+        standard_error(&new_track).lines().nth(2),
+        Some("Cues for 1 of 1 track.")
+    );
+    let cues = exported_cues(&new_track_file);
+    assert_eq!(
+        cues[..2],
+        [
+            ("Start".to_string(), "-1".to_string()),
+            ("Start".to_string(), "0".to_string())
+        ]
+    );
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    assert_eq!(analyzed[0]["cues"][0]["name"], "Start");
+    assert_eq!(
+        analyzed[0]["cues"].as_array().expect("cues").len() * 2,
+        cues.len()
+    );
+
+    assert_eq!(cued_track.status.code(), Some(1));
+    assert!(
+        standard_error(&cued_track).contains("every track already has cues"),
+        "{}",
+        standard_error(&cued_track)
+    );
+    assert!(!cued_track_file.exists());
+
+    let other = resolved(music_folder.path()).join("other.wav");
+    write_kick_track(&other, 124.0, 0.1);
+    let mixed_file = output.join("mixed.xml");
+    let mixed = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&resolved(music_folder.path())),
+        "-o",
+        text(&mixed_file),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&cued_collection),
+    ]);
+    assert_success(&mixed);
+    let lines: Vec<String> = standard_error(&mixed).lines().map(str::to_string).collect();
+    assert!(
+        lines[0].starts_with("Exported 1 track in 1 playlist"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[2], "Cues for 1 of 1 track.");
+    assert_eq!(
+        lines[3],
+        "Left out 1 track that already has cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update its key and tempo."
+    );
+    let library = ExportedLibrary::read(&mixed_file);
+    assert_eq!(
+        library
+            .tracks
+            .iter()
+            .map(|track| track.path.clone())
+            .collect::<Vec<_>>(),
+        vec![other.clone()]
+    );
+    assert_eq!(
+        library.playlists,
+        vec![ExportedNode::Playlist(
+            music_folder
+                .path()
+                .file_name()
+                .expect("a folder name")
+                .to_string_lossy()
+                .into_owned(),
+            vec![other]
+        )]
+    );
+}
+
 #[test]
 fn a_grid_rated_low_is_left_out_and_not_counted() {
     let euphoria = Euphoria::new();
@@ -1136,4 +1289,132 @@ fn a_grid_rated_low_is_left_out_and_not_counted() {
         .collect();
     assert_eq!(with_tempo.len(), 1);
     assert!(with_tempo[0].ends_with("steady.wav"), "{with_tempo:?}");
+}
+
+#[test]
+fn the_collection_is_never_the_output_even_with_force() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let collection = output.join("collection.xml");
+    let contents = "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>";
+    std::fs::write(&collection, contents).expect("the collection is written");
+    let link = output.join("link.xml");
+    std::os::unix::fs::symlink(&collection, &link).expect("the link is made");
+
+    for spelling in [
+        collection.clone(),
+        output.join(".").join("collection.xml"),
+        output.join("sub").join("..").join("collection.xml"),
+        link,
+    ] {
+        if spelling
+            .parent()
+            .is_some_and(|parent| parent.ends_with(".."))
+        {
+            std::fs::create_dir_all(output.join("sub")).expect("the folder is made");
+        }
+        let refused = euphoria.run(&[
+            "export",
+            "rekordbox",
+            text(&track),
+            "-o",
+            text(&spelling),
+            "--force",
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&collection),
+        ]);
+
+        assert_eq!(refused.status.code(), Some(1), "{}", spelling.display());
+        assert!(
+            standard_error(&refused)
+                .contains("is the rekordbox collection given with --collection"),
+            "{}",
+            standard_error(&refused)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&collection).expect("the collection is read"),
+            contents
+        );
+    }
+}
+
+#[test]
+fn cued_tracks_that_match_no_file_stop_the_export_unless_allowed() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let collection = output.join("collection.xml");
+    std::fs::write(
+        &collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"2\">\
+         <TRACK TrackID=\"1\" Name=\"Elsewhere\" Artist=\"Someone\" \
+         Location=\"file://localhost/C:/Music/elsewhere.mp3\">\
+         <POSITION_MARK Name=\"\" Type=\"0\" Start=\"1.0\" Num=\"0\"/></TRACK>\
+         <TRACK TrackID=\"2\" Name=\"No location\">\
+         <POSITION_MARK Name=\"\" Type=\"0\" Start=\"1.0\" Num=\"0\"/></TRACK>\
+         </COLLECTION></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let refused_file = output.join("refused.xml");
+    let allowed_file = output.join("allowed.xml");
+    let export = |file: &Path, extra: &[&str]| {
+        let mut arguments = vec![
+            "export",
+            "rekordbox",
+            text(&track),
+            "-o",
+            text(file),
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&collection),
+        ];
+        arguments.extend_from_slice(extra);
+        euphoria.run(&arguments)
+    };
+
+    let refused = export(&refused_file, &[]);
+    let allowed = export(&allowed_file, &["--allow-unmatched-cued-tracks"]);
+
+    assert_eq!(refused.status.code(), Some(1));
+    let message = standard_error(&refused);
+    assert!(message.contains("2 tracks with cues in"), "{message}");
+    assert!(
+        message.contains("Elsewhere by Someone at file://localhost/C:/Music/elsewhere.mp3"),
+        "{message}"
+    );
+    assert!(
+        message.contains("No location by (no artist) at (no location)"),
+        "{message}"
+    );
+    assert!(
+        message.contains("--allow-unmatched-cued-tracks"),
+        "{message}"
+    );
+    assert!(!refused_file.exists());
+
+    assert_success(&allowed);
+    let lines: Vec<String> = standard_error(&allowed)
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines[2], "Cues for 1 of 1 track.");
+    assert_eq!(
+        lines[3],
+        "Not protected, as --allow-unmatched-cued-tracks asked: 2 tracks with cues in your rekordbox collection match no file on this computer:"
+    );
+    assert_eq!(
+        lines[4],
+        "  Elsewhere by Someone at file://localhost/C:/Music/elsewhere.mp3"
+    );
+    assert!(!exported_cues(&allowed_file).is_empty());
 }

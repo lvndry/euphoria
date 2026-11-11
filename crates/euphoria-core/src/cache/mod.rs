@@ -73,7 +73,7 @@ pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
 pub use single::{CachedAnalysis, CachedAnalyzer};
 
 use crate::analysis::{ANALYZER_VERSION, TrackAnalysis};
-use crate::detect::{BeatGrid, KeySection};
+use crate::detect::{BeatGrid, CueSection, KeySection, SectionCue};
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
@@ -83,7 +83,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 7] = [
+const MIGRATIONS: [&str; 8] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -128,6 +128,9 @@ const MIGRATIONS: [&str; 7] = [
         bpm          REAL,
         corrected_at INTEGER NOT NULL
     ) WITHOUT ROWID;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN cues TEXT;
 ",
 ];
 
@@ -181,7 +184,7 @@ enum CacheWrite {
     /// Record a new analysis, replacing any stored for the same content.
     Store {
         content_hash: ContentHash,
-        analysis: TrackAnalysis,
+        analysis: Box<TrackAnalysis>,
         location: FileLocation,
     },
     /// Record where known content is now.
@@ -277,7 +280,7 @@ impl Cache {
                     last_known_path, file_size, modified_at, energy,
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
                     tempo_estimate, tempo_score_margin, quality,
-                    grid_first_downbeat, grid_bpm, grid_salience, grid_drift
+                    grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -301,6 +304,7 @@ impl Cache {
                     tempo_score_margin: row.get(13)?,
                     quality: quality_in_column(row, 14)?,
                     beat_grid: beat_grid_in_columns(row, 15)?,
+                    cues: cues_in_column(row, 19)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -365,9 +369,9 @@ impl Cache {
                      analyzed_at, last_known_path, file_size, modified_at,
                      energy, energy_model_version, tuning_cents, key_timeline,
                      key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality,
-                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift
+                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -391,6 +395,7 @@ impl Cache {
                     analysis.beat_grid.map(|grid| grid.bpm),
                     analysis.beat_grid.map(|grid| grid.salience),
                     analysis.beat_grid.and_then(|grid| grid.drift_seconds),
+                    cues_text(&analysis.cues),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -679,6 +684,44 @@ fn parse_key_section(line: &str) -> Option<KeySection> {
     })
 }
 
+/// The stored form of the cues of a track, one `seconds<TAB>name` line per
+/// cue, or `None` for none.
+fn cues_text(cues: &[SectionCue]) -> Option<String> {
+    if cues.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = cues
+        .iter()
+        .map(|cue| format!("{}\t{}", cue.seconds, cue.section.name()))
+        .collect();
+    Some(lines.join("\n"))
+}
+
+fn cues_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Vec<SectionCue>> {
+    let Some(stored) = row.get::<_, Option<String>>(column)? else {
+        return Ok(Vec::new());
+    };
+    stored
+        .lines()
+        .map(|line| {
+            parse_cue(line).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    column,
+                    Type::Text,
+                    format!("{line:?} is not a cue").into(),
+                )
+            })
+        })
+        .collect()
+}
+
+fn parse_cue(line: &str) -> Option<SectionCue> {
+    let (seconds, name) = line.split_once('\t')?;
+    let seconds: f64 = seconds.parse().ok()?;
+    let section = CueSection::from_name(name)?;
+    (seconds.is_finite() && seconds >= 0.0).then_some(SectionCue { seconds, section })
+}
+
 fn seconds_since_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -897,6 +940,20 @@ mod tests {
                 salience: 11.5,
                 drift_seconds: Some(0.012_5),
             }),
+            cues: vec![
+                SectionCue {
+                    seconds: 0.371_25,
+                    section: CueSection::Start,
+                },
+                SectionCue {
+                    seconds: 60.371_25,
+                    section: CueSection::Main,
+                },
+                SectionCue {
+                    seconds: 240.371_25,
+                    section: CueSection::Outro,
+                },
+            ],
             key_timeline: vec![
                 KeySection {
                     start_seconds: 0.0,
@@ -928,7 +985,7 @@ mod tests {
         cache
             .apply_write(&CacheWrite::Store {
                 content_hash: ContentHash::of_file(&track).unwrap(),
-                analysis: analysis.clone(),
+                analysis: Box::new(analysis.clone()),
                 location: location.clone(),
             })
             .unwrap();
@@ -973,7 +1030,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -992,7 +1049,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1197,7 +1254,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1220,7 +1277,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1246,7 +1303,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1278,7 +1335,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL,
-                                 {first_downbeat}, {bpm}, {salience}, {drift})"
+                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL)"
                     ),
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
                 )
@@ -1303,7 +1360,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1336,7 +1393,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 7);
+        assert_eq!(SCHEMA_VERSION, 8);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1348,6 +1405,53 @@ mod tests {
             .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
             .unwrap();
         assert_eq!(corrections, 0);
+    }
+
+    #[test]
+    fn a_version_7_database_gains_cues_keeps_its_corrections_and_its_rows_are_analyzed_again() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..7] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 7).unwrap();
+        let version_7_analyzer = "9+libkeyfinder";
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, 124.0, 0.5, NULL, 0.25, 124.0, 10.0, NULL)",
+                params![[7u8; 32], version_7_analyzer, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO corrections VALUES (?1, 'C major', NULL, 0)",
+                params![[7u8; 32]],
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), 8);
+        assert_eq!(SCHEMA_VERSION, 8);
+        assert_ne!(ANALYZER_VERSION, version_7_analyzer);
+        assert!(
+            cache.snapshot().unwrap().analyses.is_empty(),
+            "an analysis from before the cues must not be served"
+        );
+        let corrections: i64 = cache
+            .connection
+            .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(corrections, 1, "corrections survive the upgrade");
+        cache.analyzer_version = version_7_analyzer.to_string();
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot.analyses.values().next().unwrap();
+        assert!(stored.beat_grid.is_some());
+        assert!(stored.cues.is_empty());
     }
 
     #[test]
@@ -1387,6 +1491,32 @@ mod tests {
     }
 
     #[test]
+    fn a_damaged_cue_is_an_error_and_not_a_panic() {
+        for cues in ["'12.5'", "'12.5\tChorus'", "'NaN\tStart'", "'-1\tStart'"] {
+            let folder = TemporaryFolder::new();
+            let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache
+                .connection
+                .execute(
+                    &format!(
+                        "INSERT INTO analyses
+                         VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues})"
+                    ),
+                    params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+                )
+                .unwrap();
+
+            let description = cache.snapshot().unwrap_err().chain();
+
+            assert!(
+                description.contains("is not a cue"),
+                "{cues}: {description}"
+            );
+        }
+    }
+
+    #[test]
     fn a_damaged_quality_report_is_an_error_and_not_a_panic() {
         let folder = TemporaryFolder::new();
         let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
@@ -1394,7 +1524,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1506,7 +1636,7 @@ mod tests {
         cache
             .apply_write(&CacheWrite::Store {
                 content_hash: ContentHash::of_file(track).unwrap(),
-                analysis: TrackAnalysis {
+                analysis: Box::new(TrackAnalysis {
                     duration_seconds: 1.0,
                     key: None,
                     bpm: None,
@@ -1517,9 +1647,10 @@ mod tests {
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: Vec::new(),
                     quality: None,
-                },
+                }),
                 location: FileLocation {
                     absolute_path: track.to_path_buf(),
                     stamp: FileStamp::of(track).unwrap(),

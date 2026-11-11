@@ -851,6 +851,7 @@ mod tests {
             tempo_estimate: Some(124.9),
             tempo_score_margin: Some(tempo_margin),
             beat_grid: None,
+            cues: Vec::new(),
             key_timeline: vec![
                 KeySection {
                     start_seconds: 0.0,

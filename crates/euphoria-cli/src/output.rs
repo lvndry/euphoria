@@ -14,7 +14,7 @@ use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
     BeatGrid, Confidence, Correction, EuphoriaError, FileResult, Key, KeySection,
-    SUPPORTED_EXTENSIONS, SkippedTrack, TempoRange, UnreadTags,
+    SUPPORTED_EXTENSIONS, SectionCue, SkippedTrack, TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
@@ -96,12 +96,28 @@ struct JsonTrack<'result> {
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
+    cues: Vec<JsonCue>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
     /// The values the user set by hand, which replace the detected ones:
     /// "key", "bpm" or both.
     set_by_user: Vec<&'static str>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonCue {
+    seconds: f64,
+    name: &'static str,
+}
+
+impl From<SectionCue> for JsonCue {
+    fn from(cue: SectionCue) -> Self {
+        Self {
+            seconds: round_to_thousandths(cue.seconds),
+            name: cue.section.name(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -216,6 +232,7 @@ pub fn write_json(
                     .map(JsonKeySection::from)
                     .collect(),
                 beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
+                cues: analysis.cues.iter().copied().map(JsonCue::from).collect(),
                 quality: analysis.quality.as_ref().map(JsonQuality::from),
                 needs_review: Some(analysis.needs_review()),
                 set_by_user: set_by_user(
@@ -237,6 +254,7 @@ pub fn write_json(
                 tuning_cents: None,
                 key_timeline: Vec::new(),
                 beat_grid: None,
+                cues: Vec::new(),
                 quality: None,
                 needs_review: None,
                 set_by_user: Vec::new(),
@@ -654,6 +672,57 @@ pub fn write_beat_grid_summary(
     writeln!(writer, ".")
 }
 
+/// Writes how many exported tracks got cues, and why the others did not.
+pub fn write_cue_summary(
+    writer: &mut impl Write,
+    with_cues: usize,
+    track_count: usize,
+) -> io::Result<()> {
+    write!(
+        writer,
+        "Cues for {with_cues} of {}",
+        counted(track_count, "track", "tracks")
+    )?;
+    if with_cues < track_count {
+        write!(writer, "; tracks without a beat grid in the file get none")?;
+    }
+    writeln!(writer, ".")
+}
+
+/// Writes which cued tracks of the collection could not be matched to a
+/// file here, when the user chose to export anyway.
+pub fn write_unmatched_cued_tracks(
+    writer: &mut impl Write,
+    unmatched: &[String],
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Not protected, as --allow-unmatched-cued-tracks asked: {} with cues in your rekordbox collection {} no file on this computer:",
+        counted(unmatched.len(), "track", "tracks"),
+        if unmatched.len() == 1 {
+            "matches"
+        } else {
+            "match"
+        },
+    )?;
+    for description in unmatched {
+        writeln!(writer, "  {description}")?;
+    }
+    Ok(())
+}
+
+/// Writes how many tracks were left out of the export because they have
+/// cues in rekordbox, and how to update them.
+pub fn write_left_out_for_cues(writer: &mut impl Write, left_out: usize) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Left out {} that already {} cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update {} key and tempo.",
+        counted(left_out, "track", "tracks"),
+        if left_out == 1 { "has" } else { "have" },
+        if left_out == 1 { "its" } else { "their" },
+    )
+}
+
 /// The steps to bring an exported file into rekordbox.
 pub const REKORDBOX_IMPORT_STEPS: [&str; 3] = [
     "Preferences > View > Layout: tick rekordbox xml.",
@@ -869,7 +938,7 @@ pub fn counted_files(count: usize) -> String {
     counted(count, "file", "files")
 }
 
-fn counted(count: usize, singular: &str, plural: &str) -> String {
+pub fn counted(count: usize, singular: &str, plural: &str) -> String {
     let noun = if count == 1 { singular } else { plural };
     format!("{count} {noun}")
 }
@@ -934,6 +1003,7 @@ mod tests {
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: vec![
                         KeySection {
                             start_seconds: 0.0,
@@ -962,6 +1032,7 @@ mod tests {
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: Vec::new(),
                     quality: None,
                 }),

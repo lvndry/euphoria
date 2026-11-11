@@ -4,6 +4,7 @@
 //! The `euphoria` command line tool.
 
 mod batch;
+mod collection;
 mod export;
 mod help;
 mod output;
