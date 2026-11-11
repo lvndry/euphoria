@@ -4,6 +4,7 @@
 //! Key and tempo detectors behind common traits, so the benchmark and the
 //! product can swap implementations.
 
+mod beat_grid;
 #[cfg(feature = "libkeyfinder")]
 mod chromagram;
 mod decimate;
@@ -16,6 +17,7 @@ mod stratum;
 mod synthesis;
 mod tuning;
 
+pub use beat_grid::{BeatGrid, detect_beat_grid};
 #[cfg(feature = "libkeyfinder")]
 pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant};
 pub use stratum::StratumDetector;

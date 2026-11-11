@@ -91,6 +91,7 @@ fn rated(key_score_margin: f32, tempo_estimate: f32, tempo_score_margin: f32) ->
         key_score_margin: Some(key_score_margin),
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_score_margin),
+        beat_grid: None,
     }
 }
 
@@ -139,6 +140,7 @@ fn a_track_needs_review_when_its_key_or_its_tempo_is_rated_low() {
 
     let fallback_tempo = TrackAnalysis {
         tempo_score_margin: None,
+        beat_grid: None,
         ..confident
     };
     assert_eq!(fallback_tempo.tempo_confidence(), Some(Confidence::Low));

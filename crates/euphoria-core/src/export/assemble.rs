@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use super::playlists::playlists_from_folders;
 use super::rekordbox::{Library, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
+use crate::confidence::Confidence;
 use crate::error::EuphoriaError;
 use crate::track_name::{TrackName, read_track_name};
 
@@ -61,6 +62,15 @@ pub struct AssembledLibrary {
     pub unread_tags: Vec<UnreadTags>,
 }
 
+/// What an export contains beyond each track's key, tempo and energy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExportContents {
+    /// Write each track's beat grid, so the DJ program needs no grid of its
+    /// own. A grid rated low confidence is left out, and the program
+    /// analyzes that track itself.
+    pub beat_grid: bool,
+}
+
 /// Builds the library to export from analysis results.
 ///
 /// Each analyzed file becomes a track with its duration, key and tempo, and
@@ -74,12 +84,27 @@ pub struct AssembledLibrary {
 ///
 /// Tags are read in parallel on the current Rayon thread pool.
 pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) -> AssembledLibrary {
+    assemble_library_with(results, layout, ExportContents::default())
+}
+
+/// [`assemble_library`], with what [`ExportContents`] asks for on top.
+///
+/// With [`ExportContents::beat_grid`], a track whose beat grid is rated
+/// medium or high gets the grid's first downbeat and the grid's tempo, which
+/// is then also the tempo written for the track. The tempo is written with
+/// two decimals, which moves the last beat of a seven minute track by at
+/// most 16 ms.
+pub fn assemble_library_with(
+    results: Vec<FileResult>,
+    layout: PlaylistLayout<'_>,
+    contents: ExportContents,
+) -> AssembledLibrary {
     let outcomes: Vec<Result<(Track, Option<UnreadTags>), SkippedTrack>> = results
         .into_par_iter()
         .map(|result| {
             let FileResult { path, outcome } = result;
             match outcome {
-                Ok(analysis) => Ok(track_from_analysis(&path, &analysis)),
+                Ok(analysis) => Ok(track_from_analysis(&path, &analysis, contents)),
                 Err(reason) => Err(SkippedTrack { path, reason }),
             }
         })
@@ -115,7 +140,11 @@ pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) ->
     }
 }
 
-fn track_from_analysis(path: &Path, analysis: &TrackAnalysis) -> (Track, Option<UnreadTags>) {
+fn track_from_analysis(
+    path: &Path,
+    analysis: &TrackAnalysis,
+    contents: ExportContents,
+) -> (Track, Option<UnreadTags>) {
     let (tags, unread_tags) = match read_track_name(path) {
         Ok(tags) => (tags, None),
         Err(reason) => (
@@ -132,12 +161,19 @@ fn track_from_analysis(path: &Path, analysis: &TrackAnalysis) -> (Track, Option<
     });
     // A duration that is not a positive number of seconds is written as zero.
     let duration = Duration::try_from_secs_f32(analysis.duration_seconds).unwrap_or_default();
+    let beat_grid = analysis
+        .beat_grid
+        .filter(|grid| contents.beat_grid && grid.confidence() != Confidence::Low);
     let track = Track {
         title,
         artist: tags.artist,
         key: analysis.key,
-        bpm: analysis.bpm.map(f64::from),
+        bpm: beat_grid
+            .map(|grid| grid.bpm)
+            .or(analysis.bpm.map(f64::from)),
         comment: analysis.energy.map(|energy| format!("Energy {energy}")),
+        first_beat: beat_grid
+            .and_then(|grid| Duration::try_from_secs_f64(grid.first_downbeat_seconds).ok()),
         ..Track::new(path, duration)
     };
     (track, unread_tags)

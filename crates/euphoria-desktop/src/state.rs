@@ -184,7 +184,7 @@ impl Session {
                 self.library.mark_analyzing(&path);
                 return;
             }
-            AnalysisEvent::Finished(file) => file,
+            AnalysisEvent::Finished(file) => *file,
         };
         self.library.record_outcome(&file.path, file.outcome);
         self.progress.finish_one();
@@ -312,12 +312,12 @@ mod tests {
         assert_eq!(status_of(&session, &second), TrackStatus::Queued);
         assert_eq!(session.progress().label().as_deref(), Some("0 of 2 done"));
 
-        session.apply(AnalysisEvent::Finished(FinishedFile {
+        session.apply(AnalysisEvent::Finished(Box::new(FinishedFile {
             path: first.clone(),
             outcome: Err("cannot open the file".to_string()),
             from_cache: false,
             cache_problem: None,
-        }));
+        })));
         assert_eq!(
             status_of(&session, &first),
             TrackStatus::Failed("cannot open the file".to_string())
