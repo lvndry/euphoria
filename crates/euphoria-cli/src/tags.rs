@@ -97,9 +97,9 @@ enum PresetChoice {
     Mixxx,
 }
 
-impl WriteArguments {
-    fn options(&self) -> TagWriteOptions {
-        let preset = match self.preset {
+impl PresetChoice {
+    fn dj_software(self) -> DjSoftware {
+        match self {
             PresetChoice::Generic => DjSoftware::Generic,
             PresetChoice::Rekordbox => DjSoftware::Rekordbox,
             PresetChoice::Serato => DjSoftware::Serato,
@@ -107,7 +107,13 @@ impl WriteArguments {
             PresetChoice::EngineDj => DjSoftware::EngineDj,
             PresetChoice::VirtualDj => DjSoftware::VirtualDj,
             PresetChoice::Mixxx => DjSoftware::Mixxx,
-        };
+        }
+    }
+}
+
+impl WriteArguments {
+    fn options(&self) -> TagWriteOptions {
+        let preset = self.preset.dj_software();
         TagWriteOptions {
             key_notation: match self.key_notation {
                 KeyNotationChoice::Camelot => KeyNotation::Camelot,
@@ -301,6 +307,35 @@ fn undo() -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_preset_name_selects_its_own_program() {
+        let expected = [
+            ("generic", DjSoftware::Generic),
+            ("rekordbox", DjSoftware::Rekordbox),
+            ("serato", DjSoftware::Serato),
+            ("traktor", DjSoftware::Traktor),
+            ("engine-dj", DjSoftware::EngineDj),
+            ("virtualdj", DjSoftware::VirtualDj),
+            ("mixxx", DjSoftware::Mixxx),
+        ];
+        for (name, program) in expected {
+            let choice = PresetChoice::from_str(name, false).unwrap();
+            assert_eq!(choice.dj_software(), program, "{name}");
+        }
+        let names: Vec<String> = PresetChoice::value_variants()
+            .iter()
+            .filter_map(|choice| choice.to_possible_value())
+            .map(|value| value.get_name().to_string())
+            .collect();
+        assert_eq!(names.len(), expected.len());
+        for program in DjSoftware::ALL {
+            assert!(
+                expected.iter().any(|(_, mapped)| *mapped == program),
+                "{program:?} has no preset name"
+            );
+        }
+    }
 
     #[test]
     fn only_a_clear_yes_confirms() {
