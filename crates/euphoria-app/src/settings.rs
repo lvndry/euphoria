@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::panels::Panels;
 use crate::theme::ThemeName;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -41,6 +42,8 @@ pub(crate) struct Settings {
     pub(crate) folders: Vec<PathBuf>,
     /// The chosen theme.
     pub(crate) theme: ThemeName,
+    /// Whether the sidebar is folded and how large the track detail is.
+    pub(crate) panels: Panels,
 }
 
 impl Settings {
@@ -132,6 +135,11 @@ mod tests {
         let settings = Settings {
             folders: vec![PathBuf::from("/music/DJ tracks"), PathBuf::from("/promos")],
             theme: ThemeName::Graphite,
+            panels: Panels {
+                sidebar_folded: true,
+                inspector_width: 412,
+                strip_height: 240,
+            },
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -150,9 +158,16 @@ mod tests {
         let text = serde_json::to_string(&Settings {
             folders: Vec::new(),
             theme: ThemeName::KeyFirst,
+            panels: Panels::default(),
         })
         .unwrap();
-        assert_eq!(text, r#"{"folders":[],"theme":"key-first"}"#);
+        assert_eq!(
+            text,
+            concat!(
+                r#"{"folders":[],"theme":"key-first","#,
+                r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180}}"#
+            )
+        );
     }
 
     #[test]
@@ -167,6 +182,43 @@ mod tests {
         let settings = loaded.unwrap();
         assert_eq!(settings.theme, ThemeName::Paper);
         assert!(settings.folders.is_empty());
+        assert_eq!(settings.panels, Panels::default());
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_panels_still_loads() {
+        let folder = temporary_folder("before-panels");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"folders":["/music/DJ tracks"],"theme":"graphite"}"#,
+        )
+        .unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let settings = loaded.unwrap();
+        assert_eq!(settings.folders, [PathBuf::from("/music/DJ tracks")]);
+        assert_eq!(settings.theme, ThemeName::Graphite);
+        assert!(!settings.panels.sidebar_folded);
+        assert_eq!(settings.panels.inspector_width, 320);
+        assert_eq!(settings.panels.strip_height, 180);
+    }
+
+    #[test]
+    fn a_partly_written_arrangement_keeps_what_it_has() {
+        let folder = temporary_folder("partial-panels");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(&path, r#"{"panels":{"inspector_width":500}}"#).unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let panels = loaded.unwrap().panels;
+        assert_eq!(panels.inspector_width, 500);
+        assert!(!panels.sidebar_folded);
+        assert_eq!(panels.strip_height, 180);
     }
 
     #[test]

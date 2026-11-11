@@ -55,11 +55,31 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** lists the folders you added. Click one to show only its tracks.
 
+To give the table more room, fold the sidebar away. Any of these folds it, and the same one brings it back:
+
+- the sidebar button at the left of the toolbar, beside the window buttons, which stays there while the sidebar is folded
+- Control Command S (Control Alt S on Linux and Windows)
+- **View > Hide Sidebar**, which reads **Show Sidebar** while it is folded
+
 ## The inspector
 
 The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track.
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
+
+### Resize the inspector
+
+Drag the left edge of the inspector to make it wider or narrower. The pointer turns into a resize arrow over the edge. The waveform, the three boxes and the list of mixes follow the new width. Double click the edge to return to the usual width.
+
+| | Width |
+| --- | --- |
+| Usual | 320 |
+| Narrowest | 288 |
+| Widest | 640, or less when the window is small: the table always keeps at least 400 |
+
+In the Deck theme the track detail is a strip under the table, and you drag its top edge to change its height in the same way. The waveform grows with the strip, and a taller strip lists more mixes. The strip is 180 high to begin with, and goes from 124 to 420, always leaving at least 200 for the table.
+
+A size you chose in a large window is kept when the window gets smaller. It is only drawn smaller while the window has no room for it.
 
 ## Listen to a track
 
@@ -105,7 +125,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-The folders you added and the theme are kept in `settings.json`:
+The folders you added, the theme, whether the sidebar is folded, and the sizes you gave the inspector and the Deck strip are kept in `settings.json`:
 
 | System | Folder |
 | --- | --- |
