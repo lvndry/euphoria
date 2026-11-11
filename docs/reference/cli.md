@@ -161,7 +161,7 @@ A track is recognised by its content, not by its name or folder:
 - A file that was renamed or moved is still recognised, and is not analyzed again.
 - A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
-- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, and results stored before tempo detection dropped its multi-resolution pass, which changed the tempo of some tracks. The first run after such an update analyzes every track once more.
+- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, and results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some. The first run after such an update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.

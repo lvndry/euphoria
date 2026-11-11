@@ -20,21 +20,24 @@ Fifth, relative and parallel are near misses that still mix acceptably. The MIRE
 
 ## Tempo detection
 
-| Detector | Accuracy 1 | Accuracy 2 | CPU seconds per track |
-| --- | --- | --- | --- |
-| stratum-dsp 1.0.0, tempo only | 62.2% | 84.7% | 0.39 |
-| stratum-dsp 1.0.0, full analysis with default settings (not used) | 59.9% | 84.9% | 3.30 |
-| Essentia RhythmExtractor2013 (reference) | 59.8% | 82.5% | not measured |
+| Detector | Accuracy 1 | Accuracy 2 | Below 70 BPM | Above 180 BPM | CPU seconds per track |
+| --- | --- | --- | --- | --- | --- |
+| stratum-dsp 1.0.0, tempo only, reported between 90 and 180 BPM | 77.6% | 85.5% | 0 | 0 | 0.38 |
+| stratum-dsp 1.0.0, tempo only, estimate as it comes (not used) | 62.2% | 84.7% | 83 | 0 | 0.39 |
+| stratum-dsp 1.0.0, full analysis with default settings (not used) | 59.9% | 84.9% | 26 | 0 | 3.30 |
+| Essentia RhythmExtractor2013 (reference) | 59.8% | 82.5% | not measured | not measured | not measured |
+
+The two count columns are how many of the 661 results fall below 70 and above 180 BPM. The annotations have 3 below 70 and 6 above 180.
 
 Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also accepts 2, 1/2, 3 and 1/3 times the annotated tempo, as in the standard tempo evaluation.
 
 ## Reading the numbers
 
 - libkeyfinder is level with Essentia's best profile on key (69.0% against 69.5% MIREX) and about 9 times cheaper than stratum-dsp.
-- stratum-dsp is far behind on key (45.4%) but at least level with Essentia on tempo.
-- Tempo only is what `detect_tempo` runs: the stratum-dsp tempogram estimate without its multi-resolution pass, and without the onset lists, beat grid and key that a full analysis also computes. The full analysis row is `analyze_audio` with its default settings, which `detect_tempo` ran before, measured in the same session for comparison. Dropping the multi-resolution pass changes the estimate on 262 previews, for 15 more within 4% and 1 fewer within the Accuracy 2 factors.
+- stratum-dsp is far behind on key (45.4%). On tempo its raw estimate is level with Essentia, and reporting it between 90 and 180 BPM puts it well ahead on Accuracy 1.
+- Tempo only is what `detect_tempo` runs: the stratum-dsp tempogram estimate without its multi-resolution pass, and without the onset lists, beat grid and key that a full analysis also computes. `detect_tempo` then doubles an estimate below 90 BPM and halves one at 180 or above until it lies between the two. The raw estimate often lands on half the tempo a DJ counts, which is what the 83 results below 70 BPM are. Applied to the full analysis, the same rule gives 77.5% and 85.5%, so the cheaper estimate loses nothing. 50 previews are annotated below 90 BPM and 6 at 180 or above; the rule reports those at double or half, and they count as Accuracy 1 misses. The full analysis row is `analyze_audio` with its default settings, which `detect_tempo` ran before, measured in the same session for comparison. Dropping the multi-resolution pass changes the estimate on 262 previews, for 15 more within 4% and 1 fewer within the Accuracy 2 factors.
 - CPU seconds are the CPU time of each detector call on its own thread, averaged over tracks, so they do not depend on how many threads run in parallel. They were measured while other work ran on the machine, so compare them with each other and not with other sessions.
-- The tempo benchmark alone takes 76 seconds and peaks at 0.7 GB of memory with 4 worker threads, at 0.36 CPU seconds per track in that run. With the full analysis it took 10.6 minutes and peaked at 5.7 GB. The whole run, key and tempo, took 8.6 minutes and peaked at 4.8 GB, which comes from stratum-dsp key detection.
+- The tempo benchmark alone takes 83 seconds and peaks at 0.9 GB of memory with 4 worker threads. With the full analysis it took 10.6 minutes and peaked at 5.7 GB. The whole run, key and tempo, took 8.6 minutes and peaked at 4.8 GB, which comes from stratum-dsp key detection.
 
 ## Cost of a whole analysis
 
@@ -51,7 +54,7 @@ What `euphoria analyze --no-cache` costs for decoding, key (libkeyfinder), tempo
 
 With the full stratum-dsp analysis for tempo, the same build took 2.8 CPU seconds and 871 MB on the preview, 10.9 CPU seconds and 2.7 GB on the seven minute track, and 539 CPU seconds and 9.8 GB on the 40 tracks with 4 workers.
 
-Tempo detection reads at most the middle ten minutes of a file, so its share of the memory stops growing there. Decoding and key detection read the whole file.
+Tempo detection reads at most the middle ten minutes of a file, decimated to between 44.1 and 88.2 kHz when the file has a higher sample rate, so its share of the memory stops growing there. Decoding and key detection read the whole file. On a six minute file at 384 kHz, decoding and tempo detection together peak at 1.0 GB, of which decoding is 0.5 GB, and tempo takes 3.8 CPU seconds. Without the decimation they peaked at 4.3 GB and tempo took 10.7 CPU seconds.
 
 ## Reproducing
 

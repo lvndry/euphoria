@@ -20,7 +20,7 @@ Key             BPM  Energy  Time  File
 ```
 
 - **Key** is the Camelot code and the musical key. Tracks whose codes are equal or next to each other mix well; see [keys and the Camelot wheel](../concepts/keys-and-camelot.md).
-- **BPM** is the tempo in beats per minute.
+- **BPM** is the tempo in beats per minute, always reported between 90 and 180; see [how the tempo is chosen](../concepts/accuracy.md#how-the-tempo-is-chosen).
 - **Energy** is how intense the track sounds, from 1 (calm) to 10 (relentless); see [energy rating](../concepts/energy.md).
 - **Time** is the length of the track.
 
