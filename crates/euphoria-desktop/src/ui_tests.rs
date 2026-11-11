@@ -4973,3 +4973,101 @@ fn a_cue_command_keeps_a_name_typed_before_blurring(cx: &mut TestAppContext) {
     click(window, "undo-cue-edit", cx);
     assert_eq!(selected_cues(&view, cx).0[0].1, "Start");
 }
+
+#[gpui::test]
+fn measuring_a_cue_lane_requests_a_frame_to_finish_its_layout(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    let crowded: Vec<_> = euphoria_core::HotCue::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, pad)| euphoria_core::Cue {
+            seconds: 1.0 + index as f64 * 0.5,
+            name: "Breakdown".to_string(),
+            hot_cue: Some(*pad),
+        })
+        .collect();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.session.set_edited_cues(&path, Some(crowded));
+            app.waveform_bounds.set(None);
+        })
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        assert!(
+            window.simulate_next_frame(cx) > 0,
+            "measuring the waveform must schedule layout with the measured width"
+        );
+        window.render_frame(cx);
+        assert_eq!(
+            window.simulate_next_frame(cx),
+            0,
+            "a stable width needs no redraw loop"
+        );
+        let first = window.find(crate::views::cues::marker_id(0)).bounds();
+        let second = window.find(crate::views::cues::marker_id(1)).bounds();
+        assert!(!first.intersects(&second));
+    })
+    .unwrap();
+    for width in [600, 288] {
+        cx.update(|cx| {
+            view.update(cx, |app, cx| {
+                app.panels.inspector_width = width;
+                cx.notify();
+            })
+        });
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(
+                window.simulate_next_frame(cx) > 0,
+                "a resized waveform must finish its cue layout"
+            );
+            window.render_frame(cx);
+            assert_eq!(window.simulate_next_frame(cx), 0);
+            let markers: Vec<_> = (0..8)
+                .map(|index| window.find(crate::views::cues::marker_id(index)).bounds())
+                .collect();
+            for (index, marker) in markers
+                .iter()
+                .enumerate()
+                .filter(|(_, marker)| marker.size.width > px(4.0))
+            {
+                for other in markers[index + 1..]
+                    .iter()
+                    .filter(|other| other.size.width > px(4.0))
+                {
+                    assert!(!marker.intersects(other), "{marker:?} overlaps {other:?}");
+                }
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn saved_cues_wait_for_analysis_duration_before_drawing_markers(cx: &mut TestAppContext) {
+    let mut track = cued_track("sine-440hz-mono.wav", false);
+    track.outcome = Err("Analysis is not available".to_string());
+    let (window, view) = open_window_on(vec![track], Box::new(SilentOutput), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.session.set_edited_cues(
+                &path,
+                Some(vec![euphoria_core::Cue {
+                    seconds: 1.0,
+                    name: "Saved cue".to_string(),
+                    hot_cue: euphoria_core::HotCue::from_letter('A'),
+                }]),
+            );
+        })
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(window.try_find(crate::views::cues::marker_id(0)).is_none());
+    })
+    .unwrap();
+}

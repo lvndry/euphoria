@@ -786,4 +786,20 @@ mod tests {
                 .all(|place| place.row == 0 && place.label == MarkerLabel::Full)
         );
     }
+    #[test]
+    fn dragging_a_marker_across_others_keeps_labels_apart_without_sorting_the_preview() {
+        let cues: Vec<Cue> = HotCue::ALL
+            .iter()
+            .map(|pad| cue(f64::from(pad.pad()), "Breakdown", Some(pad.letter())))
+            .collect();
+        for moved in 0..cues.len() {
+            for target in [0.0, 0.01, 0.79, 0.81, 0.95, 1.0] {
+                let mut fractions: Vec<f32> =
+                    (0..cues.len()).map(|index| index as f32 * 0.12).collect();
+                fractions[moved] = target;
+                let places = marker_places(&cues, &fractions, Some(LANE));
+                assert_no_labels_overlap(&fractions, &places);
+            }
+        }
+    }
 }

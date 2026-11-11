@@ -70,7 +70,14 @@ pub(crate) fn waveform(
     height: Pixels,
 ) -> impl IntoElement {
     canvas(
-        move |bounds: Bounds<Pixels>, _, _| seen_bounds.set(Some(bounds)),
+        move |bounds: Bounds<Pixels>, window, _| {
+            let previous = seen_bounds.replace(Some(bounds));
+            if previous.is_none_or(|previous| previous.size.width != bounds.size.width) {
+                // Cue label layout uses the last measured width. Finish it
+                // on the next frame even when playback and input are idle.
+                window.request_animation_frame();
+            }
+        },
         move |bounds: Bounds<Pixels>, _, window, _| {
             let width = bounds.size.width / px(1.0);
             let height = bounds.size.height / px(1.0);

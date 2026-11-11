@@ -618,8 +618,14 @@ fn waveform_section(
         .waveform_bounds
         .get()
         .map(|bounds| bounds.size.width / px(1.0));
-    let marker_places = cues::marker_places(&shown_cues, &cue_fractions, lane_width);
-    let cue_lane = (!shown_cues.is_empty())
+    // Saved cues can be loaded before a queued track's duration is known.
+    // They have no waveform positions until that analysis arrives.
+    let marker_places = if cue_fractions.is_empty() {
+        Vec::new()
+    } else {
+        cues::marker_places(&shown_cues, &cue_fractions, lane_width)
+    };
+    let cue_lane = (!marker_places.is_empty())
         .then(|| cues::lane(&shown_cues, duration_seconds, &marker_places, &palette, cx));
     // The rows other than the waveform, which takes the height left.
     let others = energy
