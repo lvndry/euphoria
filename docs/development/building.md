@@ -10,6 +10,7 @@ description: Build, test and benchmark Euphoria from a source checkout.
 - Rust 1.89 or newer
 - CMake and pkg-config
 - libkeyfinder
+- FFTW, with its threads library, which the commands below install
 
 macOS:
 

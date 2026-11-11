@@ -13,6 +13,10 @@
 #include <keyfinder/toneprofiles.h>
 #include <keyfinder/workspace.h>
 
+// From FFTW's threads library. Declared here so the wrapper needs no FFTW
+// headers.
+extern "C" void fftw_make_planner_thread_safe(void);
+
 namespace {
 
 constexpr int kSuccess = 0;
@@ -27,11 +31,17 @@ void copy_message(const char* message, char* buffer, unsigned long capacity) {
     buffer[capacity - 1] = '\0';
 }
 
-// libkeyfinder builds its tone profiles on first use without a lock, so the
-// first use happens here, once, before any thread reads them.
-void build_tone_profiles_once() {
-    static std::once_flag built;
-    std::call_once(built, [] {
+// Makes libkeyfinder safe to call from several threads at once. Runs once,
+// before any other use of libkeyfinder.
+//
+// libkeyfinder builds its tone profiles on first use without a lock, so they
+// are built here. It also destroys FFTW plans without a lock while other
+// threads create theirs, and FFTW allows only the running of plans to happen
+// concurrently, so FFTW is told to lock its planner itself.
+void prepare_libkeyfinder_once() {
+    static std::once_flag prepared;
+    std::call_once(prepared, [] {
+        fftw_make_planner_thread_safe();
         KeyFinder::toneProfileMajor();
         KeyFinder::toneProfileMinor();
     });
@@ -57,6 +67,7 @@ extern "C" EuphoriaChromagram* euphoria_keyfinder_chromagram_new(
     char* error_message,
     unsigned long error_capacity) {
     try {
+        prepare_libkeyfinder_once();
         KeyFinder::AudioData audio;
         audio.setFrameRate(frame_rate);
         audio.setChannels(1);
@@ -132,7 +143,7 @@ extern "C" int euphoria_keyfinder_key_scores(const double* chroma_vectors,
                                              char* error_message,
                                              unsigned long error_capacity) {
     try {
-        build_tone_profiles_once();
+        prepare_libkeyfinder_once();
         const KeyFinder::ToneProfile major(KeyFinder::toneProfileMajor());
         const KeyFinder::ToneProfile minor(KeyFinder::toneProfileMinor());
         std::vector<double> chroma_vector(BANDS);

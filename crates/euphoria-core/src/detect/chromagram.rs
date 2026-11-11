@@ -170,3 +170,91 @@ pub(crate) fn detection_error(reason: String) -> EuphoriaError {
         source: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    use super::*;
+
+    /// Set in the processes the test starts, which run the race itself.
+    const RACE_VARIABLE: &str = "EUPHORIA_FIRST_KEY_SCORES_RACE";
+    const TEST_NAME: &str =
+        "detect::chromagram::tests::many_threads_can_score_their_first_keys_at_once";
+    const PROCESS_COUNT: usize = 40;
+    const THREAD_COUNT: usize = 32;
+
+    /// libkeyfinder builds what keys are scored against the first time a key
+    /// is scored, which happens once per process, so the test runs itself
+    /// again in fresh processes and races many threads to that first time.
+    #[test]
+    fn many_threads_can_score_their_first_keys_at_once() {
+        if std::env::var_os(RACE_VARIABLE).is_some() {
+            race_to_the_first_scores();
+            return;
+        }
+        let executable = std::env::current_exe().expect("the test knows its own executable");
+        let mut failures = Vec::new();
+        for _ in 0..PROCESS_COUNT {
+            let output = Command::new(&executable)
+                .args([TEST_NAME, "--exact", "--nocapture", "--test-threads", "1"])
+                .env(RACE_VARIABLE, "1")
+                .output()
+                .expect("the test starts itself again");
+            if !output.status.success() {
+                failures.push(format!(
+                    "{}: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr)
+                        .lines()
+                        .find(|line| line.contains("panicked") || line.contains("failed"))
+                        .unwrap_or("no message")
+                ));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} of {PROCESS_COUNT} processes failed, the first with {}",
+            failures.len(),
+            failures[0]
+        );
+    }
+
+    fn race_to_the_first_scores() {
+        // SAFETY: the function takes no arguments and returns a constant.
+        let band_count = unsafe { euphoria_keyfinder_band_count() } as usize;
+        let chroma: Arc<Vec<f64>> = Arc::new(
+            (0..band_count)
+                .map(|band| 1.0 + (band % 12) as f64)
+                .collect(),
+        );
+        let start = Arc::new(Barrier::new(THREAD_COUNT));
+        let threads: Vec<_> = (0..THREAD_COUNT)
+            .map(|_| {
+                let start = Arc::clone(&start);
+                let chroma = Arc::clone(&chroma);
+                thread::spawn(move || {
+                    start.wait();
+                    key_scores(&chroma)
+                })
+            })
+            .collect();
+        let all_scores: Vec<[f64; KEY_COUNT]> = threads
+            .into_iter()
+            .map(|thread| {
+                let scores = thread
+                    .join()
+                    .expect("the thread finished")
+                    .unwrap_or_else(|error| panic!("scoring failed: {}", error.chain()));
+                scores[0]
+            })
+            .collect();
+        assert!(all_scores[0].iter().any(|score| *score > 0.0));
+        assert!(
+            all_scores.iter().all(|scores| *scores == all_scores[0]),
+            "threads scored the same chroma differently"
+        );
+    }
+}
