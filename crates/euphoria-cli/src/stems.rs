@@ -39,17 +39,28 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
         .iter()
         .map(|stem| (*stem, arguments.output.join(format!("{}.wav", stem.name()))))
         .collect();
-    if !arguments.force {
-        if let Some((_, existing)) = destinations.iter().find(|(_, path)| path.exists()) {
-            bail!(
-                "{} already exists: add --force to replace the stems in {}",
-                Printable(existing.display()),
-                Printable(arguments.output.display())
-            );
-        }
+    if !arguments.force
+        && let Some((_, existing)) = destinations.iter().find(|(_, path)| path.exists())
+    {
+        bail!(
+            "{} already exists: add --force to replace the stems in {}",
+            Printable(existing.display()),
+            Printable(arguments.output.display())
+        );
     }
     if !arguments.file.is_file() {
         bail!("{} is not a file", Printable(arguments.file.display()));
+    }
+
+    let input = std::fs::canonicalize(&arguments.file)
+        .with_context(|| format!("cannot use {}", Printable(arguments.file.display())))?;
+    for (_, destination) in &destinations {
+        if std::fs::canonicalize(destination).ok().as_ref() == Some(&input) {
+            bail!(
+                "{} is the original input, which cannot be replaced by a stem",
+                Printable(destination.display())
+            );
+        }
     }
 
     let mut separator = CachedSeparator::open_default().map_err(with_causes)?;
@@ -63,15 +74,28 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
     std::fs::create_dir_all(&arguments.output)
         .with_context(|| format!("cannot create {}", Printable(arguments.output.display())))?;
     for (stem, destination) in &destinations {
-        copy_stem(&files, *stem, destination)?;
+        copy_stem(&files, *stem, destination, arguments.force)?;
     }
     write_summary(&destinations, was_cached, started.elapsed())?;
     Ok(ExitCode::SUCCESS)
 }
 
-fn copy_stem(files: &StemFiles, stem: Stem, destination: &Path) -> Result<()> {
-    std::fs::copy(files.path(stem), destination)
-        .with_context(|| format!("cannot write {}", Printable(destination.display())))?;
+fn copy_stem(files: &StemFiles, stem: Stem, destination: &Path, force: bool) -> Result<()> {
+    let write_error = || format!("cannot write {}", Printable(destination.display()));
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).with_context(write_error)?;
+    let mut source = std::fs::File::open(files.path(stem))
+        .with_context(|| format!("cannot read the cached {} stem", stem.name()))?;
+    std::io::copy(&mut source, temporary.as_file_mut()).with_context(write_error)?;
+    temporary.as_file().sync_all().with_context(write_error)?;
+    if force {
+        temporary.persist(destination).map_err(|error| error.error)
+    } else {
+        temporary
+            .persist_noclobber(destination)
+            .map_err(|error| error.error)
+    }
+    .with_context(write_error)?;
     Ok(())
 }
 
@@ -222,6 +246,48 @@ impl SeparationObserver for SeparationProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_output_created_after_the_preflight_check_is_not_replaced() {
+        use euphoria_core::{
+            ContentHash,
+            stems::{STEMS_MODEL, StemCache},
+        };
+        let folder =
+            std::env::temp_dir().join(format!("euphoria-stems-publish-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let cache = StemCache::new(folder.join("cache"), u64::MAX);
+        let hash = ContentHash::of_file(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../euphoria-core/tests/fixtures/sine-440hz-stereo.wav"),
+        )
+        .unwrap();
+        let entry = cache.directory().join(format!(
+            "{STEMS_MODEL}-{}",
+            hash.as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ));
+        std::fs::create_dir_all(&entry).unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
+        for stem in Stem::ALL {
+            std::fs::copy(&fixture, entry.join(format!("{}.wav", stem.name()))).unwrap();
+        }
+        let files = cache.lookup(&hash).unwrap();
+        let destination = folder.join("vocals.wav");
+        assert!(!destination.exists());
+        std::fs::write(&destination, b"created by another writer").unwrap();
+        let result = copy_stem(&files, Stem::Vocals, &destination, false);
+        let bytes = std::fs::read(&destination).unwrap();
+        std::fs::remove_dir_all(folder).unwrap();
+        assert!(
+            result.is_err(),
+            "a late output must not be silently overwritten"
+        );
+        assert_eq!(bytes, b"created by another writer");
+    }
 
     #[test]
     fn elapsed_time_is_shown_in_seconds_then_minutes() {
