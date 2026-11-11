@@ -15,6 +15,7 @@ anyhow.workspace = true
 cpu-time = "1.0.0"
 euphoria-core.workspace = true
 rayon.workspace = true
+roxmltree.workspace = true
 
 [lints]
 workspace = true
