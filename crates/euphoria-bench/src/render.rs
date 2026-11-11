@@ -128,12 +128,16 @@ fn write_key_comparison(
     writeln!(formatter, "| Detector | Higher | Lower |")?;
     writeln!(formatter, "| --- | --- | --- |")?;
     for detector in others {
-        let comparison = detector.tally.compared_with(&first.tally);
-        writeln!(
-            formatter,
-            "| {} | {} | {} |",
-            detector.name, comparison.better, comparison.worse
-        )?;
+        match detector.tally.compared_with(&first.tally) {
+            Ok(comparison) => writeln!(
+                formatter,
+                "| {} | {} | {} |",
+                detector.name, comparison.better, comparison.worse
+            )?,
+            Err(mismatch) => {
+                writeln!(formatter, "| {} | {mismatch} | {mismatch} |", detector.name)?
+            }
+        }
     }
     writeln!(formatter)
 }
@@ -365,6 +369,37 @@ Tracks each detector scores higher and lower than libkeyfinder:
 | libkeyfinder, sections vote | 1 | 1 |
 
 "
+            ),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn says_when_two_key_detectors_cannot_be_compared() {
+        let reference = "A minor".parse().unwrap();
+        let mut first = KeyTally::default();
+        first.record(reference, reference);
+        first.record(reference, reference);
+        let mut second = KeyTally::default();
+        second.record(reference, reference);
+        let report = Report {
+            key: Some(Evaluation {
+                track_count: 2,
+                unannotated_count: 0,
+                decode_failures: Vec::new(),
+                detectors: vec![
+                    detector("libkeyfinder", first, 2, Vec::new()),
+                    detector("partial", second, 1, Vec::new()),
+                ],
+            }),
+            tempo: None,
+        };
+
+        let rendered = render_report(&report);
+
+        assert!(
+            rendered.contains(
+                "| partial | not comparable: 1 tracks against 2 | not comparable: 1 tracks against 2 |"
             ),
             "{rendered}"
         );

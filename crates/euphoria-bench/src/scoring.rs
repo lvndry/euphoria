@@ -3,6 +3,8 @@
 
 //! Scoring rules shared by published key and tempo evaluations.
 
+use std::fmt::{self, Display, Formatter};
+
 use euphoria_core::Key;
 
 #[derive(Debug, Default)]
@@ -24,6 +26,26 @@ pub struct Comparison {
     pub better: usize,
     /// Tracks this detector scored lower on.
     pub worse: usize,
+}
+
+/// Two tallies that cannot be compared track by track, because they did not
+/// record the same number of tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DifferentTrackCounts {
+    /// Tracks the tally being compared recorded.
+    pub track_count: usize,
+    /// Tracks the tally it was compared with recorded.
+    pub other_track_count: usize,
+}
+
+impl Display for DifferentTrackCounts {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "not comparable: {} tracks against {}",
+            self.track_count, self.other_track_count
+        )
+    }
 }
 
 const FIFTH_WEIGHT: f64 = 0.5;
@@ -62,8 +84,15 @@ impl KeyTally {
     }
 
     /// Counts the tracks this tally scored higher and lower than `other`,
-    /// which must have recorded the same tracks in the same order.
-    pub fn compared_with(&self, other: &Self) -> Comparison {
+    /// which must have recorded the same tracks in the same order. Fails
+    /// when the two recorded a different number of tracks.
+    pub fn compared_with(&self, other: &Self) -> Result<Comparison, DifferentTrackCounts> {
+        if self.track_scores.len() != other.track_scores.len() {
+            return Err(DifferentTrackCounts {
+                track_count: self.track_scores.len(),
+                other_track_count: other.track_scores.len(),
+            });
+        }
         let mut comparison = Comparison::default();
         for (score, other_score) in self.track_scores.iter().zip(&other.track_scores) {
             if score > other_score {
@@ -72,7 +101,7 @@ impl KeyTally {
                 comparison.worse += 1;
             }
         }
-        comparison
+        Ok(comparison)
     }
 
     pub fn total(&self) -> usize {
@@ -174,19 +203,45 @@ mod tests {
 
         assert_eq!(
             second.compared_with(&first),
-            Comparison {
+            Ok(Comparison {
                 better: 3,
                 worse: 1
-            }
+            })
         );
         assert_eq!(
             first.compared_with(&second),
-            Comparison {
+            Ok(Comparison {
                 better: 1,
                 worse: 3
-            }
+            })
         );
-        assert_eq!(first.compared_with(&first), Comparison::default());
+        assert_eq!(first.compared_with(&first), Ok(Comparison::default()));
+    }
+
+    #[test]
+    fn tallies_of_different_lengths_are_not_compared() {
+        let reference: Key = "A minor".parse().unwrap();
+        let mut longer = KeyTally::default();
+        let mut shorter = KeyTally::default();
+        for _ in 0..3 {
+            longer.record(reference, reference);
+        }
+        shorter.record(reference, "E minor".parse().unwrap());
+        shorter.record_missing();
+
+        let mismatch = DifferentTrackCounts {
+            track_count: 3,
+            other_track_count: 2,
+        };
+        assert_eq!(longer.compared_with(&shorter), Err(mismatch));
+        assert_eq!(
+            shorter.compared_with(&longer),
+            Err(DifferentTrackCounts {
+                track_count: 2,
+                other_track_count: 3,
+            })
+        );
+        assert_eq!(mismatch.to_string(), "not comparable: 3 tracks against 2");
     }
 
     #[test]
