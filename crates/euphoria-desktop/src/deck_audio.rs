@@ -19,11 +19,9 @@
 
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
-
-use signalsmith_stretch::Stretch;
 
 use crate::playback::{PlaybackProblem, TrackSource};
 
@@ -35,8 +33,66 @@ pub(crate) const MIX_SAMPLE_RATE: u32 = 44_100;
 /// command to take effect at once.
 const BLOCK_FRAMES: usize = 256;
 
-const MIN_RATE: f64 = 0.5;
-const MAX_RATE: f64 = 2.0;
+/// The slowest and fastest a deck plays, as a share of its own speed.
+pub(crate) const MIN_RATE: f64 = 0.5;
+pub(crate) const MAX_RATE: f64 = 2.0;
+
+/// How many commands can wait for the audio thread. The window blocks in
+/// the rare case it sends more before the next block.
+const COMMAND_CAPACITY: usize = 64;
+
+/// How many replaced tracks can wait to be dropped by the window.
+const RETIRED_CAPACITY: usize = 8;
+
+/// The time stretcher of a deck, the one place that names the stretching
+/// library, so that another binding of the same algorithm is a change to
+/// this type alone.
+struct TimeStretcher(signalsmith_stretch::Stretch);
+
+impl TimeStretcher {
+    /// A stretcher for `channel_count` interleaved channels mixed at
+    /// [`MIX_SAMPLE_RATE`]. It allocates, so build it off the audio thread.
+    fn new(channel_count: usize) -> Self {
+        Self(signalsmith_stretch::Stretch::preset_default(
+            channel_count as u32,
+            MIX_SAMPLE_RATE,
+        ))
+    }
+
+    /// Forgets what it holds, as after a jump in the track.
+    fn reset(&mut self) {
+        self.0.reset();
+    }
+
+    /// Multiplies every frequency by `factor`.
+    fn set_transpose(&mut self, factor: f32) {
+        self.0.set_transpose_factor(factor, None);
+    }
+
+    /// Frames of input held before output starts.
+    fn input_latency(&self) -> usize {
+        self.0.input_latency()
+    }
+
+    /// Frames of output held back.
+    fn output_latency(&self) -> usize {
+        self.0.output_latency()
+    }
+
+    /// Stretches `input` to fill `output`, both interleaved.
+    fn process(&mut self, input: &[f32], output: &mut [f32]) {
+        self.0.process(input, output);
+    }
+}
+
+/// The speed that is really played for `rate`, inside what a deck can do.
+pub(crate) fn reachable_rate(rate: f64) -> f64 {
+    if rate.is_finite() {
+        rate.clamp(MIN_RATE, MAX_RATE)
+    } else {
+        1.0
+    }
+}
 
 /// The beats in a bar, in the 4/4 time of dance music.
 const BEATS_PER_BAR: f64 = 4.0;
@@ -101,29 +157,38 @@ impl GridTiming {
     }
 }
 
-/// The playback speed that gives a track at `own_bpm` the tempo
-/// `target_bpm`, reading it at half or double speed when that is closer,
-/// as a DJ beatmatches a track counted at half time.
+/// The playback speed that brings a track at `own_bpm` closest to the
+/// tempo `target_bpm`, reading the target at half or double when that is
+/// closer, as a DJ beatmatches a track counted at half time. The speed is
+/// one a deck can play, from [`MIN_RATE`] to [`MAX_RATE`], so a target out
+/// of reach gives the nearest speed that is not; compare `own_bpm` times
+/// the speed with the target to tell.
 pub(crate) fn matching_rate(own_bpm: f64, target_bpm: f64) -> f64 {
     if own_bpm <= 0.0 || target_bpm <= 0.0 || !own_bpm.is_finite() || !target_bpm.is_finite() {
         return 1.0;
     }
     [1.0, 2.0, 0.5]
         .into_iter()
-        .map(|scale| target_bpm * scale / own_bpm)
-        .min_by(|first, second| (first.ln().abs()).total_cmp(&second.ln().abs()))
-        .unwrap_or(1.0)
-        .clamp(MIN_RATE, MAX_RATE)
+        .map(|scale| {
+            let wanted = target_bpm * scale / own_bpm;
+            let reached = reachable_rate(wanted);
+            // How far the tempo reached is from the one wanted, then how
+            // far the speed is from the track's own.
+            ((reached / wanted).ln().abs(), reached.ln().abs(), reached)
+        })
+        .min_by(|first, second| {
+            first
+                .0
+                .total_cmp(&second.0)
+                .then_with(|| first.1.total_cmp(&second.1))
+        })
+        .map_or(1.0, |(_, _, rate)| rate)
 }
 
 /// A change the window asks of the mix.
 pub(crate) enum DeckCommand {
-    /// Puts a track on a deck, paused.
-    Load {
-        deck: DeckId,
-        source: Box<TrackSource>,
-        grid: Option<GridTiming>,
-    },
+    /// Puts a track on a deck, paused, in place of the one there.
+    Load { deck: DeckId, track: PreparedTrack },
     /// Plays from the held position. With `quantize_to`, schedules the
     /// decks' upcoming downbeats to align when the other deck plays and
     /// both have a beat grid.
@@ -225,11 +290,23 @@ impl DeckMeter {
     }
 }
 
+/// A track ready to go on a deck: opened, with its stretcher built and its
+/// buffers allocated, all off the audio thread.
+pub(crate) struct PreparedTrack(Box<LoadedTrack>);
+
+/// Builds what a deck needs to play `source`. It allocates, so call it off
+/// the audio thread.
+pub(crate) fn prepare_track(source: TrackSource, grid: Option<GridTiming>) -> PreparedTrack {
+    PreparedTrack(Box::new(LoadedTrack::new(source, grid)))
+}
+
 /// The window's end of the mix.
-#[derive(Clone)]
 pub(crate) struct DeckLink {
-    commands: Sender<DeckCommand>,
+    commands: SyncSender<DeckCommand>,
     meters: [Arc<DeckMeter>; 2],
+    /// Tracks the mix took off its decks, to be dropped here and not on the
+    /// audio thread.
+    retired: Receiver<Box<LoadedTrack>>,
 }
 
 impl DeckLink {
@@ -249,6 +326,12 @@ impl DeckLink {
                 .pending_load
                 .store(false, Ordering::Release);
         }
+        self.drop_retired();
+    }
+
+    /// Drops the tracks the mix took off its decks.
+    pub(crate) fn drop_retired(&self) {
+        while self.retired.try_recv().is_ok() {}
     }
 
     /// What `deck` is doing.
@@ -263,7 +346,7 @@ struct LoadedTrack {
     grid: Option<GridTiming>,
     channel_count: usize,
     input_rate: u32,
-    stretch: Stretch,
+    stretch: TimeStretcher,
     rate: f64,
     keylock: bool,
     /// The transposition last given to the stretcher.
@@ -287,7 +370,14 @@ impl LoadedTrack {
     fn new(source: TrackSource, grid: Option<GridTiming>) -> Self {
         let channel_count = usize::from(rodio::Source::channels(&source).get());
         let input_rate = rodio::Source::sample_rate(&source).get();
-        let stretch = Stretch::preset_default(channel_count as u32, MIX_SAMPLE_RATE);
+        let stretch = TimeStretcher::new(channel_count);
+        // The most input a block can take: at the fastest speed, from a
+        // file at a higher rate than the mix, and one frame for the
+        // fraction carried over.
+        let largest_input = (BLOCK_FRAMES as f64 * MAX_RATE * f64::from(input_rate)
+            / f64::from(MIX_SAMPLE_RATE))
+        .ceil() as usize
+            + 2;
         let start_seconds = source.next_frame() as f64 / f64::from(input_rate);
         let mut track = Self {
             source,
@@ -301,8 +391,8 @@ impl LoadedTrack {
             playing: false,
             start_countdown: None,
             input_fraction: 0.0,
-            input: Vec::new(),
-            output: Vec::new(),
+            input: Vec::with_capacity(largest_input * channel_count),
+            output: Vec::with_capacity(BLOCK_FRAMES * channel_count),
             is_finished: false,
             tail_input_samples: 0,
             tail_output_frames: 0,
@@ -327,7 +417,7 @@ impl LoadedTrack {
             transpose *= self.rate as f32;
         }
         if (transpose - self.transpose).abs() > f32::EPSILON {
-            self.stretch.set_transpose_factor(transpose, None);
+            self.stretch.set_transpose(transpose);
             self.transpose = transpose;
         }
     }
@@ -416,15 +506,17 @@ impl LoadedTrack {
 /// The source the audio output plays: both decks, mixed.
 pub(crate) struct DeckMix {
     commands: Receiver<DeckCommand>,
+    retired: SyncSender<Box<LoadedTrack>>,
     meters: [Arc<DeckMeter>; 2],
-    decks: [Option<LoadedTrack>; 2],
+    decks: [Option<Box<LoadedTrack>>; 2],
     block: Vec<f32>,
     next_sample: usize,
 }
 
 /// A new mix with nothing on its decks, and the window's end of it.
 pub(crate) fn deck_mix() -> (DeckLink, DeckMix) {
-    let (commands, received) = channel();
+    let (commands, received) = sync_channel(COMMAND_CAPACITY);
+    let (retire, retired) = sync_channel(RETIRED_CAPACITY);
     let meters = [
         Arc::new(DeckMeter::default()),
         Arc::new(DeckMeter::default()),
@@ -435,26 +527,32 @@ pub(crate) fn deck_mix() -> (DeckLink, DeckMix) {
     let link = DeckLink {
         commands,
         meters: meters.clone(),
+        retired,
     };
     let mix = DeckMix {
         commands: received,
+        retired: retire,
         meters,
         decks: [None, None],
-        block: Vec::new(),
-        next_sample: 0,
+        block: vec![0.0; BLOCK_FRAMES * 2],
+        next_sample: BLOCK_FRAMES * 2,
     };
     (link, mix)
 }
 
 impl DeckMix {
     fn deck_mut(&mut self, deck: DeckId) -> Option<&mut LoadedTrack> {
-        self.decks[deck.index()].as_mut()
+        self.decks[deck.index()].as_deref_mut()
     }
 
     fn apply(&mut self, command: DeckCommand) {
         match command {
-            DeckCommand::Load { deck, source, grid } => {
-                self.decks[deck.index()] = Some(LoadedTrack::new(*source, grid));
+            DeckCommand::Load { deck, track } => {
+                if let Some(replaced) = self.decks[deck.index()].replace(track.0) {
+                    // Handed back to be dropped off this thread; dropped
+                    // here only when the window has not taken the last few.
+                    let _ = self.retired.try_send(replaced);
+                }
                 let meter = &self.meters[deck.index()];
                 meter.finished.store(false, Ordering::Relaxed);
                 *meter.problem.lock().unwrap_or_else(PoisonError::into_inner) = None;
@@ -493,7 +591,7 @@ impl DeckMix {
             }
             DeckCommand::SetRate { deck, rate } => {
                 if let Some(track) = self.deck_mut(deck) {
-                    track.rate = rate.clamp(MIN_RATE, MAX_RATE);
+                    track.rate = reachable_rate(rate);
                 }
             }
             DeckCommand::SetKeylock { deck, keylock } => {
@@ -538,8 +636,7 @@ impl DeckMix {
         while let Ok(command) = self.commands.try_recv() {
             self.apply(command);
         }
-        self.block.clear();
-        self.block.resize(BLOCK_FRAMES * 2, 0.0);
+        self.block.fill(0.0);
         for deck in DeckId::BOTH {
             let meter = Arc::clone(&self.meters[deck.index()]);
             let Some(track) = self.decks[deck.index()].as_mut() else {
@@ -742,8 +839,7 @@ mod tests {
                 let source = TrackSource::open(path, 0.0).unwrap().patient();
                 link.send(DeckCommand::Load {
                     deck,
-                    source: Box::new(source),
-                    grid: Some(grid),
+                    track: prepare_track(source, Some(grid)),
                 });
             }
             link.meter(DeckId::A).set_gain(a_gain);
@@ -855,8 +951,7 @@ mod tests {
         let (link, mut mix) = deck_mix();
         link.send(DeckCommand::Load {
             deck: DeckId::A,
-            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
-            grid: None,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), None),
         });
         link.send(DeckCommand::Play {
             deck: DeckId::A,
@@ -882,8 +977,7 @@ mod tests {
             let (link, mut mix) = deck_mix();
             mix.apply(DeckCommand::Load {
                 deck: DeckId::A,
-                source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
-                grid: None,
+                track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), None),
             });
             mix.apply(DeckCommand::Play {
                 deck: DeckId::A,
@@ -921,8 +1015,7 @@ mod tests {
         let (link, mut mix) = deck_mix();
         mix.apply(DeckCommand::Load {
             deck: DeckId::A,
-            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
-            grid: None,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), None),
         });
         mix.apply(DeckCommand::Play {
             deck: DeckId::A,
@@ -936,12 +1029,37 @@ mod tests {
         assert_eq!(link.meter(DeckId::A).problem(), None);
         link.send(DeckCommand::Load {
             deck: DeckId::A,
-            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
-            grid: None,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), None),
         });
         assert!(!link.meter(DeckId::A).is_finished());
         mix.render_block();
         assert!(!link.meter(DeckId::A).is_finished());
+    }
+
+    #[test]
+    fn a_replaced_track_is_handed_back_to_the_window() {
+        let scratch = ScratchFolder::new("retired");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.0, 1.0);
+        let (link, mut mix) = deck_mix();
+        for _ in 0..2 {
+            mix.apply(DeckCommand::Load {
+                deck: DeckId::A,
+                track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), None),
+            });
+        }
+        assert!(link.retired.try_recv().is_ok());
+        assert!(link.retired.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_tempo_out_of_reach_gives_the_nearest_speed_a_deck_plays() {
+        assert_eq!(reachable_rate(3.0), MAX_RATE);
+        assert_eq!(reachable_rate(0.1), MIN_RATE);
+        assert_eq!(reachable_rate(f64::NAN), 1.0);
+        let rate = matching_rate(30.0, 170.0);
+        assert_eq!(rate, MAX_RATE);
+        assert!((30.0 * rate - 170.0 / 2.0).abs() > 1.0);
     }
 
     #[test]
@@ -952,8 +1070,7 @@ mod tests {
         let (link, mut mix) = deck_mix();
         mix.apply(DeckCommand::Load {
             deck: DeckId::A,
-            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
-            grid: None,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), None),
         });
         mix.apply(DeckCommand::SetRate {
             deck: DeckId::A,
@@ -1012,8 +1129,7 @@ mod tests {
             let source = if patient { source.patient() } else { source };
             link.send(DeckCommand::Load {
                 deck,
-                source: Box::new(source),
-                grid: None,
+                track: prepare_track(source, None),
             });
             link.send(DeckCommand::Play {
                 deck,

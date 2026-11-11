@@ -225,12 +225,29 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .child(title),
         )
         .children(tempo.map(|tempo| {
+            let out_of_reach = view.tempo_out_of_reach;
             div()
                 .id(deck_part("deck-tempo", deck))
                 .flex_shrink_0()
                 .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.text_secondary)
-                .child(tempo)
+                .text_color(if out_of_reach {
+                    palette.danger
+                } else {
+                    palette.text_secondary
+                })
+                .child(if out_of_reach {
+                    format!("{tempo}, not deck A's")
+                } else {
+                    tempo
+                })
+                .when(out_of_reach, |tempo| {
+                    tempo.tooltip(|window, cx| {
+                        Tooltip::new(
+                            "Deck A's tempo is out of reach: a deck plays from half to twice its own speed, and this is the nearest.",
+                        )
+                        .build(window, cx)
+                    })
+                })
                 .test_support()
         }));
 

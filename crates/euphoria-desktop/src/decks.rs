@@ -16,7 +16,9 @@ use euphoria_core::{SectionCue, TrackAnalysis};
 use gpui::{Context, Task};
 
 use crate::app::EuphoriaApp;
-use crate::deck_audio::{DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate};
+use crate::deck_audio::{
+    DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate, prepare_track,
+};
 use crate::library::Track;
 use crate::playback::{TrackSource, Voice};
 use crate::playlists::PlaylistId;
@@ -48,6 +50,9 @@ pub(crate) struct DeckView {
     pub(crate) playing: bool,
     /// The replacement source is still being opened. Transport must wait.
     pub(crate) loading: bool,
+    /// True when sync asks for a tempo the deck cannot play: it plays the
+    /// nearest it can.
+    pub(crate) tempo_out_of_reach: bool,
     /// Why the track could not be loaded, when it could not.
     pub(crate) problem: Option<String>,
 }
@@ -244,6 +249,16 @@ impl Decks {
     fn follow_tempo(&mut self) {
         let rate = self.synced_rate().unwrap_or(1.0);
         self.views[1].rate = rate;
+        self.views[1].tempo_out_of_reach = match (self.sync, self.views[0].heard_bpm()) {
+            (true, Some(leading)) => self.views[1].heard_bpm().is_some_and(|heard| {
+                let ratio = heard / leading;
+                // Half and double tempo are matches too.
+                [1.0, 2.0, 0.5]
+                    .iter()
+                    .all(|scale: &f64| (ratio * scale - 1.0).abs() > 1e-3)
+            }),
+            _ => false,
+        };
         self.send(DeckCommand::SetRate {
             deck: DeckId::B,
             rate,
@@ -362,11 +377,19 @@ impl EuphoriaApp {
         if self.decks.link.is_none() {
             return;
         }
+        let grid = self.decks.view(deck).grid;
         cx.spawn(async move |this, cx| {
             let opened_path = path.clone();
+            // The file is opened, and the deck's stretcher built, here and
+            // not on the audio thread.
             let opened = cx
                 .background_executor()
-                .spawn(async move { TrackSource::open(&opened_path, seconds as f32) })
+                .spawn(async move {
+                    TrackSource::open(&opened_path, seconds as f32).map(|source| {
+                        let duration = source.duration_seconds();
+                        (duration, prepare_track(source, grid))
+                    })
+                })
                 .await;
             this.update(cx, |this, cx| {
                 if this.decks.load_generation[index(deck)] != generation {
@@ -374,17 +397,16 @@ impl EuphoriaApp {
                 }
                 this.decks.view_mut(deck).loading = false;
                 match opened {
-                    Ok(source) => {
+                    Ok((duration, track)) => {
                         if this.decks.view(deck).duration_seconds.is_none() {
-                            this.decks.view_mut(deck).duration_seconds =
-                                source.duration_seconds().map(f64::from);
+                            this.decks.view_mut(deck).duration_seconds = duration.map(f64::from);
                         }
-                        this.decks.send(DeckCommand::Load {
-                            deck,
-                            source: Box::new(source),
-                            grid: this.decks.view(deck).grid,
-                        });
+                        this.decks.send(DeckCommand::Load { deck, track });
                         let view = this.decks.view(deck);
+                        this.decks.send(DeckCommand::SetGrid {
+                            deck,
+                            grid: view.grid,
+                        });
                         this.decks.send(DeckCommand::SetKeylock {
                             deck,
                             keylock: view.keylock,
@@ -648,6 +670,9 @@ impl EuphoriaApp {
             loop {
                 cx.background_executor().timer(DECK_REFRESH).await;
                 let goes_on = this.update(cx, |this, cx| {
+                    if let Some(link) = &this.decks.link {
+                        link.drop_retired();
+                    }
                     for deck in DeckId::BOTH {
                         if !this.decks.view(deck).loading && this.decks.is_finished(deck) {
                             this.decks.view_mut(deck).playing = false;
@@ -708,8 +733,26 @@ mod tests {
         decks.follow_tempo();
         assert!((decks.views[1].rate - 0.96).abs() < 1e-9);
         assert!((decks.views[1].heard_bpm().unwrap() - 120.0).abs() < 1e-9);
+        assert!(!decks.views[1].tempo_out_of_reach);
         decks.sync = false;
         decks.follow_tempo();
         assert_eq!(decks.views[1].rate, 1.0);
+    }
+
+    #[test]
+    fn a_tempo_out_of_reach_plays_the_nearest_and_says_so() {
+        let mut decks = Decks::default();
+        decks.views[0].bpm = Some(170.0);
+        decks.views[1].bpm = Some(60.0);
+        decks.follow_tempo();
+        // 170 needs 2.83 times 60, and 85 needs 1.42 of it, which a deck
+        // can play: half tempo is a match.
+        assert!((decks.views[1].heard_bpm().unwrap() - 85.0).abs() < 1e-6);
+        assert!(!decks.views[1].tempo_out_of_reach);
+        decks.views[1].bpm = Some(30.0);
+        decks.follow_tempo();
+        assert_eq!(decks.views[1].rate, 2.0, "the fastest a deck plays");
+        assert_eq!(decks.views[1].heard_bpm(), Some(60.0));
+        assert!(decks.views[1].tempo_out_of_reach);
     }
 }
