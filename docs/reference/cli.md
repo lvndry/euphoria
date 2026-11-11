@@ -158,6 +158,7 @@ Analyzes audio files and writes the results as a rekordbox XML file, which rekor
 
 ```
 euphoria export rekordbox [OPTIONS] --output <FILE> <PATHS>...
+euphoria export rekordbox [OPTIONS] --output <FILE> --playlist <NAME>
 ```
 
 Paths are searched as in [`euphoria analyze`](#euphoria-analyze), and results come from the [cache](#the-analysis-cache) when the tracks were analyzed before. Each path is turned into a full path first, taken from the current directory when it is relative, with any symbolic link in it followed, because rekordbox finds tracks by their full path.
@@ -177,6 +178,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
+| `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Files of the playlist that are no longer anywhere are left out with a warning. Cannot be combined with paths or `--no-playlists`. |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -228,6 +230,42 @@ The command also exits with status 1, and writes no file, when:
 - folders are nested more than 32 levels deep, the most a rekordbox XML file can hold. The error names the first folder beyond the limit.
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
+
+## euphoria export m3u8
+
+Writes a playlist built in the desktop app as an M3U8 file, the playlist format nearly every DJ and music program opens: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx and music players.
+
+```
+euphoria export m3u8 --playlist <NAME> --output <FILE> [--force] [--no-cache]
+```
+
+```
+$ euphoria export m3u8 --playlist "Peak time" --output ~/Music/peak-time.m3u8
+Exported 14 tracks of Peak time to /Users/you/Music/peak-time.m3u8
+```
+
+The file starts with `#EXTM3U` and `#PLAYLIST:` and the playlist's name, then gives each track as an `#EXTINF:` line with its length in seconds and "Artist - Title" from its tags, followed by its full path, in UTF-8. A length the [cache](#the-analysis-cache) does not know is written as `-1`. Nothing is analyzed.
+
+| Option | Effect |
+| --- | --- |
+| `--playlist <NAME>` | The playlist, matched ignoring case. Required. |
+| `-o`, `--output <FILE>` | The file to write. Required. |
+| `--force` | Replace the output file if it exists. |
+| `--no-cache` | Neither look for files that moved where the cache last saw them, nor read lengths from it. |
+
+A playlist file that is no longer anywhere is left out with a warning, and the command then exits with status 1. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+
+## euphoria playlists
+
+Lists the playlists built in the [desktop app](../guides/desktop-app.md#playlists), in the app's order, each with its label and how many tracks it holds:
+
+```
+$ euphoria playlists
+🔥 Peak time  (14 tracks)
+Warmup  (9 tracks)
+```
+
+Playlists are kept in `playlists.sqlite3` beside the [cache](#where-the-cache-is-stored), each track by the content of its file and its last path, so `euphoria cache clear` leaves them as they are.
 
 ## euphoria tags write
 

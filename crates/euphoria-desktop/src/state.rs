@@ -131,14 +131,14 @@ impl Session {
             .as_deref()
             .is_some_and(|cache| locate_moved_files(&mut stored, cache));
         self.playlists = Playlists::from_stored(stored);
+        let mut store = store;
+        if moved {
+            store.save(&self.playlists.stored_with_contents(|_| None))?;
+        }
         let saver = PlaylistSaver {
             store: Arc::new(Mutex::new(store)),
             saved_revision: Arc::new(AtomicU64::new(0)),
         };
-        if moved {
-            let stored = self.playlists.stored_with_contents(|_| None);
-            saver.save(&stored, 1)?;
-        }
         self.playlist_saver = Some(saver);
         Ok(())
     }

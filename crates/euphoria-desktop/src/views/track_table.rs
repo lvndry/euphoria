@@ -178,11 +178,26 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
             format!("Quality to check in {folder}").into()
         }
     };
-    let count = format::track_summary(
-        app.visible.len(),
-        app.session.library().counts().total,
-        app.session.cached_count(),
-    );
+    let count = match playlist {
+        Some(playlist) => {
+            let shown = app.visible.len();
+            let not_in_library = playlist.tracks.len() - app.playlist_positions.len();
+            let tracks = if shown == 1 { "track" } else { "tracks" };
+            match not_in_library {
+                0 => format!("{} {tracks}", format::count(shown)),
+                missing => format!(
+                    "{} {tracks}, {} not in the library",
+                    format::count(shown),
+                    format::count(missing)
+                ),
+            }
+        }
+        None => format::track_summary(
+            app.visible.len(),
+            app.session.library().counts().total,
+            app.session.cached_count(),
+        ),
+    };
 
     div()
         .flex()
