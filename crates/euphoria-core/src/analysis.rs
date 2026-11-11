@@ -26,9 +26,9 @@ use crate::key::Key;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "5+libkeyfinder"
+    "6+libkeyfinder"
 } else {
-    "5+stratum"
+    "6+stratum"
 };
 
 /// What Euphoria found in one track.
