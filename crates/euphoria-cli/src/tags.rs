@@ -153,6 +153,9 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         eprintln!("No audio files found.");
         return Ok(ExitCode::SUCCESS);
     }
+    // Before the analysis, which can take hours, and before anything is
+    // written.
+    batch::require_readable_corrections(&arguments.analysis)?;
     let CachedBatch {
         results,
         store_error,
@@ -162,7 +165,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         &results,
         &arguments.analysis,
         batch::CorrectionCheck::ReadFile,
-    );
+    )?;
 
     // Planning only reads the files.
     let options = arguments.options();

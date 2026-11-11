@@ -201,3 +201,41 @@ fn an_unreadable_file_is_left_out_rather_than_written_with_detected_values() {
         standard_error(&export)
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_cache_made_unreadable_after_analysis_stops_tag_writing_but_not_analysis() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+    let before = std::fs::read(&track).expect("the track is read");
+    std::fs::set_permissions(
+        euphoria.cache_path(),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .expect("the cache is made unreadable");
+
+    let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
+    let shown = euphoria.run(&["analyze", text(&track)]);
+    std::fs::set_permissions(
+        euphoria.cache_path(),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .expect("the cache is made readable again");
+
+    assert!(!written.status.success());
+    let errors = standard_error(&written);
+    assert!(
+        errors.contains("--no-cache") && errors.contains("Nothing was written"),
+        "{errors}"
+    );
+    assert_eq!(std::fs::read(&track).expect("the track is read"), before);
+    assert_success(&shown);
+    assert!(
+        standard_error(&shown).contains("warning: analyzing without the cache"),
+        "{}",
+        standard_error(&shown)
+    );
+}

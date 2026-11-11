@@ -351,7 +351,7 @@ Several `euphoria analyze` and `euphoria export` commands can run at the same ti
 
 ### When the cache cannot be used
 
-The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` and `euphoria export` print a warning on standard error and analyze every file without the cache:
+The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` prints a warning on standard error and analyzes every file without the cache:
 
 ```
 warning: analyzing without the cache: cannot use the analysis cache at /Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3: file is not a database
@@ -359,6 +359,8 @@ warning: analyzing without the cache: cannot use the analysis cache at /Users/yo
 ```
 
 The results and the exit status are the same as with `--no-cache`. Nothing is read from or saved to the cache in that run.
+
+`euphoria tags write` and `euphoria export rekordbox` stop instead, before analyzing anything, and write nothing: the cache may hold keys and tempos you [corrected](#corrections), and the detected values must not replace them without your knowing. Pass `--no-cache` to go on with the detected values, or run `euphoria cache clear` to reset a damaged cache.
 
 ## euphoria cache
 

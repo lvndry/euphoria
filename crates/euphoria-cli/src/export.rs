@@ -92,6 +92,9 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         bail!("no audio files found, so nothing was exported");
     }
 
+    // Before the analysis, which can take hours, and before anything is
+    // written.
+    batch::require_readable_corrections(&arguments.analysis)?;
     let CachedBatch {
         results,
         cached_count,
@@ -101,7 +104,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         &results,
         &arguments.analysis,
         batch::CorrectionCheck::ReadFile,
-    );
+    )?;
     let results = batch::corrected(results, &corrections);
 
     let loose_playlist_name = output_file

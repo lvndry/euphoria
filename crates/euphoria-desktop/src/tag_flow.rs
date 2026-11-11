@@ -40,7 +40,11 @@ fn verified_corrections(
     let mut checked = Vec::with_capacity(targets.len());
     let mut left_out = Vec::new();
     for mut target in targets {
-        if target.analysis.is_some() && !writer.is_pending(&target.path) {
+        if let Some(latest) = writer.pending(&target.path) {
+            // Made after the target was taken, perhaps, and not kept yet:
+            // the user's latest word on this file.
+            target.correction = latest;
+        } else if target.analysis.is_some() {
             match cache.verified_correction_for(&target.path) {
                 Ok(correction) => target.correction = correction.unwrap_or_default(),
                 Err(error) => {
@@ -422,6 +426,13 @@ mod tests {
             verified_corrections(target(), Some(&cache), &writer).0[0].correction,
             correction,
             "a correction just made for the file as it is now is kept"
+        );
+        let newer = Correction::of_key(Key::new(9, Mode::Minor));
+        writer.queue(&track, newer);
+        assert_eq!(
+            verified_corrections(target(), Some(&cache), &writer).0[0].correction,
+            newer,
+            "an edit made after the target was taken wins over the one it holds"
         );
 
         let empty = || {

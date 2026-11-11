@@ -136,17 +136,19 @@ pub fn corrections(
     results: &[euphoria_core::FileResult],
     options: &AnalysisOptions,
     check: CorrectionCheck,
-) -> Corrections {
+) -> Result<Corrections> {
     if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
-        return Corrections::new();
+        return Ok(Corrections::new());
     }
     let analyzed = results.iter().filter(|result| result.outcome.is_ok());
-    // A cache that cannot be opened was already reported by the analysis,
-    // which then ran as with --no-cache; corrections follow it.
-    let Ok(cache) = open_cache() else {
-        return Corrections::new();
+    let cache = match (open_cache(), check) {
+        (Ok(cache), _) => cache,
+        // Showing goes on with the detected values; the analysis already
+        // warned that it ran without the cache.
+        (Err(_), CorrectionCheck::Quick) => return Ok(Corrections::new()),
+        (Err(error), CorrectionCheck::ReadFile) => return Err(corrections_unreadable(&error)),
     };
-    analyzed
+    Ok(analyzed
         .filter_map(|result| {
             let looked_up = match check {
                 CorrectionCheck::Quick => cache.correction_for(&result.path),
@@ -162,7 +164,27 @@ pub fn corrections(
                 }
             }
         })
-        .collect()
+        .collect())
+}
+
+/// Stops a tag write or an export before it starts when the cache exists
+/// but cannot be opened: it may hold keys and tempos the user set, and the
+/// detected values must not be written over them unknowingly.
+pub fn require_readable_corrections(options: &AnalysisOptions) -> Result<()> {
+    if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
+        return Ok(());
+    }
+    open_cache()
+        .map(|_| ())
+        .map_err(|error| corrections_unreadable(&error))
+}
+
+fn corrections_unreadable(error: &EuphoriaError) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{}, so the keys and tempos set in the desktop app cannot be read. Nothing was written. \
+         Pass --no-cache to go on with the detected values instead.",
+        error.chain()
+    )
 }
 
 /// How sure to be that a correction belongs to the file it is applied to.

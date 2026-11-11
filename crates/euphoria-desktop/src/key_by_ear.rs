@@ -44,43 +44,64 @@ struct Drone {
 
 /// Keeps corrections in the cache in the order they were made. Each edit
 /// starts a write of its own off the main thread, and those can run in any
-/// order; each write takes the latest correction of its track, under one
-/// lock, so the last edit is what stays whatever order the writes run in.
+/// order; each write takes the latest correction of its track when it
+/// starts, so the last edit is what stays whatever order the writes run in.
+///
+/// Two locks keep the window from waiting on the disk: `latest` is only
+/// held for a moment, to note or read a correction, while `writing` lets
+/// one write at a time touch the cache, which may read a whole file.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CorrectionWriter {
-    latest: Arc<Mutex<HashMap<PathBuf, Correction>>>,
+    latest: Arc<Mutex<HashMap<PathBuf, PendingCorrection>>>,
+    writing: Arc<Mutex<()>>,
+}
+
+/// A correction waiting to be kept, and which edit made it.
+#[derive(Debug, Clone, Copy)]
+struct PendingCorrection {
+    correction: Correction,
+    edit: u64,
 }
 
 impl CorrectionWriter {
-    /// Notes `correction` as the latest one for the file at `path`.
+    /// Notes `correction` as the latest one for the file at `path`. Never
+    /// waits for a write in progress.
     pub(crate) fn queue(&self, path: &Path, correction: Correction) {
-        self.lock().insert(path.to_path_buf(), correction);
+        let mut latest = self.lock();
+        let edit = latest.get(path).map_or(1, |pending| pending.edit + 1);
+        latest.insert(path.to_path_buf(), PendingCorrection { correction, edit });
     }
 
-    /// True while a correction of the file at `path` waits to be kept.
-    pub(crate) fn is_pending(&self, path: &Path) -> bool {
-        self.lock().contains_key(path)
+    /// The correction of the file at `path` that waits to be kept, if any:
+    /// the latest the user made.
+    pub(crate) fn pending(&self, path: &Path) -> Option<Correction> {
+        self.lock().get(path).map(|pending| pending.correction)
     }
 
     /// Keeps the latest correction of the file at `path` with `write`, if
-    /// an earlier write has not kept it already.
+    /// an earlier write has not kept it already. An edit made while `write`
+    /// runs is left for its own write, which follows this one.
     pub(crate) fn write_latest<Failure>(
         &self,
         path: &Path,
         write: impl FnOnce(&Correction) -> Result<(), Failure>,
     ) -> Result<(), Failure> {
-        let mut latest = self.lock();
-        let Some(correction) = latest.get(path).copied() else {
+        let _writing = self.writing.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(snapshot) = self.lock().get(path).copied() else {
             return Ok(());
         };
-        write(&correction)?;
-        if latest.get(path) == Some(&correction) {
+        write(&snapshot.correction)?;
+        let mut latest = self.lock();
+        if latest
+            .get(path)
+            .is_some_and(|pending| pending.edit == snapshot.edit)
+        {
             latest.remove(path);
         }
         Ok(())
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, Correction>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, PendingCorrection>> {
         self.latest.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -355,7 +376,7 @@ mod tests {
         let second = Correction::of_key(Key::new(9, Mode::Minor));
         writer.queue(path, first);
         writer.queue(path, second);
-        assert!(writer.is_pending(path));
+        assert_eq!(writer.pending(path), Some(second));
 
         let mut kept = Vec::new();
         let mut record = |correction: &Correction| -> Result<(), ()> {
@@ -365,7 +386,7 @@ mod tests {
         writer.write_latest(path, &mut record).unwrap();
         writer.write_latest(path, &mut record).unwrap();
         assert_eq!(kept, [second], "the later write finds nothing left to keep");
-        assert!(!writer.is_pending(path));
+        assert_eq!(writer.pending(path), None);
 
         writer.queue(path, first);
         assert_eq!(
@@ -373,9 +394,59 @@ mod tests {
             Err("disk full")
         );
         assert!(
-            writer.is_pending(path),
+            writer.pending(path).is_some(),
             "a failed write leaves it to the next"
         );
+    }
+
+    #[test]
+    fn an_edit_during_a_slow_write_does_not_wait_and_is_kept_after_it() {
+        let writer = CorrectionWriter::default();
+        let path = Path::new("/music/track.mp3");
+        let first = Correction::of_key(Key::new(4, Mode::Minor));
+        let second = Correction::of_key(Key::new(9, Mode::Minor));
+        writer.queue(path, first);
+
+        let (started, has_started) = std::sync::mpsc::channel();
+        let (finish, may_finish) = std::sync::mpsc::channel::<()>();
+        let kept = Arc::new(Mutex::new(Vec::new()));
+        let slow = {
+            let writer = writer.clone();
+            let kept = kept.clone();
+            std::thread::spawn(move || {
+                writer.write_latest(path, |correction| -> Result<(), ()> {
+                    started.send(()).ok();
+                    may_finish.recv().ok();
+                    kept.lock().unwrap().push(*correction);
+                    Ok(())
+                })
+            })
+        };
+        has_started.recv().unwrap();
+
+        let before = std::time::Instant::now();
+        writer.queue(path, second);
+        assert_eq!(writer.pending(path), Some(second));
+        assert!(
+            before.elapsed() < std::time::Duration::from_millis(500),
+            "the edit did not wait for the write"
+        );
+
+        finish.send(()).unwrap();
+        slow.join().unwrap().unwrap();
+        assert_eq!(
+            writer.pending(path),
+            Some(second),
+            "the slow write kept the older edit and leaves the newer one"
+        );
+        writer
+            .write_latest(path, |correction| -> Result<(), ()> {
+                kept.lock().unwrap().push(*correction);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(*kept.lock().unwrap(), [first, second]);
+        assert_eq!(writer.pending(path), None);
     }
 
     #[test]
