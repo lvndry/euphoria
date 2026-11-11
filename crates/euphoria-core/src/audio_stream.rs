@@ -167,8 +167,13 @@ impl AudioStream {
     }
 
     /// Moves to `seconds` from the start, so that the next chunk read begins
-    /// there. A position past the end leaves the stream at its end. Returns
-    /// the position reached, in seconds.
+    /// there. Returns the position reached, in seconds.
+    ///
+    /// A negative position, or one that is not a number, counts as the
+    /// start. A position at or past the declared end, or too far away to be
+    /// a time in any file, leaves the stream at its end: the next read
+    /// returns false. When the file declares no length, the position
+    /// returned for such a seek is the one asked for.
     pub fn seek(&mut self, seconds: f32) -> Result<f32, EuphoriaError> {
         let seconds = seconds.max(0.0);
         self.first_chunk = None;
@@ -179,6 +184,10 @@ impl AudioStream {
             self.is_finished = true;
             return Ok(duration);
         }
+        let Some(time) = Time::try_from_secs_f64(f64::from(seconds)) else {
+            self.is_finished = true;
+            return Ok(seconds);
+        };
         if self.is_finished {
             // Some demuxers cannot seek once they have read to the end, so a
             // finished stream starts over from a freshly opened file.
@@ -190,7 +199,6 @@ impl AudioStream {
             self.is_finished = false;
         }
 
-        let time = Time::try_from_secs_f64(f64::from(seconds)).unwrap_or_default();
         let seeked = self
             .format
             .seek(
@@ -202,16 +210,27 @@ impl AudioStream {
             )
             .map_err(|error| decode_error(&self.path, error))?;
         self.decoder.reset();
-        let units_before_target =
-            u64::try_from(seeked.required_ts.get() - seeked.actual_ts.get()).unwrap_or(0);
-        self.frames_to_skip = self.frames_between(units_before_target);
-        Ok(seconds)
+        match landing(seeked.required_ts.get(), seeked.actual_ts.get()) {
+            Some(Landing::Before(units)) => {
+                self.frames_to_skip = self.frames_in(units);
+                Ok(seconds)
+            }
+            Some(Landing::After(units)) => {
+                let overshoot = self.frames_in(units) as f32 / self.sample_rate.get() as f32;
+                Ok(seconds + overshoot)
+            }
+            None => Err(EuphoriaError::Decode {
+                path: self.path.clone(),
+                failure: DecodeFailure::Malformed,
+                source: Some("seeking reported a position that cannot be".into()),
+            }),
+        }
     }
 
     /// Converts a count of the track's time base units to frames. The two
     /// are the same for every format Euphoria reads, where the time base is
     /// one over the sample rate.
-    fn frames_between(&self, time_base_units: u64) -> u64 {
+    fn frames_in(&self, time_base_units: u64) -> u64 {
         let Some(time_base) = self.time_base else {
             return time_base_units;
         };
@@ -222,6 +241,29 @@ impl AudioStream {
             .as_secs_f64();
         (seconds * f64::from(self.sample_rate.get())).round() as u64
     }
+}
+
+/// Where a seek put the demuxer relative to the timestamp that was wanted,
+/// in the track's time base units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Landing {
+    /// At or before the target, which is what an accurate seek promises.
+    /// The audio in between is decoded and dropped.
+    Before(u64),
+    /// After the target. Playing starts from there, since the audio before
+    /// it cannot be reached, and the position reported says so.
+    After(u64),
+}
+
+/// Compares the timestamp a seek wanted with the one it reached. `None`
+/// when the two are so far apart that their distance is not a number of
+/// units at all, which no real file produces.
+fn landing(required_timestamp: i64, actual_timestamp: i64) -> Option<Landing> {
+    let units_before_target = required_timestamp.checked_sub(actual_timestamp)?;
+    Some(match u64::try_from(units_before_target) {
+        Ok(units) => Landing::Before(units),
+        Err(_) => Landing::After(units_before_target.unsigned_abs()),
+    })
 }
 
 /// The demuxer and decoder of a file's audio track, positioned at its start.
@@ -427,6 +469,44 @@ mod tests {
         let mut chunk = vec![1.0];
         assert!(!stream.read_chunk(&mut chunk).unwrap());
         assert!(chunk.is_empty());
+    }
+
+    #[test]
+    fn a_seek_too_far_to_be_a_time_ends_a_stream_of_unknown_length() {
+        for unrepresentable in [f32::MAX, f32::INFINITY, 1.0e30] {
+            let mut stream = AudioStream::open(&fixture("sine-440hz-mono.wav")).unwrap();
+            stream.duration_seconds = None;
+            assert_eq!(stream.seek(unrepresentable).unwrap(), unrepresentable);
+            let mut chunk = vec![1.0];
+            assert!(!stream.read_chunk(&mut chunk).unwrap());
+            assert!(chunk.is_empty());
+
+            assert_eq!(stream.seek(0.5).unwrap(), 0.5);
+            let remaining = read_everything(&mut stream).len();
+            assert!(remaining.abs_diff(44_100 / 2) <= 64, "{remaining}");
+        }
+    }
+
+    #[test]
+    fn a_seek_that_is_not_a_number_or_is_negative_goes_to_the_start() {
+        let mut stream = AudioStream::open(&fixture("sine-440hz-mono.wav")).unwrap();
+        let whole = read_everything(&mut stream).len();
+        for start in [f32::NAN, -5.0, f32::NEG_INFINITY] {
+            assert_eq!(stream.seek(start).unwrap(), 0.0);
+            assert_eq!(read_everything(&mut stream).len(), whole);
+        }
+    }
+
+    #[test]
+    fn a_seek_result_is_read_without_overflow() {
+        assert_eq!(landing(1_000, 1_000), Some(Landing::Before(0)));
+        assert_eq!(landing(1_000, 424), Some(Landing::Before(576)));
+        assert_eq!(landing(1_000, 1_024), Some(Landing::After(24)));
+        assert_eq!(landing(0, i64::MAX), Some(Landing::After(i64::MAX as u64)));
+        assert_eq!(landing(-10, -4), Some(Landing::After(6)));
+        assert_eq!(landing(i64::MAX, i64::MIN), None);
+        assert_eq!(landing(i64::MIN, i64::MAX), None);
+        assert_eq!(landing(i64::MIN, 0), Some(Landing::After(1 << 63)));
     }
 
     #[test]
