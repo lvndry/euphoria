@@ -1889,7 +1889,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria"
-version = "0.1.0"
+version = "2026.11.0"
 dependencies = [
  "euphoria-core",
  "gpui-kit",
@@ -1906,7 +1906,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-bench"
-version = "0.1.0"
+version = "2026.11.0"
 dependencies = [
  "anyhow",
  "cpu-time",
@@ -1917,7 +1917,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-cli"
-version = "0.1.0"
+version = "2026.11.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-core"
-version = "0.1.0"
+version = "2026.11.0"
 dependencies = [
  "blake3",
  "cc",

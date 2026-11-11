@@ -1,6 +1,6 @@
 [package]
 name = "euphoria-core"
-version = "0.1.0"
+version = "2026.11.0"
 description = "Key and tempo detection for music files, the library behind Euphoria"
 readme = "../../README.md"
 authors.workspace = true

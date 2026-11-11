@@ -1,6 +1,6 @@
 [package]
 name = "euphoria-bench"
-version = "0.1.0"
+version = "2026.11.0"
 description = "Accuracy benchmark for Euphoria's key and tempo detectors, its energy rating and its audio quality report"
 publish = false
 authors.workspace = true
