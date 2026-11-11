@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       rust: ${{ steps.paths.outputs.rust }}
+      packaging: ${{ steps.paths.outputs.packaging }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,15 +47,21 @@ jobs:
           git diff --name-only --no-renames -z "$base" "$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-files"
 
           rust=false
+          packaging=false
           while IFS= read -r -d '' path; do
             case "$path" in
               crates/*|assets/*|bench/*.sh|bench/*.py|scripts/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/workflows/ci.yml|.github/workflows/release.yml|.editorconfig)
                 rust=true
-                break
+                ;;
+            esac
+            case "$path" in
+              Cargo.lock|*Cargo.toml|*/build.rs|*.cpp|assets/logo/*|scripts/linux_libraries.py|scripts/bundle-linux.sh|scripts/release/package-cli.sh|scripts/release/check-linux-packages.sh|.github/scripts/*|.github/workflows/ci.yml|.github/workflows/release.yml)
+                packaging=true
                 ;;
             esac
           done < "$RUNNER_TEMP/ci-changed-files"
           echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "packaging=$packaging" >> "$GITHUB_OUTPUT"
 
   format:
     name: Formatting
@@ -157,9 +164,8 @@ jobs:
       matrix:
         system:
           - { name: macOS, runner: macos-latest, packages: --workspace }
-          # The desktop app needs the X11, Wayland and font development packages
-          # that GPUI links against on Linux. Until those are installed and the
-          # app is checked there, the Linux job tests every other crate.
+          # The desktop app is built, linted and tested on Linux by its own
+          # job below, so this one tests every other crate.
           - { name: Linux, runner: ubuntu-latest, packages: --workspace --exclude euphoria }
     runs-on: ${{ matrix.system.runner }}
     timeout-minutes: 30
@@ -182,6 +188,16 @@ jobs:
         run: cargo test ${{ matrix.system.packages }} --test '*' --locked
       - name: Core tests without libkeyfinder
         run: cargo test -p euphoria-core --no-default-features --locked
+      - name: Linux packaging library tests
+        if: runner.os == 'Linux'
+        # The debug build of the euphoria command links libkeyfinder and FFTW
+        # from /usr/local/lib, so bundling it exercises the same walk as the
+        # release.
+        env:
+          EUPHORIA_LINKED_BINARY: ${{ github.workspace }}/target/debug/euphoria
+        run: |
+          test -x "$EUPHORIA_LINKED_BINARY"
+          python3 -m unittest scripts/test_linux_libraries.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: runner.os == 'macOS'
       - name: App packaging library tests
@@ -194,3 +210,58 @@ jobs:
         run: |
           test -x "$EUPHORIA_LINKED_BINARY"
           uv run --no-project --python 3.12 python -m unittest scripts/test_macos_libraries.py
+
+  desktop-linux:
+    name: Desktop app on Linux
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install system libraries
+        run: ./.github/scripts/install-linux-dependencies.sh
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Build with the X11 and Wayland back ends
+        run: cargo build -p euphoria --locked
+      - name: Clippy
+        # The code behind cfg(not(target_os = "macos")) is linted only here.
+        run: cargo clippy -p euphoria --all-targets --locked -- -D warnings
+      - name: Unit and headless UI tests
+        run: cargo test -p euphoria --locked
+
+  linux-packages:
+    name: Linux AppImage and tarball on a clean system
+    needs: changes
+    # The release build takes a while, so it runs when what goes into the
+    # packages changes: dependencies, build scripts and packaging scripts.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.packaging == 'true') }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install system libraries
+        run: ./.github/scripts/install-linux-dependencies.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the app and the AppImage
+        run: ./scripts/bundle-linux.sh
+      - name: Build the command line tool
+        run: ./scripts/release/package-cli.sh dist
+      - name: Check that the files run on a clean system
+        run: |
+          cp target/release/bundle/Euphoria-*-x86_64.AppImage dist/
+          ./scripts/release/check-linux-packages.sh dist
+      - name: Read the oldest glibc the files run on
+        run: |
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf dist/euphoria-*-x86_64-unknown-linux-gnu.tar.gz -C "$RUNNER_TEMP/unpacked"
+          python3 scripts/linux_libraries.py minimum-glibc \
+            --root target/release/bundle/Euphoria.AppDir --root "$RUNNER_TEMP/unpacked"

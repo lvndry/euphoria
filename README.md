@@ -36,7 +36,15 @@ On a Mac with Apple Silicon and macOS 15 or later:
 2. Open the disk image and drag Euphoria onto Applications.
 3. The first time, right click Euphoria in Applications and choose **Open**, because the app is not notarized by Apple yet. If macOS offers no **Open** button, choose **Done**, then **System Settings > Privacy & Security > Open Anyway**. After that it opens normally.
 
-Every release, with its notes and the command line tool, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or on Linux, see [installation](docs/getting-started/installation.md).
+On Linux (x86_64, glibc 2.35 or later, such as Ubuntu 22.04 and newer):
+
+```
+curl -LO https://github.com/lvndry/euphoria/releases/latest/download/Euphoria-x86_64.AppImage
+chmod +x Euphoria-x86_64.AppImage
+./Euphoria-x86_64.AppImage
+```
+
+Every release, with its notes and the command line tool for both systems, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or for what the AppImage needs from your desktop, see [installation](docs/getting-started/installation.md).
 
 ## Quick start
 
