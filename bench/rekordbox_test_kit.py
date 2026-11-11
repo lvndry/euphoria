@@ -7,6 +7,7 @@
 # ///
 """Builds a kit for checking by hand which tags and XML values rekordbox reads.
 
+    cargo build --release -p euphoria-cli
     uv run bench/rekordbox_test_kit.py --clips bench/data/key/audio --output /tmp/euphoria-kit
 
 The kit is a folder of short audio files cut from benchmark clips, each
@@ -16,12 +17,18 @@ with chosen values, and CHECKLIST.md: the steps to follow in rekordbox and
 a table to fill in. Every file's title starts with its test number, such as
 "EUPHORIA T01", so the rows are easy to find in rekordbox.
 
+One WAV file, T11, is tagged by Euphoria itself, with `euphoria tags write`,
+to check that rekordbox shows the label Euphoria writes into the RIFF INFO
+comment. The script uses the euphoria binary given with --euphoria, or the
+one built in target/release.
+
 The script reads the clips and writes only into the output folder, which
 must not exist yet, and removes it again if building the kit fails. It never touches a rekordbox library or its settings.
 It needs ffmpeg on the PATH.
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -37,6 +44,10 @@ from mutagen.wave import WAVE
 
 CLIP_SECONDS = 30
 LABEL = "8A - Energy 7"
+REPOSITORY = Path(__file__).resolve().parent.parent
+EUPHORIA_COMMENT = "RIFF comment kept by Euphoria"
+# Stands in the checklist for the RIFF comment Euphoria wrote into T11.
+WRITTEN_COMMENT = "{written_comment}"
 
 # Tracks whose tags are imported. Each entry: number, file format, and the
 # fields that differ from the other tracks. What each one decides is in the
@@ -52,6 +63,7 @@ TAG_TRACKS = [
     ("T08", "flac", {"flac_key_field": "INITIALKEY", "key": "8A", "bpm": "128", "comment": LABEL}),
     ("T09", "flac", {"flac_key_field": "KEY", "key": "8A", "bpm": "123.5"}),
     ("T10", "wav", {"key": "8A", "bpm": "128", "comment": "ID3 comment", "riff_comment": "RIFF comment"}),
+    ("T11", "wav-euphoria", {"riff_comment": EUPHORIA_COMMENT}),
 ]
 
 # Tracks that reach rekordbox through the XML only, with the values the XML
@@ -93,7 +105,40 @@ def tag_id3(tags, title, values):
         tags.add(COMM(encoding=3, lang="eng", desc="", text=values["comment"]))
 
 
-def make_tag_track(number, file_format, values, clip, folder):
+def riff_comment(path):
+    """The ICMT value of the file's RIFF INFO list, read from the chunks
+    directly: ffprobe shows the ID3 comment instead when there is one."""
+    data = path.read_bytes()
+    offset = 12
+    while offset + 8 <= len(data):
+        name = data[offset:offset + 4]
+        size = int.from_bytes(data[offset + 4:offset + 8], "little")
+        if name == b"LIST" and data[offset + 8:offset + 12] == b"INFO":
+            value_offset = offset + 12
+            while value_offset + 8 <= offset + 8 + size:
+                value_name = data[value_offset:value_offset + 4]
+                value_size = int.from_bytes(data[value_offset + 4:value_offset + 8], "little")
+                if value_name == b"ICMT":
+                    text = data[value_offset + 8:value_offset + 8 + value_size]
+                    return text.split(b"\0")[0].decode("utf-8", "replace")
+                value_offset += 8 + value_size + value_size % 2
+        offset += 8 + size + size % 2
+    return ""
+
+
+def tag_with_euphoria(euphoria, target, data_folder):
+    """Lets Euphoria analyze the file and write its tags, as a user would
+    with the rekordbox preset. Its data, the analysis cache and the backup
+    of the write, goes into a folder of the kit, which is removed after."""
+    command = [str(euphoria), "tags", "write", "--yes", "--no-cache", "--preset", "rekordbox", str(target)]
+    environment = {**os.environ, "EUPHORIA_DATA_DIR": str(data_folder)}
+    result = subprocess.run(command, capture_output=True, text=True, check=False, env=environment)
+    shutil.rmtree(data_folder, ignore_errors=True)
+    if result.returncode != 0:
+        raise SystemExit(f"euphoria failed: {' '.join(command)}\n{result.stderr}")
+
+
+def make_tag_track(number, file_format, values, clip, folder, euphoria):
     title = f"EUPHORIA {number} {describe(file_format, values)}"
     extension = {"mp3-v24": "mp3"}.get(file_format, file_format)
     target = folder / f"{number}.{extension}"
@@ -108,6 +153,15 @@ def make_tag_track(number, file_format, values, clip, folder):
         audio.add_tags()
         tag_id3(audio.tags, title, values)
         audio.save(v2_version=3)
+    elif file_format == "wav-euphoria":
+        target = folder / f"{number}.wav"
+        riff = [("title", f"EUPHORIA {number} RIFF title"), ("comment", values["riff_comment"])]
+        cut(clip, target, "wav", riff)
+        audio = WAVE(target)
+        audio.add_tags()
+        audio.tags.add(TIT2(encoding=3, text=title))
+        audio.save(v2_version=3)
+        tag_with_euphoria(euphoria, target, folder.parent / "euphoria-data")
     elif file_format == "wav":
         riff = [("title", f"EUPHORIA {number} RIFF title"), ("comment", values["riff_comment"])]
         cut(clip, target, "wav", riff)
@@ -139,7 +193,7 @@ def make_tag_track(number, file_format, values, clip, folder):
 
 def describe(file_format, values):
     parts = {"mp3": "MP3 ID3v2.3", "mp3-v24": "MP3 ID3v2.4", "aiff": "AIFF", "m4a": "M4A",
-             "flac": "FLAC", "wav": "WAV"}[file_format]
+             "flac": "FLAC", "wav": "WAV", "wav-euphoria": "WAV by Euphoria"}[file_format]
     if "m4a_key_field" in values:
         parts += f" {values['m4a_key_field']}"
     if "flac_key_field" in values:
@@ -229,6 +283,7 @@ write the title shown.
 | T08 | FLAC: INITIALKEY `8A`, BPM `128`, COMMENT `8A - Energy 7` | | | | |
 | T09 | FLAC: KEY `8A`, BPM `123.5` | | | | |
 | T10 | WAV: ID3 title `...WAV`, comment `ID3 comment`; RIFF title `...RIFF title`, comment `RIFF comment` | | | | |
+| T11 | WAV tagged by `euphoria tags write --preset rekordbox`: RIFF title `...RIFF title`, RIFF comment `{written_comment}` | | | | |
 
 Now change the key display format in **Preferences > View** to the other
 of Classic and Alphanumeric, and note the Key column again:
@@ -289,14 +344,14 @@ Select T01, right click, **Analyze Track** with **KEY** ticked in
 """
 
 
-def build(output, clips):
+def build(output, clips, euphoria):
     tag_folder = output / "tags"
     xml_folder = output / "xml"
     tag_folder.mkdir()
     xml_folder.mkdir()
     made = {}
     for (number, file_format, values), clip in zip(TAG_TRACKS, clips):
-        made[number] = make_tag_track(number, file_format, values, clip, tag_folder)
+        made[number] = make_tag_track(number, file_format, values, clip, tag_folder, euphoria)
     xml_entries = []
     for (number, file_format, values), clip in zip(XML_TRACKS, clips[len(TAG_TRACKS):]):
         target = xml_folder / f"{number}.{file_format}"
@@ -306,17 +361,26 @@ def build(output, clips):
     existing_path, existing_title = made[existing_number]
     xml_entries.append((existing_path, existing_title, existing_values))
     write_xml(output / "rekordbox.xml", xml_entries)
-    (output / "CHECKLIST.md").write_text(CHECKLIST, encoding="utf-8")
+    euphoria_path, _ = made["T11"]
+    written_comment = riff_comment(euphoria_path)
+    if not written_comment.endswith(f" - {EUPHORIA_COMMENT}"):
+        raise SystemExit(f"Euphoria did not keep the RIFF comment of T11: {written_comment!r}")
+    checklist = CHECKLIST.replace(WRITTEN_COMMENT, written_comment)
+    (output / "CHECKLIST.md").write_text(checklist, encoding="utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--clips", required=True, type=Path, help="folder of MP3 clips to cut from")
     parser.add_argument("--output", required=True, type=Path, help="new folder for the kit")
+    parser.add_argument("--euphoria", type=Path, default=REPOSITORY / "target" / "release" / "euphoria",
+                        help="the euphoria binary that tags T11 (default: the release build)")
     arguments = parser.parse_args()
 
     if shutil.which("ffmpeg") is None:
         parser.error("ffmpeg is not on the PATH")
+    if not arguments.euphoria.is_file():
+        parser.error(f"{arguments.euphoria} does not exist; run cargo build --release -p euphoria-cli or pass --euphoria")
     if arguments.output.exists():
         parser.error(f"{arguments.output} exists; choose a new folder")
     clips = sorted(arguments.clips.glob("*.mp3"))
@@ -327,7 +391,7 @@ def main():
     output = arguments.output.resolve()
     output.mkdir(parents=True)
     try:
-        build(output, clips)
+        build(output, clips, arguments.euphoria.resolve())
     except BaseException:
         shutil.rmtree(output, ignore_errors=True)
         raise
