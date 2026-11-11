@@ -23,6 +23,11 @@ SECTIONS = [
     ("perf", "Performance"),
     ("docs", "Documentation"),
 ]
+BREAKING_FOOTER = re.compile(
+    # The footer runs to a blank line or to the next footer, such as Refs:.
+    r"^BREAKING[ -]CHANGE: (?P<description>.+(?:\n(?!\n|[A-Za-z][A-Za-z-]*: ).+)*)",
+    re.MULTILINE,
+)
 SUBJECT = re.compile(
     r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<breaking>!)?: (?P<summary>.+)$"
 )
@@ -59,6 +64,15 @@ def entry(subject, sha, repository):
     return match, f"- {scope}{summary} ({link})"
 
 
+def breaking_description(body):
+    """The text of a `BREAKING CHANGE:` footer, joined into one line, or
+    None."""
+    match = BREAKING_FOOTER.search(body)
+    if not match:
+        return None
+    return " ".join(line.strip() for line in match["description"].splitlines())
+
+
 def notes(version, since, until, repository):
     grouped = {kind: [] for kind, _ in SECTIONS}
     breaking = []
@@ -66,8 +80,11 @@ def notes(version, since, until, repository):
         match, line = entry(subject, sha, repository)
         if match is None:
             continue
-        if match["breaking"] or "BREAKING CHANGE:" in body:
-            breaking.append(line)
+        description = breaking_description(body)
+        if match["breaking"] or description:
+            # The subject says which change it is; the footer says what
+            # breaks and what to do about it.
+            breaking.append(f"{line}\n  {description}" if description else line)
         if match["type"] in grouped:
             grouped[match["type"]].append(line)
     lines = [f"Euphoria {version}.", ""]
