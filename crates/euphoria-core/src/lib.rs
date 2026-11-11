@@ -39,6 +39,7 @@ pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
     DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
+pub use detect::KeySection;
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,

@@ -7,7 +7,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use euphoria_core::{EuphoriaError, FileResult, Key, SkippedTrack, UnreadTags};
+use euphoria_core::{EuphoriaError, FileResult, Key, KeySection, SkippedTrack, UnreadTags};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -17,7 +17,26 @@ struct JsonTrack<'result> {
     key: Option<JsonKey>,
     bpm: Option<f32>,
     energy: Option<u8>,
+    tuning_cents: Option<f32>,
+    key_timeline: Vec<JsonKeySection>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonKeySection {
+    start_seconds: f32,
+    end_seconds: f32,
+    key: JsonKey,
+}
+
+impl From<&KeySection> for JsonKeySection {
+    fn from(section: &KeySection) -> Self {
+        Self {
+            start_seconds: round_to_tenths(section.start_seconds),
+            end_seconds: round_to_tenths(section.end_seconds),
+            key: section.key.into(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -47,6 +66,12 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
                 key: analysis.key.map(JsonKey::from),
                 bpm: analysis.bpm.map(round_to_tenths),
                 energy: analysis.energy,
+                tuning_cents: analysis.tuning_cents.map(round_to_tenths),
+                key_timeline: analysis
+                    .key_timeline
+                    .iter()
+                    .map(JsonKeySection::from)
+                    .collect(),
                 error: None,
             },
             Err(error) => JsonTrack {
@@ -55,6 +80,8 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
                 key: None,
                 bpm: None,
                 energy: None,
+                tuning_cents: None,
+                key_timeline: Vec::new(),
                 error: Some(error.chain()),
             },
         })
@@ -279,6 +306,19 @@ mod tests {
                     key: Some(Key::new(9, Mode::Minor)),
                     bpm: Some(124.04),
                     energy: Some(7),
+                    tuning_cents: Some(-31.26),
+                    key_timeline: vec![
+                        KeySection {
+                            start_seconds: 0.0,
+                            end_seconds: 250.04,
+                            key: Key::new(9, Mode::Minor),
+                        },
+                        KeySection {
+                            start_seconds: 250.04,
+                            end_seconds: 408.4,
+                            key: Key::new(4, Mode::Minor),
+                        },
+                    ],
                 }),
             },
             FileResult {
@@ -288,6 +328,8 @@ mod tests {
                     key: None,
                     bpm: None,
                     energy: None,
+                    tuning_cents: None,
+                    key_timeline: Vec::new(),
                 }),
             },
             FileResult {
@@ -321,6 +363,25 @@ Key             BPM  Energy  Time  File
         assert_eq!(parsed[0]["bpm"], 124.0);
         assert_eq!(parsed[0]["duration_seconds"], 408.4);
         assert_eq!(parsed[0]["energy"], 7);
+        assert_eq!(parsed[0]["tuning_cents"], -31.3);
+        assert_eq!(
+            parsed[0]["key_timeline"],
+            serde_json::json!([
+                {
+                    "start_seconds": 0.0,
+                    "end_seconds": 250.0,
+                    "key": { "camelot": "8A", "name": "A minor" }
+                },
+                {
+                    "start_seconds": 250.0,
+                    "end_seconds": 408.4,
+                    "key": { "camelot": "9A", "name": "E minor" }
+                }
+            ])
+        );
+        assert!(parsed[1]["tuning_cents"].is_null());
+        assert_eq!(parsed[1]["key_timeline"], serde_json::json!([]));
+        assert_eq!(parsed[2]["key_timeline"], serde_json::json!([]));
         assert!(parsed[1]["key"].is_null());
         assert!(parsed[1]["energy"].is_null());
         assert!(parsed[2]["energy"].is_null());

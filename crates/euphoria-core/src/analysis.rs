@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
-use crate::detect::StratumDetector;
 #[cfg(feature = "libkeyfinder")]
-use crate::detect::{KeyDetector, KeyFinderDetector, TempoDetector};
+use crate::detect::{KeyFinderDetector, TempoDetector};
+use crate::detect::{KeyReading, KeySection, StratumDetector};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -26,9 +26,9 @@ use crate::key::Key;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "4+libkeyfinder"
+    "5+libkeyfinder"
 } else {
-    "4+stratum"
+    "5+stratum"
 };
 
 /// What Euphoria found in one track.
@@ -45,6 +45,17 @@ pub struct TrackAnalysis {
     /// is nothing to rate, such as silence. It is Euphoria's own scale, set
     /// by [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION).
     pub energy: Option<u8>,
+    /// How far the track is tuned from A = 440 Hz, in cents from -50 to 50
+    /// with sharp as positive, or `None` when it could not be measured, as
+    /// for silence, noise and tracks that are mostly drums. It is reported
+    /// only: the key is detected as if the track were at concert pitch.
+    pub tuning_cents: Option<f32>,
+    /// The key over time: sections in order that together cover the track.
+    /// A track in which no change of key was found has one section, in the
+    /// key of the track. Empty when the track has no detectable key, and in
+    /// builds without the `libkeyfinder` feature. It is reported only: `key`
+    /// is decided from the whole track at once.
+    pub key_timeline: Vec<KeySection>,
 }
 
 /// The result of analyzing one file.
@@ -72,8 +83,8 @@ pub struct Progress<'batch> {
 /// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
 /// as it is the more accurate detector, and tempo comes from the tempo only
 /// path of `stratum-dsp`, so its costly key analysis does not run. Without
-/// the feature, `stratum-dsp` finds both. The energy rating takes the
-/// detected tempo into account when there is one.
+/// the feature, `stratum-dsp` finds both, and there is no key over time. The
+/// energy rating takes the detected tempo into account when there is one.
 ///
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].
@@ -84,15 +95,25 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     // reuses the memory tempo released, where the other order keeps
     // libkeyfinder's released memory resident under the tempo peak.
     #[cfg(feature = "libkeyfinder")]
-    let (tempo, key) = (
+    let (tempo, reading) = (
         StratumDetector.detect_tempo(&audio)?,
-        KeyFinderDetector.detect_key(&audio)?,
+        KeyFinderDetector.read_key(&audio)?,
     );
     #[cfg(not(feature = "libkeyfinder"))]
-    let (key, tempo) = {
+    let (reading, tempo) = {
         let analysis = StratumDetector.analyze(&audio)?;
-        (analysis.key, analysis.tempo)
+        let reading = KeyReading {
+            key: analysis.key,
+            tuning_cents: crate::detect::measure_tuning(&audio).map(|tuning| tuning.cents),
+            timeline: Vec::new(),
+        };
+        (reading, analysis.tempo)
     };
+    let KeyReading {
+        key,
+        tuning_cents,
+        timeline,
+    } = reading;
 
     let energy = rate_energy(&audio, tempo)?.map(|rating| rating.rating);
 
@@ -101,6 +122,8 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         key,
         bpm: tempo,
         energy,
+        tuning_cents,
+        key_timeline: timeline,
     })
 }
 

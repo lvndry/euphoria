@@ -237,7 +237,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
     let schema_version: u32 = upgraded
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(schema_version, 2);
+    assert_eq!(schema_version, 3);
     let old_rows: u32 = upgraded
         .query_row(
             "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
@@ -254,6 +254,15 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
         )
         .expect("a count");
     assert_eq!(with_energy_model, 1);
+    let with_tuning_and_key_timeline: u32 = upgraded
+        .query_row(
+            "SELECT COUNT(*) FROM analyses
+             WHERE tuning_cents IS NOT NULL AND key_timeline IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("a count");
+    assert_eq!(with_tuning_and_key_timeline, 1);
 }
 
 #[cfg(unix)]

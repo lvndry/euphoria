@@ -38,6 +38,22 @@ fn analyzes_a_folder_as_json() {
             let rating = energy.as_u64().expect("a track with sound has a rating");
             assert!((1..=10).contains(&rating), "{track}");
         }
+        let tuning = &track["tuning_cents"];
+        let timeline = track["key_timeline"].as_array().expect("a key timeline");
+        if path.contains("opposite-phase") {
+            assert!(tuning.is_null(), "silence has no tuning: {track}");
+            assert!(timeline.is_empty(), "silence has no key over time: {track}");
+        } else {
+            let cents = tuning.as_f64().expect("a 440 Hz tone has a tuning");
+            assert!(
+                cents.abs() < 2.0,
+                "a 440 Hz tone is at concert pitch: {track}"
+            );
+            assert_eq!(timeline.len(), 1, "{track}");
+            assert_eq!(timeline[0]["key"], track["key"], "{track}");
+            assert_eq!(timeline[0]["start_seconds"], 0.0, "{track}");
+            assert_eq!(timeline[0]["end_seconds"], track["duration_seconds"]);
+        }
     }
 }
 

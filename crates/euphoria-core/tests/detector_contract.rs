@@ -166,6 +166,26 @@ macro_rules! tempo_detector_contract {
 
 #[cfg(feature = "libkeyfinder")]
 key_detector_contract!(keyfinder_key, euphoria_core::detect::KeyFinderDetector, chord_seconds: 20.0, expect: ChordExpectation::Exactly("A minor"));
+#[cfg(feature = "libkeyfinder")]
+key_detector_contract!(
+    keyfinder_tuning_corrected_key,
+    euphoria_core::detect::KeyFinderVariant {
+        tuning_correction: true,
+        decision: euphoria_core::detect::KeyDecision::WholeTrack,
+    },
+    chord_seconds: 20.0,
+    expect: ChordExpectation::Exactly("A minor")
+);
+#[cfg(feature = "libkeyfinder")]
+key_detector_contract!(
+    keyfinder_sections_vote_key,
+    euphoria_core::detect::KeyFinderVariant {
+        tuning_correction: true,
+        decision: euphoria_core::detect::KeyDecision::SectionVote,
+    },
+    chord_seconds: 20.0,
+    expect: ChordExpectation::Exactly("A minor")
+);
 // stratum-dsp is slow in debug builds and gives the same answer from half a second on.
 key_detector_contract!(stratum_key, StratumDetector, chord_seconds: 2.0, expect: ChordExpectation::AnyKey);
 tempo_detector_contract!(stratum_tempo, StratumDetector);

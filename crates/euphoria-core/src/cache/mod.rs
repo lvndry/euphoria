@@ -67,6 +67,7 @@ pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
 pub use single::{CachedAnalysis, CachedAnalyzer};
 
 use crate::analysis::{ANALYZER_VERSION, TrackAnalysis};
+use crate::detect::KeySection;
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
@@ -75,7 +76,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -93,6 +94,10 @@ const MIGRATIONS: [&str; 2] = [
     "
     ALTER TABLE analyses ADD COLUMN energy INTEGER;
     ALTER TABLE analyses ADD COLUMN energy_model_version INTEGER;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN tuning_cents REAL;
+    ALTER TABLE analyses ADD COLUMN key_timeline TEXT;
 ",
 ];
 
@@ -119,7 +124,11 @@ enum Schema {
 /// epoch, and `last_known_path` is absolute and belongs to at most one row.
 /// `energy` is a rating from 1 to 10 and `energy_model_version` the model
 /// that decided it, which is recorded for a track with no rating too. Rows
-/// stored before energy existed have neither.
+/// stored before energy existed have neither. `tuning_cents` is the offset
+/// from A = 440 Hz, and `key_timeline` holds one line per section of the key
+/// over time: its start and end in seconds and its key name, separated by
+/// tabs. Rows stored before those two existed, and tracks without them, hold
+/// null.
 #[derive(Debug)]
 pub struct Cache {
     connection: Connection,
@@ -228,7 +237,8 @@ impl Cache {
     fn read_snapshot(&self) -> rusqlite::Result<Snapshot> {
         let mut statement = self.connection.prepare(
             "SELECT content_hash, duration_seconds, key, bpm,
-                    last_known_path, file_size, modified_at, energy
+                    last_known_path, file_size, modified_at, energy,
+                    tuning_cents, key_timeline
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -244,6 +254,8 @@ impl Cache {
                     key: key_in_column(row, 2)?,
                     bpm: row.get(3)?,
                     energy: energy_in_column(row, 7)?,
+                    tuning_cents: row.get(8)?,
+                    key_timeline: key_timeline_in_column(row, 9)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -296,8 +308,8 @@ impl Cache {
                 "INSERT OR REPLACE INTO analyses (
                      content_hash, duration_seconds, key, bpm, analyzer_version,
                      analyzed_at, last_known_path, file_size, modified_at,
-                     energy, energy_model_version
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                     energy, energy_model_version, tuning_cents, key_timeline
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -310,6 +322,8 @@ impl Cache {
                     location.stamp.modified_nanoseconds,
                     analysis.energy,
                     self.energy_model_version,
+                    analysis.tuning_cents,
+                    key_timeline_text(&analysis.key_timeline),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -465,6 +479,54 @@ fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>
         })
 }
 
+/// The stored form of a key timeline, or `None` for an empty one.
+fn key_timeline_text(timeline: &[KeySection]) -> Option<String> {
+    if timeline.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = timeline
+        .iter()
+        .map(|section| {
+            format!(
+                "{}\t{}\t{}",
+                section.start_seconds, section.end_seconds, section.key
+            )
+        })
+        .collect();
+    Some(lines.join("\n"))
+}
+
+fn key_timeline_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Vec<KeySection>> {
+    let Some(stored) = row.get::<_, Option<String>>(column)? else {
+        return Ok(Vec::new());
+    };
+    stored
+        .lines()
+        .map(|line| {
+            parse_key_section(line).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    column,
+                    Type::Text,
+                    format!("{line:?} is not a section of a key timeline").into(),
+                )
+            })
+        })
+        .collect()
+}
+
+fn parse_key_section(line: &str) -> Option<KeySection> {
+    let mut fields = line.split('\t');
+    let start_seconds: f32 = fields.next()?.parse().ok()?;
+    let end_seconds: f32 = fields.next()?.parse().ok()?;
+    let key: Key = fields.next()?.parse().ok()?;
+    let is_whole = fields.next().is_none() && start_seconds.is_finite() && end_seconds.is_finite();
+    is_whole.then_some(KeySection {
+        start_seconds,
+        end_seconds,
+        key,
+    })
+}
+
 fn seconds_since_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -508,6 +570,37 @@ pub(crate) mod test_support {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// An analyzer version that schema version 2 databases were filled by.
+    pub(crate) const VERSION_2_ANALYZER: &str = "4+libkeyfinder";
+
+    /// Creates a database as the last release with schema version 2 left
+    /// it, with one analysis of `track` stored at its current path.
+    pub(crate) fn create_version_2_database(database: &Path, track: &Path) {
+        use super::identity::FileStamp;
+        use super::{ContentHash, MIGRATIONS};
+        use crate::energy::ENERGY_MODEL_VERSION;
+
+        let stamp = FileStamp::of(track).unwrap();
+        let connection = rusqlite::Connection::open(database).unwrap();
+        connection.execute_batch(MIGRATIONS[0]).unwrap();
+        connection.execute_batch(MIGRATIONS[1]).unwrap();
+        connection.pragma_update(None, "user_version", 2).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, ?3, ?4, ?5, 6, ?6)",
+                rusqlite::params![
+                    ContentHash::of_file(track).unwrap().as_bytes(),
+                    VERSION_2_ANALYZER,
+                    track.to_str().unwrap(),
+                    stamp.size,
+                    stamp.modified_nanoseconds,
+                    ENERGY_MODEL_VERSION,
+                ],
+            )
+            .unwrap();
     }
 
     /// The analyzer version that schema version 1 databases were filled by.
@@ -574,6 +667,19 @@ mod tests {
             key: Some("F# minor".parse().unwrap()),
             bpm: Some(127.98),
             energy: Some(7),
+            tuning_cents: Some(-31.37),
+            key_timeline: vec![
+                KeySection {
+                    start_seconds: 0.0,
+                    end_seconds: 187.062_5,
+                    key: "F# minor".parse().unwrap(),
+                },
+                KeySection {
+                    start_seconds: 187.062_5,
+                    end_seconds: 301.25,
+                    key: "A major".parse().unwrap(),
+                },
+            ],
         };
 
         let mut cache = Cache::open(&database).unwrap();
@@ -624,7 +730,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3)",
+                 VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -641,7 +747,8 @@ mod tests {
         cache
             .connection
             .execute(
-                "INSERT INTO analyses VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3)",
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -682,7 +789,7 @@ mod tests {
 
         let cache = Cache::open(&database).unwrap();
 
-        assert_eq!(schema_version(&cache.connection).unwrap(), 2);
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
         assert_eq!(cache.entry_count().unwrap(), 1);
         let (key, bpm, energy, energy_model_version): (String, f64, Option<u8>, Option<u32>) =
             cache
@@ -714,6 +821,108 @@ mod tests {
         // that have no energy model recorded.
         cache.analyzer_version = test_support::VERSION_1_ANALYZER.to_string();
         assert!(cache.snapshot().unwrap().analyses.is_empty());
+    }
+
+    #[test]
+    fn a_version_2_database_upgrades_in_place_and_keeps_its_rows() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, b"audio").unwrap();
+        test_support::create_version_2_database(&database, &track);
+
+        let cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(cache.entry_count().unwrap(), 1);
+        let (key, energy, tuning_cents, key_timeline): (String, u8, Option<f64>, Option<String>) =
+            cache
+                .connection
+                .query_row(
+                    "SELECT key, energy, tuning_cents, key_timeline FROM analyses",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap();
+        assert_eq!(key, "A minor");
+        assert_eq!(energy, 6);
+        assert_eq!(tuning_cents, None);
+        assert_eq!(key_timeline, None);
+    }
+
+    #[test]
+    fn rows_from_a_version_2_database_are_analyzed_again_and_read_without_error() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, b"audio").unwrap();
+        test_support::create_version_2_database(&database, &track);
+
+        let mut cache = Cache::open(&database).unwrap();
+        assert_ne!(ANALYZER_VERSION, test_support::VERSION_2_ANALYZER);
+        assert!(
+            cache.snapshot().unwrap().analyses.is_empty(),
+            "an analysis from before tuning and the key over time were measured must not be served"
+        );
+
+        // A row that has neither reads as a track without them.
+        cache.analyzer_version = test_support::VERSION_2_ANALYZER.to_string();
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot
+            .of_content(&ContentHash::of_file(&track).unwrap())
+            .unwrap();
+        assert_eq!(stored.key, Some("A minor".parse().unwrap()));
+        assert_eq!(stored.tuning_cents, None);
+        assert!(stored.key_timeline.is_empty());
+    }
+
+    #[test]
+    fn a_damaged_key_timeline_is_an_error_and_not_a_panic() {
+        for damaged in [
+            "0\t10",
+            "0\tten\tA minor",
+            "0\t10\tH dorian",
+            "0\t10\tA minor\textra",
+            "0\tNaN\tA minor",
+        ] {
+            let folder = TemporaryFolder::new();
+            let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache
+                .connection
+                .execute(
+                    "INSERT INTO analyses
+                     VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4)",
+                    params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
+                )
+                .unwrap();
+
+            let description = cache.snapshot().unwrap_err().chain();
+
+            assert!(description.contains("key timeline"), "{description}");
+        }
+    }
+
+    #[test]
+    fn a_key_timeline_keeps_every_digit_when_stored() {
+        let timeline = vec![
+            KeySection {
+                start_seconds: 0.0,
+                end_seconds: 45.046_71,
+                key: "C major".parse().unwrap(),
+            },
+            KeySection {
+                start_seconds: 45.046_71,
+                end_seconds: 1.0 / 3.0 + 80.0,
+                key: "F# minor".parse().unwrap(),
+            },
+        ];
+        let text = key_timeline_text(&timeline).unwrap();
+        let read: Vec<KeySection> = text
+            .lines()
+            .map(|line| parse_key_section(line).unwrap())
+            .collect();
+        assert_eq!(read, timeline);
+        assert_eq!(key_timeline_text(&[]), None);
     }
 
     #[test]
@@ -800,6 +1009,8 @@ mod tests {
                     key: None,
                     bpm: None,
                     energy: None,
+                    tuning_cents: None,
+                    key_timeline: Vec::new(),
                 },
                 location: FileLocation {
                     absolute_path: track.to_path_buf(),
