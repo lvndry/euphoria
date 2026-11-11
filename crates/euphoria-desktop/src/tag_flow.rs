@@ -20,6 +20,34 @@ use crate::tag_writing::{
     undo_last, write_plans,
 };
 
+/// The targets with each correction loaded from the cache checked against
+/// the whole file, since it is about to go into the file's tags: a file
+/// replaced by other audio of the same size and modification time loses a
+/// correction that was never meant for it. A correction made in this session
+/// and still on its way to the cache is the user's own and is kept.
+fn verified_corrections(
+    targets: Vec<WriteTarget>,
+    cache: Option<&euphoria_core::CachedAnalyzer>,
+    writer: &crate::key_by_ear::CorrectionWriter,
+) -> Vec<WriteTarget> {
+    let Some(cache) = cache else {
+        return targets;
+    };
+    targets
+        .into_iter()
+        .map(|mut target| {
+            if !target.correction.is_empty() && !writer.is_pending(&target.path) {
+                target.correction = cache
+                    .verified_correction_for(&target.path)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+            }
+            target
+        })
+        .collect()
+}
+
 /// How often the progress of a write is shown.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -141,10 +169,15 @@ impl EuphoriaApp {
         let generation = self.tag_task_generation;
         self.tag_panel = Some(TagPanel::Planning(scope));
         cx.notify();
+        let cache = self.session.cache();
+        let writer = self.by_ear.correction_writer.clone();
         cx.spawn(async move |this, cx| {
             let planned = cx
                 .background_executor()
-                .spawn(async move { plan_writes(&targets, &settings.write_options()) })
+                .spawn(async move {
+                    let targets = verified_corrections(targets, cache.as_deref(), &writer);
+                    plan_writes(&targets, &settings.write_options())
+                })
                 .await;
             this.update(cx, |this, cx| {
                 if this.tag_task_generation != generation {
@@ -317,5 +350,62 @@ impl EuphoriaApp {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use euphoria_core::{Cache, CachedAnalyzer, Correction, Key, Mode};
+
+    use super::*;
+    use crate::key_by_ear::CorrectionWriter;
+    use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
+
+    #[test]
+    fn a_correction_goes_into_tags_only_for_the_file_it_was_made_for() {
+        let scratch = ScratchFolder::new("verified-corrections");
+        let track = scratch.0.join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = Cache::open(&scratch.0.join("cache.sqlite3")).unwrap();
+        cache
+            .record_retagged_file(&track, &tag_testing::analysis())
+            .unwrap();
+        let correction = Correction::of_key(Key::new(4, Mode::Minor));
+        cache.set_correction(&track, &correction).unwrap();
+        let cache = CachedAnalyzer::new(cache).unwrap();
+        let target = || {
+            vec![WriteTarget {
+                path: track.clone(),
+                analysis: Some(tag_testing::analysis()),
+                correction,
+            }]
+        };
+        let writer = CorrectionWriter::default();
+        assert_eq!(
+            verified_corrections(target(), Some(&cache), &writer)[0].correction,
+            correction
+        );
+
+        let modified = std::fs::metadata(&track).unwrap().modified().unwrap();
+        std::fs::write(&track, b"other").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&track)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert!(
+            verified_corrections(target(), Some(&cache), &writer)[0]
+                .correction
+                .is_empty(),
+            "other audio of the same size and time is not the corrected file"
+        );
+
+        writer.queue(&track, correction);
+        assert_eq!(
+            verified_corrections(target(), Some(&cache), &writer)[0].correction,
+            correction,
+            "a correction just made for the file as it is now is kept"
+        );
     }
 }

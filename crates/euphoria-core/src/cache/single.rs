@@ -91,6 +91,18 @@ impl CachedAnalyzer {
             .correction_for(path)
     }
 
+    /// [`Cache::verified_correction_for`] on the cache this analyzer stores
+    /// into.
+    pub fn verified_correction_for(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Correction>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .verified_correction_for(path)
+    }
+
     /// [`Cache::set_correction`] on the cache this analyzer stores into.
     pub fn set_correction(
         &self,

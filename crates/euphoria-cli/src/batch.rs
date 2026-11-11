@@ -127,6 +127,7 @@ fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
 pub fn corrections(
     results: &[euphoria_core::FileResult],
     options: &AnalysisOptions,
+    check: CorrectionCheck,
 ) -> Corrections {
     if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
         return Corrections::new();
@@ -138,10 +139,25 @@ pub fn corrections(
         .iter()
         .filter(|result| result.outcome.is_ok())
         .filter_map(|result| {
-            let correction = cache.correction_for(&result.path).ok().flatten()?;
+            let correction = match check {
+                CorrectionCheck::Quick => cache.correction_for(&result.path),
+                CorrectionCheck::ReadFile => cache.verified_correction_for(&result.path),
+            };
+            let correction = correction.ok().flatten()?;
             Some((result.path.clone(), correction))
         })
         .collect()
+}
+
+/// How sure to be that a correction belongs to the file it is applied to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorrectionCheck {
+    /// Trust a file at its recorded path with its recorded size and
+    /// modification time, as the analysis cache does: enough for showing.
+    Quick,
+    /// Read the file to be sure, before values go into tags or another
+    /// program's library.
+    ReadFile,
 }
 
 /// The corrections of a batch, by file.

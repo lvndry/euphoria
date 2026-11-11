@@ -79,23 +79,24 @@ impl Cache {
         result.map(|_| ()).map_err(cache_error(&self.path))
     }
 
-    /// Copies the correction of `from` to `to`, unless `to` has one, when a
-    /// write or an undo turns one content into the other.
-    pub(super) fn carry_correction(
-        &mut self,
-        from: &ContentHash,
-        to: &ContentHash,
-    ) -> rusqlite::Result<()> {
-        if from == to {
-            return Ok(());
+    /// The correction the user set for the file at `path`, if any, after
+    /// reading the whole file to be sure of its content. For tag writing
+    /// and export, which change files and other programs' libraries: a file
+    /// replaced by different audio of the same size and modification time
+    /// would pass the quick check of [`Cache::correction_for`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Cache::correction_for`].
+    pub fn verified_correction_for(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Correction>, EuphoriaError> {
+        if !self.has_corrections()? {
+            return Ok(None);
         }
-        self.connection
-            .execute(
-                "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
-                 SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
-                params![from.as_bytes(), to.as_bytes()],
-            )
-            .map(|_| ())
+        let content_hash = ContentHash::of_file(path).map_err(unreadable(path))?;
+        self.correction_of(&content_hash)
     }
 
     /// The content an analysis last recorded at `path`, whatever its
@@ -285,6 +286,67 @@ mod tests {
         let reopened = open(&folder);
         assert_eq!(reopened.entry_count().unwrap(), 0);
         assert_eq!(reopened.correction_for(&track).unwrap(), Some(e_minor()));
+    }
+
+    #[test]
+    fn a_same_size_same_time_replacement_passes_the_quick_check_but_not_the_verified_one() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        cache.record_retagged_file(&track, &analysis()).unwrap();
+        cache.set_correction(&track, &e_minor()).unwrap();
+        let modified = std::fs::metadata(&track).unwrap().modified().unwrap();
+
+        std::fs::write(&track, b"other").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&track)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert_eq!(
+            cache.correction_for(&track).unwrap(),
+            Some(e_minor()),
+            "the display trusts path, size and time, as the analysis cache does"
+        );
+        assert_eq!(cache.verified_correction_for(&track).unwrap(), None);
+        std::fs::write(&track, b"audio").unwrap();
+        assert_eq!(
+            cache.verified_correction_for(&track).unwrap(),
+            Some(e_minor())
+        );
+    }
+
+    #[test]
+    fn a_failed_carry_of_the_correction_keeps_nothing_of_the_write() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        cache.record_retagged_file(&track, &analysis()).unwrap();
+        cache.set_correction(&track, &e_minor()).unwrap();
+        let before = cache.recorded_content(&track).unwrap().unwrap();
+        cache
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER refuse BEFORE INSERT ON corrections
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+            )
+            .unwrap();
+
+        std::fs::write(&track, b"audio with a tag").unwrap();
+        assert!(cache.record_retagged_file(&track, &analysis()).is_err());
+        assert_eq!(cache.recorded_content(&track).unwrap(), None);
+        assert_eq!(cache.previous_content(&track).unwrap(), Some(before));
+        assert_eq!(cache.entry_count().unwrap(), 1);
+
+        cache
+            .connection
+            .execute_batch("DROP TRIGGER refuse")
+            .unwrap();
+        cache.record_retagged_file(&track, &analysis()).unwrap();
+        assert_eq!(cache.correction_for(&track).unwrap(), Some(e_minor()));
     }
 
     #[test]

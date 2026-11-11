@@ -10,14 +10,16 @@
 //! kept in the cache apart from analyses so that analyzing again never
 //! loses it, and can be reset to the detected value.
 
-use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::{Correction, Key};
 use gpui::{Context, Window};
 
 use crate::app::EuphoriaApp;
 use crate::format;
+use crate::library::Track;
 use crate::playback::Voice;
 use crate::reference_sound::{PIANO_LOWEST_C, ReferenceLevel, ReferenceSound};
 
@@ -40,6 +42,49 @@ struct Drone {
     _voice: Box<dyn Voice>,
 }
 
+/// Keeps corrections in the cache in the order they were made. Each edit
+/// starts a write of its own off the main thread, and those can run in any
+/// order; each write takes the latest correction of its track, under one
+/// lock, so the last edit is what stays whatever order the writes run in.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CorrectionWriter {
+    latest: Arc<Mutex<HashMap<PathBuf, Correction>>>,
+}
+
+impl CorrectionWriter {
+    /// Notes `correction` as the latest one for the file at `path`.
+    pub(crate) fn queue(&self, path: &Path, correction: Correction) {
+        self.lock().insert(path.to_path_buf(), correction);
+    }
+
+    /// True while a correction of the file at `path` waits to be kept.
+    pub(crate) fn is_pending(&self, path: &Path) -> bool {
+        self.lock().contains_key(path)
+    }
+
+    /// Keeps the latest correction of the file at `path` with `write`, if
+    /// an earlier write has not kept it already.
+    pub(crate) fn write_latest<Failure>(
+        &self,
+        path: &Path,
+        write: impl FnOnce(&Correction) -> Result<(), Failure>,
+    ) -> Result<(), Failure> {
+        let mut latest = self.lock();
+        let Some(correction) = latest.get(path).copied() else {
+            return Ok(());
+        };
+        write(&correction)?;
+        if latest.get(path) == Some(&correction) {
+            latest.remove(path);
+        }
+        Ok(())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, Correction>> {
+        self.latest.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// The reference sounds and the correction editor of the track detail.
 pub(crate) struct ByEar {
     drone: Option<Drone>,
@@ -50,6 +95,8 @@ pub(crate) struct ByEar {
     pub(crate) is_editing: bool,
     /// Why the tempo typed was not taken, when it was not.
     pub(crate) bpm_problem: Option<String>,
+    /// Keeps the corrections in the cache.
+    pub(crate) correction_writer: CorrectionWriter,
 }
 
 impl Default for ByEar {
@@ -61,6 +108,7 @@ impl Default for ByEar {
             level_step: STARTING_LEVEL_STEP,
             is_editing: false,
             bpm_problem: None,
+            correction_writer: CorrectionWriter::default(),
         }
     }
 }
@@ -181,18 +229,27 @@ impl EuphoriaApp {
             return;
         };
         let path = track.path.clone();
+        let previous_key = track.key();
         let correction = change(track.correction);
         self.session.set_correction(&path, correction);
+        if self.selected_track().and_then(Track::key) != previous_key {
+            // The drone plays the key on show, which has just changed.
+            self.by_ear.drone = None;
+        }
         self.refresh_visible();
         self.refresh_mixes();
         cx.notify();
         let Some(cache) = self.session.cache() else {
             return;
         };
+        let writer = self.by_ear.correction_writer.clone();
+        writer.queue(&path, correction);
         cx.spawn(async move |this, cx| {
             let kept = cx
                 .background_executor()
-                .spawn(async move { cache.set_correction(&path, &correction) })
+                .spawn(async move {
+                    writer.write_latest(&path, |correction| cache.set_correction(&path, correction))
+                })
                 .await;
             if let Err(error) = kept {
                 this.update(cx, |this, cx| {
@@ -288,6 +345,37 @@ mod tests {
         relative.sort_unstable();
         assert_eq!(relative, scale_of(Key::new(0, Mode::Major)));
         assert_eq!(scale_of(Key::new(11, Mode::Major))[1], 1);
+    }
+
+    #[test]
+    fn the_last_correction_is_kept_whatever_order_the_writes_run_in() {
+        let writer = CorrectionWriter::default();
+        let path = Path::new("/music/track.mp3");
+        let first = Correction::of_key(Key::new(4, Mode::Minor));
+        let second = Correction::of_key(Key::new(9, Mode::Minor));
+        writer.queue(path, first);
+        writer.queue(path, second);
+        assert!(writer.is_pending(path));
+
+        let mut kept = Vec::new();
+        let mut record = |correction: &Correction| -> Result<(), ()> {
+            kept.push(*correction);
+            Ok(())
+        };
+        writer.write_latest(path, &mut record).unwrap();
+        writer.write_latest(path, &mut record).unwrap();
+        assert_eq!(kept, [second], "the later write finds nothing left to keep");
+        assert!(!writer.is_pending(path));
+
+        writer.queue(path, first);
+        assert_eq!(
+            writer.write_latest(path, |_| Err("disk full")),
+            Err("disk full")
+        );
+        assert!(
+            writer.is_pending(path),
+            "a failed write leaves it to the next"
+        );
     }
 
     #[test]

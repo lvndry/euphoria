@@ -318,6 +318,16 @@ impl Cache {
     }
 
     fn apply_write(&mut self, write: &CacheWrite) -> rusqlite::Result<()> {
+        self.apply_write_then(write, |_| Ok(()))
+    }
+
+    /// Applies `write` and then `then`, in one transaction: both are kept
+    /// or neither is.
+    fn apply_write_then(
+        &mut self,
+        write: &CacheWrite,
+        then: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+    ) -> rusqlite::Result<()> {
         let (content_hash, location) = match write {
             CacheWrite::Store {
                 content_hash,
@@ -382,6 +392,7 @@ impl Cache {
                 ],
             )?,
         };
+        then(&transaction)?;
         transaction.commit()
     }
 

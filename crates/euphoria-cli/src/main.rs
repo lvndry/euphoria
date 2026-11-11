@@ -144,7 +144,7 @@ fn analyze(
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, analysis)?;
-    let corrections = batch::corrections(&results, analysis);
+    let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick);
     let results = batch::corrected(results, &corrections);
     let analyzed_count = results.len();
     let results: Vec<FileResult> = if needs_review {

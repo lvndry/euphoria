@@ -3082,6 +3082,26 @@ fn the_tones_play_over_the_track_one_at_a_time_and_stop(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn taking_another_key_stops_the_drone_of_the_old_one(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    assert_eq!(output.sounding().len(), 1);
+    click(window, "runner-up-key", cx);
+    assert!(output.sounding().is_empty(), "the drone was of the old key");
+
+    click(window, ("tone", 0_usize), cx);
+    let sounding = output.sounding();
+    assert_eq!(sounding.len(), 1, "the tone button plays the new key");
+    assert!(
+        (sounding[0].frequencies[1] - 164.81).abs() < 0.01,
+        "E minor"
+    );
+    click(window, "key-reset", cx);
+    assert!(output.sounding().is_empty());
+}
+
+#[gpui::test]
 fn the_piano_plays_its_notes_and_the_volume_has_steps(cx: &mut TestAppContext) {
     let (window, view, output) = open_tracks_to_check_by_ear(cx);
     click(window, ("piano-key", 9_usize), cx);

@@ -14,7 +14,7 @@
 use std::io;
 use std::path::Path;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, cache_error};
@@ -48,18 +48,21 @@ impl Cache {
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(());
         };
-        self.apply_write(&CacheWrite::Store {
-            content_hash,
-            analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
-            location,
-        })
-        .map_err(cache_error(&self.path))?;
-        match previous {
-            Some(previous) => self
-                .carry_correction(&previous, &content_hash)
-                .map_err(cache_error(&self.path)),
-            None => Ok(()),
-        }
+        // The new content and the correction it carries over are kept
+        // together, so a failure never leaves the correction behind under
+        // the content the file no longer has.
+        self.apply_write_then(
+            &CacheWrite::Store {
+                content_hash,
+                analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
+                location,
+            },
+            |connection| match previous {
+                Some(previous) => carry_correction(connection, &previous, &content_hash),
+                None => Ok(()),
+            },
+        )
+        .map_err(cache_error(&self.path))
     }
 
     /// Records where the file at `path` is when the cache already holds a
@@ -76,10 +79,10 @@ impl Cache {
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(false);
         };
-        if let Some(previous) = previous {
-            self.carry_correction(&previous, &content_hash)
-                .map_err(cache_error(&self.path))?;
-        }
+        let carry = |connection: &Connection| match previous {
+            Some(previous) => carry_correction(connection, &previous, &content_hash),
+            None => Ok(()),
+        };
         let is_known = self
             .connection
             .query_row(
@@ -97,14 +100,38 @@ impl Cache {
             .map_err(cache_error(&self.path))?
             .is_some();
         if is_known {
-            self.apply_write(&CacheWrite::Relocate {
-                content_hash,
-                location,
-            })
+            self.apply_write_then(
+                &CacheWrite::Relocate {
+                    content_hash,
+                    location,
+                },
+                carry,
+            )
             .map_err(cache_error(&self.path))?;
+        } else {
+            carry(&self.connection).map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
     }
+}
+
+/// Copies the correction of `from` to `to`, unless `to` has one, when a
+/// write or an undo turns one content into the other.
+fn carry_correction(
+    connection: &Connection,
+    from: &ContentHash,
+    to: &ContentHash,
+) -> rusqlite::Result<()> {
+    if from == to {
+        return Ok(());
+    }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
+             SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
+            params![from.as_bytes(), to.as_bytes()],
+        )
+        .map(|_| ())
 }
 
 /// The hash and location of the file at `path`, or `None` when its size or
