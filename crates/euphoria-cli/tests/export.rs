@@ -11,11 +11,14 @@ use std::process::Output;
 
 use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
 
-const AUDIO_FIXTURES: [&str; 7] = [
+const AUDIO_FIXTURES: [&str; 10] = [
+    "sine-440hz-mono-alac.m4a",
     "sine-440hz-mono.aiff",
     "sine-440hz-mono.flac",
     "sine-440hz-mono.m4a",
     "sine-440hz-mono.mp3",
+    "sine-440hz-mono.mp4",
+    "sine-440hz-mono.ogg",
     "sine-440hz-mono.wav",
     "sine-440hz-opposite-phase-stereo.flac",
     "sine-440hz-stereo.wav",
@@ -210,7 +213,7 @@ fn exports_every_fixture_with_its_location_key_and_tempo() {
     assert_eq!(
         summary_lines(&exported)[0],
         format!(
-            "Exported 7 tracks in 1 playlist to {}",
+            "Exported 10 tracks in 1 playlist to {}",
             output_file.display()
         )
     );
@@ -305,7 +308,7 @@ fn a_second_run_comes_from_the_cache_and_writes_the_same_file() {
     assert_success(&second_run);
     assert!(!summary_lines(&first_run)[0].contains("from the cache"));
     assert!(
-        summary_lines(&second_run)[0].ends_with("second.xml (7 from the cache)"),
+        summary_lines(&second_run)[0].ends_with("second.xml (10 from the cache)"),
         "{}",
         standard_error(&second_run)
     );
@@ -332,7 +335,7 @@ fn titles_and_artists_come_from_the_tags_of_the_files() {
 
     assert_success(&exported);
     let library = ExportedLibrary::read(&output_file);
-    assert_eq!(library.tracks.len(), 5);
+    assert_eq!(library.tracks.len(), 8);
     for track in &library.tracks {
         assert_eq!(track.name.as_deref(), Some("Low Tide"), "{track:?}");
         assert_eq!(track.artist.as_deref(), Some("Saffron & Co"), "{track:?}");
@@ -407,7 +410,7 @@ fn a_file_that_fails_is_reported_and_the_others_are_exported() {
     );
     assert!(lines[1].contains("unsupported format"), "{errors}");
     assert!(
-        lines[2].starts_with("Exported 7 tracks in 1 playlist to "),
+        lines[2].starts_with("Exported 10 tracks in 1 playlist to "),
         "{errors}"
     );
     assert!(lines[3].starts_with(IMPORT_STEPS_START), "{errors}");
@@ -700,7 +703,7 @@ fn no_playlists_exports_the_collection_only() {
     assert_success(&exported);
     assert_eq!(
         summary_lines(&exported)[0],
-        format!("Exported 7 tracks to {}", output_file.display())
+        format!("Exported 10 tracks to {}", output_file.display())
     );
     let library = ExportedLibrary::read(&output_file);
     assert_eq!(library.tracks.len(), AUDIO_FIXTURES.len());

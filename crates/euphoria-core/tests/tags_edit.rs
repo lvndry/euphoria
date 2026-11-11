@@ -15,20 +15,26 @@ use euphoria_core::tags::{
 };
 use euphoria_core::{EuphoriaError, Key, Mode};
 
-const FIXTURES: [&str; 5] = [
+const FIXTURES: [&str; 8] = [
     "sine-440hz-mono.mp3",
     "sine-440hz-mono.wav",
     "sine-440hz-mono.aiff",
     "sine-440hz-mono.m4a",
     "sine-440hz-mono.flac",
+    "sine-440hz-mono.ogg",
+    "sine-440hz-mono-alac.m4a",
+    "sine-440hz-mono.mp4",
 ];
 
-const TAGGED: [&str; 5] = [
+const TAGGED: [&str; 8] = [
     "tagged.mp3",
     "tagged.wav",
     "tagged.aiff",
     "tagged.m4a",
     "tagged.flac",
+    "tagged.ogg",
+    "tagged-alac.m4a",
+    "tagged.mp4",
 ];
 
 fn scratch_copy(folder: &str, fixture: &str, test: &str) -> PathBuf {

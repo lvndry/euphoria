@@ -14,9 +14,11 @@ mod id3v2;
 mod label;
 mod mp4;
 mod native;
+mod ogg;
 mod preset;
 mod replace;
 mod riff_info;
+mod vorbis;
 
 use std::path::{Path, PathBuf};
 
@@ -435,6 +437,11 @@ pub fn plan_write(
         .iter()
         .map(|change| file.raw(&change.field))
         .collect::<Result<_, _>>()?;
+    let planned: Vec<(&str, Option<&str>)> = changes
+        .iter()
+        .map(|change| (change.field.as_str(), change.new.as_deref()))
+        .collect();
+    file.check_can_write(&planned)?;
     Ok(WritePlan {
         path: path.to_path_buf(),
         format,

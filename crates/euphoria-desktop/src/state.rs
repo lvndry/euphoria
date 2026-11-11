@@ -339,7 +339,7 @@ mod tests {
     }
 
     fn assert_every_track_is_analyzed(session: &Session) {
-        assert_eq!(session.library().counts().total, 7);
+        assert_eq!(session.library().counts().total, 10);
         for track in session.library().tracks() {
             match &track.status {
                 TrackStatus::Analyzed(analysis) => {
@@ -357,7 +357,7 @@ mod tests {
             None,
         );
         assert_eq!(found.folders, vec![fixtures_folder()]);
-        assert_eq!(found.files.len(), 7);
+        assert_eq!(found.files.len(), 10);
         assert!(found.cached.is_empty());
         assert_eq!(found.problems.len(), 1);
         assert!(found.problems[0].starts_with("cannot read /definitely/not/here"));
@@ -400,9 +400,9 @@ mod tests {
         let mut session = Session::start(None).unwrap();
         let found = scan(&[fixtures_folder()], None);
 
-        assert_eq!(session.add(found), 7);
+        assert_eq!(session.add(found), 10);
         assert_eq!(session.library().folders(), [fixtures_folder()]);
-        assert_eq!(session.library().counts().total, 7);
+        assert_eq!(session.library().counts().total, 10);
         assert!(session.progress().is_active());
 
         wait_until_idle(&mut session);
@@ -478,7 +478,7 @@ mod tests {
         let mut first = Session::start(Some(folder.open_cache())).unwrap();
         let found = scan(&[fixtures_folder()], first.cache().as_deref());
         assert!(found.cached.is_empty());
-        assert_eq!(first.add(found), 7);
+        assert_eq!(first.add(found), 10);
         wait_until_idle(&mut first);
         assert_every_track_is_analyzed(&first);
         assert_eq!(first.cached_count(), 0);
@@ -487,11 +487,11 @@ mod tests {
 
         let mut second = Session::start(Some(folder.open_cache())).unwrap();
         let found = scan(&[fixtures_folder()], second.cache().as_deref());
-        assert_eq!(found.cached.len(), 7);
+        assert_eq!(found.cached.len(), 10);
         assert_eq!(second.add(found), 0);
         assert!(!second.progress().is_active());
         assert_every_track_is_analyzed(&second);
-        assert_eq!(second.cached_count(), 7);
+        assert_eq!(second.cached_count(), 10);
     }
 
     #[test]

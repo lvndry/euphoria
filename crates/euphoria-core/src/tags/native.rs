@@ -16,6 +16,7 @@ use super::TagFormat;
 use super::flac::{self, FlacFile};
 use super::id3v2::{self, Id3Tag};
 use super::mp4::Mp4File;
+use super::ogg::{self, OggVorbisFile};
 use super::replace::{Replacement, Splice, carried_over, compose, has_several_links};
 use super::riff_info::{self, InfoList};
 use crate::error::{ErrorSource, EuphoriaError};
@@ -54,6 +55,11 @@ impl std::error::Error for Refusal {}
 
 fn refusal(reason: &'static str) -> ErrorSource {
     Box::new(Refusal(reason))
+}
+
+/// `source` as the reason a file is not rewritten.
+fn refusal_with(source: ErrorSource) -> ErrorSource {
+    format!("refusing to rewrite the file: {source}").into()
 }
 
 /// Where a file keeps its ID3v2 tag.
@@ -382,6 +388,7 @@ enum Document {
     Id3(Id3File),
     Mp4(Mp4File),
     Flac(FlacFile),
+    Ogg(OggVorbisFile),
 }
 
 /// Whether `bytes` start with a plausible MPEG audio frame header.
@@ -413,9 +420,12 @@ impl Document {
             }
         }
         let beginning = &beginning[..read];
-        let unsupported = || "not an MP3, WAV, AIFF, M4A or FLAC file".into();
+        let unsupported = || "not an MP3, WAV, AIFF, MP4, FLAC or Ogg Vorbis file".into();
         if beginning.len() < PROBE_LENGTH {
             return Err(unsupported());
+        }
+        if ogg::is_ogg(beginning) {
+            return Ok(Self::Ogg(OggVorbisFile::load(file)?));
         }
 
         let after_id3 = flac::stream_start(beginning)?;
@@ -441,16 +451,19 @@ impl Document {
             Self::Id3(file) => file.problem(),
             Self::Mp4(file) => file.problem(),
             Self::Flac(file) => file.problem(),
+            Self::Ogg(file) => file.problem(),
         }
     }
 
     /// The length of the area the tag occupies in the file: the ID3v2 tag,
-    /// the `moov` atom, or all FLAC metadata blocks.
+    /// the `moov` atom, all FLAC metadata blocks, or the Ogg pages of the
+    /// comment and setup headers.
     fn tag_length(&self) -> u64 {
         match self {
             Self::Id3(file) => file.tag_length(),
             Self::Mp4(file) => file.moov_length(),
             Self::Flac(file) => file.metadata_length(),
+            Self::Ogg(file) => file.header_length(),
         }
     }
 
@@ -459,6 +472,9 @@ impl Document {
             Self::Id3(file) => file.preferred_length = tag,
             Self::Mp4(file) => file.prefer_lengths(tag, file_length),
             Self::Flac(file) => file.prefer_metadata_length(tag),
+            // A rewrite keeps the pages and gives back their layout by
+            // itself.
+            Self::Ogg(_) => {}
         }
     }
 
@@ -468,6 +484,7 @@ impl Document {
             Self::Id3(file) => file.items(),
             Self::Mp4(file) => file.items().to_vec(),
             Self::Flac(file) => file.items(),
+            Self::Ogg(file) => file.items(),
         }
     }
 
@@ -477,6 +494,7 @@ impl Document {
             Self::Id3(file) => Ok(file.position(field)),
             Self::Mp4(file) => file.position(field),
             Self::Flac(file) => Ok(file.position(field)),
+            Self::Ogg(file) => Ok(file.position(field)),
         }
     }
 
@@ -485,6 +503,7 @@ impl Document {
             Self::Id3(file) => file.raw(field),
             Self::Mp4(file) => file.raw(field)?.map(<[u8]>::to_vec),
             Self::Flac(file) => file.raw(field).map(<[u8]>::to_vec),
+            Self::Ogg(file) => file.raw(field).map(<[u8]>::to_vec),
         })
     }
 
@@ -493,6 +512,7 @@ impl Document {
             Self::Id3(file) => file.get(field),
             Self::Mp4(file) => file.get(field),
             Self::Flac(file) => Ok(file.get(field)),
+            Self::Ogg(file) => Ok(file.get(field)),
         }
     }
 
@@ -504,6 +524,10 @@ impl Document {
                 file.set(field, value);
                 Ok(())
             }
+            Self::Ogg(file) => {
+                file.set(field, value);
+                Ok(())
+            }
         }
     }
 
@@ -512,6 +536,7 @@ impl Document {
             Self::Id3(file) => file.restore(field, raw),
             Self::Mp4(file) => file.restore(field, raw),
             Self::Flac(file) => file.restore(field, raw),
+            Self::Ogg(file) => file.restore(field, raw),
         }
     }
 
@@ -520,6 +545,7 @@ impl Document {
             Self::Id3(file) => file.splices(),
             Self::Mp4(file) => file.splices(),
             Self::Flac(file) => file.splices(),
+            Self::Ogg(file) => file.splices(),
         }
     }
 }
@@ -580,7 +606,7 @@ impl TagFile {
     pub(super) fn id3_version(&self) -> Option<u8> {
         match &self.document {
             Document::Id3(file) => Some(file.tag.version()),
-            Document::Mp4(_) | Document::Flac(_) => None,
+            Document::Mp4(_) | Document::Flac(_) | Document::Ogg(_) => None,
         }
     }
 
@@ -588,7 +614,7 @@ impl TagFile {
         match self.document {
             Document::Id3(_) => TagFormat::Id3v2,
             Document::Mp4(_) => TagFormat::Mp4,
-            Document::Flac(_) => TagFormat::VorbisComments,
+            Document::Flac(_) | Document::Ogg(_) => TagFormat::VorbisComments,
         }
     }
 
@@ -672,6 +698,22 @@ impl TagFile {
             .map_err(|source| self.write_error(source))
     }
 
+    /// Fails when the tag could not be written back with `changes` made,
+    /// such as when the new items do not fit where the format needs them,
+    /// so that a plan is refused before it is shown.
+    pub(super) fn check_can_write(
+        &self,
+        changes: &[(&str, Option<&str>)],
+    ) -> Result<(), EuphoriaError> {
+        let mut document = self.document.clone();
+        changes
+            .iter()
+            .try_for_each(|(field, value)| document.set(field, *value))
+            .and_then(|()| document.splices())
+            .map(|_| ())
+            .map_err(|source| self.write_error(refusal_with(source)))
+    }
+
     /// Writes the tag to the file.
     ///
     /// The new file is built next to the real one: the original with the
@@ -747,9 +789,10 @@ impl TagFile {
         if !carried_over(original, splices, copy)? {
             return Err(refusal("data outside the tag would change"));
         }
-        let written = Document::load(copy)?;
+        let unreadable = || refusal("the rewritten tag would not be readable");
+        let written = Document::load(copy).map_err(|_| unreadable())?;
         if written.problem().is_some() {
-            return Err(refusal("the rewritten tag would not be readable"));
+            return Err(unreadable());
         }
 
         let without = |mut items: Vec<Vec<u8>>, mut positions: Vec<usize>| {
@@ -811,12 +854,18 @@ mod tests {
 
     use super::*;
 
-    const KEY_FIELDS: [(&str, &str); 5] = [
+    const KEY_FIELDS: [(&str, &str); 8] = [
         ("sine-440hz-mono.mp3", "TKEY"),
         ("sine-440hz-mono.wav", "TKEY"),
         ("sine-440hz-mono.aiff", "TKEY"),
         ("sine-440hz-mono.flac", "INITIALKEY"),
         ("sine-440hz-mono.m4a", "----:com.apple.iTunes:initialkey"),
+        ("sine-440hz-mono.ogg", "INITIALKEY"),
+        (
+            "sine-440hz-mono-alac.m4a",
+            "----:com.apple.iTunes:initialkey",
+        ),
+        ("sine-440hz-mono.mp4", "----:com.apple.iTunes:initialkey"),
     ];
 
     /// Writes a key to a copy of `fixture`, lets `tamper` change the new
@@ -879,10 +928,14 @@ mod tests {
     #[test]
     fn check_refuses_a_change_to_data_outside_the_plan() {
         for (fixture, field) in KEY_FIELDS {
-            // Every fixture but the AIFF names its encoder, in a tag item
-            // or in a chunk of its own.
+            // Every fixture but the AIFF and the Ogg Vorbis file names
+            // its encoder, in a tag item or in a chunk of its own. The Ogg
+            // file's setup header is rewritten with the comments but must
+            // keep its bytes.
             let untouched = if fixture.ends_with("aiff") {
                 &b"SSND"[..]
+            } else if fixture.ends_with("ogg") {
+                &b"\x05vorbis"[..]
             } else {
                 &b"Lavf"[..]
             };
@@ -896,10 +949,14 @@ mod tests {
     fn check_refuses_a_field_that_did_not_take_its_value() {
         for (fixture, field) in KEY_FIELDS {
             let error = check_after(fixture, field, |bytes| flip_last(bytes, b"8A")).unwrap_err();
-            assert!(
-                error.to_string().contains("did not take the value"),
-                "{fixture}: {error}"
-            );
+            // An Ogg page checksums its contents, so there the changed
+            // value already makes the page unreadable.
+            let expected = if fixture.ends_with("ogg") {
+                "would not be readable"
+            } else {
+                "did not take the value"
+            };
+            assert!(error.to_string().contains(expected), "{fixture}: {error}");
         }
     }
 

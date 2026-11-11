@@ -281,7 +281,11 @@ impl DecodeObserver for QualityProbe {
                 |decoder| decoder.codec.info.short_name.to_string(),
             );
         self.lossless = is_lossless(id);
-        self.bit_depth = parameters.bits_per_sample.filter(|_| self.lossless);
+        let bit_depth = match parameters.bits_per_sample {
+            None if id == CODEC_ID_ALAC => alac_bit_depth(parameters.extra_data.as_deref()),
+            known => known,
+        };
+        self.bit_depth = bit_depth.filter(|_| self.lossless);
         self.channels = parameters
             .channels
             .as_ref()
@@ -319,6 +323,23 @@ impl QualityProbe {
             true_peak_dbtp: self.true_peak.decibels(),
         }
     }
+}
+
+/// The bit depth an ALAC stream declares in its magic cookie, which may
+/// follow a `frma` atom and an `alac` atom header. Symphonia reads the
+/// cookie but does not pass the depth on.
+fn alac_bit_depth(cookie: Option<&[u8]>) -> Option<u32> {
+    let mut cookie = cookie?;
+    for atom in [b"frma", b"alac"] {
+        if cookie.get(4..8) == Some(&atom[..]) {
+            cookie = cookie.get(12..)?;
+        }
+    }
+    const DEPTH_OFFSET: usize = 5;
+    const COOKIE_LENGTHS: [usize; 2] = [24, 48];
+    COOKIE_LENGTHS
+        .contains(&cookie.len())
+        .then(|| u32::from(cookie[DEPTH_OFFSET]))
 }
 
 /// PCM codecs, which Symphonia numbers from the first PCM codec up to the
@@ -377,6 +398,19 @@ impl ClippingCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alac_bit_depth_is_read_from_the_magic_cookie() {
+        let mut cookie = vec![0, 0, 16, 0, 0, 24, 40, 10, 14, 2, 0, 255];
+        cookie.extend([0; 12]);
+        assert_eq!(alac_bit_depth(Some(&cookie)), Some(24));
+        let mut wrapped = b"\x00\x00\x00\x0cfrma".to_vec();
+        wrapped.extend(b"alac\x00\x00\x00\x24alac\x00\x00\x00\x00");
+        wrapped.extend(&cookie);
+        assert_eq!(alac_bit_depth(Some(&wrapped)), Some(24));
+        assert_eq!(alac_bit_depth(Some(&cookie[..20])), None);
+        assert_eq!(alac_bit_depth(None), None);
+    }
 
     /// A full-band source and its 14 kHz lowpass, split with one transform.
     fn split_noise() -> (Vec<f32>, Vec<f32>) {
