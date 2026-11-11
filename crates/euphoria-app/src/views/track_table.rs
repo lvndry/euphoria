@@ -6,6 +6,7 @@
 //! long the library is.
 
 use gpui::component::scroll::Scrollbar;
+use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{
@@ -14,6 +15,7 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::folder_tree::folder_name;
 use crate::format;
 use crate::library::{LibraryFilter, NOT_FOUND, SortColumn, Track, TrackStatus};
 use crate::theme::Palette;
@@ -92,7 +94,7 @@ const FORMAT: Column = Column {
 };
 const FOLDER: Column = Column {
     label: "Folder",
-    width: ColumnWidth::Share(1.1),
+    width: ColumnWidth::Share(1.6),
     is_right_aligned: false,
     sorts_by: Some(SortColumn::Folder),
 };
@@ -170,6 +172,8 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
         "Looking for audio files"
     } else if app.session.library().tracks().is_empty() {
         "No tracks yet"
+    } else if app.filter == LibraryFilter::NeedsReview && app.folder.is_some() {
+        "No tracks in this folder need review"
     } else if app.filter == LibraryFilter::NeedsReview {
         "No tracks need review"
     } else {
@@ -179,14 +183,12 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
 
 /// The name of the part of the library on show and how many tracks it has.
 fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
-    let title: SharedString = match &app.filter {
-        LibraryFilter::AllTracks => "All tracks".into(),
-        LibraryFilter::NeedsReview => "Needs review".into(),
-        LibraryFilter::Folder(folder) => folder
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| folder.to_string_lossy().into_owned())
-            .into(),
+    let folder = app.folder.as_deref().map(folder_name);
+    let title: SharedString = match (app.filter, folder) {
+        (LibraryFilter::AllTracks, None) => "All tracks".into(),
+        (LibraryFilter::NeedsReview, None) => "Needs review".into(),
+        (LibraryFilter::AllTracks, Some(folder)) => folder.into(),
+        (LibraryFilter::NeedsReview, Some(folder)) => format!("Needs review in {folder}").into(),
     };
     let count = format::track_summary(
         app.visible.len(),
@@ -367,18 +369,33 @@ fn row(
                     .text_color(palette.text_tertiary)
                     .child(track.format.clone()),
             )
-            .child(
-                cell(&FOLDER).child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_color(palette.text_tertiary)
-                        .child(track.folder.clone()),
-                ),
-            )
+            .child(cell(&FOLDER).child(folder_cell(app, track_index, &palette)))
             .test_support()
             .into_any_element(),
     )
+}
+
+/// Where the track's folder is, from the folder on show: a path that keeps
+/// its last folder names in view when it is too long, with the whole path in
+/// a tooltip, or a quiet dash for a track directly in the folder on show.
+fn folder_cell(app: &EuphoriaApp, track_index: usize, palette: &Palette) -> AnyElement {
+    let Some(label) = app.folder_column.label(track_index) else {
+        return div().into_any_element();
+    };
+    if label.text.is_empty() {
+        return missing_value(palette).into_any_element();
+    }
+    let full_path: SharedString = label.full_path.to_string_lossy().into_owned().into();
+    div()
+        .id(("folder-cell", track_index))
+        .min_w_0()
+        .truncate()
+        .text_ellipsis_start()
+        .text_color(palette.text_secondary)
+        .tooltip(move |window, cx| Tooltip::new(full_path.clone()).build(window, cx))
+        .child(label.text.clone())
+        .test_support()
+        .into_any_element()
 }
 
 /// The value of an analyzed track, a dash when analysis found none, and

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use euphoria_core::{Key, TrackAnalysis};
 
 use crate::camelot::CamelotPosition;
+use crate::folder_tree::FolderColumn;
 use crate::format;
 
 /// The dash shown where analysis found no value.
@@ -42,7 +43,6 @@ pub(crate) struct Track {
     /// Where the track is in its analysis.
     pub(crate) status: TrackStatus,
     file_name_lowercase: String,
-    folder_lowercase: String,
 }
 
 impl Track {
@@ -62,7 +62,6 @@ impl Track {
             .unwrap_or_default();
         Self {
             file_name_lowercase: file_name.to_lowercase(),
-            folder_lowercase: folder.to_lowercase(),
             path,
             file_name,
             format,
@@ -150,7 +149,7 @@ pub(crate) enum SortColumn {
     Energy,
     /// File format.
     Format,
-    /// Name of the containing folder.
+    /// Path of the containing folder, as the Folder column shows it.
     Folder,
 }
 
@@ -180,16 +179,14 @@ impl SortOrder {
     }
 }
 
-/// Which part of the library the table shows.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Which tracks the table shows, within the folder on show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LibraryFilter {
     /// Every track.
     #[default]
     AllTracks,
     /// Tracks whose analysis failed.
     NeedsReview,
-    /// Tracks inside one of the folders the user added.
-    Folder(PathBuf),
 }
 
 /// How many tracks are in each state.
@@ -208,6 +205,7 @@ pub(crate) struct Library {
     index_by_path: HashMap<PathBuf, usize>,
     folders: Vec<PathBuf>,
     failed_count: usize,
+    revision: u64,
 }
 
 impl Library {
@@ -239,6 +237,7 @@ impl Library {
             return false;
         }
         self.folders.push(folder);
+        self.revision += 1;
         true
     }
 
@@ -253,6 +252,9 @@ impl Library {
             self.index_by_path.insert(file.clone(), self.tracks.len());
             self.tracks.push(Track::new(file.clone()));
             added.push(file);
+        }
+        if !added.is_empty() {
+            self.revision += 1;
         }
         added
     }
@@ -298,7 +300,14 @@ impl Library {
                 TrackStatus::Failed(reason)
             }
         };
+        self.revision += 1;
         true
+    }
+
+    /// A number that changes whenever a folder or a track is added or a
+    /// track's result comes in.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// How many tracks are in each state.
@@ -314,11 +323,15 @@ impl Library {
     /// Without a sort order tracks stay in the order they were added. With
     /// one, tracks that have no value in the sorted column come last in
     /// either direction, and ties keep the order they were added in.
+    /// Only tracks inside `folder` are shown when it is given, and the
+    /// Folder column sorts by `folder_column`.
     pub(crate) fn visible_tracks(
         &self,
-        filter: &LibraryFilter,
+        filter: LibraryFilter,
+        folder: Option<&Path>,
         query: &str,
         sort_order: Option<SortOrder>,
+        folder_column: &FolderColumn,
     ) -> Vec<usize> {
         let query_lowercase = query.trim().to_lowercase();
         let mut visible: Vec<usize> = self
@@ -328,14 +341,15 @@ impl Library {
             .filter(|(_, track)| match filter {
                 LibraryFilter::AllTracks => true,
                 LibraryFilter::NeedsReview => track.failure().is_some(),
-                LibraryFilter::Folder(folder) => track.path.starts_with(folder),
             })
+            .filter(|(_, track)| folder.is_none_or(|folder| track.path.starts_with(folder)))
             .filter(|(_, track)| track.matches(&query_lowercase))
             .map(|(index, _)| index)
             .collect();
         if let Some(sort_order) = sort_order {
-            visible.sort_by(|first, second| {
-                compare_tracks(&self.tracks[*first], &self.tracks[*second], sort_order)
+            visible.sort_by(|first, second| match sort_order.column {
+                SortColumn::Folder => directed(folder_column.compare(*first, *second), sort_order),
+                _ => compare_tracks(&self.tracks[*first], &self.tracks[*second], sort_order),
             });
         }
         visible
@@ -349,10 +363,7 @@ fn compare_tracks(first: &Track, second: &Track, sort_order: SortOrder) -> Order
             sort_order,
         ),
         SortColumn::Format => directed(first.format.cmp(&second.format), sort_order),
-        SortColumn::Folder => directed(
-            first.folder_lowercase.cmp(&second.folder_lowercase),
-            sort_order,
-        ),
+        SortColumn::Folder => Ordering::Equal,
         SortColumn::Key => compare_optional(
             first
                 .key()
@@ -467,7 +478,13 @@ mod tests {
     fn visible(library: &Library, query: &str, sort_order: Option<SortOrder>) -> Vec<String> {
         names(
             library,
-            &library.visible_tracks(&LibraryFilter::AllTracks, query, sort_order),
+            &library.visible_tracks(
+                LibraryFilter::AllTracks,
+                None,
+                query,
+                sort_order,
+                &FolderColumn::new(library.tracks(), library.folders(), None),
+            ),
         )
     }
 
@@ -760,17 +777,37 @@ mod tests {
         let mut library = sample_library();
         library.add_folder(PathBuf::from("/music/house"));
         assert!(!library.add_folder(PathBuf::from("/music/house")));
+        let no_column = FolderColumn::default();
         let in_folder = library.visible_tracks(
-            &LibraryFilter::Folder(PathBuf::from("/music/house")),
+            LibraryFilter::AllTracks,
+            Some(Path::new("/music/house")),
             "",
             None,
+            &no_column,
         );
         assert_eq!(
             names(&library, &in_folder),
             ["Low Tide.aiff", "saffron.mp3"]
         );
-        let needing_review = library.visible_tracks(&LibraryFilter::NeedsReview, "", None);
+        let needing_review =
+            library.visible_tracks(LibraryFilter::NeedsReview, None, "", None, &no_column);
         assert_eq!(names(&library, &needing_review), ["broken.mp3"]);
+        let needing_review_in_house = library.visible_tracks(
+            LibraryFilter::NeedsReview,
+            Some(Path::new("/music/house")),
+            "",
+            None,
+            &no_column,
+        );
+        assert!(needing_review_in_house.is_empty());
+        let searched_in_techno = library.visible_tracks(
+            LibraryFilter::AllTracks,
+            Some(Path::new("/music/techno")),
+            "glass",
+            None,
+            &no_column,
+        );
+        assert_eq!(names(&library, &searched_in_techno), ["Glasshouse.flac"]);
     }
 
     #[test]
@@ -795,9 +832,11 @@ mod tests {
         }
         let started = std::time::Instant::now();
         let shown = library.visible_tracks(
-            &LibraryFilter::AllTracks,
+            LibraryFilter::AllTracks,
+            None,
             "track",
             descending(SortColumn::Key),
+            &FolderColumn::default(),
         );
         assert_eq!(shown.len(), 10_000);
         assert!(started.elapsed() < std::time::Duration::from_millis(500));

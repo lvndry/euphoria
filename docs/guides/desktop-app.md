@@ -40,7 +40,9 @@ Your files are only read. The app does not write tags or change files.
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
 | Time | The length |
 | Format | The file type |
-| Folder | The folder holding the file |
+| Folder | Where the file is, from the folder on show |
+
+The Folder column shows the path from the folder chosen in the sidebar to the file's own folder. With `DJ tracks` chosen, a file in `DJ tracks/afro_house/warmup` shows `afro_house/warmup`; with `afro_house` chosen, it shows `warmup`; a file directly in the chosen folder shows a dash. Under **All tracks** the path starts inside the folder you added, with that folder's name in front when you added more than one. A path too long for the column keeps its last folder names in view, and pointing at it shows the whole path. Sorting by Folder groups the files folder by folder, in the order of the sidebar.
 
 Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Tracks with no value in the sorted column come last.
 
@@ -51,9 +53,28 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks that could not be analyzed.
+- **Needs review** shows the tracks that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder.
 - **Missing files** is a placeholder and always shows 0.
-- **Folders** lists the folders you added. Click one to show only its tracks.
+- **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
+
+### Browse your folders
+
+Click the triangle beside a folder to show the folders inside it, and again to hide them. Click a folder to show its tracks in the table, including those in the folders inside it; the heading above the table names it. Search and sorting work inside the chosen folder. **All tracks** shows everything again.
+
+The tree lists folders only. The table is the list of files, with their key, tempo and energy, and the Folder column says where each file sits inside the chosen folder.
+
+After clicking a folder, the keyboard moves through the tree:
+
+| Key | Does |
+| --- | --- |
+| Up and Down | Show the folder above or below |
+| Right | Show the folders inside, or go to the first of them when they are already shown |
+| Left | Hide the folders inside, or go to the folder holding this one |
+| Home and End | Show the first or the last folder listed |
+
+A long folder name is cut short; point at it to read the full path. When the tree is taller than the window, it scrolls.
+
+If you add a folder that is inside a folder you already added, it appears in the outer folder's tree rather than a second time.
 
 To give the table more room, fold the sidebar away. Any of these folds it, and the same one brings it back:
 
@@ -125,7 +146,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-The folders you added, the theme, whether the sidebar is folded, and the sizes you gave the inspector and the Deck strip are kept in `settings.json`:
+The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree and the folder on show are kept in `settings.json`:
 
 | System | Folder |
 | --- | --- |
@@ -135,7 +156,7 @@ The folders you added, the theme, whether the sidebar is folded, and the sizes y
 
 Set the `EUPHORIA_DATA_DIR` environment variable to keep it somewhere else.
 
-Files dropped on their own, outside a folder, are not remembered.
+Files dropped on their own, outside a folder, are not remembered. If the folder that was on show is gone the next time, for example on a drive that is not connected, the app starts on **All tracks**.
 
 ## Remembered results
 

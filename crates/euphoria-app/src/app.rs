@@ -5,6 +5,7 @@
 //! chosen to see, and lays the screen out from the views.
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -18,13 +19,14 @@ use gpui::{
     canvas, div, px, relative,
 };
 
+use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
 use crate::library::{LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
 use crate::panels::{PanelEdge, Panels};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
 use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
-use crate::settings::Settings;
+use crate::settings::{FolderTreeMemory, Settings};
 use crate::state::{Scan, Session, scan};
 use crate::theme::{AppTheme, Layout, ThemeName};
 use crate::views;
@@ -62,7 +64,20 @@ pub(crate) struct EuphoriaApp {
     pub(crate) session: Session,
     pub(crate) theme: AppTheme,
     pub(crate) search_input: Entity<InputState>,
+    /// All tracks, or only those needing review, within the folder on show.
     pub(crate) filter: LibraryFilter,
+    /// The folder whose tracks the table shows, or `None` for every folder.
+    pub(crate) folder: Option<PathBuf>,
+    /// The folders the user added and the subfolders holding their tracks.
+    pub(crate) folder_tree: FolderTree,
+    /// Indexes into the folder tree of the folders the sidebar lists.
+    pub(crate) folder_rows: Vec<usize>,
+    /// The unfolded folders of the tree.
+    pub(crate) expanded_folders: HashSet<PathBuf>,
+    /// The Folder column of every track, relative to the folder on show.
+    pub(crate) folder_column: FolderColumn,
+    pub(crate) folder_scroll: UniformListScrollHandle,
+    pub(crate) tree_focus: FocusHandle,
     pub(crate) sort_order: Option<SortOrder>,
     /// Indexes into the library of the rows the table shows, in order.
     pub(crate) visible: Vec<usize>,
@@ -106,6 +121,11 @@ pub(crate) struct EuphoriaApp {
     /// The file the waveform task is decoding.
     waveform_task_path: Option<PathBuf>,
     is_collecting: bool,
+    /// The library revision the folder tree was built from.
+    folder_tree_revision: Option<u64>,
+    /// What the Folder column was worked out for: how many tracks and
+    /// folders the library had, and the folder on show.
+    folder_column_basis: Option<(usize, usize, Option<PathBuf>)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -145,11 +165,25 @@ impl EuphoriaApp {
 
         let theme = AppTheme::named(settings.theme);
         theme.apply_to_components(cx);
+        let expanded_folders = settings
+            .folder_tree
+            .expanded
+            .clone()
+            .unwrap_or_else(|| settings.folders.clone())
+            .into_iter()
+            .collect();
         let mut this = Self {
             session,
             theme,
             search_input,
             filter: LibraryFilter::AllTracks,
+            folder: settings.folder_tree.selected.clone(),
+            folder_tree: FolderTree::default(),
+            folder_rows: Vec::new(),
+            expanded_folders,
+            folder_column: FolderColumn::default(),
+            folder_scroll: UniformListScrollHandle::new(),
+            tree_focus: cx.focus_handle(),
             sort_order: theme.opens_sorted_by_key.then_some(SortOrder {
                 column: SortColumn::Key,
                 descending: false,
@@ -179,12 +213,17 @@ impl EuphoriaApp {
             waveform_task: None,
             waveform_task_path: None,
             is_collecting: false,
+            folder_tree_revision: None,
+            folder_column_basis: None,
             _subscriptions: vec![search_changed, quitting],
         };
         if !settings.folders.is_empty() {
-            this.add_paths(settings.folders, cx);
+            this.add_paths(settings.folders, false, cx);
         }
         this.refresh_visible();
+        if this.scans_in_progress == 0 {
+            this.forget_folder_if_gone();
+        }
         this.select_first_track_if_none(cx);
         this
     }
@@ -222,7 +261,7 @@ impl EuphoriaApp {
             };
             this.update(cx, |this, cx| match outcome {
                 Ok(paths) if paths.is_empty() => {}
-                Ok(paths) => this.add_paths(paths, cx),
+                Ok(paths) => this.add_paths(paths, true, cx),
                 Err(problem) => {
                     this.notice = Some(problem);
                     cx.notify();
@@ -235,8 +274,14 @@ impl EuphoriaApp {
 
     /// Searches files and folders for audio in the background, then adds the
     /// tracks: those the cache knows filled in, the rest as pending rows
-    /// queued for analysis.
-    pub(crate) fn add_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<'_, Self>) {
+    /// queued for analysis. With `unfold_new_folders`, folders the library
+    /// did not have yet open unfolded in the sidebar.
+    pub(crate) fn add_paths(
+        &mut self,
+        paths: Vec<PathBuf>,
+        unfold_new_folders: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.scans_in_progress += 1;
         cx.notify();
         let cache = self.session.cache();
@@ -245,14 +290,32 @@ impl EuphoriaApp {
                 .background_executor()
                 .spawn(async move { scan(&paths, cache.as_deref()) })
                 .await;
-            this.update(cx, |this, cx| this.finish_scan(found, cx)).ok();
+            this.update(cx, |this, cx| {
+                this.finish_scan(found, unfold_new_folders, cx);
+            })
+            .ok();
         })
         .detach();
     }
 
-    fn finish_scan(&mut self, mut found: Scan, cx: &mut Context<'_, Self>) {
+    fn finish_scan(
+        &mut self,
+        mut found: Scan,
+        unfold_new_folders: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.scans_in_progress = self.scans_in_progress.saturating_sub(1);
         let folder_count_before = self.session.library().folders().len();
+        if unfold_new_folders {
+            let library = self.session.library();
+            let new_folders: Vec<PathBuf> = found
+                .folders
+                .iter()
+                .filter(|folder| !library.folders().contains(folder))
+                .cloned()
+                .collect();
+            self.expanded_folders.extend(new_folders);
+        }
 
         let mut problems: Vec<String> = std::mem::take(&mut found.problems)
             .into_iter()
@@ -262,6 +325,10 @@ impl EuphoriaApp {
             problems.push("No audio files found there.".to_string());
         }
         self.session.add(found);
+        self.refresh_visible();
+        if self.scans_in_progress == 0 {
+            self.forget_folder_if_gone();
+        }
         if self.session.library().folders().len() != folder_count_before {
             problems.extend(self.save_settings());
         }
@@ -331,19 +398,135 @@ impl EuphoriaApp {
     }
 
     /// Recomputes which rows the table shows after the library, the search,
-    /// the filter or the sort order changed.
+    /// the filter, the folder on show or the sort order changed, and the
+    /// folder tree and the Folder column when they depend on what changed.
     pub(crate) fn refresh_visible(&mut self) {
-        self.visible =
-            self.session
-                .library()
-                .visible_tracks(&self.filter, &self.query, self.sort_order);
+        let library = self.session.library();
+        if self.folder_tree_revision != Some(library.revision()) {
+            self.folder_tree = FolderTree::build(library.folders(), library.tracks());
+            self.folder_tree_revision = Some(library.revision());
+            self.folder_rows = self.folder_tree.visible_rows(&self.expanded_folders);
+        }
+        let basis = (
+            library.tracks().len(),
+            library.folders().len(),
+            self.folder.clone(),
+        );
+        if self.folder_column_basis.as_ref() != Some(&basis) {
+            self.folder_column =
+                FolderColumn::new(library.tracks(), library.folders(), self.folder.as_deref());
+            self.folder_column_basis = Some(basis);
+        }
+        self.visible = library.visible_tracks(
+            self.filter,
+            self.folder.as_deref(),
+            &self.query,
+            self.sort_order,
+            &self.folder_column,
+        );
     }
 
-    /// Shows one part of the library.
-    pub(crate) fn set_filter(&mut self, filter: LibraryFilter, cx: &mut Context<'_, Self>) {
-        self.filter = filter;
+    /// A remembered folder that is no longer in the library is not shown.
+    fn forget_folder_if_gone(&mut self) {
+        let is_gone = self
+            .folder
+            .as_ref()
+            .is_some_and(|folder| self.folder_tree.index_of(folder).is_none());
+        if is_gone {
+            self.folder = None;
+            self.refresh_visible();
+        }
+    }
+
+    /// Shows every track of every folder.
+    pub(crate) fn show_all_tracks(&mut self, cx: &mut Context<'_, Self>) {
+        self.filter = LibraryFilter::AllTracks;
+        self.folder = None;
+        self.refresh_visible();
+        self.remember_folder_tree();
+        cx.notify();
+    }
+
+    /// Shows only the tracks that need review, within the folder on show.
+    pub(crate) fn show_tracks_needing_review(&mut self, cx: &mut Context<'_, Self>) {
+        self.filter = LibraryFilter::NeedsReview;
         self.refresh_visible();
         cx.notify();
+    }
+
+    /// Shows every track in the folder at `path` and the folders inside it.
+    pub(crate) fn show_folder(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        self.filter = LibraryFilter::AllTracks;
+        self.folder = Some(path);
+        self.refresh_visible();
+        self.reveal_folder_row();
+        self.remember_folder_tree();
+        cx.notify();
+    }
+
+    /// Unfolds the folder at `path`, or folds it.
+    pub(crate) fn toggle_folder(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        if !self.expanded_folders.remove(&path) {
+            self.expanded_folders.insert(path);
+        }
+        self.folder_rows = self.folder_tree.visible_rows(&self.expanded_folders);
+        self.remember_folder_tree();
+        cx.notify();
+    }
+
+    /// Handles the keys that move through the folder tree.
+    pub(crate) fn tree_key_down(&mut self, event: &KeyDownEvent, cx: &mut Context<'_, Self>) {
+        let key = match event.keystroke.key.as_str() {
+            "up" => TreeKey::Up,
+            "down" => TreeKey::Down,
+            "left" => TreeKey::Left,
+            "right" => TreeKey::Right,
+            "home" => TreeKey::First,
+            "end" => TreeKey::Last,
+            _ => return,
+        };
+        cx.stop_propagation();
+        let current = self
+            .folder
+            .as_ref()
+            .and_then(|folder| self.folder_tree.index_of(folder));
+        let chosen =
+            self.folder_tree
+                .navigate(&self.folder_rows, &self.expanded_folders, current, key);
+        let path_at =
+            |tree: &FolderTree, index: usize| tree.node(index).map(|node| node.path.clone());
+        match chosen {
+            None => {}
+            Some(TreeMove::Select(index)) => {
+                if let Some(path) = path_at(&self.folder_tree, index) {
+                    self.show_folder(path, cx);
+                }
+            }
+            Some(TreeMove::Expand(index) | TreeMove::Collapse(index)) => {
+                if let Some(path) = path_at(&self.folder_tree, index) {
+                    self.toggle_folder(path, cx);
+                }
+            }
+        }
+    }
+
+    /// Scrolls the sidebar to the folder on show.
+    fn reveal_folder_row(&mut self) {
+        let row = self
+            .folder
+            .as_ref()
+            .and_then(|folder| self.folder_tree.index_of(folder))
+            .and_then(|index| self.folder_rows.iter().position(|row| *row == index));
+        if let Some(row) = row {
+            self.folder_scroll
+                .scroll_to_item(row, ScrollStrategy::Nearest);
+        }
+    }
+
+    fn remember_folder_tree(&mut self) {
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
     }
 
     /// Sorts by `column`, or reverses the order when it is already the
@@ -692,14 +875,20 @@ impl EuphoriaApp {
         px(self.panels.strip_height_in(available_height / px(1.0)))
     }
 
-    /// Writes the folders and theme to disk. Returns what to tell the user
+    /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user
     /// when that fails.
     fn save_settings(&self) -> Option<String> {
         let settings_path = self.settings_path.as_ref()?;
+        let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
+        expanded.sort();
         let settings = Settings {
             folders: self.session.library().folders().to_vec(),
             theme: self.theme.name,
             panels: self.panels,
+            folder_tree: FolderTreeMemory {
+                expanded: Some(expanded),
+                selected: self.folder.clone(),
+            },
         };
         settings
             .save(settings_path)
@@ -830,7 +1019,7 @@ impl Render for EuphoriaApp {
             .line_height(relative(1.4))
             .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(palette.selection))
             .on_drop(cx.listener(|this, dropped: &ExternalPaths, _, cx| {
-                this.add_paths(dropped.paths().to_vec(), cx);
+                this.add_paths(dropped.paths().to_vec(), true, cx);
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
