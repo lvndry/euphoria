@@ -63,8 +63,13 @@ struct MarkdownReport<'report>(&'report Report);
 
 impl Display for MarkdownReport<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        write_key_section(formatter, &self.0.key)?;
-        write_tempo_section(formatter, &self.0.tempo)
+        if let Some(key) = &self.0.key {
+            write_key_section(formatter, key)?;
+        }
+        if let Some(tempo) = &self.0.tempo {
+            write_tempo_section(formatter, tempo)?;
+        }
+        Ok(())
     }
 }
 
@@ -138,13 +143,21 @@ fn write_track_summary<Scores>(
     evaluation: &Evaluation<Scores>,
 ) -> fmt::Result {
     let failed = evaluation.decode_failures.len();
-    writeln!(
+    write!(
         formatter,
-        "{} tracks with audio, {} decoded, {} failed to decode.\n",
+        "{} tracks with audio, {} decoded, {} failed to decode.",
         evaluation.track_count,
         evaluation.track_count - failed,
         failed
-    )
+    )?;
+    if evaluation.unannotated_count > 0 {
+        write!(
+            formatter,
+            " {} more left out because their annotation has no reference value.",
+            evaluation.unannotated_count
+        )?;
+    }
+    writeln!(formatter, "\n")
 }
 
 fn write_failures<Scores>(
@@ -234,8 +247,9 @@ mod tests {
         tempo_tally.record(120.0, 60.0);
 
         Report {
-            key: Evaluation {
+            key: Some(Evaluation {
                 track_count: 3,
+                unannotated_count: 0,
                 decode_failures: vec![failure("broken", "cannot decode broken.mp3: read error")],
                 detectors: vec![detector(
                     "libkeyfinder",
@@ -243,12 +257,13 @@ mod tests {
                     2,
                     vec![failure("quiet", "libkeyfinder failed: no chroma")],
                 )],
-            },
-            tempo: Evaluation {
+            }),
+            tempo: Some(Evaluation {
                 track_count: 2,
+                unannotated_count: 3,
                 decode_failures: Vec::new(),
                 detectors: vec![detector("stratum-dsp", tempo_tally, 2, Vec::new())],
-            },
+            }),
         }
     }
 
@@ -273,7 +288,7 @@ Tracks where libkeyfinder failed:
 
 ## Tempo detection, GiantSteps Tempo
 
-2 tracks with audio, 2 decoded, 0 failed to decode.
+2 tracks with audio, 2 decoded, 0 failed to decode. 3 more left out because their annotation has no reference value.
 
 | Detector | Accuracy 1 | Accuracy 2 | No tempo or error | CPU seconds per track |
 | --- | --- | --- | --- | --- |
@@ -283,6 +298,19 @@ Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also 
 
 ";
         assert_eq!(render_report(&sample_report()), expected);
+    }
+
+    #[test]
+    fn renders_only_the_benchmarks_that_were_run() {
+        let report = Report {
+            key: None,
+            ..sample_report()
+        };
+
+        let rendered = render_report(&report);
+
+        assert!(rendered.starts_with("## Tempo detection, GiantSteps Tempo\n"));
+        assert!(!rendered.contains("Key detection"));
     }
 
     #[test]

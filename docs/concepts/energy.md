@@ -57,13 +57,13 @@ The anchors were chosen so that the 604 dance music previews of the [GiantSteps 
 | Rating | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Tracks, rated without tempo | 20 | 21 | 41 | 56 | 76 | 98 | 109 | 96 | 55 | 32 |
-| Tracks, rated with the detected tempo | 14 | 18 | 25 | 71 | 72 | 109 | 121 | 98 | 52 | 24 |
+| Tracks, rated with the detected tempo | 13 | 13 | 30 | 63 | 65 | 115 | 114 | 102 | 56 | 33 |
 
-The weights reflect how much each feature can be trusted. Onset rate and spectral flux describe what happens in the music, so together they carry the most. Loudness matters, but it also reflects how a track was mastered, so it does not dominate. Loudness range rewards tracks that stay at full level. Low frequency share weighs little, because a deep, bass heavy warm up track is not an intense one. Tempo weighs little because tempo detection sometimes reports half or double the true value.
+The weights reflect how much each feature can be trusted. Onset rate and spectral flux describe what happens in the music, so together they carry the most. Loudness matters, but it also reflects how a track was mastered, so it does not dominate. Loudness range rewards tracks that stay at full level. Low frequency share weighs little, because a deep, bass heavy warm up track is not an intense one. Tempo weighs little because tempo detection reports every tempo between 90 and 180 BPM, so a track slower or faster than that enters at double or half its tempo.
 
 ## How well it works so far
 
-The scale was checked against a sample of 60 full length tracks that a DJ had sorted into warm up, build, peak and closing folders, across five styles of house music. Rated the way `euphoria analyze` rates them, with the detected tempo:
+The scale was checked against a sample of 60 full length tracks that a DJ had sorted into warm up, build, peak and closing folders, across five styles of house music. Rated the way `euphoria analyze` rated them, with the detected tempo, at a time when the tempo detector still reported some tracks at half their tempo:
 
 | Folder | Average rating |
 | --- | --- |
@@ -94,7 +94,7 @@ A window is rated on its own, so the curve usually reaches higher and lower than
 - **Mastering affects it.** A heavily compressed master rates higher than a dynamic master of the same music.
 - **It is tuned on dance music.** Other genres get a rating, but the anchors were not chosen for them, so most acoustic or ambient music lands at the bottom of the scale and very dense music at the top.
 - **The whole track is averaged.** A track with a long quiet intro and a huge drop rates lower than its peak. Look at the energy curve for that.
-- **Tempo errors carry over.** If the detector reports half or double the true tempo, the rating shifts slightly.
+- **Tempo errors carry over.** Tempo is reported between 90 and 180 BPM, so a track with a real tempo outside that range enters the rating at double or half its tempo, which can move the rating by one or two.
 - **Sample rates from 8 kHz to 384 kHz.** A file that claims a rate outside that range is reported as a failure, since only a damaged file does.
 - **Mono analysis.** Euphoria mixes a track to mono before analysis, so stereo width plays no part.
 - **Lossy files differ a little.** The same track as MP3 and as FLAC can differ by a small amount in every feature, which now and then moves a rating by one.

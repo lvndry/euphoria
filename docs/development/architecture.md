@@ -43,9 +43,9 @@ bench/              dataset download script, Essentia reference script, results
 Key and tempo detection sit behind traits so implementations can be compared and replaced without touching callers.
 
 - `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config.
-- `StratumDetector` uses the pure Rust `stratum-dsp` crate for both key and tempo.
+- `StratumDetector` uses the pure Rust `stratum-dsp` crate for both key and tempo. Its tempo detection runs only the tempogram estimate, on at most the middle ten minutes of a track, reports the result between 90 and 180 BPM, and costs a fraction of its key detection.
 
-`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and `stratum-dsp` for tempo.
+`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature.
 
 ## euphoria-cli
 

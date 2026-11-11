@@ -18,15 +18,17 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::output;
 
-/// Each worker can hold 2 to 3 GB while analyzing a full length track, so the
-/// default stays well below the core count of most machines.
-const DEFAULT_MAXIMUM_JOBS: usize = 4;
+/// A worker peaks near 0.6 GB on a seven minute track, and 8 workers on full
+/// length tracks peaked between 4.8 and 6.2 GB in total, which leaves
+/// headroom on a 16 GB machine. One worker per core on machines with more
+/// cores would not.
+const DEFAULT_MAXIMUM_JOBS: usize = 8;
 
 /// The options shared by every command that analyzes files.
 #[derive(Debug, Args)]
 pub struct AnalysisOptions {
     /// Number of files to analyze at once. Defaults to the number of
-    /// cores, at most 4.
+    /// cores, at most 8.
     #[arg(long, short = 'j')]
     jobs: Option<NonZeroUsize>,
     /// Analyze every file and neither read nor update the cache.

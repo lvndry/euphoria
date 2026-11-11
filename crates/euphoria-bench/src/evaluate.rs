@@ -14,23 +14,26 @@ use euphoria_core::detect::{KeyDetector, TempoDetector};
 use euphoria_core::{AudioBuffer, EuphoriaError, Key, decode_mono};
 use rayon::prelude::*;
 
-use crate::dataset::Track;
+use crate::dataset::{Dataset, Track};
 use crate::scoring::{KeyTally, TempoTally};
 
-/// Results for both benchmarks.
+/// Results for the benchmarks that were run.
 #[derive(Debug)]
 pub struct Report {
-    /// Key detection on GiantSteps Key.
-    pub key: Evaluation<KeyTally>,
-    /// Tempo detection on GiantSteps Tempo.
-    pub tempo: Evaluation<TempoTally>,
+    /// Key detection on GiantSteps Key, when it was run.
+    pub key: Option<Evaluation<KeyTally>>,
+    /// Tempo detection on GiantSteps Tempo, when it was run.
+    pub tempo: Option<Evaluation<TempoTally>>,
 }
 
 /// Results of running a set of detectors over one dataset.
 #[derive(Debug)]
 pub struct Evaluation<Scores> {
-    /// Tracks that had audio, whether or not they decoded.
+    /// Tracks that had audio and a reference annotation, whether or not they
+    /// decoded.
     pub track_count: usize,
+    /// Tracks with audio left out because they have no reference annotation.
+    pub unannotated_count: usize,
     /// Tracks whose audio could not be decoded, in track order.
     pub decode_failures: Vec<Failure>,
     /// One entry per detector, in the order the detectors were given.
@@ -113,26 +116,26 @@ impl Tally for TempoTally {
 
 /// Runs every key detector over every track.
 pub fn evaluate_keys(
-    tracks: &[Track<Key>],
+    dataset: &Dataset<Key>,
     detectors: &[&dyn KeyDetector],
 ) -> Evaluation<KeyTally> {
     let names = detectors.iter().map(|detector| detector.name()).collect();
-    let outcomes = measure_tracks(tracks, detectors.len(), |detector_index, audio| {
+    let outcomes = measure_tracks(&dataset.tracks, detectors.len(), |detector_index, audio| {
         detectors[detector_index].detect_key(audio)
     });
-    tally_outcomes(tracks, names, outcomes)
+    tally_outcomes(&dataset.tracks, dataset.unannotated_count, names, outcomes)
 }
 
 /// Runs every tempo detector over every track.
 pub fn evaluate_tempo(
-    tracks: &[Track<f32>],
+    dataset: &Dataset<f32>,
     detectors: &[&dyn TempoDetector],
 ) -> Evaluation<TempoTally> {
     let names = detectors.iter().map(|detector| detector.name()).collect();
-    let outcomes = measure_tracks(tracks, detectors.len(), |detector_index, audio| {
+    let outcomes = measure_tracks(&dataset.tracks, detectors.len(), |detector_index, audio| {
         detectors[detector_index].detect_tempo(audio)
     });
-    tally_outcomes(tracks, names, outcomes)
+    tally_outcomes(&dataset.tracks, dataset.unannotated_count, names, outcomes)
 }
 
 /// One detector's answer for one track, with the CPU time the call used on
@@ -181,6 +184,7 @@ fn measure_tracks<Annotation: Sync, Estimate: Send>(
 /// result per detector.
 fn tally_outcomes<Scores: Tally>(
     tracks: &[Track<Scores::Reference>],
+    unannotated_count: usize,
     detector_names: Vec<&'static str>,
     outcomes: Vec<TrackOutcome<Scores::Estimate>>,
 ) -> Evaluation<Scores> {
@@ -226,6 +230,7 @@ fn tally_outcomes<Scores: Tally>(
 
     Evaluation {
         track_count: tracks.len(),
+        unannotated_count,
         decode_failures,
         detectors,
     }
@@ -268,9 +273,10 @@ mod tests {
         ];
 
         let evaluation: Evaluation<TempoTally> =
-            tally_outcomes(&tracks, vec!["stratum-dsp"], outcomes);
+            tally_outcomes(&tracks, 2, vec!["stratum-dsp"], outcomes);
 
         assert_eq!(evaluation.track_count, 3);
+        assert_eq!(evaluation.unannotated_count, 2);
         assert_eq!(
             evaluation.decode_failures,
             [Failure {
