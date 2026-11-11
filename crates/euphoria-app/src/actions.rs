@@ -20,6 +20,16 @@ actions!(
         ToggleSidebar,
         /// Moves the keyboard to the search field.
         FocusSearch,
+        /// Shows what writing tags to the selected tracks would change.
+        WriteTags,
+        /// Puts back the tags the last write replaced.
+        UndoTagWrite,
+        /// Opens the settings.
+        OpenSettings,
+        /// Selects every track the table shows.
+        SelectAllTracks,
+        /// Returns every column of the table to its usual width.
+        ResetColumnWidths,
         /// Switches to the Slate theme.
         UseSlateTheme,
         /// Switches to the Paper theme.

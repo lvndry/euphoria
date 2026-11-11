@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::columns::ColumnWidths;
 use crate::panels::Panels;
+use crate::tag_settings::TagSettings;
 use crate::theme::ThemeName;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -47,6 +49,10 @@ pub(crate) struct Settings {
     pub(crate) panels: Panels,
     /// Which folders of the sidebar tree are unfolded and which is shown.
     pub(crate) folder_tree: FolderTreeMemory,
+    /// The widths the user gave columns of the track table.
+    pub(crate) column_widths: ColumnWidths,
+    /// How tags are written.
+    pub(crate) tags: TagSettings,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -125,6 +131,8 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
+    use crate::columns::ColumnId;
+    use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 
     fn temporary_folder(name: &str) -> PathBuf {
         let folder =
@@ -158,6 +166,17 @@ mod tests {
                 expanded: Some(vec![PathBuf::from("/music/DJ tracks/afro_house")]),
                 selected: Some(PathBuf::from("/music/DJ tracks/afro_house/warmup")),
             },
+            column_widths: {
+                let mut widths = ColumnWidths::default();
+                widths.set(ColumnId::Title, 420.0);
+                widths
+            },
+            tags: TagSettings {
+                program: ProgramChoice::Serato,
+                key_notation: NotationChoice::Musical,
+                label: LabelChoice::Grouping,
+                write_tempo: false,
+            },
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -178,6 +197,8 @@ mod tests {
             theme: ThemeName::KeyFirst,
             panels: Panels::default(),
             folder_tree: FolderTreeMemory::default(),
+            column_widths: ColumnWidths::default(),
+            tags: TagSettings::default(),
         })
         .unwrap();
         assert_eq!(
@@ -185,9 +206,35 @@ mod tests {
             concat!(
                 r#"{"folders":[],"theme":"key-first","#,
                 r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
-                r#""folder_tree":{"expanded":null,"selected":null}}"#
+                r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
+                r#""tags":{"program":"generic","key_notation":"camelot","#,
+                r#""label":"comment-start","write_tempo":true}}"#
             )
         );
+    }
+
+    #[test]
+    fn a_settings_file_from_before_tags_and_column_widths_still_loads() {
+        let folder = temporary_folder("before-tags");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"folders":["/music"],"theme":"deck","#,
+                r#""panels":{"sidebar_folded":true,"inspector_width":400,"strip_height":200},"#,
+                r#""folder_tree":{"expanded":["/music"],"selected":null}}"#
+            ),
+        )
+        .unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let settings = loaded.unwrap();
+        assert_eq!(settings.theme, ThemeName::Deck);
+        assert!(settings.panels.sidebar_folded);
+        assert_eq!(settings.column_widths, ColumnWidths::default());
+        assert_eq!(settings.tags, TagSettings::default());
     }
 
     #[test]

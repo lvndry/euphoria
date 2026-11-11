@@ -141,6 +141,13 @@ impl Session {
         queued
     }
 
+    /// Takes the titles and artists read from the files' tags.
+    pub(crate) fn set_track_names(&mut self, names: Vec<(PathBuf, euphoria_core::TrackName)>) {
+        for (path, name) in names {
+            self.library.set_names(&path, name.title, name.artist);
+        }
+    }
+
     /// Adds a made up folder for made up tracks to be in, without looking
     /// on disk.
     pub(crate) fn add_demo_folder(&mut self, folder: PathBuf) {

@@ -12,6 +12,7 @@ mod analysis;
 mod app;
 mod assets;
 mod camelot;
+mod columns;
 mod demo;
 mod dock_icon;
 mod folder_tree;
@@ -25,6 +26,9 @@ mod player;
 mod progress;
 mod settings;
 mod state;
+mod tag_flow;
+mod tag_settings;
+mod tag_writing;
 mod theme;
 #[cfg(test)]
 mod ui_tests;
@@ -37,13 +41,14 @@ use std::sync::Arc;
 use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError};
 use gpui::prelude::*;
 use gpui::{
-    AnyWindowHandle, App, Bounds, Entity, KeyBinding, Menu, MenuItem, QuitMode, TitlebarOptions,
-    WindowBounds, WindowOptions, point, px, size,
+    AnyWindowHandle, App, Bounds, Context, Entity, KeyBinding, Menu, MenuItem, QuitMode,
+    TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
 };
 
 use crate::actions::{
-    AddFolder, FocusSearch, Quit, TogglePlayback, ToggleSidebar, UseDeckTheme, UseGraphiteTheme,
-    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme,
+    AddFolder, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks, TogglePlayback,
+    ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
+    UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -155,6 +160,15 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("ctrl-alt-s", ToggleSidebar, None),
         // Space plays and pauses, except in a text field, where it types.
         KeyBinding::new("space", TogglePlayback, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("cmd-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("cmd-,", OpenSettings, None),
+        KeyBinding::new("cmd-shift-t", WriteTags, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-,", OpenSettings, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-t", WriteTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
@@ -179,6 +193,14 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
+    register_view_command::<UndoTagWrite>(view, cx, |view, cx| view.open_tag_undo(cx));
+    register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
+    register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
+    register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
+        view.reset_column_widths(cx);
+    });
+
     let weak_view = view.downgrade();
     cx.on_action(move |_: &AddFolder, cx| {
         weak_view.update(cx, |view, cx| view.choose_folder(cx)).ok();
@@ -201,6 +223,18 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_theme_command::<UseDeckTheme>(ThemeName::Deck, view, cx);
     register_theme_command::<UseGraphiteTheme>(ThemeName::Graphite, view, cx);
     register_theme_command::<UseKeyFirstTheme>(ThemeName::KeyFirst, view, cx);
+}
+
+/// Runs `command` on the root view when the action `Command` is triggered.
+fn register_view_command<Command: gpui::Action>(
+    view: &Entity<EuphoriaApp>,
+    cx: &mut App,
+    command: impl Fn(&mut EuphoriaApp, &mut Context<'_, EuphoriaApp>) + 'static,
+) {
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &Command, cx| {
+        weak_view.update(cx, |view, cx| command(view, cx)).ok();
+    });
 }
 
 fn register_theme_command<Command: gpui::Action>(
@@ -236,14 +270,25 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         item.checked(theme == current_theme)
     });
     cx.set_menus([
-        Menu::new(WINDOW_TITLE).items([MenuItem::action("Quit Euphoria", Quit)]),
+        Menu::new(WINDOW_TITLE).items([
+            MenuItem::action("Settings\u{2026}", OpenSettings),
+            MenuItem::separator(),
+            MenuItem::action("Quit Euphoria", Quit),
+        ]),
         Menu::new("File").items([MenuItem::action("Add Folder\u{2026}", AddFolder)]),
         Menu::new("View").items([
             MenuItem::action(sidebar_item, ToggleSidebar),
             MenuItem::separator(),
             MenuItem::action("Search", FocusSearch),
+            MenuItem::action("Select All Tracks", SelectAllTracks),
+            MenuItem::separator(),
+            MenuItem::action("Reset Column Widths", ResetColumnWidths),
             MenuItem::separator(),
             MenuItem::submenu(Menu::new("Theme").items(theme_items)),
+        ]),
+        Menu::new("Tags").items([
+            MenuItem::action("Write Tags\u{2026}", WriteTags),
+            MenuItem::action("Undo Last Tag Write\u{2026}", UndoTagWrite),
         ]),
         Menu::new("Playback").items([MenuItem::action("Play or Pause", TogglePlayback)]),
     ]);

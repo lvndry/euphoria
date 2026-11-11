@@ -1,191 +1,41 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The track table: a heading, sortable column headers and one row per
-//! track. Only the rows in view are built, so the table stays quick however
-//! long the library is.
+//! The track table: a heading, sortable column headers whose edges can be
+//! dragged, and one row per track. Only the rows in view are built, so the
+//! table stays quick however long the library is.
 
 use gpui::component::scroll::Scrollbar;
 use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px, relative,
-    uniform_list,
+    AnyElement, ClickEvent, Context, CursorStyle, Div, FontWeight, MouseButton, MouseDownEvent,
+    SharedString, TestSupportExt, canvas, div, px, relative, uniform_list,
 };
 
 use crate::app::EuphoriaApp;
+use crate::columns::{COLUMN_GAP, ColumnId, SIDE_PADDING};
 use crate::folder_tree::folder_name;
 use crate::format;
-use crate::library::{LibraryFilter, NOT_FOUND, SortColumn, Track, TrackStatus};
+use crate::library::{LibraryFilter, NOT_FOUND, Track, TrackStatus};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 
 const HEADER_HEIGHT: f32 = 28.0;
-const COLUMN_GAP: f32 = 12.0;
-const SIDE_PADDING: f32 = 14.0;
 
-/// How wide a column is.
-#[derive(Clone, Copy)]
-enum ColumnWidth {
-    /// A fixed number of pixels.
-    Fixed(f32),
-    /// A share of the space the fixed columns leave.
-    Share(f32),
-    /// As wide as the folder paths shown need, within limits; see
-    /// [`folder_column_width`].
-    FolderPaths,
+/// Width of the grip on the edge between two column headers.
+const EDGE_GRIP_WIDTH: f32 = 8.0;
+
+/// The element id of the header of `column`.
+pub(crate) fn header_id(column: ColumnId) -> (&'static str, usize) {
+    ("column", column.position())
 }
 
-/// One column of the table.
-#[derive(Clone, Copy)]
-struct Column {
-    label: &'static str,
-    width: ColumnWidth,
-    is_right_aligned: bool,
-    sorts_by: Option<SortColumn>,
-}
-
-const NUMBER: Column = Column {
-    label: "#",
-    width: ColumnWidth::Fixed(34.0),
-    is_right_aligned: true,
-    sorts_by: None,
-};
-const TITLE: Column = Column {
-    label: "Title",
-    width: ColumnWidth::Share(2.2),
-    is_right_aligned: false,
-    sorts_by: Some(SortColumn::Title),
-};
-const KEY: Column = Column {
-    label: "Key",
-    width: ColumnWidth::Fixed(58.0),
-    is_right_aligned: false,
-    sorts_by: Some(SortColumn::Key),
-};
-const MUSICAL_KEY: Column = Column {
-    label: "Musical key",
-    width: ColumnWidth::Fixed(84.0),
-    is_right_aligned: false,
-    sorts_by: Some(SortColumn::Key),
-};
-const BPM: Column = Column {
-    label: "BPM",
-    width: ColumnWidth::Fixed(60.0),
-    is_right_aligned: true,
-    sorts_by: Some(SortColumn::Bpm),
-};
-const ENERGY: Column = Column {
-    label: "Energy",
-    width: ColumnWidth::Fixed(86.0),
-    is_right_aligned: false,
-    sorts_by: Some(SortColumn::Energy),
-};
-const TIME: Column = Column {
-    label: "Time",
-    width: ColumnWidth::Fixed(48.0),
-    is_right_aligned: true,
-    sorts_by: Some(SortColumn::Duration),
-};
-const FORMAT: Column = Column {
-    label: "Format",
-    width: ColumnWidth::Fixed(56.0),
-    is_right_aligned: false,
-    sorts_by: Some(SortColumn::Format),
-};
-const FOLDER: Column = Column {
-    label: "Folder",
-    width: ColumnWidth::FolderPaths,
-    is_right_aligned: false,
-    sorts_by: Some(SortColumn::Folder),
-};
-
-const COLUMNS: [Column; 9] = [
-    NUMBER,
-    TITLE,
-    KEY,
-    MUSICAL_KEY,
-    BPM,
-    ENERGY,
-    TIME,
-    FORMAT,
-    FOLDER,
-];
-
-/// The narrowest the Title column is made to give the other columns room.
-const TITLE_KEEPS: f32 = 160.0;
-
-/// The narrowest the Folder column is drawn, so that its header stays
-/// readable. With less room than this it is left out.
-const NARROWEST_FOLDER: f32 = 56.0;
-
-/// The columns left out when the table is too narrow for all of them,
-/// first to last. The title, the key, the tempo and the energy always stay.
-const LEFT_OUT_FIRST: [Column; 5] = [FORMAT, FOLDER, TIME, MUSICAL_KEY, NUMBER];
-
-/// Which columns the table shows and how wide the Folder column is, for the
-/// width the table has.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct TableLayout {
-    left_out: Vec<&'static str>,
-    /// The width of the Folder column.
-    pub(crate) folder_width: f32,
-}
-
-impl TableLayout {
-    /// The layout of a table `table_width` wide whose longest folder path is
-    /// `longest_path` wide.
-    ///
-    /// The Title and Folder columns share what the other columns leave. The
-    /// Folder column takes what its longest path needs, so paths show in
-    /// full when there is room, but the Title column keeps at least
-    /// [`TITLE_KEEPS`]; a path that does not fit is cut short. When even
-    /// that is not possible, columns are left out in the order of
-    /// [`LEFT_OUT_FIRST`] until the Title column has its room.
-    pub(crate) fn for_width(table_width: f32, longest_path: f32) -> Self {
-        let wanted_folder = longest_path.ceil().max(NARROWEST_FOLDER);
-        let mut left_out: Vec<&'static str> = Vec::new();
-        let mut candidates = LEFT_OUT_FIRST.iter();
-        loop {
-            let shown: Vec<&Column> = COLUMNS
-                .iter()
-                .filter(|column| !left_out.contains(&column.label))
-                .collect();
-            let fixed: f32 = shown
-                .iter()
-                .map(|column| match column.width {
-                    ColumnWidth::Fixed(width) => width,
-                    ColumnWidth::Share(_) | ColumnWidth::FolderPaths => 0.0,
-                })
-                .sum();
-            let gaps = COLUMN_GAP * shown.len().saturating_sub(1) as f32;
-            let shared = table_width - 2.0 * SIDE_PADDING - gaps - fixed;
-            let shows_folder = !left_out.contains(&FOLDER.label);
-            let title_room = if shows_folder {
-                shared - NARROWEST_FOLDER
-            } else {
-                shared
-            };
-            let Some(next) = candidates.next().filter(|_| title_room < TITLE_KEEPS) else {
-                let folder_width = if shows_folder {
-                    wanted_folder.min(shared - TITLE_KEEPS).max(0.0)
-                } else {
-                    0.0
-                };
-                return Self {
-                    left_out,
-                    folder_width,
-                };
-            };
-            left_out.push(next.label);
-        }
-    }
-
-    fn shows(&self, column: &Column) -> bool {
-        !self.left_out.contains(&column.label)
-    }
+/// The element id of the grip on the right edge of `column`'s header.
+pub(crate) fn edge_id(column: ColumnId) -> (&'static str, usize) {
+    ("column-edge", column.position())
 }
 
 /// The table with its heading.
@@ -302,21 +152,21 @@ fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
 
 fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let layout = &app.table_layout;
-    let cells = COLUMNS
+    let cells = layout
+        .columns()
         .iter()
-        .enumerate()
-        .filter(|(_, column)| layout.shows(column))
-        .map(|(column_index, column)| {
+        .map(|(column, width)| {
+            let column = *column;
             let is_sorted = app
                 .sort_order
-                .filter(|order| column.sorts_by == Some(order.column));
+                .filter(|order| column.sorts_by() == Some(order.column));
             let hover_colour = palette.text;
-            cell(column, layout.folder_width)
-                .id(("column", column_index))
+            cell(column, *width)
+                .id(header_id(column))
                 .gap(px(4.0))
                 .items_center()
                 .when(is_sorted.is_some(), |cell| cell.text_color(palette.text))
-                .child(column.label)
+                .child(div().min_w_0().truncate().child(column.label()))
                 .children(is_sorted.map(|order| {
                     Icon::new(if order.descending {
                         IconName::ArrowDown
@@ -325,15 +175,33 @@ fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp
                     })
                     .size(px(10.0))
                 }))
-                .when_some(column.sorts_by, |cell, sort_column| {
+                .when_some(column.sorts_by(), |cell, sort_column| {
                     cell.cursor_pointer()
                         .hover(move |style| style.text_color(hover_colour))
                         .on_click(cx.listener(move |this, _, _, cx| this.sort_by(sort_column, cx)))
                 })
                 .test_support()
-        });
+        })
+        .collect::<Vec<_>>();
+    let resizing = app.column_resize.map(|resize| resize.column);
+    let edges: Vec<AnyElement> = layout
+        .columns()
+        .iter()
+        .filter_map(|(column, width)| {
+            let left = layout.left_of(*column)? + width + COLUMN_GAP / 2.0;
+            Some(column_edge(
+                *column,
+                left,
+                resizing == Some(*column),
+                palette,
+                cx,
+            ))
+        })
+        .collect();
+    let seen_bounds = app.table_header_bounds.clone();
 
     div()
+        .relative()
         .flex()
         .flex_shrink_0()
         .items_center()
@@ -345,25 +213,77 @@ fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp
         .text_size(LABEL_TEXT_SIZE)
         .font_weight(FontWeight::MEDIUM)
         .text_color(palette.text_tertiary)
+        .child(
+            canvas(
+                move |bounds, _, _| seen_bounds.set(Some(bounds)),
+                |_, _, _, _| (),
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
         .children(cells)
+        .children(edges)
 }
 
-/// An empty cell sized and aligned for `column`, with the Folder column
-/// `folder_width` wide.
-fn cell(column: &Column, folder_width: f32) -> Div {
-    let mut cell = div().flex().min_w_0().overflow_hidden();
-    match column.width {
-        ColumnWidth::Fixed(width) => cell = cell.w(px(width)).flex_shrink_0(),
-        ColumnWidth::FolderPaths => cell = cell.w(px(folder_width)).flex_shrink_0(),
-        ColumnWidth::Share(share) => {
-            cell = cell.flex_basis(px(0.0));
-            cell.style().flex_grow = Some(share);
-        }
+/// The grip on the edge after `column`, centred `centre` from the table's
+/// left: a thin line that a drag moves and a double click fits to the
+/// column's contents, as in a macOS table.
+fn column_edge(
+    column: ColumnId,
+    centre: f32,
+    is_held: bool,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let line = palette.line;
+    let highlight = palette.accent.opacity(0.6);
+    div()
+        .id(edge_id(column))
+        .absolute()
+        .top(px(6.0))
+        .bottom(px(6.0))
+        .left(px(centre - EDGE_GRIP_WIDTH / 2.0))
+        .w(px(EDGE_GRIP_WIDTH))
+        .flex()
+        .justify_center()
+        .cursor(CursorStyle::ResizeLeftRight)
+        .child(
+            div()
+                .w(px(1.0))
+                .h_full()
+                .bg(if is_held { highlight } else { line }),
+        )
+        .hover(move |style| style.bg(highlight.opacity(0.25)))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                this.start_column_resize(column, event.position.x, cx);
+            }),
+        )
+        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+            if event.click_count() >= 2 {
+                this.fit_column(column, window, cx);
+            }
+        }))
+        .test_support()
+        .into_any_element()
+}
+
+/// An empty cell `width` wide, aligned for `column`.
+fn cell(column: ColumnId, width: f32) -> Div {
+    let cell = div()
+        .flex()
+        .flex_shrink_0()
+        .w(px(width))
+        .min_w_0()
+        .overflow_hidden();
+    if column.is_right_aligned() {
+        cell.justify_end()
+    } else {
+        cell
     }
-    if column.is_right_aligned {
-        cell = cell.justify_end();
-    }
-    cell
 }
 
 /// The row at `row_index` of the visible tracks.
@@ -376,28 +296,17 @@ fn row(
     let palette = theme.palette;
     let track_index = *app.visible.get(row_index)?;
     let track = app.session.library().track(track_index)?;
-    let is_selected = app.selected == Some(track_index);
-    let is_unfinished = track.is_unfinished();
-    let layout = &app.table_layout;
-
-    let key_cell = match (&track.status, track.key()) {
-        (_, Some(key)) => cell(&KEY, 0.0).child(key_chip(&key, theme)),
-        (TrackStatus::Queued, _) => cell(&KEY, 0.0)
-            .text_size(SMALL_TEXT_SIZE)
-            .text_color(palette.text_tertiary)
-            .child("Queued"),
-        (TrackStatus::Analyzing, _) => cell(&KEY, 0.0)
-            .text_size(SMALL_TEXT_SIZE)
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(palette.accent)
-            .child("Analyzing"),
-        (TrackStatus::Failed(_), _) => cell(&KEY, 0.0)
-            .text_size(SMALL_TEXT_SIZE)
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(palette.danger)
-            .child("Failed"),
-        (TrackStatus::Analyzed(_), None) => cell(&KEY, 0.0).child(missing_value(&palette)),
-    };
+    let is_selected = app.selected == Some(track_index) || app.marked.contains(&track_index);
+    let cells: Vec<AnyElement> = app
+        .table_layout
+        .columns()
+        .iter()
+        .map(|(column, width)| {
+            cell(*column, *width)
+                .child(cell_contents(app, *column, row_index, track_index, track))
+                .into_any_element()
+        })
+        .collect();
 
     Some(
         div()
@@ -415,67 +324,87 @@ fn row(
                     row.hover(move |style| style.bg(palette.raised.opacity(0.5)))
                 }
             })
-            .on_click(cx.listener(move |this, _, window, cx| {
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.table_focus.focus(window, cx);
-                this.select(track_index, cx);
+                this.click_track(track_index, event.modifiers(), cx);
             }))
-            .when(layout.shows(&NUMBER), |row| {
-                row.child(
-                    cell(&NUMBER, 0.0)
-                        .text_color(palette.text_tertiary)
-                        .child(format::count(row_index + 1)),
-                )
-            })
-            .child(
-                cell(&TITLE, 0.0).child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .when(is_unfinished, |title| {
-                            title.text_color(palette.text_secondary)
-                        })
-                        .child(track.file_name.clone()),
-                ),
-            )
-            .child(key_cell)
-            .when(layout.shows(&MUSICAL_KEY), |row| {
-                row.child(
-                    cell(&MUSICAL_KEY, 0.0)
-                        .text_color(palette.text_secondary)
-                        .children(track.key().map(|key| key.to_string())),
-                )
-            })
-            .child(cell(&BPM, 0.0).child(optional_text(
-                track,
-                track.bpm().map(format::bpm),
-                &palette,
-            )))
-            .child(cell(&ENERGY, 0.0).child(energy(track, &palette)))
-            .when(layout.shows(&TIME), |row| {
-                row.child(
-                    cell(&TIME, 0.0)
-                        .text_color(palette.text_secondary)
-                        .children(track.duration_seconds().map(format::duration)),
-                )
-            })
-            .when(layout.shows(&FORMAT), |row| {
-                row.child(
-                    cell(&FORMAT, 0.0)
-                        .text_color(palette.text_tertiary)
-                        .child(track.format.clone()),
-                )
-            })
-            .when(layout.shows(&FOLDER), |row| {
-                row.child(cell(&FOLDER, layout.folder_width).child(folder_cell(
-                    app,
-                    track_index,
-                    &palette,
-                )))
-            })
+            .children(cells)
             .test_support()
             .into_any_element(),
     )
+}
+
+/// What the cell of `column` shows for `track`.
+fn cell_contents(
+    app: &EuphoriaApp,
+    column: ColumnId,
+    row_index: usize,
+    track_index: usize,
+    track: &Track,
+) -> AnyElement {
+    let theme = &app.theme;
+    let palette = theme.palette;
+    match column {
+        ColumnId::Number => div()
+            .text_color(palette.text_tertiary)
+            .child(format::count(row_index + 1))
+            .into_any_element(),
+        ColumnId::Title => {
+            let title: SharedString = track.title().to_string().into();
+            let tooltip = title.clone();
+            div()
+                .id(("title-cell", track_index))
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::MEDIUM)
+                .when(track.is_unfinished(), |title| {
+                    title.text_color(palette.text_secondary)
+                })
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .child(title)
+                .test_support()
+                .into_any_element()
+        }
+        ColumnId::Artist => div()
+            .min_w_0()
+            .truncate()
+            .text_color(palette.text_secondary)
+            .children(track.artist.clone())
+            .into_any_element(),
+        ColumnId::Key => match (&track.status, track.key()) {
+            (_, Some(key)) => key_chip(&key, theme).into_any_element(),
+            (TrackStatus::Queued, _) => status_text("Queued", palette.text_tertiary, false),
+            (TrackStatus::Analyzing, _) => status_text("Analyzing", palette.accent, true),
+            (TrackStatus::Failed(_), _) => status_text("Failed", palette.danger, true),
+            (TrackStatus::Analyzed(_), None) => missing_value(&palette).into_any_element(),
+        },
+        ColumnId::MusicalKey => div()
+            .text_color(palette.text_secondary)
+            .children(track.key().map(|key| key.to_string()))
+            .into_any_element(),
+        ColumnId::Bpm => {
+            optional_text(track, track.bpm().map(format::bpm), &palette).into_any_element()
+        }
+        ColumnId::Energy => energy(track, &palette).into_any_element(),
+        ColumnId::Time => div()
+            .text_color(palette.text_secondary)
+            .children(track.duration_seconds().map(format::duration))
+            .into_any_element(),
+        ColumnId::Format => div()
+            .text_color(palette.text_tertiary)
+            .child(track.format.clone())
+            .into_any_element(),
+        ColumnId::Folder => folder_cell(app, track_index, &palette),
+    }
+}
+
+fn status_text(text: &'static str, colour: gpui::Hsla, is_bold: bool) -> AnyElement {
+    div()
+        .text_size(SMALL_TEXT_SIZE)
+        .when(is_bold, |text| text.font_weight(FontWeight::MEDIUM))
+        .text_color(colour)
+        .child(text)
+        .into_any_element()
 }
 
 /// Where the track's folder is, from the folder on show: a path that keeps
@@ -549,63 +478,4 @@ fn energy(track: &Track, palette: &Palette) -> Div {
                         .bg(palette.text_tertiary),
                 ),
         )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The table in a 1440 wide window beside the sidebar and an inspector
-    /// of the usual width.
-    const USUAL_TABLE: f32 = 1440.0 - 220.0 - 320.0;
-
-    fn left_out(layout: &TableLayout) -> Vec<&'static str> {
-        layout.left_out.clone()
-    }
-
-    #[test]
-    fn a_path_that_fits_shows_in_full_with_every_column() {
-        let layout = TableLayout::for_width(USUAL_TABLE, 133.0);
-        assert!(left_out(&layout).is_empty());
-        assert_eq!(layout.folder_width, 133.0);
-    }
-
-    #[test]
-    fn a_short_path_keeps_the_header_readable() {
-        assert_eq!(TableLayout::for_width(USUAL_TABLE, 10.0).folder_width, 56.0);
-        assert_eq!(TableLayout::for_width(USUAL_TABLE, 0.0).folder_width, 56.0);
-    }
-
-    #[test]
-    fn a_long_path_is_cut_short_where_the_title_needs_its_room() {
-        let layout = TableLayout::for_width(USUAL_TABLE, 400.0);
-        assert!(left_out(&layout).is_empty());
-        assert_eq!(layout.folder_width, 350.0 - TITLE_KEEPS);
-    }
-
-    #[test]
-    fn a_narrow_table_leaves_out_format_then_folder_then_more() {
-        let without_sidebar = TableLayout::for_width(960.0 - 320.0, 133.0);
-        assert_eq!(left_out(&without_sidebar), ["Format", "Folder"]);
-        assert_eq!(without_sidebar.folder_width, 0.0);
-
-        let beside_the_sidebar = TableLayout::for_width(960.0 - 220.0 - 320.0, 133.0);
-        assert_eq!(
-            left_out(&beside_the_sidebar),
-            ["Format", "Folder", "Time", "Musical key", "#"]
-        );
-
-        let strip_layout = TableLayout::for_width(960.0 - 220.0, 133.0);
-        assert_eq!(left_out(&strip_layout), ["Format"]);
-        assert_eq!(strip_layout.folder_width, 98.0);
-    }
-
-    #[test]
-    fn a_table_too_narrow_for_anything_keeps_the_four_columns_that_matter() {
-        let layout = TableLayout::for_width(0.0, 133.0);
-        for column in [TITLE, KEY, BPM, ENERGY] {
-            assert!(layout.shows(&column), "{}", column.label);
-        }
-        assert_eq!(layout.folder_width, 0.0);
-    }
 }

@@ -27,13 +27,14 @@ Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. A 
 
 The app analyzes as many tracks at once as your computer has cores, up to 4. The command line tool goes up to 8 by default and lets you choose. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
 
-Your files are only read. The app does not write tags or change files.
+Your files are only read, until you choose to [write tags](#write-tags) into them.
 
 ## The track table
 
 | Column | Shows |
 | --- | --- |
-| Title | The file name |
+| Title | The title in the file's tags, or the file name when there is none |
+| Artist | The artist in the file's tags |
 | Key | The Camelot code, coloured by its number |
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
@@ -44,13 +45,19 @@ Your files are only read. The app does not write tags or change files.
 
 The Folder column shows the path from the folder chosen in the sidebar to the file's own folder. With `DJ tracks` chosen, a file in `DJ tracks/afro_house/warmup` shows `afro_house/warmup`; with `afro_house` chosen, it shows `warmup`; a file directly in the chosen folder shows a dash. Under **All tracks** the path starts inside the folder you added, with that folder's name in front when you added more than one. The column grows to fit the longest path on show, as long as the title keeps room; a path still too long keeps its last folder names in view, and pointing at it shows the whole path. Sorting by Folder groups the files folder by folder, in the order of the sidebar.
 
-In a narrow window the table leaves columns out rather than squeezing the title: first Format, then Folder, Time, Musical key and the row number. The title, key, tempo and energy always stay.
+Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
+
+### Resize the columns
+
+Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
+
+Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Format, then Folder, Artist, Time, Musical key and the row number. The title, key, tempo and energy always stay.
 
 Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Tracks with no value in the sorted column come last.
 
-Type in the search field, or press Command F first, to filter as you type. Each word must match part of the file name, the whole key code (`8a`), or the start of the tempo (`124`).
+Type in the search field, or press Command F first, to filter as you type. Each word must match part of the file name, the title or the artist, the whole key code (`8a`), or the start of the tempo (`124`).
 
-Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move the selection.
+Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move the selection. Command click adds a track to the selection or takes it out, Shift click selects every row between, and Command A selects every track on show.
 
 ## The sidebar
 
@@ -130,6 +137,31 @@ The three are drawn on top of one another, bass at the back, each as tall as tha
 
 The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
 
+## Write tags
+
+The app can write the key, tempo and energy it found into the files themselves, with the same safety as [`euphoria tags write`](write-tags.md): you see every change before anything is written, and one step puts the old tags back.
+
+1. Select the tracks to write, or choose a folder in the sidebar.
+2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The DJ program the tags are written for is shown beside the button.
+3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
+4. Click **Write** to write them. Nothing is written before that, and **Cancel** or Escape closes the preview without writing.
+5. The app shows how far it has got, then the files written and any it could not write, with the reason. Those are left as they were.
+
+**Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
+
+A file whose tags change is a different file to the [analysis cache](../reference/cli.md#the-analysis-cache), so it is analyzed once more the next time the app starts.
+
+## Settings
+
+Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.
+
+| Setting | Choices |
+| --- | --- |
+| DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
+| Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. |
+| Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. |
+| Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
+
 ## When a file fails
 
 A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on.
@@ -148,7 +180,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree and the folder on show are kept in `settings.json`:
+The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
@@ -194,7 +226,6 @@ EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
 ## Not there yet
 
 - Cue points, and the reference tone for checking a key by ear.
-- Writing tags and exporting to DJ software.
-- Artist and title from file tags: the table shows file names.
+- Exporting to DJ software from the app; `euphoria export rekordbox` does it from the command line.
 - Filters for key and tempo ranges.
 - Linux and Windows builds: the app is only built and tested on macOS so far.
