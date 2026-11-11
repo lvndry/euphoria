@@ -16,7 +16,9 @@ use euphoria_core::{SectionCue, TrackAnalysis};
 use gpui::Context;
 
 use crate::app::EuphoriaApp;
-use crate::deck_audio::{DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate};
+use crate::deck_audio::{
+    DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate, prepare_track,
+};
 use crate::library::Track;
 use crate::playback::{TrackSource, Voice};
 use crate::playlists::PlaylistId;
@@ -46,6 +48,14 @@ pub(crate) struct DeckView {
     pub(crate) volume: f32,
     /// True while the window asked the deck to play.
     pub(crate) playing: bool,
+    /// True while the track's file is being opened.
+    pub(crate) loading: bool,
+    /// True when play was pressed while the track was loading: it starts
+    /// as soon as it is loaded.
+    pub(crate) play_when_loaded: bool,
+    /// True when sync asks for a tempo the deck cannot play: it plays the
+    /// nearest it can.
+    pub(crate) tempo_out_of_reach: bool,
     /// Why the track could not be loaded, when it could not.
     pub(crate) problem: Option<String>,
 }
@@ -175,22 +185,35 @@ impl Decks {
         ))
     }
 
+    /// Marks the decks whose track played to its end as stopped, and drops
+    /// the tracks the mix took off its decks.
+    fn take_finished(&mut self) {
+        let Some(link) = &self.link else {
+            return;
+        };
+        link.drop_retired();
+        for deck in DeckId::BOTH {
+            if link.meter(deck).has_finished() {
+                self.views[index(deck)].playing = false;
+            }
+        }
+    }
+
     fn send(&self, command: DeckCommand) {
         if let Some(link) = &self.link {
             link.send(command);
         }
     }
 
-    /// The volume of each deck after its fader and the crossfader, with
-    /// equal power across the crossfader so the mix keeps its loudness.
+    /// The volume of each deck after its fader and the crossfader. The
+    /// crossfader is constant power: the squares of the two gains add up to
+    /// one at every position, so two unrelated tracks keep the loudness of
+    /// one across the fade, each at about 0.707 in the middle.
     pub(crate) fn gains(&self) -> [f32; 2] {
         let position = self.crossfader.clamp(0.0, 1.0);
-        let a = (position * FRAC_PI_2).cos() * std::f32::consts::SQRT_2;
-        let b = (position * FRAC_PI_2).sin() * std::f32::consts::SQRT_2;
-        [
-            self.views[0].volume * a.min(1.0),
-            self.views[1].volume * b.min(1.0),
-        ]
+        let a = (position * FRAC_PI_2).cos();
+        let b = (position * FRAC_PI_2).sin();
+        [self.views[0].volume * a, self.views[1].volume * b]
     }
 
     fn apply_gains(&self) {
@@ -218,6 +241,16 @@ impl Decks {
     fn follow_tempo(&mut self) {
         let rate = self.synced_rate().unwrap_or(1.0);
         self.views[1].rate = rate;
+        self.views[1].tempo_out_of_reach = match (self.sync, self.views[0].heard_bpm()) {
+            (true, Some(leading)) => self.views[1].heard_bpm().is_some_and(|heard| {
+                let ratio = heard / leading;
+                // Half and double tempo are matches too.
+                [1.0, 2.0, 0.5]
+                    .iter()
+                    .all(|scale: &f64| (ratio * scale - 1.0).abs() > 1e-3)
+            }),
+            _ => false,
+        };
         self.send(DeckCommand::SetRate {
             deck: DeckId::B,
             rate,
@@ -302,6 +335,8 @@ impl EuphoriaApp {
             .and_then(|analysis| grid_of(track, analysis));
         let view = self.decks.view_mut(deck);
         view.playing = false;
+        view.play_when_loaded = false;
+        view.loading = true;
         view.track_index = Some(track_index);
         view.path = Some(path.clone());
         view.grid = grid;
@@ -332,25 +367,28 @@ impl EuphoriaApp {
         }
         cx.spawn(async move |this, cx| {
             let opened_path = path.clone();
+            // The file is opened, and the deck's stretcher built, here and
+            // not on the audio thread.
             let opened = cx
                 .background_executor()
-                .spawn(async move { TrackSource::open(&opened_path, 0.0) })
+                .spawn(async move {
+                    TrackSource::open(&opened_path, 0.0).map(|source| {
+                        let duration = source.duration_seconds();
+                        (duration, prepare_track(source, grid))
+                    })
+                })
                 .await;
             this.update(cx, |this, cx| {
                 if this.decks.load_generation[index(deck)] != generation {
                     return;
                 }
+                this.decks.view_mut(deck).loading = false;
                 match opened {
-                    Ok(source) => {
+                    Ok((duration, track)) => {
                         if this.decks.view(deck).duration_seconds.is_none() {
-                            this.decks.view_mut(deck).duration_seconds =
-                                source.duration_seconds().map(f64::from);
+                            this.decks.view_mut(deck).duration_seconds = duration.map(f64::from);
                         }
-                        this.decks.send(DeckCommand::Load {
-                            deck,
-                            source: Box::new(source),
-                            grid,
-                        });
+                        this.decks.send(DeckCommand::Load { deck, track });
                         let view = this.decks.view(deck);
                         this.decks.send(DeckCommand::SetKeylock {
                             deck,
@@ -360,6 +398,11 @@ impl EuphoriaApp {
                             deck,
                             rate: view.rate,
                         });
+                        if this.decks.view(deck).play_when_loaded {
+                            this.decks.view_mut(deck).play_when_loaded = false;
+                            this.start_deck(deck);
+                            this.follow_decks(cx);
+                        }
                     }
                     Err(problem) => {
                         this.decks.view_mut(deck).problem = Some(problem.message().to_string());
@@ -377,6 +420,13 @@ impl EuphoriaApp {
     pub(crate) fn toggle_deck_play(&mut self, deck: DeckId, cx: &mut Context<'_, Self>) {
         let view = self.decks.view(deck);
         if view.track_index.is_none() || view.problem.is_some() {
+            return;
+        }
+        if view.loading {
+            // Kept until the file is open, so the press is not lost.
+            let view = self.decks.view_mut(deck);
+            view.play_when_loaded = !view.play_when_loaded;
+            cx.notify();
             return;
         }
         if view.playing {
@@ -559,6 +609,7 @@ impl EuphoriaApp {
                 cx.background_executor().timer(DECK_REFRESH).await;
                 let goes_on = this.update(cx, |this, cx| {
                     cx.notify();
+                    this.decks.take_finished();
                     let goes_on =
                         this.decks.is_open && this.decks.views.iter().any(|view| view.playing);
                     if !goes_on {
@@ -580,20 +631,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_crossfader_keeps_the_loudness_and_the_faders_scale_it() {
+    fn the_crossfader_is_constant_power_and_the_faders_scale_it() {
         let mut decks = Decks::default();
-        let gains = decks.gains();
-        assert!((gains[0] - 1.0).abs() < 1e-6 && (gains[1] - 1.0).abs() < 1e-6);
+        let power = |gains: [f32; 2]| gains[0] * gains[0] + gains[1] * gains[1];
+        let middle = decks.gains();
+        assert!(
+            (middle[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6,
+            "{middle:?}"
+        );
+        assert!(
+            (middle[1] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6,
+            "{middle:?}"
+        );
+        for position in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0] {
+            decks.crossfader = position;
+            assert!((power(decks.gains()) - 1.0).abs() < 1e-6, "{position}");
+        }
         decks.crossfader = 0.0;
         assert_eq!(decks.gains(), [1.0, 0.0]);
         decks.crossfader = 1.0;
         let gains = decks.gains();
-        assert!(gains[0].abs() < 1e-6 && (gains[1] - 1.0).abs() < 1e-6);
-        decks.crossfader = 0.25;
+        assert!(
+            gains[0].abs() < 1e-6 && (gains[1] - 1.0).abs() < 1e-6,
+            "{gains:?}"
+        );
+        decks.crossfader = 0.0;
         decks.views[0].volume = 0.5;
-        let gains = decks.gains();
-        assert!((gains[0] - 0.5).abs() < 1e-6, "{gains:?}");
-        assert!(gains[1] > 0.5 && gains[1] < 1.0, "{gains:?}");
+        assert_eq!(decks.gains(), [0.5, 0.0]);
     }
 
     #[test]
@@ -604,8 +668,26 @@ mod tests {
         decks.follow_tempo();
         assert!((decks.views[1].rate - 0.96).abs() < 1e-9);
         assert!((decks.views[1].heard_bpm().unwrap() - 120.0).abs() < 1e-9);
+        assert!(!decks.views[1].tempo_out_of_reach);
         decks.sync = false;
         decks.follow_tempo();
         assert_eq!(decks.views[1].rate, 1.0);
+    }
+
+    #[test]
+    fn a_tempo_out_of_reach_plays_the_nearest_and_says_so() {
+        let mut decks = Decks::default();
+        decks.views[0].bpm = Some(170.0);
+        decks.views[1].bpm = Some(60.0);
+        decks.follow_tempo();
+        // 170 needs 2.83 times 60, and 85 needs 1.42 of it, which a deck
+        // can play: half tempo is a match.
+        assert!((decks.views[1].heard_bpm().unwrap() - 85.0).abs() < 1e-6);
+        assert!(!decks.views[1].tempo_out_of_reach);
+        decks.views[1].bpm = Some(30.0);
+        decks.follow_tempo();
+        assert_eq!(decks.views[1].rate, 2.0, "the fastest a deck plays");
+        assert_eq!(decks.views[1].heard_bpm(), Some(60.0));
+        assert!(decks.views[1].tempo_out_of_reach);
     }
 }
