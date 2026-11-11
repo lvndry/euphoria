@@ -124,7 +124,7 @@ impl WriteLog {
         }
     }
 
-    /// Applies `plan` like [`apply_plan`], with its backup saved in the
+    /// Applies `plan` like [`super::apply_plan`], with its backup saved in the
     /// log first. An empty plan does nothing.
     ///
     /// A refused write or a backup failure leaves the file unchanged. A
@@ -394,7 +394,7 @@ fn is_untouched(backup: &TagBackup) -> Result<bool, EuphoriaError> {
 }
 
 /// Undoes the most recent write logged in `directory` that has not been
-/// undone, restoring each of its files with [`undo`]. Returns `None` when
+/// undone, restoring each of its files with [`super::undo`]. Returns `None` when
 /// there is no such write.
 ///
 /// One file that cannot be restored does not stop the others. The log is

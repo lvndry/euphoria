@@ -65,13 +65,16 @@ impl PlaylistEntry {
         before: ContentHash,
         after: ContentHash,
     ) -> bool {
+        if self.content != before {
+            return false;
+        }
         let same_file = self.path == path
             || std::fs::canonicalize(&self.path)
                 .ok()
                 .zip(std::fs::canonicalize(path).ok())
                 .is_some_and(|(stored, rewritten)| stored == rewritten);
         let missing = matches!(self.path.try_exists(), Ok(false));
-        if self.content != before || (!same_file && !missing) {
+        if !same_file && !missing {
             return false;
         }
         if missing {
@@ -137,6 +140,8 @@ impl PlaylistStore {
     /// be used to infer a rewrite from an arbitrary changed file. Only rows
     /// holding `before` at `path`, or at a now missing path, are rebound.
     /// Existing copies elsewhere are left alone. No playlist order changes.
+    /// Returns the old and new entries so queued snapshots can follow these
+    /// exact transitions without reinterpreting later filesystem changes.
     ///
     /// # Errors
     /// Returns [`EuphoriaError::Playlists`] if the store cannot be read or written.
@@ -145,7 +150,7 @@ impl PlaylistStore {
         path: &Path,
         before: ContentHash,
         after: ContentHash,
-    ) -> Result<usize, EuphoriaError> {
+    ) -> Result<Vec<(PlaylistEntry, PlaylistEntry)>, EuphoriaError> {
         let path = std::path::absolute(path).map_err(store_error(&self.path))?;
         let transaction = self
             .connection
@@ -165,14 +170,16 @@ impl PlaylistStore {
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(store_error(&self.path))?
         };
-        let mut changed = 0;
+        let mut changed = Vec::new();
         for (playlist, position, stored_path) in rows {
             let mut entry = PlaylistEntry {
                 path: PathBuf::from(stored_path),
                 content: before,
             };
+            let original = entry.clone();
             if entry.rebind_rewritten_file(&path, before, after) {
-                changed += transaction.execute("UPDATE playlist_tracks SET content_hash = ?1, path = ?2 WHERE playlist_position = ?3 AND position = ?4", params![after.as_bytes(), entry.path.to_str().ok_or_else(|| store_error(&self.path)("the rewritten path is not UTF-8"))?, playlist, position]).map_err(store_error(&self.path))?;
+                transaction.execute("UPDATE playlist_tracks SET content_hash = ?1, path = ?2 WHERE playlist_position = ?3 AND position = ?4", params![after.as_bytes(), entry.path.to_str().ok_or_else(|| store_error(&self.path)("the rewritten path is not UTF-8"))?, playlist, position]).map_err(store_error(&self.path))?;
+                changed.push((original, entry));
             }
         }
         transaction.commit().map_err(store_error(&self.path))?;
