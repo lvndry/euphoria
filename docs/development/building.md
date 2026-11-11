@@ -55,7 +55,7 @@ What it does, in order:
 7. Signs the libraries and then the bundle with an ad hoc signature (`codesign --sign -`), and verifies it. That is enough to run the app on the Mac that built it. A Developer ID signature and notarization, which let it open on any Mac without a warning, need a paid Apple Developer account and are not done.
 8. Builds `Euphoria-<version>.dmg` with the app on the left and a link to Applications on the right. The window layout is written by [dmgbuild](https://github.com/dmgbuild/dmgbuild), run through uv at a pinned version, because laying it out with only the tools macOS ships needs Finder scripting, which needs a logged in session and an automation permission. The layout is in `scripts/dmg-settings.py`.
 
-The bundle is ignored by Git under `target/`.
+The bundle is ignored by Git under `target/`. `scripts/release/package-cli.sh` uses `scripts/macos_libraries.py` the same way to package the command line tool for a release; [Releasing](releasing.md) describes it.
 
 ## Tests
 

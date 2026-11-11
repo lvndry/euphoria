@@ -5,9 +5,31 @@ description: Install Euphoria on macOS or Linux.
 
 # Installation
 
-Homebrew packages are on the way. Until then, Euphoria is built from source, which takes a few minutes.
+On a Mac with Apple Silicon, download the app and the command line tool from the [releases page](https://github.com/lvndry/euphoria/releases). On Linux, or to build the newest code, build from source, which takes a few minutes. Homebrew packages are on the way.
 
-## macOS
+## Download for macOS
+
+The app:
+
+1. Download [Euphoria.dmg](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), the newest release. Every release is also on the releases page as `Euphoria-<version>.dmg`.
+2. Open it and drag Euphoria onto Applications.
+3. Open Euphoria from Applications the first time as described [below](#opening-the-app-for-the-first-time).
+
+The app needs a Mac with Apple Silicon, and at least the macOS version given in the release notes.
+
+The command line tool is in `euphoria-<version>-aarch64-apple-darwin.tar.gz` on the same page. It carries its own copy of libkeyfinder, so it needs nothing else:
+
+```
+tar -xzf euphoria-*-aarch64-apple-darwin.tar.gz
+cd euphoria-*-aarch64-apple-darwin
+./bin/euphoria --version
+```
+
+Keep `bin` and `lib` together, and add the `bin` folder to your `PATH` to run `euphoria` from anywhere. Downloaded with a browser, the tool is held back by macOS like the app; `xattr -d com.apple.quarantine bin/euphoria lib/*.dylib` lets it run.
+
+`SHA256SUMS` on the releases page lists the checksum of each file, which `shasum -a 256 -c SHA256SUMS` checks.
+
+## Build from source on macOS
 
 Install the build tools and libkeyfinder, the key detection library Euphoria uses, with [Homebrew](https://brew.sh):
 
@@ -27,7 +49,7 @@ This puts the `euphoria` command in `~/.cargo/bin`, which the Rust installer add
 
 ### The desktop app
 
-From the same folder, build the app and a disk image to install it from. This also needs [uv](https://docs.astral.sh/uv/), which lays out the disk image window:
+From the same folder, build the app and a disk image to install it from, as the releases are built. This also needs [uv](https://docs.astral.sh/uv/), which lays out the disk image window:
 
 ```
 brew install uv
@@ -42,9 +64,9 @@ cp -R target/release/bundle/Euphoria.app /Applications/
 
 The app carries its own copy of libkeyfinder and FFTW, so it keeps working if you uninstall them from Homebrew, and you can copy it to another Mac. It needs the macOS version the script prints when it finishes: the newest minimum macOS of any binary in the bundle, which is also written into the app as `LSMinimumSystemVersion`. The libraries copied from Homebrew usually set it, because Homebrew builds them for the macOS it is installed on, so a bundle built on a newer Mac can need a newer macOS.
 
-### Opening the app for the first time on another Mac
+## Opening the app for the first time
 
-The app is signed only with an ad hoc signature, not with an Apple Developer ID, and it is not notarized by Apple. On the Mac that built it, it opens like any other app. On another Mac, the first time you open it, macOS says it cannot check the app for malicious software. To open it anyway:
+The app is signed only with an ad hoc signature, not with an Apple Developer ID, and it is not notarized by Apple. An app you built yourself opens like any other. A downloaded app, or one built on another Mac, makes macOS say the first time that it cannot check the app for malicious software. To open it anyway:
 
 1. In Finder, open Applications, right click Euphoria and choose **Open**.
 2. Choose **Open** in the dialog.
