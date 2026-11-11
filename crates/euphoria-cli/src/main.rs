@@ -9,6 +9,7 @@ mod export;
 mod help;
 mod output;
 mod playlists;
+mod rewrites;
 mod stages;
 mod style;
 mod tag_edit;

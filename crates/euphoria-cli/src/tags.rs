@@ -12,13 +12,14 @@ use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::tags::{
     DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, TagWriteOptions, WriteLog, WritePlan,
-    default_write_log_directory, plan_write, undo_last_write,
+    default_write_log_directory, plan_write, undo_last_write_with_observer,
 };
 use euphoria_core::{
     CachedBatch, Correction, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
 };
 
 use crate::batch::{self, AnalysisOptions};
+use crate::rewrites::RewriteIdentities;
 use crate::style::Theme;
 use crate::view::KeyNotationChoice;
 use crate::{output, with_causes};
@@ -244,12 +245,13 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         Decision::Write => {
             let log_directory = default_write_log_directory().map_err(with_causes)?;
             let mut log = WriteLog::new(&log_directory);
+            let mut identities = RewriteIdentities::new(arguments.analysis.uses_cache());
             let mut write_failures = Vec::new();
             let mut unrecorded = Vec::new();
             let mut written = Vec::new();
             for (plan, analysis) in plans.iter().zip(&analyses) {
                 let path = plan.path().to_path_buf();
-                match log.apply(plan) {
+                match log.apply_with_observer(plan, |path, stage| identities.observe(path, stage)) {
                     Ok(LoggedWrite::Recorded) => written.push((path, analysis)),
                     Ok(LoggedWrite::NotRecorded(error)) => {
                         written.push((path.clone(), analysis));
@@ -258,6 +260,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                     Err(error) => write_failures.push(Failure { path, error }),
                 }
             }
+            identities.report(&mut standard_error, &theme)?;
             if arguments.analysis.uses_cache() && !written.is_empty() {
                 let recorded = batch::open_cache().and_then(|mut cache| {
                     written
@@ -372,7 +375,12 @@ fn is_yes(input: &mut impl BufRead) -> std::io::Result<bool> {
 
 fn undo() -> Result<ExitCode> {
     let log_directory = default_write_log_directory().map_err(with_causes)?;
-    let Some(undone) = undo_last_write(&log_directory).map_err(with_causes)? else {
+    let mut identities = RewriteIdentities::new(true);
+    let outcome = undo_last_write_with_observer(&log_directory, |path, stage| {
+        identities.observe(path, stage)
+    });
+    identities.report(&mut std::io::stderr().lock(), &Theme::stderr())?;
+    let Some(undone) = outcome.map_err(with_causes)? else {
         eprintln!("There is no tag write to undo.");
         return Ok(ExitCode::SUCCESS);
     };
