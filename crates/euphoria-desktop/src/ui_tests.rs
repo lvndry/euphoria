@@ -3161,9 +3161,19 @@ fn deleting_the_playlist_on_show_goes_back_to_all_tracks(cx: &mut TestAppContext
     });
 }
 
-#[gpui::test]
-fn playlists_are_kept_and_found_again_on_the_next_launch(cx: &mut TestAppContext) {
-    let scratch = ScratchFolder::new("ui-playlist-store");
+/// Scratch copies of the test files in a window that keeps its playlists
+/// in a real store in the scratch folder.
+fn open_with_playlist_store(
+    name: &str,
+    cx: &mut TestAppContext,
+) -> (
+    ScratchFolder,
+    Vec<PathBuf>,
+    PathBuf,
+    AnyWindowHandle,
+    Entity<EuphoriaApp>,
+) {
+    let scratch = ScratchFolder::new(name);
     let files = scratch.copy_fixtures();
     let store_path = scratch.0.join("playlists.sqlite3");
     let tracks: Vec<DemoTrack> = fixture_tracks()
@@ -3198,6 +3208,13 @@ fn playlists_are_kept_and_found_again_on_the_next_launch(cx: &mut TestAppContext
         crate::register_commands(window, &view, cx);
         (window, view)
     });
+    (scratch, files, store_path, window, view)
+}
+
+#[gpui::test]
+fn playlists_are_kept_and_found_again_on_the_next_launch(cx: &mut TestAppContext) {
+    let (_scratch, files, store_path, window, view) =
+        open_with_playlist_store("ui-playlist-store", cx);
     let id = cx
         .update_window(window, |_, window, cx| {
             view.update(cx, |app, cx| app.create_playlist(window, cx))
@@ -3239,4 +3256,50 @@ fn is_shown(
         window.try_find(id).is_some()
     })
     .unwrap()
+}
+
+#[gpui::test]
+fn a_track_not_in_the_library_keeps_its_place_in_the_numbering(cx: &mut TestAppContext) {
+    let (window, view) = open_set(cx);
+    let id = make_playlist(window, &view, "Set", &["gone", "opener", "builder"], cx);
+    let numbers = cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.playlist, Some(id));
+        app.visible
+            .iter()
+            .map(|index| app.playlist_positions[index])
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(numbers, [2, 3], "the missing first track still counts as 1");
+}
+
+#[gpui::test]
+fn a_file_replaced_by_other_audio_is_left_out_of_an_export(cx: &mut TestAppContext) {
+    let (scratch, files, _store, window, view) =
+        open_with_playlist_store("ui-playlist-replaced", cx);
+    let id = cx
+        .update_window(window, |_, window, cx| {
+            view.update(cx, |app, cx| app.create_playlist(window, cx))
+        })
+        .unwrap();
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.renaming_playlist = None;
+            app.add_to_playlist(id, &[files[0].clone(), files[1].clone()], cx);
+        })
+    });
+    cx.run_until_parked();
+    std::fs::copy(&files[2], &files[1]).unwrap();
+
+    let job = cx.update(|cx| {
+        view.read(cx)
+            .playlist_export_job(id, crate::playlist_flow::PlaylistFormat::M3u8)
+            .unwrap()
+    });
+    let destination = scratch.0.join("set.m3u8");
+    let message = job.write(&destination).unwrap();
+    let written = std::fs::read_to_string(&destination).unwrap();
+    assert!(written.contains(files[0].to_str().unwrap()), "{written}");
+    assert!(!written.contains(files[1].to_str().unwrap()), "{written}");
+    assert!(message.contains("other audio"), "{message}");
 }

@@ -12,9 +12,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::export::rekordbox::{ExistingFile, ExportOptions, KeyNotation, write_xml_file};
 use euphoria_core::{
-    AssembledLibrary, CachedAnalyzer, CachedBatch, ExportContents, M3uTrack, PlaylistLayout,
-    assemble_library_with, find_audio_files, is_supported_audio_file, playlist_count,
-    read_track_name, write_m3u8_file,
+    AssembledLibrary, CachedAnalyzer, CachedBatch, EntryLocation, ExportContents, M3uTrack,
+    PlaylistLayout, assemble_library_with, find_audio_files, is_supported_audio_file,
+    playlist_count, read_track_name, write_m3u8_file,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -290,15 +290,21 @@ fn display_name(path: &Path) -> String {
 
 /// Says which tracks of the playlist are no longer anywhere, so they are
 /// left out.
-fn write_missing_files(missing: &[PathBuf]) -> Result<()> {
+fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
     if missing.is_empty() {
         return Ok(());
     }
     let mut standard_error = std::io::stderr().lock();
-    for path in missing {
+    for (path, location) in missing {
+        let reason = match location {
+            EntryLocation::Replaced => {
+                "the file there now holds other audio than the track that was added"
+            }
+            _ => "the file is no longer there",
+        };
         writeln!(
             standard_error,
-            "warning: left out {}: the file is no longer there",
+            "warning: left out {}: {reason}",
             Printable(path.display())
         )?;
     }

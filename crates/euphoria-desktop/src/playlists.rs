@@ -130,6 +130,11 @@ impl Playlists {
             .collect()
     }
 
+    /// The content of the file at `path` when it was added, when known.
+    pub(crate) fn content_of(&self, path: &Path) -> Option<ContentHash> {
+        self.contents.get(path).copied()
+    }
+
     /// The contents already known, for saving off the main thread.
     pub(crate) fn known_contents(&self) -> HashMap<PathBuf, ContentHash> {
         self.contents.clone()

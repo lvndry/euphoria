@@ -190,3 +190,32 @@ fn an_unknown_playlist_names_the_ones_there_are() {
     ]);
     assert!(!both.status.success());
 }
+
+#[test]
+fn a_file_replaced_at_its_path_by_other_audio_is_left_out_of_an_export() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let tracks = playlist_of_three(&euphoria, &folder);
+    std::fs::copy(
+        fixtures_directory().join("sine-440hz-stereo.wav"),
+        &tracks[0],
+    )
+    .expect("the test can read and write its own files");
+
+    let exported = folder.path().join("set.m3u8");
+    let export = euphoria.run(&[
+        "export",
+        "m3u8",
+        "--playlist",
+        "Peak time",
+        "--output",
+        text(&exported),
+    ]);
+    assert!(!export.status.success());
+    let errors = standard_error(&export);
+    assert!(errors.contains("holds other audio"), "{errors}");
+    let playlist =
+        std::fs::read_to_string(&exported).expect("the test can read and write its own files");
+    assert!(!playlist.contains(text(&tracks[0])), "{playlist}");
+    assert!(playlist.contains(text(&tracks[2])), "{playlist}");
+}

@@ -251,27 +251,120 @@ impl PlaylistStore {
     }
 }
 
-/// Points each entry whose file is no longer at its path to where `cache`
-/// last saw the same content, when a file is there now. Returns whether any
-/// entry moved, which is when the playlists are worth saving again.
-pub fn locate_moved_files(playlists: &mut [StoredPlaylist], cache: &CachedAnalyzer) -> bool {
+/// How sure to be that a file is the track a playlist holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryCheck {
+    /// Trust a file whose path, size and modification time the cache
+    /// recorded with the track's content, and a file the cache knows
+    /// nothing about at the entry's own path, as the analysis cache does:
+    /// enough for showing a playlist.
+    Quick,
+    /// Read the whole file and compare its content, before the file goes
+    /// into an export.
+    ReadFile,
+}
+
+/// Where the track of a playlist entry is now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntryLocation {
+    /// At the path the entry holds.
+    InPlace,
+    /// At another path, where the cache last saw its content.
+    Moved(PathBuf),
+    /// A file is at the entry's path, but it holds other audio, and the
+    /// track was found nowhere else.
+    Replaced,
+    /// No file holds the track any more.
+    Gone,
+}
+
+impl EntryLocation {
+    /// The path of the track, when it was found.
+    pub fn path<'entry>(&'entry self, entry: &'entry PlaylistEntry) -> Option<&'entry Path> {
+        match self {
+            EntryLocation::InPlace => Some(&entry.path),
+            EntryLocation::Moved(path) => Some(path),
+            EntryLocation::Replaced | EntryLocation::Gone => None,
+        }
+    }
+}
+
+/// Whether the file at `path` holds `content`, as far as `check` asks to
+/// be sure. `None` when that cannot be told, which only a quick check with
+/// no record of the file allows.
+fn holds(
+    path: &Path,
+    content: &ContentHash,
+    cache: Option<&CachedAnalyzer>,
+    check: EntryCheck,
+) -> Option<bool> {
+    if !path.is_file() {
+        return Some(false);
+    }
+    match check {
+        EntryCheck::ReadFile => {
+            Some(ContentHash::of_file(path).is_ok_and(|found| found == *content))
+        }
+        EntryCheck::Quick => cache
+            .and_then(|cache| cache.known_content(path))
+            .map(|known| known == *content),
+    }
+}
+
+/// Finds the track of `entry`: at its own path when the file there holds
+/// its content, or else where `cache` last saw that content, when the file
+/// there holds it. With [`EntryCheck::Quick`] a file at the entry's own
+/// path that the cache has no record of is taken for the track; with
+/// [`EntryCheck::ReadFile`] every file is read and compared.
+pub fn locate_entry(
+    entry: &PlaylistEntry,
+    cache: Option<&CachedAnalyzer>,
+    check: EntryCheck,
+) -> EntryLocation {
+    let in_place = holds(&entry.path, &entry.content, cache, check);
+    if in_place != Some(false) {
+        return EntryLocation::InPlace;
+    }
+    let candidate = cache
+        .and_then(|cache| cache.last_seen_path_of(&entry.content))
+        .filter(|candidate| *candidate != entry.path);
+    if let Some(candidate) = candidate
+        && holds(&candidate, &entry.content, cache, check) == Some(true)
+    {
+        return EntryLocation::Moved(candidate);
+    }
+    if entry.path.is_file() {
+        EntryLocation::Replaced
+    } else {
+        EntryLocation::Gone
+    }
+}
+
+/// Points each entry whose track moved to where it is now, after checking
+/// as `check` asks, and leaves the others as they are. Returns whether any
+/// entry moved, which is when the playlists are worth saving again, and the
+/// entries whose track was not found, with where it was looked for.
+pub fn locate_moved_files(
+    playlists: &mut [StoredPlaylist],
+    cache: Option<&CachedAnalyzer>,
+    check: EntryCheck,
+) -> (bool, Vec<(PathBuf, EntryLocation)>) {
     let mut moved = false;
+    let mut not_found = Vec::new();
     for entry in playlists
         .iter_mut()
         .flat_map(|playlist| playlist.entries.iter_mut())
     {
-        if entry.path.exists() {
-            continue;
-        }
-        if let Some(now) = cache
-            .last_seen_path_of(&entry.content)
-            .filter(|now| now.exists() && *now != entry.path)
-        {
-            entry.path = now;
-            moved = true;
+        match locate_entry(entry, cache, check) {
+            EntryLocation::InPlace => {}
+            EntryLocation::Moved(path) => {
+                entry.path = path;
+                moved = true;
+            }
+            missing => not_found.push((entry.path.clone(), missing)),
         }
     }
-    moved
+    (moved, not_found)
 }
 
 fn prepare(connection: &mut Connection) -> rusqlite::Result<u32> {
@@ -379,15 +472,107 @@ mod tests {
         std::fs::rename(&original, &moved).unwrap();
         cache.recognise_file(&moved).unwrap();
         let analyzer = CachedAnalyzer::new(cache).unwrap();
-        assert!(locate_moved_files(&mut playlists, &analyzer));
-        assert_eq!(playlists[0].entries[0].path, moved);
-        assert!(!locate_moved_files(&mut playlists, &analyzer));
+        for check in [EntryCheck::Quick, EntryCheck::ReadFile] {
+            let mut copy = playlists.clone();
+            let (has_moved, not_found) = locate_moved_files(&mut copy, Some(&analyzer), check);
+            assert!(has_moved && not_found.is_empty(), "{check:?}");
+            assert_eq!(copy[0].entries[0].path, moved);
+        }
+        locate_moved_files(&mut playlists, Some(&analyzer), EntryCheck::ReadFile);
+        assert_eq!(
+            locate_moved_files(&mut playlists, Some(&analyzer), EntryCheck::ReadFile),
+            (false, Vec::new())
+        );
         assert_eq!(
             PlaylistEntry::for_file(&moved, Some(&analyzer))
                 .unwrap()
                 .content,
             playlists[0].entries[0].content
         );
+    }
+
+    #[test]
+    fn a_file_replaced_at_the_same_path_is_not_taken_for_the_track() {
+        let folder = TemporaryFolder::new();
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        let path = folder.path().join("track.mp3");
+        std::fs::write(&path, b"the track").unwrap();
+        let entry = PlaylistEntry::for_file(&path, None).unwrap();
+        cache
+            .record_retagged_file(&path, &silent_analysis())
+            .unwrap();
+
+        std::fs::write(&path, b"other one").unwrap();
+        let analyzer = CachedAnalyzer::new(cache).unwrap();
+        assert_eq!(
+            locate_entry(&entry, Some(&analyzer), EntryCheck::ReadFile),
+            EntryLocation::Replaced
+        );
+        let mut playlists = vec![StoredPlaylist {
+            name: "Set".to_string(),
+            label: None,
+            entries: vec![entry.clone()],
+        }];
+        let (moved, not_found) =
+            locate_moved_files(&mut playlists, Some(&analyzer), EntryCheck::ReadFile);
+        assert!(!moved);
+        assert_eq!(not_found, [(path.clone(), EntryLocation::Replaced)]);
+        assert_eq!(
+            playlists[0].entries[0], entry,
+            "the entry is left as it was"
+        );
+
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            locate_entry(&entry, Some(&analyzer), EntryCheck::Quick),
+            EntryLocation::Gone
+        );
+        std::fs::write(&path, b"the track").unwrap();
+        assert_eq!(
+            locate_entry(&entry, None, EntryCheck::ReadFile),
+            EntryLocation::InPlace
+        );
+    }
+
+    #[test]
+    fn a_reused_path_does_not_pass_for_a_moved_track() {
+        let folder = TemporaryFolder::new();
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        let original = folder.path().join("track.mp3");
+        std::fs::write(&original, b"the track").unwrap();
+        let entry = PlaylistEntry::for_file(&original, None).unwrap();
+        let moved = folder.path().join("moved.mp3");
+        std::fs::rename(&original, &moved).unwrap();
+        cache.recognise_file(&moved).unwrap();
+        cache
+            .record_retagged_file(&moved, &silent_analysis())
+            .unwrap();
+        std::fs::write(&moved, b"something else").unwrap();
+        let analyzer = CachedAnalyzer::new(cache).unwrap();
+        for check in [EntryCheck::Quick, EntryCheck::ReadFile] {
+            assert_eq!(
+                locate_entry(&entry, Some(&analyzer), check),
+                EntryLocation::Gone,
+                "{check:?}: the file the cache last saw now holds other audio"
+            );
+        }
+    }
+
+    fn silent_analysis() -> crate::analysis::TrackAnalysis {
+        crate::analysis::TrackAnalysis {
+            duration_seconds: 60.0,
+            key: None,
+            bpm: None,
+            energy: None,
+            tuning_cents: None,
+            key_timeline: Vec::new(),
+            quality: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
+            beat_grid: None,
+        }
     }
 
     #[test]

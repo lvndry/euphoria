@@ -390,7 +390,8 @@ impl EuphoriaApp {
         id: PlaylistId,
         format: PlaylistFormat,
     ) -> Option<PlaylistExport> {
-        let playlist = self.session.playlists().get(id)?;
+        let playlists = self.session.playlists();
+        let playlist = playlists.get(id)?;
         let library = self.session.library();
         let tracks = playlist
             .tracks
@@ -402,6 +403,7 @@ impl EuphoriaApp {
             })
             .map(|track| ExportedTrack {
                 path: track.path.clone(),
+                content: playlists.content_of(&track.path),
                 analysis: track.analysis().cloned(),
                 display_name: match &track.artist {
                     Some(artist) => format!("{artist} - {}", track.title()),
@@ -426,6 +428,9 @@ impl EuphoriaApp {
 #[derive(Debug, Clone)]
 pub(crate) struct ExportedTrack {
     path: PathBuf,
+    /// The content the track had when it was added, when it is known. The
+    /// file is compared with it before it is exported.
+    content: Option<euphoria_core::ContentHash>,
     analysis: Option<euphoria_core::TrackAnalysis>,
     display_name: String,
 }
@@ -445,19 +450,40 @@ impl PlaylistExport {
         let failed = |error: euphoria_core::EuphoriaError| {
             format!("{} could not be exported: {}", self.name, error.chain())
         };
-        let left_out_note = |left_out: usize| match left_out {
-            0 => String::new(),
-            1 => " 1 track was left out: it is not analyzed or not in the library.".to_string(),
-            count => format!(
-                " {count} tracks were left out: they are not analyzed or not in the library."
-            ),
+        // The files go into another program's library, so each one is read
+        // and compared with the track that was added: a file replaced at
+        // the same path by other audio is left out.
+        let (tracks, replaced): (Vec<&ExportedTrack>, Vec<&ExportedTrack>) =
+            self.tracks.iter().partition(|track| {
+                track.content.is_none_or(|content| {
+                    euphoria_core::ContentHash::of_file(&track.path)
+                        .is_ok_and(|found| found == content)
+                })
+            });
+        let left_out_note = |left_out: usize| {
+            let missing = match left_out {
+                0 => String::new(),
+                1 => " 1 track was left out: it is not analyzed or not in the library.".to_string(),
+                count => format!(
+                    " {count} tracks were left out: they are not analyzed or not in the library."
+                ),
+            };
+            let other_audio = match replaced.len() {
+                0 => String::new(),
+                1 => " 1 track was left out: its file now holds other audio than the track \
+                       that was added."
+                    .to_string(),
+                count => format!(
+                    " {count} tracks were left out: their files now hold other audio than the \
+                     tracks that were added."
+                ),
+            };
+            missing + &other_audio
         };
         match self.format {
             PlaylistFormat::Rekordbox => {
-                let order: Vec<PathBuf> =
-                    self.tracks.iter().map(|track| track.path.clone()).collect();
-                let results: Vec<FileResult> = self
-                    .tracks
+                let order: Vec<PathBuf> = tracks.iter().map(|track| track.path.clone()).collect();
+                let results: Vec<FileResult> = tracks
                     .iter()
                     .filter_map(|track| {
                         track.analysis.clone().map(|analysis| FileResult {
@@ -485,12 +511,11 @@ impl PlaylistExport {
                     "Exported {} to {} for rekordbox: in rekordbox, open the XML view to import it.{}",
                     self.name,
                     destination.display(),
-                    left_out_note(self.tracks.len() - exported + self.not_in_library)
+                    left_out_note(tracks.len() - exported + self.not_in_library)
                 ))
             }
             PlaylistFormat::M3u8 => {
-                let tracks: Vec<M3uTrack> = self
-                    .tracks
+                let tracks: Vec<M3uTrack> = tracks
                     .iter()
                     .map(|track| M3uTrack {
                         path: track.path.clone(),

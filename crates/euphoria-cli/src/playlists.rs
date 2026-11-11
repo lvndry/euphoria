@@ -10,8 +10,8 @@ use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use euphoria_core::{
-    CachedAnalyzer, PlaylistStore, StoredPlaylist, default_cache_path, default_playlists_path,
-    locate_moved_files,
+    CachedAnalyzer, EntryCheck, EntryLocation, PlaylistStore, StoredPlaylist, default_cache_path,
+    default_playlists_path, locate_entry,
 };
 
 use crate::batch::open_cache;
@@ -23,7 +23,9 @@ use crate::with_causes;
 pub struct FoundPlaylist {
     pub name: String,
     pub files: Vec<PathBuf>,
-    pub missing: Vec<PathBuf>,
+    /// The tracks not found, each with why: gone, or replaced at its path
+    /// by other audio.
+    pub missing: Vec<(PathBuf, EntryLocation)>,
 }
 
 /// Every playlist, oldest first, or none when the app never kept any.
@@ -60,18 +62,21 @@ pub fn find_playlist(name: &str, uses_cache: bool) -> Result<FoundPlaylist> {
             names.join(", ")
         );
     };
-    if uses_cache
-        && default_cache_path().is_ok_and(|path| path.exists())
-        && let Ok(cache) = open_cache().and_then(CachedAnalyzer::new)
-    {
-        locate_moved_files(&mut playlists[position..=position], &cache);
-    }
+    let cache = (uses_cache && default_cache_path().is_ok_and(|path| path.exists()))
+        .then(|| open_cache().and_then(CachedAnalyzer::new).ok())
+        .flatten();
+    // An export puts these files into another program's library, so each
+    // one is read and compared with the content the playlist holds.
     let playlist = playlists.swap_remove(position);
-    let (files, missing) = playlist
-        .entries
-        .into_iter()
-        .map(|entry| entry.path)
-        .partition(|path| path.exists());
+    let mut files = Vec::new();
+    let mut missing = Vec::new();
+    for entry in &playlist.entries {
+        let location = locate_entry(entry, cache.as_ref(), EntryCheck::ReadFile);
+        match location.path(entry) {
+            Some(path) => files.push(path.to_path_buf()),
+            None => missing.push((entry.path.clone(), location)),
+        }
+    }
     Ok(FoundPlaylist {
         name: playlist.name,
         files,

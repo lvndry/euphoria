@@ -70,7 +70,8 @@ pub use harmony::{
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
 pub use playlists::{
-    PlaylistEntry, PlaylistStore, StoredPlaylist, default_playlists_path, locate_moved_files,
+    EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
+    default_playlists_path, locate_entry, locate_moved_files,
 };
 pub use tempo_range::TempoRange;
 pub use track_name::{TrackName, read_track_name};

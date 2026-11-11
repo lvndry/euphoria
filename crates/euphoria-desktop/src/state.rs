@@ -11,7 +11,8 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::{
-    CachedAnalyzer, EuphoriaError, PlaylistStore, StoredPlaylist, TrackAnalysis, locate_moved_files,
+    CachedAnalyzer, EntryCheck, EuphoriaError, PlaylistStore, StoredPlaylist, TrackAnalysis,
+    locate_moved_files,
 };
 
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
@@ -129,7 +130,7 @@ impl Session {
         let moved = self
             .cache
             .as_deref()
-            .is_some_and(|cache| locate_moved_files(&mut stored, cache));
+            .is_some_and(|cache| locate_moved_files(&mut stored, Some(cache), EntryCheck::Quick).0);
         self.playlists = Playlists::from_stored(stored);
         let mut store = store;
         if moved {

@@ -555,12 +555,15 @@ impl EuphoriaApp {
         }
         self.playlist_positions = playlist
             .map(|playlist| {
+                // Numbered before the tracks that are not in the library are
+                // left out, so each keeps its place in the saved order.
                 playlist
                     .tracks
                     .iter()
-                    .filter_map(|path| library.index_of(path))
                     .enumerate()
-                    .map(|(position, index)| (index, position + 1))
+                    .filter_map(|(position, path)| {
+                        library.index_of(path).map(|index| (index, position + 1))
+                    })
                     .collect()
             })
             .unwrap_or_default();
