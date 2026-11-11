@@ -19,7 +19,25 @@ pub(crate) fn window_hops(hop_count: usize, hops_per_window: usize) -> Vec<Range
 /// scores along the way add up to the most after `switch_penalty` is taken
 /// off for every change of key. A key change therefore shows only when the
 /// windows after it favour the new key by more than the penalty in total.
+///
+/// A window given as `None` holds no evidence of a key, such as silence. It
+/// gets no key, and the windows on either side of it are followed as if
+/// they were next to each other, so a change of key across it costs the
+/// penalty like any other.
 pub(crate) fn steadiest_keys<const KEY_COUNT: usize>(
+    window_scores: &[Option<[f64; KEY_COUNT]>],
+    switch_penalty: f64,
+) -> Vec<Option<usize>> {
+    let evidence: Vec<[f64; KEY_COUNT]> = window_scores.iter().flatten().copied().collect();
+    let mut keys = steadiest_path(&evidence, switch_penalty).into_iter();
+    window_scores
+        .iter()
+        .map(|scores| scores.and_then(|_| keys.next()))
+        .collect()
+}
+
+/// [`steadiest_keys`] for windows that all hold evidence.
+fn steadiest_path<const KEY_COUNT: usize>(
     window_scores: &[[f64; KEY_COUNT]],
     switch_penalty: f64,
 ) -> Vec<usize> {
@@ -82,8 +100,8 @@ pub(crate) fn best_index<const KEY_COUNT: usize>(values: &[f64; KEY_COUNT]) -> u
 }
 
 /// Runs of windows with the same key, as the range of windows and the key.
-pub(crate) fn runs(keys: &[usize]) -> Vec<(Range<usize>, usize)> {
-    let mut runs: Vec<(Range<usize>, usize)> = Vec::new();
+pub(crate) fn runs<Value: PartialEq + Copy>(keys: &[Value]) -> Vec<(Range<usize>, Value)> {
+    let mut runs: Vec<(Range<usize>, Value)> = Vec::new();
     for (window, &key) in keys.iter().enumerate() {
         match runs.last_mut() {
             Some((windows, run_key)) if *run_key == key => windows.end = window + 1,
@@ -116,10 +134,10 @@ mod tests {
         assert_eq!(window_hops(3, 8), vec![0..3]);
     }
 
-    fn favouring(key: usize, margin: f64) -> [f64; 3] {
+    fn favouring(key: usize, margin: f64) -> Option<[f64; 3]> {
         let mut scores = [0.5; 3];
         scores[key] += margin;
-        scores
+        Some(scores)
     }
 
     #[test]
@@ -127,33 +145,78 @@ mod tests {
         let mut scores = vec![favouring(0, 0.2); 6];
         scores.extend(vec![favouring(2, 0.2); 6]);
         let keys = steadiest_keys(&scores, 0.5);
-        assert_eq!(keys, [0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2]);
-        assert_eq!(runs(&keys), [(0..6, 0), (6..12, 2)]);
+        let expected: Vec<Option<usize>> = [0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2]
+            .into_iter()
+            .map(Some)
+            .collect();
+        assert_eq!(keys, expected);
+        assert_eq!(runs(&keys), [(0..6, Some(0)), (6..12, Some(2))]);
     }
 
     #[test]
     fn a_passing_change_of_key_is_ignored() {
         let mut scores = vec![favouring(0, 0.2); 6];
         scores.insert(3, favouring(1, 0.2));
-        assert_eq!(steadiest_keys(&scores, 0.5), [0; 7]);
+        assert_eq!(steadiest_keys(&scores, 0.5), [Some(0); 7]);
     }
 
     #[test]
     fn without_a_penalty_every_window_gets_its_best_key() {
         let scores = [favouring(0, 0.1), favouring(1, 0.1), favouring(0, 0.1)];
-        assert_eq!(steadiest_keys(&scores, 0.0), [0, 1, 0]);
+        assert_eq!(steadiest_keys(&scores, 0.0), [Some(0), Some(1), Some(0)]);
     }
 
     #[test]
     fn no_windows_give_no_keys() {
         assert!(steadiest_keys::<3>(&[], 0.5).is_empty());
-        assert!(runs(&[]).is_empty());
+        assert!(runs::<usize>(&[]).is_empty());
         assert_eq!(highest_total::<3>(&[]), None);
     }
 
     #[test]
+    fn windows_without_evidence_get_no_key_and_keep_their_place() {
+        let scores = [None, favouring(2, 0.2), None, None, favouring(2, 0.2), None];
+        assert_eq!(
+            steadiest_keys(&scores, 0.5),
+            [None, Some(2), None, None, Some(2), None]
+        );
+        assert_eq!(
+            runs(&steadiest_keys(&scores, 0.5)),
+            [
+                (0..1, None),
+                (1..2, Some(2)),
+                (2..4, None),
+                (4..5, Some(2)),
+                (5..6, None)
+            ]
+        );
+        assert_eq!(steadiest_keys::<3>(&[None, None], 0.5), [None, None]);
+    }
+
+    #[test]
+    fn a_gap_without_evidence_does_not_make_a_change_of_key_free() {
+        let mut scores = vec![favouring(0, 0.2); 6];
+        scores.extend([None; 4]);
+        scores.push(favouring(1, 0.2));
+        scores.extend(vec![favouring(0, 0.2); 6]);
+        let keys = steadiest_keys(&scores, 0.5);
+        assert!(
+            keys.iter().flatten().all(|key| *key == 0),
+            "one window in another key after a gap is not worth a change: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn windows_that_score_zero_for_every_key_keep_the_key_around_them() {
+        let mut scores = vec![favouring(2, 0.2); 3];
+        scores.extend([Some([0.0; 3]); 4]);
+        scores.extend(vec![favouring(2, 0.2); 3]);
+        assert_eq!(steadiest_keys(&scores, 0.5), [Some(2); 10]);
+    }
+
+    #[test]
     fn the_highest_total_wins_the_vote_and_silence_has_no_winner() {
-        let scores = [favouring(0, 0.3), favouring(1, 0.2), favouring(1, 0.2)];
+        let scores = [favouring(0, 0.3), favouring(1, 0.2), favouring(1, 0.2)].map(Option::unwrap);
         assert_eq!(highest_total(&scores), Some(1));
         assert_eq!(highest_total(&[[0.0; 3]; 4]), None);
     }

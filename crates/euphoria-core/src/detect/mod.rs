@@ -75,8 +75,10 @@ pub struct KeyReading {
     /// How far the track is tuned from A = 440 Hz, in cents from -50 to 50
     /// with sharp as positive, or `None` when it could not be measured.
     pub tuning_cents: Option<f32>,
-    /// The key over time: sections in order that together cover the track.
-    /// One section when no change of key was found, none when the track has
-    /// no key or the detector does not follow the key over time.
+    /// The key over time: sections in order that together cover the track,
+    /// except where it is silent, which belongs to no section. One section
+    /// when no change of key was found and the track has no silence, none
+    /// when the track has no key or the detector does not follow the key
+    /// over time.
     pub timeline: Vec<KeySection>,
 }

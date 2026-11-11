@@ -52,9 +52,10 @@ pub struct TrackAnalysis {
     /// detected after bringing it back to concert pitch, so `key` names the
     /// nearest key at 440 Hz.
     pub tuning_cents: Option<f32>,
-    /// The key over time: sections in order that together cover the track.
-    /// A track in which no change of key was found has one section, in the
-    /// key of the track. Empty when the track has no detectable key, and in
+    /// The key over time: sections in order that together cover the track,
+    /// except where it is silent. A track in which no change of key was
+    /// found has one section in the key of the track, or one on either side
+    /// of each silence. Empty when the track has no detectable key, and in
     /// builds without the `libkeyfinder` feature. It is reported only: `key`
     /// is decided from the whole track at once.
     pub key_timeline: Vec<KeySection>,

@@ -1,6 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::ops::Range;
+
 use crate::audio::AudioBuffer;
 use crate::detect::chromagram::{Chromagram, DETECTOR_NAME, KEY_COUNT, key_scores};
 use crate::detect::key_sections::{highest_total, runs, steadiest_keys, window_hops};
@@ -11,8 +13,20 @@ use crate::key::{Key, Mode};
 
 const A_PITCH_CLASS: usize = 9;
 
-/// Each analysis frame of libkeyfinder spans this many hops.
+/// Each analysis frame of libkeyfinder starts at its hop and spans this
+/// many hops, so it is heard most at its middle, half that many hops after
+/// its start.
 const HOPS_PER_FRAME: usize = 4;
+
+/// A window whose chroma is this far below the loudest window of the track,
+/// 60 dB, or that has none at all, is silence and holds no evidence of a
+/// key. Chroma grows with the amplitude of the audio.
+///
+/// Only silence is left out. A passage with sound but no harmony, such as
+/// a bare kick drum or a noise riser, cannot be told from music by its key
+/// scores: on two minute previews of dance music one window in ten matches
+/// its best key no more clearly than a synthesized kick drum does.
+const SILENT_WINDOW_LEVEL: f64 = 1.0e-3;
 
 /// Hops in each window whose key is read for the key over time, about 7.4
 /// seconds: long enough to hold a bar or two of every chord of a loop.
@@ -128,7 +142,9 @@ impl KeyDetector for KeyFinderVariant {
         match self.decision {
             KeyDecision::WholeTrack => analysis.key_of_whole_track(),
             KeyDecision::SectionVote => {
-                Ok(highest_total(&analysis.window_scores()?).map(key_from_code))
+                let window_scores: Vec<[f64; KEY_COUNT]> =
+                    analysis.window_scores()?.into_iter().flatten().collect();
+                Ok(highest_total(&window_scores).map(key_from_code))
             }
         }
     }
@@ -167,54 +183,80 @@ impl ChromaAnalysis {
         Ok(scores.first().and_then(best_key))
     }
 
-    /// The scores of every key in every window of the track.
-    fn window_scores(&self) -> Result<Vec<[f64; KEY_COUNT]>, EuphoriaError> {
-        let chroma_vectors: Vec<f64> = window_hops(self.chromagram.hop_count(), HOPS_PER_WINDOW)
-            .into_iter()
-            .flat_map(|hops| self.chromagram.mean_of_hops(hops))
+    /// The scores of every key in every window of the track, or `None` for
+    /// a silent window, which holds no evidence of a key.
+    fn window_scores(&self) -> Result<Vec<Option<[f64; KEY_COUNT]>>, EuphoriaError> {
+        let chroma_vectors: Vec<Vec<f64>> =
+            window_hops(self.chromagram.hop_count(), HOPS_PER_WINDOW)
+                .into_iter()
+                .map(|hops| self.chromagram.mean_of_hops(hops))
+                .collect();
+        let levels: Vec<f64> = chroma_vectors
+            .iter()
+            .map(|chroma| chroma.iter().map(|value| value * value).sum::<f64>().sqrt())
             .collect();
-        key_scores(&chroma_vectors)
-    }
-
-    /// The key of each stretch of the track. A track that stays in one key
-    /// is one section in `track_key`.
-    fn timeline(&self, track_key: Key, duration: f32) -> Result<Vec<KeySection>, EuphoriaError> {
-        let windows = window_hops(self.chromagram.hop_count(), HOPS_PER_WINDOW);
-        let keys = steadiest_keys(&self.window_scores()?, KEY_CHANGE_PENALTY);
-        let runs = runs(&keys);
-        if runs.len() <= 1 {
-            return Ok(vec![KeySection {
-                start_seconds: 0.0,
-                end_seconds: duration,
-                key: track_key,
-            }]);
-        }
-        let last_run = runs.len() - 1;
-        Ok(runs
+        let loudest = levels.iter().copied().fold(0.0, f64::max);
+        let scores = key_scores(&chroma_vectors.concat())?;
+        Ok(scores
             .into_iter()
-            .enumerate()
-            .map(|(run_index, (run_windows, code))| KeySection {
-                start_seconds: if run_index == 0 {
-                    0.0
-                } else {
-                    self.boundary_seconds(windows[run_windows.start].start, duration)
-                },
-                end_seconds: if run_index == last_run {
-                    duration
-                } else {
-                    self.boundary_seconds(windows[run_windows.end - 1].end, duration)
-                },
-                key: key_from_code(code),
+            .zip(levels)
+            .map(|(scores, level)| {
+                (level > 0.0 && level >= SILENT_WINDOW_LEVEL * loudest).then_some(scores)
             })
             .collect())
     }
 
-    /// The time halfway between the middle of the frame at `hop` and the
-    /// middle of the frame before it.
-    fn boundary_seconds(&self, hop: usize, duration: f32) -> f32 {
-        let hops_from_start = hop as f32 + (HOPS_PER_FRAME as f32 - 1.0) / 2.0;
-        (hops_from_start * self.seconds_per_hop).min(duration)
+    /// The key of each stretch of the track.
+    ///
+    /// Silence belongs to no section, so the timeline has a hole where the
+    /// track is silent, and starts late or ends early when the track starts
+    /// or ends in silence. When every stretch with sound is in one key, each
+    /// section carries `track_key`, and a track without silence is then one
+    /// section from start to end.
+    fn timeline(&self, track_key: Key, duration: f32) -> Result<Vec<KeySection>, EuphoriaError> {
+        let windows = window_hops(self.chromagram.hop_count(), HOPS_PER_WINDOW);
+        let keys = steadiest_keys(&self.window_scores()?, KEY_CHANGE_PENALTY);
+        let keyed_runs: Vec<(Range<usize>, usize)> = runs(&keys)
+            .into_iter()
+            .filter_map(|(run_windows, code)| Some((run_windows, code?)))
+            .collect();
+        let stays_in_one_key = keyed_runs.windows(2).all(|pair| pair[0].1 == pair[1].1);
+        Ok(keyed_runs
+            .into_iter()
+            .map(|(run_windows, code)| KeySection {
+                start_seconds: if run_windows.start == 0 {
+                    0.0
+                } else {
+                    self.boundary_seconds(windows[run_windows.start].start, duration)
+                },
+                end_seconds: if run_windows.end == windows.len() {
+                    duration
+                } else {
+                    self.boundary_seconds(windows[run_windows.end].start, duration)
+                },
+                key: if stays_in_one_key {
+                    track_key
+                } else {
+                    key_from_code(code)
+                },
+            })
+            .collect())
     }
+
+    /// Where the window that starts at `hop` takes over from the window
+    /// before it: halfway between the middles of their two nearest frames,
+    /// the frame at `hop` and the frame before it.
+    fn boundary_seconds(&self, hop: usize, duration: f32) -> f32 {
+        let hop = hop as f32;
+        let midpoint_hops = (frame_middle_hops(hop - 1.0) + frame_middle_hops(hop)) / 2.0;
+        (midpoint_hops * self.seconds_per_hop).min(duration)
+    }
+}
+
+/// Where the frame that starts at `hop` is heard most, in hops from the
+/// start of the track.
+fn frame_middle_hops(hop: f32) -> f32 {
+    hop + HOPS_PER_FRAME as f32 / 2.0
 }
 
 /// The key with the highest score, or `None` when no key scores above zero,
@@ -244,6 +286,8 @@ fn key_from_code(code: usize) -> Key {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::TAU;
+
     use super::*;
     use crate::detect::synthesis::{SAMPLE_RATE, buffer, chord_progression, pink_noise};
 
@@ -427,6 +471,279 @@ mod tests {
         let reading = KeyFinderDetector.read_key(&audio).unwrap();
         assert_eq!(reading.tuning_cents, None);
         assert_eq!(reading.timeline.len(), usize::from(reading.key.is_some()));
+    }
+
+    fn silence(seconds: f32) -> Vec<f32> {
+        vec![0.0; (seconds * SAMPLE_RATE as f32) as usize]
+    }
+
+    fn progression(name: &str, seconds: f32) -> Vec<f32> {
+        chord_progression(key(name), 0.0, seconds)
+    }
+
+    /// A kick drum on every beat at 120 BPM, with no other instrument.
+    fn kick_drum(seconds: f32) -> Vec<f32> {
+        let samples_per_beat = SAMPLE_RATE as usize / 2;
+        let sample_count = (seconds * SAMPLE_RATE as f32) as usize;
+        (0..sample_count)
+            .map(|index| {
+                let since_beat = (index % samples_per_beat) as f32 / SAMPLE_RATE as f32;
+                let frequency = 50.0 + 100.0 * (-since_beat / 0.03).exp();
+                0.8 * (TAU * frequency * since_beat).sin() * (-since_beat / 0.15).exp()
+            })
+            .collect()
+    }
+
+    /// Seconds in one window of the key over time, the furthest a section
+    /// boundary can be from where the music changes.
+    fn window_seconds() -> f32 {
+        let probe = ChromaAnalysis::of_audio(&buffer(silence(1.0)), None).unwrap();
+        HOPS_PER_WINDOW as f32 * probe.seconds_per_hop
+    }
+
+    #[test]
+    fn a_frame_is_heard_most_halfway_through_its_four_hops() {
+        let probe = ChromaAnalysis::of_audio(&buffer(silence(1.0)), None).unwrap();
+        let samples_per_hop = probe.chromagram.samples_per_hop();
+        let burst_half_length = SAMPLE_RATE as usize / 100;
+        // A burst short against a frame, placed so the frames that hear it
+        // are sampled symmetrically about it, shows where frames listen.
+        for burst_hop in [20.0, 20.25, 20.5, 20.75] {
+            let mut samples = vec![0.0_f32; 44 * samples_per_hop];
+            let centre = (burst_hop * samples_per_hop as f64) as usize;
+            let first_sample = centre - burst_half_length;
+            let burst = &mut samples[first_sample..centre + burst_half_length];
+            for (offset, sample) in burst.iter_mut().enumerate() {
+                let phase = offset as f32 / (2 * burst_half_length) as f32;
+                let envelope = 0.5 - 0.5 * (TAU * phase).cos();
+                let time = (first_sample + offset) as f32 / SAMPLE_RATE as f32;
+                *sample = envelope * (TAU * 440.0 * time).sin();
+            }
+            let analysis = ChromaAnalysis::of_audio(&buffer(samples), None).unwrap();
+            let energies: Vec<f64> = (0..analysis.chromagram.hop_count())
+                .map(|hop| analysis.chromagram.mean_of_hops(hop..hop + 1).iter().sum())
+                .collect();
+            let total: f64 = energies.iter().sum();
+            let heard_by_hop = energies
+                .iter()
+                .enumerate()
+                .map(|(hop, energy)| hop as f64 * energy)
+                .sum::<f64>()
+                / total;
+
+            let middle_after_start = burst_hop - heard_by_hop;
+
+            assert!(
+                (middle_after_start - HOPS_PER_FRAME as f64 / 2.0).abs() < 0.05,
+                "burst at hop {burst_hop}: frames are heard most {middle_after_start} hops \
+                 after they start"
+            );
+            assert!(
+                (f64::from(frame_middle_hops(20.0)) - (20.0 + middle_after_start)).abs() < 0.05
+            );
+        }
+    }
+
+    #[test]
+    fn sections_change_halfway_between_the_middles_of_two_frames() {
+        let analysis = ChromaAnalysis::of_audio(&buffer(silence(1.0)), None).unwrap();
+        for hop in [1, 8, 32] {
+            let expected_hops = hop as f32 + 1.5;
+            let boundary = analysis.boundary_seconds(hop, f32::MAX);
+            assert!(
+                (boundary / analysis.seconds_per_hop - expected_hops).abs() < 1.0e-3,
+                "hop {hop}: {boundary} seconds"
+            );
+        }
+        assert_eq!(analysis.boundary_seconds(32, 1.0), 1.0);
+    }
+
+    #[test]
+    fn a_change_of_key_is_reported_within_a_quarter_hop_of_where_it_happens() {
+        let probe = ChromaAnalysis::of_audio(&buffer(silence(1.0)), None).unwrap();
+        let samples_per_hop = probe.chromagram.samples_per_hop();
+        let hop_count = 64;
+        let window_start = 32;
+        // The windows split cleanly where every frame of one window is
+        // heard before the change and every frame of the next after it.
+        let change_hops = window_start as f32 + 1.5;
+        let change_sample = (change_hops * samples_per_hop as f32) as usize;
+        let total_samples = hop_count * samples_per_hop;
+        let mut samples = progression("C major", 60.0)[..change_sample].to_vec();
+        samples.extend_from_slice(&progression("F# minor", 60.0)[..total_samples - change_sample]);
+        let audio = buffer(samples);
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        let analysis = ChromaAnalysis::of_audio(&audio, None).unwrap();
+        assert_eq!(analysis.chromagram.hop_count(), hop_count);
+        assert_eq!(
+            window_hops(hop_count, HOPS_PER_WINDOW)[4].start,
+            window_start
+        );
+        let [before, after] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!((before.key, after.key), (key("C major"), key("F# minor")));
+        let error_hops = (after.start_seconds - change_sample as f32 / SAMPLE_RATE as f32)
+            / analysis.seconds_per_hop;
+        assert!(
+            error_hops.abs() < 0.25,
+            "the change is reported {error_hops} hops from where it happens"
+        );
+    }
+
+    #[test]
+    fn silence_between_two_keys_is_a_hole_in_the_timeline() {
+        let audio = buffer(
+            [
+                progression("C major", 40.0),
+                silence(30.0),
+                progression("F# minor", 40.0),
+            ]
+            .concat(),
+        );
+        let window = window_seconds();
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        let [before, after] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!((before.key, after.key), (key("C major"), key("F# minor")));
+        assert_eq!(before.start_seconds, 0.0);
+        assert_eq!(after.end_seconds, audio.duration_seconds());
+        assert!(
+            (40.0 - window..=40.0 + window).contains(&before.end_seconds),
+            "{:?}",
+            reading.timeline
+        );
+        assert!(
+            (70.0 - window..=70.0 + window).contains(&after.start_seconds),
+            "{:?}",
+            reading.timeline
+        );
+        assert!(after.start_seconds - before.end_seconds > 30.0 - 2.0 * window);
+    }
+
+    #[test]
+    fn silence_inside_a_track_in_one_key_splits_it_into_two_sections_in_that_key() {
+        let audio = buffer(
+            [
+                progression("C major", 40.0),
+                silence(30.0),
+                progression("C major", 40.0),
+            ]
+            .concat(),
+        );
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        assert_eq!(reading.key, Some(key("C major")));
+        let [before, after] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!((before.key, after.key), (key("C major"), key("C major")));
+        assert!(before.end_seconds < 55.0 && after.start_seconds > 55.0);
+    }
+
+    #[test]
+    fn a_track_that_starts_or_ends_in_silence_has_no_section_there() {
+        let window = window_seconds();
+
+        let starts_silent = buffer([silence(20.0), progression("C major", 60.0)].concat());
+        let reading = KeyFinderDetector.read_key(&starts_silent).unwrap();
+        let [section] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!(section.key, key("C major"));
+        assert!((20.0 - window..=20.0 + window).contains(&section.start_seconds));
+        assert_eq!(section.end_seconds, starts_silent.duration_seconds());
+
+        let ends_silent = buffer([progression("C major", 60.0), silence(20.0)].concat());
+        let reading = KeyFinderDetector.read_key(&ends_silent).unwrap();
+        let [section] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!(section.start_seconds, 0.0);
+        assert!((60.0 - window..=60.0 + window).contains(&section.end_seconds));
+    }
+
+    #[test]
+    fn a_passage_far_quieter_than_the_track_counts_as_silence() {
+        let whisper: Vec<f32> = progression("F# minor", 30.0)
+            .iter()
+            .map(|sample| sample * 3.0e-4)
+            .collect();
+        let audio = buffer(
+            [
+                progression("C major", 40.0),
+                whisper,
+                progression("C major", 40.0),
+            ]
+            .concat(),
+        );
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        assert_eq!(reading.timeline.len(), 2, "{:?}", reading.timeline);
+        assert!(
+            reading
+                .timeline
+                .iter()
+                .all(|section| section.key == key("C major"))
+        );
+    }
+
+    #[test]
+    fn a_passage_with_sound_but_no_harmony_keeps_the_key_around_it() {
+        for (label, passage) in [
+            ("kick drum", kick_drum(30.0)),
+            ("noise", pink_noise(30 * SAMPLE_RATE as usize, 0.3)),
+        ] {
+            let audio = buffer(
+                [
+                    progression("C major", 40.0),
+                    passage,
+                    progression("C major", 40.0),
+                ]
+                .concat(),
+            );
+
+            let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+            assert_eq!(
+                reading.timeline,
+                [KeySection {
+                    start_seconds: 0.0,
+                    end_seconds: audio.duration_seconds(),
+                    key: key("C major"),
+                }],
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_change_of_key_across_a_drum_break_falls_within_the_break() {
+        let audio = buffer(
+            [
+                progression("C major", 40.0),
+                kick_drum(30.0),
+                progression("F# minor", 40.0),
+            ]
+            .concat(),
+        );
+        let window = window_seconds();
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        let [before, after] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!((before.key, after.key), (key("C major"), key("F# minor")));
+        assert_eq!(before.end_seconds, after.start_seconds);
+        assert!((40.0 - window..=70.0 + window).contains(&after.start_seconds));
     }
 
     #[test]
