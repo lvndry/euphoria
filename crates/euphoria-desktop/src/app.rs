@@ -21,6 +21,7 @@ use gpui::{
 };
 
 use crate::columns::{ColumnId, ColumnWidths, TableLayout, fitted_width, widest_text};
+use crate::display_settings::{DisplaySettings, TempoPreset, TempoRangeSetting};
 use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
 use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
@@ -98,6 +99,16 @@ pub(crate) struct EuphoriaApp {
     pub(crate) marked: HashSet<usize>,
     /// How tags are written.
     pub(crate) tag_settings: TagSettings,
+    /// How keys and tempos are shown.
+    pub(crate) display: DisplaySettings,
+    /// The custom tempo range's slowest and fastest tempos, as typed.
+    pub(crate) tempo_from_input: Entity<InputState>,
+    pub(crate) tempo_to_input: Entity<InputState>,
+    /// True when the settings show the custom tempo range, chosen or
+    /// remembered, rather than a preset.
+    pub(crate) is_custom_tempo_range: bool,
+    /// Why the custom tempo range typed is not used, when it is not.
+    pub(crate) tempo_range_problem: Option<String>,
     /// The steps of a tag write or undo, while one is on screen.
     pub(crate) tag_panel: Option<TagPanel>,
     /// True while the settings panel is open.
@@ -195,6 +206,25 @@ impl EuphoriaApp {
             })
         });
 
+        let display = settings.display;
+        let typed_range = |text: u16, window: &mut Window, cx: &mut Context<'_, Self>| {
+            cx.new(|cx| InputState::new(window, cx).default_value(text.to_string()))
+        };
+        let tempo_from_input = typed_range(display.tempo_range.slowest, window, cx);
+        let tempo_to_input = typed_range(display.tempo_range.fastest, window, cx);
+        let range_typed = |this: &mut Self,
+                           _: Entity<InputState>,
+                           event: &InputEvent,
+                           cx: &mut Context<'_, Self>| {
+            if matches!(event, InputEvent::Change) {
+                this.apply_typed_tempo_range(cx);
+            }
+        };
+        let tempo_from_changed = cx.subscribe(&tempo_from_input, range_typed);
+        let tempo_to_changed = cx.subscribe(&tempo_to_input, range_typed);
+        let mut session = session;
+        session.set_tempo_range(display.tempo_range.range_or_default());
+
         let theme = AppTheme::named(settings.theme);
         theme.apply_to_components(cx);
         let expanded_folders = settings
@@ -221,6 +251,11 @@ impl EuphoriaApp {
             table_header_bounds: Rc::new(Cell::new(None)),
             marked: HashSet::new(),
             tag_settings: settings.tags,
+            display,
+            tempo_from_input,
+            tempo_to_input,
+            is_custom_tempo_range: display.tempo_range.preset().is_none(),
+            tempo_range_problem: None,
             tag_panel: None,
             settings_open: false,
             write_log_directory: if cfg!(test) {
@@ -262,7 +297,12 @@ impl EuphoriaApp {
             is_collecting: false,
             folder_tree_revisions: None,
             folder_column_basis: None,
-            _subscriptions: vec![search_changed, quitting],
+            _subscriptions: vec![
+                search_changed,
+                quitting,
+                tempo_from_changed,
+                tempo_to_changed,
+            ],
         };
         if !settings.folders.is_empty() {
             this.add_paths(settings.folders, false, cx);
@@ -463,7 +503,7 @@ impl EuphoriaApp {
         match self.folder_tree_revisions {
             Some(built) if built == revisions => {}
             Some((structure, _)) if structure == revisions.0 => {
-                self.folder_tree.recount_failures(library.tracks());
+                self.folder_tree.recount_reviews(library.tracks());
             }
             _ => {
                 self.folder_tree = FolderTree::build(library.folders(), library.tracks());
@@ -709,7 +749,9 @@ impl EuphoriaApp {
                     .then(|| Cow::Owned(crate::format::count(row + 1))),
                 ColumnId::Title => Some(Cow::Borrowed(track.title())),
                 ColumnId::Artist => track.artist.as_deref().map(Cow::Borrowed),
-                ColumnId::Key => track.key().map(|key| Cow::Owned(key.camelot())),
+                ColumnId::Key => track
+                    .key()
+                    .map(|key| Cow::Owned(self.display.key_notation.spell(&key))),
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
@@ -759,6 +801,65 @@ impl EuphoriaApp {
             return true;
         }
         false
+    }
+
+    /// Chooses how keys are shown in the table and the track detail.
+    pub(crate) fn set_key_display(&mut self, notation: NotationChoice, cx: &mut Context<'_, Self>) {
+        self.display.key_notation = notation;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Shows tempos in the range of `preset`.
+    pub(crate) fn set_tempo_preset(&mut self, preset: TempoPreset, cx: &mut Context<'_, Self>) {
+        self.is_custom_tempo_range = false;
+        self.tempo_range_problem = None;
+        self.use_tempo_range(preset.setting(), cx);
+    }
+
+    /// Shows the fields of a custom tempo range, starting from the range in
+    /// use, and uses what is typed in them.
+    pub(crate) fn choose_custom_tempo_range(&mut self, cx: &mut Context<'_, Self>) {
+        self.is_custom_tempo_range = true;
+        cx.notify();
+    }
+
+    /// Uses the custom range typed, or says why it cannot be used.
+    fn apply_typed_tempo_range(&mut self, cx: &mut Context<'_, Self>) {
+        let typed = |input: &Entity<InputState>, cx: &mut Context<'_, Self>| {
+            input.read(cx).value().trim().parse::<u16>().ok()
+        };
+        let (Some(slowest), Some(fastest)) = (
+            typed(&self.tempo_from_input, cx),
+            typed(&self.tempo_to_input, cx),
+        ) else {
+            self.tempo_range_problem = Some("Type both tempos as whole numbers.".to_string());
+            cx.notify();
+            return;
+        };
+        let setting = TempoRangeSetting { slowest, fastest };
+        match setting.range() {
+            Ok(_) => {
+                self.tempo_range_problem = None;
+                self.use_tempo_range(setting, cx);
+            }
+            Err(reason) => {
+                self.tempo_range_problem = Some(reason);
+                cx.notify();
+            }
+        }
+    }
+
+    /// Shows every tempo in `setting`'s range and remembers it. Nothing is
+    /// analyzed again.
+    fn use_tempo_range(&mut self, setting: TempoRangeSetting, cx: &mut Context<'_, Self>) {
+        let Ok(range) = setting.range() else {
+            return;
+        };
+        self.display.tempo_range = setting;
+        self.session.set_tempo_range(range);
+        self.refresh_visible();
+        self.refresh_mixes();
+        self.remember_tag_settings(cx);
     }
 
     /// Opens the settings panel.
@@ -823,10 +924,10 @@ impl EuphoriaApp {
             .as_ref()
             .and_then(|folder| self.folder_tree.index_of(folder))
             .and_then(|index| self.folder_tree.node(index))
-            .map(|node| node.failed_count);
+            .map(|node| node.review_count);
         LibraryCounts {
             total: counts.total,
-            failed: failed_in_folder.unwrap_or(counts.failed),
+            needs_review: failed_in_folder.unwrap_or(counts.needs_review),
             quality_to_check: self
                 .session
                 .library()
@@ -1318,6 +1419,7 @@ impl EuphoriaApp {
             },
             column_widths: self.column_widths.clone(),
             tags: self.tag_settings,
+            display: self.display,
         };
         settings
             .save(settings_path)

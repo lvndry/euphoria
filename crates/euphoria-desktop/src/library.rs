@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::{Key, TrackAnalysis};
+use euphoria_core::{Key, TempoRange, TrackAnalysis};
 
 use crate::camelot::CamelotPosition;
 use crate::folder_tree::FolderColumn;
@@ -151,7 +151,18 @@ impl Track {
         value.or_else(|| self.analysis().map(|_| NOT_FOUND.to_string()))
     }
 
+    /// Whether the track is worth checking: its analysis failed, or the
+    /// core rates its key or its tempo low.
+    pub(crate) fn needs_review(&self) -> bool {
+        match &self.status {
+            TrackStatus::Failed(_) => true,
+            TrackStatus::Analyzed(analysis) => analysis.needs_review(),
+            TrackStatus::Queued | TrackStatus::Analyzing => false,
+        }
+    }
+
     /// Why analysis failed, when it did.
+    #[cfg(test)]
     pub(crate) fn failure(&self) -> Option<&str> {
         match &self.status {
             TrackStatus::Failed(reason) => Some(reason),
@@ -170,9 +181,11 @@ impl Track {
                     .artist_lowercase
                     .as_deref()
                     .is_some_and(|artist| artist.contains(word))
-                || self
-                    .key()
-                    .is_some_and(|key| key.camelot().eq_ignore_ascii_case(word))
+                || self.key().is_some_and(|key| {
+                    [key.camelot(), key.open_key(), key.short_name()]
+                        .iter()
+                        .any(|code| code.eq_ignore_ascii_case(word))
+                })
                 || self
                     .bpm()
                     .is_some_and(|bpm| format::bpm(bpm).starts_with(word))
@@ -235,7 +248,8 @@ pub(crate) enum LibraryFilter {
     /// Every track.
     #[default]
     AllTracks,
-    /// Tracks whose analysis failed.
+    /// Tracks whose key or tempo is rated low, and tracks whose analysis
+    /// failed.
     NeedsReview,
     /// Tracks with a low bit rate, or likely made from a lower quality file.
     QualityToCheck,
@@ -246,8 +260,8 @@ pub(crate) enum LibraryFilter {
 pub(crate) struct LibraryCounts {
     /// Every track.
     pub(crate) total: usize,
-    /// Tracks whose analysis failed.
-    pub(crate) failed: usize,
+    /// Tracks that need review: a key or tempo rated low, or a failure.
+    pub(crate) needs_review: usize,
     /// Tracks with a low bit rate, or likely made from a lower quality file.
     pub(crate) quality_to_check: usize,
 }
@@ -258,7 +272,9 @@ pub(crate) struct Library {
     tracks: Vec<Track>,
     index_by_path: HashMap<PathBuf, usize>,
     folders: Vec<PathBuf>,
-    failed_count: usize,
+    review_count: usize,
+    /// The range tempos are shown in.
+    tempo_range: TempoRange,
     revision: u64,
     structure_revision: u64,
 }
@@ -347,18 +363,38 @@ impl Library {
         else {
             return false;
         };
-        if track.failure().is_some() {
-            self.failed_count -= 1;
+        if track.needs_review() {
+            self.review_count -= 1;
         }
         track.status = match outcome {
-            Ok(analysis) => TrackStatus::Analyzed(analysis),
-            Err(reason) => {
-                self.failed_count += 1;
-                TrackStatus::Failed(reason)
-            }
+            Ok(analysis) => TrackStatus::Analyzed(analysis.with_tempo_range(self.tempo_range)),
+            Err(reason) => TrackStatus::Failed(reason),
         };
+        if track.needs_review() {
+            self.review_count += 1;
+        }
         self.revision += 1;
         true
+    }
+
+    /// The range tempos are shown in.
+    pub(crate) fn tempo_range(&self) -> TempoRange {
+        self.tempo_range
+    }
+
+    /// Shows every tempo in `range`. Nothing is analyzed again: each tempo
+    /// is placed in the range from the estimate the analysis kept.
+    pub(crate) fn set_tempo_range(&mut self, range: TempoRange) {
+        if self.tempo_range == range {
+            return;
+        }
+        self.tempo_range = range;
+        for track in &mut self.tracks {
+            if let TrackStatus::Analyzed(analysis) = &mut track.status {
+                *analysis = analysis.clone().with_tempo_range(range);
+            }
+        }
+        self.revision += 1;
     }
 
     /// A number that changes whenever a folder or a track is added or a
@@ -396,7 +432,7 @@ impl Library {
     pub(crate) fn counts(&self) -> LibraryCounts {
         LibraryCounts {
             total: self.tracks.len(),
-            failed: self.failed_count,
+            needs_review: self.review_count,
             quality_to_check: self.quality_to_check_in(None),
         }
     }
@@ -433,7 +469,7 @@ impl Library {
             .enumerate()
             .filter(|(_, track)| match filter {
                 LibraryFilter::AllTracks => true,
-                LibraryFilter::NeedsReview => track.failure().is_some(),
+                LibraryFilter::NeedsReview => track.needs_review(),
                 LibraryFilter::QualityToCheck => track.has_quality_to_check(),
             })
             .filter(|(_, track)| folder.is_none_or(|folder| track.path.starts_with(folder)))
@@ -679,6 +715,112 @@ mod tests {
         assert_eq!(by_artist_descending.len(), 6);
     }
 
+    /// An analysis rated by the core's confidence rules: a key margin of
+    /// 0.02 is high and 0.001 low; a tempo margin of 0.6 is high and 0.01 low.
+    fn rated(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> TrackAnalysis {
+        TrackAnalysis {
+            key_runner_up: Some("E minor".parse().unwrap()),
+            key_score_margin: Some(key_margin),
+            tempo_estimate: Some(tempo_estimate),
+            tempo_score_margin: Some(tempo_margin),
+            ..analysis(Some("A minor"), Some(tempo_estimate), 300.0)
+        }
+    }
+
+    #[test]
+    fn needs_review_lists_low_keys_low_tempos_and_failed_files() {
+        let mut library = Library::default();
+        library.add_files(
+            [
+                "/music/sure.mp3",
+                "/music/doubtful key.mp3",
+                "/music/doubtful tempo.mp3",
+                "/music/broken.mp3",
+                "/music/waiting.mp3",
+            ]
+            .map(PathBuf::from)
+            .to_vec(),
+        );
+        library.record_outcome(Path::new("/music/sure.mp3"), Ok(rated(0.02, 124.0, 0.6)));
+        library.record_outcome(
+            Path::new("/music/doubtful key.mp3"),
+            Ok(rated(0.001, 124.0, 0.6)),
+        );
+        library.record_outcome(
+            Path::new("/music/doubtful tempo.mp3"),
+            Ok(rated(0.02, 124.0, 0.01)),
+        );
+        library.record_outcome(Path::new("/music/broken.mp3"), Err("cannot decode".into()));
+        let needing_review = library.visible_tracks(
+            LibraryFilter::NeedsReview,
+            None,
+            "",
+            None,
+            &FolderColumn::default(),
+        );
+        assert_eq!(
+            names(&library, &needing_review),
+            ["doubtful key.mp3", "doubtful tempo.mp3", "broken.mp3"]
+        );
+        assert_eq!(library.counts().needs_review, 3);
+
+        library.record_outcome(
+            Path::new("/music/doubtful key.mp3"),
+            Ok(rated(0.02, 124.0, 0.6)),
+        );
+        assert_eq!(
+            library.counts().needs_review,
+            2,
+            "a result that came in again"
+        );
+    }
+
+    #[test]
+    fn a_tempo_range_moves_every_tempo_without_analyzing_again() {
+        let mut library = Library::default();
+        library.add_files(
+            ["/music/half time.mp3", "/music/house.mp3"]
+                .map(PathBuf::from)
+                .to_vec(),
+        );
+        library.record_outcome(
+            Path::new("/music/half time.mp3"),
+            Ok(rated(0.02, 87.0, 0.6)),
+        );
+        library.record_outcome(Path::new("/music/house.mp3"), Ok(rated(0.02, 124.0, 0.6)));
+        let tempos = |library: &Library| -> Vec<Option<f32>> {
+            library.tracks().iter().map(Track::bpm).collect()
+        };
+        assert_eq!(tempos(&library), [Some(174.0), Some(124.0)]);
+
+        let hip_hop = TempoRange::new(70.0, 140.0).unwrap();
+        let revision = library.revision();
+        library.set_tempo_range(hip_hop);
+        assert_eq!(library.tempo_range(), hip_hop);
+        assert_eq!(tempos(&library), [Some(87.0), Some(124.0)]);
+        assert!(library.revision() > revision);
+
+        library.add_files(vec![PathBuf::from("/music/late.mp3")]);
+        library.record_outcome(Path::new("/music/late.mp3"), Ok(rated(0.02, 150.0, 0.6)));
+        assert_eq!(
+            library.tracks()[2].bpm(),
+            Some(75.0),
+            "a result that comes in later"
+        );
+    }
+
+    #[test]
+    fn search_finds_a_key_in_every_notation() {
+        let mut library = sample_library();
+        library.record_outcome(
+            Path::new("/music/techno/waiting.m4a"),
+            Ok(analysis(Some("C major"), Some(120.0), 300.0)),
+        );
+        for code in ["8a", "1m", "am"] {
+            assert_eq!(visible(&library, code, None), ["Low Tide.aiff"], "{code}");
+        }
+    }
+
     #[test]
     fn a_track_shows_its_file_name_format_and_folder() {
         let library = sample_library();
@@ -793,7 +935,7 @@ mod tests {
             library.counts(),
             LibraryCounts {
                 total: 6,
-                failed: 1,
+                needs_review: 1,
                 quality_to_check: 0,
             }
         );
@@ -801,7 +943,7 @@ mod tests {
             Path::new("/music/techno/broken.mp3"),
             Ok(analysis(None, None, 1.0)),
         );
-        assert_eq!(library.counts().failed, 0);
+        assert_eq!(library.counts().needs_review, 0);
         assert!(!library.record_outcome(Path::new("/not/in/library.mp3"), Err(String::new())));
     }
 

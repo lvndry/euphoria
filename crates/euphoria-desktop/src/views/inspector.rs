@@ -5,7 +5,9 @@
 //! waveform and, when analysis failed, why. Shown as a column on the right
 //! or as a strip under the table, depending on the theme's layout.
 
+use euphoria_core::Confidence;
 use gpui::component::Icon;
+use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Div, FontWeight, Pixels, SharedString, Stateful, TestSupportExt, Window,
@@ -148,7 +150,7 @@ pub(crate) fn render(
 
     container
         .child(sized(summary(track, &palette), Some(220.0)))
-        .child(sized(statistics(track, &palette), Some(264.0)))
+        .child(sized(statistics(track, app), Some(264.0)))
         .child(sized(waveform_section(track, app, room, cx), None))
         .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
@@ -217,21 +219,67 @@ fn summary(track: &Track, palette: &Palette) -> Div {
         )
 }
 
-/// Key, tempo and energy in three boxes.
-fn statistics(track: &Track, palette: &Palette) -> Div {
+/// The key, the tempo and the energy in three boxes. The key and the tempo
+/// say quietly how far to trust them, and, when the core offers one, what
+/// else they could be: the runner up key when the key is not rated high,
+/// and half or double the tempo.
+fn statistics(track: &Track, app: &EuphoriaApp) -> Div {
+    let theme = &app.theme;
+    let palette = &theme.palette;
+    let notation = app.display.key_notation;
     let not_known_yet = match track.status {
         TrackStatus::Queued => "queued",
         TrackStatus::Analyzing => "analyzing",
         TrackStatus::Failed(_) => "not analyzed",
         TrackStatus::Analyzed(_) => "not detected",
     };
+    let analysis = track.analysis();
+    let key_confidence = analysis.and_then(|analysis| analysis.key_confidence());
+    let tempo_confidence = analysis.and_then(|analysis| analysis.tempo_confidence());
+    let runner_up = analysis
+        .and_then(|analysis| analysis.key_runner_up)
+        .filter(|_| key_confidence.is_some_and(|confidence| confidence != Confidence::High));
+    let tempo_alternative = analysis
+        .and_then(|analysis| analysis.tempo_alternative_in(app.session.library().tempo_range()));
+
     let (key_code, key_name) = match track.key() {
-        Some(key) => (key.camelot(), key.to_string()),
+        Some(key) => (notation.spell(&key), key.to_string()),
         None => ("\u{2013}".to_string(), not_known_yet.to_string()),
     };
+    let key_value = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(6.0))
+        .child(statistic_value(key_code))
+        .children(runner_up.map(|runner_up| {
+            let description: SharedString = format!(
+                "The key that matched second best, {}. Compare the two by ear.",
+                runner_up
+            )
+            .into();
+            div()
+                .id("runner-up-key")
+                .flex()
+                .items_center()
+                .gap(px(4.0))
+                .text_size(LABEL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child("or")
+                .child(key_chip(&runner_up, theme, notation))
+                .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
+                .test_support()
+        }));
+
     let (tempo, tempo_note) = match track.bpm() {
-        Some(bpm) => (format::bpm(bpm), "per minute"),
-        None => ("\u{2013}".to_string(), not_known_yet),
+        Some(bpm) => (
+            format::bpm(bpm),
+            match tempo_alternative {
+                Some(alternative) => format!("or {}", format::bpm(alternative)),
+                None => "per minute".to_string(),
+            },
+        ),
+        None => ("\u{2013}".to_string(), not_known_yet.to_string()),
     };
     let (energy, energy_note) = match track.energy() {
         Some(rating) => (rating.to_string(), "of 10"),
@@ -244,25 +292,80 @@ fn statistics(track: &Track, palette: &Palette) -> Div {
         .rounded(px(8.0))
         .border_1()
         .border_color(palette.line)
-        .child(statistic("Key", key_code, key_name, palette))
+        .child(statistic(
+            "Key",
+            key_confidence.map(|confidence| ("key-confidence", confidence)),
+            key_value,
+            key_name,
+            palette,
+        ))
         .child(
-            statistic("BPM", tempo, tempo_note, palette)
-                .border_l_1()
-                .border_color(palette.line),
+            statistic(
+                "BPM",
+                tempo_confidence.map(|confidence| ("tempo-confidence", confidence)),
+                statistic_value(tempo),
+                tempo_note,
+                palette,
+            )
+            .border_l_1()
+            .border_color(palette.line),
         )
         .child(
-            statistic("Energy", energy, energy_note, palette)
-                .border_l_1()
-                .border_color(palette.line),
+            statistic(
+                "Energy",
+                None,
+                statistic_value(energy),
+                energy_note,
+                palette,
+            )
+            .border_l_1()
+            .border_color(palette.line),
         )
 }
 
+/// The value of a box, large.
+fn statistic_value(value: impl Into<SharedString>) -> Div {
+    div()
+        .whitespace_nowrap()
+        .text_size(px(20.0))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(value.into())
+}
+
+/// One box: its label, with how far to trust the value beside it when the
+/// core rates that, the value, and a quiet note under it.
 fn statistic(
     label: &'static str,
-    value: impl Into<SharedString>,
+    confidence: Option<(&'static str, Confidence)>,
+    value: Div,
     note: impl Into<SharedString>,
     palette: &Palette,
 ) -> Div {
+    let confidence = confidence.map(|(id, confidence)| {
+        let (colour, explanation): (_, SharedString) = match confidence {
+            Confidence::High => (
+                palette.text_tertiary,
+                format!("{label} confidence: high. The detector clearly preferred this answer.")
+                    .into(),
+            ),
+            Confidence::Medium => (
+                palette.text_tertiary,
+                format!("{label} confidence: medium. Usually right, worth a listen if it matters.")
+                    .into(),
+            ),
+            Confidence::Low => (
+                palette.danger,
+                format!("{label} confidence: low. Check it by ear; the track is listed under Needs review.")
+                    .into(),
+            ),
+        };
+        div()
+            .id(id)
+            .text_color(colour)
+            .child(confidence.as_str())
+            .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
+            .test_support()
+    });
     div()
         .flex()
         .flex_col()
@@ -273,17 +376,15 @@ fn statistic(
         .py(px(10.0))
         .child(
             div()
+                .flex()
+                .justify_between()
+                .gap(px(6.0))
                 .text_size(LABEL_TEXT_SIZE)
                 .text_color(palette.text_tertiary)
-                .child(label),
+                .child(label)
+                .children(confidence),
         )
-        .child(
-            div()
-                .whitespace_nowrap()
-                .text_size(px(20.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(value.into()),
-        )
+        .child(value)
         .child(
             div()
                 .truncate()
@@ -349,6 +450,7 @@ fn waveform_section(
                 analysis.duration_seconds,
                 progress,
                 &app.theme,
+                app.display.key_notation,
             )
         })
     });
@@ -438,11 +540,11 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                         this.select_and_reveal(track_index, cx);
                     }))
                     .child(
-                        div()
-                            .flex()
-                            .flex_shrink_0()
-                            .w(px(38.0))
-                            .children(track.key().map(|key| key_chip(&key, theme))),
+                        div().flex().flex_shrink_0().w(px(38.0)).children(
+                            track
+                                .key()
+                                .map(|key| key_chip(&key, theme, app.display.key_notation)),
+                        ),
                     )
                     .child(
                         div()
