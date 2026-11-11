@@ -36,6 +36,8 @@ const HEADER_PACKETS: usize = 3;
 /// and pages with no packet data independently.
 const MAX_HEADER_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_HEADER_PAGES: usize = 4096;
+/// Bounds per-entry Vec overhead independently of comment payload bytes.
+const MAX_COMMENT_ENTRIES: usize = 65_536;
 
 /// One page header, without its segment table and checksum, which a
 /// rewrite works out again.
@@ -171,8 +173,9 @@ fn header_body(packet: &[u8], kind: u8) -> Option<&[u8]> {
 
 impl OggVorbisFile {
     /// Reads the three header packets of the Ogg Vorbis stream that starts
-    /// the file. Refuses headers occupying more than 128 MiB or 4096 pages,
-    /// so malformed packet continuations cannot consume unbounded memory.
+    /// the file. Refuses more than 128 MiB of headers, 4096 header pages,
+    /// or 65,536 comments, so both packet payloads and per-entry allocations
+    /// have explicit limits.
     pub(super) fn load(file: &mut File) -> Result<Self, ErrorSource> {
         Self::load_with_limits(file, MAX_HEADER_BYTES, MAX_HEADER_PAGES)
     }
@@ -273,8 +276,9 @@ impl OggVorbisFile {
         if header_body(&packets[2], SETUP_HEADER).is_none() {
             return Err("the Vorbis setup header is missing".into());
         }
-        let (comments, length) =
-            Comments::parse(comment_body).ok_or("the Vorbis comment header is damaged")?;
+        let (comments, length) = Comments::parse_bounded(comment_body, MAX_COMMENT_ENTRIES).ok_or(
+            "the Vorbis comment header is damaged or exceeds the comment entry limit of 65536",
+        )?;
         let comment_end = comment_body[length..].to_vec();
         if comment_end.first().is_none_or(|framing| framing & 1 == 0) {
             problem = Some("its Vorbis comment header is damaged");
@@ -343,6 +347,9 @@ impl OggVorbisFile {
     }
 
     fn comment_packet(&self) -> Result<Vec<u8>, ErrorSource> {
+        if self.comments.entries.len() > MAX_COMMENT_ENTRIES {
+            return Err("the Ogg Vorbis comment entry limit of 65536 was exceeded".into());
+        }
         let mut packet = vec![COMMENT_HEADER];
         packet.extend(VORBIS);
         packet.extend(self.comments.serialize()?);

@@ -391,6 +391,42 @@ fn comment_header_larger_than_a_page_as_artwork_makes_it() {
 }
 
 #[test]
+fn too_many_empty_comments_are_refused_without_changing_the_file() {
+    let entries = vec![&b""[..]; 65_537];
+    let comment = comment_header("entry-limit", &entries, b"");
+    let bytes = ogg_file(&comment, 255, false);
+    let path = scratch_file("too-many-comments", &bytes);
+    let error = read_tags(&path).expect_err("the comment entry limit is enforced");
+    assert!(
+        error.chain().contains("comment entry limit"),
+        "{}",
+        error.chain()
+    );
+    assert_eq!(std::fs::read(path).expect(WORKS), bytes);
+}
+
+#[test]
+fn the_maximum_number_of_comments_is_read() {
+    let mut entries = vec![&b"FILLER="[..]; 65_535];
+    entries.push(b"TITLE=At the limit");
+    let comment = comment_header("entry-limit", &entries, b"");
+    let bytes = ogg_file(&comment, 255, false);
+    let path = scratch_file("maximum-comments", &bytes);
+    assert_eq!(
+        read_tags(&path).expect(WORKS).title.as_deref(),
+        Some("At the limit")
+    );
+    let error = plan_write(&path, &a_minor(), &full_options())
+        .expect_err("adding comments beyond the read limit is refused in the preview");
+    assert!(
+        error.chain().contains("comment entry limit"),
+        "{}",
+        error.chain()
+    );
+    assert_eq!(std::fs::read(path).expect(WORKS), bytes);
+}
+
+#[test]
 fn bytes_after_the_framing_bit_are_kept() {
     let comment = comment_header("padded", &[b"TITLE=Padded"], &[0; 40]);
     assert_write_is_exact("after-framing", &ogg_file(&comment, 255, false));

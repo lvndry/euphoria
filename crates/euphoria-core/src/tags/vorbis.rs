@@ -24,10 +24,19 @@ impl Comments {
     /// returns them with the number of bytes they take, or `None` when the
     /// lengths they declare do not fit.
     pub(super) fn parse(bytes: &[u8]) -> Option<(Self, usize)> {
+        Self::parse_bounded(bytes, usize::MAX)
+    }
+
+    /// Like [`Comments::parse`], with an entry-count limit checked before
+    /// materializing comments, including those with empty values.
+    pub(super) fn parse_bounded(bytes: &[u8], max_entries: usize) -> Option<(Self, usize)> {
         let vendor_length = little_endian_u32(bytes, 0)?;
         let vendor = bytes.get(4..4usize.checked_add(vendor_length)?)?.to_vec();
         let mut offset = 4 + vendor_length;
         let count = little_endian_u32(bytes, offset)?;
+        if count > max_entries {
+            return None;
+        }
         offset += 4;
         let mut entries = Vec::new();
         for _ in 0..count {
