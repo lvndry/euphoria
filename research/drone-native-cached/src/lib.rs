@@ -177,6 +177,13 @@ impl Manifest {
 }
 
 pub fn load_features(root: &Path, fixture: &Fixture) -> Result<Vec<f32>> {
+    // A manifest given as just its filename has an empty parent path.
+    // Its feature paths are relative to the working directory.
+    let root = if root.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        root
+    };
     let root = std::fs::canonicalize(root)?;
     let path = std::fs::canonicalize(root.join(&fixture.path))?;
     ensure!(

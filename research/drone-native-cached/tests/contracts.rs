@@ -298,3 +298,48 @@ fn pinned_runtime_full_chunk_edges_stress_and_all_remainders() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn basename_manifest_resolves_features_from_the_working_directory() -> Result<()> {
+    const CHILD: &str = "DRONE_NATIVE_RELATIVE_FIXTURE_TEST";
+    if std::env::var_os(CHILD).is_some() {
+        let bytes = fs::read("sample.f32")?;
+        let fixture = Fixture {
+            id: "relative".to_owned(),
+            domain: "synthetic".to_owned(),
+            frames: 8,
+            path: PathBuf::from("sample.f32"),
+            sha256: bytes_sha256(&bytes),
+            audio_sha256: "0".repeat(64),
+            cache_sha256: "1".repeat(64),
+            source_sha256: "1".repeat(64),
+            reference_logits: [0.0; 24],
+            selection20: false,
+        };
+        let manifest = std::path::Path::new("manifest.json");
+        let root = manifest
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("manifest parent"))?;
+        assert_eq!(load_features(root, &fixture)?, vec![0.0; BANDS * 8]);
+        return Ok(());
+    }
+    // A subprocess gives this test its own working directory without
+    // changing the directory of parallel tests in this process.
+    let scratch = Scratch::new()?;
+    fs::write(scratch.0.join("sample.f32"), vec![0_u8; BANDS * 8 * 4])?;
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "basename_manifest_resolves_features_from_the_working_directory",
+            "--nocapture",
+        ])
+        .current_dir(&scratch.0)
+        .env(CHILD, "1")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
