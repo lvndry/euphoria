@@ -90,6 +90,7 @@ struct Spectrum {
     window: Vec<f32>,
     pending: Vec<f32>,
     power: Vec<f64>,
+    loud_channels: Vec<usize>,
     loud_frames: usize,
 }
 
@@ -109,6 +110,7 @@ impl Spectrum {
                 .collect(),
             pending: Vec::with_capacity(frame_length * channels),
             power: vec![0.0; frame_length / 2 + 1],
+            loud_channels: Vec::with_capacity(channels),
             loud_frames: 0,
         }
     }
@@ -128,6 +130,7 @@ impl Spectrum {
 
     fn measure_frame(&mut self) {
         let quiet_mean_square = 10.0_f64.powf(QUIET_FRAME_DB / 10.0);
+        self.loud_channels.clear();
         for channel in 0..self.channels {
             let mean_square = self
                 .pending
@@ -135,23 +138,36 @@ impl Spectrum {
                 .map(|frame| f64::from(frame[channel]).powi(2))
                 .sum::<f64>()
                 / self.frame.len() as f64;
-            if mean_square < quiet_mean_square || !mean_square.is_finite() {
-                continue;
+            if mean_square >= quiet_mean_square && mean_square.is_finite() {
+                self.loud_channels.push(channel);
             }
+        }
+        let length = self.frame.len();
+        for pair in self.loud_channels.chunks(2) {
+            let real_channel = pair[0];
+            let imaginary_channel = pair.get(1).copied();
             for ((slot, samples), weight) in self
                 .frame
                 .iter_mut()
                 .zip(self.pending.chunks_exact(self.channels))
                 .zip(&self.window)
             {
-                *slot = Complex::new(samples[channel] * weight, 0.0);
+                let imaginary = imaginary_channel.map_or(0.0, |channel| samples[channel] * weight);
+                *slot = Complex::new(samples[real_channel] * weight, imaginary);
             }
             self.transform
                 .process_with_scratch(&mut self.frame, &mut self.scratch);
-            for (total, value) in self.power.iter_mut().zip(&self.frame) {
-                *total += f64::from(value.norm_sqr());
+            // With one real channel in the real part and another in the
+            // imaginary part, a bin and its mirror together hold exactly the
+            // sum of both channels' powers, so one transform serves two
+            // channels.
+            for (bin, total) in self.power.iter_mut().enumerate() {
+                let mirrored = (length - bin) % length;
+                *total += 0.5
+                    * (f64::from(self.frame[bin].norm_sqr())
+                        + f64::from(self.frame[mirrored].norm_sqr()));
             }
-            self.loud_frames += 1;
+            self.loud_frames += pair.len();
         }
     }
 
@@ -299,6 +315,40 @@ mod tests {
                 meter.add(packet, 4, RATE);
             }
             assert_eq!(meter.finish(), Some(expected), "{packet_frames}");
+        }
+    }
+
+    #[test]
+    fn two_channels_in_one_transform_add_up_to_their_separate_powers() {
+        let left = noise(1.0);
+        let right = brickwall(&noise(1.0).into_iter().rev().collect::<Vec<_>>(), 12_000.0);
+        let mut together = Spectrum::new(RATE, 2);
+        let interleaved: Vec<f32> = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(left_sample, right_sample)| [*left_sample, *right_sample])
+            .collect();
+        together.add(&interleaved);
+        let mut left_alone = Spectrum::new(RATE, 1);
+        left_alone.add(&left);
+        let mut right_alone = Spectrum::new(RATE, 1);
+        right_alone.add(&right);
+
+        assert_eq!(
+            together.loud_frames,
+            left_alone.loud_frames + right_alone.loud_frames
+        );
+        for ((paired, left_power), right_power) in together
+            .power
+            .iter()
+            .zip(&left_alone.power)
+            .zip(&right_alone.power)
+        {
+            let separate = left_power + right_power;
+            assert!(
+                (paired - separate).abs() <= separate * 1.0e-3 + 1.0e-6,
+                "{paired} against {separate}"
+            );
         }
     }
 
