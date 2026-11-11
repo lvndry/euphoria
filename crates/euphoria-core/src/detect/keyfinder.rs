@@ -35,7 +35,8 @@ const KEY_CHANGE_PENALTY: f64 = 0.1;
 const SMALLEST_CORRECTED_OFFSET_CENTS: f32 = 20.0;
 
 /// Key detection through libkeyfinder, as Euphoria ships it: the key of the
-/// whole track at once, as libkeyfinder decides it.
+/// whole track at once, as libkeyfinder decides it, after a track measured
+/// at least 20 cents away from concert pitch is brought back to it.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KeyFinderDetector;
 
@@ -43,19 +44,17 @@ impl KeyFinderDetector {
     /// Finds the key of a track, how far it is tuned from concert pitch, and
     /// its key over time.
     ///
-    /// The tuning and the key over time are reported next to the key and do
-    /// not change it. A timeline with one section says that no change of key
-    /// was found, and that section carries the key of the track.
+    /// The key over time is reported next to the key and does not change it.
+    /// A timeline with one section says that no change of key was found, and
+    /// that section carries the key of the track.
     pub fn read_key(&self, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
-        let analysis = ChromaAnalysis::of_audio(audio, None)?;
+        let tuning = measure_tuning(audio);
+        let analysis = ChromaAnalysis::of_audio(audio, tuning.filter(is_worth_correcting))?;
         let key = analysis.key_of_whole_track()?;
         let timeline = match key {
             Some(key) => analysis.timeline(key, audio.duration_seconds())?,
             None => Vec::new(),
         };
-        // The tuning is measured after libkeyfinder has run: measured
-        // first, it raises the peak memory of an analysis.
-        let tuning = measure_tuning(audio);
         Ok(KeyReading {
             key,
             tuning_cents: tuning.map(|tuning| tuning.cents),
@@ -70,8 +69,15 @@ impl KeyDetector for KeyFinderDetector {
     }
 
     fn detect_key(&self, audio: &AudioBuffer) -> Result<Option<Key>, EuphoriaError> {
-        ChromaAnalysis::of_audio(audio, None)?.key_of_whole_track()
+        let correction = measure_tuning(audio).filter(is_worth_correcting);
+        ChromaAnalysis::of_audio(audio, correction)?.key_of_whole_track()
     }
+}
+
+/// Whether a measured tuning is far enough from concert pitch for the
+/// tuning correction to act on it.
+fn is_worth_correcting(tuning: &Tuning) -> bool {
+    tuning.cents.abs() >= SMALLEST_CORRECTED_OFFSET_CENTS
 }
 
 /// How [`KeyFinderVariant`] turns the chromagram of a track into one key.
@@ -88,9 +94,10 @@ pub enum KeyDecision {
 }
 
 /// Ways of deciding the key with libkeyfinder that the accuracy benchmark
-/// measures against [`KeyFinderDetector`]. None of them is better by more
-/// than the noise of the benchmark, so Euphoria does not use them.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// measures against [`KeyFinderDetector`], which is the variant with tuning
+/// correction that decides on the whole track. Euphoria uses none of the
+/// others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyFinderVariant {
     /// Whether a track measured at least 20 cents away from concert pitch is
     /// analyzed as if it had been tuned to it.
@@ -102,10 +109,12 @@ pub struct KeyFinderVariant {
 impl KeyDetector for KeyFinderVariant {
     fn name(&self) -> &'static str {
         match (self.tuning_correction, self.decision) {
-            (false, KeyDecision::WholeTrack) => DETECTOR_NAME,
-            (true, KeyDecision::WholeTrack) => "libkeyfinder, tuning corrected",
-            (false, KeyDecision::SectionVote) => "libkeyfinder, sections vote",
-            (true, KeyDecision::SectionVote) => "libkeyfinder, tuning corrected, sections vote",
+            (true, KeyDecision::WholeTrack) => DETECTOR_NAME,
+            (false, KeyDecision::WholeTrack) => "libkeyfinder, no tuning correction",
+            (true, KeyDecision::SectionVote) => "libkeyfinder, sections vote",
+            (false, KeyDecision::SectionVote) => {
+                "libkeyfinder, no tuning correction, sections vote"
+            }
         }
     }
 
@@ -114,7 +123,7 @@ impl KeyDetector for KeyFinderVariant {
             .tuning_correction
             .then(|| measure_tuning(audio))
             .flatten()
-            .filter(|tuning| tuning.cents.abs() >= SMALLEST_CORRECTED_OFFSET_CENTS);
+            .filter(is_worth_correcting);
         let analysis = ChromaAnalysis::of_audio(audio, correction)?;
         match self.decision {
             KeyDecision::WholeTrack => analysis.key_of_whole_track(),
@@ -287,37 +296,69 @@ mod tests {
         );
     }
 
+    const UNCORRECTED: KeyFinderVariant = KeyFinderVariant {
+        tuning_correction: false,
+        decision: KeyDecision::WholeTrack,
+    };
+
     #[test]
     fn tuning_correction_finds_the_key_of_a_track_almost_a_quarter_tone_sharp() {
         let audio = buffer(chord_progression(key("A minor"), 45.0, 24.0));
-        let corrected = KeyFinderVariant {
-            tuning_correction: true,
-            decision: KeyDecision::WholeTrack,
-        };
 
         assert_eq!(
-            KeyFinderDetector.detect_key(&audio).unwrap(),
+            UNCORRECTED.detect_key(&audio).unwrap(),
             Some(key("F major")),
             "the detuned track is misread without the correction"
         );
-        assert_eq!(corrected.detect_key(&audio).unwrap(), Some(key("A minor")));
+        assert_eq!(
+            KeyFinderDetector.detect_key(&audio).unwrap(),
+            Some(key("A minor"))
+        );
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+        assert_eq!(reading.key, Some(key("A minor")));
+        assert_eq!(reading.timeline.len(), 1);
+        assert_eq!(reading.timeline[0].key, key("A minor"));
     }
 
     #[test]
-    fn tuning_correction_leaves_a_track_close_to_concert_pitch_alone() {
-        let audio = buffer(chord_progression(key("F# major"), 5.0, 16.0));
-        let corrected = KeyFinderVariant {
+    fn a_track_less_than_20_cents_off_is_analyzed_as_it_is() {
+        for cents in [5.0, 19.0, -19.0] {
+            let audio = buffer(chord_progression(key("F# major"), cents, 16.0));
+            let analyzed_as_it_is = ChromaAnalysis::of_audio(&audio, None).unwrap();
+            let tuning = measure_tuning(&audio).unwrap();
+            assert!(!is_worth_correcting(&tuning), "{cents}");
+            assert_eq!(
+                KeyFinderDetector.detect_key(&audio).unwrap(),
+                analyzed_as_it_is.key_of_whole_track().unwrap()
+            );
+        }
+        let far_off = Tuning {
+            cents: -20.0,
+            agreement: 0.9,
+        };
+        assert!(is_worth_correcting(&far_off));
+    }
+
+    #[test]
+    fn the_shipped_detector_is_the_variant_with_tuning_correction_on_the_whole_track() {
+        let shipped = KeyFinderVariant {
             tuning_correction: true,
             decision: KeyDecision::WholeTrack,
         };
-        assert_eq!(corrected.detect_key(&audio).unwrap(), Some(key("F# major")));
+        for cents in [0.0, 30.0, 45.0] {
+            let audio = buffer(chord_progression(key("A minor"), cents, 16.0));
+            assert_eq!(
+                shipped.detect_key(&audio).unwrap(),
+                KeyFinderDetector.detect_key(&audio).unwrap()
+            );
+        }
     }
 
     #[test]
     fn the_section_vote_finds_the_key_of_a_progression() {
         let audio = buffer(chord_progression(key("C major"), 0.0, 32.0));
         let vote = KeyFinderVariant {
-            tuning_correction: false,
+            tuning_correction: true,
             decision: KeyDecision::SectionVote,
         };
         assert_eq!(vote.detect_key(&audio).unwrap(), Some(key("C major")));
@@ -400,7 +441,7 @@ mod tests {
                 names.push(variant.name());
             }
         }
-        assert_eq!(names[0], KeyFinderDetector.name());
+        assert_eq!(names[2], KeyFinderDetector.name());
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), 4);

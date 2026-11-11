@@ -24,12 +24,12 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 
 | | Key exact | Key MIREX score | Tempo Accuracy 1 | Tempo Accuracy 2 | CPU seconds per track |
 | --- | --- | --- | --- | --- | --- |
-| libkeyfinder, key | 60.4% | 69.0% | | | 0.22 |
-| stratum-dsp, key | 30.6% | 45.4% | | | 1.99 |
+| libkeyfinder with tuning correction, key | 60.6% | 69.4% | | | 0.26 |
+| stratum-dsp, key | 30.6% | 45.4% | | | 2.21 |
 | stratum-dsp, tempo | | | 77.6% | 85.5% | 0.38 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
 
-Euphoria uses libkeyfinder for key and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+Euphoria uses libkeyfinder for key, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
 ## How the tempo is chosen
 
@@ -47,29 +47,41 @@ The price is that a track whose real tempo is below 90 BPM, such as slow hip hop
 
 ## Tuning and key over time
 
-Euphoria measures two more things about the key of a track, and both were tried as ways to make the detected key better.
+Euphoria measures two more things about the key of a track.
 
 - **Tuning.** How far the track is tuned from A = 440 Hz, in cents, where 100 cents is a semitone. A track pressed from vinyl or played back at another speed can sit a quarter tone off, and the notes of a detuned track fall between the notes a key detector listens for.
 - **Key over time.** The key of each stretch of the track, so that a track that changes key shows both keys.
 
-Neither changes the key Euphoria reports. Each was measured as a correction to the key, alone and together, and neither improved it by more than the noise of the benchmark, so both are reported next to the key and the key itself is still decided by libkeyfinder from the whole track.
+The tuning is used: a track measured at least 20 cents off is analyzed as if it had been tuned to 440 Hz, and the key Euphoria reports is the nearest key at 440 Hz. The key over time is reported next to the key and does not change it. A vote between the sections of a track was measured as a way to decide the key and is not used.
 
 | On the 604 previews | Exact | Fifth | Relative | Parallel | Other | MIREX score | CPU seconds per track | Tracks scored higher | Tracks scored lower |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| libkeyfinder, as Euphoria uses it | 60.4% | 11.1% | 6.5% | 5.6% | 16.4% | 69.0% | 0.22 | | |
-| With tuning correction | 60.6% | 11.3% | 6.8% | 5.5% | 15.9% | 69.4% | 0.24 | 4 | 0 |
-| With a vote between sections | 60.8% | 11.1% | 6.6% | 5.6% | 15.9% | 69.4% | 0.22 | 8 | 7 |
-| With both | 60.9% | 11.3% | 7.0% | 5.5% | 15.4% | 69.7% | 0.24 | 12 | 7 |
+| libkeyfinder with tuning correction, as Euphoria uses it | 60.6% | 11.3% | 6.8% | 5.5% | 15.9% | 69.4% | 0.26 | | |
+| Without tuning correction | 60.4% | 11.1% | 6.5% | 5.6% | 16.4% | 69.0% | 0.23 | 0 | 4 |
+| With a vote between sections | 60.9% | 11.3% | 7.0% | 5.5% | 15.4% | 69.7% | 0.26 | 8 | 7 |
 
 The last two columns count the previews each variant scores higher and lower than the first row. They are the fair way to read a difference this small: 0.4 points of MIREX score is two or three previews out of 604.
 
-**Tuning correction** analyzes a track measured at least 20 cents off as if it had been tuned to 440 Hz. It acts on 5 of the 604 previews, improves 4 of them and worsens none. Four previews are too few to tell from chance, so it is off. The reason it has so little to do is that libkeyfinder tolerates detuning well: synthesized chord progressions keep their key up to 40 cents off and lose it only from about 45 cents, where the correction brings it back.
+### Why tuning correction is on
 
-**A vote between sections** cuts the track into windows of about 7 seconds, lets every window score every key, and takes the key with the highest total, so that a loud passage counts no more than a quiet one. It changes the answer on 15 previews, for the better on 8 and for the worse on 7. Counting only the best key of each window, without the scores, was clearly worse in an early experiment, at 67.1%, and is not part of the benchmark.
+The benchmark does not show that tuning correction improves the key. With it, 4 previews score higher and none lower, which moves the MIREX score from 69.0% to 69.4%. Four previews are within what chance gives (a sign test on them has p = 0.125), so read the two rows as equal, not as a measured gain.
+
+It is on for reasons the benchmark cannot weigh:
+
+- The benchmark has almost no detuned tracks. Only 5 of the 604 previews are measured 20 cents or more off, so the correction has 5 chances to act. It improved 4 of those 5 and made none worse.
+- On synthesized chord progressions, libkeyfinder keeps the right key up to 40 cents off and loses it from about 45 cents. With the correction it keeps the right key up to 49 cents off, the furthest that was tried.
+- It costs nothing beyond measuring the tuning, which Euphoria does for every track anyway.
+- Detuned tracks are rare in a set of dance music previews and common in a DJ library: vinyl transfers, and tracks that were pitched up or down.
+
+A track is corrected only when its tuning could be measured, which leaves out tracks that are mostly drums, and only from 20 cents, which is where a note passes libkeyfinder's filter for it at half strength. Every other track is analyzed exactly as before.
+
+### Why the vote between sections is off
+
+The vote cuts the track into windows of about 7 seconds, lets every window score every key, and takes the key with the highest total, so that a loud passage counts no more than a quiet one. Against the shipped detector it scores 8 previews higher and 7 lower, which is a coin toss. Counting only the best key of each window, without the scores, was clearly worse in an early experiment, at 67.1%, and is not part of the benchmark.
 
 ### What the benchmark does and does not show
 
-The previews are two minutes from the middle of electronic dance music. That music is produced on instruments tuned to 440 Hz and seldom changes key, and a two minute excerpt has no long intro or outro. So the benchmark shows that the two corrections do not help on dance music excerpts, and that they do no harm there. It cannot show what they would do on full length tracks with long intros and breakdowns, on music that modulates, or on a library of vinyl transfers, because it holds almost none of those. No dataset with labelled tuning or labelled key changes was used, so the tuning offsets and the key changes Euphoria reports are checked against synthesized audio only.
+The previews are two minutes from the middle of electronic dance music. That music is produced on instruments tuned to 440 Hz and seldom changes key, and a two minute excerpt has no long intro or outro. So the benchmark shows that neither tuning correction nor the vote does harm on dance music excerpts, and that neither helps there by more than chance. It cannot show what they would do on full length tracks with long intros and breakdowns, on music that modulates, or on a library of vinyl transfers, because it holds almost none of those. No dataset with labelled tuning or labelled key changes was used, so the tuning offsets and the key changes Euphoria reports are checked against synthesized audio only.
 
 ### How the tuning is measured
 
@@ -89,11 +101,11 @@ When no change is found the timeline is one section in the key of the track. Whe
 
 ### How the settings were chosen
 
-Every threshold above was chosen on synthesized audio or on a property of the previews that does not involve their key labels. The one choice that could have been fitted to the labels, the size of the windows for the vote, was made on half of the previews (every other one in name order) and checked on the other half: on the half it was chosen on, the vote scores 5 previews higher and 3 lower, and on the other half 3 higher and 4 lower. Tuning correction acts from 20 cents, which is where a note passes libkeyfinder's filter for it at half strength, and changes 4 previews in the first half and none in the second.
+Every threshold above was chosen on synthesized audio or on a property of the previews that does not involve their key labels. The one choice that could have been fitted to the labels, the size of the windows for the vote, was made on half of the previews (every other one in name order) and checked on the other half: on the half it was chosen on, the vote scores 5 previews higher and 3 lower than the shipped detector, and on the other half 3 higher and 4 lower. Tuning correction acts from 20 cents, a value that comes from libkeyfinder's filter and not from the previews. All 4 previews it improves are in the first half.
 
 ### Cost
 
-Measuring the tuning adds about 0.02 CPU seconds to the analysis of a track, 2 to 3% of a two minute preview and less of a longer track, and the key over time adds nothing measurable, because it reuses what libkeyfinder computes for the key. Peak memory is unchanged. The measurements are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+Measuring the tuning adds 0.02 to 0.03 CPU seconds to the analysis of a track, 2 to 4% of a two minute preview and less of a longer track. Correcting for it and following the key over time add nothing measurable, because both use what libkeyfinder computes for the key. Peak memory is unchanged for one track at a time, and was about 0.05 GB higher with 4 at once. The measurements are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
 ## Reproducing
 

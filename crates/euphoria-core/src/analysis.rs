@@ -47,8 +47,10 @@ pub struct TrackAnalysis {
     pub energy: Option<u8>,
     /// How far the track is tuned from A = 440 Hz, in cents from -50 to 50
     /// with sharp as positive, or `None` when it could not be measured, as
-    /// for silence, noise and tracks that are mostly drums. It is reported
-    /// only: the key is detected as if the track were at concert pitch.
+    /// for silence, noise and tracks that are mostly drums. With the
+    /// `libkeyfinder` feature, the key of a track at least 20 cents off is
+    /// detected after bringing it back to concert pitch, so `key` names the
+    /// nearest key at 440 Hz.
     pub tuning_cents: Option<f32>,
     /// The key over time: sections in order that together cover the track.
     /// A track in which no change of key was found has one section, in the
@@ -83,8 +85,9 @@ pub struct Progress<'batch> {
 /// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
 /// as it is the more accurate detector, and tempo comes from the tempo only
 /// path of `stratum-dsp`, so its costly key analysis does not run. Without
-/// the feature, `stratum-dsp` finds both, and there is no key over time. The
-/// energy rating takes the detected tempo into account when there is one.
+/// the feature, `stratum-dsp` finds both, the tuning is measured without
+/// being corrected for, and there is no key over time. The energy rating
+/// takes the detected tempo into account when there is one.
 ///
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].

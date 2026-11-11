@@ -168,9 +168,9 @@ macro_rules! tempo_detector_contract {
 key_detector_contract!(keyfinder_key, euphoria_core::detect::KeyFinderDetector, chord_seconds: 20.0, expect: ChordExpectation::Exactly("A minor"));
 #[cfg(feature = "libkeyfinder")]
 key_detector_contract!(
-    keyfinder_tuning_corrected_key,
+    keyfinder_without_tuning_correction_key,
     euphoria_core::detect::KeyFinderVariant {
-        tuning_correction: true,
+        tuning_correction: false,
         decision: euphoria_core::detect::KeyDecision::WholeTrack,
     },
     chord_seconds: 20.0,

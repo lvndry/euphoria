@@ -42,12 +42,12 @@ bench/              dataset download script, Essentia reference script, results
 
 Key and tempo detection sit behind traits so implementations can be compared and replaced without touching callers.
 
-- `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config. The wrapper returns the chromagram libkeyfinder computes, one row of note strengths per analysis frame, and scores chroma vectors against the 24 keys. The key of a track is the best score of the mean of all rows, which is what libkeyfinder itself reports. `read_key` also scores windows of about 7 seconds and follows the key through them for the key over time.
-- `KeyFinderVariant` holds the ways of deciding the key that were measured and are not used: tuning correction and a vote between sections. They stay in the code so the benchmark keeps comparing them with what ships.
+- `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config. The wrapper returns the chromagram libkeyfinder computes, one row of note strengths per analysis frame, and scores chroma vectors against the 24 keys. The key of a track is the best score of the mean of all rows, which is what libkeyfinder itself reports. A track measured at least 20 cents off concert pitch is first brought back to it, by telling libkeyfinder a sample rate that moves every note by the offset. `read_key` also scores windows of about 7 seconds and follows the key through them for the key over time.
+- `KeyFinderVariant` holds the ways of deciding the key that the benchmark compares with what ships: without tuning correction, and with a vote between sections. Neither is used.
 - `measure_tuning` is pure Rust and measures how far a track is tuned from A = 440 Hz. It runs in every build.
 - `StratumDetector` uses the pure Rust `stratum-dsp` crate for both key and tempo. Its tempo detection runs only the tempogram estimate, on at most the middle ten minutes of a track, reports the result between 90 and 180 BPM, and costs a fraction of its key detection.
 
-`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature. Those builds report the tuning and no key over time.
+`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature. Those builds report the tuning without correcting for it, and no key over time.
 
 ## euphoria-cli
 

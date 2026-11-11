@@ -23,15 +23,11 @@ const USAGE: &str =
 
 /// The key detectors that are measured. The first is the one Euphoria
 /// ships, and the others are compared with it track by track.
-const KEY_DETECTORS: [&dyn KeyDetector; 5] = [
+const KEY_DETECTORS: [&dyn KeyDetector; 4] = [
     &KeyFinderDetector,
     &KeyFinderVariant {
-        tuning_correction: true,
-        decision: KeyDecision::WholeTrack,
-    },
-    &KeyFinderVariant {
         tuning_correction: false,
-        decision: KeyDecision::SectionVote,
+        decision: KeyDecision::WholeTrack,
     },
     &KeyFinderVariant {
         tuning_correction: true,

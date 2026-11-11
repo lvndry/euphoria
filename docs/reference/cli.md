@@ -85,7 +85,7 @@ One object per file, in path order, including files that failed:
 
 `key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
 
-`tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. It is a measurement only: `key` is detected as if the track were at 440 Hz.
+`tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`. A track in which no change of key was found has one section, in the key of the track. A track with no key has none. When there are several sections, each carries the key that fits that stretch best, while `key` stays the key that fits the whole track, so `key` is usually but not always one of them. Section boundaries are accurate to a few seconds.
 
