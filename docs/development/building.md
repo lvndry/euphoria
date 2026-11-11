@@ -79,6 +79,22 @@ uv run bench/essentia_reference.py bench/data
 
 The benchmark is run by hand, not in CI.
 
+### Scoring rekordbox on the same previews
+
+rekordbox's own key and tempo analysis can be scored with the same rules. `bench/rekordbox_accuracy_kit.py` puts the previews in a new folder, cloned on APFS so they take no extra space, with a checklist for analyzing them in rekordbox and exporting its collection as XML:
+
+```
+uv run bench/rekordbox_accuracy_kit.py --data bench/data --output ~/Music/euphoria-accuracy-kit
+```
+
+The `rekordbox` mode of the benchmark then reads that export and prints the same tables as the detectors: exact, fifth, relative, parallel, other and MIREX score for key, Accuracy 1 and Accuracy 2 for tempo, and how many tracks had no value.
+
+```
+cargo run --release -p euphoria-bench -- rekordbox ~/Music/euphoria-accuracy-kit/rekordbox-collection.xml bench/data
+```
+
+Tracks are matched by file name, so the export may list them anywhere. A name listed more than once (43 previews are in both datasets) is taken from the copy in a folder named `key` or `tempo`, as the kit lays them out. `Tonality` is read in Camelot, Open Key or musical notation; an empty `Tonality` or an `AverageBpm` of zero counts as no value, as does a preview missing from the export. `--verify` instead of `--output` checks that rekordbox changed none of the previews in a kit.
+
 ## rekordbox test kit
 
 `bench/rekordbox_test_kit.py` builds a folder for checking by hand which tags and rekordbox XML values rekordbox reads, the questions [use Euphoria with your DJ program](../guides/dj-programs.md#rekordbox) leaves open. It cuts twelve 30 second clips from the benchmark previews, tags each in one variant (key field name per format, key notation, tempo with and without decimals, comment), writes a rekordbox XML file covering three of them, and a checklist with tables to fill in. It needs [uv](https://docs.astral.sh/uv/) and ffmpeg:

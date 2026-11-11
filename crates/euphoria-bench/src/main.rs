@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Measures key and tempo detectors against the GiantSteps datasets, and the
-//! energy rating against a labels file, and prints a Markdown report.
+//! energy rating against a labels file, and prints a Markdown report. It also
+//! scores the keys and tempos in a rekordbox collection export.
 
 mod alternative;
 mod dataset;
 mod energy;
 mod evaluate;
+mod rekordbox;
 mod render;
 mod scoring;
 mod statistics;
@@ -21,10 +23,13 @@ use euphoria_core::detect::{
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
+
+/// The first argument that scores a rekordbox collection export.
+const REKORDBOX_MODE: &str = "rekordbox";
 
 /// The key detectors that are measured. The first is the one Euphoria
 /// ships, and the others are compared with it track by track.
@@ -131,6 +136,10 @@ fn main() -> Result<()> {
     if command_line.peek().map(String::as_str) == Some(ENERGY_MODE) {
         let arguments = energy::parse_arguments(command_line.skip(1))?;
         return energy::run(&arguments);
+    }
+    if command_line.peek().map(String::as_str) == Some(REKORDBOX_MODE) {
+        let arguments = rekordbox::parse_arguments(command_line.skip(1))?;
+        return rekordbox::run(&arguments);
     }
     let arguments = parse_arguments(command_line)?;
     let data_directory = &arguments.data_directory;
