@@ -203,6 +203,7 @@ impl Playlists {
         match self.get_mut(id) {
             Some(playlist) => {
                 playlist.name = name.to_string();
+                self.revision += 1;
                 true
             }
             None => false,
@@ -213,6 +214,7 @@ impl Playlists {
     pub(crate) fn set_label(&mut self, id: PlaylistId, label: Option<&str>) {
         if let Some(playlist) = self.get_mut(id) {
             playlist.label = label.map(str::to_string);
+            self.revision += 1;
         }
     }
 
@@ -251,14 +253,22 @@ impl Playlists {
                 playlist.tracks.push(path.clone());
             }
         }
-        playlist.tracks.len() - before
+        let added = playlist.tracks.len() - before;
+        if added > 0 {
+            self.revision += 1;
+        }
+        added
     }
 
     /// Takes `paths` out of the playlist.
     pub(crate) fn remove_tracks(&mut self, id: PlaylistId, paths: &[PathBuf]) {
         let removed: HashSet<&PathBuf> = paths.iter().collect();
         if let Some(playlist) = self.get_mut(id) {
+            let before = playlist.tracks.len();
             playlist.tracks.retain(|path| !removed.contains(path));
+            if playlist.tracks.len() != before {
+                self.revision += 1;
+            }
         }
     }
 
@@ -287,6 +297,7 @@ impl Playlists {
             .and_then(|anchor| playlist.tracks.iter().position(|path| *path == anchor))
             .unwrap_or(playlist.tracks.len());
         playlist.tracks.splice(at..at, in_order);
+        self.revision += 1;
     }
 }
 

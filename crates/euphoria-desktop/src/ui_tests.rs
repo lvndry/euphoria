@@ -3280,6 +3280,65 @@ fn playlists_are_kept_and_found_again_on_the_next_launch(cx: &mut TestAppContext
     assert_eq!(kept_paths, [files[2].as_path(), files[0].as_path()]);
 }
 
+#[gpui::test]
+fn edits_after_a_playlist_was_saved_are_all_kept(cx: &mut TestAppContext) {
+    let (_scratch, files, store_path, window, view) =
+        open_with_playlist_store("ui-playlist-later-edits", cx);
+    let id = cx
+        .update_window(window, |_, window, cx| {
+            view.update(cx, |app, cx| {
+                let id = app.create_playlist(window, cx);
+                app.renaming_playlist = None;
+                id
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let load = || {
+        euphoria_core::PlaylistStore::open(&store_path)
+            .unwrap()
+            .load()
+            .unwrap()
+            .remove(0)
+    };
+    assert!(load().entries.is_empty());
+    cx.update(|cx| view.update(cx, |app, cx| app.add_to_playlist(id, &files[..2], cx)));
+    cx.run_until_parked();
+    assert_eq!(load().entries.len(), 2);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session.playlists_mut().rename(id, "Renamed after save");
+            app.save_playlists(cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(load().name, "Renamed after save");
+    cx.update(|cx| view.update(cx, |app, cx| app.set_playlist_label(id, Some("🔥"), cx)));
+    cx.run_until_parked();
+    assert_eq!(load().label.as_deref(), Some("🔥"));
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .playlists_mut()
+                .move_tracks(id, &[files[1].clone()], 0);
+            app.save_playlists(cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(load().entries[0].path, files[1]);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .playlists_mut()
+                .remove_tracks(id, &[files[0].clone()]);
+            app.save_playlists(cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(load().entries.len(), 1);
+    assert_eq!(load().entries[0].path, files[1]);
+}
+
 /// Types `text` into the field `id`, replacing what it holds.
 fn type_into(
     window: AnyWindowHandle,
