@@ -219,6 +219,21 @@ class SyntheticLibraryTests(unittest.TestCase):
         self.assertIsNone(linux_libraries.Elf(executable).rpaths)
         self.assertEqual(linux_libraries.Elf(executable).run_paths, ["$ORIGIN/../lib"])
 
+    def test_absolute_base_system_references_do_not_bundle_glibc_libraries(self):
+        executable = self.build_chain()
+        libm = linux_libraries.resolve(
+            "libm.so.6", [(executable, linux_libraries.Elf(executable))],
+            linux_libraries.system_folders())
+        self.assertIsNotNone(libm)
+        subprocess.run(["patchelf", "--replace-needed", "libm.so.6", str(libm), str(executable)], check=True)
+        subprocess.run([str(executable)], check=True)
+        self.bundle(executable)
+        self.assertFalse((self.root / "lib" / "libm.so.6").exists())
+        self.assertIn("libm.so.6", linux_libraries.Elf(executable).needed)
+        self.assertEqual(linux_libraries.verify(self.root, executable), [])
+        shutil.rmtree(self.outside)
+        subprocess.run([str(executable)], check=True, env={"PATH": "/usr/bin:/bin"})
+
     def test_base_system_libraries_stay_outside(self):
         executable = self.build_chain()
         self.bundle(executable)
