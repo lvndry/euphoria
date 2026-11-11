@@ -2098,7 +2098,7 @@ fn fitting_a_column_keeps_shorter_titles_after_many_long_names(cx: &mut TestAppC
 
 /// The same check as the scratch fixture test, on copies of real two minute
 /// benchmark clips. They are not in the repository, so this runs only by
-/// hand: `cargo test -p euphoria-app -- --ignored bench_clips`, with
+/// hand: `cargo test -p euphoria -- --ignored bench_clips`, with
 /// `EUPHORIA_BENCH_CLIPS` naming the folder when it is elsewhere.
 #[gpui::test]
 #[ignore = "needs the benchmark clips in bench/data/key/audio"]

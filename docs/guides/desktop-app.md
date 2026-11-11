@@ -14,7 +14,7 @@ The app is an early version. It runs from a source checkout on macOS; there is n
 Install the requirements in [building from source](../development/building.md). On macOS you also need Xcode, which provides the Metal shader compiler the interface is built with. Then:
 
 ```
-cargo run --release -p euphoria-app
+cargo run --release -p euphoria
 ```
 
 Use `--release`: analysis is many times slower in a debug build.
@@ -234,7 +234,7 @@ The script builds the app in release mode, makes the icon from `assets/logo` and
 To see how the interface behaves with a large library, start the app with made up tracks. Their keys and tempos are invented and nothing is analyzed:
 
 ```
-EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
+EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria
 ```
 
 ## About the screenshots

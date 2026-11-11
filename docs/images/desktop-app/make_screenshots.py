@@ -154,9 +154,9 @@ def app_binary():
     if chosen:
         return Path(chosen)
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "euphoria-app"], cwd=REPOSITORY, check=True
+        ["cargo", "build", "--release", "-p", "euphoria"], cwd=REPOSITORY, check=True
     )
-    return REPOSITORY / "target/release/euphoria-app"
+    return REPOSITORY / "target/release/euphoria-desktop"
 
 
 def build_library(root):
