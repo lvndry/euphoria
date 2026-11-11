@@ -1367,7 +1367,9 @@ impl EuphoriaApp {
                 .await;
             let shown = this.update(cx, |this, cx| {
                 this.waveforms.insert(path.clone(), waveform);
-                this.waveform_task_path = None;
+                if audio.is_none() {
+                    this.waveform_task_path = None;
+                }
                 cx.notify();
             });
             // The waveform shows first; the energy curve, from the same
@@ -1386,6 +1388,7 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.set_energy(&path, steps.into());
+                this.waveform_task_path = None;
                 cx.notify();
             })
             .ok();
@@ -1525,4 +1528,51 @@ pub(crate) fn text_width(window: &Window, text: &str, size: Pixels) -> f32 {
         .shape_line(text.to_string().into(), size, &[run], None)
         .width
         / px(1.0)
+}
+
+#[cfg(test)]
+mod waveform_task_tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[gpui::test]
+    fn refreshing_after_the_waveform_arrives_keeps_the_pending_energy_task(
+        cx: &mut TestAppContext,
+    ) {
+        let (_, view) = crate::ui_tests::open_fixture_library(cx);
+        let refreshed = Rc::new(Cell::new(false));
+        let observed = refreshed.clone();
+        let _subscription = cx.update(|cx| {
+            cx.observe(&view, move |view, cx| {
+                view.update(cx, |app, cx| {
+                    if matches!(app.selected_waveform(), Some(Waveform::Ready(_, None)))
+                        && !observed.replace(true)
+                    {
+                        let task_path = app.waveform_task_path.clone();
+                        app.load_selected_waveform(cx);
+                        assert!(task_path.is_some(), "the pending curve still owns its path");
+                        assert_eq!(app.waveform_task_path, task_path);
+                    }
+                });
+            })
+        });
+        for _ in 0..20 {
+            cx.executor().advance_clock(Duration::from_millis(200));
+            cx.run_until_parked();
+        }
+        assert!(
+            refreshed.get(),
+            "refreshed between waveform and curve completion"
+        );
+        cx.update(|cx| {
+            assert!(matches!(
+                view.read(cx).selected_waveform(),
+                Some(Waveform::Ready(_, Some(_)))
+            ));
+        });
+    }
 }
