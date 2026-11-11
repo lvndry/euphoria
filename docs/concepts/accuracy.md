@@ -186,7 +186,7 @@ The beat grid tells a DJ program where every beat and every bar of a track falls
 
 ### How it is measured
 
-No openly available dataset of electronic dance music has both audio and beat annotations, so the grid is measured on the 100 disco and 100 hip hop excerpts of GTZAN, 30 seconds each, with the beat and downbeat annotations of the GTZAN-Rhythm work, published under the MIT licence. Both are steady 4/4 drum music, the closest open material to dance music. A beat counts as found within 70 ms of an annotated one, a grid is right when its beat F-measure is at least 0.9, and a downbeat when the F-measure of the downbeats alone is.
+No openly licensed dataset of electronic dance music has both audio and beat annotations, so the grid is measured on the 100 disco and 100 hip hop excerpts of GTZAN, 30 seconds each, with the beat and downbeat annotations of the GTZAN-Rhythm work. Both are steady 4/4 drum music, the closest available material to dance music. The annotations are under the MIT licence. The GTZAN audio has no stated licence: it is downloaded only to run the benchmark locally and is never part of the repository or redistributed. A beat counts as found within 70 ms of an annotated one, a grid is right when its beat F-measure is at least 0.9, and a downbeat when the F-measure of the downbeats alone is.
 
 | On the 100 held out excerpts | Beat F-measure | Grid right | Downbeat right |
 | --- | --- | --- | --- |

@@ -116,7 +116,9 @@ impl TrackAnalysis {
 
     /// The same analysis with [`TrackAnalysis::bpm`] and the beat grid
     /// reported in `range`. Nothing is analyzed again: the tempo comes from
-    /// the stored estimate.
+    /// the stored estimate. Call it on an analysis as stored, in the default
+    /// range: a grid that is doubled keeps its first downbeat within the
+    /// shorter bar, so halving it again may not bring back the same one.
     pub fn with_tempo_range(mut self, range: TempoRange) -> Self {
         self.bpm = self.tempo_in(range);
         self.beat_grid = self.beat_grid.map(|grid| grid.in_tempo_range(range));

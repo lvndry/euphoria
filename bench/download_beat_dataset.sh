@@ -6,14 +6,18 @@
 # downbeat annotations into bench/data/beats, which is not tracked by git,
 # for `euphoria-bench beats`.
 #
-# No openly available dataset of electronic dance music has both audio and
+# No openly licensed dataset of electronic dance music has both audio and
 # beat annotations, so the beat grid is measured on the steady 4/4 drum
 # music of GTZAN instead: 100 disco and 100 hip hop excerpts of 30 seconds.
-# GTZAN comes without a licence and is used for research; it is fetched
-# here and never stored in the repository. The beat and downbeat
-# annotations, from the GTZAN-Rhythm work of Marchand and Peeters, come from
-# the beat_this_annotations collection of the Institute of Computational
-# Perception, under the MIT licence.
+#
+# The GTZAN audio has no stated licence. It is downloaded here only to
+# measure Euphoria on the machine that runs this script. It is never
+# committed to the repository and must not be redistributed. The MIT
+# licence below covers the annotations only, not the audio.
+#
+# The beat and downbeat annotations, from the GTZAN-Rhythm work of
+# Marchand and Peeters, come from the beat_this_annotations collection of
+# the Institute of Computational Perception, under the MIT licence.
 set -euo pipefail
 
 bench_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -120,7 +120,7 @@ It prints the table in [bench/results/quality.md](https://github.com/lvndry/euph
 
 ## Beat grid benchmark
 
-The [beat grid](../concepts/accuracy.md#beat-grid) is measured on the disco and hip hop excerpts of GTZAN with the MIT licensed beat and downbeat annotations of beat_this. Download them (about 1.2 GB for the GTZAN archive, of which about 260 MB of WAV files is kept in `bench/data/beats`) and run the benchmark:
+The [beat grid](../concepts/accuracy.md#beat-grid) is measured on the disco and hip hop excerpts of GTZAN with the beat and downbeat annotations of beat_this. The annotations are under the MIT licence; the GTZAN audio has no stated licence, so the script downloads it for local measurement only, and it must never be committed or redistributed. Download them (about 1.2 GB for the GTZAN archive, of which about 260 MB of WAV files is kept in `bench/data/beats`) and run the benchmark:
 
 ```
 ./bench/download_beat_dataset.sh
