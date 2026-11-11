@@ -1838,6 +1838,32 @@ fn files_left_out_of_a_write_are_listed_with_the_reason(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn opening_settings_discards_a_tag_preview_still_being_planned(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-settings-during-plan");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (_, view) = open_taggable_files(&scratch, &files, None, cx);
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.plan_tag_write(crate::tag_flow::WriteScope::Shown, cx);
+            app.open_settings(cx);
+            assert!(app.settings_open);
+            assert!(app.tag_panel.is_none());
+        });
+    });
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.settings_open);
+        assert!(app.tag_panel.is_none(), "a dismissed preview reopened");
+    });
+    assert_eq!(tag_testing::contents(&files), before);
+    assert!(!scratch.log_directory().exists());
+}
+
+#[gpui::test]
 fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
     cx: &mut TestAppContext,
 ) {
@@ -2034,6 +2060,26 @@ fn a_double_click_on_a_header_edge_fits_the_column_to_its_longest_text(cx: &mut 
         assert!(window.try_find(("title-cell", 3_usize)).is_some());
     })
     .unwrap();
+}
+
+#[gpui::test]
+fn fitting_a_column_keeps_shorter_titles_after_many_long_names(cx: &mut TestAppContext) {
+    let mut tracks = demo::tracks(42);
+    for (index, track) in tracks.iter_mut().enumerate() {
+        track.path = PathBuf::from(format!("/Demo/{}-{index}.mp3", "i".repeat(80)));
+    }
+    let wide_title = format!("{}.mp3", "W".repeat(30));
+    tracks[41].path = Path::new("/Demo").join(&wide_title);
+    let (_, view) = open_window_on(tracks, Box::new(SilentOutput), cx);
+
+    cx.update(|cx| {
+        let candidates = view.read(cx).column_texts(ColumnId::Title);
+        assert_eq!(candidates.len(), 42);
+        assert!(
+            candidates.contains(&wide_title),
+            "a shorter title can be wider in the table's proportional font"
+        );
+    });
 }
 
 /// The same check as the scratch fixture test, on copies of real two minute

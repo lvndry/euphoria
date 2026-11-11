@@ -19,7 +19,7 @@ use gpui::{
     UniformListScrollHandle, Window, canvas, div, px, relative,
 };
 
-use crate::columns::{ColumnId, ColumnWidths, TableLayout, fitted_width};
+use crate::columns::{ColumnId, ColumnWidths, TableLayout, fitted_width, widest_text};
 use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
 use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
@@ -676,11 +676,8 @@ impl EuphoriaApp {
     ) {
         self.column_resize = None;
         let contents = self.column_texts(column);
-        let content_width = contents
-            .iter()
-            .map(|text| text_width(window, text, views::TEXT_SIZE))
-            .fold(0.0, f32::max)
-            + FIT_SLACK;
+        let content_width =
+            widest_text(contents, |text| text_width(window, text, views::TEXT_SIZE)) + FIT_SLACK;
         let header_width =
             text_width(window, column.label(), views::LABEL_TEXT_SIZE) + SORT_ARROW_WIDTH;
         self.column_widths
@@ -688,12 +685,10 @@ impl EuphoriaApp {
         self.remember_column_widths(cx);
     }
 
-    /// The longest texts `column` shows among the rows on show, at most a
-    /// few dozen, which are the ones that can be the widest.
-    fn column_texts(&self, column: ColumnId) -> Vec<String> {
+    /// The texts `column` shows among the rows on show.
+    pub(crate) fn column_texts(&self, column: ColumnId) -> Vec<String> {
         let library = self.session.library();
-        let mut texts: Vec<String> = self
-            .visible
+        self.visible
             .iter()
             .enumerate()
             .filter_map(|(row, index)| {
@@ -714,10 +709,7 @@ impl EuphoriaApp {
                         .map(|label| label.text.clone()),
                 }
             })
-            .collect();
-        texts.sort_by_key(|text| std::cmp::Reverse(text.chars().count()));
-        texts.truncate(MEASURED_TEXTS);
-        texts
+            .collect()
     }
 
     /// Reset column widths: every column back to its usual width.
@@ -752,6 +744,7 @@ impl EuphoriaApp {
         if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
             return;
         }
+        self.tag_task_generation += 1;
         self.tag_panel = None;
         self.settings_open = true;
         cx.notify();
@@ -1460,9 +1453,6 @@ const FIT_SLACK: f32 = 4.0;
 
 /// Room for the sort arrow beside a column's header.
 const SORT_ARROW_WIDTH: f32 = 16.0;
-
-/// How many of a column's longest texts are measured to fit it.
-const MEASURED_TEXTS: usize = 40;
 
 /// The column whose header edge is held, and where it starts from the
 /// table's left edge.
