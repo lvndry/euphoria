@@ -106,6 +106,18 @@ jobs:
       - name: Benchmark scripts
         run: uv run --no-project --python 3.12 --with numpy --with scipy python -m unittest discover -s bench -p 'test_*.py'
 
+  docs:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Relative links and headings
+        run: uv run --no-project --python 3.12 python -m unittest scripts/test_docs_links.py
+
   lint:
     name: Lint
     needs: changes
