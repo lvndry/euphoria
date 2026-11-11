@@ -1,0 +1,262 @@
+name: Release
+
+# Builds and publishes a release of Euphoria. Started by hand from the
+# Actions tab: choose "Run workflow" on main. There is nothing to fill in:
+# the version is the next calendar version, YEAR.MONTH.N, worked out from
+# the date and the existing tags (docs/development/releasing.md).
+#
+# The release commit, which sets the version in the Cargo manifests, is not
+# pushed to main. It sits on top of main's commit and only the tag v<version>
+# points at it, so main's ruleset, which requires a pull request, applies
+# unchanged.
+#
+# A run that failed after pushing the tag is finished by running the workflow
+# again: when the newest tag has no release, or one without all its files,
+# the run checks that the tag points at a release commit made on a commit of
+# main that passed CI, rebuilds that version from it and publishes it. The
+# tag is never moved.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Check and choose the version
+    # Only the owner can release, and only from main.
+    if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      version: ${{ steps.plan.outputs.version }}
+      previous_tag: ${{ steps.plan.outputs.previous_tag }}
+      base: ${{ steps.base.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Choose a new version or the one to finish
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release/plan_release.py | tee -a "$GITHUB_OUTPUT"
+      - name: Find the commit to build
+        id: base
+        env:
+          MODE: ${{ steps.plan.outputs.mode }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          if [ "$MODE" = new ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+              echo "::error::The tag v$VERSION exists already."
+              exit 1
+            fi
+            echo "base=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "Releasing $VERSION from $GITHUB_SHA."
+            exit 0
+          fi
+
+          # Finishing a release: the tag must point at the release commit the
+          # workflow made, on top of a commit of main, holding exactly that
+          # commit's files with the version set.
+          tag_commit=$(git rev-parse "v$VERSION^{commit}")
+          if [ "$(git log -1 --format=%s "$tag_commit")" != "chore(release): $VERSION" ]; then
+            echo "::error::v$VERSION does not point at a release commit."
+            exit 1
+          fi
+          if [ "$(git rev-list --parents -n 1 "$tag_commit" | wc -w)" -ne 2 ]; then
+            echo "::error::The release commit of v$VERSION does not have exactly one parent."
+            exit 1
+          fi
+          base=$(git rev-parse "$tag_commit^")
+          if ! git merge-base --is-ancestor "$base" origin/main; then
+            echo "::error::v$VERSION was not made on a commit of main."
+            exit 1
+          fi
+          git worktree add --quiet --detach "$RUNNER_TEMP/base" "$base"
+          (
+            cd "$RUNNER_TEMP/base"
+            python3 scripts/release/set_version.py "$VERSION" > /dev/null
+            git add --all
+            [ "$(git write-tree)" = "$(git rev-parse "$tag_commit^{tree}")" ]
+          ) || {
+            echo "::error::v$VERSION holds other changes than its version."
+            exit 1
+          }
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "Finishing $VERSION, tagged on $base."
+      - name: Check that CI passed on the commit to build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ steps.base.outputs.base }}
+        run: |
+          passed=$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&status=success" --jq '.total_count')
+          if [ "$passed" -eq 0 ]; then
+            echo "::error::CI has not passed on $SHA. Wait for it to finish, or fix main first."
+            exit 1
+          fi
+
+  build:
+    name: Build for macOS
+    needs: prepare
+    # macos-15 runs on Apple Silicon. Intel is left out: Homebrew on these
+    # runners provides libkeyfinder and FFTW for arm64 only, and Apple sells
+    # no Intel Macs any more.
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      tree: ${{ steps.version.outputs.tree }}
+      minimum_macos: ${{ steps.minimum.outputs.minimum_macos }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          persist-credentials: false
+      - name: Set the version
+        id: version
+        run: |
+          python3 scripts/release/set_version.py "$VERSION"
+          git add --all
+          echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
+      - name: Install libkeyfinder
+        run: brew install libkeyfinder
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Check the version in Cargo.lock
+        run: cargo metadata --locked --format-version 1 --no-deps > /dev/null
+      - name: Build the app and the disk image
+        run: ./scripts/bundle-macos.sh
+      - name: Read the oldest macOS the app runs on
+        id: minimum
+        run: |
+          minimum=$(plutil -extract LSMinimumSystemVersion raw target/release/bundle/Euphoria.app/Contents/Info.plist)
+          echo "minimum_macos=$minimum" >> "$GITHUB_OUTPUT"
+          echo "The app needs macOS $minimum or later."
+      - name: Build the command line tool
+        run: ./scripts/release/package-cli.sh dist
+      - name: Gather the files and their checksums
+        run: |
+          cp "target/release/bundle/Euphoria-$VERSION.dmg" dist/
+          # The same disk image under a name without the version, so that
+          # releases/latest/download/Euphoria.dmg always leads to the newest.
+          cp "target/release/bundle/Euphoria-$VERSION.dmg" dist/Euphoria.dmg
+          cd dist
+          shasum -a 256 -- * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Tag and publish
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      MODE: ${{ needs.prepare.outputs.mode }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+      BASE: ${{ needs.prepare.outputs.base }}
+      BUILT_TREE: ${{ needs.build.outputs.tree }}
+      MINIMUM_MACOS: ${{ needs.build.outputs.minimum_macos }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Make the release commit and tag, or check the existing tag
+        run: |
+          if [ "$MODE" = resume ]; then
+            tree=$(git rev-parse "v$VERSION^{tree}")
+            if [ "$tree" != "$BUILT_TREE" ]; then
+              echo "::error::v$VERSION holds other files than were built ($tree, built $BUILT_TREE)."
+              exit 1
+            fi
+            echo "v$VERSION exists and matches the build; it stays where it is."
+            exit 0
+          fi
+          git checkout --quiet --detach "$BASE"
+          python3 scripts/release/set_version.py "$VERSION"
+          git add --all
+          tree=$(git write-tree)
+          if [ "$tree" != "$BUILT_TREE" ]; then
+            echo "::error::The files to tag differ from the files that were built ($tree, built $BUILT_TREE)."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet --message "chore(release): $VERSION"
+          git tag --annotate "v$VERSION" --message "Euphoria $VERSION"
+      - name: Write the release notes
+        run: |
+          since=()
+          if [ -n "$PREVIOUS_TAG" ]; then
+            since=(--since "$PREVIOUS_TAG")
+          fi
+          python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" \
+            --until "$BASE" --repository "$GITHUB_REPOSITORY" \
+            --minimum-macos "$MINIMUM_MACOS" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist
+      - name: Check the files against their checksums
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+      - name: Push the tag
+        if: env.MODE == 'new'
+        run: git push origin "refs/tags/v$VERSION"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only a confirmed "not found" means the release must be created;
+          # any other failure stops the run with its own message.
+          if view_error="$(gh release view "v$VERSION" 2>&1 >/dev/null)"; then
+            release_exists=true
+          elif grep -qi "release not found" <<<"$view_error"; then
+            release_exists=false
+          else
+            echo "$view_error" >&2
+            exit 1
+          fi
+          if [ "$release_exists" = true ]; then
+            # An earlier run made the release but did not finish it. The
+            # notes are written last, so their closing marker shows the
+            # release is complete.
+            gh release upload "v$VERSION" dist/* --clobber
+            gh release edit "v$VERSION" \
+              --latest \
+              --title "Euphoria $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "v$VERSION" dist/* \
+              --verify-tag \
+              --latest \
+              --title "Euphoria $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi

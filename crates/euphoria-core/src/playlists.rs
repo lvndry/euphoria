@@ -366,6 +366,7 @@ mod tests {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
         };
         cache.record_retagged_file(&original, &analysis).unwrap();
         let mut playlists = vec![StoredPlaylist {

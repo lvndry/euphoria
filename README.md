@@ -30,7 +30,7 @@ In development: exports for Serato, Traktor and Engine DJ.
 
 ## Install
 
-Homebrew packages are coming. Until then, see [installation](docs/getting-started/installation.md).
+On a Mac with Apple Silicon, [download Euphoria](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), open the disk image and drag Euphoria onto Applications. The first time, right click the app and choose Open: it is not notarized by Apple yet. Every release, with the command line tool, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or on Linux, see [installation](docs/getting-started/installation.md).
 
 ## Quick start
 
