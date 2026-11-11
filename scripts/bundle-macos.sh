@@ -13,8 +13,9 @@
 # target/release/bundle/Euphoria-<version>.dmg. Pass --no-dmg to stop after
 # the app, and --skip-build to package the binary already in target/release.
 #
-# libkeyfinder and FFTW are copied into Contents/Frameworks, with their
-# install names changed so the app finds them there. The bundle is signed
+# libkeyfinder and FFTW are copied into Contents/Frameworks by
+# scripts/copy-libraries.sh, with their install names changed so the app
+# finds them there. The bundle is signed
 # with an ad hoc signature, which lets it run on the Mac that built it. It is
 # not notarized: that needs a paid Apple Developer account. On another Mac,
 # Gatekeeper asks once before opening it.
@@ -73,49 +74,7 @@ executable="$bundle/Contents/MacOS/Euphoria"
 cp "$binary" "$executable"
 chmod u+w "$executable"
 
-# Copies every library the executable needs from outside the system into
-# Contents/Frameworks, and the libraries those need in turn, then points
-# each reference at the copy. Libraries in /usr/lib and /System ship with
-# macOS and stay where they are.
-is_system_library() {
-  case "$1" in
-    /usr/lib/* | /System/*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-# The libraries a Mach-O file refers to, without its own install name.
-dependencies() {
-  otool -L "$1" | tail -n +2 | sed 's/^[[:space:]]*\([^ ]*\) .*/\1/' | grep -v "^$(otool -D "$1" | tail -n +2)\$" || true
-}
-pending="$executable"
-while [ -n "$pending" ]; do
-  next=""
-  for file in $pending; do
-    for dependency in $(dependencies "$file"); do
-      case "$dependency" in
-        @rpath/* | @executable_path/* | @loader_path/*) continue ;;
-      esac
-      if is_system_library "$dependency"; then
-        continue
-      fi
-      name=$(basename "$dependency")
-      copy="$frameworks/$name"
-      if [ ! -e "$copy" ]; then
-        cp -L "$dependency" "$copy"
-        chmod u+w "$copy"
-        install_name_tool -id "@rpath/$name" "$copy"
-        next="$next $copy"
-      fi
-      install_name_tool -change "$dependency" "@rpath/$name" "$file"
-    done
-  done
-  pending=$next
-done
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$executable"
-for file in "$frameworks"/*.dylib; do
-  [ -e "$file" ] || continue
-  install_name_tool -add_rpath "@loader_path" "$file" 2> /dev/null || true
-done
+"$repository/scripts/copy-libraries.sh" "$executable" "$frameworks" "@executable_path/../Frameworks"
 
 # Every binary in the bundle needs at least the macOS version it was built
 # for. Homebrew builds its libraries for the macOS it runs on, so the app
@@ -191,15 +150,6 @@ for file in "$frameworks"/*.dylib; do
 done
 codesign --force --sign - --timestamp=none "$bundle"
 codesign --verify --strict --verbose=1 "$bundle"
-
-for file in "$executable" "$frameworks"/*.dylib; do
-  [ -e "$file" ] || continue
-  if otool -L "$file" | tail -n +2 | grep -E '/(opt/homebrew|usr/local)/' > /dev/null; then
-    echo "error: $file still refers to a library outside the bundle:" >&2
-    otool -L "$file" >&2
-    exit 1
-  fi
-done
 echo "Built $bundle (macOS $minimum_system or later)"
 
 if [ "$make_dmg" = no ]; then
