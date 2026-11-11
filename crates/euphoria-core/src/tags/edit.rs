@@ -175,9 +175,12 @@ pub enum TextChange {
         /// Whether "house" and "House" are different.
         match_case: bool,
     },
-    /// Puts text in front, unless the field already starts with it.
+    /// Puts text in front, unless the field already starts with it. An
+    /// absent or empty field stays so: a title that is only "[Edit] " helps
+    /// nobody.
     AddPrefix(String),
-    /// Puts text at the end, unless the field already ends with it.
+    /// Puts text at the end, unless the field already ends with it. An
+    /// absent or empty field stays so.
     AddSuffix(String),
     /// Takes text off the front, when the field starts with it.
     RemovePrefix(String),
@@ -188,9 +191,14 @@ pub enum TextChange {
 impl TextChange {
     /// The text a field holding `current` gets, `None` when the field is
     /// removed. An empty field is no field: a change that leaves nothing
-    /// removes it, and adding to an absent field starts from nothing.
+    /// removes it, and a prefix or a suffix is only added to a field that
+    /// has text.
     pub fn apply(&self, current: Option<&str>) -> Option<String> {
         let current = current.unwrap_or_default();
+        if current.is_empty() && matches!(self, TextChange::AddPrefix(_) | TextChange::AddSuffix(_))
+        {
+            return None;
+        }
         let new = match self {
             TextChange::Set(text) => text.clone(),
             TextChange::Clear => String::new(),
@@ -489,7 +497,8 @@ mod tests {
         let prefix = TextChange::AddPrefix("[DJ] ".to_string());
         assert_eq!(prefix.apply(Some("Mix")).as_deref(), Some("[DJ] Mix"));
         assert_eq!(prefix.apply(Some("[DJ] Mix")).as_deref(), Some("[DJ] Mix"));
-        assert_eq!(prefix.apply(None).as_deref(), Some("[DJ] "));
+        assert_eq!(prefix.apply(None), None, "an absent field stays absent");
+        assert_eq!(prefix.apply(Some("")), None);
         let suffix = TextChange::AddSuffix(" (Edit)".to_string());
         assert_eq!(suffix.apply(Some("Song")).as_deref(), Some("Song (Edit)"));
         assert_eq!(

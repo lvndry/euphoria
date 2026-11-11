@@ -46,7 +46,8 @@ pub struct SetArguments {
     /// Find only text with the same capital letters.
     #[arg(long, requires = "replace")]
     match_case: bool,
-    /// Put text in front of a field, such as `title=[Edit] `.
+    /// Put text in front of a field, such as `title=[Edit] `. A file
+    /// without the field is left without it.
     #[arg(long, value_name = "FIELD=TEXT")]
     add_prefix: Vec<String>,
     /// Put text at the end of a field.

@@ -350,7 +350,7 @@ A comment or a grouping keeps the key and energy label that `tags write` put the
 | `--field <FIELD=VALUE>` | Give a field a value. An empty value, such as `album=`, removes the field. May be given more than once. |
 | `--clear <FIELD>` | Remove a field. May be given more than once. |
 | `--replace <FIELD>` with `--find <TEXT>` and `--with <TEXT>` | Replace every occurrence of the text in the field. Letters match in either case unless `--match-case` is given. `--with ""` deletes the text. |
-| `--add-prefix <FIELD=TEXT>`, `--add-suffix <FIELD=TEXT>` | Put text in front of or after a field, unless it is already there. |
+| `--add-prefix <FIELD=TEXT>`, `--add-suffix <FIELD=TEXT>` | Put text in front of or after a field, unless it is already there. A file without the field is left without it. |
 | `--remove-prefix <FIELD=TEXT>`, `--remove-suffix <FIELD=TEXT>` | Take text off the front or the end of a field, where it is there. |
 | `-y`, `--yes` | Write without asking. |
 | `--dry-run` | Show the preview and write nothing. |
