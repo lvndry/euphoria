@@ -3633,6 +3633,20 @@ fn the_key_is_picked_and_the_tempo_typed_by_hand(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn selecting_another_track_discards_the_previous_tracks_tempo_draft(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, "edit-values", cx);
+    retype(window, "bpm-field", "145", cx);
+    click(window, track(2), cx);
+    assert!(!is_shown(window, "bpm-field", cx));
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_typed_bpm(cx)));
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(174.0));
+    click(window, "edit-values", cx);
+    let typed = cx.update(|cx| view.read(cx).bpm_input.read(cx).value().to_string());
+    assert_eq!(typed, "174.0");
+}
+
+#[gpui::test]
 fn a_correction_wins_in_the_mixes_and_the_tags_to_write(cx: &mut TestAppContext) {
     let (window, view, _) = open_tracks_to_check_by_ear(cx);
     let mixed_keys = |cx: &mut TestAppContext| {
