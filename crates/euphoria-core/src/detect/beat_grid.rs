@@ -568,9 +568,13 @@ impl BeatGrid {
 /// 2% of it. `None` for audio shorter than four beats, and for audio whose
 /// onsets show no beat, such as silence.
 pub fn detect_beat_grid(audio: &AudioBuffer, tempo_bpm: f64) -> Option<BeatGrid> {
-    let envelope = OnsetEnvelope::of_audio(audio)?;
-    let fit = fit_beats(&envelope, tempo_bpm)?;
-    let evidence = downbeat_evidence(&envelope, fit);
+    grid_of_envelope(&OnsetEnvelope::of_audio(audio)?, tempo_bpm)
+}
+
+/// [`detect_beat_grid`] on an envelope that is already computed.
+pub(crate) fn grid_of_envelope(envelope: &OnsetEnvelope, tempo_bpm: f64) -> Option<BeatGrid> {
+    let fit = fit_beats(envelope, tempo_bpm)?;
+    let evidence = downbeat_evidence(envelope, fit);
     let downbeat = choose_downbeat(&evidence);
     let beat_seconds = fit.period_frames / envelope.frame_rate;
     let first_beat_seconds = envelope.first_frame_seconds
@@ -582,7 +586,7 @@ pub fn detect_beat_grid(audio: &AudioBuffer, tempo_bpm: f64) -> Option<BeatGrid>
         first_downbeat_seconds: downbeat_seconds.rem_euclid(bar_seconds),
         bpm: 60.0 / beat_seconds,
         salience: fit.salience,
-        drift_seconds: drift_seconds(&envelope, fit).map(|drift| drift as f32),
+        drift_seconds: drift_seconds(envelope, fit).map(|drift| drift as f32),
     })
 }
 
