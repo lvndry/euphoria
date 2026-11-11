@@ -534,41 +534,55 @@ fn tempo_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<f32>
 /// A stored beat grid, from four columns starting at `first_column`: the
 /// first downbeat, the tempo, the salience and the drift. `None` when the
 /// tempo is null, as for a track without a grid.
+/// The beat grid stored in four columns from `first_column`: the first
+/// downbeat, the tempo, the salience and the drift. All four are null for a
+/// track without a grid. A grid has the first three; the drift is null when
+/// the track had too few stretches with clear beats to measure it. Any other
+/// mix of null columns is a damaged row.
 fn beat_grid_in_columns(row: &Row<'_>, first_column: usize) -> rusqlite::Result<Option<BeatGrid>> {
-    let Some(bpm) = row.get::<_, Option<f64>>(first_column + 1)? else {
-        return Ok(None);
-    };
     let first_downbeat_seconds: Option<f64> = row.get(first_column)?;
+    let bpm: Option<f64> = row.get(first_column + 1)?;
     let salience: Option<f32> = row.get(first_column + 2)?;
     let drift_seconds: Option<f32> = row.get(first_column + 3)?;
-    let grid = first_downbeat_seconds
-        .zip(salience)
-        .map(|(first_downbeat_seconds, salience)| BeatGrid {
-            first_downbeat_seconds,
-            bpm,
-            salience,
-            drift_seconds,
-        });
-    let usable = grid.filter(|grid| {
-        grid.bpm.is_finite()
-            && grid.bpm > 0.0
-            && grid.first_downbeat_seconds.is_finite()
-            && grid.first_downbeat_seconds >= 0.0
-            && grid.salience.is_finite()
-            && grid
-                .drift_seconds
-                .is_none_or(|drift| drift.is_finite() && drift >= 0.0)
-    });
-    usable.map(Some).ok_or_else(|| {
-        rusqlite::Error::FromSqlConversionFailure(
-            first_column,
-            Type::Real,
-            format!(
-                "beat grid at {first_downbeat_seconds:?} seconds and {bpm} BPM is not a usable grid"
-            )
-            .into(),
-        )
-    })
+    let damaged = |problem: String| {
+        rusqlite::Error::FromSqlConversionFailure(first_column, Type::Real, problem.into())
+    };
+    let (Some(first_downbeat_seconds), Some(bpm), Some(salience)) =
+        (first_downbeat_seconds, bpm, salience)
+    else {
+        if first_downbeat_seconds.is_none()
+            && bpm.is_none()
+            && salience.is_none()
+            && drift_seconds.is_none()
+        {
+            return Ok(None);
+        }
+        return Err(damaged(format!(
+            "beat grid with first downbeat {first_downbeat_seconds:?}, tempo {bpm:?}, \
+             salience {salience:?} and drift {drift_seconds:?} is only partly stored"
+        )));
+    };
+    let grid = BeatGrid {
+        first_downbeat_seconds,
+        bpm,
+        salience,
+        drift_seconds,
+    };
+    let usable = grid.bpm.is_finite()
+        && grid.bpm > 0.0
+        && grid.first_downbeat_seconds.is_finite()
+        && grid.first_downbeat_seconds >= 0.0
+        && grid.salience.is_finite()
+        && grid
+            .drift_seconds
+            .is_none_or(|drift| drift.is_finite() && drift >= 0.0);
+    if usable {
+        Ok(Some(grid))
+    } else {
+        Err(damaged(format!(
+            "beat grid at {first_downbeat_seconds} seconds and {bpm} BPM is not a usable grid"
+        )))
+    }
 }
 
 fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
@@ -1287,6 +1301,10 @@ mod tests {
             ("0.2", "-128.0", "10.0", "NULL"),
             ("-0.5", "128.0", "10.0", "NULL"),
             ("0.2", "128.0", "10.0", "-0.01"),
+            ("NULL", "128.0", "10.0", "NULL"),
+            ("0.2", "NULL", "10.0", "0.01"),
+            ("0.2", "128.0", "NULL", "NULL"),
+            ("NULL", "NULL", "NULL", "0.01"),
         ] {
             let folder = TemporaryFolder::new();
             let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
@@ -1306,7 +1324,8 @@ mod tests {
             let description = cache.snapshot().unwrap_err().chain();
 
             assert!(
-                description.contains("is not a usable grid"),
+                description.contains("is not a usable grid")
+                    || description.contains("is only partly stored"),
                 "{bpm} BPM from {first_downbeat}: {description}"
             );
         }

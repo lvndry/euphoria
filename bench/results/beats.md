@@ -31,6 +31,7 @@ Each excerpt is scored twice: with the tempo Euphoria reports, between 90 and 18
 | high | 36 (36.0%) | 97.2% |
 | medium | 33 (33.0%) | 100.0% |
 | low | 31 (31.0%) | 61.3% |
+| no grid | 0 (0.0%) | - |
 
 ## Held out half
 
@@ -44,8 +45,9 @@ Each excerpt is scored twice: with the tempo Euphoria reports, between 90 and 18
 | high | 36 (36.0%) | 97.2% |
 | medium | 22 (22.0%) | 100.0% |
 | low | 42 (42.0%) | 64.3% |
+| no grid | 0 (0.0%) | - |
 
-Every excerpt got a tempo and a grid.
+Every rate is out of all 100 excerpts of a half: an excerpt without a tempo or a grid would count as missed. Every excerpt got a tempo and a grid. A beat or downbeat is matched to an annotated one by the largest one to one matching within the window, as in the standard evaluation.
 
 ## How the settings were chosen
 
