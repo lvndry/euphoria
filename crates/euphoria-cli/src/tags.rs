@@ -220,45 +220,18 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         failures.len(),
     )?;
 
-    let decision = if plans.is_empty() || arguments.dry_run {
-        Decision::Stop
-    } else if arguments.yes {
-        Decision::Write
-    } else if !std::io::stdin().is_terminal() {
-        Decision::CannotAsk
-    } else {
-        write!(
-            standard_error,
-            "{} ",
-            theme.bold(format_args!(
-                "Write these changes to {}? [y/N]",
-                output::counted_files(plans.len())
-            ))
-        )?;
-        standard_error.flush()?;
-        if is_yes(&mut std::io::stdin().lock())? {
-            Decision::Write
-        } else {
-            Decision::Stop
-        }
-    };
+    let decision = decide(
+        plans.len(),
+        arguments.dry_run,
+        arguments.yes,
+        &theme,
+        &mut standard_error,
+    )?;
 
     let mut failed = !failures.is_empty();
     match decision {
-        Decision::Stop => writeln!(standard_error, "Nothing was written.")?,
-        Decision::CannotAsk => {
-            failed = true;
-            output::write_error(
-                &mut standard_error,
-                &theme,
-                "nothing was written: standard input is not a terminal, so there is nobody to \
-                 confirm the changes.",
-            )?;
-            output::write_hint(
-                &mut standard_error,
-                &theme,
-                "Run again with --yes to write them, or with --dry-run to only preview them.",
-            )?;
+        Decision::Stop | Decision::CannotAsk => {
+            failed |= report_nothing_written(decision, &theme, &mut standard_error)?;
         }
         Decision::Write => {
             let log_directory = default_write_log_directory().map_err(with_causes)?;
@@ -323,6 +296,7 @@ pub(crate) fn decide(
     plan_count: usize,
     dry_run: bool,
     yes: bool,
+    theme: &Theme,
     standard_error: &mut impl Write,
 ) -> Result<Decision> {
     Ok(if plan_count == 0 || dry_run {
@@ -334,8 +308,11 @@ pub(crate) fn decide(
     } else {
         write!(
             standard_error,
-            "Write these changes to {}? [y/N] ",
-            output::counted_files(plan_count)
+            "{} ",
+            theme.bold(format_args!(
+                "Write these changes to {}? [y/N]",
+                output::counted_files(plan_count)
+            ))
         )?;
         standard_error.flush()?;
         if is_yes(&mut std::io::stdin().lock())? {
@@ -349,15 +326,21 @@ pub(crate) fn decide(
 /// Says why nothing was written. Returns true when that is a failure.
 pub(crate) fn report_nothing_written(
     decision: Decision,
+    theme: &Theme,
     standard_error: &mut impl Write,
 ) -> Result<bool> {
     match decision {
         Decision::CannotAsk => {
-            writeln!(
+            output::write_error(
                 standard_error,
-                "Nothing was written: standard input is not a terminal, so there is nobody to \
-                 confirm the changes. Run again with --yes to write them, or with --dry-run to \
-                 only preview them."
+                theme,
+                "nothing was written: standard input is not a terminal, so there is nobody to \
+                 confirm the changes.",
+            )?;
+            output::write_hint(
+                standard_error,
+                theme,
+                "Run again with --yes to write them, or with --dry-run to only preview them.",
             )?;
             Ok(true)
         }
