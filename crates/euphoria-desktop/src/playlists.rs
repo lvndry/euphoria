@@ -18,9 +18,22 @@ use crate::mixes::compatible_keys;
 
 /// The emoji a playlist can be labelled with, offered in its menu.
 pub(crate) const LABELS: [&str; 16] = [
-    "\u{1f525}", "\u{1f319}", "\u{2600}\u{fe0f}", "\u{1f30a}", "\u{26a1}", "\u{1f48e}",
-    "\u{1f3b9}", "\u{1f941}", "\u{2764}\u{fe0f}", "\u{1f31f}", "\u{1f680}", "\u{1f3c1}",
-    "\u{1f9ca}", "\u{1f33f}", "\u{1f377}", "\u{1f47e}",
+    "\u{1f525}",
+    "\u{1f319}",
+    "\u{2600}\u{fe0f}",
+    "\u{1f30a}",
+    "\u{26a1}",
+    "\u{1f48e}",
+    "\u{1f3b9}",
+    "\u{1f941}",
+    "\u{2764}\u{fe0f}",
+    "\u{1f31f}",
+    "\u{1f680}",
+    "\u{1f3c1}",
+    "\u{1f9ca}",
+    "\u{1f33f}",
+    "\u{1f377}",
+    "\u{1f47e}",
 ];
 
 /// The name a new playlist starts with.
@@ -29,6 +42,13 @@ const NEW_PLAYLIST_NAME: &str = "New playlist";
 /// Tells playlists apart while the app runs, whatever their names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct PlaylistId(u64);
+
+impl PlaylistId {
+    /// A number for element ids, unique among the playlists of this run.
+    pub(crate) fn number(self) -> usize {
+        self.0 as usize
+    }
+}
 
 /// One playlist.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +62,7 @@ pub(crate) struct Playlist {
 }
 
 /// Every playlist, in the order the sidebar lists them.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Playlists {
     items: Vec<Playlist>,
     next_id: u64,
@@ -80,7 +100,7 @@ impl Playlists {
     /// those already known and those `content_of` works out. A track whose
     /// content cannot be worked out, such as a file that has gone before it
     /// was ever read, is left out of what is kept.
-    pub(crate) fn to_stored(
+    pub(crate) fn stored_with_contents(
         &mut self,
         mut content_of: impl FnMut(&Path) -> Option<ContentHash>,
     ) -> Vec<StoredPlaylist> {
@@ -204,7 +224,11 @@ impl Playlists {
             return;
         };
         let playlist = self.items.remove(from);
-        let to = if position > from { position - 1 } else { position };
+        let to = if position > from {
+            position - 1
+        } else {
+            position
+        };
         self.items.insert(to.min(self.items.len()), playlist);
         self.revision += 1;
     }
@@ -277,17 +301,17 @@ pub(crate) struct SetShape {
 
 impl SetShape {
     /// The shape of tracks with these keys, tempos and energies, in order.
-    pub(crate) fn of(tracks: impl IntoIterator<Item = (Option<Key>, Option<f32>, Option<u8>)>) -> Self {
+    pub(crate) fn of(
+        tracks: impl IntoIterator<Item = (Option<Key>, Option<f32>, Option<u8>)>,
+    ) -> Self {
         let mut keys: Vec<(Key, bool)> = Vec::new();
         let mut tempo_range: Option<(f32, f32)> = None;
         let mut energies = Vec::new();
         for (key, bpm, energy) in tracks {
             if let Some(key) = key {
-                let is_smooth = keys
-                    .last()
-                    .is_none_or(|(previous, _)| {
-                        *previous == key || compatible_keys(previous).contains(&key)
-                    });
+                let is_smooth = keys.last().is_none_or(|(previous, _)| {
+                    *previous == key || compatible_keys(previous).contains(&key)
+                });
                 keys.push((key, is_smooth));
             }
             if let Some(bpm) = bpm {
@@ -344,7 +368,8 @@ mod tests {
         assert!(playlists.rename(first, "  Warmup "));
         assert!(!playlists.rename(first, "   "));
         assert_eq!(playlists.get(first).unwrap().name, "Warmup");
-        assert_eq!(playlists.get(playlists.create()).unwrap().name, "New playlist");
+        let third = playlists.create();
+        assert_eq!(playlists.get(third).unwrap().name, "New playlist");
     }
 
     #[test]
@@ -380,7 +405,10 @@ mod tests {
         playlists.move_playlist(ids[2], 3);
         assert_eq!(order(&playlists), ids);
         playlists.set_label(ids[1], Some(LABELS[0]));
-        assert_eq!(playlists.get(ids[1]).unwrap().label.as_deref(), Some(LABELS[0]));
+        assert_eq!(
+            playlists.get(ids[1]).unwrap().label.as_deref(),
+            Some(LABELS[0])
+        );
         playlists.set_label(ids[1], None);
         assert_eq!(playlists.get(ids[1]).unwrap().label, None);
         let revision = playlists.revision();
@@ -397,14 +425,27 @@ mod tests {
         playlists.set_label(id, Some(LABELS[0]));
         playlists.add_tracks(id, &paths(&["a", "gone", "b"]));
         let mut reads = Vec::new();
-        let stored = playlists.to_stored(|path| {
+        let stored = playlists.stored_with_contents(|path| {
             reads.push(path.to_path_buf());
             (!path.ends_with("gone.mp3")).then(|| fake_content(path))
         });
         assert_eq!(reads.len(), 3);
-        assert_eq!(stored[0].entries.len(), 2, "the file that has gone is left out");
+        assert_eq!(
+            stored[0].entries.len(),
+            2,
+            "the file that has gone is left out"
+        );
 
-        let again = playlists.to_stored(|_| panic!("every content is known"));
+        let mut asked_again = Vec::new();
+        let again = playlists.stored_with_contents(|path| {
+            asked_again.push(path.to_path_buf());
+            None
+        });
+        assert_eq!(
+            asked_again,
+            paths(&["gone"]),
+            "only the file never read is asked for again"
+        );
         assert_eq!(again[0].entries.len(), 2);
 
         let reloaded = Playlists::from_stored(stored);

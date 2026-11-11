@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use euphoria_core::export::rekordbox::{ExistingFile, ExportOptions, write_xml_file};
 use euphoria_core::{
-    AssembledLibrary, CachedAnalyzer, FileResult, M3uTrack, PlaylistEntry, PlaylistLayout,
-    assemble_library, write_m3u8_file,
+    AssembledLibrary, FileResult, M3uTrack, PlaylistEntry, PlaylistLayout, assemble_library,
+    write_m3u8_file,
 };
 use gpui::{Context, Window};
 
@@ -20,10 +20,11 @@ use crate::app::EuphoriaApp;
 use crate::library::LibraryFilter;
 use crate::playlists::PlaylistId;
 
-/// Tracks being dragged from the table, by path in table order.
-#[derive(Debug, Clone)]
+/// Tracks being dragged from the table: the row the drag started on, and
+/// with it the rest of the selection when that row is selected.
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct DraggedTracks {
-    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) from_track: usize,
 }
 
 /// A playlist being dragged in the sidebar.
@@ -195,20 +196,35 @@ impl EuphoriaApp {
             .collect()
     }
 
-    /// The tracks to drag from the row of `track_index`: the selection when
-    /// the row is part of it, the row alone otherwise.
-    pub(crate) fn tracks_to_drag(&self, track_index: usize) -> DraggedTracks {
-        let selection = self.selected_tracks();
-        let paths = if selection.contains(&track_index) {
+    /// The files dragged: the selection when the drag started on a selected
+    /// row, that row alone otherwise.
+    pub(crate) fn dragged_paths(&self, dragged: DraggedTracks) -> Vec<PathBuf> {
+        if self.is_marked(dragged.from_track) {
             self.selected_paths()
         } else {
             self.session
                 .library()
-                .track(track_index)
+                .track(dragged.from_track)
                 .map(|track| vec![track.path.clone()])
                 .unwrap_or_default()
-        };
-        DraggedTracks { paths }
+        }
+    }
+
+    /// Tracks dropped on a playlist in the sidebar go to its end.
+    pub(crate) fn drop_tracks_on_playlist(
+        &mut self,
+        id: PlaylistId,
+        dragged: DraggedTracks,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let paths = self.dragged_paths(dragged);
+        self.add_to_playlist(id, &paths, cx);
+    }
+
+    /// Adds the selected tracks to the end of the playlist.
+    pub(crate) fn add_selection_to_playlist(&mut self, id: PlaylistId, cx: &mut Context<'_, Self>) {
+        let paths = self.selected_paths();
+        self.add_to_playlist(id, &paths, cx);
     }
 
     /// Adds tracks to the end of the playlist.
@@ -250,10 +266,11 @@ impl EuphoriaApp {
     /// move there; from elsewhere they are added there.
     pub(crate) fn drop_tracks_on_row(
         &mut self,
-        dragged: &DraggedTracks,
+        dragged: DraggedTracks,
         target_index: usize,
         cx: &mut Context<'_, Self>,
     ) {
+        let dragged_paths = self.dragged_paths(dragged);
         if !self.can_reorder_playlist() {
             return;
         }
@@ -269,12 +286,12 @@ impl EuphoriaApp {
             return;
         };
         let playlists = self.session.playlists_mut();
-        playlists.add_tracks(id, &dragged.paths);
+        playlists.add_tracks(id, &dragged_paths);
         let position = playlists
             .get(id)
             .and_then(|playlist| playlist.tracks.iter().position(|path| *path == target))
             .unwrap_or(usize::MAX);
-        playlists.move_tracks(id, &dragged.paths, position);
+        playlists.move_tracks(id, &dragged_paths, position);
         self.refresh_visible();
         self.save_playlists(cx);
         cx.notify();
@@ -294,7 +311,7 @@ impl EuphoriaApp {
             let saved = cx
                 .background_executor()
                 .spawn(async move {
-                    let stored = snapshot.to_stored(|path| {
+                    let stored = snapshot.stored_with_contents(|path| {
                         PlaylistEntry::for_file(path, cache.as_deref())
                             .ok()
                             .map(|entry| entry.content)
@@ -378,7 +395,11 @@ impl EuphoriaApp {
         let tracks = playlist
             .tracks
             .iter()
-            .filter_map(|path| library.index_of(path).and_then(|index| library.track(index)))
+            .filter_map(|path| {
+                library
+                    .index_of(path)
+                    .and_then(|index| library.track(index))
+            })
             .map(|track| ExportedTrack {
                 path: track.path.clone(),
                 analysis: track.analysis().cloned(),
@@ -397,7 +418,6 @@ impl EuphoriaApp {
                 .iter()
                 .filter(|path| library.index_of(path).is_none())
                 .count(),
-            cache: self.session.cache(),
         })
     }
 }
@@ -416,8 +436,6 @@ pub(crate) struct PlaylistExport {
     format: PlaylistFormat,
     tracks: Vec<ExportedTrack>,
     not_in_library: usize,
-    #[allow(dead_code)]
-    cache: Option<std::sync::Arc<CachedAnalyzer>>,
 }
 
 impl PlaylistExport {
@@ -436,7 +454,8 @@ impl PlaylistExport {
         };
         match self.format {
             PlaylistFormat::Rekordbox => {
-                let order: Vec<PathBuf> = self.tracks.iter().map(|track| track.path.clone()).collect();
+                let order: Vec<PathBuf> =
+                    self.tracks.iter().map(|track| track.path.clone()).collect();
                 let results: Vec<FileResult> = self
                     .tracks
                     .iter()

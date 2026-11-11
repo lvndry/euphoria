@@ -21,9 +21,13 @@ use crate::columns::{COLUMN_GAP, ColumnId, SIDE_PADDING};
 use crate::folder_tree::folder_name;
 use crate::format;
 use crate::library::{LibraryFilter, NOT_FOUND, Track, TrackStatus};
+use crate::playlist_flow::DraggedTracks;
+use crate::playlists::PlaylistId;
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
+use crate::views::playlists::{DragLabel, track_menu};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
+use gpui::component::menu::ContextMenuExt;
 
 const HEADER_HEIGHT: f32 = 28.0;
 
@@ -127,13 +131,16 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .flex_1()
         .min_w_0()
         .min_h_0()
-        .child(heading(app, &palette))
+        .child(heading(app, &palette, cx))
         .child(header(app, &palette, cx))
         .child(rows)
 }
 
 fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
-    if app.scans_in_progress > 0 {
+    if app.playlist.is_some() && app.query.trim().is_empty() {
+        "This playlist is empty. Drag tracks onto it in the sidebar, or right click tracks and \
+         choose Add to playlist."
+    } else if app.scans_in_progress > 0 {
         "Looking for audio files"
     } else if app.session.library().tracks().is_empty() {
         "No tracks yet"
@@ -151,9 +158,17 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
 }
 
 /// The name of the part of the library on show and how many tracks it has.
-fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
+fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let folder = app.folder.as_deref().map(folder_name);
+    let playlist = app.playlist.and_then(|id| app.session.playlists().get(id));
     let title: SharedString = match (app.filter, folder) {
+        _ if playlist.is_some() => playlist
+            .map(|playlist| match &playlist.label {
+                Some(label) => format!("{label} {}", playlist.name),
+                None => playlist.name.clone(),
+            })
+            .unwrap_or_default()
+            .into(),
         (LibraryFilter::AllTracks, None) => "All tracks".into(),
         (LibraryFilter::NeedsReview, None) => "Needs review".into(),
         (LibraryFilter::AllTracks, Some(folder)) => folder.into(),
@@ -191,17 +206,21 @@ fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 )
-                .when(app.filter == LibraryFilter::NeedsReview, |heading| {
-                    heading.child(
-                        div()
-                            .id("review-explanation")
-                            .truncate()
-                            .text_size(SMALL_TEXT_SIZE)
-                            .text_color(palette.text_secondary)
-                            .child(REVIEW_EXPLANATION)
-                            .test_support(),
-                    )
-                }),
+                .children(crate::views::playlists::set_summary(app, cx))
+                .when(
+                    app.filter == LibraryFilter::NeedsReview && playlist.is_none(),
+                    |heading| {
+                        heading.child(
+                            div()
+                                .id("review-explanation")
+                                .truncate()
+                                .text_size(SMALL_TEXT_SIZE)
+                                .text_color(palette.text_secondary)
+                                .child(REVIEW_EXPLANATION)
+                                .test_support(),
+                        )
+                    },
+                ),
         )
         .child(
             div()
@@ -246,6 +265,19 @@ fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp
                         .hover(move |style| style.text_color(hover_colour))
                         .on_click(cx.listener(move |this, _, _, cx| this.sort_by(sort_column, cx)))
                 })
+                .when(
+                    column == ColumnId::Number
+                        && app.playlist.is_some()
+                        && app.sort_order.is_some(),
+                    |cell| {
+                        cell.cursor_pointer()
+                            .hover(move |style| style.text_color(hover_colour))
+                            .tooltip(|window, cx| {
+                                Tooltip::new("Back to the playlist's own order").build(window, cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.show_playlist_order(cx)))
+                    },
+                )
                 .test_support()
         })
         .collect::<Vec<_>>();
@@ -363,6 +395,21 @@ fn row(
     let track_index = *app.visible.get(row_index)?;
     let track = app.session.library().track(track_index)?;
     let is_selected = app.selected == Some(track_index) || app.marked.contains(&track_index);
+    let drag_text: SharedString = if is_selected && app.marked.len() > 1 {
+        format!("{} tracks", app.marked.len()).into()
+    } else {
+        track.title().to_string().into()
+    };
+    let can_reorder = app.can_reorder_playlist();
+    let app_handle = cx.entity().downgrade();
+    let playlists: Vec<(PlaylistId, String)> = app
+        .session
+        .playlists()
+        .all()
+        .iter()
+        .map(|playlist| (playlist.id, playlist.name.clone()))
+        .collect();
+    let shown_playlist = app.playlist;
     let cells: Vec<AnyElement> = app
         .table_layout
         .columns()
@@ -394,8 +441,33 @@ fn row(
                 this.table_focus.focus(window, cx);
                 this.click_track(track_index, event.modifiers(), cx);
             }))
+            .on_drag(
+                DraggedTracks {
+                    from_track: track_index,
+                },
+                move |_, _, _, cx| {
+                    cx.new(|_| DragLabel {
+                        text: drag_text.clone(),
+                        background: palette.accent,
+                        foreground: palette.accent_ink,
+                    })
+                },
+            )
+            .when(can_reorder, |row| {
+                row.drag_over::<DraggedTracks>(move |style, _, _, _| {
+                    style.border_t_2().border_color(palette.accent)
+                })
+                .on_drop(cx.listener(
+                    move |this, dragged: &DraggedTracks, _, cx| {
+                        this.drop_tracks_on_row(*dragged, track_index, cx);
+                    },
+                ))
+            })
             .children(cells)
             .test_support()
+            .context_menu(move |menu, window, cx| {
+                track_menu(menu, &app_handle, &playlists, shown_playlist, window, cx)
+            })
             .into_any_element(),
     )
 }
@@ -413,7 +485,12 @@ fn cell_contents(
     match column {
         ColumnId::Number => div()
             .text_color(palette.text_tertiary)
-            .child(format::count(row_index + 1))
+            .child(format::count(
+                app.playlist_positions
+                    .get(&track_index)
+                    .copied()
+                    .unwrap_or(row_index + 1),
+            ))
             .into_any_element(),
         ColumnId::Title => {
             let title: SharedString = track.title().to_string().into();

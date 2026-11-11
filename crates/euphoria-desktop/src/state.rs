@@ -7,12 +7,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::{
-    CachedAnalyzer, EuphoriaError, PlaylistStore, StoredPlaylist, TrackAnalysis,
-    locate_moved_files,
+    CachedAnalyzer, EuphoriaError, PlaylistStore, StoredPlaylist, TrackAnalysis, locate_moved_files,
 };
 
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
@@ -137,7 +136,7 @@ impl Session {
             saved_revision: Arc::new(AtomicU64::new(0)),
         };
         if moved {
-            let stored = self.playlists.to_stored(|_| None);
+            let stored = self.playlists.stored_with_contents(|_| None);
             saver.save(&stored, 1)?;
         }
         self.playlist_saver = Some(saver);
