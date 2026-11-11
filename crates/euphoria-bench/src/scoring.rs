@@ -13,7 +13,22 @@ pub struct KeyTally {
     pub parallel: usize,
     pub other: usize,
     pub missing: usize,
+    /// The MIREX weight of every track, in the order they were recorded.
+    track_scores: Vec<f64>,
 }
+
+/// How one detector did against another on the same tracks.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Comparison {
+    /// Tracks this detector scored higher on.
+    pub better: usize,
+    /// Tracks this detector scored lower on.
+    pub worse: usize,
+}
+
+const FIFTH_WEIGHT: f64 = 0.5;
+const RELATIVE_WEIGHT: f64 = 0.3;
+const PARALLEL_WEIGHT: f64 = 0.2;
 
 impl KeyTally {
     pub fn record(&mut self, reference: Key, estimate: Key) {
@@ -22,21 +37,42 @@ impl KeyTally {
         let reference_is_major = matches!(reference.mode(), euphoria_core::Mode::Major);
         let relative_interval = if reference_is_major { 9 } else { 3 };
 
-        if same_mode && interval == 0 {
+        let track_score = if same_mode && interval == 0 {
             self.exact += 1;
+            1.0
         } else if same_mode && (interval == 7 || interval == 5) {
             self.fifth += 1;
+            FIFTH_WEIGHT
         } else if !same_mode && interval == relative_interval {
             self.relative += 1;
+            RELATIVE_WEIGHT
         } else if !same_mode && interval == 0 {
             self.parallel += 1;
+            PARALLEL_WEIGHT
         } else {
             self.other += 1;
-        }
+            0.0
+        };
+        self.track_scores.push(track_score);
     }
 
     pub fn record_missing(&mut self) {
         self.missing += 1;
+        self.track_scores.push(0.0);
+    }
+
+    /// Counts the tracks this tally scored higher and lower than `other`,
+    /// which must have recorded the same tracks in the same order.
+    pub fn compared_with(&self, other: &Self) -> Comparison {
+        let mut comparison = Comparison::default();
+        for (score, other_score) in self.track_scores.iter().zip(&other.track_scores) {
+            if score > other_score {
+                comparison.better += 1;
+            } else if score < other_score {
+                comparison.worse += 1;
+            }
+        }
+        comparison
     }
 
     pub fn total(&self) -> usize {
@@ -46,9 +82,9 @@ impl KeyTally {
     /// MIREX weighted score: exact 1.0, fifth 0.5, relative 0.3, parallel 0.2.
     pub fn mirex_score(&self) -> f64 {
         let weighted = self.exact as f64
-            + 0.5 * self.fifth as f64
-            + 0.3 * self.relative as f64
-            + 0.2 * self.parallel as f64;
+            + FIFTH_WEIGHT * self.fifth as f64
+            + RELATIVE_WEIGHT * self.relative as f64
+            + PARALLEL_WEIGHT * self.parallel as f64;
         weighted / self.total() as f64
     }
 
@@ -117,6 +153,40 @@ mod tests {
         assert_eq!(tally_for("C major", "A minor").relative, 1);
         assert_eq!(tally_for("A minor", "A major").parallel, 1);
         assert_eq!(tally_for("A minor", "B minor").other, 1);
+    }
+
+    #[test]
+    fn compares_two_detectors_track_by_track() {
+        let reference: Key = "A minor".parse().unwrap();
+        let mut first = KeyTally::default();
+        let mut second = KeyTally::default();
+        for (first_estimate, second_estimate) in [
+            ("A minor", "A minor"),
+            ("B minor", "E minor"),
+            ("A minor", "C major"),
+            ("A major", "A minor"),
+        ] {
+            first.record(reference, first_estimate.parse().unwrap());
+            second.record(reference, second_estimate.parse().unwrap());
+        }
+        first.record_missing();
+        second.record(reference, reference);
+
+        assert_eq!(
+            second.compared_with(&first),
+            Comparison {
+                better: 3,
+                worse: 1
+            }
+        );
+        assert_eq!(
+            first.compared_with(&second),
+            Comparison {
+                better: 1,
+                worse: 3
+            }
+        );
+        assert_eq!(first.compared_with(&first), Comparison::default());
     }
 
     #[test]

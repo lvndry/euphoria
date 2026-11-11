@@ -104,7 +104,38 @@ fn write_key_section(
         )?;
     }
     writeln!(formatter)?;
+    write_key_comparison(formatter, evaluation)?;
     write_failures(formatter, evaluation)
+}
+
+/// How every detector after the first did against the first, track by
+/// track, which shows a small difference that the percentages hide.
+fn write_key_comparison(
+    formatter: &mut Formatter<'_>,
+    evaluation: &Evaluation<KeyTally>,
+) -> fmt::Result {
+    let Some((first, others)) = evaluation.detectors.split_first() else {
+        return Ok(());
+    };
+    if others.is_empty() {
+        return Ok(());
+    }
+    writeln!(
+        formatter,
+        "Tracks each detector scores higher and lower than {}:\n",
+        first.name
+    )?;
+    writeln!(formatter, "| Detector | Higher | Lower |")?;
+    writeln!(formatter, "| --- | --- | --- |")?;
+    for detector in others {
+        let comparison = detector.tally.compared_with(&first.tally);
+        writeln!(
+            formatter,
+            "| {} | {} | {} |",
+            detector.name, comparison.better, comparison.worse
+        )?;
+    }
+    writeln!(formatter)
 }
 
 fn write_tempo_section(
@@ -298,6 +329,45 @@ Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also 
 
 ";
         assert_eq!(render_report(&sample_report()), expected);
+    }
+
+    #[test]
+    fn compares_every_other_key_detector_with_the_first() {
+        let reference = "A minor".parse().unwrap();
+        let mut first = KeyTally::default();
+        first.record(reference, "B minor".parse().unwrap());
+        first.record(reference, reference);
+        let mut second = KeyTally::default();
+        second.record(reference, reference);
+        second.record(reference, "C major".parse().unwrap());
+        let report = Report {
+            key: Some(Evaluation {
+                track_count: 2,
+                unannotated_count: 0,
+                decode_failures: Vec::new(),
+                detectors: vec![
+                    detector("libkeyfinder", first, 2, Vec::new()),
+                    detector("libkeyfinder, sections vote", second, 2, Vec::new()),
+                ],
+            }),
+            tempo: None,
+        };
+
+        let rendered = render_report(&report);
+
+        assert!(
+            rendered.ends_with(
+                "\
+Tracks each detector scores higher and lower than libkeyfinder:
+
+| Detector | Higher | Lower |
+| --- | --- | --- |
+| libkeyfinder, sections vote | 1 | 1 |
+
+"
+            ),
+            "{rendered}"
+        );
     }
 
     #[test]

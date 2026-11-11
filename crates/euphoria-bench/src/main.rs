@@ -12,11 +12,33 @@ mod scoring;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use euphoria_core::detect::{KeyFinderDetector, StratumDetector};
+use euphoria_core::detect::{
+    KeyDecision, KeyDetector, KeyFinderDetector, KeyFinderVariant, StratumDetector,
+};
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str =
+    "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]";
+
+/// The key detectors that are measured. The first is the one Euphoria
+/// ships, and the others are compared with it track by track.
+const KEY_DETECTORS: [&dyn KeyDetector; 5] = [
+    &KeyFinderDetector,
+    &KeyFinderVariant {
+        tuning_correction: true,
+        decision: KeyDecision::WholeTrack,
+    },
+    &KeyFinderVariant {
+        tuning_correction: false,
+        decision: KeyDecision::SectionVote,
+    },
+    &KeyFinderVariant {
+        tuning_correction: true,
+        decision: KeyDecision::SectionVote,
+    },
+    &StratumDetector,
+];
 
 /// Which benchmarks a run covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,16 +48,47 @@ enum Selection {
     TempoOnly,
 }
 
+/// Which tracks of each dataset a run covers. The two halves take every
+/// other track in name order, so a setting can be chosen on one half and
+/// checked on the half it has not seen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tracks {
+    All,
+    Development,
+    HeldOut,
+}
+
+impl Tracks {
+    /// Whether the track at `index` in name order is covered.
+    fn covers(self, index: usize) -> bool {
+        match self {
+            Self::All => true,
+            Self::Development => index.is_multiple_of(2),
+            Self::HeldOut => !index.is_multiple_of(2),
+        }
+    }
+
+    fn keep<Annotation>(self, dataset: &mut dataset::Dataset<Annotation>) {
+        let mut index = 0;
+        dataset.tracks.retain(|_| {
+            index += 1;
+            self.covers(index - 1)
+        });
+    }
+}
+
 /// The parsed command line.
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
     data_directory: PathBuf,
     selection: Selection,
+    tracks: Tracks,
 }
 
 fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Arguments> {
     let mut data_directory = None;
     let mut selection = Selection::Both;
+    let mut tracks = Tracks::All;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         if argument == "--only" {
@@ -46,6 +99,16 @@ fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Argume
                 "key" => Selection::KeyOnly,
                 "tempo" => Selection::TempoOnly,
                 _ => bail!("--only accepts key or tempo, not {value:?}\n{USAGE}"),
+            };
+        } else if argument == "--tracks" {
+            let value = arguments
+                .next()
+                .with_context(|| format!("--tracks needs a value\n{USAGE}"))?;
+            tracks = match value.as_str() {
+                "all" => Tracks::All,
+                "development" => Tracks::Development,
+                "held-out" => Tracks::HeldOut,
+                _ => bail!("--tracks accepts all, development or held-out, not {value:?}\n{USAGE}"),
             };
         } else if argument.starts_with("--") {
             bail!("unknown option {argument:?}\n{USAGE}");
@@ -58,6 +121,7 @@ fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Argume
     Ok(Arguments {
         data_directory: data_directory.unwrap_or_else(|| PathBuf::from("bench/data")),
         selection,
+        tracks,
     })
 }
 
@@ -65,15 +129,29 @@ fn main() -> Result<()> {
     let arguments = parse_arguments(std::env::args().skip(1))?;
     let data_directory = &arguments.data_directory;
 
-    let key_tracks = (arguments.selection != Selection::TempoOnly)
+    let mut key_tracks = (arguments.selection != Selection::TempoOnly)
         .then(|| dataset::load_key_tracks(&data_directory.join("key")))
         .transpose()?;
-    let tempo_tracks = (arguments.selection != Selection::KeyOnly)
+    let mut tempo_tracks = (arguments.selection != Selection::KeyOnly)
         .then(|| dataset::load_tempo_tracks(&data_directory.join("tempo")))
         .transpose()?;
+    if let Some(dataset) = &mut key_tracks {
+        arguments.tracks.keep(dataset);
+    }
+    if let Some(dataset) = &mut tempo_tracks {
+        arguments.tracks.keep(dataset);
+    }
+    match arguments.tracks {
+        Tracks::All => {}
+        Tracks::Development => println!(
+            "Development half: every other track in name order, starting with the first.\n"
+        ),
+        Tracks::HeldOut => {
+            println!("Held out half: every other track in name order, starting with the second.\n")
+        }
+    }
 
-    let key =
-        key_tracks.map(|dataset| evaluate_keys(&dataset, &[&KeyFinderDetector, &StratumDetector]));
+    let key = key_tracks.map(|dataset| evaluate_keys(&dataset, &KEY_DETECTORS));
     let tempo = tempo_tracks.map(|dataset| evaluate_tempo(&dataset, &[&StratumDetector]));
 
     print!("{}", render::render_report(&Report { key, tempo }));
@@ -95,6 +173,7 @@ mod tests {
             Arguments {
                 data_directory: PathBuf::from("bench/data"),
                 selection: Selection::Both,
+                tracks: Tracks::All,
             }
         );
     }
@@ -104,6 +183,7 @@ mod tests {
         let expected = Arguments {
             data_directory: PathBuf::from("elsewhere"),
             selection: Selection::TempoOnly,
+            tracks: Tracks::All,
         };
         assert_eq!(parse(&["elsewhere", "--only", "tempo"]).unwrap(), expected);
         assert_eq!(parse(&["--only", "tempo", "elsewhere"]).unwrap(), expected);
@@ -114,9 +194,49 @@ mod tests {
     }
 
     #[test]
+    fn reads_which_tracks_to_cover() {
+        assert_eq!(
+            parse(&["--tracks", "development"]).unwrap().tracks,
+            Tracks::Development
+        );
+        assert_eq!(
+            parse(&["--tracks", "held-out"]).unwrap().tracks,
+            Tracks::HeldOut
+        );
+        assert_eq!(parse(&["--tracks", "all"]).unwrap().tracks, Tracks::All);
+    }
+
+    #[test]
+    fn the_two_halves_share_no_track_and_together_hold_every_track() {
+        let names = |tracks: Tracks| {
+            let mut dataset = dataset::Dataset {
+                tracks: (0..7)
+                    .map(|number| dataset::Track {
+                        name: number.to_string(),
+                        audio_path: PathBuf::new(),
+                        annotation: (),
+                    })
+                    .collect(),
+                unannotated_count: 0,
+            };
+            tracks.keep(&mut dataset);
+            dataset
+                .tracks
+                .into_iter()
+                .map(|track| track.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(Tracks::All).len(), 7);
+        assert_eq!(names(Tracks::Development), ["0", "2", "4", "6"]);
+        assert_eq!(names(Tracks::HeldOut), ["1", "3", "5"]);
+    }
+
+    #[test]
     fn rejects_bad_arguments() {
         for arguments in [
             &["--only"][..],
+            &["--tracks"],
+            &["--tracks", "half"],
             &["--only", "energy"],
             &["--fast"],
             &["one", "two"],
