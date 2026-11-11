@@ -29,7 +29,7 @@ Every preset writes these fields. The key is written in the notation you choose:
 | --- | --- | --- | --- |
 | Key | `TKEY` | `----:com.apple.iTunes:initialkey` and `----:com.apple.iTunes:KEY` | `INITIALKEY`, and `KEY` when the file already has one |
 | Tempo | `TBPM` | `tmpo` | `BPM` |
-| Label | `COMM`, such as `8A - Energy 7` in front of your comment | `©cmt` | `COMMENT` |
+| Label | `COMM`, such as `8A - Energy 7` in front of your comment, and in WAV also the RIFF INFO comment `ICMT` | `©cmt` | `COMMENT` |
 
 Why these choices:
 
@@ -37,7 +37,7 @@ Why these choices:
 - **No new `KEY` in FLAC.** VirtualDJ is reported to read neither field when a FLAC file has both. When a file already has a `KEY`, left by another program, Euphoria gives it the same value, so the two never disagree.
 - **Whole number tempos.** Only Mixxx is known to read a tempo with decimals. Every preset except Mixxx writes `128`, not `127.6`. A tempo with decimals belongs in the rekordbox XML, which keeps two.
 - **The energy rating is in the comment.** No program has a tag field for it. The label `8A - Energy 7` has the form Mixed In Key writes, so sorting and searching on it works the same way.
-- **WAV is the weakest case.** Euphoria writes an ID3 chunk into WAV files, as most tag editors do. rekordbox shows the title and comment from a WAV file's RIFF INFO list, not from its ID3 chunk (tested), and RIFF INFO has no key or tempo field. Serato's staff have said WAV holds no tags for Serato, and Mixed In Key does not tag WAV at all. For WAV files, use the rekordbox XML, or convert them to AIFF.
+- **WAV is the weakest case.** Euphoria writes an ID3 chunk into WAV files, as most tag editors do. rekordbox shows the title and comment from a WAV file's RIFF INFO list, not from its ID3 chunk (tested), so Euphoria also puts the label into the RIFF INFO comment, `ICMT`, in front of the comment already there, with every preset. RIFF INFO is the tag WAV defines for itself, and a program that does not read it ignores it. RIFF INFO has no key or tempo field, so those stay in the ID3 chunk. Serato's staff have said WAV holds no tags for Serato, and Mixed In Key does not tag WAV at all. For the key and tempo of WAV files in rekordbox, use the rekordbox XML, or convert the files to AIFF.
 
 ## rekordbox
 
@@ -56,7 +56,7 @@ Reload Tag replaces information you edited inside rekordbox with what the file s
 | Key from `TKEY` in MP3 (ID3v2.3 and 2.4) and AIFF | **Tested**: read when the track is added. |
 | Key from M4A | **Tested**: read from `----:com.apple.iTunes:KEY`. A file with only `initialkey` shows the text in the Alphanumeric display but no key in the Classic display, so rekordbox does not take it as a key. Euphoria writes both names. |
 | Key from FLAC | **Tested**: read from `INITIALKEY`. A file with only `KEY` shows no key. |
-| Title and comment from WAV | **Tested**: read from RIFF INFO, not from the ID3 chunk. |
+| Title and comment from WAV | **Tested**: read from RIFF INFO, not from the ID3 chunk. Euphoria writes the label into the RIFF INFO comment too. That rekordbox shows a comment written by Euphoria is **unconfirmed**: test T11 of the kit checks it. |
 | Tempo from `TBPM`, `tmpo` and FLAC `BPM` | **Tested**: not read when a track is added; the BPM column stays empty until rekordbox analyzes the track. Use the rekordbox XML to hand rekordbox a tempo. |
 | `8A`, `Am` and `1m` in a key tag | **Tested**: all three are recognised as keys and shown in the display format you chose. **Display key information on the database** shows the text as written. |
 | Comment from `COMM`, M4A `©cmt`, FLAC `COMMENT` and AIFF | **Tested**: read when the track is added. |
@@ -68,10 +68,11 @@ The rekordbox XML is the route Pioneer documents for handing rekordbox a key, a 
 The repository has a script that builds a test kit: a few short clips, each tagged one way, a rekordbox XML file, and a ten minute checklist with a table to fill in. It answers the questions above for your rekordbox version.
 
 ```
+cargo build --release -p euphoria-cli
 uv run bench/rekordbox_test_kit.py --clips bench/data/key/audio --output /tmp/euphoria-kit
 ```
 
-It needs [uv](https://docs.astral.sh/uv/), ffmpeg, and the benchmark clips from `./bench/download_datasets.sh`. It reads the clips and writes only into the new folder. Back up your rekordbox library before you follow the checklist; it ends with how to remove the test tracks again.
+It needs [uv](https://docs.astral.sh/uv/), ffmpeg, a release build of Euphoria, which tags one of the WAV files, and the benchmark clips from `./bench/download_datasets.sh`. It reads the clips and writes only into the new folder. Back up your rekordbox library before you follow the checklist; it ends with how to remove the test tracks again.
 
 ## Serato DJ
 
