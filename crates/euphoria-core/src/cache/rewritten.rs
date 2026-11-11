@@ -108,8 +108,6 @@ impl Cache {
                 carry,
             )
             .map_err(cache_error(&self.path))?;
-        } else {
-            carry(&self.connection).map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
     }
@@ -292,6 +290,26 @@ mod tests {
         let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
         assert!(!cache.recognise_file(&track).unwrap());
         assert_eq!(cache.entry_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn unknown_replacement_does_not_inherit_the_previous_tracks_correction() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("replaced.mp3");
+        std::fs::write(&track, b"original audio").unwrap();
+        analyzed(&folder, &track);
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .set_correction(&track, &crate::Correction::of_bpm(87.0).unwrap())
+            .unwrap();
+        std::fs::write(&track, b"unrelated new audio").unwrap();
+        assert!(!cache.recognise_file(&track).unwrap());
+        assert_eq!(cache.verified_correction_for(&track).unwrap(), None);
+        std::fs::write(&track, b"original audio").unwrap();
+        assert_eq!(
+            cache.verified_correction_for(&track).unwrap().unwrap().bpm,
+            Some(87.0)
+        );
     }
 
     #[test]
