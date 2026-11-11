@@ -49,7 +49,7 @@ chmod +x Euphoria-x86_64.AppImage
 ./Euphoria-x86_64.AppImage
 ```
 
-Every release is also on the releases page as `Euphoria-<version>-x86_64.AppImage`. An AppImage mounts itself with FUSE, which most desktops have. If it says FUSE is missing, install `fuse3` (or `fuse` on older systems) with your package manager, or run it without FUSE: `./Euphoria-x86_64.AppImage --appimage-extract-and-run`.
+Every release is also on the releases page as `Euphoria-<version>-x86_64.AppImage`. The [AppImage runtime includes its FUSE library](https://github.com/AppImage/type2-runtime/blob/20251108/README.md). If FUSE mounting is unavailable or disallowed on your system, run it without FUSE: `./Euphoria-x86_64.AppImage --appimage-extract-and-run`.
 
 The app also uses what every desktop provides: X11 or Wayland, Vulkan for drawing (`libvulkan1` and your graphics driver's Vulkan support, which desktop installs include), ALSA, which PulseAudio and PipeWire serve, for playback, and the XDG desktop portal (`xdg-desktop-portal` with the GTK, GNOME or KDE back end) for the folder picker and the save dialog. Without the portal, **Add Folder** says it cannot open the picker; dragging a folder onto the window still works.
 
