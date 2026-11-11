@@ -277,6 +277,8 @@ def compile_executable(path, folder, links):
         folder,
         *[f"-l{link}" for link in links],
         "-Wl,-rpath," + str(folder),
+        # Room for the longer library names some tests write into it.
+        "-Wl,-headerpad_max_install_names",
     )
 
 
@@ -379,6 +381,71 @@ class SyntheticLibraryTests(unittest.TestCase):
         nested.mkdir(parents=True)
         shutil.copyfile(universal_64, nested / "Universal64")
         self.assertIn(nested / "Universal64", macos_libraries.mach_o_files(self.app))
+
+    def test_a_name_that_leads_out_of_the_system_folders_is_not_a_system_library(self):
+        for name in [
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/swift/libswiftCore.dylib",
+            "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+            "/usr/lib/./libc++.1.dylib",
+        ]:
+            self.assertTrue(macos_libraries.is_system(name), name)
+        for name in [
+            "/usr/lib/../../opt/homebrew/lib/libexample.dylib",
+            "/System/../opt/lib.dylib",
+            "/usr/libexec/lib.dylib",
+            "/usr/local/lib/lib.dylib",
+            "@rpath/libexample.dylib",
+            "usr/lib/libexample.dylib",
+        ]:
+            self.assertFalse(macos_libraries.is_system(name), name)
+
+    def test_a_library_reached_through_dot_dot_from_usr_lib_is_bundled(self):
+        library = compile_library(self.outside, "escape")
+        compile_executable(self.executable, self.outside, ["escape"])
+        sneaky = "/usr/lib/../.." + str(library)
+        run(
+            "install_name_tool",
+            "-change",
+            "@rpath/libescape.dylib",
+            sneaky,
+            self.executable,
+        )
+        self.assertIn(
+            sneaky,
+            [name for name, _ in macos_libraries.MachO(self.executable).dependencies],
+        )
+        # verify reports it as a library from outside the bundle.
+        problems = macos_libraries.verify(self.app, self.executable)
+        self.assertTrue(
+            any(
+                "libescape.dylib" in problem and "outside" in problem
+                for problem in problems
+            ),
+            problems,
+        )
+        # bundle copies it in and rewrites the reference.
+        self.assertEqual(self.bundle_and_verify(), [])
+        self.assertTrue((self.frameworks / "libescape.dylib").exists())
+        names = [
+            name for name, _ in macos_libraries.MachO(self.executable).dependencies
+        ]
+        self.assertIn("@rpath/libescape.dylib", names)
+        self.assertNotIn(sneaky, names)
+
+    def test_a_missing_library_named_through_dot_dot_stops_the_build(self):
+        compile_library(self.outside, "gone")
+        compile_executable(self.executable, self.outside, ["gone"])
+        sneaky = "/usr/lib/../.." + str(self.outside / "libnot-there.dylib")
+        run(
+            "install_name_tool",
+            "-change",
+            "@rpath/libgone.dylib",
+            sneaky,
+            self.executable,
+        )
+        with self.assertRaisesRegex(macos_libraries.LibraryError, "libnot-there.dylib"):
+            macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
 
     def test_the_minimum_macos_is_the_newest_of_every_slice_of_every_file(self):
         compile_executable(self.executable, self.outside, [])
