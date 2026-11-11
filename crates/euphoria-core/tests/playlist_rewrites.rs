@@ -172,3 +172,114 @@ fn observers_follow_renames_even_when_the_later_directory_sync_fails() {
     assert_eq!(events, [RewriteStage::Before, RewriteStage::After]);
     assert_eq!(std::fs::read(&path).unwrap(), original);
 }
+
+#[cfg(unix)]
+fn logged_genre(log: &mut WriteLog, path: &Path, value: &str) {
+    assert!(matches!(
+        log.apply(&plan_edit(path, &genre(value)).expect("a planned genre change"))
+            .expect("the genre is written"),
+        LoggedWrite::Recorded
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn an_undo_committed_before_a_sync_error_can_be_retried_and_older_logs_remain_reachable() {
+    use std::os::unix::fs::PermissionsExt;
+    let (folder, path) = fixture("undo-sync-retry-older-logs");
+    let original = std::fs::read(&path).unwrap();
+    let logs = folder.join("logs");
+    logged_genre(&mut WriteLog::new(&logs), &path, "House");
+    let middle = std::fs::read(&path).unwrap();
+    logged_genre(&mut WriteLog::new(&logs), &path, "Techno");
+
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o300)).unwrap();
+    if std::fs::File::open(&folder).is_ok() {
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let failed = undo_last_write_with_observer(&logs, |_, _| {});
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(failed.unwrap().unwrap().failed.len(), 1);
+    assert_eq!(std::fs::read(&path).unwrap(), middle);
+
+    let mut events = Vec::new();
+    let retry = undo_last_write_with_observer(&logs, |_, stage| events.push(stage))
+        .unwrap()
+        .unwrap();
+    assert!(retry.failed.is_empty(), "{:?}", retry.failed);
+    assert_eq!(retry.untouched.as_slice(), std::slice::from_ref(&path));
+    assert!(retry.restored.is_empty());
+    assert!(
+        events.is_empty(),
+        "already-restored files are not rewritten"
+    );
+    let older = undo_last_write_with_observer(&logs, |_, _| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(older.restored.as_slice(), std::slice::from_ref(&path));
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert!(
+        undo_last_write_with_observer(&logs, |_, _| {})
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_undo_defers_older_backups_of_the_same_file_even_through_an_alias() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let (folder, fixture_path) = fixture("undo-sync-retry-same-log");
+    let blocked = folder.join("blocked");
+    std::fs::create_dir(&blocked).unwrap();
+    let path = blocked.join("track.flac");
+    std::fs::rename(&fixture_path, &path).unwrap();
+    let other = folder.join("other.flac");
+    std::fs::copy(&path, &other).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let alias = folder.join("track-link.flac");
+    symlink(&path, &alias).unwrap();
+    let logs = folder.join("logs");
+    let mut log = WriteLog::new(&logs);
+    logged_genre(&mut log, &alias, "House");
+    let middle = std::fs::read(&path).unwrap();
+    logged_genre(&mut log, &other, "Ambient");
+    logged_genre(&mut log, &path, "Techno");
+
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o300)).unwrap();
+    if std::fs::File::open(&blocked).is_ok() {
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let failed = undo_last_write_with_observer(&logs, |_, _| {});
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let failed = failed.unwrap().unwrap();
+    assert_eq!(failed.failed.len(), 1);
+    assert_eq!(failed.restored.as_slice(), std::slice::from_ref(&other));
+    assert_eq!(std::fs::read(&other).unwrap(), original);
+    assert_eq!(std::fs::read(&path).unwrap(), middle);
+
+    let mut events = Vec::new();
+    let retry = undo_last_write_with_observer(&logs, |path, stage| {
+        events.push((path.to_path_buf(), stage))
+    })
+    .unwrap()
+    .unwrap();
+    assert!(retry.failed.is_empty(), "{:?}", retry.failed);
+    assert_eq!(retry.untouched.as_slice(), std::slice::from_ref(&path));
+    assert_eq!(retry.restored.as_slice(), std::slice::from_ref(&alias));
+    assert_eq!(
+        events,
+        [
+            (alias.clone(), RewriteStage::Before),
+            (alias, RewriteStage::After)
+        ]
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert!(
+        undo_last_write_with_observer(&logs, |_, _| {})
+            .unwrap()
+            .is_none()
+    );
+}

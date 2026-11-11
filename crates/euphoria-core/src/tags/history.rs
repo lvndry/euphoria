@@ -244,8 +244,8 @@ fn create_log(directory: &Path) -> Result<OpenLog, EuphoriaError> {
 pub struct UndoneWrite {
     /// The files that got their tags back.
     pub restored: Vec<PathBuf>,
-    /// The files the write was interrupted before changing, which needed
-    /// nothing.
+    /// The files whose original tag fields are already in place: never
+    /// changed, or already restored by an earlier undo attempt.
     pub untouched: Vec<PathBuf>,
     /// The files that could not be restored, and why. Their backups stay
     /// in the log, so undoing again tries them again.
@@ -273,10 +273,9 @@ fn last_log(directory: &Path) -> Result<Option<PathBuf>, EuphoriaError> {
     Ok(newest)
 }
 
-/// Where the backup of one file is in a log, and what became of its write.
+/// Where the backup of one file is in a log.
 struct PlannedWrite {
     offset: u64,
-    is_applied: bool,
 }
 
 /// Reads the line at the reader's position, without its line end. `None`
@@ -335,15 +334,10 @@ fn index_log(log_path: &Path) -> Result<Vec<PlannedWrite>, EuphoriaError> {
                 latest_for_path.insert(backup.path.clone(), planned.len());
                 let write = PlannedWrite {
                     offset: line_offset,
-                    is_applied: false,
                 };
                 planned.push((backup.path, write));
             }
-            Ok(Entry::Applied(path)) => {
-                if let Some(index) = latest_for_path.get(&path) {
-                    planned[*index].1.is_applied = true;
-                }
-            }
+            Ok(Entry::Applied(_)) => {}
             Ok(Entry::Failed(path)) => {
                 given_up.extend(latest_for_path.get(&path));
             }
@@ -438,30 +432,35 @@ fn undo_log(
     let mut log = File::open(log_path).map_err(|error| log_error(log_path, error))?;
     let mut undone = UndoneWrite::default();
     let mut remaining = Vec::new();
+    let mut blocked = HashSet::new();
     // Newest first, so that a file written twice in one log goes back
     // through its states in order. One backup is in memory at a time.
     for write in planned.iter().rev() {
         let backup = read_backup(&mut log, log_path, write.offset)?;
+        let identity = std::fs::canonicalize(&backup.path)
+            .or_else(|_| std::path::absolute(&backup.path))
+            .unwrap_or_else(|_| backup.path.clone());
+        if blocked.contains(&identity) {
+            remaining.push(backup);
+            continue;
+        }
         let mut restore = || {
             observer(&backup.path, RewriteStage::Before);
             super::undo_observing(&backup, || observer(&backup.path, RewriteStage::After))
                 .map(|()| true)
         };
-        let restored = if write.is_applied {
-            restore()
-        } else {
-            // The write of this file was interrupted. It either never
-            // started, or it finished without being recorded.
-            is_untouched(&backup).and_then(
-                |is_untouched| {
-                    if is_untouched { Ok(false) } else { restore() }
-                },
-            )
-        };
+        // A prior undo can have committed its rename before reporting a
+        // directory-sync error. Its original fields already satisfy backup,
+        // whether or not the original write had an Applied note.
+        let restored = is_untouched(&backup)
+            .and_then(|untouched| if untouched { Ok(false) } else { restore() });
         match restored {
             Ok(true) => undone.restored.push(backup.path),
             Ok(false) => undone.untouched.push(backup.path),
             Err(error) => {
+                // Keep older states of this same file until the newest
+                // failed restoration is settled; other files can proceed.
+                blocked.insert(identity);
                 undone.failed.push((backup.path.clone(), error));
                 remaining.push(backup);
             }
