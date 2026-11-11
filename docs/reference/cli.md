@@ -19,12 +19,14 @@ A symbolic link to an audio file is analyzed. A symbolic link to a folder is not
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key             BPM  Energy  Time  File
-8A   A minor  124.0       6  6:48  /Users/you/Music/DJ/Low Tide.flac
--                 -       -  1:00  /Users/you/Music/DJ/Intro.wav
+Key             BPM  Energy  Conf  Time  File
+8A   A minor  124.0       6  H/M   6:48  /Users/you/Music/DJ/Low Tide.flac
+-                 -       -  -/-   1:00  /Users/you/Music/DJ/Intro.wav
 ```
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
+
+The Conf column rates how far to trust the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low. `H/M` is a key rated high and a tempo rated medium. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with an `L` are worth checking by ear, and `--needs-review` lists only those.
 
 The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
@@ -35,11 +37,15 @@ The table holds what you act on while mixing. The tuning of a track and its key 
 | Option | Effect |
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
+| `--needs-review` | List only the tracks whose key or tempo is rated low confidence, and the files that could not be analyzed. |
+| `--tempo-range <SLOWEST-FASTEST>` | Report tempos from SLOWEST up to, not including, FASTEST beats per minute, such as `70-140` for hip hop or `120-200` for drum and bass. The default is `90-180`. FASTEST can be at most twice SLOWEST. See [choosing the range](../concepts/accuracy.md#choosing-the-range). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
+
+A tempo is stored as it was estimated and placed in the range when it is shown, so running again with another `--tempo-range` takes every result from the cache. A tempo with no octave inside a range narrower than an octave, such as 105 BPM with `120-200`, is shown at the octave nearest to the range, here 210.
 
 Analyzing one seven minute track peaks near 0.6 GB of memory. On full length tracks, 4 workers peaked near 2 GB in total and 8 workers between 4.8 and 6.2 GB, which is why the default stops at 8. Lower `--jobs` on a machine with 8 GB of memory or less.
 
@@ -52,32 +58,40 @@ One object per file, in path order, including files that failed:
   {
     "path": "/Users/you/Music/DJ/Low Tide.flac",
     "duration_seconds": 408.4,
-    "key": { "camelot": "8A", "name": "A minor" },
-    "bpm": 124.0,
+    "key": { "camelot": "8A", "name": "A minor", "open_key": "1m", "confidence": "high" },
+    "runner_up_key": { "camelot": "8B", "name": "C major", "open_key": "1d" },
+    "bpm": 170.0,
+    "bpm_confidence": "medium",
+    "bpm_alternative": 85.0,
     "energy": 6,
     "tuning_cents": -31.3,
     "key_timeline": [
       {
         "start_seconds": 0.0,
         "end_seconds": 250.0,
-        "key": { "camelot": "8A", "name": "A minor" }
+        "key": { "camelot": "8A", "name": "A minor", "open_key": "1m" }
       },
       {
         "start_seconds": 250.0,
         "end_seconds": 408.4,
-        "key": { "camelot": "9A", "name": "E minor" }
+        "key": { "camelot": "9A", "name": "E minor", "open_key": "2m" }
       }
     ],
+    "needs_review": false,
     "error": null
   },
   {
     "path": "/Users/you/Music/DJ/notes.txt",
     "duration_seconds": null,
     "key": null,
+    "runner_up_key": null,
     "bpm": null,
+    "bpm_confidence": null,
+    "bpm_alternative": null,
     "energy": null,
     "tuning_cents": null,
     "key_timeline": [],
+    "needs_review": null,
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
   }
 ]
@@ -85,11 +99,17 @@ One object per file, in path order, including files that failed:
 
 `key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
 
+A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
+
+`bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
+
+`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed.
+
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. When there are several sections, each carries the key that fits that stretch best, while `key` stays the key that fits the whole track, so `key` is usually but not always one of them. Section boundaries are accurate to a few seconds.
 
-[Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them.
+[Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
 ### Progress and exit status
 
@@ -124,6 +144,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
+| `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
@@ -209,6 +230,7 @@ To put the old tags back: euphoria tags undo
 | `--tempo` | Write the tempo with the `serato` preset, which leaves it out otherwise. Cannot be combined with `--no-tempo`. |
 | `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start` (the default), `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. |
 | `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
+| `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
@@ -262,7 +284,7 @@ A track is recognised by its content, not by its name or folder:
 - A file that was renamed or moved is still recognised, and is not analyzed again.
 - A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
-- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some, and results stored before the tuning and the key over time were measured. The first run after such an update analyzes every track once more.
+- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some, results stored before the tuning and the key over time were measured, and results stored before keys and tempos were rated for confidence. The first run after such an update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.
