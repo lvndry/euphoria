@@ -122,8 +122,10 @@ fn parse_annotation(text: &str) -> Result<(Vec<f64>, Vec<f64>)> {
         let position: u32 = position
             .parse()
             .ok()
-            .filter(|position| *position >= 1)
-            .with_context(|| format!("line {number}: {position:?} is not a position in the bar"))?;
+            .filter(|position| (1..=BEATS_PER_BAR).contains(position))
+            .with_context(|| {
+                format!("line {number}: {position:?} is not a position in a bar of 4/4")
+            })?;
         if beats.last().is_some_and(|previous| time <= *previous) {
             bail!("line {number}: {time} does not come after the beat before it");
         }
@@ -198,6 +200,47 @@ fn load_excerpts(data_directory: &Path) -> Result<Vec<Excerpt>> {
         bail!("no beat dataset found, run bench/download_beat_dataset.sh first");
     }
     Ok(excerpts)
+}
+
+/// The genres of GTZAN that are measured, each with excerpts numbered from
+/// 0 to [`EXCERPTS_PER_GENRE`] - 1.
+const GENRES: [&str; 2] = ["disco", "hiphop"];
+const EXCERPTS_PER_GENRE: usize = 100;
+/// Positions in a bar of 4/4, the metre the grid assumes.
+const BEATS_PER_BAR: u32 = 4;
+
+/// Fails unless `excerpts` are exactly the 200 the benchmark is defined on,
+/// so that a download missing both halves of some pairs cannot pass for
+/// the whole set.
+fn check_manifest(excerpts: &[Excerpt]) -> Result<()> {
+    let expected: Vec<String> = GENRES
+        .iter()
+        .flat_map(|genre| {
+            (0..EXCERPTS_PER_GENRE).map(move |number| format!("gtzan_{genre}_{number:05}"))
+        })
+        .collect();
+    let found: Vec<&str> = excerpts
+        .iter()
+        .map(|excerpt| excerpt.name.as_str())
+        .collect();
+    let missing: Vec<&String> = expected
+        .iter()
+        .filter(|name| !found.contains(&name.as_str()))
+        .collect();
+    let unexpected: Vec<&&str> = found
+        .iter()
+        .filter(|name| !expected.iter().any(|expected| expected == **name))
+        .collect();
+    if !missing.is_empty() || !unexpected.is_empty() {
+        bail!(
+            "the beat dataset is not the expected 200 excerpts: {} missing (first {:?}), {} unexpected (first {:?}); run bench/download_beat_dataset.sh again",
+            missing.len(),
+            missing.first(),
+            unexpected.len(),
+            unexpected.first()
+        );
+    }
+    Ok(())
 }
 
 /// The share of annotated times found by predicted ones and of predicted
@@ -376,7 +419,7 @@ fn render(results: &[ExcerptResult], half: Half) -> String {
     }
     let _ = writeln!(
         report,
-        "\nA grid is right when its beat F-measure is at least 0.9, with beats found within 70 ms; a downbeat when the F-measure of the downbeats is.\n"
+        "\nA grid is right when its beat F-measure is at least 0.9, with beats found within 70 ms; its downbeat is right when the F-measure of the downbeats alone is at least 0.9.\n"
     );
     let _ = writeln!(
         report,
@@ -411,6 +454,7 @@ fn render(results: &[ExcerptResult], half: Half) -> String {
 
 pub fn run(arguments: &Arguments) -> Result<()> {
     let excerpts = load_excerpts(&arguments.data_directory)?;
+    check_manifest(&excerpts)?;
     let chosen: Vec<&Excerpt> = excerpts
         .iter()
         .enumerate()
@@ -495,6 +539,7 @@ mod tests {
             ("0.5\t1\textra\n", "expected a time and a position"),
             ("0.5\tone\n", "is not a position"),
             ("0.5\t0\n", "is not a position"),
+            ("0.5\t5\n", "is not a position in a bar of 4/4"),
             ("1.0\t1\n0.5\t2\n", "does not come after"),
         ] {
             let error = parse_annotation(text).unwrap_err().to_string();
@@ -561,6 +606,31 @@ mod tests {
         let error = load_excerpts(&one_beat).unwrap_err().to_string();
         std::fs::remove_dir_all(&one_beat).unwrap();
         assert!(error.contains("fewer than two beats"), "{error}");
+    }
+
+    #[test]
+    fn only_the_full_set_of_excerpts_passes_the_manifest() {
+        let excerpt = |name: String| Excerpt {
+            name,
+            audio_path: PathBuf::new(),
+            beats: Vec::new(),
+            downbeats: Vec::new(),
+        };
+        let mut excerpts: Vec<Excerpt> = GENRES
+            .iter()
+            .flat_map(|genre| (0..EXCERPTS_PER_GENRE).map(move |number| (genre, number)))
+            .map(|(genre, number)| excerpt(format!("gtzan_{genre}_{number:05}")))
+            .collect();
+        assert!(check_manifest(&excerpts).is_ok());
+
+        let removed = excerpts.remove(42);
+        let error = check_manifest(&excerpts).unwrap_err().to_string();
+        assert!(error.contains("1 missing"), "{error}");
+        assert!(error.contains(&removed.name), "{error}");
+
+        excerpts.push(excerpt("gtzan_rock_00001".to_string()));
+        let error = check_manifest(&excerpts).unwrap_err().to_string();
+        assert!(error.contains("1 unexpected"), "{error}");
     }
 
     #[test]

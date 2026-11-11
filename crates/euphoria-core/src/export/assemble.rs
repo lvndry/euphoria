@@ -98,8 +98,9 @@ pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) ->
 /// With [`ExportContents::beat_grid`], a track whose beat grid is rated
 /// medium or high gets the grid's first downbeat and the grid's tempo, which
 /// is then also the tempo written for the track. The tempo is written with
-/// two decimals, which moves the last beat of a seven minute track by at
-/// most 16 ms.
+/// two decimals, off by at most 0.005 BPM, which moves a beat T seconds
+/// into the track by at most T x 0.005 / BPM seconds: 23 ms at the end of a
+/// seven minute track at 90 BPM, 16 ms at 128 BPM and 12 ms at 180 BPM.
 pub fn assemble_library_with(
     results: Vec<FileResult>,
     layout: PlaylistLayout<'_>,

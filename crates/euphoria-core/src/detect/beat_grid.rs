@@ -39,6 +39,17 @@ const DRIFT_SEGMENT_HOP_SECONDS: f64 = 4.0;
 /// A stretch whose beats stand out from the rest of the envelope by less
 /// than this, as with a breakdown without drums, tells nothing about drift.
 const SALIENT_SEGMENT: f32 = 1.3;
+/// A beat has an onset when the onset strength near it reaches this share
+/// of the strongest beat's.
+const BEAT_HIT_SHARE: f32 = 0.1;
+/// Fewer beats with an onset than this is no beat at all, such as one
+/// transient in silence.
+const MINIMUM_BEAT_HITS: usize = 4;
+/// A grid can be rated medium or high only when at least this many of its
+/// beats have an onset, and at least [`RECURRING_BEAT_SHARE`] of them, so
+/// that a few hits in a long silence or ambience cannot make it confident.
+const RECURRING_BEAT_HITS: usize = 16;
+const RECURRING_BEAT_SHARE: f64 = 0.25;
 /// Beats in a bar of 4/4, the metre of nearly all dance music.
 pub(crate) const BEATS_PER_BAR: usize = 4;
 
@@ -268,11 +279,49 @@ pub(crate) fn fit_beats(envelope: &OnsetEnvelope, estimate_bpm: f64) -> Option<B
     if mean_over_phases <= 0.0 || best_score <= 0.0 {
         return None;
     }
+    let (hits, beats) = beat_hits(&values, best_period, best_phase);
+    if hits < MINIMUM_BEAT_HITS {
+        return None;
+    }
+    let recurs = hits >= RECURRING_BEAT_HITS && hits as f64 >= RECURRING_BEAT_SHARE * beats as f64;
     Some(BeatFit {
         period_frames: best_period,
         phase_frames: best_phase.rem_euclid(best_period),
-        salience: best_score / mean_over_phases,
+        salience: if recurs {
+            best_score / mean_over_phases
+        } else {
+            0.0
+        },
     })
+}
+
+/// How many beats of the grid have an onset near them, and how many beats
+/// the grid has. A beat counts when the strongest onset within two frames
+/// of it reaches [`BEAT_HIT_SHARE`] of the strongest beat's.
+fn beat_hits(values: &[f32], period: f64, phase: f64) -> (usize, usize) {
+    let mut strengths = Vec::new();
+    let mut beat = phase.rem_euclid(period);
+    while beat < values.len() as f64 {
+        let centre = beat.round() as usize;
+        let first = centre.saturating_sub(2);
+        let last = (centre + 3).min(values.len());
+        strengths.push(
+            values[first.min(last)..last]
+                .iter()
+                .copied()
+                .fold(0.0, f32::max),
+        );
+        beat += period;
+    }
+    let strongest = strengths.iter().copied().fold(0.0, f32::max);
+    if strongest <= 0.0 {
+        return (0, strengths.len());
+    }
+    let hits = strengths
+        .iter()
+        .filter(|strength| **strength >= BEAT_HIT_SHARE * strongest)
+        .count();
+    (hits, strengths.len())
 }
 
 /// How far, in seconds, the beats of stretches of the track sit from the
@@ -517,7 +566,10 @@ pub struct BeatGrid {
     /// was fitted to.
     pub bpm: f64,
     /// How many times stronger the onsets on the beats are than the average
-    /// over every phase of the same tempo. The basis of the confidence.
+    /// over every phase of the same tempo. The basis of the confidence. It
+    /// is 0, which rates the grid low, when fewer than 16 beats or fewer
+    /// than a quarter of them have an onset, since a few hits in silence
+    /// stand out from every other phase without being a beat.
     pub salience: f32,
     /// How far the beats of the stretches of the track wander from the
     /// grid, in seconds: the 90th percentile over stretches of 8 seconds
@@ -572,7 +624,8 @@ impl BeatGrid {
 
 /// Fits a beat grid to `audio` near `tempo_bpm`, which is searched within
 /// 2% of it. `None` for audio shorter than four beats, and for audio whose
-/// onsets show no beat, such as silence.
+/// onsets show no beat, such as silence or a single transient: fewer than
+/// four beats of the grid have an onset.
 pub fn detect_beat_grid(audio: &AudioBuffer, tempo_bpm: f64) -> Option<BeatGrid> {
     grid_of_envelope(&OnsetEnvelope::of_audio(audio)?, tempo_bpm)
 }
@@ -755,6 +808,23 @@ mod tests {
         assert_eq!(detect_beat_grid(&silence, 128.0), None);
         let short = dance_loop(128.0, 1.5, 0.1);
         assert_eq!(detect_beat_grid(&short, 128.0), None);
+    }
+
+    #[test]
+    fn a_transient_in_silence_has_no_grid_and_a_few_bars_in_silence_a_low_one() {
+        let mut samples = vec![0.0_f32; 60 * SAMPLE_RATE as usize];
+        add_hit(&mut samples, 1.0, 55.0, 0.05, 0.8);
+        let transient = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+        assert_eq!(detect_beat_grid(&transient, 120.0), None);
+
+        let mut samples = vec![0.0_f32; 60 * SAMPLE_RATE as usize];
+        for beat in 0..8 {
+            add_hit(&mut samples, 1.0 + f64::from(beat) * 0.5, 55.0, 0.05, 0.8);
+        }
+        let few_beats = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+        let grid = detect_beat_grid(&few_beats, 120.0).expect("a grid");
+        assert_eq!(grid.salience, 0.0);
+        assert_eq!(grid.confidence(), Confidence::Low);
     }
 
     #[test]

@@ -955,10 +955,16 @@ fn paths_that_cannot_be_used_are_errors() {
 /// Writes 30 seconds of a 16 bit mono WAV file holding a decaying low tone
 /// on every beat at `tempo`, starting `first_beat` seconds in.
 fn write_kick_track(path: &Path, tempo: f64, first_beat: f64) {
+    write_kicks(path, first_beat, |_| tempo);
+}
+
+/// Writes 30 seconds of a 16 bit mono WAV file holding a decaying low tone
+/// on every beat from `first_beat`, each beat following the one before at
+/// `tempo_at` its time.
+fn write_kicks(path: &Path, first_beat: f64, tempo_at: impl Fn(f64) -> f64) {
     const SAMPLE_RATE: u32 = 44_100;
     let sample_count = 30 * SAMPLE_RATE as usize;
     let mut samples = vec![0.0_f64; sample_count];
-    let beat_seconds = 60.0 / tempo;
     let mut beat_start = first_beat;
     while beat_start < 30.0 {
         let first_sample = (beat_start * f64::from(SAMPLE_RATE)) as usize;
@@ -971,7 +977,7 @@ fn write_kick_track(path: &Path, tempo: f64, first_beat: f64) {
             let time = offset as f64 / f64::from(SAMPLE_RATE);
             *sample += (std::f64::consts::TAU * 60.0 * time).sin() * (-time / 0.04).exp();
         }
-        beat_start += beat_seconds;
+        beat_start += 60.0 / tempo_at(beat_start);
     }
     let data_length = (sample_count * 2) as u32;
     let mut bytes = Vec::with_capacity(44 + sample_count * 2);
@@ -1213,4 +1219,59 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
             vec![other]
         )]
     );
+}
+
+#[test]
+fn a_grid_rated_low_is_left_out_and_not_counted() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let steady = resolved(music_folder.path()).join("steady.wav");
+    let drifting = resolved(music_folder.path()).join("drifting.wav");
+    write_kick_track(&steady, 120.0, 0.25);
+    // The tempo rises from 120 to 132 BPM over the 30 seconds.
+    write_kicks(&drifting, 0.25, |time| 120.0 + 12.0 * time / 30.0);
+    let output_folder = TemporaryFolder::new();
+    let output_file = resolved(output_folder.path()).join("library.xml");
+
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    let exported = euphoria.run(&[
+        "export",
+        "rekordbox",
+        "--beat-grid",
+        "--no-playlists",
+        text(music_folder.path()),
+        "-o",
+        text(&output_file),
+    ]);
+
+    let confidence_of = |name: &str| {
+        analyzed
+            .iter()
+            .find(|track| {
+                track["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with(name))
+            })
+            .expect("the track is analyzed")["beat_grid"]["confidence"]
+            .clone()
+    };
+    assert_eq!(confidence_of("drifting.wav"), "low");
+    assert_ne!(confidence_of("steady.wav"), "low");
+    assert_success(&exported);
+    assert_eq!(
+        standard_error(&exported).lines().nth(1),
+        Some(
+            "Beat grids for 1 of 2 tracks; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them."
+        )
+    );
+    let document = std::fs::read_to_string(&output_file).expect("the export is read");
+    let xml = roxmltree::Document::parse(&document).expect("the export is well formed XML");
+    let with_tempo: Vec<String> = xml
+        .descendants()
+        .filter(|node| node.has_tag_name("TRACK") && node.attribute("Location").is_some())
+        .filter(|node| node.children().any(|child| child.has_tag_name("TEMPO")))
+        .map(|node| attribute(node, "Location").expect("a location"))
+        .collect();
+    assert_eq!(with_tempo.len(), 1);
+    assert!(with_tempo[0].ends_with("steady.wav"), "{with_tempo:?}");
 }
