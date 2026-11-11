@@ -249,37 +249,37 @@ impl Id3File {
     }
 
     fn position(&self, field: &str) -> Option<usize> {
-        if field == riff_info::COMMENT {
-            let info_position = self.info.as_ref()?.position()?;
+        if let Some(id) = riff_info::value_id(field) {
+            let info_position = self.info.as_ref()?.position_of(&id)?;
             return Some(self.tag.frames().len() + info_position);
         }
         self.tag.position(field)
     }
 
     fn raw(&self, field: &str) -> Option<Vec<u8>> {
-        if field == riff_info::COMMENT {
-            return self.info.as_ref()?.raw().map(<[u8]>::to_vec);
+        if let Some(id) = riff_info::value_id(field) {
+            return self.info.as_ref()?.raw_of(&id).map(<[u8]>::to_vec);
         }
         self.tag.raw(field).map(<[u8]>::to_vec)
     }
 
     fn get(&self, field: &str) -> Result<Option<String>, ErrorSource> {
-        if field == riff_info::COMMENT {
-            return Ok(self.info.as_ref().and_then(InfoList::get));
+        if let Some(id) = riff_info::value_id(field) {
+            return Ok(self.info.as_ref().and_then(|info| info.get_of(&id)));
         }
         self.tag.get(field)
     }
 
     fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
-        if field == riff_info::COMMENT {
-            return self.info_mut()?.set(value);
+        if let Some(id) = riff_info::value_id(field) {
+            return self.info_mut()?.set_of(&id, value);
         }
         self.tag.set(field, value)
     }
 
     fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
-        if field == riff_info::COMMENT {
-            return self.info_mut()?.restore(raw);
+        if let Some(id) = riff_info::value_id(field) {
+            return self.info_mut()?.restore_of(&id, raw);
         }
         self.tag.restore(field, raw)
     }
@@ -573,6 +573,15 @@ impl TagFile {
             document,
             touched: Vec::new(),
         })
+    }
+
+    /// The major version of the file's ID3v2 tag, for a file that has
+    /// one: 2, 3 or 4.
+    pub(super) fn id3_version(&self) -> Option<u8> {
+        match &self.document {
+            Document::Id3(file) => Some(file.tag.version()),
+            Document::Mp4(_) | Document::Flac(_) => None,
+        }
     }
 
     pub(super) fn format(&self) -> TagFormat {

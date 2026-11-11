@@ -16,8 +16,30 @@ use crate::error::ErrorSource;
 
 /// The comment value, under the name the field has in a write plan.
 pub(super) const COMMENT: &str = "INFO ICMT";
+/// The title value.
+pub(super) const TITLE: &str = "INFO INAM";
+/// The artist value.
+pub(super) const ARTIST: &str = "INFO IART";
+/// The album value.
+pub(super) const ALBUM: &str = "INFO IPRD";
+/// The genre value.
+pub(super) const GENRE: &str = "INFO IGNR";
+/// The date value.
+pub(super) const DATE: &str = "INFO ICRD";
+/// The track number value.
+pub(super) const TRACK_NUMBER: &str = "INFO ITRK";
 
 const COMMENT_ID: &[u8; 4] = b"ICMT";
+const FIELD_PREFIX: &str = "INFO ";
+
+/// The four letter id of the value a write plan calls `field`, such as
+/// `ICMT` for `INFO ICMT`, or `None` for a field that is not an `INFO`
+/// value.
+pub(super) fn value_id(field: &str) -> Option<[u8; 4]> {
+    let id = field.strip_prefix(FIELD_PREFIX)?;
+    let id: [u8; 4] = id.as_bytes().try_into().ok()?;
+    id.iter().all(u8::is_ascii_alphanumeric).then_some(id)
+}
 const LIST_ID: &[u8; 4] = b"LIST";
 const LIST_TYPE: &[u8; 4] = b"INFO";
 const CHUNK_HEADER_LENGTH: usize = 8;
@@ -130,14 +152,36 @@ impl InfoList {
 
     /// The index of the comment among [`InfoList::values`].
     pub(super) fn position(&self) -> Option<usize> {
-        self.values
-            .iter()
-            .position(|value| value.starts_with(COMMENT_ID))
+        self.position_of(COMMENT_ID)
     }
 
-    /// The bytes of the comment value, header included.
-    pub(super) fn raw(&self) -> Option<&[u8]> {
-        self.position().map(|index| &*self.values[index])
+    /// The index of the value `id` among [`InfoList::values`].
+    pub(super) fn position_of(&self, id: &[u8; 4]) -> Option<usize> {
+        self.values.iter().position(|value| value.starts_with(id))
+    }
+
+    /// The bytes of the value `id`, header included.
+    pub(super) fn raw_of(&self, id: &[u8; 4]) -> Option<&[u8]> {
+        self.position_of(id).map(|index| &*self.values[index])
+    }
+
+    /// Refuses a value the list holds more than once, which a change could
+    /// not tell apart.
+    fn single(&self, id: &[u8; 4]) -> Result<(), ErrorSource> {
+        if self
+            .values
+            .iter()
+            .filter(|value| value.starts_with(id))
+            .count()
+            > 1
+        {
+            return Err(format!(
+                "its RIFF INFO list holds {} more than once",
+                String::from_utf8_lossy(id)
+            )
+            .into());
+        }
+        Ok(())
     }
 
     /// The text of a value without its header, ending at the first zero
@@ -155,8 +199,15 @@ impl InfoList {
     /// The comment, or `None` when the list has none. The format names no
     /// encoding: UTF-8 is tried first, and anything else is read as
     /// Latin-1, the usual alternative.
+    #[cfg(test)]
     pub(super) fn get(&self) -> Option<String> {
-        let text = Self::text_bytes(self.raw()?);
+        self.get_of(COMMENT_ID)
+    }
+
+    /// The text of the value `id`, read as [`InfoList::get`] reads the
+    /// comment.
+    pub(super) fn get_of(&self, id: &[u8; 4]) -> Option<String> {
+        let text = Self::text_bytes(self.raw_of(id)?);
         Some(match std::str::from_utf8(text) {
             Ok(text) => text.to_string(),
             Err(_) => text.iter().copied().map(char::from).collect(),
@@ -174,8 +225,15 @@ impl InfoList {
     /// not fit, which only a caller that makes up its own text can pass,
     /// is refused rather than written in another encoding than the rest
     /// of the comment.
+    #[cfg(test)]
     pub(super) fn set(&mut self, value: Option<&str>) -> Result<(), ErrorSource> {
-        let position = self.position();
+        self.set_of(COMMENT_ID, value)
+    }
+
+    /// Sets the value `id` as [`InfoList::set`] sets the comment.
+    pub(super) fn set_of(&mut self, id: &[u8; 4], value: Option<&str>) -> Result<(), ErrorSource> {
+        self.single(id)?;
+        let position = self.position_of(id);
         let Some(value) = value else {
             if let Some(index) = position {
                 self.values.remove(index);
@@ -184,7 +242,7 @@ impl InfoList {
             return Ok(());
         };
         let existing_is_latin1 = self
-            .raw()
+            .raw_of(id)
             .is_some_and(|raw| std::str::from_utf8(Self::text_bytes(raw)).is_err());
         let fits_latin1 = value.chars().all(|character| u32::from(character) <= 0xFF);
         if existing_is_latin1 && !fits_latin1 {
@@ -203,7 +261,7 @@ impl InfoList {
         }
         text.push(0);
         let size = u32::try_from(text.len()).map_err(|_| "the comment is too long")?;
-        let mut item = COMMENT_ID.to_vec();
+        let mut item = id.to_vec();
         item.extend(size.to_le_bytes());
         item.extend(text);
         if !item.len().is_multiple_of(2) {
@@ -219,16 +277,28 @@ impl InfoList {
 
     /// Puts back the exact bytes of the comment value, or removes it when
     /// `raw` is `None`.
+    #[cfg(test)]
     pub(super) fn restore(&mut self, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
+        self.restore_of(COMMENT_ID, raw)
+    }
+
+    /// Puts back the exact bytes of the value `id`, or removes it when
+    /// `raw` is `None`.
+    pub(super) fn restore_of(
+        &mut self,
+        id: &[u8; 4],
+        raw: Option<&[u8]>,
+    ) -> Result<(), ErrorSource> {
+        self.single(id)?;
         if let Some(raw) = raw {
-            let is_whole_value = raw.starts_with(COMMENT_ID)
+            let is_whole_value = raw.starts_with(id)
                 && little_endian_u32(raw, 4)
                     .is_some_and(|size| value_end(0, size, raw.len()) == Some(raw.len()));
             if !is_whole_value {
                 return Err("the saved bytes are not a RIFF INFO comment".into());
             }
         }
-        match (self.position(), raw) {
+        match (self.position_of(id), raw) {
             (Some(index), Some(raw)) => self.values[index] = raw.to_vec(),
             (Some(index), None) => {
                 self.values.remove(index);

@@ -11,6 +11,7 @@ mod output;
 mod playlists;
 mod stages;
 mod style;
+mod tag_edit;
 mod tags;
 mod terminal;
 mod view;

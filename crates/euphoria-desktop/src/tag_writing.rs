@@ -135,7 +135,7 @@ pub(crate) struct WriteReport {
 /// the others.
 pub(crate) fn write_plans(
     plans: &[WritePlan],
-    analyses: &[TrackAnalysis],
+    analyses: &[Option<TrackAnalysis>],
     log_directory: &Path,
     cache: Option<&CachedAnalyzer>,
     done: &Arc<AtomicUsize>,
@@ -147,7 +147,7 @@ pub(crate) fn write_plans(
         let written = log.apply(plan);
         if written.is_ok()
             && report.cache_problem.is_none()
-            && let Some(cache) = cache
+            && let (Some(cache), Some(analysis)) = (cache, analysis)
             && let Err(error) = cache.record_retagged_file(&path, analysis)
         {
             report.cache_problem = Some(error.chain());
@@ -397,7 +397,12 @@ mod tests {
         let done = Arc::new(AtomicUsize::new(0));
         let report = write_plans(
             &planned.plans,
-            &planned.analyses,
+            &planned
+                .analyses
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect::<Vec<_>>(),
             &scratch.log_directory(),
             None,
             &done,
@@ -431,7 +436,12 @@ mod tests {
         let done = Arc::new(AtomicUsize::new(0));
         let report = write_plans(
             &planned.plans,
-            &planned.analyses,
+            &planned
+                .analyses
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect::<Vec<_>>(),
             &scratch.log_directory(),
             None,
             &done,
@@ -465,7 +475,12 @@ mod tests {
         let done = Arc::new(AtomicUsize::new(0));
         let report = write_plans(
             &planned.plans,
-            &planned.analyses,
+            &planned
+                .analyses
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect::<Vec<_>>(),
             &scratch.log_directory(),
             Some(&first_launch),
             &done,
