@@ -48,8 +48,9 @@ const HOPS_PER_WINDOW: usize = 8;
 /// among those with which a move a fifth away, 0.045 per window, still
 /// shows over the minimum length: the lowest share of previews with more
 /// than one section, and of those, the one that leaves that move the most
-/// to spare. With it, 0.7% of the previews of either half have more than one
-/// section, against 4.3% and 5.3% under the earlier rule, which followed the
+/// to spare. With it, 0.7% of the first half and 1.0% of the held out half
+/// have more than one section, against 4.3% and 5.3% under the earlier rule,
+/// which followed the
 /// best key from window to window with a penalty of 0.1, and none leaves out
 /// the key of the track, which 1.0% did.
 const CHANGE_RULES: ChangeRules = ChangeRules {
