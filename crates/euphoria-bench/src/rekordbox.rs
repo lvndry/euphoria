@@ -48,6 +48,9 @@ pub fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Ar
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         if argument == "--only" {
+            if !score_key || !score_tempo {
+                bail!("--only may be given only once\n{USAGE}");
+            }
             let value = arguments
                 .next()
                 .with_context(|| format!("--only needs a value\n{USAGE}"))?;
@@ -785,6 +788,22 @@ Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also 
             &["export.xml", "--fast"],
         ] {
             assert!(parse(arguments).is_err(), "{arguments:?} should not parse");
+        }
+    }
+
+    #[test]
+    fn repeated_only_flags_cannot_disable_both_score_sections() {
+        for (first, second) in [
+            ("key", "tempo"),
+            ("tempo", "key"),
+            ("key", "key"),
+            ("tempo", "tempo"),
+        ] {
+            let error = parse_arguments(
+                ["export.xml", "--only", first, "--only", second].map(str::to_string),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("--only may be given only once"));
         }
     }
 }
