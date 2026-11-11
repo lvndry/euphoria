@@ -81,6 +81,13 @@ One object per file, in path order, including files that failed:
       }
     ],
     "beat_grid": { "first_downbeat_seconds": 0.372, "bpm": 170.004, "confidence": "high" },
+    "cues": [
+      { "seconds": 0.372, "name": "Start" },
+      { "seconds": 45.548, "name": "Main" },
+      { "seconds": 181.077, "name": "Breakdown" },
+      { "seconds": 226.249, "name": "Drop" },
+      { "seconds": 361.775, "name": "Outro" }
+    ],
     "needs_review": false,
     "quality": {
       "codec": "flac",
@@ -110,6 +117,7 @@ One object per file, in path order, including files that failed:
     "tuning_cents": null,
     "key_timeline": [],
     "beat_grid": null,
+    "cues": [],
     "needs_review": null,
     "quality": null,
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
@@ -130,6 +138,8 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only when that key is clearly stronger over at least three windows with evidence, about 22 seconds of audio. Silent gaps remain empty, but windows in the same key on either side count together toward this minimum. Entering and leaving another key each carry a cost, so a brief change in the middle needs stronger or longer evidence than one at the end. On dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
 
 `beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
+
+`cues` lists where the sections of the track start, in order: `seconds` from the start of the track, to a thousandth, and `name`, one of `Start`, `Main`, `Breakdown`, `Drop` and `Outro`. Every cue is on the first beat of a bar of `beat_grid`, at a phrase boundary, and there are at most 8. It is empty when the track has no beat grid. See [cue points](../concepts/accuracy.md#cue-points).
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
@@ -182,6 +192,8 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
+| `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
+| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there get no cues from Euphoria. Only with `--cues`. |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -211,11 +223,23 @@ Beat grids for 312 of 340 tracks; the others have no clear beat or a grid rated 
 
 **Import To Collection** of a track that is already in your collection replaces its key, tempo and comment with the ones in the file (tested in rekordbox 7.2.19). Expect it to replace a grid you adjusted by hand in rekordbox too; that was not tested. Read [export to rekordbox](../guides/export-to-rekordbox.md#import-into-rekordbox) before importing tracks you have already prepared.
 
+### Cue points
+
+With `--cues`, each track whose beat grid is written also gets its cues, each twice: as a memory cue and as a hot cue, on pads from A in order. Cues are off unless asked for.
+
+Euphoria never writes cues for a track that already has some of its own in rekordbox. `--cues` therefore needs `--collection`, naming your collection exported from rekordbox with **File > Export Collection in xml format**. A track listed there with any cue, hot cue or loop gets no cues from Euphoria; its key, tempo and beat grid are still written. A line on standard error gives the counts:
+
+```
+Cues for 296 of 340 tracks; 16 already have cues in your rekordbox collection and get none from Euphoria; tracks without a beat grid in the file get none.
+```
+
+**Import To Collection** replaces the key, tempo and comment of a track already in your collection (tested in rekordbox 7.2.19). Whether it also replaces or removes that track's cues and grid was not tested; expect it to. To keep the cues of tracks you have prepared, import only the tracks that are new to your collection. See [export to rekordbox](../guides/export-to-rekordbox.md#what-happens-to-tracks-you-already-have).
+
 The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written. Without `--force` it only takes a name that is free: a file that another program creates at the output path while the export runs is kept, and the export fails.
 
 ### Output and exit status
 
-Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, with `--beat-grid` one line saying how many got a grid, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
+Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, with `--beat-grid` one line saying how many got a grid, with `--cues` one line saying how many got cues, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
 
 Only a file that could not be analyzed is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
 
