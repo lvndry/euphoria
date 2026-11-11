@@ -31,6 +31,18 @@ fn little_endian_u32(bytes: &[u8], offset: usize) -> Option<usize> {
     Some(u32::from_le_bytes(word) as usize)
 }
 
+/// The end of a whole value, allowing an omitted padding byte only for
+/// the last value. Declared sizes can span all of u32 even on 32-bit hosts.
+fn value_end(offset: usize, size: usize, body_length: usize) -> Option<usize> {
+    let unpadded_end = offset.checked_add(CHUNK_HEADER_LENGTH)?.checked_add(size)?;
+    let end = if unpadded_end == body_length {
+        unpadded_end
+    } else {
+        unpadded_end.checked_add(size % 2)?
+    };
+    (end <= body_length).then_some(end)
+}
+
 /// The `INFO` list of a WAV file, or the place one would go.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InfoList {
@@ -93,18 +105,15 @@ impl InfoList {
                 self.problem = Some("its RIFF INFO list holds data that is not a value");
                 return;
             };
-            let unpadded_end = offset + CHUNK_HEADER_LENGTH + size;
-            // The last value of a list sometimes lacks its padding byte.
-            let end = if unpadded_end == body.len() {
-                unpadded_end
-            } else {
-                unpadded_end + size % 2
-            };
-            if end > body.len() {
+            let Some(end) = value_end(offset, size, body.len()) else {
                 self.problem = Some("a value runs past the end of its RIFF INFO list");
                 return;
+            };
+            let value = &body[offset..end];
+            if value.starts_with(COMMENT_ID) && self.position().is_some() {
+                self.problem = Some("it holds more than one RIFF INFO comment");
             }
-            self.values.push(body[offset..end].to_vec());
+            self.values.push(value.to_vec());
             offset = end;
         }
     }
@@ -203,10 +212,8 @@ impl InfoList {
     pub(super) fn restore(&mut self, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
         if let Some(raw) = raw {
             let is_whole_value = raw.starts_with(COMMENT_ID)
-                && little_endian_u32(raw, 4).is_some_and(|size| {
-                    let unpadded = CHUNK_HEADER_LENGTH + size;
-                    raw.len() == unpadded || raw.len() == unpadded + size % 2
-                });
+                && little_endian_u32(raw, 4)
+                    .is_some_and(|size| value_end(0, size, raw.len()) == Some(raw.len()));
             if !is_whole_value {
                 return Err("the saved bytes are not a RIFF INFO comment".into());
             }
@@ -367,5 +374,29 @@ mod tests {
     fn a_zero_byte_cannot_be_written() {
         let mut new = InfoList::absent(0);
         assert!(new.set(Some("a\0b")).is_err());
+    }
+
+    #[test]
+    fn declared_value_lengths_cannot_overflow_the_host_range() {
+        assert_eq!(value_end(0, usize::MAX, 16), None);
+        assert_eq!(
+            value_end(usize::MAX - CHUNK_HEADER_LENGTH, 1, usize::MAX),
+            None
+        );
+        assert_eq!(value_end(0, usize::MAX - CHUNK_HEADER_LENGTH, 16), None);
+        let malformed = b"ICMT\xff\xff\xff\xff".to_vec();
+        assert!(list(std::slice::from_ref(&malformed)).problem().is_some());
+        assert!(InfoList::absent(0).restore(Some(&malformed)).is_err());
+    }
+
+    #[test]
+    fn duplicate_comments_are_read_but_cannot_be_rewritten() {
+        let duplicate = list(&[value(b"ICMT", b"first\0"), value(b"ICMT", b"second\0")]);
+        assert_eq!(duplicate.get().as_deref(), Some("first"));
+        assert_eq!(duplicate.values().len(), 2);
+        assert_eq!(
+            duplicate.problem(),
+            Some("it holds more than one RIFF INFO comment")
+        );
     }
 }

@@ -378,6 +378,27 @@ fn damaged_info_list_is_refused_and_the_file_is_left_alone() {
     read_tags(&path).expect("the tags are still read");
 }
 
+#[test]
+fn duplicate_riff_comments_are_refused_without_changing_either_value() {
+    let original = wav_with_info(&[
+        info_value(b"ICMT", b"first comment\0"),
+        info_value(b"INAM", b"Title\0"),
+        info_value(b"ICMT", b"conflicting comment\0"),
+    ]);
+    let path = scratch_file("duplicate-comments.wav", &original);
+    let error = plan_write(&path, values(7), &TagWriteOptions::default()).unwrap_err();
+    assert!(
+        error.chain().contains("more than one RIFF INFO comment"),
+        "{}",
+        error.chain()
+    );
+    assert_eq!(
+        read_tags(&path).unwrap().comment.as_deref(),
+        Some("first comment")
+    );
+    assert!(std::fs::read(&path).unwrap() == original);
+}
+
 #[cfg(unix)]
 #[test]
 fn wav_with_several_hard_links_is_refused() {
