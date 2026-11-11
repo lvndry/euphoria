@@ -18,6 +18,7 @@ mod wav;
 mod weights;
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use ort::session::Session;
 use ort::value::Tensor;
@@ -39,6 +40,26 @@ pub const STEMS_CHANNELS: usize = 2;
 /// Names the model whose stems are cached, so that stems from another
 /// model are never served in their place.
 pub const STEMS_MODEL: &str = "htdemucs-955717e8";
+
+// ORT permits only one environment to be built in a process, even after
+// its last handle is dropped. Keep it alive and share it across separators.
+static ENVIRONMENT: Mutex<Option<ort::environment::Environment>> = Mutex::new(None);
+
+fn environment() -> Result<ort::environment::Environment, EuphoriaError> {
+    let mut shared = ENVIRONMENT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(environment) = shared.as_ref() {
+        return Ok(environment.clone());
+    }
+    let environment = ort::init()
+        .with_name("euphoria")
+        .with_telemetry(false)
+        .build()
+        .map_err(runtime_error("cannot start ONNX Runtime"))?;
+    *shared = Some(environment.clone());
+    Ok(environment)
+}
 
 /// One of the four parts a track is separated into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -191,11 +212,7 @@ impl StemSeparator {
                 source: None,
             })?;
         drop(bytes);
-        let environment = ort::init()
-            .with_name("euphoria")
-            .with_telemetry(false)
-            .build()
-            .map_err(runtime_error("cannot start ONNX Runtime"))?;
+        let environment = environment()?;
         let mut builder =
             Session::builder(&environment).map_err(runtime_error("cannot start ONNX Runtime"))?;
         for tensor in tensors {
@@ -380,6 +397,19 @@ impl CachedSeparator {
         };
         let stems = separator.separate_file(path, observer)?;
         observer.stage(SeparationStage::Saving);
+        let current_hash = ContentHash::of_file(path).map_err(|source| EuphoriaError::Open {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if current_hash != hash {
+            return Err(EuphoriaError::Separation {
+                reason: format!(
+                    "{} changed while it was being separated; try again",
+                    path.display()
+                ),
+                source: None,
+            });
+        }
         self.cache.store(&hash, &stems)
     }
 }
@@ -431,5 +461,58 @@ mod tests {
         assert_eq!(mean, 2.0);
         assert!((deviation - 2.0f32.sqrt()).abs() < 1e-6);
         assert_eq!(mono_mean_and_deviation(&[0.0; 4], &[0.0; 4]), (0.0, 1.0));
+    }
+
+    #[test]
+    fn source_replaced_during_separation_is_not_cached_under_its_old_hash() {
+        use ort::session::builder::AutoDevicePolicy;
+
+        struct ReplaceSource {
+            stage: SeparationStage,
+            path: PathBuf,
+        }
+        impl SeparationObserver for ReplaceSource {
+            fn stage(&self, stage: SeparationStage) {
+                if stage == self.stage {
+                    wav::write_wav(&self.path, &[0.5; 1024], 2, STEMS_SAMPLE_RATE).unwrap();
+                }
+            }
+        }
+        for stage in [SeparationStage::Decoding, SeparationStage::Saving] {
+            let folder = crate::cache::test_support::TemporaryFolder::new();
+            let directory = folder.path();
+            let path = directory.join("track.wav");
+            wav::write_wav(&path, &[0.0; 1024], 2, STEMS_SAMPLE_RATE).unwrap();
+            let hash = ContentHash::of_file(&path).unwrap();
+            let environment = environment().unwrap();
+            let session = Session::builder(&environment)
+                .unwrap()
+                .with_auto_device(AutoDevicePolicy::PreferCPU)
+                .unwrap()
+                .commit_from_memory(include_bytes!("fixtures/zero_stems.onnx"))
+                .unwrap();
+            let mut separator = CachedSeparator::new(
+                StemCache::new(directory.join("cache"), DEFAULT_STEM_CACHE_LIMIT_BYTES),
+                directory.join("unused-weights"),
+            );
+            separator.separator = Some(StemSeparator {
+                session,
+                _environment: environment,
+                transforms: SpectrogramTransforms::new(),
+            });
+            let result = separator.stems(
+                &path,
+                &ReplaceSource {
+                    stage,
+                    path: path.clone(),
+                },
+            );
+            assert!(result.is_err(), "source changed during {stage:?}");
+            assert!(separator.cache.lookup(&hash).is_none());
+            let current_hash = ContentHash::of_file(&path).unwrap();
+            assert!(separator.cache.lookup(&current_hash).is_none());
+            let files = separator.stems(&path, &Unobserved).unwrap();
+            assert_eq!(separator.cache.lookup(&current_hash), Some(files));
+        }
     }
 }

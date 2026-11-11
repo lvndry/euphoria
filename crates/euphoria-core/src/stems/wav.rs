@@ -73,7 +73,9 @@ mod tests {
             44_100 * 4
         );
         let samples: Vec<i16> = bytes[44..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
             .collect();
         assert_eq!(samples, [0, 32767, -32767, 16384]);
