@@ -30,6 +30,7 @@ mod tag_flow;
 mod tag_settings;
 mod tag_writing;
 mod theme;
+mod track_overview;
 #[cfg(test)]
 mod ui_tests;
 mod views;
