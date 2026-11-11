@@ -43,6 +43,8 @@ Onset rate, low frequency share and spectral flux do not depend on how loud the 
 2. The scores are averaged using the weights below. When the tempo is not known, it is left out and the other weights keep their proportions.
 3. The average is stretched so that 0.2 maps to the bottom of the scale and 0.8 to the top, then cut into ten equal steps.
 
+![Onset rate scores 0 up to 2.5 events per second and rises in a straight line to 1 at 7 per second. The weighted average then maps to the rating as a staircase: 0.2 or less gives 1, 0.8 or more gives 10, and ten equal steps lie between.](../images/energy/feature-to-rating.svg)
+
 | Feature | Scores 0 at | Scores 1 at | Weight |
 | --- | --- | --- | --- |
 | Integrated loudness | -14 LUFS | -6.5 LUFS | 0.25 |
@@ -59,7 +61,11 @@ The anchors were chosen so that the 604 dance music previews of the [GiantSteps 
 | Tracks, rated without tempo | 20 | 21 | 41 | 56 | 76 | 98 | 109 | 96 | 55 | 32 |
 | Tracks, rated with the detected tempo | 13 | 13 | 30 | 63 | 65 | 115 | 114 | 102 | 56 | 33 |
 
+![Rated with the detected tempo, the 604 GiantSteps previews cover the whole scale from 1 to 10, with most between 4 and 8 and the most tracks, 115, at 6.](../images/energy/giantsteps-spread.svg)
+
 The weights reflect how much each feature can be trusted. Onset rate and spectral flux describe what happens in the music, so together they carry the most. Loudness matters, but it also reflects how a track was mastered, so it does not dominate. Loudness range rewards tracks that stay at full level. Low frequency share weighs little, because a deep, bass heavy warm up track is not an intense one. Tempo weighs little because tempo detection reports every tempo between 90 and 180 BPM, so a track slower or faster than that enters at double or half its tempo.
+
+![Weights of the six features: integrated loudness and onset rate 0.25 each, loudness range and spectral flux 0.20 each, low frequency share and tempo 0.10 each.](../images/energy/weights.svg)
 
 ## How well it works
 
@@ -68,6 +74,8 @@ The rating was measured with [the energy benchmark](../development/building.md#e
 **Listeners.** The [DEAM](https://cvml.unige.ch/databases/DEAM/) dataset holds 1802 songs with the arousal, from calm to excited, that listeners gave each one. On 586 of them the rating puts 70.2% of song pairs in the order that listeners put them, where 50% is chance, and 72.8% among the 110 songs tagged as electronic. DEAM is rock, pop, folk, jazz, classical and electronic music, not dance music, and its listeners rated how excited the music sounds, not how it works on a dance floor.
 
 **One DJ's folders.** In a library of 494 house tracks that their owner had sorted into warm up, build and peak folders, the average rating rises from 5.0 for warm up to 5.9 for build and 6.3 for peak. The direction is right, but the rating puts only 56.8% of track pairs from different folders in order. In those folders the stage follows the tempo closely, so this mostly tests the weight of tempo. It is one person's way of sorting one genre.
+
+![On the scale from 1 to 10, the average rating of one DJ's folders rises from 5.0 for warm up to 5.9 for build and 6.3 for peak: the right order, in small steps.](../images/energy/dj-folders.svg)
 
 No public dataset with energy ratings of dance music was found, and no library carrying energy values from other DJ software was available.
 
@@ -94,6 +102,10 @@ This page describes version 1.
 A track's energy is not constant. Euphoria also computes the same rating over a sliding window of 8 seconds that moves in steps of 4 seconds, which gives a curve an app can draw under the waveform. The curve shows where the breakdowns and the drops are. Silent stretches have no rating.
 
 A window is rated on its own, so the curve usually reaches higher and lower than the rating of the whole track.
+
+![The energy curve of a two minute preview starts at 10, eases down to 7, falls to 1 in a breakdown around 40 to 60 seconds and jumps back to 10 at the drop. The whole preview rates 6, so the windows reach both higher and lower than that.](../images/energy/energy-curve.svg)
+
+The curve of a two minute preview from the benchmark set, computed with `energy_curve`.
 
 ## Limits
 

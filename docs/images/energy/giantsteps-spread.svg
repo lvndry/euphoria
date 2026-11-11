@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">How the GiantSteps previews spread over the scale</title>
+<desc id="chart-desc">Column chart of how many of the 604 GiantSteps Key previews get each rating with the detected tempo: 13, 13, 30, 63, 65, 115, 114, 102, 56 and 33 tracks for ratings 1 to 10. The previews cover the whole scale, with most between 4 and 8 and the peak at 6.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .series-line { stroke: #3987e5; }
+  .series-fill, .series-wash { fill: #3987e5; }
+  .ring { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="359" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">How the GiantSteps previews spread over the scale</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Number of the 604 previews at each rating, rated with the detected tempo.</text>
+<line x1="80" y1="290" x2="770" y2="290" class="axis"/>
+<text x="70" y="294" class="tick" text-anchor="end">0</text>
+<line x1="80" y1="225.33" x2="770" y2="225.33" class="grid"/>
+<text x="70" y="229.33" class="tick" text-anchor="end">40</text>
+<line x1="80" y1="160.67" x2="770" y2="160.67" class="grid"/>
+<text x="70" y="164.67" class="tick" text-anchor="end">80</text>
+<line x1="80" y1="96" x2="770" y2="96" class="grid"/>
+<text x="70" y="100" class="tick" text-anchor="end">120</text>
+<path class="series-fill" d="M102.5,290 V272.98 Q102.5,268.98 106.5,268.98 H122.5 Q126.5,268.98 126.5,272.98 V290 Z"/>
+<text x="114.5" y="310" class="tick" text-anchor="middle">1</text>
+<path class="series-fill" d="M171.5,290 V272.98 Q171.5,268.98 175.5,268.98 H191.5 Q195.5,268.98 195.5,272.98 V290 Z"/>
+<text x="183.5" y="310" class="tick" text-anchor="middle">2</text>
+<path class="series-fill" d="M240.5,290 V245.5 Q240.5,241.5 244.5,241.5 H260.5 Q264.5,241.5 264.5,245.5 V290 Z"/>
+<text x="252.5" y="310" class="tick" text-anchor="middle">3</text>
+<path class="series-fill" d="M309.5,290 V192.15 Q309.5,188.15 313.5,188.15 H329.5 Q333.5,188.15 333.5,192.15 V290 Z"/>
+<text x="321.5" y="310" class="tick" text-anchor="middle">4</text>
+<path class="series-fill" d="M378.5,290 V188.92 Q378.5,184.92 382.5,184.92 H398.5 Q402.5,184.92 402.5,188.92 V290 Z"/>
+<text x="390.5" y="310" class="tick" text-anchor="middle">5</text>
+<path class="series-fill" d="M447.5,290 V108.08 Q447.5,104.08 451.5,104.08 H467.5 Q471.5,104.08 471.5,108.08 V290 Z"/>
+<text x="459.5" y="310" class="tick" text-anchor="middle">6</text>
+<text x="459.5" y="94.08" class="value" text-anchor="middle">115 tracks</text>
+<path class="series-fill" d="M516.5,290 V109.7 Q516.5,105.7 520.5,105.7 H536.5 Q540.5,105.7 540.5,109.7 V290 Z"/>
+<text x="528.5" y="310" class="tick" text-anchor="middle">7</text>
+<path class="series-fill" d="M585.5,290 V129.1 Q585.5,125.1 589.5,125.1 H605.5 Q609.5,125.1 609.5,129.1 V290 Z"/>
+<text x="597.5" y="310" class="tick" text-anchor="middle">8</text>
+<path class="series-fill" d="M654.5,290 V203.47 Q654.5,199.47 658.5,199.47 H674.5 Q678.5,199.47 678.5,203.47 V290 Z"/>
+<text x="666.5" y="310" class="tick" text-anchor="middle">9</text>
+<path class="series-fill" d="M723.5,290 V240.65 Q723.5,236.65 727.5,236.65 H743.5 Q747.5,236.65 747.5,240.65 V290 Z"/>
+<text x="735.5" y="310" class="tick" text-anchor="middle">10</text>
+<text x="425" y="334" class="label" text-anchor="middle">Energy rating</text>
+</svg>
