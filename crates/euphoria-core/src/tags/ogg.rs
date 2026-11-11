@@ -31,6 +31,11 @@ const IDENTIFICATION_HEADER: u8 = 1;
 const COMMENT_HEADER: u8 = 3;
 const SETUP_HEADER: u8 = 5;
 const HEADER_PACKETS: usize = 3;
+/// Generous metadata budgets, including page headers and lacing tables:
+/// enough for large embedded artwork while bounding unterminated packets
+/// and pages with no packet data independently.
+const MAX_HEADER_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_HEADER_PAGES: usize = 4096;
 
 /// One page header, without its segment table and checksum, which a
 /// rewrite works out again.
@@ -166,8 +171,17 @@ fn header_body(packet: &[u8], kind: u8) -> Option<&[u8]> {
 
 impl OggVorbisFile {
     /// Reads the three header packets of the Ogg Vorbis stream that starts
-    /// the file.
+    /// the file. Refuses headers occupying more than 128 MiB or 4096 pages,
+    /// so malformed packet continuations cannot consume unbounded memory.
     pub(super) fn load(file: &mut File) -> Result<Self, ErrorSource> {
+        Self::load_with_limits(file, MAX_HEADER_BYTES, MAX_HEADER_PAGES)
+    }
+
+    fn load_with_limits(
+        file: &mut File,
+        max_header_bytes: u64,
+        max_header_pages: usize,
+    ) -> Result<Self, ErrorSource> {
         let mut problem = None;
         let mut packets: Vec<Vec<u8>> = Vec::new();
         let mut packet = Vec::new();
@@ -177,8 +191,22 @@ impl OggVorbisFile {
         let mut serial_number = None;
         let mut expected_sequence = 0;
         let mut comment_segments = 0;
+        let mut header_pages = 0;
         while packets.len() < HEADER_PACKETS {
+            if header_pages >= max_header_pages {
+                return Err(format!(
+                    "the Ogg Vorbis header limit of {max_header_pages} pages was exceeded"
+                )
+                .into());
+            }
             let read = read_page(file, offset)?;
+            if read.length > max_header_bytes.saturating_sub(offset) {
+                return Err(format!(
+                    "the Ogg Vorbis header limit of {max_header_bytes} bytes was exceeded"
+                )
+                .into());
+            }
+            header_pages += 1;
             let is_first = offset == 0;
             if *serial_number.get_or_insert(read.page.serial_number) != read.page.serial_number {
                 return Err("the Ogg file holds more than one stream".into());
@@ -455,6 +483,72 @@ mod tests {
             comment_segments,
             problem: None,
         }
+    }
+
+    fn fixture() -> File {
+        File::open(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/sine-440hz-mono.ogg"),
+        )
+        .unwrap()
+    }
+
+    fn header_page(serial_number: u32, sequence: u32, lacing: &[u8]) -> Vec<u8> {
+        let mut bytes = b"OggS\x00".to_vec();
+        bytes.push(u8::from(sequence > 1 && !lacing.is_empty()));
+        bytes.extend(NO_PACKET_ENDS.to_le_bytes());
+        bytes.extend(serial_number.to_le_bytes());
+        bytes.extend(sequence.to_le_bytes());
+        bytes.extend([0; 4]);
+        bytes.push(lacing.len() as u8);
+        bytes.extend(lacing);
+        let length: usize = lacing.iter().map(|value| usize::from(*value)).sum();
+        bytes.resize(bytes.len() + length, 0);
+        let crc = checksum(&bytes);
+        bytes[CRC_OFFSET..CRC_OFFSET + 4].copy_from_slice(&crc.to_le_bytes());
+        bytes
+    }
+
+    fn assert_header_limit(name: &str, lacing: &[u8], bytes_limit: u64, page_limit: usize) {
+        let first = read_page(&mut fixture(), 0).unwrap();
+        let mut bytes = read_exactly(&mut fixture(), 0, first.length).unwrap();
+        for sequence in 1..=4 {
+            bytes.extend(header_page(first.page.serial_number, sequence, lacing));
+        }
+        let path = std::env::temp_dir().join(format!(
+            "euphoria-ogg-header-limit-{name}-{}.ogg",
+            std::process::id()
+        ));
+        std::fs::write(&path, &bytes).unwrap();
+        let mut file = File::open(&path).unwrap();
+        let result = OggVorbisFile::load_with_limits(&mut file, bytes_limit, page_limit);
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("header limit"), "{error}");
+        assert!(std::io::Seek::stream_position(&mut file).unwrap() < bytes.len() as u64);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn an_unterminated_header_cannot_exceed_the_byte_limit() {
+        assert_header_limit("bytes", &[255], 512, 100);
+    }
+
+    #[test]
+    fn zero_segment_pages_cannot_exceed_the_page_limit() {
+        assert_header_limit("pages", &[], 128 * 1024 * 1024, 3);
+    }
+
+    #[test]
+    fn valid_headers_are_accepted_at_both_limits() {
+        let original = OggVorbisFile::load(&mut fixture()).unwrap();
+        let limited = OggVorbisFile::load_with_limits(
+            &mut fixture(),
+            original.pages_end,
+            original.pages.len() + 1,
+        )
+        .unwrap();
+        assert_eq!(limited, original);
     }
 
     #[test]
