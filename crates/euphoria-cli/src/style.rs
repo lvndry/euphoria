@@ -36,8 +36,14 @@ pub fn init(choice: ColorChoice) {
 /// parsed so that the help and the errors of the parser follow it too.
 pub fn choice_in_arguments(arguments: &[std::ffi::OsString]) -> ColorChoice {
     let mut choice = ColorChoice::Auto;
-    let mut arguments = arguments.iter().filter_map(|argument| argument.to_str());
+    let mut arguments = arguments
+        .iter()
+        .skip(1)
+        .filter_map(|argument| argument.to_str());
     while let Some(argument) = arguments.next() {
+        if argument == "--" {
+            break;
+        }
         let value = if argument == "--color" {
             arguments.next()
         } else {
@@ -312,6 +318,22 @@ mod tests {
             ])),
             ColorChoice::Always
         );
+    }
+
+    #[test]
+    fn positional_paths_cannot_override_the_colour_flag() {
+        let arguments: Vec<std::ffi::OsString> = [
+            "euphoria",
+            "--color",
+            "never",
+            "analyze",
+            "--",
+            "--color=always",
+        ]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+        assert_eq!(choice_in_arguments(&arguments), ColorChoice::Never);
     }
 
     #[test]
