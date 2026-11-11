@@ -66,6 +66,7 @@ pub fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Ar
 }
 
 /// One annotated excerpt.
+#[derive(Debug)]
 struct Excerpt {
     name: String,
     audio_path: PathBuf,
@@ -134,32 +135,48 @@ fn parse_annotation(text: &str) -> Result<(Vec<f64>, Vec<f64>)> {
     Ok((beats, downbeats))
 }
 
-/// The excerpts with both audio and annotations, sorted by name: an
-/// annotation `gtzan_disco_00007.beats` belongs to `disco.00007.wav`.
+/// The excerpts, sorted by name: an annotation `gtzan_disco_00007.beats`
+/// belongs to `disco.00007.wav`. Every annotation needs its audio and every
+/// audio file its annotation, with at least two beats, so that a damaged
+/// download cannot shrink the set without notice.
 fn load_excerpts(data_directory: &Path) -> Result<Vec<Excerpt>> {
     let annotation_directory = data_directory.join("annotations");
+    let audio_directory = data_directory.join("audio");
+    let listing = |directory: &Path| -> Result<Vec<PathBuf>> {
+        let mut paths = Vec::new();
+        for entry in std::fs::read_dir(directory).with_context(|| {
+            format!(
+                "reading {}; run bench/download_beat_dataset.sh first",
+                directory.display()
+            )
+        })? {
+            paths.push(entry?.path());
+        }
+        Ok(paths)
+    };
     let mut excerpts = Vec::new();
-    for entry in std::fs::read_dir(&annotation_directory).with_context(|| {
-        format!(
-            "reading {}; run bench/download_beat_dataset.sh first",
-            annotation_directory.display()
-        )
-    })? {
-        let path = entry?.path();
-        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+    for path in listing(&annotation_directory)? {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("beats") {
             continue;
-        };
-        let Some(rest) = name.strip_prefix("gtzan_") else {
-            continue;
-        };
-        let audio_name = format!("{}.wav", rest.replacen('_', ".", 1));
-        let audio_path = data_directory.join("audio").join(audio_name);
+        }
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .with_context(|| format!("{} has no usable name", path.display()))?;
+        let rest = name
+            .strip_prefix("gtzan_")
+            .with_context(|| format!("{} is not a GTZAN annotation", path.display()))?;
+        let audio_path = audio_directory.join(format!("{}.wav", rest.replacen('_', ".", 1)));
         if !audio_path.is_file() {
-            continue;
+            bail!(
+                "{} has no audio at {}; run bench/download_beat_dataset.sh again",
+                path.display(),
+                audio_path.display()
+            );
         }
         let (beats, downbeats) = read_annotation(&path)?;
         if beats.len() < 2 {
-            continue;
+            bail!("{} has fewer than two beats", path.display());
         }
         excerpts.push(Excerpt {
             name: name.to_string(),
@@ -167,6 +184,14 @@ fn load_excerpts(data_directory: &Path) -> Result<Vec<Excerpt>> {
             beats,
             downbeats,
         });
+    }
+    for path in listing(&audio_directory)? {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("wav") {
+            continue;
+        }
+        if !excerpts.iter().any(|excerpt| excerpt.audio_path == path) {
+            bail!("{} has no annotation", path.display());
+        }
     }
     excerpts.sort_by(|first, second| first.name.cmp(&second.name));
     if excerpts.is_empty() {
@@ -178,30 +203,36 @@ fn load_excerpts(data_directory: &Path) -> Result<Vec<Excerpt>> {
 /// The share of annotated times found by predicted ones and of predicted
 /// times that match an annotated one, combined: the standard beat F-measure.
 fn f_measure(predicted: &[f64], reference: &[f64]) -> f64 {
-    if predicted.is_empty() || reference.is_empty() {
-        return 0.0;
-    }
-    let mut used = vec![false; predicted.len()];
-    let mut hits = 0_usize;
-    for time in reference {
-        let nearest = predicted
-            .iter()
-            .enumerate()
-            .filter(|(index, candidate)| {
-                !used[*index] && (*candidate - time).abs() <= WINDOW_SECONDS
-            })
-            .min_by(|first, second| (first.1 - time).abs().total_cmp(&(second.1 - time).abs()));
-        if let Some((index, _)) = nearest {
-            used[index] = true;
-            hits += 1;
-        }
-    }
+    let hits = matched_count(predicted, reference);
     if hits == 0 {
         return 0.0;
     }
     let precision = hits as f64 / predicted.len() as f64;
     let recall = hits as f64 / reference.len() as f64;
     2.0 * precision * recall / (precision + recall)
+}
+
+/// The most pairs of one predicted and one annotated time within the window
+/// of each other, each time used at most once. Both lists are in order, so
+/// matching every annotated time to the earliest unused prediction it can
+/// still reach finds the largest matching, as the bipartite matching of the
+/// standard evaluation does.
+fn matched_count(predicted: &[f64], reference: &[f64]) -> usize {
+    let mut next_prediction = 0;
+    let mut hits = 0;
+    for time in reference {
+        while next_prediction < predicted.len()
+            && predicted[next_prediction] < time - WINDOW_SECONDS
+        {
+            next_prediction += 1;
+        }
+        if next_prediction < predicted.len() && predicted[next_prediction] <= time + WINDOW_SECONDS
+        {
+            hits += 1;
+            next_prediction += 1;
+        }
+    }
+    hits
 }
 
 /// The times from `start` every `step` seconds that fall within the span
@@ -261,20 +292,25 @@ struct ExcerptResult {
     octave_matched: Score,
 }
 
-fn evaluate(excerpt: &Excerpt) -> Result<Option<ExcerptResult>> {
+/// How the grid did on one excerpt. An excerpt without a tempo, which gets
+/// no grid, scores zero, so every rate covers the whole set.
+fn evaluate(excerpt: &Excerpt) -> Result<ExcerptResult> {
     let audio = decode_mono(&excerpt.audio_path).map_err(|error| anyhow::anyhow!(error.chain()))?;
     let Some(reading) = StratumDetector
         .read_tempo(&audio)
         .map_err(|error| anyhow::anyhow!(error.chain()))?
     else {
-        return Ok(None);
+        return Ok(ExcerptResult {
+            as_shipped: Score::default(),
+            octave_matched: Score::default(),
+        });
     };
     let reported = f64::from(reading.tempo_in(TempoRange::DEFAULT));
     let matched = nearest_octave(f64::from(reading.estimate), annotated_tempo(&excerpt.beats));
-    Ok(Some(ExcerptResult {
+    Ok(ExcerptResult {
         as_shipped: score(detect_beat_grid(&audio, reported), excerpt),
         octave_matched: score(detect_beat_grid(&audio, matched), excerpt),
-    }))
+    })
 }
 
 fn share(count: usize, total: usize) -> String {
@@ -284,7 +320,7 @@ fn share(count: usize, total: usize) -> String {
     format!("{:.1}%", 100.0 * count as f64 / total as f64)
 }
 
-fn render(results: &[ExcerptResult], without_tempo: usize, half: Half) -> String {
+fn render(results: &[ExcerptResult], half: Half) -> String {
     let mut report = String::new();
     let _ = writeln!(report, "## Beat grid, GTZAN disco and hip hop\n");
     let covered = match half {
@@ -296,10 +332,18 @@ fn render(results: &[ExcerptResult], without_tempo: usize, half: Half) -> String
             "Held out half: every other excerpt in name order, starting with the second"
         }
     };
+    let without_grid = |pick: fn(&ExcerptResult) -> Score| {
+        results
+            .iter()
+            .filter(|result| pick(result).confidence.is_none())
+            .count()
+    };
     let _ = writeln!(
         report,
-        "{covered}. {} excerpts with a grid measured, {without_tempo} without a tempo.\n",
-        results.len()
+        "{covered}. Every rate is out of all {} excerpts; {} got no grid with the tempo as reported and {} with the octave from the annotation, and count as missed.\n",
+        results.len(),
+        without_grid(|result| result.as_shipped),
+        without_grid(|result| result.octave_matched),
     );
     let _ = writeln!(
         report,
@@ -356,6 +400,12 @@ fn render(results: &[ExcerptResult], without_tempo: usize, half: Half) -> String
             ),
         );
     }
+    let ungridded = without_grid(|result| result.octave_matched);
+    let _ = writeln!(
+        report,
+        "| no grid | {ungridded} ({}) | - |",
+        share(ungridded, results.len())
+    );
     report
 }
 
@@ -371,17 +421,13 @@ pub fn run(arguments: &Arguments) -> Result<()> {
         })
         .map(|(_, excerpt)| excerpt)
         .collect();
-    let outcomes: Vec<Result<Option<ExcerptResult>>> =
+    let outcomes: Vec<Result<ExcerptResult>> =
         chosen.par_iter().map(|excerpt| evaluate(excerpt)).collect();
-    let mut results = Vec::new();
-    let mut without_tempo = 0;
+    let mut results = Vec::with_capacity(chosen.len());
     for (excerpt, outcome) in chosen.iter().zip(outcomes) {
-        match outcome.with_context(|| format!("measuring {}", excerpt.name))? {
-            Some(result) => results.push(result),
-            None => without_tempo += 1,
-        }
+        results.push(outcome.with_context(|| format!("measuring {}", excerpt.name))?);
     }
-    print!("{}", render(&results, without_tempo, arguments.half));
+    print!("{}", render(&results, arguments.half));
     Ok(())
 }
 
@@ -454,6 +500,98 @@ mod tests {
             let error = parse_annotation(text).unwrap_err().to_string();
             assert!(error.contains(message), "{text:?}: {error}");
         }
+    }
+
+    #[test]
+    fn the_matching_finds_every_pair_a_nearest_first_matching_misses() {
+        assert_eq!(matched_count(&[0.95, 1.02], &[1.00, 1.06]), 2);
+        assert_eq!(f_measure(&[0.95, 1.02], &[1.00, 1.06]), 1.0);
+        assert_eq!(matched_count(&[1.0, 1.01, 1.02], &[1.0]), 1);
+        assert_eq!(matched_count(&[0.5, 2.0], &[1.0, 1.5]), 0);
+    }
+
+    fn data_folder(audio: &[&str], annotations: &[(&str, &str)]) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!(
+            "euphoria-beats-data-{}-{}",
+            std::process::id(),
+            audio.len() * 10 + annotations.len()
+        ));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(folder.join("audio")).unwrap();
+        std::fs::create_dir_all(folder.join("annotations")).unwrap();
+        for name in audio {
+            std::fs::write(folder.join("audio").join(name), b"").unwrap();
+        }
+        for (name, text) in annotations {
+            std::fs::write(folder.join("annotations").join(name), text).unwrap();
+        }
+        folder
+    }
+
+    #[test]
+    fn a_missing_or_short_half_of_a_pair_is_an_error() {
+        let complete = data_folder(
+            &["disco.00001.wav"],
+            &[("gtzan_disco_00001.beats", "0.5\t1\n1.0\t2\n")],
+        );
+        assert_eq!(load_excerpts(&complete).unwrap().len(), 1);
+        std::fs::remove_dir_all(&complete).unwrap();
+
+        let without_audio = data_folder(&[], &[("gtzan_disco_00001.beats", "0.5\t1\n1.0\t2\n")]);
+        let error = load_excerpts(&without_audio).unwrap_err().to_string();
+        std::fs::remove_dir_all(&without_audio).unwrap();
+        assert!(error.contains("has no audio"), "{error}");
+
+        let without_annotation = data_folder(
+            &["disco.00001.wav", "disco.00002.wav"],
+            &[("gtzan_disco_00001.beats", "0.5\t1\n1.0\t2\n")],
+        );
+        let error = load_excerpts(&without_annotation).unwrap_err().to_string();
+        std::fs::remove_dir_all(&without_annotation).unwrap();
+        assert!(error.contains("has no annotation"), "{error}");
+
+        let one_beat = data_folder(
+            &["disco.00001.wav", "disco.00002.wav", "disco.00003.wav"],
+            &[
+                ("gtzan_disco_00001.beats", "0.5\t1\n1.0\t2\n"),
+                ("gtzan_disco_00002.beats", "0.5\t1\n1.0\t2\n"),
+                ("gtzan_disco_00003.beats", "0.5\t1\n"),
+            ],
+        );
+        let error = load_excerpts(&one_beat).unwrap_err().to_string();
+        std::fs::remove_dir_all(&one_beat).unwrap();
+        assert!(error.contains("fewer than two beats"), "{error}");
+    }
+
+    #[test]
+    fn excerpts_without_a_grid_count_in_every_rate() {
+        let right = Score {
+            beat_f_measure: 1.0,
+            downbeat_f_measure: 1.0,
+            confidence: Some(Confidence::High),
+        };
+        let results = [
+            ExcerptResult {
+                as_shipped: right,
+                octave_matched: right,
+            },
+            ExcerptResult {
+                as_shipped: Score::default(),
+                octave_matched: Score::default(),
+            },
+        ];
+
+        let report = render(&results, Half::All);
+
+        assert!(report.contains("all 2 excerpts; 1 got no grid"), "{report}");
+        assert!(
+            report.contains(
+                "| As reported, between 90 and 180 BPM | 0.500 | 50.0% | 50.0% | 100.0% |"
+            ),
+            "{report}"
+        );
+        assert!(report.contains("| high | 1 (50.0%) | 100.0% |"), "{report}");
+        assert!(report.contains("| no grid | 1 (50.0%) | - |"), "{report}");
     }
 
     #[test]
