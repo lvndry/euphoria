@@ -7,6 +7,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -28,6 +29,7 @@ pub const WEIGHTS_BYTES: u64 = 84_025_440;
 const WEIGHTS_FILE_NAME: &str = "htdemucs-955717e8.safetensors";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const READ_BUFFER_BYTES: usize = 1 << 16;
+static PARTIAL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Where the weights are kept in Euphoria's data folder.
 pub fn default_weights_path() -> Result<PathBuf, EuphoriaError> {
@@ -105,8 +107,8 @@ fn download_weights(
         .limit(WEIGHTS_BYTES + 1)
         .reader();
 
-    let partial = destination.with_extension("part");
-    let saved = save_download(&mut reader, &partial, total, downloaded);
+    let (file, partial) = create_partial(destination).map_err(file_error)?;
+    let saved = save_download(&mut reader, file, total, downloaded);
     let actual = match saved {
         Ok(actual) => actual,
         Err(error) => {
@@ -125,7 +127,30 @@ fn download_weights(
             actual,
         });
     }
-    std::fs::rename(&partial, destination).map_err(file_error)
+    if let Err(source) = std::fs::rename(&partial, destination) {
+        let _ = std::fs::remove_file(&partial);
+        return Err(file_error(source));
+    }
+    Ok(())
+}
+
+fn create_partial(destination: &Path) -> std::io::Result<(File, PathBuf)> {
+    for _ in 0..64 {
+        let partial = destination.with_file_name(format!(
+            ".euphoria-model-{}-{}.part",
+            std::process::id(),
+            PARTIAL_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        match File::options().write(true).create_new(true).open(&partial) {
+            Ok(file) => return Ok((file, partial)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no unused model download name was available",
+    ))
 }
 
 enum SaveError {
@@ -133,14 +158,13 @@ enum SaveError {
     Disk(std::io::Error),
 }
 
-/// Writes the body of the download to `partial` and returns its SHA-256.
+/// Writes the body into the reserved file and returns its SHA-256.
 fn save_download(
     reader: &mut impl Read,
-    partial: &Path,
+    mut file: File,
     total: u64,
     downloaded: &dyn Fn(u64, u64),
 ) -> Result<String, SaveError> {
-    let mut file = File::create(partial).map_err(SaveError::Disk)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; READ_BUFFER_BYTES];
     let mut received: u64 = 0;
@@ -185,6 +209,42 @@ mod tests {
         assert_eq!(
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_download_never_opens_a_preexisting_partial_symlink() {
+        use std::net::TcpListener;
+        let folder =
+            std::env::temp_dir().join(format!("euphoria-weights-symlink-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let original = folder.join("original");
+        std::fs::write(&original, b"original file bytes").unwrap();
+        let destination = folder.join("weights.safetensors");
+        let partial = destination.with_extension("part");
+        std::os::unix::fs::symlink(&original, &partial).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/weights", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut client, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            assert!(client.read(&mut request).unwrap() > 0);
+            client
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc")
+                .unwrap();
+        });
+        let result = download_weights(&url, &destination, &|_, _| {});
+        server.join().unwrap();
+        let original_bytes = std::fs::read(&original).unwrap();
+        let unowned_link_remains = std::fs::symlink_metadata(&partial)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink());
+        std::fs::remove_dir_all(folder).unwrap();
+        assert!(matches!(result, Err(EuphoriaError::ModelIntegrity { .. })));
+        assert_eq!(original_bytes, b"original file bytes");
+        assert!(
+            unowned_link_remains,
+            "cleanup must not remove an unclaimed partial file"
         );
     }
 

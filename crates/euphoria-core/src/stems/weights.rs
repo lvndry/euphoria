@@ -62,12 +62,16 @@ pub(crate) fn read_safetensors(bytes: &[u8]) -> Result<Vec<WeightTensor>, String
             .ok_or_else(|| format!("tensor {name} has an impossible shape"))?;
         let values: Vec<f32> = match header.dtype.as_str() {
             "F16" => raw
-                .chunks_exact(2)
-                .map(|pair| half_to_single(u16::from_le_bytes([pair[0], pair[1]])))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| half_to_single(u16::from_le_bytes(*pair)))
                 .collect(),
             "F32" => raw
-                .chunks_exact(4)
-                .map(|quad| f32::from_le_bytes([quad[0], quad[1], quad[2], quad[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|quad| f32::from_le_bytes(*quad))
                 .collect(),
             other => return Err(format!("tensor {name} has the unsupported type {other}")),
         };

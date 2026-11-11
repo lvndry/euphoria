@@ -151,11 +151,21 @@ impl StemCache {
     fn evict(&self, keep: &Path) -> io::Result<()> {
         let mut entries = Vec::new();
         let mut total_bytes: u64 = 0;
+        let prefix = format!("{STEMS_MODEL}-");
         for entry in fs::read_dir(&self.directory)? {
             let entry = entry?;
             let path = entry.path();
             let name = entry.file_name();
-            if !entry.file_type()?.is_dir() || name.to_string_lossy().starts_with(INCOMING_PREFIX) {
+            let managed = name
+                .to_str()
+                .and_then(|name| name.strip_prefix(&prefix))
+                .is_some_and(|hash| {
+                    hash.len() == 64
+                        && hash
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                });
+            if !entry.file_type()?.is_dir() || !managed {
                 continue;
             }
             let bytes = folder_bytes(&path)?;
@@ -214,7 +224,7 @@ fn folder_bytes(directory: &Path) -> io::Result<u64> {
 
 fn limit_from_gigabytes(value: &str) -> Option<u64> {
     let gigabytes: f64 = value.trim().parse().ok()?;
-    (gigabytes.is_finite() && gigabytes >= 0.0).then(|| (gigabytes * 1e9) as u64)
+    (gigabytes.is_finite() && gigabytes >= 0.0).then_some((gigabytes * 1e9) as u64)
 }
 
 #[cfg(test)]
@@ -311,6 +321,20 @@ mod tests {
         let kept = cache.store(&hash(2), &stems(100)).unwrap();
         assert_eq!(cache.lookup(&hash(1)), None);
         assert_eq!(cache.lookup(&hash(2)), Some(kept));
+    }
+
+    #[test]
+    fn eviction_never_deletes_an_unrelated_directory() {
+        let folder = TemporaryFolder::new("unrelated");
+        let personal = folder.0.join("personal");
+        fs::create_dir_all(&personal).unwrap();
+        fs::write(personal.join("keep.txt"), b"unrelated data").unwrap();
+        let cache = StemCache::new(folder.0.clone(), 1);
+        cache.store(&hash(1), &stems(10)).unwrap();
+        assert_eq!(
+            fs::read(personal.join("keep.txt")).unwrap(),
+            b"unrelated data"
+        );
     }
 
     #[test]
