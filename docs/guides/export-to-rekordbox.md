@@ -13,7 +13,7 @@ euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
 
 rekordbox reads that file as a second library sitting next to your own, and you choose which tracks and playlists to bring into your collection. Your audio files are never modified.
 
-This is the way to get Euphoria's results into rekordbox for every format. rekordbox does not read the key tag of FLAC and WAV files, and never reads the tempo from a file's tags, but it takes both from a rekordbox XML file.
+This is the route Pioneer documents for handing rekordbox a key, a tempo with two decimals and a comment, whatever the format of the file. Whether rekordbox reads the key from the tags of FLAC and WAV files, and the tempo from any file's tags, is unconfirmed: the names of those fields are stored inside rekordbox 7, Mixed In Key's guide says the tags are read, and a reply on Pioneer's forum says the tempo tag is not. [Use Euphoria with your DJ program](dj-programs.md#rekordbox) has the details and a test kit to check your version.
 
 The import steps below were written from Pioneer DJ's published description of the XML format and from rekordbox 6 and 7 documentation. They have not been run against a rekordbox installation. Steps marked **(not verified)** are the ones most likely to differ on your version.
 
@@ -120,6 +120,8 @@ The file is written under a temporary name and moved into place once it is compl
 3. Close the preferences. In the tree on the left of the browser, a **rekordbox xml** entry appears. Click the refresh arrows next to it so rekordbox reads the file. Do this again each time you export a new file. **(not verified)**
 4. Open the **rekordbox xml** entry. **All Tracks** lists every track in the file, and **Playlists** holds the playlists and folders.
 5. Select the tracks you want, right click and choose **Import To Collection**. To bring in a whole playlist with its tracks, right click the playlist and choose **Import Playlist**. **(not verified)**
+
+   For tracks that are already in your collection, select the tracks themselves, under **All Tracks** or inside the playlist, and choose **Import To Collection**. Importing only the playlist does not update tracks that already exist, according to another tool vendor's documentation for rekordbox 5, 6 and 7. **(not verified)**
 6. Check the result in your collection: the **Key** and **BPM** columns should show Euphoria's values.
 
 ## What happens to tracks you already have
@@ -128,7 +130,7 @@ When a track from the file is already in your collection, rekordbox asks whether
 
 Replacing can affect more than key and tempo. A beat grid or cue points you set by hand in rekordbox may be replaced by the ones in the file, or removed when the file has none. Try the import on a few tracks first and look at their grids and cues before importing a whole library. **(not verified)**
 
-rekordbox may also analyze newly imported tracks and write its own key and tempo over the imported ones. If the values change right after the import, look in **Preferences > Analysis** for the options that analyze tracks on import, and turn off key and BPM analysis before importing. **(not verified)**
+rekordbox may also analyze newly imported tracks and write its own key and tempo over the imported ones. To prevent it, untick **KEY** in **Preferences > Analysis > Track Analysis > Track Analysis Setting**, or turn **Auto Analysis** off, before importing. The settings are in the manual; whether analysis replaces imported values is **(not verified)**.
 
 ## If something looks wrong
 
