@@ -7,10 +7,10 @@
 //! `bench/results/quality.md` the measurements the thresholds come from.
 
 mod cutoff;
+mod peak;
 
 use std::path::Path;
 
-use ebur128::{EbuR128, Mode};
 use serde::{Deserialize, Serialize};
 use symphonia::core::codecs::audio::well_known::{
     CODEC_ID_ADPCM_G722, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MONKEYS_AUDIO, CODEC_ID_PCM_S32LE,
@@ -19,8 +19,10 @@ use symphonia::core::codecs::audio::well_known::{
 use symphonia::core::codecs::audio::{AudioCodecId, AudioCodecParameters};
 
 use crate::audio::{AudioBuffer, DecodeObserver, decode_mono_observed};
+use crate::energy::measure_loudness;
 use crate::error::EuphoriaError;
 pub(crate) use cutoff::spectral_cutoff;
+use peak::TruePeakMeter;
 
 /// A sample at least this close to full scale counts towards clipping.
 const FULL_SCALE: f32 = 0.999;
@@ -29,12 +31,18 @@ const FULL_SCALE: f32 = 0.999;
 /// flattened waveform.
 const SHORTEST_CLIPPED_RUN: u32 = 3;
 
-/// A lossy file at or above this average bit rate, in kbit/s, with a full
-/// spectrum, is good for any system.
-pub const GOOD_BITRATE_KBPS: u32 = 224;
+/// A lossy file at or above this average bit rate, in kbit/s, with the
+/// spectrum its bit rate keeps, is good for any system. Apple's AAC encoder
+/// set to 256 kbit/s averaged 208 kbit/s on the quietest source measured, so
+/// the threshold sits below the nominal rate.
+pub const GOOD_BITRATE_KBPS: u32 = 200;
 /// A lossy file at or above this average bit rate, in kbit/s, and below
-/// [`GOOD_BITRATE_KBPS`], is acceptable.
-pub const ACCEPTABLE_BITRATE_KBPS: u32 = 160;
+/// [`GOOD_BITRATE_KBPS`], is acceptable. Encoders set to 128 kbit/s measured
+/// at most 129, and set to 192 kbit/s at least 155.
+pub const ACCEPTABLE_BITRATE_KBPS: u32 = 144;
+/// A file with at least this share of its samples clipped gets a note in
+/// its reason. Lossy encoding hides most clipping, so this is a lower bound.
+pub const NOTICEABLE_CLIPPED_SHARE: f32 = 0.001;
 /// A lossless file whose content stops below this frequency, in Hz, was made
 /// from a lossy source. Lossy encoders at 320 kbit/s keep content up to
 /// about 20 kHz.
@@ -96,18 +104,29 @@ pub struct QualityReport {
     /// The share of all samples, over every channel, that lie in runs of at
     /// least three consecutive samples at full scale.
     pub clipped_share: f32,
-    /// Integrated loudness in LUFS, measured as EBU R128 describes over
-    /// every channel.
+    /// Integrated loudness in LUFS, measured as EBU R128 describes on the
+    /// mono mixdown played on both speakers, as the energy rating measures
+    /// it.
     pub integrated_loudness_lufs: Option<f32>,
-    /// The highest true peak of any channel, in dB relative to full scale.
+    /// The highest true peak of any channel, in dB relative to full scale,
+    /// estimated by interpolating four times between samples.
     pub true_peak_dbtp: Option<f32>,
     /// The verdict for DJ use.
     pub verdict: QualityVerdict,
 }
 
 impl QualityReport {
-    /// One sentence that explains the verdict.
+    /// One or two sentences that explain the verdict, and mention clipping
+    /// when there is much of it.
     pub fn reason(&self) -> String {
+        let mut reason = self.verdict_reason();
+        if self.clipped_share >= NOTICEABLE_CLIPPED_SHARE {
+            reason.push_str(" The master is clipped in places.");
+        }
+        reason
+    }
+
+    fn verdict_reason(&self) -> String {
         let bitrate = self.bitrate_kbps.map_or_else(
             || "an unknown bit rate".to_string(),
             |rate| format!("{rate} kbit/s"),
@@ -151,11 +170,12 @@ impl QualityReport {
 /// `bench/results/quality.md`.
 pub fn expected_cutoff_hz(bitrate_kbps: u32) -> f32 {
     match bitrate_kbps {
-        0..=111 => 14_500.0,
-        112..=159 => 15_500.0,
-        160..=223 => 17_500.0,
-        224..=287 => 18_500.0,
-        _ => 19_000.0,
+        0..=143 => 14_500.0,
+        // Apple's encoder at 192 kbit/s cut one source at 16.4 kHz, so in
+        // this range only a source of 96 kbit/s or less can be told apart.
+        144..=199 => 15_500.0,
+        200..=287 => 18_000.0,
+        _ => 19_500.0,
     }
 }
 
@@ -163,9 +183,9 @@ pub fn expected_cutoff_hz(bitrate_kbps: u32) -> f32 {
 /// explanation of a re-encoded file.
 fn typical_bitrate_for_cutoff(cutoff_hz: f32) -> u32 {
     match cutoff_hz {
-        hz if hz < 15_000.0 => 96,
-        hz if hz < 17_500.0 => 128,
-        hz if hz < 18_500.0 => 160,
+        hz if hz < 14_000.0 => 64,
+        hz if hz < 15_800.0 => 96,
+        hz if hz < 18_000.0 => 128,
         _ => 192,
     }
 }
@@ -206,10 +226,35 @@ pub fn analyze_quality(path: &Path) -> Result<QualityReport, EuphoriaError> {
 /// Decodes the file at `path` once, returning the mono mixdown that the
 /// other analyses read and the quality report measured on the way.
 pub fn decode_with_quality(path: &Path) -> Result<(AudioBuffer, QualityReport), EuphoriaError> {
+    let (audio, pending) = decode_measuring_quality(path)?;
+    let loudness = measure_loudness(audio.samples(), audio.sample_rate())?;
+    let report = pending.finish(&audio, loudness.map(|loudness| loudness.integrated_lufs));
+    Ok((audio, report))
+}
+
+/// Decodes the file at `path` and measures everything in the quality report
+/// except the loudness, which the caller usually has from another analysis
+/// of the same audio.
+pub(crate) fn decode_measuring_quality(
+    path: &Path,
+) -> Result<(AudioBuffer, PendingQuality), EuphoriaError> {
     let mut probe = QualityProbe::default();
     let audio = decode_mono_observed(path, &mut probe)?;
-    let report = probe.finish(&audio);
-    Ok((audio, report))
+    Ok((audio, PendingQuality(probe)))
+}
+
+/// A quality report that waits for the loudness.
+pub(crate) struct PendingQuality(QualityProbe);
+
+impl PendingQuality {
+    /// The report, with `integrated_loudness_lufs` measured on `audio`.
+    pub(crate) fn finish(
+        self,
+        audio: &AudioBuffer,
+        integrated_loudness_lufs: Option<f32>,
+    ) -> QualityReport {
+        self.0.finish(audio, integrated_loudness_lufs)
+    }
 }
 
 /// Collects what the quality report needs while a file is decoded.
@@ -221,10 +266,7 @@ struct QualityProbe {
     channels: Option<u32>,
     payload_bytes: u64,
     clipping: ClippingCounter,
-    meter: Option<EbuR128>,
-    /// Set when the loudness meter could not be made or fed, so that a
-    /// partial measurement is not reported as a whole one.
-    meter_failed: bool,
+    true_peak: TruePeakMeter,
 }
 
 impl DecodeObserver for QualityProbe {
@@ -248,41 +290,18 @@ impl DecodeObserver for QualityProbe {
         self.payload_bytes += bytes as u64;
     }
 
-    fn samples(&mut self, interleaved: &[f32], channel_count: usize, sample_rate: u32) {
+    fn samples(&mut self, interleaved: &[f32], channel_count: usize, _: u32) {
         self.clipping.add(interleaved, channel_count);
-        if self.meter_failed {
-            return;
-        }
-        if self.meter.is_none() {
-            let channels = u32::try_from(channel_count).unwrap_or(u32::MAX);
-            match EbuR128::new(channels, sample_rate, Mode::I | Mode::TRUE_PEAK) {
-                Ok(meter) => self.meter = Some(meter),
-                Err(_) => {
-                    self.meter_failed = true;
-                    return;
-                }
-            }
-        }
-        let fed = self
-            .meter
-            .as_mut()
-            .is_some_and(|meter| meter.add_frames_f32(interleaved).is_ok());
-        if !fed {
-            self.meter_failed = true;
-        }
+        self.true_peak.add(interleaved, channel_count);
     }
 }
 
 impl QualityProbe {
-    fn finish(self, audio: &AudioBuffer) -> QualityReport {
+    fn finish(self, audio: &AudioBuffer, integrated_loudness_lufs: Option<f32>) -> QualityReport {
         let duration = f64::from(audio.duration_seconds());
         let bitrate_kbps = (duration > 0.0 && self.payload_bytes > 0)
             .then(|| (self.payload_bytes as f64 * 8.0 / duration / 1000.0).round() as u32);
         let cutoff_hz = spectral_cutoff(audio.samples(), audio.sample_rate());
-        let (integrated_loudness_lufs, true_peak_dbtp) = match (&self.meter, self.meter_failed) {
-            (Some(meter), false) => (integrated_loudness(meter), true_peak(meter, self.channels)),
-            _ => (None, None),
-        };
         QualityReport {
             verdict: verdict(self.lossless, bitrate_kbps, cutoff_hz),
             codec: self.codec,
@@ -294,24 +313,9 @@ impl QualityProbe {
             cutoff_hz,
             clipped_share: self.clipping.share(),
             integrated_loudness_lufs,
-            true_peak_dbtp,
+            true_peak_dbtp: self.true_peak.decibels(),
         }
     }
-}
-
-fn integrated_loudness(meter: &EbuR128) -> Option<f32> {
-    meter
-        .loudness_global()
-        .ok()
-        .filter(|lufs| lufs.is_finite())
-        .map(|lufs| lufs as f32)
-}
-
-fn true_peak(meter: &EbuR128, channels: Option<u32>) -> Option<f32> {
-    let highest = (0..channels.unwrap_or(1))
-        .filter_map(|channel| meter.true_peak(channel).ok())
-        .fold(0.0_f64, f64::max);
-    (highest > 0.0).then(|| (20.0 * highest.log10()) as f32)
 }
 
 /// PCM codecs, which Symphonia numbers from the first PCM codec up to the
@@ -386,39 +390,38 @@ mod tests {
 
     #[test]
     fn lossy_files_are_judged_by_bit_rate_when_their_spectrum_matches_it() {
-        assert_eq!(
-            verdict(false, Some(320), Some(20_000.0)),
-            QualityVerdict::Good
-        );
-        assert_eq!(verdict(false, Some(256), None), QualityVerdict::Good);
-        assert_eq!(
-            verdict(false, Some(192), Some(18_800.0)),
-            QualityVerdict::Acceptable
-        );
-        assert_eq!(
-            verdict(false, Some(128), Some(16_500.0)),
-            QualityVerdict::WeakOnABigSystem
-        );
-        assert_eq!(
-            verdict(false, Some(96), Some(15_500.0)),
-            QualityVerdict::WeakOnABigSystem
-        );
+        let cases = [
+            (320, Some(20_000.0), QualityVerdict::Good),
+            (256, None, QualityVerdict::Good),
+            (208, Some(18_600.0), QualityVerdict::Good),
+            (192, Some(18_800.0), QualityVerdict::Acceptable),
+            (155, Some(16_400.0), QualityVerdict::Acceptable),
+            (128, Some(16_500.0), QualityVerdict::WeakOnABigSystem),
+            (96, Some(15_500.0), QualityVerdict::WeakOnABigSystem),
+        ];
+        for (bitrate, cutoff, expected) in cases {
+            assert_eq!(
+                verdict(false, Some(bitrate), cutoff),
+                expected,
+                "{bitrate} {cutoff:?}"
+            );
+        }
     }
 
     #[test]
     fn a_high_bit_rate_with_an_early_cutoff_is_likely_re_encoded() {
-        assert_eq!(
-            verdict(false, Some(320), Some(16_500.0)),
-            QualityVerdict::LikelyReencoded
-        );
-        assert_eq!(
-            verdict(false, Some(256), Some(17_000.0)),
-            QualityVerdict::LikelyReencoded
-        );
-        assert_eq!(
-            verdict(false, Some(192), Some(16_000.0)),
-            QualityVerdict::LikelyReencoded
-        );
+        for (bitrate, cutoff) in [
+            (320, 16_500.0),
+            (320, 18_900.0),
+            (256, 17_000.0),
+            (192, 15_200.0),
+        ] {
+            assert_eq!(
+                verdict(false, Some(bitrate), Some(cutoff)),
+                QualityVerdict::LikelyReencoded,
+                "{bitrate} {cutoff}"
+            );
+        }
     }
 
     #[test]
@@ -500,6 +503,13 @@ mod tests {
             report.reason(),
             "320 kbit/s, but the sound stops at 16.4 kHz, where a 128 kbit/s file's would: it was most likely made from one."
         );
+        report.clipped_share = 0.002;
+        assert!(
+            report
+                .reason()
+                .ends_with(" The master is clipped in places.")
+        );
+        report.clipped_share = 0.0;
         for verdict in [
             QualityVerdict::Lossless,
             QualityVerdict::Good,

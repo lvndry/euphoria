@@ -78,6 +78,12 @@ const ENERGY: Column = Column {
     is_right_aligned: false,
     sorts_by: Some(SortColumn::Energy),
 };
+const QUALITY: Column = Column {
+    label: "Quality",
+    width: ColumnWidth::Fixed(84.0),
+    is_right_aligned: false,
+    sorts_by: None,
+};
 const TIME: Column = Column {
     label: "Time",
     width: ColumnWidth::Fixed(48.0),
@@ -97,13 +103,14 @@ const FOLDER: Column = Column {
     sorts_by: Some(SortColumn::Folder),
 };
 
-const COLUMNS: [Column; 9] = [
+const COLUMNS: [Column; 10] = [
     NUMBER,
     TITLE,
     KEY,
     MUSICAL_KEY,
     BPM,
     ENERGY,
+    QUALITY,
     TIME,
     FORMAT,
     FOLDER,
@@ -172,6 +179,8 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
         "No tracks yet"
     } else if app.filter == LibraryFilter::NeedsReview {
         "No tracks need review"
+    } else if app.filter == LibraryFilter::QualityToCheck {
+        "No tracks with a low bit rate or likely re-encoded"
     } else {
         "No tracks match"
     }
@@ -182,6 +191,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
     let title: SharedString = match &app.filter {
         LibraryFilter::AllTracks => "All tracks".into(),
         LibraryFilter::NeedsReview => "Needs review".into(),
+        LibraryFilter::QualityToCheck => "Quality to check".into(),
         LibraryFilter::Folder(folder) => folder
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -357,6 +367,7 @@ fn row(
             )
             .child(cell(&BPM).child(optional_text(track, track.bpm().map(format::bpm), &palette)))
             .child(cell(&ENERGY).child(energy(track, &palette)))
+            .child(cell(&QUALITY).child(quality(track, &palette)))
             .child(
                 cell(&TIME)
                     .text_color(palette.text_secondary)
@@ -393,6 +404,22 @@ fn optional_text(track: &Track, value: Option<String>, palette: &Palette) -> Div
 
 fn missing_value(palette: &Palette) -> Div {
     div().text_color(palette.text_tertiary).child(NOT_FOUND)
+}
+
+/// The quality verdict in a word, quieter when there is nothing to check.
+fn quality(track: &Track, palette: &Palette) -> Div {
+    let Some(report) = track.quality() else {
+        return optional_text(track, None, palette);
+    };
+    div()
+        .min_w_0()
+        .truncate()
+        .text_color(if track.has_quality_to_check() {
+            palette.text
+        } else {
+            palette.text_tertiary
+        })
+        .child(format::quality_verdict(report.verdict))
 }
 
 /// The energy rating as a number beside a bar that fills with it, or a dash

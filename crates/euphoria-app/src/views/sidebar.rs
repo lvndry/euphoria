@@ -77,6 +77,15 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             &palette,
             cx,
         ))
+        .child(filter_row(
+            "quality-to-check",
+            "Quality to check",
+            Some(counts.quality_to_check),
+            LibraryFilter::QualityToCheck,
+            app,
+            &palette,
+            cx,
+        ))
         .child(
             row("Missing files", Some(0), false, &palette)
                 .id("missing-files")

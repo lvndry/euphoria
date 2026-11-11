@@ -57,7 +57,7 @@ fn a_renamed_and_moved_file_comes_from_the_cache() {
     assert_success(&second_run);
     assert_eq!(
         standard_error(&second_run),
-        "1 of 1 track came from the cache.\n"
+        "Quality: 1 lossless.\n1 of 1 track came from the cache.\n"
     );
     assert!(String::from_utf8_lossy(&second_run.stdout).contains("renamed.flac"));
 }
@@ -150,7 +150,7 @@ fn a_damaged_cache_is_a_warning_and_the_files_are_still_analyzed() {
     assert_success(&euphoria.run(&["cache", "clear"]));
     let after_clearing = euphoria.run(&["analyze", text(&fixture)]);
     assert_success(&after_clearing);
-    assert_eq!(standard_error(&after_clearing), "");
+    assert_eq!(standard_error(&after_clearing), "Quality: 1 lossless.\n");
 }
 
 #[test]
@@ -237,7 +237,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
     let schema_version: u32 = upgraded
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(schema_version, 3);
+    assert_eq!(schema_version, 4);
     let old_rows: u32 = upgraded
         .query_row(
             "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
@@ -263,6 +263,14 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
         )
         .expect("a count");
     assert_eq!(with_tuning_and_key_timeline, 1);
+    let with_quality: u32 = upgraded
+        .query_row(
+            "SELECT COUNT(*) FROM analyses WHERE quality IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("a count");
+    assert_eq!(with_quality, 1);
 }
 
 #[cfg(unix)]

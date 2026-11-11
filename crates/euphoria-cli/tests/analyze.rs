@@ -38,6 +38,15 @@ fn analyzes_a_folder_as_json() {
             let rating = energy.as_u64().expect("a track with sound has a rating");
             assert!((1..=10).contains(&rating), "{track}");
         }
+        let quality = &track["quality"];
+        assert_eq!(quality["sample_rate"], 44_100, "{track}");
+        let lossless = quality["lossless"].as_bool().expect("a lossless flag");
+        assert_eq!(
+            lossless,
+            !(path.ends_with(".mp3") || path.ends_with(".m4a")),
+            "{track}"
+        );
+        assert!(quality["reason"].as_str().is_some(), "{track}");
         let tuning = &track["tuning_cents"];
         let timeline = track["key_timeline"].as_array().expect("a key timeline");
         if path.contains("opposite-phase") {
@@ -70,8 +79,11 @@ fn prints_a_table_with_a_header() {
     let table = String::from_utf8(output.stdout).expect("UTF-8 output");
     assert!(table.starts_with("Key"), "{table}");
     let header = table.lines().next().expect("a header line");
-    assert!(header.contains("BPM  Energy  Time"), "{table}");
+    assert!(header.contains("BPM  Energy  Quality"), "{table}");
+    assert!(table.contains("Lossless"), "{table}");
     assert!(table.contains("sine-440hz-mono.flac"), "{table}");
+    let summary = String::from_utf8_lossy(&output.stderr);
+    assert!(summary.contains("Quality: 1 lossless."), "{summary}");
 }
 
 #[test]

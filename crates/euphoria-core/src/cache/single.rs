@@ -129,6 +129,7 @@ mod tests {
                 energy: Some((content.len() % 10) as u8 + 1),
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                quality: None,
             })
         }
 

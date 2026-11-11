@@ -29,6 +29,7 @@ fn analyzed(path: &Path) -> FileResult {
             energy: Some(7),
             tuning_cents: None,
             key_timeline: Vec::new(),
+            quality: None,
         }),
     }
 }
@@ -96,6 +97,7 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 energy: None,
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                quality: None,
             }),
         },
         analyzed(&damaged_tag),

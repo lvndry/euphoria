@@ -99,6 +99,7 @@ mod tests {
                     energy: None,
                     tuning_cents: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                 }),
             );
         }
@@ -141,6 +142,7 @@ mod tests {
                     energy: Some(energy),
                     tuning_cents: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                 }),
             );
         }

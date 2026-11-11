@@ -141,6 +141,9 @@ fn analyze(paths: &[PathBuf], json: bool, analysis: &AnalysisOptions) -> Result<
         output::write_table(&mut standard_output, &results)?;
     }
     standard_output.flush()?;
+    if !json {
+        output::write_quality_summary(&mut std::io::stderr().lock(), &results)?;
+    }
     if cached_count > 0 {
         output::write_cache_summary(&mut std::io::stderr().lock(), cached_count, results.len())?;
     }

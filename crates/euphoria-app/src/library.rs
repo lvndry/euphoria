@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::{Key, TrackAnalysis};
 
 use crate::camelot::CamelotPosition;
@@ -104,6 +105,23 @@ impl Track {
         self.analysis().and_then(|analysis| analysis.energy)
     }
 
+    /// How the file is encoded and how good it sounds, once it is analyzed.
+    pub(crate) fn quality(&self) -> Option<&QualityReport> {
+        self.analysis()
+            .and_then(|analysis| analysis.quality.as_ref())
+    }
+
+    /// Whether the quality verdict is one a DJ may want to act on: a low bit
+    /// rate, or a file that was likely made from a lower quality one.
+    pub(crate) fn has_quality_to_check(&self) -> bool {
+        self.quality().is_some_and(|quality| {
+            matches!(
+                quality.verdict,
+                QualityVerdict::WeakOnABigSystem | QualityVerdict::LikelyReencoded
+            )
+        })
+    }
+
     /// What a cell shows for a value analysis may not find: the value, a
     /// dash when the track was analyzed and has none, and nothing while the
     /// track is waiting, being analyzed or failed.
@@ -188,6 +206,8 @@ pub(crate) enum LibraryFilter {
     AllTracks,
     /// Tracks whose analysis failed.
     NeedsReview,
+    /// Tracks with a low bit rate, or likely made from a lower quality file.
+    QualityToCheck,
     /// Tracks inside one of the folders the user added.
     Folder(PathBuf),
 }
@@ -199,6 +219,8 @@ pub(crate) struct LibraryCounts {
     pub(crate) total: usize,
     /// Tracks whose analysis failed.
     pub(crate) failed: usize,
+    /// Tracks with a low bit rate, or likely made from a lower quality file.
+    pub(crate) quality_to_check: usize,
 }
 
 /// Every track the user has added, in the order they were added.
@@ -306,6 +328,11 @@ impl Library {
         LibraryCounts {
             total: self.tracks.len(),
             failed: self.failed_count,
+            quality_to_check: self
+                .tracks
+                .iter()
+                .filter(|track| track.has_quality_to_check())
+                .count(),
         }
     }
 
@@ -328,6 +355,7 @@ impl Library {
             .filter(|(_, track)| match filter {
                 LibraryFilter::AllTracks => true,
                 LibraryFilter::NeedsReview => track.failure().is_some(),
+                LibraryFilter::QualityToCheck => track.has_quality_to_check(),
                 LibraryFilter::Folder(folder) => track.path.starts_with(folder),
             })
             .filter(|(_, track)| track.matches(&query_lowercase))
@@ -410,6 +438,7 @@ mod tests {
             energy: None,
             tuning_cents: None,
             key_timeline: Vec::new(),
+            quality: None,
         }
     }
 
@@ -529,6 +558,50 @@ mod tests {
         assert_eq!(library.counts().total, 7);
     }
 
+    fn with_quality(verdict: QualityVerdict) -> TrackAnalysis {
+        TrackAnalysis {
+            quality: Some(QualityReport {
+                codec: "aac".to_string(),
+                lossless: false,
+                bitrate_kbps: Some(128),
+                sample_rate: 44_100,
+                bit_depth: None,
+                channels: Some(2),
+                cutoff_hz: Some(16_000.0),
+                clipped_share: 0.0,
+                integrated_loudness_lufs: None,
+                true_peak_dbtp: None,
+                verdict,
+            }),
+            ..analysis(Some("A minor"), Some(124.0), 300.0)
+        }
+    }
+
+    #[test]
+    fn the_quality_filter_shows_weak_and_likely_re_encoded_tracks() {
+        let mut library = sample_library();
+        library.record_outcome(
+            Path::new("/music/house/Low Tide.aiff"),
+            Ok(with_quality(QualityVerdict::WeakOnABigSystem)),
+        );
+        library.record_outcome(
+            Path::new("/music/house/saffron.mp3"),
+            Ok(with_quality(QualityVerdict::Good)),
+        );
+        library.record_outcome(
+            Path::new("/music/techno/Glasshouse.flac"),
+            Ok(with_quality(QualityVerdict::LikelyReencoded)),
+        );
+        assert_eq!(library.counts().quality_to_check, 2);
+        let shown = library.visible_tracks(&LibraryFilter::QualityToCheck, "", None);
+        assert_eq!(
+            names(&library, &shown),
+            ["Low Tide.aiff", "Glasshouse.flac"]
+        );
+        assert!(library.tracks()[0].quality().is_some());
+        assert!(library.tracks()[4].quality().is_none());
+    }
+
     #[test]
     fn counts_follow_outcomes() {
         let mut library = sample_library();
@@ -536,7 +609,8 @@ mod tests {
             library.counts(),
             LibraryCounts {
                 total: 6,
-                failed: 1
+                failed: 1,
+                quality_to_check: 0,
             }
         );
         library.record_outcome(
@@ -643,6 +717,7 @@ mod tests {
                     energy,
                     tuning_cents: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                     ..analysis(None, None, 300.0)
                 }),
             );
@@ -682,6 +757,7 @@ mod tests {
                 energy: Some(7),
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                quality: None,
                 ..analysis(Some("A minor"), Some(124.0), 408.0)
             }),
         );
@@ -798,6 +874,7 @@ mod tests {
                     energy: Some((number % 10) as u8 + 1),
                     tuning_cents: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                 }),
             );
         }

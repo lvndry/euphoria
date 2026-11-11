@@ -75,6 +75,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 energy: (next(30) != 0).then(|| next(10) as u8 + 1),
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                quality: None,
             };
             let outcome = if next(150) == 0 {
                 Err(format!(
