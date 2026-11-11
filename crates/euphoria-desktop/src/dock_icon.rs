@@ -96,14 +96,14 @@ mod tests {
 
     #[test]
     fn only_an_executable_in_an_app_bundle_counts_as_bundled() {
-        let bundled = "/Applications/Euphoria.app/Contents/MacOS/euphoria-app";
+        let bundled = "/Applications/Euphoria.app/Contents/MacOS/euphoria-desktop";
         assert!(is_inside_app_bundle(Path::new(bundled)));
         for unbundled in [
-            "/Users/someone/euphoria/target/release/euphoria-app",
-            "/opt/Euphoria.app/euphoria-app",
-            "/opt/Euphoria.app/Contents/Resources/euphoria-app",
-            "/opt/Euphoria/Contents/MacOS/euphoria-app",
-            "euphoria-app",
+            "/Users/someone/euphoria/target/release/euphoria-desktop",
+            "/opt/Euphoria.app/euphoria-desktop",
+            "/opt/Euphoria.app/Contents/Resources/euphoria-desktop",
+            "/opt/Euphoria/Contents/MacOS/euphoria-desktop",
+            "euphoria-desktop",
         ] {
             assert!(!is_inside_app_bundle(Path::new(unbundled)), "{unbundled}");
         }
