@@ -137,7 +137,7 @@ impl TrackCues {
                 let end = f64::from(analysis.duration_seconds);
                 Self::edited(
                     cues.into_iter()
-                        .filter(|cue| !(end > 0.0) || cue.seconds <= end)
+                        .filter(|cue| end.is_nan() || end <= 0.0 || cue.seconds <= end)
                         .collect(),
                 )
             }
@@ -293,6 +293,20 @@ mod tests {
             ));
         }
         check_cues(&[cue(0.0, "", None), cue(0.0, "Same time", Some('B'))]).unwrap();
+    }
+
+    #[test]
+    fn an_unknown_duration_keeps_the_users_cues() {
+        let cues = vec![cue(999.0, "Mine", Some('A'))];
+        for duration_seconds in [f32::NAN, 0.0, -1.0] {
+            let analysis = TrackAnalysis {
+                duration_seconds,
+                ..analysis_with_cues()
+            };
+            let chosen = TrackCues::of(&analysis, Some(cues.clone()));
+            assert!(chosen.is_edited());
+            assert_eq!(chosen.cues, cues);
+        }
     }
 
     #[test]
