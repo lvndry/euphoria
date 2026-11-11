@@ -237,14 +237,14 @@ You can quit while tracks are being analyzed. The app closes at once: tracks alr
 
 ## Build Euphoria.app
 
-A binary started with `cargo run` has no Dock icon of its own. To get an application with the Euphoria icon that you can keep in the Dock, build a bundle on macOS:
+A binary started with `cargo run` has no Dock icon of its own. To get an application with the Euphoria icon that you can keep in the Dock and put in Applications, build a bundle on macOS:
 
 ```
 ./scripts/bundle-macos.sh
 open target/release/bundle/Euphoria.app
 ```
 
-The script builds the app in release mode, makes the icon from `assets/logo` and writes `target/release/bundle/Euphoria.app`. The bundle is meant for the computer that built it: it uses the libkeyfinder installed there and is not signed.
+The script builds the app in release mode, makes the icon from `assets/logo`, copies libkeyfinder and FFTW into the bundle so it runs without Homebrew, signs it with an ad hoc signature, and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
 
 ## Try it without music
 
