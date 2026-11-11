@@ -362,7 +362,12 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     standard_output.flush()?;
     drop(standard_output);
 
-    std::io::stderr().lock().write_all(&report)?;
+    let report = String::from_utf8_lossy(&report);
+    let report = match view::standard_error_width() {
+        Some(width) if std::io::stderr().is_terminal() => view::wrap_lines(&report, width),
+        _ => report.into_owned(),
+    };
+    std::io::stderr().lock().write_all(report.as_bytes())?;
 
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));

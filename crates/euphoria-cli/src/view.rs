@@ -25,6 +25,43 @@ pub fn terminal_width() -> usize {
         .map_or(DEFAULT_WIDTH, |(_, columns)| usize::from(columns))
 }
 
+/// The width of the terminal standard error goes to, when it is one.
+pub fn standard_error_width() -> Option<usize> {
+    console::Term::stderr()
+        .size_checked()
+        .map(|(_, columns)| usize::from(columns))
+}
+
+/// `text` with every line longer than `width` broken between words, the
+/// lines it continues on indented by two spaces, so that a terminal never
+/// breaks a word in two.
+pub fn wrap_lines(text: &str, width: usize) -> String {
+    let mut wrapped = String::new();
+    for line in text.lines() {
+        let mut current = String::new();
+        let mut has_word = false;
+        for word in line.split(' ') {
+            if has_word
+                && !current.trim().is_empty()
+                && width_of(&current) + 1 + width_of(word) > width
+            {
+                wrapped.push_str(&current);
+                wrapped.push('\n');
+                current = "  ".to_string();
+                has_word = false;
+            }
+            if has_word {
+                current.push(' ');
+            }
+            current.push_str(word);
+            has_word = true;
+        }
+        wrapped.push_str(&current);
+        wrapped.push('\n');
+    }
+    wrapped
+}
+
 /// How a key is named.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum KeyNotationChoice {
@@ -881,6 +918,20 @@ Key                  BPM       Energy              Quality  Time  File
             .map(|line| console::strip_ansi_codes(line).into_owned())
             .collect();
         assert_eq!(stripped.join("\n") + "\n", table(200));
+    }
+
+    #[test]
+    fn long_lines_break_between_words_and_short_ones_stay() {
+        let text = "hint: --quality weak lists the tracks\nshort\n\n  kept  as is\n";
+        assert_eq!(
+            wrap_lines(text, 20),
+            "hint: --quality weak\n  lists the tracks\nshort\n\n  kept  as is\n"
+        );
+        let coloured = format!("{} one two three", Theme::COLOURED.bold("bold"));
+        assert_eq!(
+            console::strip_ansi_codes(&wrap_lines(&coloured, 13)),
+            "bold one two\n  three\n"
+        );
     }
 
     #[test]
