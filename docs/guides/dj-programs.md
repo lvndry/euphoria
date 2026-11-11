@@ -63,6 +63,8 @@ Reload Tag replaces information you edited inside rekordbox with what the file s
 
 The rekordbox XML is the route Pioneer documents for handing rekordbox a key, a tempo with decimals and a comment, for any format, and the only one that brings in a tempo. **Tested**: a new track imported from the XML gets its key, its tempo with decimals and its comment. For a track already in your collection, importing only a playlist changes nothing, while **Import To Collection** on the track replaces its key, tempo and comment. [Export to rekordbox](export-to-rekordbox.md) has the steps.
 
+`euphoria export rekordbox --beat-grid` also writes a beat grid for each track whose grid is rated medium or high, so rekordbox needs no grid analysis of its own for it. **Unconfirmed**: Import To Collection on a track already in your collection is expected to replace a grid or cue points you set by hand there with what the file holds; the test covered key, tempo and comment, not grids or cues. Try it on a few tracks first.
+
 ### Check it yourself in rekordbox
 
 The repository has a script that builds a test kit: a few short clips, each tagged one way, a rekordbox XML file, and a ten minute checklist with a table to fill in. It answers the questions above for your rekordbox version.

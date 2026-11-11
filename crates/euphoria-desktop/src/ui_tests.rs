@@ -78,6 +78,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
             key_timeline: Vec::new(),
             quality: None,
         }),
@@ -1136,6 +1137,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_score_margin: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                beat_grid: None,
                 key_timeline: Vec::new(),
                 quality: None,
             })
@@ -2396,6 +2398,7 @@ fn track_changing_key() -> DemoTrack {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
             key_timeline: vec![
                 euphoria_core::KeySection {
                     start_seconds: 0.0,
@@ -2669,6 +2672,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_score_margin: Some(key_margin),
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
+        beat_grid: None,
     }
 }
 

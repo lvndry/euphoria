@@ -8,5 +8,8 @@ pub mod playlists;
 /// The rekordbox XML collection format.
 pub mod rekordbox;
 
-pub use assemble::{AssembledLibrary, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library};
+pub use assemble::{
+    AssembledLibrary, ExportContents, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library,
+    assemble_library_with,
+};
 pub use playlists::{playlist_count, playlists_from_folders};

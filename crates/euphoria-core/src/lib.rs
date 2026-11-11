@@ -49,7 +49,7 @@ pub use cache::{
     DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
 pub use confidence::Confidence;
-pub use detect::KeySection;
+pub use detect::{BeatGrid, KeySection};
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,
@@ -58,8 +58,8 @@ pub use energy::{
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{
-    AssembledLibrary, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library, playlist_count,
-    playlists_from_folders,
+    AssembledLibrary, ExportContents, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library,
+    assemble_library_with, playlist_count, playlists_from_folders,
 };
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
