@@ -414,16 +414,30 @@ impl ShiftedWriter {
                 stream
                     .write(&mut sink)
                     .map_err(|error| write_error(&path, format!("{error:?}")))?;
-                std::fs::write(&path, sink.as_slice()).map_err(|source| {
-                    EuphoriaError::ExportFile {
-                        path: path.clone(),
-                        source,
-                    }
+                let mut bytes = sink.as_slice().to_vec();
+                with_fixed_minimum_block_size(&mut bytes);
+                std::fs::write(&path, bytes).map_err(|source| EuphoriaError::ExportFile {
+                    path: path.clone(),
+                    source,
                 })?;
                 Ok(samples.len() as u64)
             }
         }
     }
+}
+
+/// Sets the minimum block size of a FLAC stream with one block size to that
+/// size. The encoder counts the shorter last block as the minimum, which
+/// the format reserves for streams whose blocks vary, and decoders then
+/// misplace the last frames: Symphonia stops reading the file there.
+fn with_fixed_minimum_block_size(flac: &mut [u8]) {
+    // "fLaC", the four byte header of the STREAMINFO block, then its
+    // minimum and its maximum block size, two bytes each.
+    if flac.len() < 12 || &flac[..4] != b"fLaC" || flac[4] & 0x7f != 0 {
+        return;
+    }
+    let maximum = [flac[10], flac[11]];
+    flac[8..10].copy_from_slice(&maximum);
 }
 
 fn write_error(path: &Path, reason: String) -> EuphoriaError {
@@ -564,6 +578,78 @@ mod tests {
 
         let short = tone(440.0, 0.01);
         assert_eq!(shifted(&short, 1, 1, 100).len(), short.len());
+    }
+
+    #[test]
+    fn a_shifted_copy_decodes_to_as_many_frames_in_wav_and_flac() {
+        let folder = std::env::temp_dir().join(format!("euphoria-shift-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        // A length that is not a whole number of FLAC blocks, so the last
+        // block is shorter than the others.
+        let frames = 3 * SAMPLE_RATE as usize + 1_234;
+        let left = tone(440.0, frames as f64 / f64::from(SAMPLE_RATE));
+        let mut original = ShiftedWriter::create(
+            &folder.join("original.wav"),
+            ShiftedFormat::Wav,
+            2,
+            SAMPLE_RATE,
+        )
+        .unwrap();
+        let interleaved: Vec<f32> = left.iter().flat_map(|sample| [*sample, -*sample]).collect();
+        original.write(&interleaved).unwrap();
+        original.finish().unwrap();
+
+        for name in ["up.wav", "up.flac"] {
+            let output = folder.join(name);
+            let copy = write_shifted_copy(
+                &folder.join("original.wav"),
+                &output,
+                2,
+                TagValues {
+                    key: Some(Key::new(9, Mode::Minor)),
+                    bpm: Some(124.0),
+                    energy: Some(7),
+                },
+                &TagWriteOptions::default(),
+                ExistingOutput::Keep,
+            )
+            .unwrap();
+            assert_eq!(copy.frames, frames as u64, "{name}");
+            assert_eq!(copy.key, Some(Key::new(11, Mode::Minor)));
+            let mut stream = AudioStream::open(&output).unwrap();
+            let mut decoded = 0;
+            let mut chunk = Vec::new();
+            while stream.read_chunk(&mut chunk).unwrap() {
+                decoded += chunk.len();
+            }
+            assert_eq!(decoded, frames * 2, "{name}");
+            let tags = crate::tags::read_tags(&output).unwrap();
+            assert_eq!(
+                tags.key.as_deref(),
+                Some(Key::new(11, Mode::Minor).camelot().as_str()),
+                "{name}"
+            );
+
+            let again = write_shifted_copy(
+                &folder.join("original.wav"),
+                &output,
+                2,
+                TagValues::default(),
+                &TagWriteOptions::default(),
+                ExistingOutput::Keep,
+            );
+            assert!(again.is_err(), "{name} was replaced without being asked");
+        }
+        let refused = write_shifted_copy(
+            &folder.join("original.wav"),
+            &folder.join("original.wav"),
+            1,
+            TagValues::default(),
+            &TagWriteOptions::default(),
+            ExistingOutput::Replace,
+        );
+        assert!(refused.is_err(), "the original was overwritten");
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]
