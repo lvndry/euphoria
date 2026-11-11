@@ -91,22 +91,43 @@ impl Score {
     }
 }
 
-/// Reads an annotation file of one beat per line: its time and its position
-/// in the bar, where 1 is the downbeat.
+/// Reads an annotation file of one beat per line: its time in seconds and
+/// its position in the bar, where 1 is the downbeat. Times must be finite,
+/// not negative and increasing, and every line must have exactly these two
+/// fields.
 fn read_annotation(path: &Path) -> Result<(Vec<f64>, Vec<f64>)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let mut beats = Vec::new();
+    parse_annotation(&text).with_context(|| format!("reading {}", path.display()))
+}
+
+fn parse_annotation(text: &str) -> Result<(Vec<f64>, Vec<f64>)> {
+    let mut beats: Vec<f64> = Vec::new();
     let mut downbeats = Vec::new();
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let mut fields = line.split_whitespace();
-        let time: f64 = fields
-            .next()
-            .and_then(|field| field.parse().ok())
-            .with_context(|| format!("bad beat {line:?} in {}", path.display()))?;
-        let position = fields.next().unwrap_or("0");
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let number = index + 1;
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let [time, position] = fields[..] else {
+            bail!("line {number}: expected a time and a position in the bar, found {line:?}");
+        };
+        let time: f64 = time
+            .parse()
+            .ok()
+            .filter(|time: &f64| time.is_finite() && *time >= 0.0)
+            .with_context(|| format!("line {number}: {time:?} is not a time in seconds"))?;
+        let position: u32 = position
+            .parse()
+            .ok()
+            .filter(|position| *position >= 1)
+            .with_context(|| format!("line {number}: {position:?} is not a position in the bar"))?;
+        if beats.last().is_some_and(|previous| time <= *previous) {
+            bail!("line {number}: {time} does not come after the beat before it");
+        }
         beats.push(time);
-        if position == "1" {
+        if position == 1 {
             downbeats.push(time);
         }
     }
@@ -416,6 +437,23 @@ mod tests {
         );
         assert!(parse(&["--tracks", "half"]).is_err());
         assert!(parse(&["--fast"]).is_err());
+    }
+
+    #[test]
+    fn malformed_annotation_lines_are_errors() {
+        for (text, message) in [
+            ("NaN\t1\n", "is not a time"),
+            ("inf\t1\n", "is not a time"),
+            ("-0.5\t1\n", "is not a time"),
+            ("0.5\n", "expected a time and a position"),
+            ("0.5\t1\textra\n", "expected a time and a position"),
+            ("0.5\tone\n", "is not a position"),
+            ("0.5\t0\n", "is not a position"),
+            ("1.0\t1\n0.5\t2\n", "does not come after"),
+        ] {
+            let error = parse_annotation(text).unwrap_err().to_string();
+            assert!(error.contains(message), "{text:?}: {error}");
+        }
     }
 
     #[test]
