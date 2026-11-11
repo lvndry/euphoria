@@ -267,12 +267,14 @@ fn bare_options() -> TagWriteOptions {
     }
 }
 
+/// Options that write every kind of field, with the preset that keeps
+/// decimals in the tempo.
 fn full_options() -> TagWriteOptions {
     TagWriteOptions {
         key_notation: KeyNotation::Camelot,
         write_bpm: true,
         label: LabelPlacement::CommentStart,
-        preset: DjSoftware::Generic,
+        preset: DjSoftware::Mixxx,
     }
 }
 
@@ -499,7 +501,7 @@ fn default_options_put_the_key_and_energy_in_front_of_the_comment() {
             "{fixture}"
         );
         assert_eq!(tags.key.as_deref(), Some("8A"), "{fixture}");
-        assert_eq!(tags.bpm.as_deref(), Some("127.5"), "{fixture}");
+        assert_eq!(tags.bpm.as_deref(), Some("128"), "{fixture}");
         assert_eq!(tags.grouping, None, "{fixture}");
     }
 }
@@ -797,50 +799,174 @@ fn tempo_written_with_decimals_elsewhere_counts_as_matching() {
     assert!(plan_write(&path, &analysis, &options).unwrap().is_empty());
 }
 
+const M4A_INITIAL_KEY: &str = "----:com.apple.iTunes:initialkey";
+const M4A_KEY: &str = "----:com.apple.iTunes:KEY";
+const M4A_FREEFORM_BPM: &str = "----:com.apple.iTunes:BPM";
+
+/// The fields each preset creates in a file that has none of them, by
+/// format, as `docs/reference/tags.md` lists them.
+fn documented_fields(preset: DjSoftware, fixture: &str) -> Vec<&'static str> {
+    let keeps_decimals = matches!(preset, DjSoftware::Mixxx | DjSoftware::Generic);
+    match fixture {
+        MP3 | WAV | AIFF => vec!["TKEY", "TBPM"],
+        M4A if keeps_decimals => vec![M4A_INITIAL_KEY, M4A_KEY, "tmpo", M4A_FREEFORM_BPM],
+        M4A => vec![M4A_INITIAL_KEY, M4A_KEY, "tmpo"],
+        FLAC => vec!["INITIALKEY", "BPM"],
+        _ => unreachable!("{fixture} is not a fixture"),
+    }
+}
+
 #[test]
-fn presets_write_the_documented_fields() {
-    let commercial = [
-        DjSoftware::Rekordbox,
-        DjSoftware::Serato,
-        DjSoftware::Traktor,
-        DjSoftware::EngineDj,
-    ];
-    let expectations: [(&str, &[&str], &[&str]); 5] = [
-        (MP3, &["TKEY", "TBPM"], &["TKEY", "TBPM"]),
-        (WAV, &["TKEY", "TBPM"], &["TKEY", "TBPM"]),
-        (AIFF, &["TKEY", "TBPM"], &["TKEY", "TBPM"]),
-        (
-            M4A,
-            &["----:com.apple.iTunes:initialkey", "tmpo"],
-            &[
-                "----:com.apple.iTunes:initialkey",
-                "tmpo",
-                "----:com.apple.iTunes:BPM",
-            ],
-        ),
-        (FLAC, &["INITIALKEY", "BPM"], &["INITIALKEY", "KEY", "BPM"]),
-    ];
-    for (fixture, commercial_fields, generic_fields) in expectations {
+fn every_preset_writes_its_documented_fields_in_every_format() {
+    for fixture in ALL_FIXTURES {
         let path = scratch_copy(fixture, "presets");
-        let mut options = TagWriteOptions {
-            write_bpm: true,
-            ..bare_options()
-        };
-        for preset in commercial {
-            options.preset = preset;
+        for preset in DjSoftware::ALL {
+            let options = TagWriteOptions {
+                write_bpm: true,
+                preset,
+                ..bare_options()
+            };
             assert_eq!(
                 changed_fields(&path, &a_minor_at(127.5), &options),
-                commercial_fields,
+                documented_fields(preset, fixture),
                 "{fixture} {preset:?}"
             );
         }
-        options.preset = DjSoftware::Generic;
+    }
+}
+
+#[test]
+fn only_the_mixxx_preset_keeps_decimals_in_the_tempo() {
+    for preset in DjSoftware::ALL {
+        let path = scratch_copy(M4A, &format!("decimals-{preset:?}"));
+        let options = TagWriteOptions {
+            write_bpm: true,
+            preset,
+            ..bare_options()
+        };
+        let plan = plan_write(&path, &a_minor_at(127.5), &options).unwrap();
+        for change in plan.changes() {
+            let expected = match change.field.as_str() {
+                "tmpo" => "128",
+                M4A_FREEFORM_BPM if preset == DjSoftware::Mixxx => "127.5",
+                M4A_FREEFORM_BPM => "128",
+                _ => continue,
+            };
+            assert_eq!(
+                change.new.as_deref(),
+                Some(expected),
+                "{preset:?} {}",
+                change.field
+            );
+        }
+    }
+}
+
+#[test]
+fn only_the_serato_preset_leaves_the_tempo_out_unless_asked() {
+    for preset in DjSoftware::ALL {
         assert_eq!(
-            changed_fields(&path, &a_minor_at(127.5), &options),
-            generic_fields,
-            "{fixture} generic"
+            preset.writes_bpm_by_default(),
+            preset != DjSoftware::Serato,
+            "{preset:?}"
         );
     }
+}
+
+#[test]
+fn an_existing_flac_key_field_is_updated_but_never_created() {
+    let without = scratch_copy(FLAC, "flac-key-absent");
+    let with = scratch_copy(FLAC, "flac-key-present");
+    let mut comments = VorbisComments::new();
+    comments.push("KEY".to_string(), "5A".to_string());
+    comments.push("TEMPO".to_string(), "90".to_string());
+    comments.save_to_path(&with, WriteOptions::new()).unwrap();
+
+    for preset in DjSoftware::ALL {
+        let options = TagWriteOptions {
+            write_bpm: true,
+            preset,
+            ..bare_options()
+        };
+        assert_eq!(
+            changed_fields(&without, &a_minor_at(128.0), &options),
+            ["INITIALKEY", "BPM"],
+            "{preset:?}"
+        );
+        let plan = plan_write(&with, &a_minor_at(128.0), &options).unwrap();
+        let changes: Vec<(&str, Option<&str>)> = plan
+            .changes()
+            .iter()
+            .map(|change| (change.field.as_str(), change.new.as_deref()))
+            .collect();
+        assert_eq!(
+            changes,
+            [
+                ("INITIALKEY", Some("8A")),
+                ("KEY", Some("8A")),
+                ("BPM", Some("128")),
+                ("TEMPO", Some("128")),
+            ],
+            "{preset:?}"
+        );
+    }
+}
+
+#[test]
+fn an_existing_freeform_m4a_tempo_is_updated_by_every_preset() {
+    let path = scratch_copy(M4A, "freeform-tempo-present");
+    let mut file =
+        Mp4File::read_from(&mut File::open(&path).unwrap(), ParseOptions::new()).unwrap();
+    let mut ilst = file.ilst().cloned().unwrap_or_default();
+    ilst.insert(Atom::new(
+        AtomIdent::Freeform {
+            mean: "com.apple.iTunes".into(),
+            name: "BPM".into(),
+        },
+        AtomData::UTF8("90".to_string()),
+    ));
+    file.set_ilst(ilst);
+    file.save_to_path(&path, WriteOptions::new()).unwrap();
+
+    for preset in DjSoftware::ALL {
+        let options = TagWriteOptions {
+            write_bpm: true,
+            preset,
+            ..bare_options()
+        };
+        let plan = plan_write(&path, &a_minor_at(128.0), &options).unwrap();
+        let freeform: Vec<Option<&str>> = plan
+            .changes()
+            .iter()
+            .filter(|change| change.field.eq_ignore_ascii_case(M4A_FREEFORM_BPM))
+            .map(|change| change.new.as_deref())
+            .collect();
+        assert_eq!(freeform, [Some("128")], "{preset:?}");
+    }
+}
+
+#[test]
+fn open_key_notation_reaches_the_key_field_and_the_label() {
+    let path = scratch_copy(MP3, "open-key");
+    seed(&path);
+    let options = TagWriteOptions {
+        key_notation: KeyNotation::OpenKey,
+        write_bpm: false,
+        label: LabelPlacement::CommentStart,
+        preset: DjSoftware::Traktor,
+    };
+    apply_plan(&plan_write(&path, a_minor_with_energy(7), &options).unwrap()).unwrap();
+    let tags = read_tags(&path).unwrap();
+    assert_eq!(tags.key.as_deref(), Some("1m"));
+    assert_eq!(tags.comment.as_deref(), Some("1m - Energy 7 - warm up"));
+
+    let camelot = TagWriteOptions {
+        key_notation: KeyNotation::Camelot,
+        ..options
+    };
+    apply_plan(&plan_write(&path, a_minor_with_energy(8), &camelot).unwrap()).unwrap();
+    let tags = read_tags(&path).unwrap();
+    assert_eq!(tags.comment.as_deref(), Some("8A - Energy 8 - warm up"));
 }
 
 #[test]

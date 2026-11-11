@@ -72,6 +72,14 @@ When you ask what can follow a track, Euphoria keeps the tracks whose key makes 
 
 The list is ordered by move, from the same key to the boldest move you allowed, then by tempo difference, then by how close the energy is.
 
+## Tracks off concert pitch and tracks that change key
+
+Instruments are tuned so that the A above middle C sounds at 440 Hz. A track transferred from vinyl, or one that was sped up or slowed down, can sit between two keys of that scale. Euphoria measures how far a track is from 440 Hz in cents, hundredths of a semitone, and takes that into account when it detects the key, so the key it reports is the nearest one at 440 Hz. A track 30 cents sharp or more will sound sour against one at concert pitch even when their Camelot codes match, unless you move its pitch back.
+
+Some tracks change key partway through. Euphoria reports one key for the track, the one that fits the whole of it, and also the key of each stretch, so you can see that the last minute of a track is in another key than its first before you plan a mix out of it.
+
+Both are in the [JSON output](../reference/cli.md#json-output) of `euphoria analyze`.
+
 ## How sure is the detected key?
 
 Key detection is good but not perfect, especially on tracks with little harmony, vocals alone, or a key change. See [accuracy](accuracy.md) for measured results.

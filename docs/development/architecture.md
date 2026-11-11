@@ -33,7 +33,7 @@ bench/              dataset download script, Essentia reference script, results
 | `audio_stream` | Decodes the same formats a packet at a time with their channels kept, with seeking, for playback. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
-| `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
+| `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations, the tuning measurement and the key over time. |
 | `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `track_name` | Reads the title and artist stored in an audio file. |
 | `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |
@@ -43,10 +43,12 @@ bench/              dataset download script, Essentia reference script, results
 
 Key and tempo detection sit behind traits so implementations can be compared and replaced without touching callers.
 
-- `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config.
+- `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder and FFTW with pkg-config. libkeyfinder is not safe to start from several threads at once on its own: it builds its tone profiles on first use without a lock, and destroys FFTW plans without one. Before its first use the wrapper builds the profiles and calls `fftw_make_planner_thread_safe` from FFTW's threads library, which ships with FFTW. The wrapper returns the chromagram libkeyfinder computes, one row of note strengths per analysis frame, and scores chroma vectors against the 24 keys. The key of a track is the best score of the mean of all rows, which is what libkeyfinder itself reports. A track measured at least 20 cents off concert pitch is first brought back to it, by telling libkeyfinder a sample rate that moves every note by the offset. `read_key` also scores windows of about 7 seconds and follows the key through them for the key over time.
+- `KeyFinderVariant` holds the ways of deciding the key that the benchmark compares with what ships: without tuning correction, and with a vote between sections. Neither is used.
+- `measure_tuning` is pure Rust and measures how far a track is tuned from A = 440 Hz. It runs in every build.
 - `StratumDetector` uses the pure Rust `stratum-dsp` crate for both key and tempo. Its tempo detection runs only the tempogram estimate, on at most the middle ten minutes of a track, reports the result between 90 and 180 BPM, and costs a fraction of its key detection.
 
-`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature.
+`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature. Those builds report the tuning without correcting for it, and no key over time.
 
 ## euphoria-cli
 

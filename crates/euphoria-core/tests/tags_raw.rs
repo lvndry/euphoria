@@ -50,7 +50,7 @@ fn full_options() -> TagWriteOptions {
         key_notation: KeyNotation::Camelot,
         write_bpm: true,
         label: LabelPlacement::CommentStart,
-        preset: DjSoftware::Generic,
+        preset: DjSoftware::Mixxx,
     }
 }
 
@@ -290,6 +290,7 @@ fn assert_m4a_write_is_exact(name: &str, original: &[u8]) -> Vec<u8> {
         planned,
         [
             "----:com.apple.iTunes:initialkey",
+            "----:com.apple.iTunes:KEY",
             "tmpo",
             "----:com.apple.iTunes:BPM",
             "©cmt"
@@ -302,7 +303,7 @@ fn assert_m4a_write_is_exact(name: &str, original: &[u8]) -> Vec<u8> {
         &before,
         &ilst_items(&written),
         &[TEMPO_INDEX, COMMENT_INDEX, KEY_INDEX],
-        1,
+        2,
     );
     let tags = read_tags(&path).expect(WORKS);
     assert_eq!(tags.key.as_deref(), Some("8A"));
@@ -386,7 +387,7 @@ fn m4a_without_any_metadata_gets_it_and_loses_it_again() {
     let backup =
         apply_plan(&plan_write(&path, &a_minor(), &full_options()).expect(WORKS)).expect(WORKS);
     assert_eq!(read_tags(&path).expect(WORKS).key.as_deref(), Some("8A"));
-    assert_eq!(ilst_items(&std::fs::read(&path).expect(WORKS)).len(), 4);
+    assert_eq!(ilst_items(&std::fs::read(&path).expect(WORKS)).len(), 5);
     assert!(samples(&path) == original_samples);
 
     undo(&backup).expect(WORKS);
@@ -805,7 +806,6 @@ fn flac_comments_and_blocks_outside_the_plan_keep_their_bytes() {
                 "Bpm=127.5",
                 "no equals sign",
                 "REPLAYGAIN_TRACK_GAIN=-6.50 dB",
-                "KEY=8A",
             ],
             "{padding:?}"
         );

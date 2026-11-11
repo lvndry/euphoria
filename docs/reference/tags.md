@@ -114,27 +114,24 @@ Freeform MP4 names are matched in any letter case. WAV and AIFF files are read t
 
 | Preset | ID3v2 | MP4 | Vorbis comments |
 | --- | --- | --- | --- |
-| rekordbox | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
-| Serato | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
-| Traktor | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
-| Engine DJ | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
-| Generic | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` and `KEY` |
+| Every preset | `TKEY` | `----:com.apple.iTunes:initialkey` and `----:com.apple.iTunes:KEY` | `INITIALKEY` |
 
-The key is written as a Camelot code such as `8A`, or as a short musical name such as `Am`.
+Every preset writes the same key fields. When a FLAC file already has a `KEY` comment, it is given the same value as `INITIALKEY`; a FLAC file without one does not get one. The reasons are in [use Euphoria with your DJ program](../guides/dj-programs.md#the-same-in-every-program).
+
+The key is written as a Camelot code such as `8A`, as a short musical name such as `Am`, or as an Open Key code such as `1m`.
 
 ### Tempo
 
-The tempo is written only when asked for.
+| Preset | ID3v2 | MP4 | Vorbis comments | Decimals |
+| --- | --- | --- | --- | --- |
+| rekordbox, Traktor, Engine DJ, VirtualDJ | `TBPM` | `tmpo` | `BPM` | No |
+| Serato | Not written unless asked for | | | No |
+| Mixxx | `TBPM` | `tmpo` and `----:com.apple.iTunes:BPM` | `BPM` | Up to two |
+| Generic | `TBPM` | `tmpo` and `----:com.apple.iTunes:BPM` | `BPM` | No |
 
-| Preset | ID3v2 | MP4 | Vorbis comments |
-| --- | --- | --- | --- |
-| rekordbox | `TBPM` | `tmpo` | `BPM` |
-| Serato | `TBPM` | `tmpo` | `BPM` |
-| Traktor | `TBPM` | `tmpo` | `BPM` |
-| Engine DJ | `TBPM` | `tmpo` | `BPM` |
-| Generic | `TBPM` | `tmpo` and `----:com.apple.iTunes:BPM` | `BPM` |
+`tmpo` always holds a whole number, stored in two bytes. With decimals, a tempo is written such as `127.5`; without, it is rounded to a whole number. A tempo field that already holds the same number, for example `128.00`, counts as matching and is not rewritten.
 
-`tmpo` always holds a whole number, stored in two bytes. In the other fields, the Generic preset keeps up to two decimals, such as `127.5`, and the program presets round to a whole number. A tempo field that already holds the same number, for example `128.00`, counts as matching and is not rewritten.
+A file that already has `----:com.apple.iTunes:BPM` in M4A, or `TEMPO` in FLAC, gets the same tempo there too, so a field that Mixxx would read first never holds an older value.
 
 ### Label
 
@@ -151,10 +148,10 @@ The text the field already holds is kept, separated from the label by ` - `. An 
 
 The label carries no marker, so one written earlier is recognised by its form:
 
-- A label is a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`). The Camelot number runs from 1 to 12 and the energy from 1 to 10, without a leading zero.
+- A label is a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`, `1m - Energy 7`). The Camelot and Open Key numbers run from 1 to 12 and the energy from 1 to 10, without a leading zero.
 - It counts only at the end of the field it is written at, next to ` - ` or filling the field.
 - A label found there is replaced, so writing again never leaves two. A label in the same form from another program is replaced too.
-- A musical key name without an energy rating is not taken for a label, because a comment such as `A - side` begins the same way. Writing the same label twice still changes nothing, whatever its form.
+- A musical key name or an Open Key code without an energy rating is not taken for a label, because a comment such as `A - side` or `1m - long intro` begins the same way. Writing the same label twice still changes nothing, whatever its form.
 - At the other end of the same field, only a label with an energy rating is removed. That covers a change of placement between two writes without touching a comment that happens to end in a Camelot code.
 - Everything else is your own text and is kept: `8A-side remix`, `Am - my favourite`, `High Energy 7`, `Energy 11 - intro`.
 - A comment of your own that starts with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its code is replaced.
@@ -170,14 +167,13 @@ An existing ID3v2 comment keeps its language. Comments with a description belong
 
 ## How well each field is confirmed
 
-DJ software vendors do not publish the exact fields their programs read, so the presets rest on evidence of varying strength.
+DJ software vendors do not publish the exact fields their programs read. [Use Euphoria with your DJ program](../guides/dj-programs.md) gives, for each program, what is confirmed, what is only reported, and what is unconfirmed, along with what to set in the program. In short:
 
-| Program | What is known | Strength |
-| --- | --- | --- |
-| Mixxx | Reads every field in the tables above. The Generic preset follows its tag reader. | Confirmed in its source code |
-| rekordbox | Reads the key from MP3, AIFF and M4A tags. Does not read the key from FLAC or WAV tags, and does not read the tempo from tags in any format. Reads comments in every format and does not read the grouping. The field names are not published. | Vendor compatibility table from 2019 |
-| Serato | Reads `TKEY` and `TBPM` from MP3. Recommends ID3v2.3. Key display for FLAC has a history of bugs and conflicting reports. The MP4 and Vorbis field names are not confirmed. | Forum reports |
-| Traktor | Reads `TKEY` and `TBPM` from MP3. The MP4 and Vorbis field names are not confirmed. | Forum reports |
-| Engine DJ | Keeps key and tempo tags found on MP3 files. The field names for every format are not confirmed. | Forum reports |
-
-Where a field name is not confirmed, the preset writes the name that Mixxx reads and that other tagging tools write. For a program that does not show the key from a format, such as rekordbox with FLAC, putting the key in the comment as a label is the usual workaround.
+| Program | Strongest evidence |
+| --- | --- |
+| Mixxx | Every field above, confirmed in its source code. |
+| rekordbox | The field names stored inside rekordbox 7, and Mixed In Key's guide. Whether rekordbox reads the key from M4A `initialkey`, from FLAC and from WAV, and the tempo from any tag, is unconfirmed. |
+| Serato | Serato's own statements for the key in MP3 and the analysis settings. M4A and FLAC field names are unconfirmed. |
+| Traktor | Mixed In Key's guide and user reports for the Key Text column. M4A and FLAC field names are unconfirmed. |
+| Engine DJ | The Engine DJ user guide for when tags are read. Field names are unconfirmed. |
+| VirtualDJ | Its options list and its CTO's statement about FLAC key fields. MP3 and M4A field names are unconfirmed. |

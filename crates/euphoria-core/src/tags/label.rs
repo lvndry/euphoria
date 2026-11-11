@@ -42,10 +42,7 @@ pub(super) fn label_text(
     energy: Option<u8>,
     notation: KeyNotation,
 ) -> Option<String> {
-    let key = key.map(|key| match notation {
-        KeyNotation::Camelot => key.camelot(),
-        KeyNotation::Musical => key.short_name(),
-    });
+    let key = key.map(|key| notation.spell(key));
     let energy = energy.map(|energy| format!("{ENERGY_WORD}{energy}"));
     match (key, energy) {
         (Some(key), Some(energy)) => Some(format!("{key}{SEPARATOR}{energy}")),
@@ -89,6 +86,13 @@ fn musical_key_length(text: &str) -> Option<usize> {
     Some(length)
 }
 
+/// The length of an Open Key code such as "1m" or "12d" at the start of
+/// `text`.
+fn open_key_length(text: &str) -> Option<usize> {
+    let digits = number_length(text, HIGHEST_CAMELOT_NUMBER)?;
+    matches!(text.as_bytes().get(digits), Some(b'm' | b'd')).then_some(digits + 1)
+}
+
 /// The length of "Energy 7" at the start of `text`.
 fn energy_length(text: &str) -> Option<usize> {
     let number = text.strip_prefix(ENERGY_WORD)?;
@@ -99,8 +103,9 @@ fn energy_length(text: &str) -> Option<usize> {
 /// one.
 ///
 /// A label is a Camelot code, an energy rating, or a key followed by an
-/// energy rating. A musical key name on its own is not taken for a label,
-/// because a comment such as "A - side" starts the same way.
+/// energy rating. A musical key name or an Open Key code on its own is not
+/// taken for a label, because a comment such as "A - side" or "1m - long
+/// intro" starts the same way.
 fn label_length(text: &str) -> Option<usize> {
     let key_and_energy = |key_length: usize| {
         let energy = text[key_length..].strip_prefix(SEPARATOR)?;
@@ -111,6 +116,7 @@ fn label_length(text: &str) -> Option<usize> {
         .and_then(key_and_energy)
         .or(camelot)
         .or_else(|| musical_key_length(text).and_then(key_and_energy))
+        .or_else(|| open_key_length(text).and_then(key_and_energy))
         .or_else(|| energy_length(text))
 }
 
@@ -198,6 +204,37 @@ pub(super) fn with_label(label: &str, existing: Option<&str>, at_end: bool) -> S
 mod tests {
     use super::*;
     use crate::key::Mode;
+
+    #[test]
+    fn open_key_labels_are_recognised_only_with_an_energy_rating() {
+        assert_eq!(label_length("1m - Energy 7"), Some(13));
+        assert_eq!(label_length("12d - Energy 10 - intro"), Some(15));
+        assert_eq!(label_length("1m - long intro"), None);
+        assert_eq!(label_length("13m - Energy 7"), None);
+        assert_eq!(label_length("01m - Energy 7"), None);
+        assert_eq!(
+            with_label("8A - Energy 7", Some("1m - Energy 5 - warm up"), false),
+            "8A - Energy 7 - warm up"
+        );
+        assert_eq!(
+            with_label("1m - Energy 7", Some("1m - long intro"), false),
+            "1m - Energy 7 - 1m - long intro"
+        );
+    }
+
+    #[test]
+    fn the_open_key_label_spells_the_key_as_traktor_does() {
+        let a_minor = Some(Key::new(9, Mode::Minor));
+        let c_major = Some(Key::new(0, Mode::Major));
+        assert_eq!(
+            label_text(a_minor, Some(7), KeyNotation::OpenKey).as_deref(),
+            Some("1m - Energy 7")
+        );
+        assert_eq!(
+            label_text(c_major, None, KeyNotation::OpenKey).as_deref(),
+            Some("1d")
+        );
+    }
 
     const URL: &str = "https://example.com/track/123?ref=a-b - c";
 
