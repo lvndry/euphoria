@@ -1888,7 +1888,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "euphoria-app"
+name = "euphoria"
 version = "0.1.0"
 dependencies = [
  "euphoria-core",

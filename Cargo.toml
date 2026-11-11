@@ -4,7 +4,7 @@ members = [
   "crates/euphoria-core",
   "crates/euphoria-cli",
   "crates/euphoria-bench",
-  "crates/euphoria-app",
+  "crates/euphoria-desktop",
 ]
 
 [workspace.package]

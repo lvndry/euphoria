@@ -19,22 +19,22 @@ icon_artwork="$repository/assets/logo/app-icon.svg"
 # The line of the full size artwork thins out to nothing at 16 and 32 pixels,
 # so those sizes are drawn from the favicon, which has a heavier line.
 small_icon_artwork="$repository/assets/logo/favicon.svg"
-version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/crates/euphoria-app/Cargo.toml" | head -n 1)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/crates/euphoria-desktop/Cargo.toml" | head -n 1)
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "error: application bundles can only be built on macOS" >&2
   exit 1
 fi
 if [ -z "$version" ]; then
-  echo "error: no version found in crates/euphoria-app/Cargo.toml" >&2
+  echo "error: no version found in crates/euphoria-desktop/Cargo.toml" >&2
   exit 1
 fi
 
-cargo build --release --locked -p euphoria-app --manifest-path "$repository/Cargo.toml"
+cargo build --release --locked -p euphoria --manifest-path "$repository/Cargo.toml"
 
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-cp "$repository/target/release/euphoria-app" "$bundle/Contents/MacOS/Euphoria"
+cp "$repository/target/release/euphoria-desktop" "$bundle/Contents/MacOS/Euphoria"
 
 iconset=$(mktemp -d)/AppIcon.iconset
 mkdir -p "$iconset"

@@ -9,10 +9,10 @@ Euphoria is a Cargo workspace. All product logic lives in one library crate, and
 
 ```
 crates/
-  euphoria-core/    the library: decoding, detection, energy, library scanning, the analysis cache
-  euphoria-cli/     the `euphoria` command line tool
-  euphoria-app/     the desktop app
-  euphoria-bench/   accuracy benchmark, not shipped to users
+  euphoria-core/       the library: decoding, detection, energy, library scanning, the analysis cache
+  euphoria-cli/        the `euphoria` command line tool
+  euphoria-desktop/    the desktop app
+  euphoria-bench/      accuracy benchmark, not shipped to users
 bench/              dataset download script, Essentia reference script, results
 ```
 
@@ -56,7 +56,9 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. `analyze` and `export` share that batch code in `batch.rs`. `export rekordbox` passes the results to `export::assemble_library` and `export::rekordbox::write_xml_file`. The crate contains no analysis or export logic.
 
-## euphoria-app
+## euphoria (desktop)
+
+The `euphoria` package lives in `crates/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
 
 The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, fills in the ones `cache::CachedAnalyzer` already knows, analyzes the rest through it on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. To play a track it reads an `AudioStream` from the core a packet at a time, on a thread that decodes about a second ahead, and hands the decoded samples to the system audio output through rodio. The first sound never waits for the whole file, and the audio output never waits for the disk or the decoder. State that needs no window (the library, sorting and searching, progress, the player, waveform bands, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
 
