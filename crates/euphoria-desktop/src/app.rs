@@ -607,6 +607,8 @@ impl EuphoriaApp {
                 .filter_map(|index| self.folder_column.label(*index))
                 .map(|label| label.text.as_str()),
         );
+        self.refresh_deck_metadata();
+        self.refresh_suggestions();
     }
 
     /// Works out which columns fit the table in the window as it is now,
@@ -1196,6 +1198,11 @@ impl EuphoriaApp {
 
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
+        if self.decks.is_open {
+            self.notice = Some("Close the decks to use the track player.".to_string());
+            cx.notify();
+            return;
+        }
         let request = self.player.toggle();
         self.carry_out(request, cx);
         cx.notify();
@@ -1580,14 +1587,16 @@ impl EuphoriaApp {
         path: &Path,
         tempo: Option<f32>,
         cx: &mut Context<'_, Self>,
-    ) {
+    ) -> Option<Task<()>> {
         let is_decoded = self.waveforms.touch(path)
             && matches!(
                 self.waveforms.get(path),
                 Some(Waveform::Ready(_, Some(_))) | Some(Waveform::Unreadable(_))
             );
-        if !is_decoded {
-            self.decode_waveform(path.to_path_buf(), tempo, cx).detach();
+        if is_decoded {
+            None
+        } else {
+            Some(self.decode_waveform(path.to_path_buf(), tempo, cx))
         }
     }
 
