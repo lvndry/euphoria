@@ -4,10 +4,10 @@ Measured on 11 November 2026 on an Apple M5 (10 cores), macOS 27.2, by `euphoria
 
 ## Reference data
 
-No openly available dataset of electronic dance music has both audio and beat annotations. The Harmonix Set and the HJDB set have annotations, but their audio is not distributed with them, and the one open set with audio that was found is synthesized. The grid is measured instead on 200 excerpts of steady 4/4 drum music:
+No openly licensed dataset of electronic dance music has both audio and beat annotations. The Harmonix Set, HJDB and Raveform (1,423 EDM tracks from DJ mixes, with beats, downbeats and sections) publish annotations, but their audio is commercial music that is not distributed with them, only linked on YouTube or left to be bought. The one open set with audio that was found is synthesized. The grid is measured instead on 200 excerpts of steady 4/4 drum music:
 
-- **Audio**: the 100 disco and 100 hip hop excerpts of [GTZAN](https://huggingface.co/datasets/marsyas/gtzan), 30 seconds each. GTZAN comes without a licence and is widely used for research. It is downloaded by whoever runs the benchmark and is not part of the repository.
-- **Annotations**: beats and downbeats from the GTZAN-Rhythm work of Marchand and Peeters, as collected in [beat_this_annotations](https://github.com/CPJKU/beat_this_annotations) under the MIT licence.
+- **Audio**: the 100 disco and 100 hip hop excerpts of [GTZAN](https://huggingface.co/datasets/marsyas/gtzan), 30 seconds each. The GTZAN audio has no stated licence. It is downloaded by whoever runs the benchmark, used only to measure on that machine, and never committed to the repository or redistributed.
+- **Annotations**: beats and downbeats from the GTZAN-Rhythm work of Marchand and Peeters, as collected in [beat_this_annotations](https://github.com/CPJKU/beat_this_annotations). The annotations are under the MIT licence, which does not cover the audio.
 
 The excerpts are split in name order: the development half (every other excerpt, starting with the first) is where every setting of the grid was chosen, and the held out half was not looked at until the settings were fixed.
 
