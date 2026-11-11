@@ -18,8 +18,10 @@ pub(crate) const NOT_FOUND: &str = "\u{2013}";
 /// Where a track is in its analysis.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TrackStatus {
-    /// Queued or being analyzed.
-    Pending,
+    /// Waiting for a free worker.
+    Queued,
+    /// A worker is analyzing the file now.
+    Analyzing,
     /// The core returned a result.
     Analyzed(TrackAnalysis),
     /// The core could not analyze the file; the text says why.
@@ -65,15 +67,20 @@ impl Track {
             file_name,
             format,
             folder,
-            status: TrackStatus::Pending,
+            status: TrackStatus::Queued,
         }
+    }
+
+    /// True while the track has no result yet: queued or being analyzed.
+    pub(crate) fn is_unfinished(&self) -> bool {
+        matches!(self.status, TrackStatus::Queued | TrackStatus::Analyzing)
     }
 
     /// The analysis, when the track has one.
     pub(crate) fn analysis(&self) -> Option<&TrackAnalysis> {
         match &self.status {
             TrackStatus::Analyzed(analysis) => Some(analysis),
-            TrackStatus::Pending | TrackStatus::Failed(_) => None,
+            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Failed(_) => None,
         }
     }
 
@@ -99,7 +106,7 @@ impl Track {
 
     /// What a cell shows for a value analysis may not find: the value, a
     /// dash when the track was analyzed and has none, and nothing while the
-    /// track is pending or failed.
+    /// track is waiting, being analyzed or failed.
     pub(crate) fn value_or_dash(&self, value: Option<String>) -> Option<String> {
         value.or_else(|| self.analysis().map(|_| NOT_FOUND.to_string()))
     }
@@ -108,7 +115,7 @@ impl Track {
     pub(crate) fn failure(&self) -> Option<&str> {
         match &self.status {
             TrackStatus::Failed(reason) => Some(reason),
-            TrackStatus::Pending | TrackStatus::Analyzed(_) => None,
+            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Analyzed(_) => None,
         }
     }
 
@@ -235,7 +242,7 @@ impl Library {
         true
     }
 
-    /// Adds files as pending tracks and returns the ones that were not in
+    /// Adds files as queued tracks and returns the ones that were not in
     /// the library yet, which are the ones to analyze.
     pub(crate) fn add_files(&mut self, files: Vec<PathBuf>) -> Vec<PathBuf> {
         let mut added = Vec::new();
@@ -248,6 +255,23 @@ impl Library {
             added.push(file);
         }
         added
+    }
+
+    /// Marks a queued track as being analyzed now. Returns false when the
+    /// file is not in the library or is no longer queued.
+    pub(crate) fn mark_analyzing(&mut self, path: &Path) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        if track.status != TrackStatus::Queued {
+            return false;
+        }
+        track.status = TrackStatus::Analyzing;
+        true
     }
 
     /// Stores the result of analyzing `path`. Returns false when the file is
@@ -468,6 +492,28 @@ mod tests {
         assert_eq!(track.file_name, "Low Tide.aiff");
         assert_eq!(track.format, "AIFF");
         assert_eq!(track.folder, "house");
+    }
+
+    #[test]
+    fn a_track_is_queued_then_analyzing_then_analyzed() {
+        let mut library = Library::default();
+        let path = PathBuf::from("/music/next.mp3");
+        library.add_files(vec![path.clone()]);
+        assert_eq!(library.tracks()[0].status, TrackStatus::Queued);
+        assert!(library.tracks()[0].is_unfinished());
+
+        assert!(library.mark_analyzing(&path));
+        assert_eq!(library.tracks()[0].status, TrackStatus::Analyzing);
+        assert!(library.tracks()[0].is_unfinished());
+
+        library.record_outcome(&path, Ok(analysis(None, None, 300.0)));
+        assert!(!library.tracks()[0].is_unfinished());
+        assert!(
+            !library.mark_analyzing(&path),
+            "a finished track stays finished"
+        );
+        assert!(library.tracks()[0].analysis().is_some());
+        assert!(!library.mark_analyzing(Path::new("/music/unknown.mp3")));
     }
 
     #[test]

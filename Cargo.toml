@@ -37,7 +37,16 @@ thiserror = "2.0.21"
 cc = "1.11.1"
 gpui = { package = "gpui-kit", version = "=0.9.1" }
 lofty = "0.25.5"
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "NSApplication",
+  "NSImage",
+  "NSResponder",
+] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData"] }
 pkg-config = "0.3.34"
+png = "0.18.1"
 
 [workspace.lints.rust]
 missing_docs = "warn"

@@ -13,6 +13,7 @@ mod app;
 mod assets;
 mod camelot;
 mod demo;
+mod dock_icon;
 mod format;
 mod library;
 mod mixes;
@@ -59,6 +60,7 @@ fn main() {
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(|cx| {
             gpui::init(cx);
+            dock_icon::show();
             if let Err(problem) = open_main_window(cx) {
                 eprintln!("error: {problem}");
                 cx.quit();

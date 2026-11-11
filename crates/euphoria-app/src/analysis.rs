@@ -33,6 +33,15 @@ pub(crate) struct FinishedFile {
     pub(crate) cache_problem: Option<String>,
 }
 
+/// What a worker reports about one file.
+#[derive(Debug)]
+pub(crate) enum AnalysisEvent {
+    /// A worker took the file out of the queue and is analyzing it.
+    Started(PathBuf),
+    /// The file's analysis ended, with a result or a failure.
+    Finished(FinishedFile),
+}
+
 /// Tells the workers to stop and reports when they have.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct StopSignal {
@@ -88,47 +97,48 @@ impl StopSignal {
 /// A pool of background workers that analyze queued files.
 pub(crate) struct AnalysisWorkers {
     thread_pool: rayon::ThreadPool,
-    finished_sender: Sender<FinishedFile>,
+    event_sender: Sender<AnalysisEvent>,
     stop_signal: StopSignal,
     cache: Option<Arc<CachedAnalyzer>>,
 }
 
 impl AnalysisWorkers {
     /// Starts the workers. With a cache, each file is looked up there first
-    /// and each new analysis is stored. Finished files arrive on the returned
-    /// receiver in the order they finish.
+    /// and each new analysis is stored. Each file is reported on the returned
+    /// receiver when a worker starts it and again when it finishes.
     pub(crate) fn start(
         cache: Option<Arc<CachedAnalyzer>>,
-    ) -> Result<(Self, Receiver<FinishedFile>), rayon::ThreadPoolBuildError> {
+    ) -> Result<(Self, Receiver<AnalysisEvent>), rayon::ThreadPoolBuildError> {
         let thread_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(worker_count())
             .thread_name(|worker_index| format!("euphoria-analysis-{worker_index}"))
             .build()?;
-        let (finished_sender, finished_receiver) = channel();
+        let (event_sender, event_receiver) = channel();
         let workers = Self {
             thread_pool,
-            finished_sender,
+            event_sender,
             stop_signal: StopSignal::default(),
             cache,
         };
-        Ok((workers, finished_receiver))
+        Ok((workers, event_receiver))
     }
 
     /// Queues files for analysis. Returns at once; each file is analyzed by
     /// the core when a worker is free.
     pub(crate) fn enqueue(&self, files: Vec<PathBuf>) {
         for path in files {
-            let finished_sender = self.finished_sender.clone();
+            let event_sender = self.event_sender.clone();
             let stop_signal = self.stop_signal.clone();
             let cache = self.cache.clone();
             self.thread_pool.spawn(move || {
                 if !stop_signal.begin_file() {
                     return;
                 }
-                let finished_file = analyze(path, cache.as_deref());
                 // The receiver is gone once the app is closing, and then
-                // nobody is left to show the result to.
-                let _ = finished_sender.send(finished_file);
+                // nobody is left to show the progress or the result to.
+                let _ = event_sender.send(AnalysisEvent::Started(path.clone()));
+                let finished_file = analyze(path, cache.as_deref());
+                let _ = event_sender.send(AnalysisEvent::Finished(finished_file));
                 stop_signal.finish_file();
             });
         }
@@ -184,10 +194,15 @@ mod tests {
 
     #[test]
     fn reports_a_file_that_cannot_be_opened() {
-        let (workers, finished) = AnalysisWorkers::start(None).unwrap();
+        let (workers, events) = AnalysisWorkers::start(None).unwrap();
         let missing = PathBuf::from("/definitely/not/here.mp3");
         workers.enqueue(vec![missing.clone()]);
-        let file = finished.recv_timeout(Duration::from_secs(30)).unwrap();
+        let started = events.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert!(matches!(started, AnalysisEvent::Started(path) if path == missing));
+        let AnalysisEvent::Finished(file) = events.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("the second report for a file is its result");
+        };
         assert_eq!(file.path, missing);
         assert!(!file.from_cache);
         let reason = file.outcome.unwrap_err();
