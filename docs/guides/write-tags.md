@@ -41,7 +41,7 @@ The label goes in front of the comment the file already has, separated by ` - `:
 
 Writing again never adds a second label. When the key or the energy changed, for example after an update of Euphoria, the label is replaced where it stands and the rest of the comment is left alone. A label in the same form written by another program, such as Mixed In Key, is replaced the same way.
 
-Only text that has exactly the form of a label counts as one: a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`), at the very start of the comment and followed by ` - ` or by nothing. Everything else is your own text and is kept, including comments such as `A - side`, `Am - my favourite`, `8A-side remix` and `High Energy 7`. A comment of your own that begins with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its `8A` is replaced by the new label.
+Only text that has exactly the form of a label counts as one: a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`, `1m - Energy 7`), at the very start of the comment and followed by ` - ` or by nothing. Everything else is your own text and is kept, including comments such as `A - side`, `Am - my favourite`, `8A-side remix` and `High Energy 7`. A comment of your own that begins with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its `8A` is replaced by the new label.
 
 ### Choose where the label goes
 
@@ -56,25 +56,22 @@ When you change this option between two writes, a label with an energy rating at
 
 ### Other choices
 
-- `--key-notation musical` writes `Am` instead of `8A`, in the key field and in the label.
-- `--no-tempo` leaves the tempo field alone.
+- `--key-notation musical` writes `Am` instead of `8A`, in the key field and in the label. `--key-notation open-key` writes `1m`, the notation Traktor uses for its own keys.
+- `--no-tempo` leaves the tempo field alone. `--tempo` writes it with the Serato preset, which otherwise leaves it out.
 
 ## Choose your DJ program
 
-`--preset` picks the tag fields for one program. The default, `generic`, writes every field a common program reads, and is the right choice when you use several programs or are not sure.
+`--preset` picks the tag fields for one program: `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. The default, `generic`, is the right choice when you use several programs or are not sure.
 
-| Preset | Key in ID3v2 (MP3, WAV, AIFF) | Key in M4A | Key in FLAC | Tempo |
-| --- | --- | --- | --- | --- |
-| `generic` | `TKEY` | `initialkey` | `INITIALKEY` and `KEY` | `TBPM`, `tmpo` and `BPM` in M4A, `BPM` in FLAC, with up to two decimals where the field allows |
-| `rekordbox`, `serato`, `traktor`, `engine-dj` | `TKEY` | `initialkey` | `INITIALKEY` | `TBPM`, `tmpo`, `BPM` in FLAC, as a whole number |
+All presets write the key to the same fields: `TKEY` in MP3, WAV and AIFF, both `initialkey` and `KEY` in M4A, and `INITIALKEY` in FLAC. They differ in the tempo:
 
-What each program does with these fields:
+| Preset | Tempo |
+| --- | --- |
+| `mixxx` | With up to two decimals where the field allows, such as `127.5`. |
+| `serato` | Not written unless you add `--tempo`, so that Serato detects the tempo and builds its beat grid itself. |
+| Every other preset | Rounded to a whole number, the only form every program is known to accept. |
 
-- **rekordbox** reads the key from MP3, AIFF and M4A files. It does not read the key from FLAC and WAV tags, and it never takes the tempo from tags. It shows comments for every format, so the label in the comment is how the key and the energy reach rekordbox for FLAC and WAV. To bring keys and tempos into rekordbox for every format, [export to rekordbox](export-to-rekordbox.md) instead.
-- **Serato** and **Traktor** are reported to read `TKEY` and `TBPM` from MP3 files.
-- **Engine DJ** is reported to keep the key and tempo tags it finds on MP3 files.
-
-The vendors do not publish the fields their programs read. Only the fields of the generic preset are confirmed, against the source code of Mixxx. The field names for M4A and FLAC in Serato, Traktor and Engine DJ could not be confirmed, and no preset has been tried in the program it is named after. [How well each field is confirmed](../reference/tags.md#how-well-each-field-is-confirmed) has the details. After a write, most programs show the new values only once you ask them to read the tags again.
+[Use Euphoria with your DJ program](dj-programs.md) explains each choice, what to set in each program so that it keeps Euphoria's values, and how much of it is confirmed. No vendor publishes the fields its program reads, and no preset has yet been tried in the program it is named after. After a write, most programs show the new values only once you ask them to read the tags again.
 
 ## The preview
 
@@ -84,8 +81,7 @@ Before anything is written, each file that would change is listed with its field
 $ euphoria tags write ~/Music/DJ
 /Users/you/Music/DJ/low tide.flac
   INITIALKEY: (none) -> 8A
-  KEY: (none) -> 8A
-  BPM: (none) -> 124.04
+  BPM: (none) -> 124
   COMMENT: https://example.com/track/42 -> 8A - Energy 7 - https://example.com/track/42
 340 files to change, 2 already up to date.
 Write these changes to 340 files? [y/N]

@@ -97,6 +97,8 @@ mod tests {
                     key: Some(key.parse().unwrap()),
                     bpm: Some(*bpm),
                     energy: None,
+                    tuning_cents: None,
+                    key_timeline: Vec::new(),
                 }),
             );
         }
@@ -137,6 +139,8 @@ mod tests {
                     key: Some("A minor".parse().unwrap()),
                     bpm: Some(124.0),
                     energy: Some(energy),
+                    tuning_cents: None,
+                    key_timeline: Vec::new(),
                 }),
             );
         }

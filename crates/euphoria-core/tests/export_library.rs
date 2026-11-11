@@ -27,6 +27,8 @@ fn analyzed(path: &Path) -> FileResult {
             key: Some(Key::new(9, Mode::Minor)),
             bpm: Some(124.0),
             energy: Some(7),
+            tuning_cents: None,
+            key_timeline: Vec::new(),
         }),
     }
 }
@@ -92,6 +94,8 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 key: None,
                 bpm: None,
                 energy: None,
+                tuning_cents: None,
+                key_timeline: Vec::new(),
             }),
         },
         analyzed(&damaged_tag),

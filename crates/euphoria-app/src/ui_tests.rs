@@ -61,6 +61,8 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key: None,
             bpm: None,
             energy: None,
+            tuning_cents: None,
+            key_timeline: Vec::new(),
         }),
     })
     .collect()

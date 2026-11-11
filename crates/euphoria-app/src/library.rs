@@ -428,6 +428,8 @@ mod tests {
             key: key.map(|text| text.parse().unwrap()),
             bpm,
             energy: None,
+            tuning_cents: None,
+            key_timeline: Vec::new(),
         }
     }
 
@@ -665,6 +667,8 @@ mod tests {
                 &path,
                 Ok(TrackAnalysis {
                     energy,
+                    tuning_cents: None,
+                    key_timeline: Vec::new(),
                     ..analysis(None, None, 300.0)
                 }),
             );
@@ -702,6 +706,8 @@ mod tests {
             Path::new("/music/house/Low Tide.aiff"),
             Ok(TrackAnalysis {
                 energy: Some(7),
+                tuning_cents: None,
+                key_timeline: Vec::new(),
                 ..analysis(Some("A minor"), Some(124.0), 408.0)
             }),
         );
@@ -836,6 +842,8 @@ mod tests {
                     key: Some(key),
                     bpm: Some(90.0 + (number % 80) as f32),
                     energy: Some((number % 10) as u8 + 1),
+                    tuning_cents: None,
+                    key_timeline: Vec::new(),
                 }),
             );
         }

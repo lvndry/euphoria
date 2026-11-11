@@ -342,8 +342,7 @@ fn options_choose_what_is_written_and_where() {
             "{grouping:?}"
         );
     }
-    // The generic preset writes KEY next to INITIALKEY in FLAC. This one
-    // writes INITIALKEY alone.
+    // No preset creates KEY next to INITIALKEY in FLAC.
     let preview = standard_output(&output);
     assert!(preview.contains("  INITIALKEY: "), "{preview}");
     assert!(!preview.contains("  KEY: "), "{preview}");
@@ -386,6 +385,113 @@ fn options_choose_what_is_written_and_where() {
         "{wav_comment:?}"
     );
     assert!(wav_comment.contains(" - Energy "), "{wav_comment:?}");
+}
+
+#[test]
+fn the_serato_preset_writes_the_tempo_only_when_asked() {
+    let euphoria = Euphoria::new();
+    let library = Library::new();
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--preset",
+            "serato",
+            text(library.path()),
+        ],
+    );
+    assert_success(&output);
+    for tags in library.tags() {
+        assert!(tags.key.is_some(), "{tags:?}");
+        assert_eq!(tags.bpm, None, "{tags:?}");
+    }
+
+    let library = Library::new();
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--preset",
+            "serato",
+            "--tempo",
+            text(library.path()),
+        ],
+    );
+    assert_success(&output);
+    for tags in library.tags() {
+        assert!(tags.bpm.is_some(), "{tags:?}");
+    }
+
+    let both = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--tempo",
+            "--no-tempo",
+            "--dry-run",
+            text(library.path()),
+        ],
+    );
+    assert!(!both.status.success());
+}
+
+#[test]
+fn every_program_has_a_preset_and_open_key_is_a_notation() {
+    for preset in [
+        "generic",
+        "rekordbox",
+        "serato",
+        "traktor",
+        "engine-dj",
+        "virtualdj",
+        "mixxx",
+    ] {
+        let euphoria = Euphoria::new();
+        let library = Library::new();
+        let output = run(
+            &euphoria,
+            &[
+                "tags",
+                "write",
+                "--dry-run",
+                "--preset",
+                preset,
+                text(library.path()),
+            ],
+        );
+        assert_success(&output);
+    }
+
+    let euphoria = Euphoria::new();
+    let library = Library::new();
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--preset",
+            "traktor",
+            "--key-notation",
+            "open-key",
+            text(library.path()),
+        ],
+    );
+    assert_success(&output);
+    for tags in library.tags() {
+        let key = tags.key.as_deref().expect("a key");
+        assert!(key.ends_with('m') || key.ends_with('d'), "{key}");
+        let comment = tags.comment.as_deref().expect("a comment");
+        assert!(
+            comment.starts_with(&format!("{key} - Energy ")),
+            "{comment}"
+        );
+    }
 }
 
 #[test]
