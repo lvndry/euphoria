@@ -19,11 +19,15 @@ use euphoria_core::{
 };
 
 use crate::batch::{self, AnalysisOptions};
+use crate::style::Theme;
+use crate::view::KeyNotationChoice;
 use crate::{output, with_causes};
 
 #[derive(Debug, Subcommand)]
 pub enum TagsCommand {
-    /// Write the key, tempo and energy into the tags of audio files.
+    /// Write the key, tempo and energy into the tags of audio files, after
+    /// showing what would change.
+    #[command(after_help = crate::help::tags_examples())]
     Write(WriteArguments),
     /// Put back the tags that the last `tags write` replaced.
     Undo,
@@ -59,17 +63,6 @@ pub struct WriteArguments {
     preset: PresetChoice,
     #[command(flatten)]
     analysis: AnalysisOptions,
-}
-
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-enum KeyNotationChoice {
-    /// Camelot codes such as 8A.
-    #[default]
-    Camelot,
-    /// Musical names such as Am.
-    Musical,
-    /// Open Key codes such as 1m, as Traktor writes them.
-    OpenKey,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -149,8 +142,9 @@ pub struct Failure {
 
 fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let theme = Theme::stderr();
     if audio_files.is_empty() {
-        eprintln!("No audio files found.");
+        output::write_no_audio_files(&mut std::io::stderr().lock(), &theme)?;
         return Ok(ExitCode::SUCCESS);
     }
     let CachedBatch {
@@ -183,13 +177,14 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     }
 
     let mut standard_output = std::io::stdout().lock();
-    output::write_tag_preview(&mut standard_output, &plans)?;
+    output::write_tag_preview(&mut standard_output, &Theme::stdout(), &plans)?;
     standard_output.flush()?;
     drop(standard_output);
     let mut standard_error = std::io::stderr().lock();
-    output::write_tag_failures(&mut standard_error, &failures)?;
+    output::write_tag_failures(&mut standard_error, &theme, &failures)?;
     output::write_tag_plan_summary(
         &mut standard_error,
+        &theme,
         plans.len(),
         unchanged_count,
         failures.len(),
@@ -204,8 +199,11 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     } else {
         write!(
             standard_error,
-            "Write these changes to {}? [y/N] ",
-            output::counted_files(plans.len())
+            "{} ",
+            theme.bold(format_args!(
+                "Write these changes to {}? [y/N]",
+                output::counted_files(plans.len())
+            ))
         )?;
         standard_error.flush()?;
         if is_yes(&mut std::io::stdin().lock())? {
@@ -220,11 +218,16 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         Decision::Stop => writeln!(standard_error, "Nothing was written.")?,
         Decision::CannotAsk => {
             failed = true;
-            writeln!(
-                standard_error,
-                "Nothing was written: standard input is not a terminal, so there is nobody to \
-                 confirm the changes. Run again with --yes to write them, or with --dry-run to \
-                 only preview them."
+            output::write_error(
+                &mut standard_error,
+                &theme,
+                "nothing was written: standard input is not a terminal, so there is nobody to \
+                 confirm the changes.",
+            )?;
+            output::write_hint(
+                &mut standard_error,
+                &theme,
+                "Run again with --yes to write them, or with --dry-run to only preview them.",
             )?;
         }
         Decision::Write => {
@@ -251,13 +254,14 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                         .try_for_each(|(path, analysis)| cache.record_retagged_file(path, analysis))
                 });
                 if let Err(error) = recorded {
-                    output::write_cache_record_warning(&mut standard_error, &error)?;
+                    output::write_cache_record_warning(&mut standard_error, &theme, &error)?;
                 }
             }
-            output::write_tag_failures(&mut standard_error, &write_failures)?;
-            output::write_unrecorded_tag_writes(&mut standard_error, &unrecorded)?;
+            output::write_tag_failures(&mut standard_error, &theme, &write_failures)?;
+            output::write_unrecorded_tag_writes(&mut standard_error, &theme, &unrecorded)?;
             output::write_tag_write_summary(
                 &mut standard_error,
+                &theme,
                 plans.len() - write_failures.len(),
                 write_failures.len(),
             )?;
@@ -325,9 +329,11 @@ fn undo() -> Result<ExitCode> {
         .map(|(path, error)| Failure { path, error })
         .collect();
     let mut standard_error = std::io::stderr().lock();
-    output::write_tag_failures(&mut standard_error, &failures)?;
+    let theme = Theme::stderr();
+    output::write_tag_failures(&mut standard_error, &theme, &failures)?;
     output::write_tag_undo_summary(
         &mut standard_error,
+        &theme,
         undone.restored.len(),
         undone.untouched.len(),
         failures.len(),
