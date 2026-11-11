@@ -17,6 +17,7 @@ mod dock_icon;
 mod format;
 mod library;
 mod mixes;
+mod panels;
 mod peaks;
 mod playback;
 mod player;
@@ -39,8 +40,8 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddFolder, FocusSearch, Quit, TogglePlayback, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme,
-    UsePaperTheme, UseSlateTheme,
+    AddFolder, FocusSearch, Quit, TogglePlayback, ToggleSidebar, UseDeckTheme, UseGraphiteTheme,
+    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -121,6 +122,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
         ..Default::default()
     };
     let theme = settings.theme;
+    let sidebar_folded = settings.panels.sidebar_folded;
     let (window, view) = gpui::open_window(options, cx, |window, cx| {
         cx.new(|cx| {
             let output = Box::new(SystemOutput::default());
@@ -130,7 +132,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
     .map_err(|error| format!("cannot open the window: {error:#}"))?;
 
     register_commands(window, &view, cx);
-    install_menus(theme, cx);
+    install_menus(theme, sidebar_folded, cx);
     cx.activate(true);
     Ok(())
 }
@@ -143,6 +145,11 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-o", AddFolder, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
         KeyBinding::new("cmd-k", FocusSearch, None),
+        // Control Command S is what macOS apps use to show and hide a sidebar.
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-alt-s", ToggleSidebar, None),
         // Space plays and pauses, except in a text field, where it types.
         KeyBinding::new("space", TogglePlayback, Some(SPACE_BAR_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
@@ -159,6 +166,13 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     cx.on_action(move |_: &TogglePlayback, cx| {
         weak_view
             .update(cx, |view, cx| view.toggle_playback(cx))
+            .ok();
+    });
+
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &ToggleSidebar, cx| {
+        weak_view
+            .update(cx, |view, cx| view.toggle_sidebar(cx))
             .ok();
     });
 
@@ -199,8 +213,14 @@ fn register_theme_command<Command: gpui::Action>(
     });
 }
 
-/// Sets the menu bar, with a tick beside the theme in use.
-pub(crate) fn install_menus(current_theme: ThemeName, cx: &mut App) {
+/// Sets the menu bar, with a tick beside the theme in use and the sidebar
+/// item worded for what it will do.
+pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: &mut App) {
+    let sidebar_item = if sidebar_folded {
+        "Show Sidebar"
+    } else {
+        "Hide Sidebar"
+    };
     let theme_items = ThemeName::ALL.map(|theme| {
         let label = theme.label();
         let item = match theme {
@@ -216,6 +236,8 @@ pub(crate) fn install_menus(current_theme: ThemeName, cx: &mut App) {
         Menu::new(WINDOW_TITLE).items([MenuItem::action("Quit Euphoria", Quit)]),
         Menu::new("File").items([MenuItem::action("Add Folder\u{2026}", AddFolder)]),
         Menu::new("View").items([
+            MenuItem::action(sidebar_item, ToggleSidebar),
+            MenuItem::separator(),
             MenuItem::action("Search", FocusSearch),
             MenuItem::separator(),
             MenuItem::submenu(Menu::new("Theme").items(theme_items)),

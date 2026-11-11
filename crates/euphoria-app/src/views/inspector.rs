@@ -7,7 +7,10 @@
 
 use gpui::component::Icon;
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, TestSupportExt, div, px};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, Pixels, SharedString, Stateful, TestSupportExt, Window,
+    div, px,
+};
 
 use crate::app::EuphoriaApp;
 use crate::assets::MUSIC_ICON_PATH;
@@ -18,21 +21,70 @@ use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::views::key_chip::key_chip;
 use crate::views::player::{self, seek_on_press_and_drag};
-use crate::views::waveform::{WaveformColours, waveform};
+use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
 
-const INSPECTOR_WIDTH: f32 = 320.0;
+/// Space around the contents of the inspector.
+const PADDING: f32 = 16.0;
 
-/// How many mixing suggestions fit in the strip under the table.
-const DECK_MIX_COUNT: usize = 4;
+/// Height of the line above the waveform and above the mixes list, with the
+/// gap under it.
+const HEADING_HEIGHT: f32 = 26.0;
+
+/// Height of one row of the mixes list, with the gap under it.
+const MIX_ROW_HEIGHT: f32 = 32.0;
+
+/// How tall the contents of the track detail may be. In the column the
+/// contents scroll, so only the strip under the table has a limit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Room {
+    Column,
+    Strip { inner_height: f32 },
+}
+
+impl Room {
+    /// How tall to draw the waveform: the usual height in the column, and
+    /// as tall as the strip allows under its heading.
+    fn waveform_height(self) -> Pixels {
+        match self {
+            Room::Column => px(WAVEFORM_HEIGHT),
+            Room::Strip { inner_height } => {
+                px((inner_height - HEADING_HEIGHT).max(WAVEFORM_HEIGHT))
+            }
+        }
+    }
+
+    /// How many of `available` mixing suggestions to list: all of them in
+    /// the column, and as many as the strip has rows for, at least one.
+    fn mix_count(self, available: usize) -> usize {
+        match self {
+            Room::Column => available,
+            Room::Strip { inner_height } => {
+                let rows = ((inner_height - HEADING_HEIGHT) / MIX_ROW_HEIGHT).floor() as usize;
+                rows.max(1).min(available)
+            }
+        }
+    }
+}
 
 /// The inspector for the selected track, or a hint when nothing is selected.
-pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
+pub(crate) fn render(
+    app: &EuphoriaApp,
+    window: &Window,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
     let theme = &app.theme;
     let palette = theme.palette;
     let is_column = theme.layout == Layout::InspectorRight;
+    let strip_height = app.strip_height(window);
+    let room = match theme.layout {
+        Layout::InspectorRight => Room::Column,
+        Layout::DeckBelow => Room::Strip {
+            inner_height: strip_height / px(1.0) - 2.0 * PADDING,
+        },
+    };
 
     let container = match theme.layout {
         Layout::InspectorRight => div()
@@ -40,7 +92,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             .flex()
             .flex_col()
             .flex_shrink_0()
-            .w(px(INSPECTOR_WIDTH))
+            .w(app.inspector_width(window))
             .gap(px(16.0))
             .border_l_1()
             .overflow_y_scroll(),
@@ -48,12 +100,13 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             .id("inspector")
             .flex()
             .flex_shrink_0()
+            .h(strip_height)
             .items_start()
             .gap(px(24.0))
             .border_t_1()
             .overflow_x_scroll(),
     }
-    .p(px(16.0))
+    .p(px(PADDING))
     .bg(palette.panel)
     .border_color(palette.line);
 
@@ -86,10 +139,10 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
     container
         .child(sized(summary(track, &palette), Some(220.0)))
         .child(sized(statistics(track, &palette), Some(264.0)))
-        .child(sized(waveform_section(track, app, cx), None))
+        .child(sized(waveform_section(track, app, room, cx), None))
         .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
-        .children(mixes(app, cx).map(|section| sized(divided(section), Some(300.0))))
+        .children(mixes(app, room, cx).map(|section| sized(divided(section), Some(300.0))))
         .when(is_column, |inspector| {
             inspector.child(divided(location(track, &palette)))
         })
@@ -232,7 +285,12 @@ fn statistic(
 /// The waveform, which is also where to seek: a press or a drag on it moves
 /// playing to that point. In the strip under the table the play button and
 /// the position sit beside it, since that layout has no player bar.
-fn waveform_section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn waveform_section(
+    track: &Track,
+    app: &EuphoriaApp,
+    room: Room,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Div {
     let palette = app.theme.palette;
     let state = app.selected_waveform();
     let is_in_strip = app.theme.layout == Layout::DeckBelow;
@@ -265,6 +323,7 @@ fn waveform_section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eupho
             WaveformColours::of(&palette),
             app.player.progress(),
             app.waveform_bounds.clone(),
+            room.waveform_height(),
         )),
         &app.waveform_bounds,
         cx,
@@ -307,15 +366,12 @@ fn waveform_section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eupho
 }
 
 /// The tracks in the library that mix with the selected one.
-fn mixes(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
+fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
     let theme = &app.theme;
     let palette = theme.palette;
     app.selected_track()?.key()?;
 
-    let shown_count = match theme.layout {
-        Layout::InspectorRight => app.mixes.len(),
-        Layout::DeckBelow => DECK_MIX_COUNT,
-    };
+    let shown_count = room.mix_count(app.mixes.len());
     let rows: Vec<Stateful<Div>> = app
         .mixes
         .iter()

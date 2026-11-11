@@ -9,10 +9,9 @@ use gpui::{AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, d
 use crate::app::EuphoriaApp;
 use crate::format;
 use crate::library::LibraryFilter;
+use crate::panels::SIDEBAR_WIDTH;
 use crate::theme::Palette;
 use crate::views::{LABEL_TEXT_SIZE, section_label};
-
-const SIDEBAR_WIDTH: f32 = 220.0;
 
 const PRIVACY_NOTE: &str = if cfg!(target_os = "macos") {
     "Works offline. Nothing leaves this Mac."

@@ -9,6 +9,7 @@ pub(crate) mod inspector;
 pub(crate) mod key_chip;
 pub(crate) mod logo;
 pub(crate) mod notice;
+pub(crate) mod panel_edge;
 pub(crate) mod player;
 pub(crate) mod sidebar;
 pub(crate) mod toolbar;

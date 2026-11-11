@@ -16,6 +16,8 @@ actions!(
         AddFolder,
         /// Plays the selected track, or pauses it.
         TogglePlayback,
+        /// Folds the sidebar away, or brings it back.
+        ToggleSidebar,
         /// Moves the keyboard to the search field.
         FocusSearch,
         /// Switches to the Slate theme.
