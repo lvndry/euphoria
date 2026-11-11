@@ -35,6 +35,7 @@ Changing a file breaks its code signature, so signing is left to the caller.
 import argparse
 import os
 import pathlib
+import posixpath
 import re
 import shutil
 import subprocess
@@ -107,7 +108,15 @@ def is_loaded_higher_up(target, chain):
 
 
 def is_system(path):
-    return path.startswith(SYSTEM_PREFIXES)
+    """Whether `path` names a library of macOS itself. The path is first
+    normalised as text, so that a name such as /usr/lib/../../opt/lib.dylib,
+    which leads out of /usr/lib, does not count. The file is not looked for:
+    since macOS 11 the system libraries live in the dyld shared cache, not
+    on disk."""
+    path = str(path)
+    if not path.startswith("/"):
+        return False
+    return (posixpath.normpath(path) + "/").startswith(SYSTEM_PREFIXES)
 
 
 def is_mach_o(path):
