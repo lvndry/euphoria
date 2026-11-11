@@ -15,7 +15,7 @@ The app:
 2. Open it and drag Euphoria onto Applications.
 3. Open Euphoria from Applications the first time as described [below](#opening-the-app-for-the-first-time).
 
-The app needs a Mac with Apple Silicon, and at least the macOS version the release notes give, which is the newest minimum of any binary in the app.
+The app needs a Mac with Apple Silicon, and at least the macOS version the release notes give, which is the newest minimum of any binary in the app: macOS 15 for the current release.
 
 The command line tool is in `euphoria-<version>-aarch64-apple-darwin.tar.gz` on the same page. It carries its own copy of libkeyfinder, so it needs nothing else:
 
