@@ -4,12 +4,17 @@
 
 """Tests scripts/macos_libraries.py on real binaries and on small libraries
 built with clang. Needs macOS, the Xcode command line tools and, for the
-tests on the real app, a release build of the desktop app:
+tests on a real binary, a build that links libkeyfinder:
 
     cargo build --release -p euphoria
     python3 -m unittest scripts/test_macos_libraries.py
+
+The real binary is the release build of the desktop app, or the file named
+by EUPHORIA_LINKED_BINARY, such as CI's debug build of the euphoria command,
+which links the same libraries.
 """
 
+import os
 import pathlib
 import platform
 import shutil
@@ -22,7 +27,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import macos_libraries
 
 REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
-BINARY = REPOSITORY / "target" / "release" / "euphoria-desktop"
+BINARY = pathlib.Path(
+    os.environ.get(
+        "EUPHORIA_LINKED_BINARY",
+        REPOSITORY / "target" / "release" / "euphoria-desktop",
+    )
+)
 RUN_PATH = "@executable_path/../Frameworks"
 
 
@@ -31,7 +41,8 @@ def run(*command):
 
 
 @unittest.skipUnless(
-    platform.system() == "Darwin" and BINARY.exists(), "needs macOS and a release build"
+    platform.system() == "Darwin" and BINARY.exists(),
+    "needs macOS and a build that links libkeyfinder",
 )
 class BundleTests(unittest.TestCase):
     def setUp(self):
@@ -289,7 +300,8 @@ class SyntheticLibraryTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    platform.system() == "Darwin" and BINARY.exists(), "needs macOS and a release build"
+    platform.system() == "Darwin" and BINARY.exists(),
+    "needs macOS and a build that links libkeyfinder",
 )
 class RealBundleVersionTests(unittest.TestCase):
     def test_the_real_bundle_needs_the_newest_macos_of_its_files(self):
