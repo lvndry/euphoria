@@ -72,22 +72,44 @@ impl TempoRange {
         self.fastest
     }
 
-    /// The octave of a positive `estimate` that lies in the range, or the
-    /// octave nearest to the range when none does.
+    /// The octave of a positive finite `estimate` that lies in the range,
+    /// or the nearest representable octave when none does.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `estimate` is not positive and finite.
     pub fn fold(&self, estimate: f32) -> f32 {
-        let mut folded = estimate;
-        while folded < self.slowest {
+        assert!(
+            estimate.is_finite() && estimate > 0.0,
+            "a tempo estimate must be positive and finite"
+        );
+        // An octave just beyond a finite f32 range can overflow f32. The
+        // wider arithmetic also keeps distance ratios finite at both ends
+        // of the supported range.
+        let mut folded = f64::from(estimate);
+        let slowest = f64::from(self.slowest);
+        let fastest = f64::from(self.fastest);
+        while folded < slowest {
             folded *= 2.0;
         }
-        while folded >= self.fastest {
+        while folded >= fastest {
             folded /= 2.0;
         }
-        if folded >= self.slowest {
-            return folded;
+        // Rounding a subnormal estimate back to f32 can land on the
+        // excluded upper bound. Try its previous octave instead.
+        let mut below = folded as f32;
+        if below >= self.fastest {
+            folded /= 2.0;
+            below = folded as f32;
         }
-        let above = folded * 2.0;
-        if (self.slowest / folded).ln() <= (above / self.fastest).ln() {
-            folded
+        if below >= self.slowest {
+            return below;
+        }
+        let above = (folded * 2.0) as f32;
+        if !above.is_finite()
+            || (slowest / f64::from(below)).ln() <= (f64::from(above) / fastest).ln()
+        {
+            below
         } else {
             above
         }
@@ -182,6 +204,48 @@ mod tests {
         // 112 is 0.10 octave below 120, and 224 is 0.16 octave above 200.
         assert_eq!(drum_and_bass.fold(112.0), 112.0);
         assert_eq!(drum_and_bass.fold(56.0), 112.0);
+    }
+
+    #[test]
+    fn a_large_finite_range_does_not_overflow_while_folding() {
+        let huge = range(2.0e38, 3.0e38);
+        // The higher octave of 128 would be 2^128, which f32 cannot hold.
+        assert_eq!(huge.fold(128.0), 2.0_f32.powi(127));
+        // A representable upper octave remains eligible for a narrow range.
+        assert_eq!(huge.fold(f32::MAX), f32::MAX);
+
+        let octave = range(f32::MAX / 2.0, f32::MAX);
+        for estimate in [f32::from_bits(1), 1.0, 120.0, 128.0, f32::MAX] {
+            let folded = octave.fold(estimate);
+            assert!(folded.is_finite());
+            assert!((octave.slowest()..octave.fastest()).contains(&folded));
+        }
+    }
+
+    #[test]
+    fn subnormal_octave_ranges_keep_the_excluded_upper_bound_out() {
+        for bits in 1..=32 {
+            let slowest = f32::from_bits(bits);
+            let octave = range(slowest, slowest * 2.0);
+            for estimate in [f32::from_bits(1), 1.0, 120.0, 128.0, f32::MAX] {
+                let folded = octave.fold(estimate);
+                assert!(
+                    (octave.slowest()..octave.fastest()).contains(&folded),
+                    "{octave}: {estimate} folded to {folded}"
+                );
+            }
+        }
+        assert_eq!(TempoRange::DEFAULT.fold(f32::from_bits(1)), 128.0);
+    }
+
+    #[test]
+    fn invalid_estimates_are_refused_without_entering_the_folding_loops() {
+        for estimate in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(
+                std::panic::catch_unwind(|| TempoRange::DEFAULT.fold(estimate)).is_err(),
+                "{estimate} should have been refused"
+            );
+        }
     }
 
     #[test]
