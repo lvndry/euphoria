@@ -17,6 +17,7 @@ use super::flac::{self, FlacFile};
 use super::id3v2::{self, Id3Tag};
 use super::mp4::Mp4File;
 use super::replace::{Replacement, Splice, carried_over, compose, has_several_links};
+use super::riff_info::{self, InfoList};
 use crate::error::{ErrorSource, EuphoriaError};
 
 const PROBE_LENGTH: usize = 16;
@@ -24,6 +25,8 @@ const MPEG_SEARCH_LENGTH: u64 = 64 * 1024;
 const IFF_HEADER_LENGTH: u64 = 12;
 const CHUNK_HEADER_LENGTH: u64 = 8;
 const ID3_CHUNK: &[u8; 4] = b"ID3 ";
+const LIST_CHUNK: &[u8; 4] = b"LIST";
+const DATA_CHUNK: &[u8; 4] = b"data";
 const SEVERAL_LINKS: &str = "it has more than one hard link, and replacing it would leave its other names \
      with the old contents";
 
@@ -79,12 +82,19 @@ enum Id3Place {
 struct Id3File {
     tag: Id3Tag,
     place: Id3Place,
+    /// The `INFO` list of a WAV file, which some programs read instead of
+    /// the ID3 chunk. `None` for MP3 and AIFF.
+    info: Option<InfoList>,
     /// A length the tag should get back when it fits, set by an undo.
     preferred_length: Option<u64>,
     problem: Option<&'static str>,
 }
 
-fn read_exactly(file: &mut File, start: u64, length: u64) -> Result<Vec<u8>, ErrorSource> {
+pub(super) fn read_exactly(
+    file: &mut File,
+    start: u64,
+    length: u64,
+) -> Result<Vec<u8>, ErrorSource> {
     let mut bytes = Vec::new();
     file.seek(SeekFrom::Start(start))?;
     file.take(length).read_to_end(&mut bytes)?;
@@ -101,6 +111,7 @@ impl Id3File {
             return Ok(Self {
                 tag: Id3Tag::new(),
                 place: Id3Place::Start { length: 0 },
+                info: None,
                 preferred_length: None,
                 problem: None,
             });
@@ -111,6 +122,7 @@ impl Id3File {
         Ok(Self {
             tag,
             place: Id3Place::Start { length },
+            info: None,
             preferred_length: None,
             problem: has_second_tag.then_some("it holds more than one ID3v2 tag"),
         })
@@ -138,6 +150,8 @@ impl Id3File {
         }
 
         let mut found: Option<(std::ops::Range<u64>, u64, [u8; 4], Id3Tag)> = None;
+        let mut info_chunk: Option<(std::ops::Range<u64>, u64)> = None;
+        let mut data_offset: Option<u64> = None;
         let mut offset = IFF_HEADER_LENGTH;
         while offset < container_end.min(file_length) {
             let Ok(header) = read_exactly(file, offset, CHUNK_HEADER_LENGTH) else {
@@ -165,8 +179,33 @@ impl Id3File {
                 let name = [header[0], header[1], header[2], header[3]];
                 found = Some((offset..end, size, name, Id3Tag::parse(&content)?));
             }
+            if little_endian && &header[..4] == DATA_CHUNK && data_offset.is_none() {
+                data_offset = Some(offset);
+            }
+            if little_endian && &header[..4] == LIST_CHUNK && size >= 4 {
+                let list_type = read_exactly(file, offset + CHUNK_HEADER_LENGTH, 4)?;
+                if InfoList::is_info(&list_type) {
+                    if info_chunk.is_some() {
+                        problem = Some("it holds more than one RIFF INFO list");
+                        break;
+                    }
+                    info_chunk = Some((offset..end, size));
+                }
+            }
             offset = end;
         }
+
+        let info = if !little_endian {
+            None
+        } else if let Some(data_offset) = data_offset {
+            Some(match info_chunk {
+                Some((chunk, size)) => InfoList::load(file, chunk, size, data_offset)?,
+                None => InfoList::absent(data_offset),
+            })
+        } else {
+            problem = problem.or(Some("it has no data chunk"));
+            None
+        };
 
         let (chunk, tag_length, name, tag) = match found {
             Some((chunk, tag_length, name, tag)) => (Some(chunk), tag_length, name, tag),
@@ -182,13 +221,67 @@ impl Id3File {
                 container_size,
                 container_end,
             },
+            info,
             preferred_length: None,
             problem,
         })
     }
 
     fn problem(&self) -> Option<&'static str> {
-        self.problem.or(self.tag.problem())
+        self.problem
+            .or(self.tag.problem())
+            .or(self.info.as_ref().and_then(InfoList::problem))
+    }
+
+    /// Every item: the ID3v2 frames, then the values of the `INFO` list.
+    fn items(&self) -> Vec<Vec<u8>> {
+        let mut items = self.tag.frames().to_vec();
+        if let Some(info) = &self.info {
+            items.extend(info.values().iter().cloned());
+        }
+        items
+    }
+
+    fn info_mut(&mut self) -> Result<&mut InfoList, ErrorSource> {
+        self.info
+            .as_mut()
+            .ok_or_else(|| "only WAV files have a RIFF INFO list".into())
+    }
+
+    fn position(&self, field: &str) -> Option<usize> {
+        if field == riff_info::COMMENT {
+            let info_position = self.info.as_ref()?.position()?;
+            return Some(self.tag.frames().len() + info_position);
+        }
+        self.tag.position(field)
+    }
+
+    fn raw(&self, field: &str) -> Option<Vec<u8>> {
+        if field == riff_info::COMMENT {
+            return self.info.as_ref()?.raw().map(<[u8]>::to_vec);
+        }
+        self.tag.raw(field).map(<[u8]>::to_vec)
+    }
+
+    fn get(&self, field: &str) -> Result<Option<String>, ErrorSource> {
+        if field == riff_info::COMMENT {
+            return Ok(self.info.as_ref().and_then(InfoList::get));
+        }
+        self.tag.get(field)
+    }
+
+    fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
+        if field == riff_info::COMMENT {
+            return self.info_mut()?.set(value);
+        }
+        self.tag.set(field, value)
+    }
+
+    fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
+        if field == riff_info::COMMENT {
+            return self.info_mut()?.restore(raw);
+        }
+        self.tag.restore(field, raw)
     }
 
     /// The length of the tag in the file, zero when there is none.
@@ -256,23 +349,29 @@ impl Id3File {
                     bytes.insert(0, 0);
                 }
                 let place = chunk.clone().unwrap_or(*container_end..*container_end);
-                let old_length = place.end - place.start;
-                let new_container_size = (u64::from(*container_size) + bytes.len() as u64)
-                    .checked_sub(old_length)
-                    .and_then(|size| u32::try_from(size).ok())
-                    .ok_or("the file would be larger than its container format allows")?;
-                Ok(vec![
-                    Splice {
-                        start: 4,
-                        end: 8,
-                        bytes: number(new_container_size).to_vec(),
-                    },
-                    Splice {
-                        start: place.start,
-                        end: place.end,
-                        bytes,
-                    },
-                ])
+                let mut edits = vec![Splice {
+                    start: place.start,
+                    end: place.end,
+                    bytes,
+                }];
+                if let Some(info) = &self.info {
+                    edits.extend(info.splice()?);
+                }
+                let mut new_container_size = u64::from(*container_size);
+                for edit in &edits {
+                    new_container_size = (new_container_size + edit.bytes.len() as u64)
+                        .checked_sub(edit.end - edit.start)
+                        .ok_or("the changes to the file do not fit its container")?;
+                }
+                let new_container_size = u32::try_from(new_container_size)
+                    .map_err(|_| "the file would be larger than its container format allows")?;
+                let mut splices = vec![Splice {
+                    start: 4,
+                    end: 8,
+                    bytes: number(new_container_size).to_vec(),
+                }];
+                splices.extend(edits);
+                Ok(splices)
             }
         }
     }
@@ -366,7 +465,7 @@ impl Document {
     /// Every item of the tag, whole and in order.
     fn items(&self) -> Vec<Vec<u8>> {
         match self {
-            Self::Id3(file) => file.tag.frames().to_vec(),
+            Self::Id3(file) => file.items(),
             Self::Mp4(file) => file.items().to_vec(),
             Self::Flac(file) => file.items(),
         }
@@ -375,7 +474,7 @@ impl Document {
     /// The index among [`Document::items`] of the item `field` names.
     fn position(&self, field: &str) -> Result<Option<usize>, ErrorSource> {
         match self {
-            Self::Id3(file) => Ok(file.tag.position(field)),
+            Self::Id3(file) => Ok(file.position(field)),
             Self::Mp4(file) => file.position(field),
             Self::Flac(file) => Ok(file.position(field)),
         }
@@ -383,7 +482,7 @@ impl Document {
 
     fn raw(&self, field: &str) -> Result<Option<Vec<u8>>, ErrorSource> {
         Ok(match self {
-            Self::Id3(file) => file.tag.raw(field).map(<[u8]>::to_vec),
+            Self::Id3(file) => file.raw(field),
             Self::Mp4(file) => file.raw(field)?.map(<[u8]>::to_vec),
             Self::Flac(file) => file.raw(field).map(<[u8]>::to_vec),
         })
@@ -391,7 +490,7 @@ impl Document {
 
     fn get(&self, field: &str) -> Result<Option<String>, ErrorSource> {
         match self {
-            Self::Id3(file) => file.tag.get(field),
+            Self::Id3(file) => file.get(field),
             Self::Mp4(file) => file.get(field),
             Self::Flac(file) => Ok(file.get(field)),
         }
@@ -399,7 +498,7 @@ impl Document {
 
     fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
         match self {
-            Self::Id3(file) => file.tag.set(field, value),
+            Self::Id3(file) => file.set(field, value),
             Self::Mp4(file) => file.set(field, value),
             Self::Flac(file) => {
                 file.set(field, value);
@@ -410,7 +509,7 @@ impl Document {
 
     fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
         match self {
-            Self::Id3(file) => file.tag.restore(field, raw),
+            Self::Id3(file) => file.restore(field, raw),
             Self::Mp4(file) => file.restore(field, raw),
             Self::Flac(file) => file.restore(field, raw),
         }
@@ -498,6 +597,12 @@ impl TagFile {
             .map_err(|source| self.read_error(source))
     }
 
+    /// Whether the file is a WAV file, with an `INFO` list or a place for
+    /// one.
+    pub(super) fn has_info_list(&self) -> bool {
+        matches!(&self.document, Document::Id3(file) if file.info.is_some())
+    }
+
     /// The length of the area the tag occupies in the file.
     pub(super) fn tag_length(&self) -> u64 {
         self.document.tag_length()
@@ -527,7 +632,9 @@ impl TagFile {
 
     fn touch(&mut self, field: &str) -> Result<(), ErrorSource> {
         if !self.touched.iter().any(|(touched, _)| touched == field) {
-            let position = self.document.position(field)?;
+            // The position among the items as loaded, which the items as
+            // changed so far no longer give once a field was removed.
+            let position = self.loaded.position(field)?;
             self.touched.push((field.to_string(), position));
         }
         Ok(())

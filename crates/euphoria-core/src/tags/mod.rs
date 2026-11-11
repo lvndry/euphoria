@@ -15,6 +15,7 @@ mod mp4;
 mod native;
 mod preset;
 mod replace;
+mod riff_info;
 
 use std::path::{Path, PathBuf};
 
@@ -81,7 +82,7 @@ impl TagFormat {
 
     fn comment_fields(self) -> &'static [&'static str] {
         match self {
-            TagFormat::Id3v2 => &[ID3_COMMENT],
+            TagFormat::Id3v2 => &[ID3_COMMENT, riff_info::COMMENT],
             TagFormat::Mp4 => &["©cmt"],
             TagFormat::VorbisComments => &["COMMENT", "DESCRIPTION"],
         }
@@ -403,10 +404,22 @@ pub fn plan_write(
         LabelPlacement::None => None,
     };
     let label = label::label_text(values.key, values.energy, options.key_notation);
-    if let (Some(field), Some(label)) = (label_field, label) {
+    let at_end = options.label == LabelPlacement::CommentEnd;
+    // In a WAV file the label also goes into the comment of the RIFF INFO
+    // list, which is where rekordbox reads a WAV file's comment.
+    let in_info_list = matches!(
+        options.label,
+        LabelPlacement::CommentStart | LabelPlacement::CommentEnd
+    ) && file.has_info_list();
+    let label_fields = label_field
+        .into_iter()
+        .chain(in_info_list.then_some(riff_info::COMMENT));
+    for field in label_fields {
+        let Some(label) = &label else {
+            break;
+        };
         let current = file.get(field)?;
-        let at_end = options.label == LabelPlacement::CommentEnd;
-        let new = label::with_label(&label, current.as_deref(), at_end);
+        let new = label::with_label(label, current.as_deref(), at_end);
         if current.as_deref() != Some(new.as_str()) {
             changes.push(FieldChange {
                 field: field.to_string(),

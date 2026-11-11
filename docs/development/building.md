@@ -97,10 +97,11 @@ Tracks are matched by file name, so the export may list them anywhere. A name li
 
 ## rekordbox test kit
 
-`bench/rekordbox_test_kit.py` builds a folder for checking by hand which tags and rekordbox XML values rekordbox reads, the questions [use Euphoria with your DJ program](../guides/dj-programs.md#rekordbox) leaves open. It cuts twelve 30 second clips from the benchmark previews, tags each in one variant (key field name per format, key notation, tempo with and without decimals, comment), writes a rekordbox XML file covering three of them, and a checklist with tables to fill in. It needs [uv](https://docs.astral.sh/uv/) and ffmpeg:
+`bench/rekordbox_test_kit.py` builds a folder for checking by hand which tags and rekordbox XML values rekordbox reads, the questions [use Euphoria with your DJ program](../guides/dj-programs.md#rekordbox) leaves open. It cuts thirteen 30 second clips from the benchmark previews, tags each in one variant (key field name per format, key notation, tempo with and without decimals, comment), writes a rekordbox XML file covering three of them, and a checklist with tables to fill in. One WAV clip is tagged by `euphoria tags write` itself, with the rekordbox preset, to check that rekordbox shows the label Euphoria writes into the RIFF INFO comment; the script uses the release build, or the binary given with `--euphoria`. It needs [uv](https://docs.astral.sh/uv/) and ffmpeg:
 
 ```
 ./bench/download_datasets.sh
+cargo build --release -p euphoria-cli
 uv run bench/rekordbox_test_kit.py --clips bench/data/key/audio --output /tmp/euphoria-kit
 ```
 
