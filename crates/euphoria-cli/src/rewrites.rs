@@ -34,7 +34,7 @@ fn open_existing<T>(
 pub struct RewriteIdentities {
     playlists: Option<PlaylistStore>,
     cache: Option<Cache>,
-    before: HashMap<PathBuf, (ContentHash, bool)>,
+    before: HashMap<PathBuf, ContentHash>,
     playlist_failures: Vec<String>,
     correction_failures: Vec<String>,
     changed: bool,
@@ -77,34 +77,21 @@ impl RewriteIdentities {
     pub fn observe(&mut self, path: &Path, stage: RewriteStage) {
         match stage {
             RewriteStage::Before => {
-                // An empty corrections table makes this a cheap lookup. In
-                // particular, do not hash every file just because a cache exists.
-                let has_correction = match self
-                    .cache
-                    .as_ref()
-                    .map(|cache| cache.verified_correction_for(path))
-                {
-                    Some(Ok(correction)) => correction.is_some(),
-                    Some(Err(error)) => {
-                        self.correction_failures.push(error.chain());
-                        false
-                    }
-                    None => false,
-                };
-                if self.playlists.is_none() && !has_correction {
+                // A correction can be added while the replacement is prepared,
+                // so retain the old identity even if no correction exists yet.
+                if self.playlists.is_none() && self.cache.is_none() {
                     return;
                 }
                 match ContentHash::of_file(path) {
                     Ok(hash) => {
-                        self.before
-                            .insert(path.to_path_buf(), (hash, has_correction));
+                        self.before.insert(path.to_path_buf(), hash);
                     }
                     Err(error) => {
                         let message = format!("{}: {error}", path.display());
                         if self.playlists.is_some() {
                             self.playlist_failures.push(message.clone());
                         }
-                        if has_correction {
+                        if self.cache.is_some() {
                             self.correction_failures.push(message);
                         }
                     }
@@ -112,7 +99,7 @@ impl RewriteIdentities {
             }
             RewriteStage::After => {
                 self.changed = true;
-                let Some((before, has_correction)) = self.before.remove(path) else {
+                let Some(before) = self.before.remove(path) else {
                     return;
                 };
                 let after = match ContentHash::of_file(path) {
@@ -122,7 +109,7 @@ impl RewriteIdentities {
                         if self.playlists.is_some() {
                             self.playlist_failures.push(message.clone());
                         }
-                        if has_correction {
+                        if self.cache.is_some() {
                             self.correction_failures.push(message);
                         }
                         return;
@@ -133,8 +120,7 @@ impl RewriteIdentities {
                 {
                     self.playlist_failures.push(error.chain());
                 }
-                if has_correction
-                    && let Some(cache) = &mut self.cache
+                if let Some(cache) = &mut self.cache
                     && let Err(error) = cache.carry_rewritten_correction(before, after)
                 {
                     self.correction_failures.push(error.chain());
@@ -182,5 +168,59 @@ impl RewriteIdentities {
             )?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_correction_created_during_the_rewrite_follows_the_committed_content() {
+        struct Folder(PathBuf);
+        impl Drop for Folder {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = Folder(std::env::temp_dir().join(format!(
+            "euphoria-cli-rewrite-{}-{unique}",
+            std::process::id()
+        )));
+        std::fs::create_dir(&folder.0).unwrap();
+        let track = folder.0.join("track.mp3");
+        let database = folder.0.join("cache.sqlite3");
+        std::fs::write(&track, b"audio with original tags").unwrap();
+        let mut observer = RewriteIdentities {
+            playlists: None,
+            cache: Some(Cache::open(&database).unwrap()),
+            before: HashMap::new(),
+            playlist_failures: Vec::new(),
+            correction_failures: Vec::new(),
+            changed: false,
+        };
+        observer.observe(&track, RewriteStage::Before);
+        let correction = euphoria_core::Correction::of_key(euphoria_core::Key::new(
+            4,
+            euphoria_core::Mode::Minor,
+        ));
+        Cache::open(&database)
+            .unwrap()
+            .set_correction(&track, &correction)
+            .unwrap();
+        std::fs::write(&track, b"audio with rewritten tags").unwrap();
+        observer.observe(&track, RewriteStage::After);
+        assert_eq!(
+            Cache::open(&database)
+                .unwrap()
+                .verified_correction_for(&track)
+                .unwrap(),
+            Some(correction)
+        );
+        assert!(observer.correction_failures.is_empty());
     }
 }
