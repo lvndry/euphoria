@@ -76,12 +76,13 @@ use crate::detect::KeySection;
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
+use crate::quality::QualityReport;
 use identity::FileStamp;
 
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 4] = [
+const MIGRATIONS: [&str; 5] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -109,6 +110,9 @@ const MIGRATIONS: [&str; 4] = [
     ALTER TABLE analyses ADD COLUMN key_score_margin REAL;
     ALTER TABLE analyses ADD COLUMN tempo_estimate REAL;
     ALTER TABLE analyses ADD COLUMN tempo_score_margin REAL;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN quality TEXT;
 ",
 ];
 
@@ -144,6 +148,9 @@ enum Schema {
 /// in a range and `tempo_score_margin` what its confidence is based on.
 /// Confidence levels and the reported tempo are worked out from these when
 /// they are read, so neither the band edges nor the tempo range are stored.
+/// `quality` holds the quality report as JSON, with the field names of
+/// [`QualityReport`](crate::quality::QualityReport); rows stored before it
+/// existed hold null.
 #[derive(Debug)]
 pub struct Cache {
     connection: Connection,
@@ -254,7 +261,7 @@ impl Cache {
             "SELECT content_hash, duration_seconds, key, bpm,
                     last_known_path, file_size, modified_at, energy,
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
-                    tempo_estimate, tempo_score_margin
+                    tempo_estimate, tempo_score_margin, quality
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -276,6 +283,7 @@ impl Cache {
                     key_score_margin: row.get(11)?,
                     tempo_estimate: tempo_in_column(row, 12)?,
                     tempo_score_margin: row.get(13)?,
+                    quality: quality_in_column(row, 14)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -329,9 +337,9 @@ impl Cache {
                      content_hash, duration_seconds, key, bpm, analyzer_version,
                      analyzed_at, last_known_path, file_size, modified_at,
                      energy, energy_model_version, tuning_cents, key_timeline,
-                     key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin
+                     key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17)",
+                           ?14, ?15, ?16, ?17, ?18)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -350,6 +358,7 @@ impl Cache {
                     analysis.key_score_margin,
                     analysis.tempo_estimate,
                     analysis.tempo_score_margin,
+                    quality_text(analysis.quality.as_ref()),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -519,6 +528,20 @@ fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>
                 format!("energy rating {stored} is not between 1 and 10").into(),
             )
         })
+}
+
+/// The stored form of a quality report, or `None` when there is none.
+fn quality_text(quality: Option<&QualityReport>) -> Option<String> {
+    quality.and_then(|report| serde_json::to_string(report).ok())
+}
+
+fn quality_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<QualityReport>> {
+    let Some(stored) = row.get::<_, Option<String>>(column)? else {
+        return Ok(None);
+    };
+    serde_json::from_str(&stored).map(Some).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(column, Type::Text, Box::new(error))
+    })
 }
 
 /// The stored form of a key timeline, or `None` for an empty one.
@@ -759,6 +782,19 @@ mod tests {
                     key: "A major".parse().unwrap(),
                 },
             ],
+            quality: Some(QualityReport {
+                codec: "aac".to_string(),
+                lossless: false,
+                bitrate_kbps: Some(256),
+                sample_rate: 44_100,
+                bit_depth: None,
+                channels: Some(2),
+                cutoff_hz: Some(16_451.17),
+                clipped_share: 0.000_123_4,
+                integrated_loudness_lufs: Some(-8.75),
+                true_peak_dbtp: Some(1.04),
+                verdict: crate::quality::QualityVerdict::LikelyReencoded,
+            }),
         };
 
         let mut cache = Cache::open(&database).unwrap();
@@ -810,7 +846,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -829,7 +865,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1002,7 +1038,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL)",
+                             NULL, NULL, ?4, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1025,7 +1061,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1051,7 +1087,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1060,6 +1096,24 @@ mod tests {
 
             assert!(description.contains("key timeline"), "{description}");
         }
+    }
+
+    #[test]
+    fn a_damaged_quality_report_is_an_error_and_not_a_panic() {
+        let folder = TemporaryFolder::new();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}')",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+
+        let description = cache.snapshot().unwrap_err().chain();
+
+        assert!(description.contains("expected a string"), "{description}");
     }
 
     #[test]
@@ -1175,6 +1229,7 @@ mod tests {
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                 },
                 location: FileLocation {
                     absolute_path: track.to_path_buf(),

@@ -86,6 +86,7 @@ fn rated(key_score_margin: f32, tempo_estimate: f32, tempo_score_margin: f32) ->
         energy: Some(6),
         tuning_cents: None,
         key_timeline: Vec::new(),
+        quality: None,
         key_runner_up: Some("C major".parse().expect("a key name")),
         key_score_margin: Some(key_score_margin),
         tempo_estimate: Some(tempo_estimate),

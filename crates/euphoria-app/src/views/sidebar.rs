@@ -45,6 +45,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
 
     let all_tracks_is_current = app.filter == LibraryFilter::AllTracks && app.folder.is_none();
     let needs_review_is_current = app.filter == LibraryFilter::NeedsReview;
+    let quality_is_current = app.filter == LibraryFilter::QualityToCheck;
 
     div()
         .flex()
@@ -87,6 +88,21 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 row.hover(move |style| style.bg(hover_background.opacity(0.6)))
             })
             .on_click(cx.listener(|this, _, _, cx| this.show_tracks_needing_review(cx)))
+            .test_support(),
+        )
+        .child(
+            row(
+                "Quality to check",
+                Some(counts.quality_to_check),
+                quality_is_current,
+                &palette,
+            )
+            .id("quality-to-check")
+            .cursor_pointer()
+            .when(!quality_is_current, |row| {
+                row.hover(move |style| style.bg(hover_background.opacity(0.6)))
+            })
+            .on_click(cx.listener(|this, _, _, cx| this.show_tracks_with_quality_to_check(cx)))
             .test_support(),
         )
         .child(

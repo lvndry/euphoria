@@ -10,6 +10,7 @@ mod confidence;
 mod dataset;
 mod energy;
 mod evaluate;
+mod quality;
 mod rekordbox;
 mod render;
 mod scoring;
@@ -24,10 +25,12 @@ use euphoria_core::detect::{
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
+/// The first argument that selects the audio quality measurement.
+const QUALITY_MODE: &str = "quality";
 
 /// The first argument that scores a rekordbox collection export.
 const REKORDBOX_MODE: &str = "rekordbox";
@@ -137,6 +140,10 @@ fn main() -> Result<()> {
     if command_line.peek().map(String::as_str) == Some(ENERGY_MODE) {
         let arguments = energy::parse_arguments(command_line.skip(1))?;
         return energy::run(&arguments);
+    }
+    if command_line.peek().map(String::as_str) == Some(QUALITY_MODE) {
+        let arguments = quality::parse_arguments(command_line.skip(1))?;
+        return quality::run(&arguments);
     }
     if command_line.peek().map(String::as_str) == Some(REKORDBOX_MODE) {
         let arguments = rekordbox::parse_arguments(command_line.skip(1))?;

@@ -18,6 +18,7 @@ Available now:
 - Key detection, shown in Camelot (8A) and musical (A minor) notation
 - Tempo detection in BPM
 - Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
+- [Audio quality](docs/concepts/audio-quality.md) for DJ use: codec, real bit rate, where the content stops, and files that were likely re-encoded from a lower quality source
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, and `euphoria tags undo`, which puts the old tags back byte for byte
@@ -56,6 +57,7 @@ The full documentation is in [docs](docs/index.md):
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
 - [Accuracy](docs/concepts/accuracy.md)
+- [Audio quality](docs/concepts/audio-quality.md)
 - [Command line reference](docs/reference/cli.md)
 - [Development](docs/development/index.md) and [contributing](CONTRIBUTING.md)
 

@@ -225,6 +225,7 @@ mod tests {
                         key: crate::Key::new((checksum % 12) as u8, crate::Mode::Major),
                     },
                 ],
+                quality: None,
             })
         }
 

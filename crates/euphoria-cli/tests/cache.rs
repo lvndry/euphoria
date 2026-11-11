@@ -104,7 +104,7 @@ fn a_renamed_and_moved_file_comes_from_the_cache() {
     assert_success(&second_run);
     assert_eq!(
         standard_error(&second_run),
-        "1 of 1 track came from the cache.\n"
+        "Quality: 1 lossless.\n1 of 1 track came from the cache.\n"
     );
     assert!(String::from_utf8_lossy(&second_run.stdout).contains("renamed.flac"));
 }
@@ -197,7 +197,7 @@ fn a_damaged_cache_is_a_warning_and_the_files_are_still_analyzed() {
     assert_success(&euphoria.run(&["cache", "clear"]));
     let after_clearing = euphoria.run(&["analyze", text(&fixture)]);
     assert_success(&after_clearing);
-    assert_eq!(standard_error(&after_clearing), "");
+    assert_eq!(standard_error(&after_clearing), "Quality: 1 lossless.\n");
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
     let schema_version: u32 = upgraded
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(schema_version, 4);
+    assert_eq!(schema_version, 5);
     let old_rows: u32 = upgraded
         .query_row(
             "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
@@ -314,7 +314,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
         .query_row(
             "SELECT COUNT(*) FROM analyses
              WHERE key_runner_up IS NOT NULL AND key_score_margin IS NOT NULL
-               AND tempo_estimate IS NOT NULL AND tempo_score_margin IS NOT NULL",
+               AND tempo_estimate IS NOT NULL AND tempo_score_margin IS NOT NULL AND quality IS NOT NULL",
             [],
             |row| row.get(0),
         )
@@ -432,4 +432,37 @@ fn cache_clear_without_a_cache_says_so_and_creates_none() {
     assert_success(&cleared);
     assert!(String::from_utf8_lossy(&cleared.stdout).starts_with("There is no cache at "));
     assert!(!euphoria.cache_path().exists());
+}
+
+#[test]
+fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
+    let euphoria = Euphoria::new();
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let arguments = ["analyze", "--json", text(&fixture)];
+    assert_success(&euphoria.run(&arguments));
+    let connection = rusqlite::Connection::open(euphoria.cache_path()).expect("the cache opens");
+    connection
+        .execute_batch(
+            "ALTER TABLE analyses DROP COLUMN quality;
+         PRAGMA user_version = 4;
+         UPDATE analyses SET analyzer_version = '6+libkeyfinder';",
+        )
+        .expect("the confidence-only cache is restored");
+    drop(connection);
+
+    let upgraded = euphoria.run(&arguments);
+    assert_success(&upgraded);
+    assert_eq!(standard_error(&upgraded), "");
+    let tracks: serde_json::Value = serde_json::from_slice(&upgraded.stdout).expect("JSON output");
+    assert_eq!(tracks[0]["quality"]["verdict"], "lossless");
+    assert!(tracks[0]["key"]["confidence"].is_string());
+    let next = euphoria.run(&arguments);
+    assert_success(&next);
+    assert_eq!(standard_error(&next), "1 of 1 track came from the cache.\n");
+    assert_eq!(next.stdout, upgraded.stdout);
+    let connection = rusqlite::Connection::open(euphoria.cache_path()).expect("the cache opens");
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("a schema version");
+    assert_eq!(version, 5);
 }

@@ -83,6 +83,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 key_timeline: Vec::new(),
+                quality: None,
             };
             let outcome = if next(150) == 0 {
                 Err(format!(
