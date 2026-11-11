@@ -475,6 +475,23 @@ fn setup_header_sharing_a_page_with_audio_is_refused() {
 }
 
 #[test]
+fn empty_packet_sharing_a_page_with_the_setup_header_is_refused() {
+    let comment = comment_header("shared-empty", &[b"TITLE=Shared"], b"");
+    let file = ogg_file(&comment, 255, false);
+    let all = pages(&file);
+    let mut bytes = all[0].bytes.clone();
+    let mut lacing = all[1].lacing.clone();
+    // An empty packet takes a lacing value but no data bytes. It must not
+    // bypass the same-page audio guard or make previewing the write panic.
+    lacing.push(0);
+    bytes.extend(page_bytes(0, 0, 1, &lacing, &all[1].data));
+    for page in &all[2..] {
+        bytes.extend(&page.bytes);
+    }
+    assert_refused("shared-empty-packet", &bytes, "shares a page");
+}
+
+#[test]
 fn stream_that_is_not_vorbis_is_not_read() {
     let mut opus_head = b"OpusHead".to_vec();
     opus_head.extend([1, 1, 0x38, 0x01, 0x80, 0xBB, 0, 0, 0, 0, 0]);
