@@ -66,7 +66,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use rusqlite::types::Type;
 use rusqlite::{Connection, ErrorCode, Row, TransactionBehavior, params};
 
-pub use batch::{CachePolicy, CachedBatch, analyze_files_cached};
+pub use batch::{CachePolicy, CachedBatch, analyze_files_cached, analyze_files_cached_observed};
 pub use identity::ContentHash;
 pub(crate) use location::default_data_directory;
 pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
@@ -167,7 +167,7 @@ enum Schema {
 /// Confidence levels and the reported tempo are worked out from these when
 /// they are read, so neither the band edges nor the tempo range are stored.
 /// `quality` holds the quality report as JSON, with the field names of
-/// [`QualityReport`](crate::quality::QualityReport); rows stored before it
+/// [`QualityReport`]; rows stored before it
 /// existed hold null.
 #[derive(Debug)]
 pub struct Cache {

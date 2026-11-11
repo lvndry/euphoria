@@ -19,7 +19,7 @@ It is an open alternative to paid harmonic mixing tools such as Mixed In Key.
 - Exports keys, tempos, energy ratings and a playlist per folder to rekordbox, with `euphoria export rekordbox`.
 - Writes key, tempo and energy into the tags of your files, with `euphoria tags write`. Every change is shown first, nothing else in the file changes, and `euphoria tags undo` puts the old tags back.
 - Reads MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF.
-- Shows your library in a desktop app with a sortable track table, waveforms and suggestions for tracks that mix together. The app is an early version that runs from source on macOS.
+- Shows your library in a desktop app with a sortable track table, waveforms and suggestions for tracks that mix together. The app is [downloadable for macOS](getting-started/installation.md#download-for-macos).
 
 Exports for other DJ software are in development.
 

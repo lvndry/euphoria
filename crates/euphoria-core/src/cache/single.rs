@@ -83,6 +83,19 @@ impl CachedAnalyzer {
             .record_retagged_file(path, analysis)
     }
 
+    /// [`Cache::carry_rewritten_correction`] on the cache this analyzer stores
+    /// into, including when no analysis is kept for either content.
+    pub fn carry_rewritten_correction(
+        &self,
+        before: ContentHash,
+        after: ContentHash,
+    ) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .carry_rewritten_correction(before, after)
+    }
+
     /// [`Cache::correction_for`] on the cache this analyzer stores into.
     pub fn correction_for(&self, path: &Path) -> Result<Option<Correction>, EuphoriaError> {
         self.cache

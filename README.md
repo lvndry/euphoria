@@ -23,23 +23,31 @@ Available now:
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, `euphoria tags set`, which edits title, artist, genre and other fields across many files with find and replace, and `euphoria tags undo`, which puts the old tags back byte for byte
 - MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF
-- An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
+- A desktop app for macOS, downloadable below: see the [desktop app guide](docs/guides/desktop-app.md)
 - Playlists built in the desktop app, with each set's key path, tempo range and energy flow at a glance, exported to rekordbox or as M3U8 for any other program
 
 In development: exports for Serato, Traktor and Engine DJ.
 
 ## Install
 
-On a Mac with Apple Silicon, [download Euphoria](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), open the disk image and drag Euphoria onto Applications. The first time, right click the app and choose Open: it is not notarized by Apple yet. Every release, with the command line tool, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or on Linux, see [installation](docs/getting-started/installation.md).
+On a Mac with Apple Silicon and macOS 15 or later:
+
+1. [Download Euphoria](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), the newest release.
+2. Open the disk image and drag Euphoria onto Applications.
+3. The first time, right click Euphoria in Applications and choose **Open**, because the app is not notarized by Apple yet. If macOS offers no **Open** button, choose **Done**, then **System Settings > Privacy & Security > Open Anyway**. After that it opens normally.
+
+Every release, with its notes and the command line tool, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or on Linux, see [installation](docs/getting-started/installation.md).
 
 ## Quick start
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key             BPM  Energy  Time  File
-8A   A minor  124.0       6  6:48  /Users/you/Music/DJ/Low Tide.flac
-9A   E minor  122.0       4  7:12  /Users/you/Music/DJ/Saffron.m4a
+Key                  BPM       Energy              Quality   Time  File
+ 8A  A minor  ●●●  124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
+ 9A  E minor  ●●○  122.0  ●●●       4  ━━━━──────  good      7:12  Saffron.m4a
 ```
+
+One file is shown in detail, with the runner up key, the half or double tempo and the reason for its sound quality: `euphoria analyze ~/Music/DJ/Saffron.m4a`.
 
 Bring the results into rekordbox:
 

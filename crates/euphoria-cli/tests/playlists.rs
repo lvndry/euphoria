@@ -219,3 +219,88 @@ fn a_file_replaced_at_its_path_by_other_audio_is_left_out_of_an_export() {
     assert!(!playlist.contains(text(&tracks[0])), "{playlist}");
     assert!(playlist.contains(text(&tracks[2])), "{playlist}");
 }
+
+#[test]
+fn tag_writes_and_undo_keep_saved_playlists_exportable_without_the_cache() {
+    for edits in [
+        vec!["tags", "write", "--yes", "--no-cache"],
+        vec!["tags", "set", "--field", "genre=Techno", "--yes"],
+    ] {
+        let euphoria = Euphoria::new();
+        let folder = TemporaryFolder::new();
+        let tracks = playlist_of_three(&euphoria, &folder);
+        let original: Vec<_> = tracks
+            .iter()
+            .map(|path| std::fs::read(path).unwrap())
+            .collect();
+        let mut arguments = edits.clone();
+        arguments.push(text(folder.path()));
+        assert_success(&euphoria.run(&arguments));
+
+        let check_export = |name: &str| {
+            let destination = folder.path().join(name);
+            let exported = euphoria.run(&[
+                "export",
+                "m3u8",
+                "--playlist",
+                "Peak time",
+                "-o",
+                text(&destination),
+                "--no-cache",
+            ]);
+            assert_success(&exported);
+            let contents = std::fs::read_to_string(destination).unwrap();
+            let paths: Vec<_> = contents
+                .lines()
+                .filter(|line| !line.starts_with('#') && !line.is_empty())
+                .collect();
+            assert_eq!(
+                paths,
+                [text(&tracks[2]), text(&tracks[0]), text(&tracks[1])],
+                "{edits:?}: {contents}"
+            );
+        };
+        check_export("written.m3u8");
+        assert_success(&euphoria.run(&["tags", "undo"]));
+        check_export("restored.m3u8");
+        for (path, bytes) in tracks.iter().zip(original) {
+            assert_eq!(std::fs::read(path).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
+fn a_failed_playlist_update_is_reported_only_when_tags_actually_changed() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = folder.path().join("track.flac");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.flac"), &track).unwrap();
+    let store = euphoria.data_directory().join("playlists.sqlite3");
+    std::fs::write(&store, b"not a database").unwrap();
+    let arguments = [
+        "tags",
+        "set",
+        "--field",
+        "genre=Techno",
+        "--yes",
+        text(&track),
+    ];
+
+    let changed = euphoria.run(&arguments);
+    assert_success(&changed);
+    assert!(
+        standard_error(&changed)
+            .contains("warning: could not keep saved playlists in step with tag changes")
+    );
+    assert_eq!(
+        euphoria_core::tags::read_editable_tags(&track)
+            .unwrap()
+            .get(euphoria_core::tags::TagField::Genre),
+        Some("Techno")
+    );
+    assert_eq!(std::fs::read(&store).unwrap(), b"not a database");
+
+    let unchanged = euphoria.run(&arguments);
+    assert_success(&unchanged);
+    assert!(!standard_error(&unchanged).contains("saved playlists"));
+}

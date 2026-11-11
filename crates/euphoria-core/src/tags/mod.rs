@@ -1,10 +1,10 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Tags are changed in three steps. [`plan_write`] computes the changes
-//! without touching the file, so they can be shown first. [`apply_plan`]
-//! writes them and returns a [`TagBackup`] of the values it replaced.
-//! [`undo`] puts those values back. [`WriteLog`] keeps the backups of a
+//! Tags are changed in three steps. [`crate::tags::plan_write`] computes the changes
+//! without touching the file, so they can be shown first. [`crate::tags::apply_plan`]
+//! writes them and returns a [`crate::tags::TagBackup`] of the values it replaced.
+//! [`crate::tags::undo`] puts those values back. [`crate::tags::WriteLog`] keeps the backups of a
 //! write on disk, so the write can be undone later by another run.
 
 mod edit;
@@ -30,7 +30,8 @@ use crate::error::EuphoriaError;
 use crate::key::Key;
 pub use edit::{EditableTags, FieldEdit, TagField, TextChange, plan_edit, read_editable_tags};
 pub use history::{
-    LoggedWrite, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+    LoggedWrite, RewriteStage, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+    undo_last_write_with_observer,
 };
 use id3v2::COMMENT as ID3_COMMENT;
 pub use label::LabelPlacement;
@@ -332,8 +333,8 @@ pub struct TagBackup {
 /// The file is only read.
 ///
 /// `values` is a [`TagValues`], or a reference to a
-/// [`TrackAnalysis`](crate::TrackAnalysis) or to a detector's
-/// [`Analysis`](crate::detect::Analysis).
+/// [`TrackAnalysis`] or to a detector's
+/// [`Analysis`].
 pub fn plan_write(
     path: &Path,
     values: impl Into<TagValues>,
@@ -460,6 +461,13 @@ pub fn plan_write(
 /// Fails with [`EuphoriaError::TagConflict`], writing nothing, when a field
 /// no longer holds what the plan was made from.
 pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
+    apply_plan_observing(plan, || {})
+}
+
+pub(super) fn apply_plan_observing(
+    plan: &WritePlan,
+    after: impl FnMut(),
+) -> Result<TagBackup, EuphoriaError> {
     let backup = plan.backup();
     if plan.is_empty() {
         return Ok(backup);
@@ -478,7 +486,7 @@ pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
             None => file.remove(&change.field)?,
         }
     }
-    file.save()?;
+    file.save_with_observer(after)?;
     Ok(backup)
 }
 
@@ -489,6 +497,10 @@ pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
 /// no longer holds the value the write left, so that a later edit is not
 /// overwritten.
 pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
+    undo_observing(backup, || {})
+}
+
+pub(super) fn undo_observing(backup: &TagBackup, after: impl FnMut()) -> Result<(), EuphoriaError> {
     if backup.fields.is_empty() {
         return Ok(());
     }
@@ -506,7 +518,7 @@ pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
             (None, None) => file.restore(&field.field, None)?,
         }
     }
-    file.save()
+    file.save_with_observer(after)
 }
 
 fn conflict(path: &Path, field: &str) -> EuphoriaError {

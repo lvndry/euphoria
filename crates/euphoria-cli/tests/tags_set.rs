@@ -269,3 +269,33 @@ fn mistakes_in_the_arguments_are_explained() {
         standard_error(&tempo)
     );
 }
+
+#[test]
+fn set_uses_the_same_coloured_preview_and_refusal_as_analysis_tag_writes() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let files = tagged_copies(&folder);
+    let original = std::fs::read(&files[0]).unwrap();
+    let output = euphoria.run(&[
+        "--color",
+        "always",
+        "tags",
+        "set",
+        "--field",
+        "genre=Techno",
+        text(&files[0]),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        output.stdout.contains(&0x1b),
+        "the preview honours --color always"
+    );
+    let message = standard_error(&output);
+    assert!(message.contains("\u{1b}[1;31merror:"), "{message:?}");
+    assert!(message.contains("\u{1b}[1;36mhint:"), "{message:?}");
+    assert!(
+        message.contains("standard input is not a terminal"),
+        "{message}"
+    );
+    assert_eq!(std::fs::read(&files[0]).unwrap(), original);
+}

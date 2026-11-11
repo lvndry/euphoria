@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Runs an analysis batch for a command: the cache options, the workers, the
-//! progress bar and the warning when the cache cannot be used.
+//! progress shown on a terminal and the warning when the cache cannot be
+//! used.
 
 use std::io::IsTerminal;
 use std::num::NonZeroUsize;
@@ -11,12 +12,14 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use euphoria_core::{
-    Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, TempoRange, analyze_files,
-    analyze_files_cached, default_cache_path,
+    AnalysisObserver, Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, TempoRange,
+    Unobserved, analyze_files_cached_observed, analyze_files_observed, default_cache_path,
 };
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 
 use crate::output;
+use crate::stages::StageLines;
+use crate::style::Theme;
 
 /// A worker peaks near 0.6 GB on a seven minute track, and 8 workers on full
 /// length tracks peaked between 4.8 and 6.2 GB in total, which leaves
@@ -51,10 +54,23 @@ impl AnalysisOptions {
     }
 }
 
-/// Analyzes `audio_files` as the options ask, showing a progress bar on a
-/// terminal. A cache that cannot be used is a warning on standard error, and
-/// the files are analyzed without it.
+/// Analyzes `audio_files` as the options ask, showing progress on standard
+/// error when it is a terminal: a line per file with the stage it is in,
+/// under a bar that counts files when there is more than one. A cache that
+/// cannot be used is a warning on standard error, and the files are
+/// analyzed without it.
 pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<CachedBatch> {
+    let batch = analyze_in_default_range(audio_files, options)?;
+    Ok(in_tempo_range(batch, options.tempo_range))
+}
+
+/// Runs the same batch while retaining the detected analysis in the default
+/// range. Tag writers keep this copy for the cache, since projecting a grid
+/// into shorter bars can discard its original downbeat phase.
+pub fn analyze_in_default_range(
+    audio_files: &[PathBuf],
+    options: &AnalysisOptions,
+) -> Result<CachedBatch> {
     let policy = if options.no_cache {
         None
     } else if options.reanalyze {
@@ -67,7 +83,11 @@ pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<Cac
         Some(policy) => match open_cache() {
             Ok(cache) => Some((cache, policy)),
             Err(error) => {
-                output::write_cache_warning(&mut std::io::stderr().lock(), &error)?;
+                output::write_cache_warning(
+                    &mut std::io::stderr().lock(),
+                    &Theme::stderr(),
+                    &error,
+                )?;
                 None
             }
         },
@@ -82,33 +102,89 @@ pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<Cac
         .build()
         .context("starting the analysis workers")?;
 
-    let progress_bar = progress_bar(audio_files.len());
-    let on_progress = |progress: Progress<'_>| {
-        progress_bar.set_position(progress.completed as u64);
+    let is_terminal = std::io::stderr().is_terminal();
+    let progress = if is_terminal {
+        MultiProgress::new()
+    } else {
+        MultiProgress::with_draw_target(ProgressDrawTarget::hidden())
+    };
+    let count_bar = if is_terminal && audio_files.len() > 1 {
+        let count_bar = progress.add(count_bar(audio_files.len()));
+        count_bar.enable_steady_tick(std::time::Duration::from_millis(250));
+        count_bar
+    } else {
+        ProgressBar::hidden()
+    };
+    let stage_lines = is_terminal.then(|| StageLines::new(progress.clone(), audio_files.len() > 1));
+    #[cfg(debug_assertions)]
+    let _debug_hint = is_terminal.then(|| crate::stages::DebugBuildHint::start(progress.clone()));
+
+    let batch = match &stage_lines {
+        Some(stage_lines) => run(
+            &thread_pool,
+            &mut cache,
+            audio_files,
+            stage_lines,
+            &count_bar,
+            &progress,
+            |path| stage_lines.finish(path),
+        )?,
+        None => run(
+            &thread_pool,
+            &mut cache,
+            audio_files,
+            &Unobserved,
+            &count_bar,
+            &progress,
+            |_| {},
+        )?,
+    };
+    count_bar.finish_and_clear();
+    let _ = progress.clear();
+    Ok(batch)
+}
+
+/// Runs the batch with `observer` watching each file, with the cache when
+/// there is one, and without it when it cannot be used.
+fn run(
+    thread_pool: &rayon::ThreadPool,
+    cache: &mut Option<(Cache, CachePolicy)>,
+    audio_files: &[PathBuf],
+    observer: &impl AnalysisObserver,
+    count_bar: &ProgressBar,
+    progress: &MultiProgress,
+    on_file_done: impl Fn(&std::path::Path) + Sync,
+) -> Result<CachedBatch> {
+    let on_progress = |done: Progress<'_>| {
+        on_file_done(done.path);
+        count_bar.set_position(done.completed as u64);
     };
     let analyze_without_cache = || CachedBatch {
-        results: thread_pool.install(|| analyze_files(audio_files, on_progress)),
+        results: thread_pool.install(|| analyze_files_observed(audio_files, observer, on_progress)),
         cached_count: 0,
         store_error: None,
     };
-    let batch = match &mut cache {
+    Ok(match cache {
         None => analyze_without_cache(),
         Some((cache, policy)) => {
-            let cached_batch = thread_pool
-                .install(|| analyze_files_cached(cache, audio_files, *policy, on_progress));
+            let cached_batch = thread_pool.install(|| {
+                analyze_files_cached_observed(cache, audio_files, *policy, observer, on_progress)
+            });
             match cached_batch {
                 Ok(batch) => batch,
                 Err(error) => {
-                    progress_bar.suspend(|| {
-                        output::write_cache_warning(&mut std::io::stderr().lock(), &error)
+                    progress.suspend(|| {
+                        output::write_cache_warning(
+                            &mut std::io::stderr().lock(),
+                            &Theme::stderr(),
+                            &error,
+                        )
                     })?;
                     analyze_without_cache()
                 }
             }
         }
-    };
-    progress_bar.finish_and_clear();
-    Ok(in_tempo_range(batch, options.tempo_range))
+    })
 }
 
 /// The batch with every tempo reported in `range`.
@@ -248,13 +324,35 @@ fn default_job_count() -> usize {
         .min(DEFAULT_MAXIMUM_JOBS)
 }
 
-fn progress_bar(total: usize) -> ProgressBar {
-    if !std::io::stderr().is_terminal() {
-        return ProgressBar::hidden();
+/// The bar that counts finished files, to add to a `MultiProgress`.
+fn count_bar(total: usize) -> ProgressBar {
+    // Hidden until `MultiProgress::add` gives it the terminal, so that it
+    // never draws a line of its own.
+    let progress_bar =
+        ProgressBar::with_draw_target(Some(total as u64), ProgressDrawTarget::hidden());
+    if let Ok(style) = ProgressStyle::with_template(
+        "{prefix:.bold} {pos}/{len}  {bar:32.cyan/dim}  {elapsed} so far{left}",
+    ) {
+        progress_bar.set_style(
+            style
+                .progress_chars("━━─")
+                .with_key("left", write_time_left),
+        );
     }
-    let progress_bar = ProgressBar::new(total as u64);
-    if let Ok(style) = ProgressStyle::with_template("Analyzing {pos}/{len} {wide_bar} {eta} left") {
-        progress_bar.set_style(style);
-    }
+    progress_bar.set_prefix("Analyzing");
     progress_bar
+}
+
+/// Writes about how long is left, once enough files have finished for the
+/// estimate to mean something.
+fn write_time_left(state: &ProgressState, writer: &mut dyn std::fmt::Write) {
+    if state.pos() < 2 || state.pos() >= state.len().unwrap_or(0) {
+        return;
+    }
+    let seconds = state.eta().as_secs();
+    let _ = if seconds < 60 {
+        write!(writer, ", about {seconds}s left")
+    } else {
+        write!(writer, ", about {} min left", seconds.div_ceil(60))
+    };
 }

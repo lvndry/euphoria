@@ -23,8 +23,8 @@ Each excerpt is scored twice: with the tempo Euphoria reports, between 90 and 18
 
 | Tempo | Beat F-measure | Grid right | Downbeat right | Downbeat right when the grid is right |
 | --- | --- | --- | --- | --- |
-| As reported, between 90 and 180 BPM | 0.911 | 80.0% | 48.0% | 60.0% |
-| Octave taken from the annotation | 0.936 | 87.0% | 51.0% | 58.6% |
+| As reported, between 90 and 180 BPM | 0.911 | 80.0% | 50.0% | 62.5% |
+| Octave taken from the annotation | 0.936 | 87.0% | 53.0% | 60.9% |
 
 | Grid confidence, octave from the annotation | Excerpts | Grid right |
 | --- | --- | --- |
@@ -57,9 +57,23 @@ All on the development half:
 - **Downbeat.** Four cues are scored on each beat of the bar: the accent of the kick, snares and claps one and three beats later, the change of the overall sound, and the change of bass and chords. Weights of 0.5, 1, 1 and 1 picked the annotated downbeat for 59.6% of the development excerpts that have one and 60.6% of the held out ones; the first three cues with equal weights did so for 48%. The snare cue alone finds the right pair of beats, 1 and 3 against 2 and 4, for 76%; telling 1 from 3 is where most misses are.
 - **Confidence.** How far the onsets on the beats stand out from every other phase of the same tempo separates right grids from wrong ones with an area under the curve of 0.889, and how far the beats of 8 second stretches drift from the grid with 0.893. Low is below 6.5 or a drift above 35 ms, half the window in which a beat counts; high is from 9.5.
 
+## The line fit
+
+After the search, the period and phase are fitted to where the beats of each 8 second stretch fall, a line through their offsets from the grid. Before and after, on the same tracks:
+
+| | Before | After |
+| --- | --- | --- |
+| Four minute click track at 127.537 BPM, last beat off by | 15 ms | under 5 ms |
+| GiantSteps Key previews rated medium or high with a tempo within 0.01 BPM of a whole number | 72.7% | 91.9% |
+| GiantSteps Key previews rated high, medium, low | 210, 54, 340 | 239, 32, 333 |
+| GTZAN development half, downbeat right (tempo as reported, octave from the annotation) | 48%, 51% | 50%, 53% |
+| GTZAN held out half | | unchanged |
+
+On the previews, 35 grids were rated higher and one lower. None of the 604 grids ends within 0.1% of the edge of the 2% window around the detected tempo; the 5 that end more than 1.5% from it are all rated low, previews without a steady beat. The previews were measured with a script outside `euphoria-bench`.
+
 ## A check on dance music without beat labels
 
-The 661 GiantSteps Tempo previews have no beat positions, so they can only test whether the grid is consistent. These figures come from a script run once during development, not from `euphoria-bench`:
+The 661 GiantSteps Tempo previews have no beat positions, so they can only test whether the grid is consistent. These figures come from a script run once during development, not from `euphoria-bench`, before the line fit:
 
 - Fitted separately, the two halves of a preview agree within 1% on tempo and within 35 ms on where the beats fall for 77% of previews.
 - 86% of the grid tempos lie within 0.05 BPM of a whole number, as tempos set in production software do. On synthesized click tracks the grid finds the tempo within 0.011 BPM, also at 127.5 BPM and starting from an estimate 1 BPM off.

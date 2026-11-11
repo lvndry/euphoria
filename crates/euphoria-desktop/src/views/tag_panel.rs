@@ -89,6 +89,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
                     &palette,
                 ));
             }
+            if let Some(problem) = &report.metadata_problem {
+                contents.push(quiet(&format!("The tags changed, but saved playlists or manual corrections could not be updated: {problem}"), &palette));
+            }
             contents.push(buttons(vec![
                 secondary_button("Undo this write", &palette)
                     .id("undo-tag-write")
@@ -131,7 +134,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
                     if report.untouched > 0 {
                         contents.push(quiet(
                             &format!(
-                                "{} the write had not reached needed nothing.",
+                                "{} needed no restoration: the original tags were already in place.",
                                 counted(report.untouched, "file")
                             ),
                             &palette,
@@ -144,6 +147,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
                         &palette,
                         cx,
                     ));
+                    if let Some(problem) = &report.metadata_problem {
+                        contents.push(quiet(&format!("The tags were restored, but saved playlists or manual corrections could not be updated: {problem}"), &palette));
+                    }
                     contents
                 }
                 Err(reason) => vec![

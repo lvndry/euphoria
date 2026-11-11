@@ -55,6 +55,8 @@ impl Cache {
         path: &Path,
         correction: &Correction,
     ) -> Result<(), EuphoriaError> {
+        // Public fields also allow callers to bypass the constructors.
+        correction.with_bpm(correction.bpm)?;
         let content_hash = match self.recorded_content(path)? {
             Some(content_hash) => content_hash,
             None => ContentHash::of_file(path).map_err(unreadable(path))?,
@@ -161,7 +163,8 @@ impl Cache {
         &self,
         content_hash: &ContentHash,
     ) -> Result<Option<Correction>, EuphoriaError> {
-        self.connection
+        let correction: Option<Correction> = self
+            .connection
             .query_row(
                 "SELECT key, bpm FROM corrections WHERE content_hash = ?1",
                 params![content_hash.as_bytes()],
@@ -173,7 +176,10 @@ impl Cache {
                 },
             )
             .optional()
-            .map_err(cache_error(&self.path))
+            .map_err(cache_error(&self.path))?;
+        correction
+            .map(|value| value.with_bpm(value.bpm))
+            .transpose()
     }
 }
 
@@ -219,6 +225,37 @@ mod tests {
         Correction::of_key(Key::new(4, Mode::Minor))
             .with_bpm(Some(87.0))
             .unwrap()
+    }
+
+    #[test]
+    fn invalid_public_tempos_cannot_be_saved_or_read_from_the_cache() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("invalid-bpm.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        cache.set_correction(&track, &e_minor()).unwrap();
+        for bpm in [f32::NAN, f32::INFINITY, -1.0, 0.0, 1000.0] {
+            let invalid = Correction {
+                key: None,
+                bpm: Some(bpm),
+            };
+            assert!(matches!(
+                cache.set_correction(&track, &invalid),
+                Err(EuphoriaError::InvalidCorrection { .. })
+            ));
+            assert_eq!(
+                cache.verified_correction_for(&track).unwrap(),
+                Some(e_minor())
+            );
+        }
+        cache
+            .connection
+            .execute("UPDATE corrections SET bpm = -1", [])
+            .unwrap();
+        assert!(matches!(
+            cache.verified_correction_for(&track),
+            Err(EuphoriaError::InvalidCorrection { .. })
+        ));
     }
 
     #[test]

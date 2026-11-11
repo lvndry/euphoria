@@ -27,7 +27,7 @@ bench/              dataset download script, Essentia reference script, results
 | Module | Responsibility |
 | --- | --- |
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
-| `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. |
+| `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. The `_observed` variants also tell an `AnalysisObserver` the stage each file is in and how far decoding has come; the plain functions pass `Unobserved`, whose methods do nothing. |
 | `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and analyzes only the files it does not know, as a batch or one file at a time. |
 | `audio` | Decodes MP3, AAC and ALAC in MP4, FLAC, Ogg Vorbis, WAV and AIFF with Symphonia and mixes them to mono. |
 | `audio_stream` | Decodes the same formats a packet at a time with their channels kept, with seeking, for playback. |
@@ -54,7 +54,7 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 ## euphoria-cli
 
-Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a progress bar on a terminal, and formats the results as a table or JSON. `analyze` and `export` share that batch code in `batch.rs`. `export rekordbox` passes the results to `export::assemble_library` and `export::rekordbox::write_xml_file`. The crate contains no analysis or export logic.
+Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a line per file with its stage under a bar that counts files on a terminal (`stages.rs`), and formats the results: the table that fits the terminal and the detailed view (`view.rs`), the plain table and JSON for pipes, and every message in one `error:`, `warning:`, `hint:` shape (`output.rs`). `style.rs` decides when to colour, from `--color`, `NO_COLOR`, `CLICOLOR_FORCE` and whether the stream is a terminal. `analyze` and `export` share that batch code in `batch.rs`. `export rekordbox` passes the results to `export::assemble_library` and `export::rekordbox::write_xml_file`. The crate contains no analysis or export logic.
 
 ## euphoria (desktop)
 
