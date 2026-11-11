@@ -23,6 +23,9 @@ scores are averaged with weights, and the average is spread over the ratings.
 - Anchors are the 3rd and 97th percentile of each feature in the tuning file
   and in the spread file, taking the wider of the two, so that neither kind
   of music runs into an anchor.
+- Features with missing values in tuning or spread, or equal anchors, are
+  excluded. Reports omit tracks missing a selected feature, without using
+  held out values to choose the model.
 - Weights are a least squares fit of the reference on the scores of the
   tuning file, with every weight held at zero or above. That keeps the
   direction of every feature: louder and busier never rate lower.
@@ -64,26 +67,39 @@ def read_dump(path):
         columns[name] = numpy.array(
             [float(row[index]) if row[index] else numpy.nan for row in rows]
         )
+        if numpy.isinf(columns[name]).any():
+            raise ValueError(f"{path}: {name} contains an infinite value")
     return columns
 
 
 def choose_anchors(dumps, inputs):
     anchors = {}
     for name in inputs:
+        if any(name not in dump for dump in dumps):
+            raise ValueError(f"feature {name!r} is missing from a dump")
+        if any(not len(dump[name]) or not numpy.isfinite(dump[name]).all() for dump in dumps):
+            print(f"  skip {name}: missing values in tuning or spread")
+            continue
         lows, highs = [], []
         for dump in dumps:
-            values = dump[name][~numpy.isnan(dump[name])]
-            low, high = numpy.percentile(values, ANCHOR_PERCENTILES)
+            low, high = numpy.percentile(dump[name], ANCHOR_PERCENTILES)
             lows.append(low)
             highs.append(high)
         low, high = min(lows), max(highs)
+        if low == high:
+            print(f"  skip {name}: equal low and high anchors")
+            continue
         anchors[name] = (high, low) if name in FALLING_FEATURES else (low, high)
     return anchors
 
 
 def scores(dump, inputs, anchors):
+    if not inputs:
+        raise ValueError("no usable features selected; cannot fit an energy model")
     columns = []
     for name in inputs:
+        if name not in dump:
+            raise ValueError(f"feature {name!r} is missing from a dump")
         low, high = anchors[name]
         columns.append(numpy.clip((dump[name] - low) / (high - low), 0.0, 1.0))
     return numpy.column_stack(columns)
@@ -151,8 +167,19 @@ def select_inputs(tuning, candidates, anchors, folds):
 
 
 def report(label, dump, inputs, anchors, weights):
-    usable = ~numpy.isnan(dump["reference"])
-    estimate = combined(scores(dump, inputs, anchors), weights)[usable]
+    usable = numpy.isfinite(dump["reference"])
+    for name in inputs:
+        if name not in dump:
+            raise ValueError(f"{label}: feature {name!r} is missing from the dump")
+        usable &= numpy.isfinite(dump[name])
+    omitted = len(usable) - usable.sum()
+    if omitted:
+        print(f"{label}: omitted {omitted} tracks missing a reference or selected feature")
+    if not usable.any():
+        print(f"{label}: no usable labelled tracks")
+        return
+    selected = {name: values[usable] for name, values in dump.items()}
+    estimate = combined(scores(selected, inputs, anchors), weights)
     reference = dump["reference"][usable]
     print(
         f"{label}: correlation {correlation(estimate, reference):.3f}, "
@@ -170,10 +197,24 @@ def main():
     parser.add_argument("--features", help="comma separated candidates, default every feature")
     parser.add_argument("--force", help="comma separated features to use without selection")
     arguments = parser.parse_args()
+    try:
+        fit_model(arguments)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
 
+
+def fit_model(arguments):
     tuning = read_dump(arguments.tuning)
     held_out = read_dump(arguments.held_out)
     spread = read_dump(arguments.spread)
+    for label, dump in (("tuning", tuning), ("held out", held_out), ("spread", spread)):
+        if "reference" not in dump or not len(dump["reference"]):
+            raise ValueError(f"{label}: the dump must contain tracks and a reference column")
+    reference = tuning["reference"]
+    if len(reference) < FOLD_COUNT or not numpy.isfinite(reference).all():
+        raise ValueError(f"tuning needs at least {FOLD_COUNT} tracks with finite references")
+    if numpy.all(reference == reference[0]):
+        raise ValueError("tuning references must contain at least two different values")
     anchor_dumps = [tuning, spread]
     skipped = {"reference", "rating", "score"}
     candidates = (
@@ -182,6 +223,9 @@ def main():
         else [name for name in tuning if name not in skipped]
     )
     anchors = choose_anchors(anchor_dumps, candidates)
+    candidates = list(anchors)
+    if not candidates:
+        raise ValueError("no usable features: all candidates have missing values or equal anchors")
 
     random = numpy.random.default_rng(20261111)
     folds = random.permutation(len(tuning["reference"])) % FOLD_COUNT
@@ -193,6 +237,9 @@ def main():
 
     if arguments.force:
         inputs = arguments.force.split(",")
+        unavailable = [name for name in inputs if name not in anchors]
+        if unavailable:
+            raise ValueError(f"forced features are unavailable: {', '.join(unavailable)}")
         value = cross_validated_correlation(scores(tuning, inputs, anchors), tuning["reference"], folds)
         print(f"forced features, cross validated correlation {value:.3f}")
     else:
@@ -202,10 +249,14 @@ def main():
     weights = fit_weights(scores(tuning, inputs, anchors), tuning["reference"])
     inputs = [name for name, weight in zip(inputs, weights) if weight > 0]
     weights = weights[weights > 0]
+    if not len(weights) or not numpy.isfinite(weights).all() or weights.sum() <= 0:
+        raise ValueError("the fit has no positive feature weights; cannot build an energy model")
     weights = weights / weights.sum()
 
     spread_average = combined(scores(spread, inputs, anchors), weights)
     combined_low, combined_high = numpy.percentile(spread_average, SPREAD_PERCENTILES)
+    if not numpy.isfinite([combined_low, combined_high]).all() or combined_low >= combined_high:
+        raise ValueError("the spread data must produce distinct, finite model anchors")
     model = {
         "anchors": {
             name: {"low": float(anchors[name][0]), "high": float(anchors[name][1]), "weight": float(weight)}
