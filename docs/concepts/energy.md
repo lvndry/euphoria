@@ -61,20 +61,27 @@ The anchors were chosen so that the 604 dance music previews of the [GiantSteps 
 
 The weights reflect how much each feature can be trusted. Onset rate and spectral flux describe what happens in the music, so together they carry the most. Loudness matters, but it also reflects how a track was mastered, so it does not dominate. Loudness range rewards tracks that stay at full level. Low frequency share weighs little, because a deep, bass heavy warm up track is not an intense one. Tempo weighs little because tempo detection reports every tempo between 90 and 180 BPM, so a track slower or faster than that enters at double or half its tempo.
 
-## How well it works so far
+## How well it works
 
-The scale was checked against a sample of 60 full length tracks that a DJ had sorted into warm up, build, peak and closing folders, across five styles of house music. Rated the way `euphoria analyze` rated them, with the detected tempo, at a time when the tempo detector still reported some tracks at half their tempo:
+The rating was measured with [the energy benchmark](../development/building.md#energy-benchmark) against two references. Neither is ideal, and they disagree.
 
-| Folder | Average rating |
-| --- | --- |
-| Warm up | 4.5 |
-| Build | 5.4 |
-| Closing | 5.4 |
-| Peak | 5.8 |
+**Listeners.** The [DEAM](https://cvml.unige.ch/databases/DEAM/) dataset holds 1802 songs with the arousal, from calm to excited, that listeners gave each one. On 586 of them the rating puts 70.2% of song pairs in the order that listeners put them, where 50% is chance, and 72.8% among the 110 songs tagged as electronic. DEAM is rock, pop, folk, jazz, classical and electronic music, not dance music, and its listeners rated how excited the music sounds, not how it works on a dance floor.
 
-The average rises from warm up to peak, which is the direction a DJ expects. The steps are small, though, and single tracks often sit two or three points away from the average of their folder. The styles did not separate: tech house and deep house, for example, averaged about the same.
+**One DJ's folders.** In a library of 494 house tracks that their owner had sorted into warm up, build and peak folders, the average rating rises from 5.0 for warm up to 5.9 for build and 6.3 for peak. The direction is right, but the rating puts only 56.8% of track pairs from different folders in order. In those folders the stage follows the tempo closely, so this mostly tests the weight of tempo. It is one person's way of sorting one genre.
 
-Treat the rating as a first version. It tells calm tracks from intense ones more reliably than it orders tracks that are close. The scale will be recalibrated as better reference data comes in, and every stored rating records the model version that produced it, so Euphoria knows which ratings to compute again.
+No public dataset with energy ratings of dance music was found, and no library carrying energy values from other DJ software was available.
+
+### What was tried, and why the rating did not change
+
+- **New features.** Onsets counted per frequency band, spectral flux without the bass, kick strength, brightness and the share of a track at full level were all measured. None improved the agreement with listeners by more than the noise of the measurement.
+- **Fitted weights.** A model with weights fitted to the listeners' ratings keeps spectral flux, onset rate and loudness, and drops loudness range, low frequency share and tempo. On songs held out from the fitting it orders pairs better before the result is spread over the scale (75.6% against 71.4%). At the level of the rating from 1 to 10 the gain is small and could be chance (70.6% against 70.2%).
+- **The same model on the DJ's folders.** It does worse than the rating Euphoria ships: 45.6% of pairs in order, with warm up tracks rating above peak tracks on average. Tempo adds nothing against the listeners' ratings and is nearly all that separates build from peak in those folders.
+
+The two references pull in opposite directions and neither is the music Euphoria is for, so the rating stays as it is. Changing every user's ratings needs better evidence than this. DEAM is also offered under Creative Commons BY-NC terms, for non profit work: Euphoria downloads it only to run the benchmark, and no anchors or weights that Euphoria ships are fitted on it.
+
+What would settle it is reference ratings of dance music: a few hundred tracks rated from 1 to 10 by hand, or tracks that carry energy values from other DJ software such as Mixed In Key. The benchmark reads such ratings from a plain list of files and numbers.
+
+Treat the rating as a guide. It tells calm tracks from intense ones more reliably than it orders tracks that are close. The full tables are in [bench/results/energy.md](https://github.com/lvndry/euphoria/blob/main/bench/results/energy.md). Every stored rating records the model version that produced it, so Euphoria knows which ratings to compute again when the scale changes.
 
 ## Model version
 
@@ -97,4 +104,4 @@ A window is rated on its own, so the curve usually reaches higher and lower than
 - **Tempo errors carry over.** Tempo is reported between 90 and 180 BPM, so a track with a real tempo outside that range enters the rating at double or half its tempo, which can move the rating by one or two.
 - **Sample rates from 8 kHz to 384 kHz.** A file that claims a rate outside that range is reported as a failure, since only a damaged file does.
 - **Mono analysis.** Euphoria mixes a track to mono before analysis, so stereo width plays no part.
-- **Lossy files differ a little.** The same track as MP3 and as FLAC can differ by a small amount in every feature, which now and then moves a rating by one.
+- **Lossy files differ a little.** Encoding 60 songs again as 128 kbit/s MP3 left 80% of the ratings unchanged and moved the rest by one. A lossless file against a lossy copy of it was not measured.
