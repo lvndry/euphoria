@@ -15,7 +15,7 @@ The app:
 2. Open it and drag Euphoria onto Applications.
 3. Open Euphoria from Applications the first time as described [below](#opening-the-app-for-the-first-time).
 
-The app needs a Mac with Apple Silicon, and at least the macOS version given in the release notes.
+The app needs a Mac with Apple Silicon, and at least the macOS version the release notes give, which is the newest minimum of any binary in the app.
 
 The command line tool is in `euphoria-<version>-aarch64-apple-darwin.tar.gz` on the same page. It carries its own copy of libkeyfinder, so it needs nothing else:
 
@@ -25,9 +25,17 @@ cd euphoria-*-aarch64-apple-darwin
 ./bin/euphoria --version
 ```
 
-Keep `bin` and `lib` together, and add the `bin` folder to your `PATH` to run `euphoria` from anywhere. Downloaded with a browser, the tool is held back by macOS like the app; `xattr -d com.apple.quarantine bin/euphoria lib/*.dylib` lets it run.
+Keep `bin` and `lib` together, and add the `bin` folder to your `PATH` to run `euphoria` from anywhere.
 
-`SHA256SUMS` on the releases page lists the checksum of each file, which `shasum -a 256 -c SHA256SUMS` checks.
+A tarball downloaded with a browser is marked as coming from the internet, and macOS holds back a program from it that is not notarized, as the command line tool is not. A download made with `curl` is not marked, so the simplest way is:
+
+```
+curl -LO https://github.com/lvndry/euphoria/releases/download/v<version>/SHA256SUMS
+curl -LO https://github.com/lvndry/euphoria/releases/download/v<version>/euphoria-<version>-aarch64-apple-darwin.tar.gz
+shasum -a 256 --check --ignore-missing SHA256SUMS
+```
+
+The last command must print `OK` for the tarball before you unpack it: it proves the file is the one the release published. If you downloaded with a browser instead and macOS refuses to run the tool, first check the tarball against `SHA256SUMS` the same way. Then it is your choice whether to remove the internet mark from the unpacked files with `xattr -d com.apple.quarantine bin/euphoria lib/*.dylib`. That turns off macOS's check of these files only, and is safe only for files whose checksum you checked.
 
 ## Build from source on macOS
 
