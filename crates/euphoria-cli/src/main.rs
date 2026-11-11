@@ -312,7 +312,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             output::write_failures(&mut report, &standard_error_theme, &results)?;
             needs_space = layout != Layout::PlainTable;
         }
-        let one_track_in_detail = layout == Layout::Detail && results.len() == 1;
+        let one_track_in_detail = layout == Layout::Detail
+            && results.len() == 1
+            && !arguments.needs_review
+            && verdicts.is_empty();
         if needs_space && (!one_track_in_detail || cached_count > 0) {
             writeln!(report)?;
         }
