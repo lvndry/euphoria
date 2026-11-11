@@ -57,6 +57,25 @@ pub fn main_examples() -> StyledStr {
     )
 }
 
+#[cfg(feature = "stems")]
+pub fn stems_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria stems track.mp3 --output stems",
+                "stems/vocals.wav, drums.wav, bass.wav and other.wav",
+            ),
+            (
+                "euphoria stems track.mp3 -o stems --force",
+                "The same, replacing earlier files",
+            ),
+        ],
+        "Stems are 16 bit stereo WAV files at 44.1 kHz. Separation is never perfect: \
+         expect a little bleed between stems. See docs/concepts/stems.md.",
+    )
+}
+
 pub fn analyze_examples() -> StyledStr {
     examples(
         "Examples",

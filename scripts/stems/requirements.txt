@@ -1,0 +1,6 @@
+demucs
+numpy
+onnx
+safetensors
+soundfile
+torch

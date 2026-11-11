@@ -54,7 +54,7 @@
 mod batch;
 mod corrections;
 mod identity;
-mod location;
+pub(crate) mod location;
 mod rewritten;
 mod single;
 

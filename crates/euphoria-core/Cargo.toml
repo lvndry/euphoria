@@ -34,6 +34,10 @@ symphonia = { workspace = true, features = [
 ] }
 thiserror.workspace = true
 walkdir.workspace = true
+ort = { workspace = true, optional = true }
+rubato = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 # An independent reader and writer of tags, to check ours against.
@@ -44,6 +48,9 @@ roxmltree.workspace = true
 default = ["libkeyfinder"]
 # Key detection through libkeyfinder, a C++ library found with pkg-config.
 libkeyfinder = ["dep:cc", "dep:pkg-config"]
+# Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
+# which is linked statically and adds tens of megabytes to the binary.
+stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq"]
 
 [build-dependencies]
 cc = { workspace = true, optional = true }
