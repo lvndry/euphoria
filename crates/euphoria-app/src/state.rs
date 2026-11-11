@@ -11,7 +11,7 @@ use std::sync::mpsc::Receiver;
 
 use euphoria_core::{CachedAnalyzer, TrackAnalysis};
 
-use crate::analysis::{AnalysisWorkers, FinishedFile, StopSignal};
+use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
 use crate::demo::DemoTrack;
 use crate::library::Library;
 use crate::progress::AnalysisProgress;
@@ -62,7 +62,7 @@ pub(crate) struct Session {
     library: Library,
     progress: AnalysisProgress,
     workers: AnalysisWorkers,
-    finished: Receiver<FinishedFile>,
+    events: Receiver<AnalysisEvent>,
     cache: Option<Arc<CachedAnalyzer>>,
     cached_count: usize,
     cache_problem: Option<String>,
@@ -75,12 +75,12 @@ impl Session {
     pub(crate) fn start(
         cache: Option<Arc<CachedAnalyzer>>,
     ) -> Result<Self, rayon::ThreadPoolBuildError> {
-        let (workers, finished) = AnalysisWorkers::start(cache.clone())?;
+        let (workers, events) = AnalysisWorkers::start(cache.clone())?;
         Ok(Self {
             library: Library::default(),
             progress: AnalysisProgress::default(),
             workers,
-            finished,
+            events,
             cache,
             cached_count: 0,
             cache_problem: None,
@@ -151,11 +151,20 @@ impl Session {
         }
     }
 
-    /// Moves every result the workers have finished into the library.
-    /// Returns how many arrived.
+    /// Applies everything the workers have reported to the library: which
+    /// files they started and the results of the ones they finished. Returns
+    /// how many reports arrived.
     pub(crate) fn collect_finished(&mut self) -> usize {
         let mut collected = 0;
-        while let Ok(file) = self.finished.try_recv() {
+        while let Ok(event) = self.events.try_recv() {
+            collected += 1;
+            let file = match event {
+                AnalysisEvent::Started(path) => {
+                    self.library.mark_analyzing(&path);
+                    continue;
+                }
+                AnalysisEvent::Finished(file) => file,
+            };
             self.library.record_outcome(&file.path, file.outcome);
             self.progress.finish_one();
             if file.from_cache {
@@ -164,7 +173,6 @@ impl Session {
             if self.cache_problem.is_none() {
                 self.cache_problem = file.cache_problem;
             }
-            collected += 1;
         }
         collected
     }

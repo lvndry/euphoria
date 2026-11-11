@@ -120,7 +120,7 @@ fn search_field(app: &EuphoriaApp, palette: &Palette) -> Div {
         )
 }
 
-/// "Analyzing 12 of 340" with a bar, or "Looking for audio files" while
+/// "12 of 340 analyzed" with a bar, or "Looking for audio files" while
 /// folders are being searched. Nothing when idle.
 fn progress(app: &EuphoriaApp, palette: &Palette) -> Option<Div> {
     let progress = app.session.progress();

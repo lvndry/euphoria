@@ -291,14 +291,19 @@ fn row(
     let track_index = *app.visible.get(row_index)?;
     let track = app.session.library().track(track_index)?;
     let is_selected = app.selected == Some(track_index);
-    let is_pending = track.status == TrackStatus::Pending;
+    let is_unfinished = track.is_unfinished();
 
     let key_cell = match (&track.status, track.key()) {
         (_, Some(key)) => cell(&KEY).child(key_chip(&key, theme)),
-        (TrackStatus::Pending, _) => cell(&KEY)
+        (TrackStatus::Queued, _) => cell(&KEY)
             .text_size(SMALL_TEXT_SIZE)
             .text_color(palette.text_tertiary)
-            .child("Pending"),
+            .child("Queued"),
+        (TrackStatus::Analyzing, _) => cell(&KEY)
+            .text_size(SMALL_TEXT_SIZE)
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(palette.accent)
+            .child("Analyzing"),
         (TrackStatus::Failed(_), _) => cell(&KEY)
             .text_size(SMALL_TEXT_SIZE)
             .font_weight(FontWeight::MEDIUM)
@@ -338,7 +343,9 @@ fn row(
                         .min_w_0()
                         .truncate()
                         .font_weight(FontWeight::MEDIUM)
-                        .when(is_pending, |title| title.text_color(palette.text_secondary))
+                        .when(is_unfinished, |title| {
+                            title.text_color(palette.text_secondary)
+                        })
                         .child(track.file_name.clone()),
                 ),
             )
@@ -375,7 +382,7 @@ fn row(
 }
 
 /// The value of an analyzed track, a dash when analysis found none, and
-/// nothing while the track is pending or failed.
+/// nothing while the track is waiting, being analyzed or failed.
 fn optional_text(track: &Track, value: Option<String>, palette: &Palette) -> Div {
     match track.value_or_dash(value) {
         Some(text) if text == NOT_FOUND => missing_value(palette),
