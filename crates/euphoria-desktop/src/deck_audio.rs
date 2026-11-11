@@ -19,14 +19,14 @@
 //! what it needs, such as the position of each deck, from shared counters.
 
 use std::num::{NonZeroU16, NonZeroU32};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use signalsmith_stretch::Stretch;
 
-use crate::playback::TrackSource;
+use crate::playback::{PlaybackProblem, TrackSource};
 
 /// The sample rate the decks are mixed at. The output converts it to the
 /// device's own.
@@ -35,6 +35,9 @@ pub(crate) const MIX_SAMPLE_RATE: u32 = 44_100;
 /// Frames mixed at a time. About 6 milliseconds, short enough for a
 /// command to take effect at once.
 const BLOCK_FRAMES: usize = 256;
+
+const MIN_RATE: f64 = 0.5;
+const MAX_RATE: f64 = 2.0;
 
 /// The beats in a bar, in the 4/4 time of dance music.
 const BEATS_PER_BAR: f64 = 4.0;
@@ -111,6 +114,7 @@ pub(crate) fn matching_rate(own_bpm: f64, target_bpm: f64) -> f64 {
         .map(|scale| target_bpm * scale / own_bpm)
         .min_by(|first, second| (first.ln().abs()).total_cmp(&second.ln().abs()))
         .unwrap_or(1.0)
+        .clamp(MIN_RATE, MAX_RATE)
 }
 
 /// A change the window asks of the mix.
@@ -133,6 +137,11 @@ pub(crate) enum DeckCommand {
     Seek { deck: DeckId, seconds: f64 },
     /// Plays a deck at `rate` times its own speed.
     SetRate { deck: DeckId, rate: f64 },
+    /// Updates the grid after a manual tempo correction.
+    SetGrid {
+        deck: DeckId,
+        grid: Option<GridTiming>,
+    },
     /// Keeps a deck's pitch when its speed changes, or lets it follow.
     SetKeylock { deck: DeckId, keylock: bool },
 }
@@ -143,6 +152,9 @@ pub(crate) struct DeckMeter {
     /// The position heard, in seconds into the track, as f64 bits.
     position_bits: AtomicU64,
     playing: AtomicBool,
+    finished: AtomicBool,
+    pending_load: AtomicBool,
+    problem: Mutex<Option<PlaybackProblem>>,
     /// True while the deck waits for the other's downbeat to start.
     waiting: AtomicBool,
     /// The volume the window set, fader and crossfader together, as f32
@@ -166,6 +178,19 @@ impl DeckMeter {
     #[cfg(test)]
     pub(crate) fn is_playing(&self) -> bool {
         self.playing.load(Ordering::Relaxed)
+    }
+
+    /// True after all the loaded track's buffered sound has played.
+    pub(crate) fn is_finished(&self) -> bool {
+        !self.pending_load.load(Ordering::Acquire) && self.finished.load(Ordering::Relaxed)
+    }
+
+    /// Why the loaded track stopped early, when it did.
+    pub(crate) fn problem(&self) -> Option<PlaybackProblem> {
+        self.problem
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// True while the deck waits for the other deck's downbeat.
@@ -210,7 +235,20 @@ pub(crate) struct DeckLink {
 impl DeckLink {
     /// Sends a command. A mix that has gone away ignores it.
     pub(crate) fn send(&self, command: DeckCommand) {
-        let _ = self.commands.send(command);
+        let loading = match &command {
+            DeckCommand::Load { deck, .. } => Some(*deck),
+            _ => None,
+        };
+        if let Some(deck) = loading {
+            self.meter(deck).pending_load.store(true, Ordering::Release);
+        }
+        if self.commands.send(command).is_err()
+            && let Some(deck) = loading
+        {
+            self.meter(deck)
+                .pending_load
+                .store(false, Ordering::Release);
+        }
     }
 
     /// What `deck` is doing.
@@ -239,6 +277,10 @@ struct LoadedTrack {
     input: Vec<f32>,
     output: Vec<f32>,
     is_finished: bool,
+    tail_input_samples: usize,
+    tail_output_frames: usize,
+    has_rendered: bool,
+    start_seconds: f64,
 }
 
 impl LoadedTrack {
@@ -246,6 +288,7 @@ impl LoadedTrack {
         let channel_count = usize::from(rodio::Source::channels(&source).get());
         let input_rate = rodio::Source::sample_rate(&source).get();
         let stretch = Stretch::preset_default(channel_count as u32, MIX_SAMPLE_RATE);
+        let start_seconds = source.next_frame() as f64 / f64::from(input_rate);
         let mut track = Self {
             source,
             grid,
@@ -261,6 +304,10 @@ impl LoadedTrack {
             input: Vec::new(),
             output: Vec::new(),
             is_finished: false,
+            tail_input_samples: 0,
+            tail_output_frames: 0,
+            has_rendered: false,
+            start_seconds,
         };
         track.update_transpose();
         track
@@ -299,10 +346,15 @@ impl LoadedTrack {
 
     /// The position heard now, in seconds into the track.
     fn heard_seconds(&self) -> f64 {
-        if !self.playing || self.start_countdown.is_some() {
-            return self.input_seconds();
+        let input = self.input_seconds();
+        if !self.has_rendered {
+            return input;
         }
-        (self.input_seconds() - self.delay_seconds() * self.rate).max(0.0)
+        let drained =
+            self.tail_input_samples as f64 / self.channel_count as f64 / f64::from(self.input_rate);
+        (input + drained - self.delay_seconds() * self.rate)
+            .max(self.start_seconds)
+            .min(input)
     }
 
     /// Mixes `frames` frames of this deck into `mix`, stereo, at `gain`.
@@ -326,11 +378,12 @@ impl LoadedTrack {
         self.input_fraction = wanted - input_frames as f64;
         let channels = self.channel_count;
         self.input.clear();
+        let draining_output = self.tail_input_samples >= self.stretch.input_latency() * channels;
         for _ in 0..input_frames * channels {
             match self.source.next() {
                 Some(sample) => self.input.push(sample),
                 None => {
-                    self.is_finished = true;
+                    self.tail_input_samples += 1;
                     self.input.push(0.0);
                 }
             }
@@ -338,6 +391,14 @@ impl LoadedTrack {
         self.output.clear();
         self.output.resize(frames * channels, 0.0);
         self.stretch.process(&self.input, &mut self.output);
+        self.has_rendered = true;
+        // Input ending leaves sound in both halves of the stretcher. Keep
+        // feeding silence until that sound has reached the output.
+        if draining_output {
+            self.tail_output_frames += frames;
+        }
+        self.is_finished =
+            self.tail_input_samples > 0 && self.tail_output_frames >= self.stretch.output_latency();
         for frame in 0..frames {
             let left = self.output[frame * channels];
             let right = if channels > 1 {
@@ -394,15 +455,15 @@ impl DeckMix {
         match command {
             DeckCommand::Load { deck, source, grid } => {
                 self.decks[deck.index()] = Some(LoadedTrack::new(*source, grid));
+                let meter = &self.meters[deck.index()];
+                meter.finished.store(false, Ordering::Relaxed);
+                *meter.problem.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                meter.pending_load.store(false, Ordering::Release);
             }
             DeckCommand::Play { deck, quantize_to } => {
                 let countdown =
                     quantize_to.and_then(|other| self.frames_until_downbeat(deck, other));
                 if let Some(track) = self.deck_mut(deck) {
-                    if !track.playing {
-                        track.stretch.reset();
-                        track.input_fraction = 0.0;
-                    }
                     track.playing = true;
                     track.start_countdown = countdown;
                 }
@@ -419,11 +480,20 @@ impl DeckMix {
                     track.stretch.reset();
                     track.input_fraction = 0.0;
                     track.is_finished = false;
+                    track.tail_input_samples = 0;
+                    track.tail_output_frames = 0;
+                    track.has_rendered = false;
+                    track.start_seconds = track.input_seconds();
+                }
+            }
+            DeckCommand::SetGrid { deck, grid } => {
+                if let Some(track) = self.deck_mut(deck) {
+                    track.grid = grid;
                 }
             }
             DeckCommand::SetRate { deck, rate } => {
                 if let Some(track) = self.deck_mut(deck) {
-                    track.rate = rate.clamp(0.5, 2.0);
+                    track.rate = rate.clamp(MIN_RATE, MAX_RATE);
                 }
             }
             DeckCommand::SetKeylock { deck, keylock } => {
@@ -444,7 +514,7 @@ impl DeckMix {
         if !leading.playing || leading.start_countdown.is_some() {
             return None;
         }
-        starting.grid?;
+        let starting_grid = starting.grid?;
         let grid = leading.grid?;
         let input_now = leading.input_seconds();
         // The other deck's input reaches its next downbeat after this many
@@ -452,12 +522,16 @@ impl DeckMix {
         // started then, sounds its first frame its own delay later.
         let downbeat = grid.next_downbeat(input_now);
         let until_input = (downbeat - input_now) / leading.rate;
-        let start = until_input + leading.delay_seconds() - starting.delay_seconds();
-        let start = if start < 0.0 {
-            start + grid.bar_seconds() / leading.rate
+        let held = starting.heard_seconds();
+        let until_own_downbeat = (starting_grid.next_downbeat(held) - held) / starting.rate;
+        let startup_delay = if starting.has_rendered {
+            0.0
         } else {
-            start
+            starting.delay_seconds()
         };
+        let start = until_input + leading.delay_seconds() - until_own_downbeat - startup_delay;
+        let bar = grid.bar_seconds() / leading.rate;
+        let start = start + (-start / bar).ceil().max(0.0) * bar;
         Some((start * f64::from(MIX_SAMPLE_RATE)).round() as u64)
     }
 
@@ -493,6 +567,11 @@ impl DeckMix {
             meter
                 .position_bits
                 .store(track.heard_seconds().to_bits(), Ordering::Relaxed);
+            if track.is_finished && !meter.finished.load(Ordering::Relaxed) {
+                *meter.problem.lock().unwrap_or_else(PoisonError::into_inner) =
+                    track.source.state().problem();
+            }
+            meter.finished.store(track.is_finished, Ordering::Relaxed);
             meter.playing.store(track.playing, Ordering::Relaxed);
             meter
                 .waiting
@@ -632,6 +711,7 @@ mod tests {
         found
     }
 
+    #[derive(Debug)]
     struct Alignment {
         mean_milliseconds: f64,
         largest_milliseconds: f64,
@@ -642,7 +722,7 @@ mod tests {
     /// Plays a click track at `a_bpm` on deck A, then starts one at `b_bpm`
     /// on deck B on its fourth downbeat, matched to A's tempo and started on
     /// A's next downbeat, and measures how far B's clicks land from A's.
-    fn measure_alignment(a_bpm: f64, b_bpm: f64) -> Alignment {
+    fn measure_alignment(a_bpm: f64, b_bpm: f64, b_start: Option<f64>) -> Alignment {
         let scratch = ScratchFolder::new(&format!("click-{a_bpm}-{b_bpm}"));
         let a_path = scratch.0.join("a.wav");
         let b_path = scratch.0.join("b.wav");
@@ -675,7 +755,8 @@ mod tests {
             });
             link.send(DeckCommand::Seek {
                 deck: DeckId::B,
-                seconds: b_grid.first_downbeat_seconds + 3.0 * b_grid.bar_seconds(),
+                seconds: b_start
+                    .unwrap_or(b_grid.first_downbeat_seconds + 3.0 * b_grid.bar_seconds()),
             });
             link.send(DeckCommand::Play {
                 deck: DeckId::A,
@@ -720,6 +801,8 @@ mod tests {
         assert!((matching_rate(64.0, 128.0) - 1.0).abs() < 1e-9);
         assert!((matching_rate(174.0, 87.0) - 1.0).abs() < 1e-9);
         assert_eq!(matching_rate(0.0, 120.0), 1.0);
+        assert_eq!(matching_rate(50.0, 400.0), MAX_RATE);
+        assert_eq!(matching_rate(400.0, 50.0), MIN_RATE);
     }
 
     #[test]
@@ -736,7 +819,7 @@ mod tests {
     #[test]
     fn a_deck_started_on_the_other_decks_downbeat_stays_on_its_beats() {
         for (a_bpm, b_bpm) in [(120.0, 125.0), (128.0, 122.0)] {
-            let alignment = measure_alignment(a_bpm, b_bpm);
+            let alignment = measure_alignment(a_bpm, b_bpm, None);
             eprintln!(
                 "A at {a_bpm} BPM, B at {b_bpm} BPM matched to it: {} beats of B, mean {:.2} ms \
                  and largest {:.2} ms from A's, {} downbeats on A's downbeats",
@@ -752,6 +835,17 @@ mod tests {
                 "B's downbeats land on A's"
             );
         }
+    }
+
+    #[test]
+    fn starting_between_beats_still_aligns_the_tracks_bars() {
+        let alignment = measure_alignment(120.0, 125.0, Some(0.25 + 0.5 * 60.0 / 125.0));
+        assert!(alignment.mean_milliseconds < 5.0, "{alignment:?}");
+        assert!(alignment.largest_milliseconds < 10.0, "{alignment:?}");
+        assert!(
+            alignment.downbeats_matched * 4 >= alignment.beats - 4,
+            "{alignment:?}"
+        );
     }
 
     #[test]
@@ -778,6 +872,120 @@ mod tests {
         assert_eq!(link.meter(DeckId::A).position_seconds(), held);
         assert!(!link.meter(DeckId::A).is_playing());
         assert!((0.8..1.1).contains(&held), "{held}");
+    }
+
+    #[test]
+    fn pausing_and_resuming_preserves_buffered_audio_and_the_heard_position() {
+        let scratch = ScratchFolder::new("pause-continuity");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.1, 5.0);
+        let run = |pause: bool| {
+            let (link, mut mix) = deck_mix();
+            mix.apply(DeckCommand::Load {
+                deck: DeckId::A,
+                source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
+                grid: None,
+            });
+            mix.apply(DeckCommand::Play {
+                deck: DeckId::A,
+                quantize_to: None,
+            });
+            for _ in 0..64 {
+                mix.render_block();
+            }
+            let heard = link.meter(DeckId::A).position_seconds();
+            if pause {
+                mix.apply(DeckCommand::Pause(DeckId::A));
+                mix.render_block();
+                assert_eq!(link.meter(DeckId::A).position_seconds(), heard);
+                assert!(mix.block.iter().all(|sample| *sample == 0.0));
+                mix.apply(DeckCommand::Play {
+                    deck: DeckId::A,
+                    quantize_to: None,
+                });
+            }
+            let mut resumed = Vec::new();
+            for _ in 0..128 {
+                mix.render_block();
+                resumed.extend_from_slice(&mix.block);
+            }
+            resumed
+        };
+        assert_eq!(run(true), run(false));
+    }
+
+    #[test]
+    fn the_last_onset_is_heard_before_the_deck_finishes() {
+        let scratch = ScratchFolder::new("ending-tail");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.98, 1.0);
+        let (link, mut mix) = deck_mix();
+        mix.apply(DeckCommand::Load {
+            deck: DeckId::A,
+            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
+            grid: None,
+        });
+        mix.apply(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        let output = pull(&mut mix, 2.0);
+        let peak = output.iter().copied().map(f32::abs).fold(0.0, f32::max);
+        assert!(peak > 0.05, "final onset was cut off: peak {peak}");
+        assert!(!link.meter(DeckId::A).is_playing());
+        assert!(link.meter(DeckId::A).is_finished());
+        assert_eq!(link.meter(DeckId::A).problem(), None);
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
+            grid: None,
+        });
+        assert!(!link.meter(DeckId::A).is_finished());
+        mix.render_block();
+        assert!(!link.meter(DeckId::A).is_finished());
+    }
+
+    #[test]
+    fn rate_changes_while_draining_keep_the_last_onset() {
+        let scratch = ScratchFolder::new("ending-rate-change");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.98, 1.0);
+        let (link, mut mix) = deck_mix();
+        mix.apply(DeckCommand::Load {
+            deck: DeckId::A,
+            source: Box::new(TrackSource::open(&path, 0.0).unwrap().patient()),
+            grid: None,
+        });
+        mix.apply(DeckCommand::SetRate {
+            deck: DeckId::A,
+            rate: 2.0,
+        });
+        mix.apply(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        let mut peak = 0.0_f32;
+        for _ in 0..1000 {
+            mix.render_block();
+            peak = mix.block.iter().copied().map(f32::abs).fold(peak, f32::max);
+            if mix.decks[0].as_ref().unwrap().tail_input_samples >= 3072 {
+                break;
+            }
+        }
+        assert!(mix.decks[0].as_ref().unwrap().tail_input_samples >= 3072);
+        mix.apply(DeckCommand::SetRate {
+            deck: DeckId::A,
+            rate: 0.5,
+        });
+        for _ in 0..200 {
+            mix.render_block();
+            peak = mix.block.iter().copied().map(f32::abs).fold(peak, f32::max);
+        }
+        assert!(
+            peak > 0.05,
+            "final onset was cut off after rate change: peak {peak}"
+        );
+        assert!(link.meter(DeckId::A).is_finished());
     }
 
     /// Real tracks for the load measurement: benchmark previews, or the
