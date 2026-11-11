@@ -30,10 +30,11 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 IMAGES = Path(__file__).resolve().parent
 REPOSITORY = IMAGES.parents[2]
@@ -53,27 +54,44 @@ FOLDERS = [
 # scale and reduced to this.
 PUBLISHED_WIDTH = 1600
 
-# The work folder. Its path shows in the inspector's Location, so it is a
-# short neutral one rather than a temporary folder named after the user.
-WORK = Path("/tmp/Euphoria")
-WORK_MARKER = ".made-by-make_screenshots"
+# Where each run makes its own private work folder. Its path shows in the
+# inspector's Location, so it is a short neutral one under /tmp, such as
+# /tmp/Euphoria-x1y2z3, rather than a temporary folder whose path names the
+# user.
+WORK_PARENT = "/tmp"
+WORK_PREFIX = "Euphoria-"
+
+# How long to wait for the window to settle, and how often to look.
+SETTLE_PATIENCE_SECONDS = 60.0
+SETTLE_INTERVAL_SECONDS = 0.75
+# Mean difference per channel, out of 255, under which two looks at the
+# window count as the same.
+SETTLED_DIFFERENCE = 0.05
+# Mean difference in the inspector that shows another track was selected.
+SELECTION_CHANGED_DIFFERENCE = 1.0
+# How much darker the sidebar must get when a panel covers the window.
+PANEL_DIMMING = 0.8
 
 # Virtual key codes, and the keys pressed before each shot.
 KEY_A = 0
 KEY_T = 17
 KEY_DOWN = 125
-SELECT_A_TAGGED_TRACK = [(KEY_DOWN, "")] * 2
-SELECT_A_TRACK_SORTED_BY_KEY = [(KEY_DOWN, "")] * 10
+KEY_HOME = 115
+# Home goes to the first row whichever track the app selected on its own,
+# so the same row is reached on every run.
+SELECT_A_TAGGED_TRACK = [(KEY_HOME, "")] + [(KEY_DOWN, "")] * 2
+SELECT_A_TRACK_SORTED_BY_KEY = [(KEY_HOME, "")] + [(KEY_DOWN, "")] * 10
 OPEN_WRITE_TAGS = [(KEY_A, "cmd"), (KEY_T, "cmd,shift")]
+
+# What each set of keys must visibly do before its shot is taken.
+SELECTS_ANOTHER_TRACK = "selects another track"
+OPENS_A_PANEL = "opens a panel"
 
 
 def main():
-    if WORK.exists() and not (WORK / WORK_MARKER).exists():
-        sys.exit(f"{WORK} exists and was not made by this script; move it away first")
-    shutil.rmtree(WORK, ignore_errors=True)
-    WORK.mkdir()
-    (WORK / WORK_MARKER).touch()
-    work = WORK
+    # A folder of its own, made private by mkdtemp, so a second run or
+    # someone else's files in /tmp are never touched; only it is deleted.
+    work = Path(tempfile.mkdtemp(prefix=WORK_PREFIX, dir=WORK_PARENT))
     try:
         window_tool = compile_window_tool(work)
         app = app_binary()
@@ -85,20 +103,32 @@ def main():
         warm_cache(app, window_tool, cache_folder, library, track_count(library))
 
         shots = [
-            ("main-window", {"theme": "slate", "selected": house}, SELECT_A_TAGGED_TRACK),
+            (
+                "main-window",
+                {"theme": "slate", "selected": house},
+                SELECT_A_TAGGED_TRACK,
+                SELECTS_ANOTHER_TRACK,
+            ),
             (
                 "main-window-paper",
                 {"theme": "paper", "selected": house},
                 SELECT_A_TAGGED_TRACK,
+                SELECTS_ANOTHER_TRACK,
             ),
-            ("write-tags-preview", {"theme": "slate", "selected": house}, OPEN_WRITE_TAGS),
+            (
+                "write-tags-preview",
+                {"theme": "slate", "selected": house},
+                OPEN_WRITE_TAGS,
+                OPENS_A_PANEL,
+            ),
             (
                 "key-first",
                 {"theme": "key-first", "selected": None},
                 SELECT_A_TRACK_SORTED_BY_KEY,
+                SELECTS_ANOTHER_TRACK,
             ),
         ]
-        for name, choices, keys in shots:
+        for name, choices, keys, expected in shots:
             data = work / "data" / name
             data.mkdir(parents=True)
             # The database and its write ahead log, which holds the latest
@@ -106,8 +136,8 @@ def main():
             for part in cache_folder.glob("analysis-cache.sqlite3*"):
                 shutil.copy(part, data)
             write_settings(data, library, expanded, **choices)
-            capture(app, window_tool, data, work / f"{name}.png", keys)
-            publish(work / f"{name}.png", IMAGES / f"{name}.png")
+            capture(app, window_tool, data, work / name, keys, expected)
+            publish(work / name / "shot.png", IMAGES / f"{name}.png")
             print(f"wrote {IMAGES / f'{name}.png'}")
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -183,6 +213,8 @@ def window_number(window_tool, process, patience=60.0):
     """The number of the app's window once it is on screen."""
     deadline = time.monotonic() + patience
     while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"the app exited with status {process.returncode}")
         result = subprocess.run(
             [str(window_tool), "id", str(process.pid)], capture_output=True, text=True
         )
@@ -219,22 +251,90 @@ def analysis_count(database):
         return 0
 
 
-def capture(app, window_tool, data, image, keys):
+def capture(app, window_tool, data, folder, keys, expected):
+    """Waits for the window to settle, presses `keys`, waits for it to
+    settle again, checks that the keys did what was `expected`, and keeps the
+    last look at the window as the shot. Fails rather than keep a shot of
+    the wrong state."""
+    folder.mkdir()
     process = launch(app, data)
     try:
-        window_number(window_tool, process)
-        # Time for the table to fill from the cache.
-        time.sleep(6.0)
+        before = wait_until_settled(window_tool, process, folder / "before.png")
         for code, flags in keys:
-            subprocess.run([str(window_tool), "key", str(process.pid), str(code), flags])
-            time.sleep(0.5)
-        # Time for the selected track's waveform and energy curve to be
-        # worked out, or for the write preview to be planned.
-        time.sleep(5.0)
-        number = window_number(window_tool, process)
-        subprocess.run(["screencapture", "-x", "-o", "-l", number, str(image)], check=True)
+            subprocess.run(
+                [str(window_tool), "key", str(process.pid), str(code), flags], check=True
+            )
+            time.sleep(0.3)
+        after = wait_until_settled(window_tool, process, folder / "shot.png")
+        check_expected(before, after, expected, folder.name)
     finally:
         quit_app(process)
+
+
+def look(window_tool, process, image, patience=30.0):
+    """Captures the app's window, and only it, into `image`. A window that
+    is briefly off screen, as while the screen is locked, is waited for;
+    one that stays away fails."""
+    deadline = time.monotonic() + patience
+    while True:
+        number = window_number(window_tool, process)
+        result = subprocess.run(["screencapture", "-x", "-o", "-l", number, str(image)])
+        if result.returncode == 0 and image.exists():
+            with Image.open(image) as picture:
+                return picture.convert("RGB")
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"the window could not be captured: status {result.returncode}")
+        time.sleep(1.0)
+
+
+def difference(first, second):
+    """Mean difference per channel between two looks, out of 255."""
+    if first.size != second.size:
+        return 255.0
+    return sum(ImageStat.Stat(ImageChops.difference(first, second)).mean) / 3.0
+
+
+def wait_until_settled(window_tool, process, image):
+    """Looks at the window until two looks in a row are the same: the
+    table has filled, the waveform and energy curve are drawn, or the panel
+    has been worked out. Fails after SETTLE_PATIENCE_SECONDS."""
+    deadline = time.monotonic() + SETTLE_PATIENCE_SECONDS
+    previous = look(window_tool, process, image)
+    while time.monotonic() < deadline:
+        time.sleep(SETTLE_INTERVAL_SECONDS)
+        current = look(window_tool, process, image)
+        if difference(previous, current) < SETTLED_DIFFERENCE:
+            return current
+        previous = current
+    raise RuntimeError("the window kept changing and never settled")
+
+
+def region(picture, left, top, right, bottom):
+    """The part of `picture` between the given fractions of its size."""
+    width, height = picture.size
+    return picture.crop((int(left * width), int(top * height), int(right * width), int(bottom * height)))
+
+
+def brightness(picture):
+    return sum(ImageStat.Stat(picture).mean) / 3.0
+
+
+def check_expected(before, after, expected, name):
+    if expected == SELECTS_ANOTHER_TRACK:
+        # The title, the statistics and the waveform at the top of the
+        # inspector change with the track.
+        inspector = (0.8, 0.05, 1.0, 0.4)
+        changed = difference(region(before, *inspector), region(after, *inspector))
+        if changed < SELECTION_CHANGED_DIFFERENCE:
+            raise RuntimeError(f"{name}: the keys did not select another track")
+    elif expected == OPENS_A_PANEL:
+        # A panel dims the whole window behind it, the sidebar included.
+        sidebar = (0.0, 0.1, 0.12, 0.5)
+        dimmed = brightness(region(after, *sidebar)) / max(brightness(region(before, *sidebar)), 1.0)
+        if dimmed > PANEL_DIMMING:
+            raise RuntimeError(f"{name}: the keys did not open the panel")
+    else:
+        raise ValueError(expected)
 
 
 def publish(captured, published):
