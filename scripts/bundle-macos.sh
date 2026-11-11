@@ -14,8 +14,9 @@
 # the app, and --skip-build to package the binary already in target/release.
 #
 # libkeyfinder and FFTW are copied into Contents/Frameworks by
-# scripts/copy-libraries.sh, with their install names changed so the app
-# finds them there. The bundle is signed
+# scripts/macos_libraries.py, with their install names changed so the app
+# finds them there, and the script then checks that every library of every
+# binary in the bundle is part of macOS or of the bundle. The bundle is signed
 # with an ad hoc signature, which lets it run on the Mac that built it. It is
 # not notarized: that needs a paid Apple Developer account. On another Mac,
 # Gatekeeper asks once before opening it.
@@ -74,7 +75,14 @@ executable="$bundle/Contents/MacOS/Euphoria"
 cp "$binary" "$executable"
 chmod u+w "$executable"
 
-"$repository/scripts/copy-libraries.sh" "$executable" "$frameworks" "@executable_path/../Frameworks"
+# Copies every library the executable needs from outside the system into
+# Contents/Frameworks, following install names the way dyld does, and fails
+# if any of them does not resolve.
+python3 "$repository/scripts/macos_libraries.py" bundle \
+  --root "$bundle" \
+  --executable "$executable" \
+  --libraries "$frameworks" \
+  --run-path "@executable_path/../Frameworks"
 
 # Every binary in the bundle needs at least the macOS version it was built
 # for. Homebrew builds its libraries for the macOS it runs on, so the app
@@ -150,6 +158,10 @@ for file in "$frameworks"/*.dylib; do
 done
 codesign --force --sign - --timestamp=none "$bundle"
 codesign --verify --strict --verbose=1 "$bundle"
+
+# Proves the result rather than trusting how it was made: every library of
+# every binary in the bundle is a system library or a file in the bundle.
+python3 "$repository/scripts/macos_libraries.py" verify --root "$bundle" --executable "$executable"
 echo "Built $bundle (macOS $minimum_system or later)"
 
 if [ "$make_dmg" = no ]; then

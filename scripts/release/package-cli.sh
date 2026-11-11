@@ -54,13 +54,18 @@ folder="$staging/$name"
 mkdir -p "$folder/bin" "$folder/lib"
 cp "$repository/target/release/euphoria" "$folder/bin/euphoria"
 chmod u+w "$folder/bin/euphoria"
-"$repository/scripts/copy-libraries.sh" "$folder/bin/euphoria" "$folder/lib" "@executable_path/../lib"
+python3 "$repository/scripts/macos_libraries.py" bundle \
+  --root "$folder" \
+  --executable "$folder/bin/euphoria" \
+  --libraries "$folder/lib" \
+  --run-path "@executable_path/../lib"
 for file in "$folder/lib"/*.dylib "$folder/bin/euphoria"; do
   [ -e "$file" ] || continue
   codesign --force --sign - --timestamp=none "$file"
 done
 cp "$repository/LICENSE" "$repository/README.md" "$folder/"
 
+python3 "$repository/scripts/macos_libraries.py" verify --root "$folder" --executable "$folder/bin/euphoria"
 "$folder/bin/euphoria" --version > /dev/null
 tar -C "$staging" -czf "$output/$name.tar.gz" "$name"
 rm -rf "$staging"
