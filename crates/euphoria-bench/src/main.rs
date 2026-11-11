@@ -8,6 +8,7 @@ mod alternative;
 mod dataset;
 mod energy;
 mod evaluate;
+mod quality;
 mod render;
 mod scoring;
 mod statistics;
@@ -19,10 +20,12 @@ use euphoria_core::detect::{KeyFinderDetector, StratumDetector};
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo]\n       euphoria-bench energy LABELS_FILE [--dump FILE]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
+/// The first argument that selects the audio quality measurement.
+const QUALITY_MODE: &str = "quality";
 
 /// Which benchmarks a run covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +75,10 @@ fn main() -> Result<()> {
     if command_line.peek().map(String::as_str) == Some(ENERGY_MODE) {
         let arguments = energy::parse_arguments(command_line.skip(1))?;
         return energy::run(&arguments);
+    }
+    if command_line.peek().map(String::as_str) == Some(QUALITY_MODE) {
+        let arguments = quality::parse_arguments(command_line.skip(1))?;
+        return quality::run(&arguments);
     }
     let arguments = parse_arguments(command_line)?;
     let data_directory = &arguments.data_directory;
