@@ -43,9 +43,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let counts = app.sidebar_counts();
     let hover_background = palette.raised;
 
-    let all_tracks_is_current = app.filter == LibraryFilter::AllTracks && app.folder.is_none();
-    let needs_review_is_current = app.filter == LibraryFilter::NeedsReview;
-    let quality_is_current = app.filter == LibraryFilter::QualityToCheck;
+    let in_library = app.playlist.is_none();
+    let all_tracks_is_current =
+        in_library && app.filter == LibraryFilter::AllTracks && app.folder.is_none();
+    let needs_review_is_current = in_library && app.filter == LibraryFilter::NeedsReview;
+    let quality_is_current = in_library && app.filter == LibraryFilter::QualityToCheck;
 
     div()
         .flex()
@@ -118,6 +120,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .pb(px(4.0)),
         )
         .child(folder_tree(app, &palette, cx))
+        .child(crate::views::playlists::sidebar_section(app, cx))
         .child(
             div()
                 .flex_shrink_0()

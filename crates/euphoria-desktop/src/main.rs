@@ -25,6 +25,8 @@ mod panels;
 mod peaks;
 mod playback;
 mod player;
+mod playlist_flow;
+mod playlists;
 mod progress;
 mod reference_sound;
 mod settings;
@@ -43,7 +45,7 @@ mod waveforms;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError};
+use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError, PlaylistStore};
 use gpui::prelude::*;
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, KeyBinding, Menu, MenuItem, QuitMode,
@@ -108,11 +110,24 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
             )),
         ),
     };
-    let problems: Vec<String> = settings_problem.into_iter().chain(cache_problem).collect();
-    let notice = (!problems.is_empty()).then(|| problems.join(" "));
-
     let mut session = Session::start(cache)
         .map_err(|error| format!("cannot start the analysis workers: {error}"))?;
+    let playlist_problem = euphoria_core::default_playlists_path()
+        .and_then(|path| PlaylistStore::open(&path))
+        .and_then(|store| session.use_playlist_store(store))
+        .err()
+        .map(|error| {
+            format!(
+                "Playlists cannot be kept, so changes to them are lost on quitting: {}.",
+                error.chain()
+            )
+        });
+    let problems: Vec<String> = settings_problem
+        .into_iter()
+        .chain(cache_problem)
+        .chain(playlist_problem)
+        .collect();
+    let notice = (!problems.is_empty()).then(|| problems.join(" "));
     if let Some(count) = demo::requested_track_count() {
         session.add_demo_folder(PathBuf::from(demo::DEMO_FOLDER));
         session.add_demo_tracks(demo::tracks(count));
