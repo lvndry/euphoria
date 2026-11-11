@@ -435,12 +435,10 @@ pub fn write_beat_grid_summary(
     writeln!(writer, ".")
 }
 
-/// Writes how many exported tracks got cues, how many got none because they
-/// have cues in rekordbox already, and why the others got none.
+/// Writes how many exported tracks got cues, and why the others did not.
 pub fn write_cue_summary(
     writer: &mut impl Write,
     with_cues: usize,
-    already_cued_count: usize,
     track_count: usize,
 ) -> io::Result<()> {
     write!(
@@ -448,27 +446,22 @@ pub fn write_cue_summary(
         "Cues for {with_cues} of {}",
         counted(track_count, "track", "tracks")
     )?;
-    if already_cued_count > 0 {
-        write!(
-            writer,
-            "; {} already {} cues in your rekordbox collection and {} none from Euphoria",
-            already_cued_count,
-            if already_cued_count == 1 {
-                "has"
-            } else {
-                "have"
-            },
-            if already_cued_count == 1 {
-                "gets"
-            } else {
-                "get"
-            },
-        )?;
-    }
-    if with_cues + already_cued_count < track_count {
+    if with_cues < track_count {
         write!(writer, "; tracks without a beat grid in the file get none")?;
     }
     writeln!(writer, ".")
+}
+
+/// Writes how many tracks were left out of the export because they have
+/// cues in rekordbox, and how to update them.
+pub fn write_left_out_for_cues(writer: &mut impl Write, left_out: usize) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Left out {} that already {} cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update {} key and tempo.",
+        counted(left_out, "track", "tracks"),
+        if left_out == 1 { "has" } else { "have" },
+        if left_out == 1 { "its" } else { "their" },
+    )
 }
 
 /// Writes how to bring an exported file into rekordbox, and where the full

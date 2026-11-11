@@ -1159,12 +1159,58 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
         cues.len()
     );
 
-    assert_success(&cued_track);
-    assert_eq!(
-        standard_error(&cued_track).lines().nth(2),
-        Some(
-            "Cues for 0 of 1 track; 1 already has cues in your rekordbox collection and gets none from Euphoria."
-        )
+    assert_eq!(cued_track.status.code(), Some(1));
+    assert!(
+        standard_error(&cued_track).contains("every track already has cues"),
+        "{}",
+        standard_error(&cued_track)
     );
-    assert_eq!(exported_cues(&cued_track_file), vec![]);
+    assert!(!cued_track_file.exists());
+
+    let other = resolved(music_folder.path()).join("other.wav");
+    write_kick_track(&other, 124.0, 0.1);
+    let mixed_file = output.join("mixed.xml");
+    let mixed = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&resolved(music_folder.path())),
+        "-o",
+        text(&mixed_file),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&cued_collection),
+    ]);
+    assert_success(&mixed);
+    let lines: Vec<String> = standard_error(&mixed).lines().map(str::to_string).collect();
+    assert!(
+        lines[0].starts_with("Exported 1 track in 1 playlist"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[2], "Cues for 1 of 1 track.");
+    assert_eq!(
+        lines[3],
+        "Left out 1 track that already has cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update its key and tempo."
+    );
+    let library = ExportedLibrary::read(&mixed_file);
+    assert_eq!(
+        library
+            .tracks
+            .iter()
+            .map(|track| track.path.clone())
+            .collect::<Vec<_>>(),
+        vec![other.clone()]
+    );
+    assert_eq!(
+        library.playlists,
+        vec![ExportedNode::Playlist(
+            music_folder
+                .path()
+                .file_name()
+                .expect("a folder name")
+                .to_string_lossy()
+                .into_owned(),
+            vec![other]
+        )]
+    );
 }

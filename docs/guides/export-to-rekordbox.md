@@ -119,13 +119,13 @@ To keep the beat grid rekordbox draws itself, export without `--beat-grid`.
 
 With `--cues`, Euphoria marks where each track's sections start, as described on the [accuracy](../concepts/accuracy.md#cue-points) page: Start, Main, Breakdown, Drop and Outro, at most 8, each on the first beat of a bar at a phrase boundary. Each is written twice, as a memory cue and as a hot cue, on pads from A in order. Only tracks whose beat grid is in the file get cues, since the cues sit on its bars.
 
-Euphoria does not write cues over yours. `--cues` needs `--collection`, your collection exported from rekordbox with **File > Export Collection in xml format**, and a track that has any cue, hot cue or loop there gets no cues from Euphoria:
+Euphoria never changes cues you set. `--cues` needs `--collection`, your collection exported from rekordbox with **File > Export Collection in xml format**, and a track that has any cue, hot cue or loop there is left out of the file entirely, so no import of the file can touch its cues:
 
 ```
 euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml --beat-grid --cues --collection ~/Music/rekordbox-collection.xml
 ```
 
-Export your collection again before each export, so it lists the cues you set since. Then import only the tracks that are new to your collection: see [what happens to tracks you already have](#what-happens-to-tracks-you-already-have).
+Export your collection again before each export, so it lists the cues you set since. The command says how many tracks it left out. To update the key and tempo of those tracks, export again without `--cues`; that file has no cues, but see [what happens to tracks you already have](#what-happens-to-tracks-you-already-have) before importing it.
 
 The cues are right only where the bars of the grid are. When the grid's first downbeat is off, which happens on about half of the benchmark excerpts, every cue is off by the same one to three beats. Look at a few tracks before you rely on them.
 
@@ -160,7 +160,7 @@ The file is written under a temporary name and moved into place once it is compl
 
 **Import To Collection** on a track that is already in your collection replaces its key, tempo and comment with what the file says (tested in rekordbox 7). Importing only a playlist leaves them as they were.
 
-Replacing may affect more than that. Expect a beat grid or cue points you set by hand in rekordbox to be replaced by the ones in the file, or removed when the file has none. A file exported with `--beat-grid` holds a grid for most tracks. With `--cues --collection`, tracks that have cues in your collection get none in the file, which keeps Euphoria from writing over them but does not stop rekordbox from removing them on import. The test did not check grids or cues, so try the import on a few tracks first and look at them before importing a whole library. **(not verified)**
+Replacing may affect more than that. Expect a beat grid or cue points you set by hand in rekordbox to be replaced by the ones in the file, or removed when the file has none. A file exported with `--beat-grid` holds a grid for most tracks. With `--cues --collection`, tracks that have cues in your collection are not in the file at all, so importing it cannot change them. The test did not check grids or cues, so try the import on a few tracks first and look at them before importing a whole library. **(not verified)**
 
 rekordbox's own analysis replaces imported values (tested in rekordbox 7: analyzing a track with **KEY** ticked replaced both its key and its tempo). Choose before importing, in **Preferences > Analysis > Track Analysis**:
 

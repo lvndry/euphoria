@@ -10,7 +10,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand, ValueEnum};
-use euphoria_core::export::rekordbox::{ExistingFile, ExportOptions, KeyNotation, write_xml_file};
+use euphoria_core::export::rekordbox::{
+    ExistingFile, ExportOptions, KeyNotation, Library, PlaylistNode, write_xml_file,
+};
 use euphoria_core::{
     AssembledLibrary, CachedBatch, ExportContents, PlaylistLayout, assemble_library_with,
     find_audio_files, is_supported_audio_file, playlist_count,
@@ -56,8 +58,8 @@ pub struct RekordboxArguments {
     #[arg(long, requires_all = ["beat_grid", "collection"])]
     cues: bool,
     /// Your rekordbox collection exported as XML (File > Export Collection
-    /// in xml format). Tracks that already have cues or loops there get no
-    /// cues from Euphoria.
+    /// in xml format). Tracks that already have cues or loops there are
+    /// left out of the file, so that importing it cannot change them.
     #[arg(long, value_name = "FILE", requires = "cues")]
     collection: Option<PathBuf>,
     #[command(flatten)]
@@ -141,17 +143,18 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             cues: arguments.cues,
         },
     );
-    let mut already_cued_count = 0;
-    for track in &mut library.tracks {
-        if already_cued.contains(&track.path) {
-            already_cued_count += 1;
-            track.cue_points.clear();
-        }
-    }
+    // A track that has cues of its own is left out of the file, so that no
+    // import of the file can change them.
+    let left_out = leave_out(&mut library, &already_cued);
 
     // The file is written before anything is reported, so that a reader of
     // standard error that goes away cannot stop the export.
-    let written = if library.tracks.is_empty() {
+    let written = if library.tracks.is_empty() && left_out > 0 {
+        Err(anyhow!(
+            "every track already has cues in your rekordbox collection, so nothing was \
+             written; export again without --cues to update their key and tempo"
+        ))
+    } else if library.tracks.is_empty() {
         Err(anyhow!(
             "none of the files could be exported, so nothing was written"
         ))
@@ -193,12 +196,10 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             .iter()
             .filter(|track| !track.cue_points.is_empty())
             .count();
-        output::write_cue_summary(
-            &mut standard_error,
-            with_cues,
-            already_cued_count,
-            library.tracks.len(),
-        )?;
+        output::write_cue_summary(&mut standard_error, with_cues, library.tracks.len())?;
+        if left_out > 0 {
+            output::write_left_out_for_cues(&mut standard_error, left_out)?;
+        }
     }
     output::write_rekordbox_import_steps(&mut standard_error)?;
 
@@ -210,6 +211,28 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// Removes the tracks at `paths` from the collection and from every
+/// playlist of `library`, and returns how many tracks it removed.
+fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
+    fn from_nodes(nodes: &mut [PlaylistNode], paths: &HashSet<PathBuf>) {
+        for node in nodes {
+            match node {
+                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, paths),
+                PlaylistNode::Playlist(playlist) => {
+                    playlist.tracks.retain(|path| !paths.contains(path));
+                }
+            }
+        }
+    }
+    if paths.is_empty() {
+        return 0;
+    }
+    let before = library.tracks.len();
+    library.tracks.retain(|track| !paths.contains(&track.path));
+    from_nodes(&mut library.playlists, paths);
+    before - library.tracks.len()
 }
 
 fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {

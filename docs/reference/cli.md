@@ -193,7 +193,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
-| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there get no cues from Euphoria. Only with `--cues`. |
+| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -227,13 +227,14 @@ Beat grids for 312 of 340 tracks; the others have no clear beat or a grid rated 
 
 With `--cues`, each track whose beat grid is written also gets its cues, each twice: as a memory cue and as a hot cue, on pads from A in order. Cues are off unless asked for.
 
-Euphoria never writes cues for a track that already has some of its own in rekordbox. `--cues` therefore needs `--collection`, naming your collection exported from rekordbox with **File > Export Collection in xml format**. A track listed there with any cue, hot cue or loop gets no cues from Euphoria; its key, tempo and beat grid are still written. A line on standard error gives the counts:
+Euphoria never changes the cues of a track that already has some of its own in rekordbox. `--cues` therefore needs `--collection`, naming your collection exported from rekordbox with **File > Export Collection in xml format**. A track listed there with any cue, hot cue or loop is left out of the file entirely, from the collection and from every playlist. **Import To Collection** replaces what rekordbox has for a track with what the file says, and was not tested on cues, so leaving such a track out is the only way to be sure no import of the file can change its cues. Export again without `--cues` to update the key and tempo of those tracks. Standard error gives the counts:
 
 ```
-Cues for 296 of 340 tracks; 16 already have cues in your rekordbox collection and get none from Euphoria; tracks without a beat grid in the file get none.
+Cues for 296 of 324 tracks; tracks without a beat grid in the file get none.
+Left out 16 tracks that already have cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update their key and tempo.
 ```
 
-**Import To Collection** replaces the key, tempo and comment of a track already in your collection (tested in rekordbox 7.2.19). Whether it also replaces or removes that track's cues and grid was not tested; expect it to. To keep the cues of tracks you have prepared, import only the tracks that are new to your collection. See [export to rekordbox](../guides/export-to-rekordbox.md#what-happens-to-tracks-you-already-have).
+When every track already has cues, nothing is written and the command exits with status 1.
 
 The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written. Without `--force` it only takes a name that is free: a file that another program creates at the output path while the export runs is kept, and the export fails.
 
