@@ -235,7 +235,7 @@ Tracks not analyzed yet are left out of a rekordbox export, and the app says how
 
 ### Where playlists are kept
 
-Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [data folder](#what-the-app-remembers). Each track is kept by the content of its file, like a remembered result, together with its path. A file moved or renamed is found again once the app or `euphoria analyze` has seen it in its new place, and only when the file there holds the same content. Playlists live in their own file so that clearing or deleting the cache never touches them. The command line lists them with [`euphoria playlists`](../reference/cli.md#euphoria-playlists) and exports one by name.
+Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [data folder](#what-the-app-remembers). Each track is kept by the content of its file, like a remembered result, together with its path. A file moved or renamed is found again once the app or `euphoria analyze` has seen it in its new place, and only when the file there holds the same content. Euphoria's own tag writes and undo keep playlist identity in step with the rewritten file; an unverified external replacement is still left out of exports. Playlists live in their own file so that clearing or deleting the cache never touches them. The command line lists them with [`euphoria playlists`](../reference/cli.md#euphoria-playlists) and exports one by name.
 
 ## Edit tags
 

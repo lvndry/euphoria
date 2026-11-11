@@ -190,7 +190,7 @@ fn without_a_terminal_and_without_yes_nothing_is_written() {
     assert_eq!(log_count(&euphoria), 0);
     let report = standard_error(&output);
     assert!(
-        report.contains("Nothing was written: standard input is not a terminal"),
+        report.contains("error: nothing was written: standard input is not a terminal"),
         "{report}"
     );
     assert!(report.contains("--yes"), "{report}");
@@ -774,4 +774,53 @@ fn a_write_without_the_cache_leaves_no_cache_behind() {
     assert!(!euphoria.cache_path().exists());
     assert_success(&run(&euphoria, &["tags", "undo"]));
     assert!(!euphoria.cache_path().exists());
+}
+
+#[test]
+fn writing_a_faster_tempo_range_preserves_the_original_cached_downbeat() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = folder.path().join("track.flac");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.flac"), &track).unwrap();
+    assert_success(&run(&euphoria, &["analyze", "--json", text(&track)]));
+    let cached = || {
+        euphoria_core::CachedAnalyzer::new(
+            euphoria_core::Cache::open(&euphoria.cache_path()).unwrap(),
+        )
+        .unwrap()
+        .stored_analysis(&track)
+        .unwrap()
+    };
+    let mut original = cached();
+    original.bpm = Some(160.0);
+    original.tempo_estimate = Some(160.0);
+    original.beat_grid = Some(euphoria_core::BeatGrid {
+        first_downbeat_seconds: 0.9,
+        bpm: 160.0,
+        salience: 12.0,
+        drift_seconds: Some(0.01),
+    });
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .unwrap()
+        .record_retagged_file(&track, &original)
+        .unwrap();
+
+    assert_success(&run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--tempo-range",
+            "200-400",
+            text(&track),
+        ],
+    ));
+
+    assert_eq!(read_tags(&track).unwrap().bpm.as_deref(), Some("320"));
+    assert_eq!(
+        cached(),
+        original,
+        "the shorter displayed bar must not replace the detected downbeat"
+    );
 }

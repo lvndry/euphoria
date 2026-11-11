@@ -176,7 +176,7 @@ pub enum TextChange {
         match_case: bool,
     },
     /// Puts text in front, unless the field already starts with it. An
-    /// absent or empty field stays so: a title that is only "[Edit] " helps
+    /// absent or empty field stays so: a title that is only `"[Edit] "` helps
     /// nobody.
     AddPrefix(String),
     /// Puts text at the end, unless the field already ends with it. An

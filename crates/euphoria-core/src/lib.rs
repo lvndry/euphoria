@@ -44,13 +44,15 @@ pub mod tempo_range;
 pub mod track_name;
 
 pub use analysis::{
-    ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
+    ANALYZER_VERSION, AnalysisObserver, AnalysisStage, FileResult, Progress, TrackAnalysis,
+    Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
 };
 pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
-    DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
+    DATA_DIRECTORY_VARIABLE, analyze_files_cached, analyze_files_cached_observed, clear_cache,
+    default_cache_path,
 };
 pub use confidence::Confidence;
 pub use correction::Correction;

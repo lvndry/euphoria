@@ -109,6 +109,9 @@ pub(crate) trait DecodeObserver {
     fn packet(&mut self, bytes: usize);
     /// One decoded chunk of interleaved samples, before the mixdown.
     fn samples(&mut self, interleaved: &[f32], channel_count: usize, sample_rate: u32);
+    /// How much of the file is decoded, from 0 to 1, when the file says how
+    /// long it is. Called when the share rises by a hundredth or more.
+    fn decoded_share(&mut self, _share: f32) {}
 }
 
 /// An observer that looks at nothing.
@@ -160,6 +163,8 @@ pub(crate) fn decode_mono_observed(
         Vec::with_capacity(frames_to_reserve(declared_frames, file_bytes));
     let mut interleaved: Vec<f32> = Vec::new();
     let mut sample_rate: u32 = 0;
+    let declared_frames = declared_frames.filter(|frames| *frames > 0);
+    let mut reported_hundredths = 0;
 
     loop {
         let packet = match format.next_packet() {
@@ -194,6 +199,13 @@ pub(crate) fn decode_mono_observed(
                         .chunks_exact(channel_count)
                         .map(|frame| frame.iter().sum::<f32>() / channel_count as f32),
                 );
+                if let Some(declared_frames) = declared_frames {
+                    let hundredths = (mono_samples.len() as u64 * 100 / declared_frames).min(100);
+                    if hundredths > reported_hundredths {
+                        reported_hundredths = hundredths;
+                        observer.decoded_share(hundredths as f32 / 100.0);
+                    }
+                }
             }
             Err(SymphoniaError::DecodeError(_)) => continue,
             Err(error) => return Err(decode_error(error)),

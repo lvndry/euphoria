@@ -21,7 +21,7 @@ const AUDIO_FIXTURES: [&str; 7] = [
     "sine-440hz-stereo.wav",
 ];
 const LOCATION_PREFIX: &str = "file://localhost";
-const IMPORT_STEPS_START: &str = "In rekordbox: 1. ";
+const IMPORT_STEPS: [&str; 4] = ["To import it in rekordbox:", "  1. ", "  2. ", "  3. "];
 const GUIDE_LINE_START: &str = "Full guide: https://";
 
 fn text(path: &Path) -> &str {
@@ -46,14 +46,26 @@ fn assert_success(output: &Output) {
     );
 }
 
-/// The lines a successful export writes to standard error: the summary and
-/// the two lines of import steps.
+/// Asserts that `lines`, from the first given, are the numbered import
+/// steps and the link to the guide.
+fn assert_import_steps(lines: &[&str]) {
+    assert_eq!(lines.len(), IMPORT_STEPS.len() + 1, "{lines:?}");
+    for (line, start) in lines.iter().zip(IMPORT_STEPS) {
+        assert!(line.starts_with(start), "{lines:?}");
+    }
+    assert!(
+        lines[IMPORT_STEPS.len()].starts_with(GUIDE_LINE_START),
+        "{lines:?}"
+    );
+}
+
+/// The lines a successful export writes to standard error: the summary,
+/// then the import steps and the guide.
 fn summary_lines(output: &Output) -> Vec<String> {
-    let lines: Vec<String> = standard_error(output).lines().map(str::to_string).collect();
-    assert_eq!(lines.len(), 3, "{lines:?}");
-    assert!(lines[1].starts_with(IMPORT_STEPS_START), "{lines:?}");
-    assert!(lines[2].starts_with(GUIDE_LINE_START), "{lines:?}");
-    lines
+    let errors = standard_error(output);
+    let lines: Vec<&str> = errors.lines().collect();
+    assert_import_steps(&lines[1..]);
+    lines.iter().map(|line| line.to_string()).collect()
 }
 
 fn percent_decoded(encoded: &str) -> String {
@@ -399,19 +411,20 @@ fn a_file_that_fails_is_reported_and_the_others_are_exported() {
     assert!(exported.stdout.is_empty());
     let errors = standard_error(&exported);
     let lines: Vec<&str> = errors.lines().collect();
-    assert_eq!(lines.len(), 5, "{errors}");
-    assert_eq!(lines[0], "Left 1 file out of the export:");
     assert!(
-        lines[1].starts_with(&format!("  {}: cannot decode ", readme.display())),
+        lines[0].starts_with(&format!("error: {}: cannot decode ", readme.display())),
         "{errors}"
     );
-    assert!(lines[1].contains("unsupported format"), "{errors}");
+    assert!(lines[0].contains("unsupported format"), "{errors}");
     assert!(
-        lines[2].starts_with("Exported 7 tracks in 1 playlist to "),
+        lines[1].starts_with("Exported 7 tracks in 1 playlist to "),
         "{errors}"
     );
-    assert!(lines[3].starts_with(IMPORT_STEPS_START), "{errors}");
-    assert!(lines[4].starts_with(GUIDE_LINE_START), "{errors}");
+    assert_eq!(
+        lines[2],
+        "Left 1 file out of the export; the errors above say why."
+    );
+    assert_import_steps(&lines[3..]);
 
     let library = ExportedLibrary::read(&output_file);
     assert_eq!(library.tracks.len(), AUDIO_FIXTURES.len());
@@ -463,23 +476,20 @@ fn a_track_whose_tags_cannot_be_read_is_exported_under_its_file_name() {
     assert!(exported.stdout.is_empty());
     let errors = standard_error(&exported);
     let lines: Vec<&str> = errors.lines().collect();
-    assert_eq!(lines.len(), 5, "{errors}");
     assert_eq!(
         lines[0],
-        "Could not read the title of 1 file, used its file name:"
-    );
-    assert_eq!(
-        lines[1],
         format!(
-            "  {path}: cannot open {path}: Permission denied (os error 13)",
+            "warning: {path}: named after its file, as its title could not be read: \
+             cannot open {path}: Permission denied (os error 13)",
             path = unreadable.display()
         )
     );
     assert!(
-        lines[2].starts_with("Exported 2 tracks in 1 playlist to ")
-            && lines[2].ends_with("(2 from the cache)"),
+        lines[1].starts_with("Exported 2 tracks in 1 playlist to ")
+            && lines[1].ends_with("(2 from the cache)"),
         "{errors}"
     );
+    assert_import_steps(&lines[2..]);
 
     let library = ExportedLibrary::read(&output_file);
     let renamed_track = library.track(&unreadable);
@@ -665,10 +675,8 @@ fn nothing_is_written_when_no_file_can_be_exported() {
 
     assert_eq!(all_failed.status.code(), Some(1));
     let errors = standard_error(&all_failed);
-    assert!(
-        errors.starts_with("Left 1 file out of the export:"),
-        "{errors}"
-    );
+    assert!(errors.starts_with("error: "), "{errors}");
+    assert!(errors.contains("README.md: "), "{errors}");
     assert!(
         errors.contains("error: none of the files could be exported"),
         "{errors}"
@@ -1409,4 +1417,46 @@ fn cued_tracks_that_match_no_file_stop_the_export_unless_allowed() {
         "  Elsewhere by Someone at file://localhost/C:/Music/elsewhere.mp3"
     );
     assert!(!exported_cues(&allowed_file).is_empty());
+}
+
+#[test]
+fn unmatched_collection_metadata_cannot_rewrite_terminal_messages() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let collection = folder.path().join("collection.xml");
+    let output_file = folder.path().join("export.xml");
+    std::fs::write(
+        &collection,
+        "<DJ_PLAYLISTS><COLLECTION>\
+        <TRACK Name=\"fake&#13;forged&#10;error: spoofed\" Artist=\"\u{202e}\" \
+        Location=\"file://localhost/definitely-absent.mp3\"><POSITION_MARK Start=\"1\"/></TRACK>\
+        </COLLECTION></DJ_PLAYLISTS>",
+    )
+    .unwrap();
+    let track = fixtures_directory().join("sine-440hz-mono.flac");
+    let output = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&output_file),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+        "--allow-unmatched-cued-tracks",
+    ]);
+    assert_success(&output);
+    let message = standard_error(&output);
+    assert!(!message.contains(['\r', '\u{202e}']), "{message:?}");
+    assert!(
+        message.contains("fake\\rforged\\nerror: spoofed by \\u{202e}"),
+        "{message:?}"
+    );
+    assert!(
+        !message
+            .lines()
+            .any(|line| line
+                == "error: spoofed by \u{202e} at file://localhost/definitely-absent.mp3")
+    );
 }

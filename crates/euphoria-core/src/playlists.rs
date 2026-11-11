@@ -56,6 +56,33 @@ pub struct PlaylistEntry {
 }
 
 impl PlaylistEntry {
+    /// Follows an explicitly observed safe metadata rewrite. Existing copies
+    /// at other paths keep their old identity; a missing path may follow the
+    /// moved file whose old bytes the writer verified.
+    pub fn rebind_rewritten_file(
+        &mut self,
+        path: &Path,
+        before: ContentHash,
+        after: ContentHash,
+    ) -> bool {
+        if self.content != before {
+            return false;
+        }
+        let same_file = self.path == path
+            || std::fs::canonicalize(&self.path)
+                .ok()
+                .zip(std::fs::canonicalize(path).ok())
+                .is_some_and(|(stored, rewritten)| stored == rewritten);
+        let missing = matches!(self.path.try_exists(), Ok(false));
+        if !same_file && !missing {
+            return false;
+        }
+        if missing {
+            self.path = path.to_path_buf();
+        }
+        self.content = after;
+        true
+    }
     /// The entry for the file at `path`. The content is taken from `cache`
     /// when it recorded the file at that path with the same size and
     /// modification time, and read from the file otherwise.
@@ -108,6 +135,56 @@ pub struct PlaylistStore {
 }
 
 impl PlaylistStore {
+    /// Keeps playlist identity in step with a known safe metadata rewrite.
+    /// Both hashes must be captured around that operation; this must never
+    /// be used to infer a rewrite from an arbitrary changed file. Only rows
+    /// holding `before` at `path`, or at a now missing path, are rebound.
+    /// Existing copies elsewhere are left alone. No playlist order changes.
+    /// Returns the old and new entries so queued snapshots can follow these
+    /// exact transitions without reinterpreting later filesystem changes.
+    ///
+    /// # Errors
+    /// Returns [`EuphoriaError::Playlists`] if the store cannot be read or written.
+    pub fn rebind_rewritten_file(
+        &mut self,
+        path: &Path,
+        before: ContentHash,
+        after: ContentHash,
+    ) -> Result<Vec<(PlaylistEntry, PlaylistEntry)>, EuphoriaError> {
+        let path = std::path::absolute(path).map_err(store_error(&self.path))?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(store_error(&self.path))?;
+        let rows = {
+            let mut statement = transaction.prepare("SELECT playlist_position, position, path FROM playlist_tracks WHERE content_hash = ?1").map_err(store_error(&self.path))?;
+            statement
+                .query_map(params![before.as_bytes()], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(store_error(&self.path))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(store_error(&self.path))?
+        };
+        let mut changed = Vec::new();
+        for (playlist, position, stored_path) in rows {
+            let mut entry = PlaylistEntry {
+                path: PathBuf::from(stored_path),
+                content: before,
+            };
+            let original = entry.clone();
+            if entry.rebind_rewritten_file(&path, before, after) {
+                transaction.execute("UPDATE playlist_tracks SET content_hash = ?1, path = ?2 WHERE playlist_position = ?3 AND position = ?4", params![after.as_bytes(), entry.path.to_str().ok_or_else(|| store_error(&self.path)("the rewritten path is not UTF-8"))?, playlist, position]).map_err(store_error(&self.path))?;
+                changed.push((original, entry));
+            }
+        }
+        transaction.commit().map_err(store_error(&self.path))?;
+        Ok(changed)
+    }
     /// Opens the database at `path`, creating it and its folder when missing.
     ///
     /// # Errors

@@ -24,7 +24,7 @@ $ euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
 Exported 340 tracks in 12 playlists to /Users/you/Music/euphoria.xml
 ```
 
-Name one or more folders or files, as with `euphoria analyze`. Tracks that were analyzed before come from the [cache](../reference/cli.md#the-analysis-cache), so exporting a library that is already analyzed takes seconds. New tracks are analyzed first, with a progress bar.
+Name one or more folders or files, as with `euphoria analyze`. Tracks that were analyzed before come from the [cache](../reference/cli.md#the-analysis-cache), so exporting a library that is already analyzed takes seconds. New tracks are analyzed first, with a line per track showing what is being done.
 
 - The export refuses to replace a file that exists. Pass `--force` to replace it, for example when you export again after adding music.
 - Keys are written as Camelot codes. Pass `--key-notation musical` for names such as `Am`.

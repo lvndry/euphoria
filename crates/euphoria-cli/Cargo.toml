@@ -20,6 +20,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 euphoria-core.workspace = true
+console.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
 roxmltree.workspace = true

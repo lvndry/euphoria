@@ -104,7 +104,10 @@ fn a_renamed_and_moved_file_comes_from_the_cache() {
     assert_success(&second_run);
     assert_eq!(
         standard_error(&second_run),
-        "Quality: 1 lossless.\n1 of 1 track came from the cache.\n"
+        "Key and tempo: 1 of 1 track rated low confidence (●○○), worth checking by ear.\n\
+         Sound quality: 1 track lossless.\n\
+         hint: --needs-review lists only the tracks to check by ear.\n\
+         1 of 1 track came from the cache.\n"
     );
     assert!(String::from_utf8_lossy(&second_run.stdout).contains("renamed.flac"));
 }
@@ -155,7 +158,7 @@ fn a_failed_file_is_tried_again_on_the_next_run() {
         let output = euphoria.run(&["analyze", text(&readme)]);
         assert!(!output.status.success());
         let errors = standard_error(&output);
-        assert!(errors.contains("Could not analyze 1 file:"), "{errors}");
+        assert!(errors.contains("1 file could not be analyzed"), "{errors}");
         assert!(!errors.contains(FROM_THE_CACHE), "{errors}");
     }
 }
@@ -197,7 +200,12 @@ fn a_damaged_cache_is_a_warning_and_the_files_are_still_analyzed() {
     assert_success(&euphoria.run(&["cache", "clear"]));
     let after_clearing = euphoria.run(&["analyze", text(&fixture)]);
     assert_success(&after_clearing);
-    assert_eq!(standard_error(&after_clearing), "Quality: 1 lossless.\n");
+    assert_eq!(
+        standard_error(&after_clearing),
+        "Key and tempo: 1 of 1 track rated low confidence (●○○), worth checking by ear.\n\
+         Sound quality: 1 track lossless.\n\
+         hint: --needs-review lists only the tracks to check by ear.\n"
+    );
 }
 
 #[test]
@@ -215,7 +223,7 @@ fn a_damaged_cache_does_not_hide_a_failed_file() {
         errors.contains("warning: analyzing without the cache"),
         "{errors}"
     );
-    assert!(errors.contains("Could not analyze 1 file:"), "{errors}");
+    assert!(errors.contains("1 file could not be analyzed"), "{errors}");
 }
 
 #[test]
@@ -471,4 +479,34 @@ fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
     assert_eq!(version, 8);
+}
+
+#[cfg(unix)]
+#[test]
+fn cache_commands_treat_a_closed_output_pipe_as_a_finished_reader() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::Stdio;
+
+    for arguments in [["cache", "path"], ["cache", "clear"]] {
+        let euphoria = Euphoria::new();
+        let (reader, writer) = UnixStream::pair().unwrap();
+        drop(reader);
+        let output = euphoria
+            .command(&arguments)
+            .stdout(Stdio::from(OwnedFd::from(writer)))
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}",
+            standard_error(&output)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{arguments:?}: {}",
+            standard_error(&output)
+        );
+    }
 }

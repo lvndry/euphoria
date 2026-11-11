@@ -23,6 +23,25 @@ use crate::error::EuphoriaError;
 use crate::tempo_range::TempoRange;
 
 impl Cache {
+    /// Carries a manual correction across a known metadata-only rewrite,
+    /// even when no analysis remains after clearing the cache.
+    ///
+    /// The caller must obtain both hashes around its own tag write or undo.
+    /// A correction already attached to `after` takes precedence. The old
+    /// correction is retained so undoing the write can recover it too.
+    /// No analysis is created, and no files are read.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be written.
+    pub fn carry_rewritten_correction(
+        &mut self,
+        before: ContentHash,
+        after: ContentHash,
+    ) -> Result<(), EuphoriaError> {
+        carry_correction(&self.connection, &before, &after).map_err(cache_error(&self.path))
+    }
+
     /// Records `analysis` for the file at `path` as it is now, after a tag
     /// write changed its tags and nothing else.
     ///
@@ -108,8 +127,6 @@ impl Cache {
                 carry,
             )
             .map_err(cache_error(&self.path))?;
-        } else {
-            carry(&self.connection).map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
     }
@@ -285,6 +302,67 @@ mod tests {
     }
 
     #[test]
+    fn explicit_rewrites_carry_corrections_without_any_analysis() {
+        let folder = TemporaryFolder::new();
+        let path = folder.path().join("track.mp3");
+        let original = b"audio with original tags";
+        std::fs::write(&path, original).unwrap();
+        let before = ContentHash::of_file(&path).unwrap();
+        let correction = crate::Correction::of_key(Key::new(4, Mode::Minor))
+            .with_bpm(Some(87.0))
+            .unwrap();
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache.set_correction(&path, &correction).unwrap();
+        let analyzer = CachedAnalyzer::new(cache).unwrap();
+        retag(&path, b" changed");
+        let after = ContentHash::of_file(&path).unwrap();
+
+        analyzer.carry_rewritten_correction(before, after).unwrap();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        assert_eq!(cache.entry_count().unwrap(), 0);
+        assert_eq!(
+            cache.verified_correction_for(&path).unwrap(),
+            Some(correction)
+        );
+        std::fs::write(&path, original).unwrap();
+        analyzer.carry_rewritten_correction(after, before).unwrap();
+        assert_eq!(
+            cache.verified_correction_for(&path).unwrap(),
+            Some(correction)
+        );
+    }
+
+    #[test]
+    fn an_explicit_rewrite_keeps_the_destinations_own_correction() {
+        let folder = TemporaryFolder::new();
+        let source = folder.path().join("original.mp3");
+        let destination = folder.path().join("retagged.mp3");
+        std::fs::write(&source, b"audio with original tags").unwrap();
+        std::fs::write(&destination, b"audio with changed tags").unwrap();
+        let before = ContentHash::of_file(&source).unwrap();
+        let after = ContentHash::of_file(&destination).unwrap();
+        let source_correction = crate::Correction::of_key(Key::new(4, Mode::Minor));
+        let destination_correction = crate::Correction::of_key(Key::new(0, Mode::Major));
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache.set_correction(&source, &source_correction).unwrap();
+        cache
+            .set_correction(&destination, &destination_correction)
+            .unwrap();
+
+        cache.carry_rewritten_correction(before, after).unwrap();
+
+        assert_eq!(
+            cache.verified_correction_for(&source).unwrap(),
+            Some(source_correction)
+        );
+        assert_eq!(
+            cache.verified_correction_for(&destination).unwrap(),
+            Some(destination_correction)
+        );
+        assert_eq!(cache.entry_count().unwrap(), 0);
+    }
+
+    #[test]
     fn unknown_content_is_not_recognised_and_nothing_is_recorded() {
         let folder = TemporaryFolder::new();
         let track = folder.path().join("track.wav");
@@ -292,6 +370,26 @@ mod tests {
         let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
         assert!(!cache.recognise_file(&track).unwrap());
         assert_eq!(cache.entry_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn unknown_replacement_does_not_inherit_the_previous_tracks_correction() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("replaced.mp3");
+        std::fs::write(&track, b"original audio").unwrap();
+        analyzed(&folder, &track);
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .set_correction(&track, &crate::Correction::of_bpm(87.0).unwrap())
+            .unwrap();
+        std::fs::write(&track, b"unrelated new audio").unwrap();
+        assert!(!cache.recognise_file(&track).unwrap());
+        assert_eq!(cache.verified_correction_for(&track).unwrap(), None);
+        std::fs::write(&track, b"original audio").unwrap();
+        assert_eq!(
+            cache.verified_correction_for(&track).unwrap().unwrap().bpm,
+            Some(87.0)
+        );
     }
 
     #[test]

@@ -50,6 +50,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
           python3 scripts/release/plan_release.py | tee -a "$GITHUB_OUTPUT"
       - name: Find the commit to build
         id: base

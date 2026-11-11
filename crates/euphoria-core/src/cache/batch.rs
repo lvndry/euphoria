@@ -9,7 +9,9 @@ use rayon::prelude::*;
 
 use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, Snapshot};
-use crate::analysis::{FileResult, Progress, TrackAnalysis, analyze_file};
+use crate::analysis::{
+    AnalysisObserver, FileResult, Progress, TrackAnalysis, Unobserved, analyze_file_observed,
+};
 use crate::error::EuphoriaError;
 
 /// Whether a batch may serve analyses that are already stored.
@@ -62,7 +64,20 @@ pub fn analyze_files_cached(
     policy: CachePolicy,
     on_progress: impl Fn(Progress<'_>) + Sync,
 ) -> Result<CachedBatch, EuphoriaError> {
-    analyze_files_cached_with(cache, paths, policy, analyze_file, on_progress)
+    analyze_files_cached_observed(cache, paths, policy, &Unobserved, on_progress)
+}
+
+/// Like [`analyze_files_cached`], telling `observer` the stages of each file
+/// that is analyzed. Files served from the cache report no stage.
+pub fn analyze_files_cached_observed(
+    cache: &mut Cache,
+    paths: &[PathBuf],
+    policy: CachePolicy,
+    observer: &impl AnalysisObserver,
+    on_progress: impl Fn(Progress<'_>) + Sync,
+) -> Result<CachedBatch, EuphoriaError> {
+    let analyze = |path: &Path| analyze_file_observed(path, observer);
+    analyze_files_cached_with(cache, paths, policy, analyze, on_progress)
 }
 
 fn analyze_files_cached_with(

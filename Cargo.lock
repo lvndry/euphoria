@@ -2043,6 +2043,7 @@ dependencies = [
  "png 0.18.1",
  "rayon",
  "rodio",
+ "rusqlite",
  "serde",
  "serde_json",
  "signalsmith-stretch",
@@ -2066,6 +2067,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "console",
  "euphoria-core",
  "indicatif",
  "rayon",

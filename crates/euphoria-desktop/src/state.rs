@@ -18,7 +18,7 @@ use euphoria_core::{
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
 use crate::demo::DemoTrack;
 use crate::library::Library;
-use crate::playlists::Playlists;
+use crate::playlists::{PlaylistRewrite, Playlists};
 use crate::progress::AnalysisProgress;
 
 /// What was found under the files and folders the user added.
@@ -87,23 +87,109 @@ pub(crate) struct PlaylistSaver {
     /// The revision of the playlists last written, so a slow save of older
     /// playlists never overwrites a newer one.
     saved_revision: Arc<AtomicU64>,
+    rewrites: Arc<Mutex<Vec<PlaylistRewrite>>>,
+    registered: Arc<Mutex<HashMap<PathBuf, Option<euphoria_core::ContentHash>>>>,
 }
 
 impl PlaylistSaver {
+    /// Registers the live paths before hashing or saving them off-thread,
+    /// including new entries not yet present in the database.
+    pub(crate) fn register(&self, playlists: &Playlists) {
+        *self
+            .registered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = playlists
+            .all()
+            .iter()
+            .flat_map(|playlist| &playlist.tracks)
+            .map(|path| (path.clone(), playlists.content_of(path)))
+            .collect();
+    }
+
+    pub(crate) fn rewrites(&self) -> Vec<PlaylistRewrite> {
+        self.rewrites
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     /// Keeps `playlists`, made at `revision`, unless newer ones were kept
     /// already.
     pub(crate) fn save(
         &self,
         playlists: &[StoredPlaylist],
         revision: u64,
+        rewrite_epoch: usize,
     ) -> Result<(), EuphoriaError> {
         let mut store = self.store.lock().unwrap_or_else(PoisonError::into_inner);
         if self.saved_revision.load(Ordering::Relaxed) >= revision {
             return Ok(());
         }
-        store.save(playlists)?;
+        let mut playlists = playlists.to_vec();
+        let rewrites = self.rewrites.lock().unwrap_or_else(PoisonError::into_inner);
+        for entry in playlists
+            .iter_mut()
+            .flat_map(|playlist| &mut playlist.entries)
+        {
+            for rewrite in rewrites.iter().skip(rewrite_epoch) {
+                rewrite.apply(entry);
+            }
+        }
+        store.save(&playlists)?;
         self.saved_revision.store(revision, Ordering::Relaxed);
         Ok(())
+    }
+
+    pub(crate) fn rebind(&self, rewrite: &mut PlaylistRewrite) -> Result<(), EuphoriaError> {
+        let mut store = self.store.lock().unwrap_or_else(PoisonError::into_inner);
+        let rebound = store.rebind_rewritten_file(&rewrite.path, rewrite.before, rewrite.after);
+        if let Ok(entries) = &rebound {
+            for (before, after) in entries {
+                rewrite
+                    .paths
+                    .insert(before.path.clone(), after.path.clone());
+            }
+        }
+        let registered = self
+            .registered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        for (path, content) in registered {
+            if content.is_some_and(|content| content != rewrite.before) {
+                continue;
+            }
+            if content.is_none() && !path.try_exists().unwrap_or(false) && path != rewrite.path {
+                continue;
+            }
+            let mut entry = euphoria_core::PlaylistEntry {
+                path: path.clone(),
+                content: rewrite.before,
+            };
+            if entry.rebind_rewritten_file(&rewrite.path, rewrite.before, rewrite.after) {
+                rewrite.paths.insert(path, entry.path);
+            }
+        }
+        {
+            let mut registered = self
+                .registered
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            for (before, after) in &rewrite.paths {
+                if registered
+                    .get(before)
+                    .is_some_and(|content| content.is_none_or(|value| value == rewrite.before))
+                {
+                    registered.remove(before);
+                    registered.insert(after.clone(), Some(rewrite.after));
+                }
+            }
+        }
+        self.rewrites
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(rewrite.clone());
+        rebound.map(|_| ())
     }
 }
 
@@ -144,6 +230,8 @@ impl Session {
         let saver = PlaylistSaver {
             store: Arc::new(Mutex::new(store)),
             saved_revision: Arc::new(AtomicU64::new(0)),
+            rewrites: Arc::default(),
+            registered: Arc::default(),
         };
         self.playlist_saver = Some(saver);
         Ok(())
@@ -292,6 +380,114 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn queued_playlist_snapshots_follow_frozen_rewrites_without_rebinding_later_missing_copies() {
+        use crate::tag_writing::testing::ScratchFolder;
+        use euphoria_core::{ContentHash, PlaylistEntry};
+        let folder = ScratchFolder::new("playlist-queued-rewrite");
+        let path = folder.0.join("written.mp3");
+        let untouched = folder.0.join("copy.mp3");
+        let missing = folder.0.join("moved.mp3");
+        std::fs::write(&path, b"before").unwrap();
+        std::fs::copy(&path, &untouched).unwrap();
+        let before = ContentHash::of_file(&path).unwrap();
+        let stored = vec![StoredPlaylist {
+            name: "Queued".into(),
+            label: None,
+            entries: [path.clone(), missing.clone(), untouched.clone()]
+                .into_iter()
+                .map(|path| PlaylistEntry {
+                    path,
+                    content: before,
+                })
+                .collect(),
+        }];
+        let mut session = Session::start(None).unwrap();
+        session
+            .use_playlist_store(PlaylistStore::open(&folder.0.join("playlists.sqlite3")).unwrap())
+            .unwrap();
+        session.playlists = Playlists::from_stored(stored.clone());
+        let saver = session.playlist_saver().unwrap();
+        saver.register(&session.playlists);
+        let stale_contents = session.playlists.known_contents();
+        std::fs::write(&path, b"after metadata edit").unwrap();
+        let after = ContentHash::of_file(&path).unwrap();
+        let mut rewrite = PlaylistRewrite {
+            path: path.clone(),
+            before,
+            after,
+            paths: HashMap::from([(path.clone(), path.clone())]),
+        };
+        saver.rebind(&mut rewrite).unwrap();
+        // This copy existed at the rewrite boundary. Its later disappearance
+        // must not reinterpret the already-observed transition.
+        std::fs::remove_file(&untouched).unwrap();
+        saver.save(&stored, 1, 0).unwrap();
+        let kept = PlaylistStore::open(&folder.0.join("playlists.sqlite3"))
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(kept[0].entries[0].content, after);
+        assert_eq!(kept[0].entries[1].path, path);
+        assert_eq!(kept[0].entries[1].content, after);
+        assert_eq!(kept[0].entries[2].content, before);
+        session.playlists.follow_rewrite_history(&saver.rewrites());
+        session.playlists.learn_contents(stale_contents);
+        assert_eq!(session.playlists.content_of(&path), Some(after));
+        assert_eq!(session.playlists.content_of(&missing), None);
+        // A second transition and late old completion cannot roll back the
+        // current in-memory identity or an already-queued snapshot.
+        std::fs::write(&path, b"another metadata edit").unwrap();
+        let newest = ContentHash::of_file(&path).unwrap();
+        let mut next = PlaylistRewrite {
+            path: path.clone(),
+            before: after,
+            after: newest,
+            paths: HashMap::from([(path.clone(), path.clone())]),
+        };
+        saver.rebind(&mut next).unwrap();
+        saver.save(&stored, 2, 0).unwrap();
+        session.playlists.follow_rewrite_history(&saver.rewrites());
+        session
+            .playlists
+            .learn_contents(HashMap::from([(path.clone(), before)]));
+        assert_eq!(session.playlists.content_of(&path), Some(newest));
+        let kept = PlaylistStore::open(&folder.0.join("playlists.sqlite3"))
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(kept[0].entries[0].content, newest);
+        // A genuinely new playlist created after those rewrites must not
+        // replay them onto freshly hashed content restored by another tool.
+        for id in session
+            .playlists
+            .all()
+            .iter()
+            .map(|playlist| playlist.id)
+            .collect::<Vec<_>>()
+        {
+            session.playlists.delete(id);
+        }
+        assert_eq!(session.playlists.content_of(&path), None);
+        std::fs::write(&path, b"before").unwrap();
+        let id = session.playlists.create();
+        session
+            .playlists
+            .add_tracks(id, std::slice::from_ref(&path));
+        let epoch = saver.rewrites().len();
+        saver.register(&session.playlists);
+        let fresh = session
+            .playlists
+            .stored_with_contents(|path| Some(ContentHash::of_file(path).unwrap()));
+        saver.save(&fresh, 3, epoch).unwrap();
+        session.playlists.follow_rewrite_history(&saver.rewrites());
+        assert_eq!(session.playlists.content_of(&path), Some(before));
+        let kept = PlaylistStore::open(&folder.0.join("playlists.sqlite3"))
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(kept[0].entries[0].content, before);
+    }
     use std::path::Path;
     use std::time::{Duration, Instant};
 

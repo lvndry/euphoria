@@ -1163,6 +1163,9 @@ impl EuphoriaApp {
         if self.selected == Some(index) {
             return;
         }
+        // A typed tempo belongs to the track for which the editor opened.
+        self.by_ear.is_editing = false;
+        self.by_ear.bpm_problem = None;
         self.selected = Some(index);
         self.refresh_mixes();
         self.load_selected_waveform(cx);

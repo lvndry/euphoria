@@ -17,7 +17,7 @@ use crate::app::EuphoriaApp;
 use crate::tag_settings::TagSettings;
 use crate::tag_writing::{
     LeftOut, PreviewRow, UndoReport, WriteReport, WriteTarget, plan_writes, preview_rows,
-    undo_last, write_plans,
+    undo_last_with_playlists, write_plans_with_playlists,
 };
 
 /// The targets with their corrections checked against the whole file, since
@@ -260,6 +260,10 @@ impl EuphoriaApp {
         let is_edit = matches!(preview.kind, PreviewKind::Edit { .. });
         let cache = self.session.cache();
         let done = Arc::new(AtomicUsize::new(0));
+        let playlists = self.session.playlist_saver();
+        if let Some(saver) = &playlists {
+            saver.register(self.session.playlists());
+        }
         self.tag_panel = Some(TagPanel::Writing {
             done: done.clone(),
             total: plans.len(),
@@ -271,10 +275,26 @@ impl EuphoriaApp {
             let report = cx
                 .background_executor()
                 .spawn(async move {
-                    write_plans(&plans, &analyses, &log_directory, cache.as_deref(), &done)
+                    write_plans_with_playlists(
+                        &plans,
+                        &analyses,
+                        &log_directory,
+                        cache.as_deref(),
+                        &done,
+                        playlists.as_ref(),
+                    )
                 })
                 .await;
             this.update(cx, |this, cx| {
+                if let Some(saver) = this.session.playlist_saver() {
+                    this.session
+                        .playlists_mut()
+                        .follow_rewrite_history(&saver.rewrites());
+                } else {
+                    this.session
+                        .playlists_mut()
+                        .follow_rewrites(&report.playlist_rewrites);
+                }
                 if is_edit {
                     // A title or an artist may have changed.
                     this.read_track_names(report.written.clone(), cx);
@@ -331,13 +351,31 @@ impl EuphoriaApp {
         };
         self.tag_panel = Some(TagPanel::Undoing);
         let cache = self.session.cache();
+        let playlists = self.session.playlist_saver();
+        if let Some(saver) = &playlists {
+            saver.register(self.session.playlists());
+        }
         cx.notify();
         cx.spawn(async move |this, cx| {
             let undone = cx
                 .background_executor()
-                .spawn(async move { undo_last(&log_directory, cache.as_deref()) })
+                .spawn(async move {
+                    undo_last_with_playlists(&log_directory, cache.as_deref(), playlists.as_ref())
+                })
                 .await;
             this.update(cx, |this, cx| {
+                if let Ok(Some(report)) = &undone {
+                    if let Some(saver) = this.session.playlist_saver() {
+                        this.session
+                            .playlists_mut()
+                            .follow_rewrite_history(&saver.rewrites());
+                    } else {
+                        this.session
+                            .playlists_mut()
+                            .follow_rewrites(&report.playlist_rewrites);
+                    }
+                    this.read_track_names(report.restored.clone(), cx);
+                }
                 this.tag_panel = Some(TagPanel::Undone(undone));
                 cx.notify();
             })

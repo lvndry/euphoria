@@ -5,7 +5,7 @@
 
 mod support;
 
-use support::{Euphoria, fixtures_directory};
+use support::{Euphoria, fixtures_directory, standard_error};
 
 #[test]
 fn analyzes_a_folder_as_json() {
@@ -83,7 +83,14 @@ fn prints_a_table_with_a_header() {
     assert!(table.contains("Lossless"), "{table}");
     assert!(table.contains("sine-440hz-mono.flac"), "{table}");
     let summary = String::from_utf8_lossy(&output.stderr);
-    assert!(summary.contains("Quality: 1 lossless."), "{summary}");
+    assert!(
+        summary.contains("Sound quality: 1 track lossless."),
+        "{summary}"
+    );
+    assert!(
+        !summary.contains('\u{1b}'),
+        "no colour into a pipe: {summary:?}"
+    );
 }
 
 fn analyze_json(arguments: &[&str]) -> Vec<serde_json::Value> {
@@ -213,8 +220,14 @@ fn reports_an_unreadable_file_and_exits_with_failure() {
     let output = Euphoria::new().run(&["analyze", readme.to_str().expect("UTF-8 path")]);
     assert!(!output.status.success());
     let errors = String::from_utf8_lossy(&output.stderr);
-    assert!(errors.contains("Could not analyze 1 file:"), "{errors}");
-    assert!(errors.contains("README.md"), "{errors}");
+    assert!(
+        errors.starts_with(&format!("error: {}: ", readme.display())),
+        "{errors}"
+    );
+    assert!(
+        errors.contains("1 file could not be analyzed; the errors above say why."),
+        "{errors}"
+    );
 }
 
 #[test]
@@ -250,4 +263,211 @@ fn a_reader_that_stops_early_is_not_an_error() {
 
     assert!(status.success(), "{errors}");
     assert!(!errors.contains("Broken pipe"), "{errors}");
+}
+
+#[test]
+fn piped_output_has_no_progress_lines() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let folder = fixtures_directory();
+    let euphoria = Euphoria::new();
+    for arguments in [
+        vec!["analyze", fixture.to_str().expect("UTF-8 path")],
+        vec!["analyze", "--json", fixture.to_str().expect("UTF-8 path")],
+        vec!["analyze", folder.to_str().expect("UTF-8 path")],
+    ] {
+        let output = euphoria.run(&arguments);
+        assert!(output.status.success(), "{arguments:?}");
+        let standard_error = String::from_utf8_lossy(&output.stderr);
+        // No stage, spinner, bar or debug build note when standard error is
+        // not a terminal.
+        for unwanted in [
+            "decoding",
+            "finding the",
+            "Analyzing",
+            "debug build",
+            "\r",
+            "\u{1b}",
+        ] {
+            assert!(
+                !standard_error.contains(unwanted),
+                "{arguments:?} wrote {unwanted:?} to standard error: {standard_error:?}"
+            );
+        }
+        let standard_output = String::from_utf8_lossy(&output.stdout);
+        assert!(!standard_output.contains("decoding"), "{standard_output}");
+        assert!(!standard_output.contains('\u{1b}'), "{standard_output:?}");
+    }
+}
+
+fn run_with_environment(arguments: &[&str], variables: &[(&str, &str)]) -> std::process::Output {
+    let euphoria = Euphoria::new();
+    let mut command = euphoria.command(arguments);
+    command.env_remove("NO_COLOR").env_remove("CLICOLOR_FORCE");
+    for (name, value) in variables {
+        command.env(name, value);
+    }
+    command.output().expect("the euphoria binary runs")
+}
+
+#[test]
+fn colour_follows_the_flag_and_the_environment() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let fixture = fixture.to_str().expect("UTF-8 path");
+    let has_colour = |output: &std::process::Output| {
+        output.stdout.contains(&0x1b) || output.stderr.contains(&0x1b)
+    };
+    let detail = ["analyze", "--detail", fixture];
+    assert!(!has_colour(&run_with_environment(&detail, &[])));
+    let always = run_with_environment(&["analyze", "--color", "always", "--detail", fixture], &[]);
+    assert!(has_colour(&always));
+    assert!(has_colour(&run_with_environment(
+        &detail,
+        &[("CLICOLOR_FORCE", "1")]
+    )));
+    assert!(!has_colour(&run_with_environment(
+        &detail,
+        &[("CLICOLOR_FORCE", "1"), ("NO_COLOR", "1")]
+    )));
+    let never = run_with_environment(
+        &["--color=never", "analyze", "--detail", fixture],
+        &[("CLICOLOR_FORCE", "1")],
+    );
+    assert!(!has_colour(&never));
+    let unknown = run_with_environment(&["analyze", "--color", "sometimes", fixture], &[]);
+    assert!(!unknown.status.success());
+}
+
+#[test]
+fn detail_shows_each_track_with_its_labels() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.flac");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--detail",
+        "--no-cache",
+        fixture.to_str().expect("UTF-8 path"),
+    ]);
+    assert!(output.status.success(), "{}", standard_error(&output));
+    let detail = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(detail.starts_with("sine-440hz-mono.flac\n"), "{detail}");
+    for label in [
+        "  Key ",
+        "  Tempo ",
+        "  Energy ",
+        "  Sound quality ",
+        "  Length ",
+    ] {
+        assert!(detail.contains(label), "{label:?} missing from {detail}");
+    }
+    assert!(
+        detail.contains("Lossless FLAC with a full spectrum."),
+        "{detail}"
+    );
+    assert!(
+        standard_error(&output).is_empty(),
+        "one track in detail needs no summary: {}",
+        standard_error(&output)
+    );
+}
+
+#[test]
+fn quality_lists_only_the_tracks_with_those_verdicts() {
+    let lossless = analyze_json(&["--quality", "lossless"]);
+    let lossy = analyze_json(&["--quality", "good,acceptable,weak,reencoded"]);
+    let all = analyze_json(&[]);
+    assert_eq!(lossless.len() + lossy.len(), all.len());
+    assert!(
+        lossless
+            .iter()
+            .all(|track| track["quality"]["verdict"] == "lossless")
+    );
+    assert!(
+        lossy
+            .iter()
+            .all(|track| track["quality"]["verdict"] != "lossless")
+    );
+    assert_eq!(
+        analyze_json(&["--quality", "likely-reencoded,weak-on-a-big-system"]).len(),
+        analyze_json(&["--quality", "reencoded,weak"]).len()
+    );
+}
+
+#[test]
+fn a_narrowed_table_says_how_many_it_shows() {
+    let fixtures = fixtures_directory();
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--quality",
+        "lossless",
+        fixtures.to_str().expect("UTF-8 path"),
+    ]);
+    assert!(output.status.success(), "{}", standard_error(&output));
+    let summary = standard_error(&output);
+    assert!(
+        summary.starts_with("Showing 5 of 7 tracks, those with sound quality lossless.\n"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("Sound quality: 5 tracks lossless, "),
+        "{summary}"
+    );
+}
+
+#[test]
+fn help_ends_with_examples() {
+    for arguments in [
+        vec!["--help"],
+        vec!["analyze", "--help"],
+        vec!["tags", "write", "--help"],
+        vec!["export", "rekordbox", "--help"],
+        vec!["cache", "--help"],
+    ] {
+        let output = Euphoria::new().run(&arguments);
+        assert!(output.status.success(), "{arguments:?}");
+        let help = String::from_utf8(output.stdout).expect("UTF-8 help");
+        assert!(
+            help.contains("\nExamples:\n  euphoria "),
+            "{arguments:?}: {help}"
+        );
+        assert!(!help.contains('\u{1b}'), "{arguments:?}: {help:?}");
+    }
+}
+
+#[test]
+fn an_empty_filtered_detail_explains_why_the_track_is_not_shown() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.flac");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--no-cache",
+        "--detail",
+        "--quality",
+        "weak",
+        fixture.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", standard_error(&output));
+    assert!(output.stdout.is_empty());
+    assert!(
+        standard_error(&output)
+            .starts_with("Showing 0 of 1 track, those with sound quality weak on a big system.\n"),
+        "{}",
+        standard_error(&output)
+    );
+}
+
+#[test]
+fn a_literal_path_after_double_dash_cannot_change_the_colour_policy() {
+    let euphoria = Euphoria::new();
+    let folder = support::TemporaryFolder::new();
+    std::fs::create_dir(folder.path().join("--color=always")).unwrap();
+    let output = euphoria
+        .command(&["--color", "never", "analyze", "--", "--color=always"])
+        .current_dir(folder.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(
+        !output.stderr.contains(&0x1b),
+        "{:?}",
+        standard_error(&output)
+    );
+    assert!(standard_error(&output).contains("no audio files found"));
 }

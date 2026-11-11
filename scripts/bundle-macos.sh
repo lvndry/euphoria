@@ -73,6 +73,7 @@ rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$frameworks"
 executable="$bundle/Contents/MacOS/Euphoria"
 cp "$binary" "$executable"
+cp "$repository/LICENSE" "$bundle/Contents/Resources/LICENSE"
 chmod u+w "$executable"
 
 # Copies every library the executable needs from outside the system into

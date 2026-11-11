@@ -3155,6 +3155,35 @@ fn a_playlist_exports_in_its_order_to_rekordbox_and_m3u8(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn a_playlist_export_uses_the_key_and_tempo_corrected_by_the_user(cx: &mut TestAppContext) {
+    let (window, view) = open_set(cx);
+    let id = make_playlist(window, &view, "Corrected set", &["peak"], cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let index = app
+                .session
+                .library()
+                .index_of(Path::new("/Demo/set/peak.mp3"))
+                .unwrap();
+            app.select(index, cx);
+            app.accept_key(euphoria_core::Key::new(4, euphoria_core::Mode::Minor), cx);
+            app.accept_bpm(87.0, cx);
+        })
+    });
+    let scratch = ScratchFolder::new("ui-playlist-correction");
+    let destination = scratch.0.join("set.xml");
+    let job = cx.update(|cx| {
+        view.read(cx)
+            .playlist_export_job(id, crate::playlist_flow::PlaylistFormat::Rekordbox)
+            .unwrap()
+    });
+    job.write(&destination).unwrap();
+    let xml = std::fs::read_to_string(destination).unwrap();
+    assert!(xml.contains("Tonality=\"9A\""), "{xml}");
+    assert!(xml.contains("AverageBpm=\"87.00\""), "{xml}");
+}
+
+#[gpui::test]
 fn deleting_the_playlist_on_show_goes_back_to_all_tracks(cx: &mut TestAppContext) {
     let (window, view) = open_set(cx);
     let id = make_playlist(window, &view, "Set", &["peak"], cx);
@@ -3249,6 +3278,65 @@ fn playlists_are_kept_and_found_again_on_the_next_launch(cx: &mut TestAppContext
         .map(|entry| entry.path.as_path())
         .collect();
     assert_eq!(kept_paths, [files[2].as_path(), files[0].as_path()]);
+}
+
+#[gpui::test]
+fn edits_after_a_playlist_was_saved_are_all_kept(cx: &mut TestAppContext) {
+    let (_scratch, files, store_path, window, view) =
+        open_with_playlist_store("ui-playlist-later-edits", cx);
+    let id = cx
+        .update_window(window, |_, window, cx| {
+            view.update(cx, |app, cx| {
+                let id = app.create_playlist(window, cx);
+                app.renaming_playlist = None;
+                id
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let load = || {
+        euphoria_core::PlaylistStore::open(&store_path)
+            .unwrap()
+            .load()
+            .unwrap()
+            .remove(0)
+    };
+    assert!(load().entries.is_empty());
+    cx.update(|cx| view.update(cx, |app, cx| app.add_to_playlist(id, &files[..2], cx)));
+    cx.run_until_parked();
+    assert_eq!(load().entries.len(), 2);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session.playlists_mut().rename(id, "Renamed after save");
+            app.save_playlists(cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(load().name, "Renamed after save");
+    cx.update(|cx| view.update(cx, |app, cx| app.set_playlist_label(id, Some("🔥"), cx)));
+    cx.run_until_parked();
+    assert_eq!(load().label.as_deref(), Some("🔥"));
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .playlists_mut()
+                .move_tracks(id, &[files[1].clone()], 0);
+            app.save_playlists(cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(load().entries[0].path, files[1]);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .playlists_mut()
+                .remove_tracks(id, &[files[0].clone()]);
+            app.save_playlists(cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(load().entries.len(), 1);
+    assert_eq!(load().entries[0].path, files[1]);
 }
 
 /// Types `text` into the field `id`, replacing what it holds.
@@ -3441,6 +3529,84 @@ fn the_text_tool_and_remove_change_every_track_and_the_table_follows(cx: &mut Te
         titles.iter().all(|title| title.ends_with(" (Edit)")),
         "{titles:?}"
     );
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    let titles = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .tracks()
+            .iter()
+            .map(|track| track.title().to_string())
+            .collect::<Vec<_>>()
+    });
+    assert!(
+        titles.iter().all(|title| !title.ends_with(" (Edit)")),
+        "{titles:?}"
+    );
+}
+
+#[gpui::test]
+fn playlist_identity_follows_tag_edits_and_undo_in_the_same_window(cx: &mut TestAppContext) {
+    use euphoria_core::tags::TagField;
+    let (scratch, files, store_path, window, view) =
+        open_with_playlist_store("ui-playlist-retag", cx);
+    let original = std::fs::read(&files[0]).unwrap();
+    let id = cx
+        .update_window(window, |_, window, cx| {
+            view.update(cx, |app, cx| {
+                app.write_log_directory = Some(scratch.log_directory());
+                let id = app.create_playlist(window, cx);
+                app.renaming_playlist = None;
+                app.add_to_playlist(id, &files[..1], cx);
+                let index = app.session.library().index_of(&files[0]).unwrap();
+                app.select(index, cx);
+                id
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        view.update(cx, |app, cx| app.open_tag_editor(window, cx))
+    })
+    .unwrap();
+    cx.run_until_parked();
+    type_into(
+        window,
+        crate::views::tag_editor::field_input_id(TagField::Genre),
+        "Deep House",
+        cx,
+    );
+    click(window, "preview-tag-edits", cx);
+    click(window, "confirm-tag-write", cx);
+    let check = |name: &str, cx: &mut TestAppContext| {
+        let stored = euphoria_core::PlaylistStore::open(&store_path)
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(
+            stored[0].entries[0].content,
+            euphoria_core::ContentHash::of_file(&files[0]).unwrap()
+        );
+        let job = cx.update(|cx| {
+            view.read(cx)
+                .playlist_export_job(id, crate::playlist_flow::PlaylistFormat::M3u8)
+                .unwrap()
+        });
+        let destination = scratch.0.join(name);
+        let message = job.write(&destination).unwrap();
+        assert!(!message.contains("other audio"), "{message}");
+        assert!(
+            std::fs::read_to_string(destination)
+                .unwrap()
+                .contains(files[0].to_str().unwrap())
+        );
+    };
+    check("after-edit.m3u8", cx);
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    check("after-undo.m3u8", cx);
+    assert_eq!(std::fs::read(&files[0]).unwrap(), original);
 }
 
 #[gpui::test]
@@ -3630,6 +3796,20 @@ fn the_key_is_picked_and_the_tempo_typed_by_hand(cx: &mut TestAppContext) {
     click(window, "edit-values", cx);
     assert!(!is_shown(window, ("pick-key", 0_usize), cx));
     assert!(is_shown(window, "tempo-set-by-you", cx));
+}
+
+#[gpui::test]
+fn selecting_another_track_discards_the_previous_tracks_tempo_draft(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, "edit-values", cx);
+    retype(window, "bpm-field", "145", cx);
+    click(window, track(2), cx);
+    assert!(!is_shown(window, "bpm-field", cx));
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_typed_bpm(cx)));
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(174.0));
+    click(window, "edit-values", cx);
+    let typed = cx.update(|cx| view.read(cx).bpm_input.read(cx).value().to_string());
+    assert_eq!(typed, "174.0");
 }
 
 #[gpui::test]

@@ -333,6 +333,9 @@ impl EuphoriaApp {
 
     /// Takes the tempo typed in the field, or says why it cannot.
     pub(crate) fn accept_typed_bpm(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.by_ear.is_editing {
+            return;
+        }
         let typed = self.bpm_input.read(cx).value().trim().replace(',', ".");
         let parsed = typed
             .parse::<f32>()
