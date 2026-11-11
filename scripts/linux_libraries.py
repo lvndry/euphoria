@@ -385,7 +385,11 @@ def bundle(root, executable, libraries, run_path):
                     f"{copied_from[copy.name]} and {target}"
                 )
             if copy.name not in copied_from:
-                shutil.copyfile(target, copy)
+                # Replacing an entry must not follow its symlink or write
+                # through a hard link into a file outside the package.
+                copy.unlink(missing_ok=True)
+                with target.open("rb") as source, copy.open("xb") as destination:
+                    shutil.copyfileobj(source, destination)
                 copy.chmod(0o755)
                 set_run_path(copy, "$ORIGIN")
                 copied_from[copy.name] = target

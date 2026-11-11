@@ -149,6 +149,27 @@ class SyntheticLibraryTests(unittest.TestCase):
         shutil.rmtree(self.outside)
         subprocess.run([str(executable)], check=True, env={"PATH": "/usr/bin:/bin"})
 
+    def test_existing_library_symlinks_cannot_modify_files_outside_the_package(self):
+        self.assert_existing_library_link_is_replaced(symbolic=True)
+
+    def test_existing_library_hardlinks_cannot_modify_files_outside_the_package(self):
+        self.assert_existing_library_link_is_replaced(symbolic=False)
+
+    def assert_existing_library_link_is_replaced(self, symbolic):
+        executable = self.build_chain()
+        libraries = self.root / "lib"
+        libraries.mkdir()
+        unrelated = self.outside / "unrelated"
+        unrelated.write_bytes(b"keep this file")
+        destination = libraries / "libinner.so"
+        if symbolic:
+            destination.symlink_to(unrelated)
+        else:
+            os.link(unrelated, destination)
+        self.bundle(executable)
+        self.assertEqual(unrelated.read_bytes(), b"keep this file")
+        self.assertEqual(linux_libraries.verify(self.root, executable), [])
+
     def test_an_executable_outside_the_package_is_not_modified(self):
         program = compile_program(self.outside, "int main(void) { return 0; }\n")
         original = program.read_bytes()
