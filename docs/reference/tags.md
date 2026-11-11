@@ -5,7 +5,9 @@ description: Which tag fields Euphoria reads and writes for each file format and
 
 # Tags
 
-Euphoria writes the key and tempo it detects into the tags of your files, so DJ software can show them. A write always goes through three steps:
+Euphoria writes the key, tempo and energy it detects into the tags of your files, so DJ software can show them. [Write tags into your files](../guides/write-tags.md) shows how to do it from the command line. This page describes what is written and how.
+
+A write always goes through three steps:
 
 1. A plan lists every field that would change, with its current and new value. Making a plan only reads the file. A file that already holds the right values gets an empty plan and is left alone.
 2. Applying the plan changes exactly those fields. Every other byte of the file stays what it was. If a field changed after the plan was made, nothing is written.
@@ -39,6 +41,12 @@ The new file is built next to the original, flushed to disk, and checked before 
 Last of all, the original is read once more and must still hold the tag the write started from. If another program changed the file in the meantime, replacing it would undo that change.
 
 If any check fails, the write is refused, the new file is deleted, and the original is not touched. Between that last look and the replacement itself there remains a moment, far shorter than the write, in which a change by another program would still be lost; the formats offer no way to close it.
+
+### Undo across runs
+
+The backups of a write can be kept in a log on disk, one log per write, so that a later run of the program can undo it. The backup of a file is in the log, flushed to disk, before the file is changed, which means a write cut short by a crash or a power loss can still be undone: a file whose backup was saved but which was not changed yet is recognised by its fields still holding their original values.
+
+Undoing the last write restores its files one by one. A file that cannot be restored, for example because its tags were edited since, is reported and stays in the log, so the undo can be repeated for it. A log whose files are all restored is deleted. `euphoria tags write` keeps its logs in the `tag-writes` folder of Euphoria's data folder.
 
 ### Undo
 
@@ -126,16 +134,28 @@ The tempo is written only when asked for.
 
 ### Label
 
-An optional label, such as the Camelot code, can be put in front of the comment or the grouping. It is written between braces, followed by a space and the text the field already holds: a comment `warm up` becomes `{8A} warm up`, and an empty field becomes `{8A}`.
+The energy rating has no tag field of its own that DJ programs read. It is written, with the key, as a label such as `8A - Energy 7` in the comment or the grouping. The label takes the key notation of the key field. A track without a key gets `Energy 7`, a track without an energy rating gets `8A`, and a track with neither gets no label.
 
-The braces are how Euphoria recognises its own label later:
+| Placement | Result for a comment `warm up` |
+| --- | --- |
+| Front of the comment (the default) | `8A - Energy 7 - warm up` |
+| End of the comment | `warm up - 8A - Energy 7` |
+| Front of the grouping | The comment is not touched. |
+| None | Neither field is touched, and the energy is not written. |
 
-- Writing the same label again changes nothing.
-- Writing a different label replaces the one in braces and keeps the rest: `{Energy 7} warm up` becomes `{Energy 8} warm up`. A field never holds more than one label.
-- Only `{...}` at the very start of the field, followed by a space or by the end of the field, counts as a label. Anything else is your own text and is kept after the new label, including text such as `8A - warm up`, `[8A] warm up`, `warm {8A} up` or `{8A}warm up`.
-- A comment you wrote yourself in exactly that shape, such as `{demo} warm up`, cannot be told apart from a label, and its braced part is replaced.
+The text the field already holds is kept, separated from the label by ` - `. An empty field holds the label alone.
 
-The label text cannot contain a brace. Braces are plain ASCII, so the label is stored unchanged in all three tag formats and displays as written in DJ software columns.
+The label carries no marker, so one written earlier is recognised by its form:
+
+- A label is a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`). The Camelot number runs from 1 to 12 and the energy from 1 to 10, without a leading zero.
+- It counts only at the end of the field it is written at, next to ` - ` or filling the field.
+- A label found there is replaced, so writing again never leaves two. A label in the same form from another program is replaced too.
+- A musical key name without an energy rating is not taken for a label, because a comment such as `A - side` begins the same way. Writing the same label twice still changes nothing, whatever its form.
+- At the other end of the same field, only a label with an energy rating is removed. That covers a change of placement between two writes without touching a comment that happens to end in a Camelot code.
+- Everything else is your own text and is kept: `8A-side remix`, `Am - my favourite`, `High Energy 7`, `Energy 11 - intro`.
+- A comment of your own that starts with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its code is replaced.
+
+A label is never moved between the comment and the grouping: only the field of the chosen placement is read and written.
 
 | Target | ID3v2 | MP4 | Vorbis comments |
 | --- | --- | --- | --- |

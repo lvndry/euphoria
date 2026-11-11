@@ -4,10 +4,13 @@
 //! Tags are changed in three steps. [`plan_write`] computes the changes
 //! without touching the file, so they can be shown first. [`apply_plan`]
 //! writes them and returns a [`TagBackup`] of the values it replaced.
-//! [`undo`] puts those values back.
+//! [`undo`] puts those values back. [`WriteLog`] keeps the backups of a
+//! write on disk, so the write can be undone later by another run.
 
 mod flac;
+mod history;
 mod id3v2;
+mod label;
 mod mp4;
 mod native;
 mod preset;
@@ -15,15 +18,19 @@ mod replace;
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
+use crate::analysis::TrackAnalysis;
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
+use crate::key::Key;
+pub use history::{UndoneWrite, WriteLog, default_write_log_directory, undo_last_write};
 use id3v2::COMMENT as ID3_COMMENT;
+pub use label::LabelPlacement;
 use mp4::TEMPO as MP4_TEMPO;
 use native::{Purpose, TagFile};
 pub use preset::DjSoftware;
 
-const LABEL_OPEN: char = '{';
-const LABEL_CLOSE: char = '}';
 const BPM_MATCH_TOLERANCE: f64 = 0.005;
 
 /// The kind of tag a file stores its metadata in.
@@ -132,44 +139,70 @@ pub enum KeyNotation {
     Musical,
 }
 
-/// The field an extra label is written to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LabelTarget {
-    /// The comment field.
-    Comment,
-    /// The grouping field.
-    Grouping,
+/// What an analysis found, as far as tags record it.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TagValues {
+    /// The detected key.
+    pub key: Option<Key>,
+    /// The detected tempo in beats per minute.
+    pub bpm: Option<f32>,
+    /// The energy rating, from 1 to 10.
+    pub energy: Option<u8>,
 }
 
-/// Extra text, such as "8A", put in front of what a field already holds.
-///
-/// It is written between braces, as in `{8A} warm up`, which is how a later
-/// write finds the label and replaces it instead of adding a second one.
-/// The text itself cannot contain a brace.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Label {
-    /// The text to put first.
-    pub text: String,
-    /// The field that receives it.
-    pub target: LabelTarget,
+impl From<&TrackAnalysis> for TagValues {
+    fn from(analysis: &TrackAnalysis) -> Self {
+        Self {
+            key: analysis.key,
+            bpm: analysis.bpm,
+            energy: analysis.energy,
+        }
+    }
+}
+
+impl From<&Analysis> for TagValues {
+    fn from(analysis: &Analysis) -> Self {
+        Self {
+            key: analysis.key,
+            bpm: analysis.tempo,
+            energy: None,
+        }
+    }
 }
 
 /// What [`plan_write`] writes and where.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// The default writes the key as a Camelot code and the tempo to the fields
+/// every common program reads, and puts a label such as "8A - Energy 7" in
+/// front of the comment.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagWriteOptions {
-    /// The notation of the key field.
+    /// The notation of the key, in the key field and in the label.
     pub key_notation: KeyNotation,
     /// Whether the tempo is written.
     pub write_bpm: bool,
-    /// An extra label, when one is wanted.
-    pub label: Option<Label>,
+    /// Where the key and energy label goes. The energy rating has no tag
+    /// field of its own that DJ programs read, so the label is the only
+    /// place it is written.
+    pub label: LabelPlacement,
     /// The DJ program whose fields are written.
     pub preset: DjSoftware,
 }
 
+impl Default for TagWriteOptions {
+    fn default() -> Self {
+        Self {
+            key_notation: KeyNotation::default(),
+            write_bpm: true,
+            label: LabelPlacement::default(),
+            preset: DjSoftware::default(),
+        }
+    }
+}
+
 /// One tag field and the value it holds before and after a write. `None`
 /// means the field is absent.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldChange {
     /// The field's name in the file's tag format, such as `TKEY`,
     /// `----:com.apple.iTunes:initialkey` or `INITIALKEY`.
@@ -239,7 +272,7 @@ impl WritePlan {
 }
 
 /// One field touched by a write.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackupField {
     /// The field's name in the file's tag format.
     pub field: String,
@@ -258,7 +291,7 @@ pub struct BackupField {
 /// What a write replaced in one file, kept by the caller so [`undo`] can
 /// restore it. All of it is plain text and bytes, so it can be stored in
 /// any form.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TagBackup {
     /// The file that was written.
     pub path: PathBuf,
@@ -275,18 +308,32 @@ pub struct TagBackup {
     pub fields: Vec<BackupField>,
 }
 
-/// Computes the tag changes that record `analysis` in the file at `path`.
+/// Computes the tag changes that record `values` in the file at `path`.
 /// The file is only read.
+///
+/// `values` is a [`TagValues`], or a reference to a
+/// [`TrackAnalysis`](crate::TrackAnalysis) or to a detector's
+/// [`Analysis`](crate::detect::Analysis).
 pub fn plan_write(
     path: &Path,
-    analysis: &Analysis,
+    values: impl Into<TagValues>,
     options: &TagWriteOptions,
 ) -> Result<WritePlan, EuphoriaError> {
+    let values = values.into();
+    let refuse = |reason: String| EuphoriaError::TagWrite {
+        path: path.to_path_buf(),
+        source: reason.into(),
+    };
+    if let Some(energy) = values.energy.filter(|energy| !(1..=10).contains(energy)) {
+        return Err(refuse(format!(
+            "an energy rating of {energy} cannot be written"
+        )));
+    }
     let file = TagFile::load(path, Purpose::Rewriting)?;
     let format = file.format();
     let mut wanted: Vec<(&str, String)> = Vec::new();
 
-    if let Some(key) = analysis.key {
+    if let Some(key) = values.key {
         let text = match options.key_notation {
             KeyNotation::Camelot => key.camelot(),
             KeyNotation::Musical => key.short_name(),
@@ -296,12 +343,9 @@ pub fn plan_write(
         }
     }
 
-    if let (true, Some(tempo)) = (options.write_bpm, analysis.tempo) {
+    if let (true, Some(tempo)) = (options.write_bpm, values.bpm) {
         if !tempo.is_finite() || tempo <= 0.0 {
-            return Err(EuphoriaError::TagWrite {
-                path: path.to_path_buf(),
-                source: format!("a tempo of {tempo} cannot be written").into(),
-            });
+            return Err(refuse(format!("a tempo of {tempo} cannot be written")));
         }
         for field in options.preset.bpm_fields(format) {
             let fractional = options.preset.writes_fractional_bpm() && *field != MP4_TEMPO;
@@ -325,23 +369,18 @@ pub fn plan_write(
         }
     }
 
-    if let Some(label) = options
-        .label
-        .as_ref()
-        .filter(|label| !label.text.trim().is_empty())
-    {
-        if label.text.contains([LABEL_OPEN, LABEL_CLOSE]) {
-            return Err(EuphoriaError::TagWrite {
-                path: path.to_path_buf(),
-                source: format!("the label {:?} contains a brace", label.text).into(),
-            });
+    let label_field = match options.label {
+        LabelPlacement::CommentStart | LabelPlacement::CommentEnd => {
+            Some(format.comment_fields()[0])
         }
-        let field = match label.target {
-            LabelTarget::Comment => format.comment_fields()[0],
-            LabelTarget::Grouping => format.grouping_fields()[0],
-        };
+        LabelPlacement::Grouping => Some(format.grouping_fields()[0]),
+        LabelPlacement::None => None,
+    };
+    let label = label::label_text(values.key, values.energy, options.key_notation);
+    if let (Some(field), Some(label)) = (label_field, label) {
         let current = file.get(field)?;
-        let new = with_label(label.text.trim(), current.as_deref());
+        let at_end = options.label == LabelPlacement::CommentEnd;
+        let new = label::with_label(&label, current.as_deref(), at_end);
         if current.as_deref() != Some(new.as_str()) {
             changes.push(FieldChange {
                 field: field.to_string(),
@@ -446,37 +485,6 @@ fn same_bpm(current: &str, new: &str) -> bool {
     }
 }
 
-/// Splits a field into the label a previous write put first and the text
-/// after it. Only `{label}` at the very start, followed by a space or by
-/// nothing, counts; braces anywhere else are the user's own text.
-fn split_label(text: &str) -> (Option<&str>, &str) {
-    let Some((label, rest)) = text
-        .strip_prefix(LABEL_OPEN)
-        .and_then(|after_open| after_open.split_once(LABEL_CLOSE))
-    else {
-        return (None, text);
-    };
-    if label.trim().is_empty() || label.contains(LABEL_OPEN) {
-        return (None, text);
-    }
-    match rest.strip_prefix(' ') {
-        Some(own_text) => (Some(label), own_text),
-        None if rest.is_empty() => (Some(label), rest),
-        None => (None, text),
-    }
-}
-
-/// Puts `label` in front of the user's own text in `existing`, in place of
-/// the label a previous write left there.
-fn with_label(label: &str, existing: Option<&str>) -> String {
-    let (_, own_text) = split_label(existing.unwrap_or_default());
-    if own_text.is_empty() {
-        format!("{LABEL_OPEN}{label}{LABEL_CLOSE}")
-    } else {
-        format!("{LABEL_OPEN}{label}{LABEL_CLOSE} {own_text}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,52 +504,5 @@ mod tests {
         assert!(same_bpm(" 128 ", "128"));
         assert!(!same_bpm("127.5", "128"));
         assert!(!same_bpm("fast", "128"));
-    }
-
-    #[test]
-    fn label_goes_first_in_braces() {
-        assert_eq!(with_label("8A", None), "{8A}");
-        assert_eq!(with_label("8A", Some("")), "{8A}");
-        assert_eq!(with_label("8A", Some("great intro")), "{8A} great intro");
-    }
-
-    #[test]
-    fn same_label_is_left_as_it_is() {
-        assert_eq!(with_label("8A", Some("{8A}")), "{8A}");
-        assert_eq!(
-            with_label("8A", Some("{8A} great intro")),
-            "{8A} great intro"
-        );
-    }
-
-    #[test]
-    fn changed_label_replaces_the_previous_one() {
-        assert_eq!(with_label("Energy 8", Some("{Energy 7}")), "{Energy 8}");
-        assert_eq!(
-            with_label("Energy 8", Some("{Energy 7} great intro")),
-            "{Energy 8} great intro"
-        );
-        assert_eq!(
-            with_label("9A", Some("{8A} {live} great intro")),
-            "{9A} {live} great intro"
-        );
-    }
-
-    #[test]
-    fn text_that_only_resembles_a_label_is_kept() {
-        let look_alikes = [
-            "8A - great intro",
-            "[8A] great intro",
-            "great {8A} intro",
-            " {8A} great intro",
-            "{8A}great intro",
-            "{8A great intro",
-            "{} great intro",
-            "{{8A} great intro",
-        ];
-        for text in look_alikes {
-            assert_eq!(split_label(text), (None, text));
-            assert_eq!(with_label("9A", Some(text)), format!("{{9A}} {text}"));
-        }
     }
 }

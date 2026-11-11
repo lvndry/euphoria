@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use euphoria_core::detect::Analysis;
 use euphoria_core::tags::{
-    DjSoftware, KeyNotation, Label, LabelTarget, TagFormat, TagWriteOptions, apply_plan,
-    plan_write, read_tags, undo,
+    DjSoftware, FieldChange, KeyNotation, LabelPlacement, TagFormat, TagValues, TagWriteOptions,
+    WritePlan, apply_plan, plan_write, read_tags, undo,
 };
 use euphoria_core::{EuphoriaError, Key, Mode, decode_mono};
 use lofty::TextEncoding;
@@ -258,14 +258,20 @@ fn a_minor_at(tempo: f32) -> Analysis {
     }
 }
 
+/// Options that write the key field and nothing else.
+fn bare_options() -> TagWriteOptions {
+    TagWriteOptions {
+        write_bpm: false,
+        label: LabelPlacement::None,
+        ..TagWriteOptions::default()
+    }
+}
+
 fn full_options() -> TagWriteOptions {
     TagWriteOptions {
         key_notation: KeyNotation::Camelot,
         write_bpm: true,
-        label: Some(Label {
-            text: "8A".to_string(),
-            target: LabelTarget::Comment,
-        }),
+        label: LabelPlacement::CommentStart,
         preset: DjSoftware::Generic,
     }
 }
@@ -319,7 +325,7 @@ fn assert_round_trip(fixture: &str, seeded: bool) {
     assert_eq!(written.title, original_read.title, "{fixture}");
     assert_eq!(written.artist, original_read.artist, "{fixture}");
     assert_eq!(written.grouping, original_read.grouping, "{fixture}");
-    let expected_comment = if seeded { "{8A} warm up" } else { "{8A}" };
+    let expected_comment = if seeded { "8A - warm up" } else { "8A" };
     assert_eq!(
         written.comment.as_deref(),
         Some(expected_comment),
@@ -434,53 +440,155 @@ fn undo_removes_fields_that_did_not_exist() {
     }
 }
 
+/// Options that write the label and nothing else.
+fn label_options(placement: LabelPlacement) -> TagWriteOptions {
+    TagWriteOptions {
+        label: placement,
+        ..bare_options()
+    }
+}
+
+fn a_minor_with_energy(energy: u8) -> TagValues {
+    TagValues {
+        key: Some(Key::new(9, Mode::Minor)),
+        bpm: None,
+        energy: Some(energy),
+    }
+}
+
+/// The field a placement writes to, and what the seeded file's own text in
+/// it looks like around a label.
+fn labelled(path: &Path, placement: LabelPlacement, label: &str) -> (Option<String>, String) {
+    let tags = read_tags(path).expect("the scratch copy can be read and written");
+    match placement {
+        LabelPlacement::CommentStart => (tags.comment, format!("{label} - {COMMENT}")),
+        LabelPlacement::CommentEnd => (tags.comment, format!("{COMMENT} - {label}")),
+        LabelPlacement::Grouping => (tags.grouping, label.to_string()),
+        LabelPlacement::None => (tags.comment, COMMENT.to_string()),
+    }
+}
+
+/// The changes of a plan apart from those to the key fields.
+fn label_changes(plan: &WritePlan) -> Vec<&FieldChange> {
+    plan.changes()
+        .iter()
+        .filter(|change| !change.field.to_ascii_uppercase().contains("KEY"))
+        .collect()
+}
+
+const PLACEMENTS: [LabelPlacement; 3] = [
+    LabelPlacement::CommentStart,
+    LabelPlacement::CommentEnd,
+    LabelPlacement::Grouping,
+];
+
 #[test]
-fn label_keeps_the_existing_comment_and_grouping() {
+fn default_options_put_the_key_and_energy_in_front_of_the_comment() {
     for fixture in ALL_FIXTURES {
-        let path = scratch_copy(fixture, "label");
+        let path = scratch_copy(fixture, "label-default");
         seed(&path);
-        for (target, text) in [
-            (LabelTarget::Comment, "8A"),
-            (LabelTarget::Grouping, "Energy 7"),
-        ] {
-            let options = TagWriteOptions {
-                label: Some(Label {
-                    text: text.to_string(),
-                    target,
-                }),
-                ..TagWriteOptions::default()
-            };
-            let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
-            assert_eq!(plan.changes().len(), 1, "{fixture}");
+        let values = TagValues {
+            bpm: Some(127.5),
+            ..a_minor_with_energy(7)
+        };
+        apply_plan(&plan_write(&path, values, &TagWriteOptions::default()).unwrap()).unwrap();
+        let tags = read_tags(&path).unwrap();
+        assert_eq!(
+            tags.comment.as_deref(),
+            Some("8A - Energy 7 - warm up"),
+            "{fixture}"
+        );
+        assert_eq!(tags.key.as_deref(), Some("8A"), "{fixture}");
+        assert_eq!(tags.bpm.as_deref(), Some("127.5"), "{fixture}");
+        assert_eq!(tags.grouping, None, "{fixture}");
+    }
+}
+
+#[test]
+fn label_keeps_the_existing_text_wherever_it_is_placed() {
+    for fixture in ALL_FIXTURES {
+        for placement in PLACEMENTS {
+            let path = scratch_copy(fixture, "label");
+            seed(&path);
+            let options = label_options(placement);
+            let plan = plan_write(&path, a_minor_with_energy(7), &options).unwrap();
+            assert_eq!(label_changes(&plan).len(), 1, "{fixture} {placement:?}");
             apply_plan(&plan).unwrap();
+            let (found, expected) = labelled(&path, placement, "8A - Energy 7");
+            assert_eq!(found, Some(expected), "{fixture} {placement:?}");
+        }
+    }
+}
+
+#[test]
+fn label_follows_the_key_notation() {
+    let path = scratch_copy(FLAC, "label-musical");
+    seed(&path);
+    let options = TagWriteOptions {
+        key_notation: KeyNotation::Musical,
+        ..label_options(LabelPlacement::CommentStart)
+    };
+    apply_plan(&plan_write(&path, a_minor_with_energy(7), &options).unwrap()).unwrap();
+    assert_eq!(
+        read_tags(&path).unwrap().comment.as_deref(),
+        Some("Am - Energy 7 - warm up")
+    );
+}
+
+#[test]
+fn placement_none_leaves_the_comment_and_grouping_alone() {
+    for fixture in ALL_FIXTURES {
+        let path = scratch_copy(fixture, "label-none");
+        seed(&path);
+        let options = label_options(LabelPlacement::None);
+        let plan = plan_write(&path, a_minor_with_energy(7), &options).unwrap();
+        assert!(
+            label_changes(&plan).is_empty(),
+            "{fixture}: {:?}",
+            plan.changes()
+        );
+        assert!(!plan.is_empty(), "{fixture}");
+    }
+}
+
+#[test]
+fn same_label_twice_plans_nothing() {
+    for fixture in ALL_FIXTURES {
+        for placement in PLACEMENTS {
+            let path = scratch_copy(fixture, "label-twice");
+            seed(&path);
+            let options = label_options(placement);
+            apply_plan(&plan_write(&path, a_minor_with_energy(7), &options).unwrap()).unwrap();
+            let plan = plan_write(&path, a_minor_with_energy(7), &options).unwrap();
             assert!(
-                plan_write(&path, &Analysis::default(), &options)
-                    .unwrap()
-                    .is_empty(),
-                "{fixture} would get the label twice"
+                plan.is_empty(),
+                "{fixture} {placement:?}: {:?}",
+                plan.changes()
             );
         }
-        let tags = read_tags(&path).unwrap();
-        assert_eq!(tags.comment.as_deref(), Some("{8A} warm up"), "{fixture}");
-        assert_eq!(tags.grouping.as_deref(), Some("{Energy 7}"), "{fixture}");
     }
 }
 
-fn label_options(text: &str, target: LabelTarget) -> TagWriteOptions {
-    TagWriteOptions {
-        label: Some(Label {
-            text: text.to_string(),
-            target,
-        }),
-        ..TagWriteOptions::default()
-    }
-}
-
-fn labelled_field(path: &Path, target: LabelTarget) -> Option<String> {
-    let tags = read_tags(path).expect("the scratch copy can be read and written");
-    match target {
-        LabelTarget::Comment => tags.comment,
-        LabelTarget::Grouping => tags.grouping,
+#[test]
+fn changed_label_replaces_the_previous_one() {
+    for fixture in ALL_FIXTURES {
+        for placement in PLACEMENTS {
+            let path = scratch_copy(fixture, "label-changed");
+            seed(&path);
+            for energy in 7..=9 {
+                let options = label_options(placement);
+                let plan = plan_write(&path, a_minor_with_energy(energy), &options).unwrap();
+                let changes = label_changes(&plan);
+                assert_eq!(changes.len(), 1, "{fixture} {placement:?}");
+                let new = changes[0].new.clone().unwrap();
+                assert_eq!(new.matches("Energy").count(), 1, "{fixture}: {new}");
+                assert_eq!(new.matches("8A").count(), 1, "{fixture}: {new}");
+                apply_plan(&plan).unwrap();
+                let (found, expected) =
+                    labelled(&path, placement, &format!("8A - Energy {energy}"));
+                assert_eq!(found, Some(expected), "{fixture} {placement:?}");
+            }
+        }
     }
 }
 
@@ -517,41 +625,23 @@ fn write_user_comment(path: &Path, comment: &str) {
 }
 
 #[test]
-fn same_label_twice_plans_nothing() {
+fn long_comment_with_a_url_is_kept_whole_through_repeated_writes() {
+    let user_text = "https://example.com/track/1234567?utm_source=a-b&x=1 - bought 2019 - A side";
     for fixture in ALL_FIXTURES {
-        for target in [LabelTarget::Comment, LabelTarget::Grouping] {
-            let path = scratch_copy(fixture, "label-twice");
-            seed(&path);
-            let options = label_options("Energy 7", target);
-            apply_plan(&plan_write(&path, &Analysis::default(), &options).unwrap()).unwrap();
-            let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
-            assert!(
-                plan.is_empty(),
-                "{fixture} {target:?}: {:?}",
-                plan.changes()
-            );
-        }
-    }
-}
-
-#[test]
-fn changed_label_replaces_the_previous_one() {
-    for fixture in ALL_FIXTURES {
-        for (target, own_text) in [
-            (LabelTarget::Comment, " warm up"),
-            (LabelTarget::Grouping, ""),
-        ] {
-            let path = scratch_copy(fixture, "label-changed");
-            seed(&path);
-            for energy in 7..=9 {
-                let options = label_options(&format!("Energy {energy}"), target);
-                let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
-                assert_eq!(plan.changes().len(), 1, "{fixture} {target:?}");
-                let new = plan.changes()[0].new.clone().unwrap();
-                assert_eq!(new, format!("{{Energy {energy}}}{own_text}"), "{fixture}");
-                assert_eq!(new.matches("Energy").count(), 1, "{fixture}");
-                apply_plan(&plan).unwrap();
-                assert_eq!(labelled_field(&path, target), Some(new), "{fixture}");
+        for placement in [LabelPlacement::CommentStart, LabelPlacement::CommentEnd] {
+            let path = scratch_copy(fixture, "label-url");
+            write_user_comment(&path, user_text);
+            for energy in [3, 10, 3] {
+                let options = label_options(placement);
+                apply_plan(&plan_write(&path, a_minor_with_energy(energy), &options).unwrap())
+                    .unwrap();
+                let comment = read_tags(&path).unwrap().comment.unwrap();
+                let expected = if placement == LabelPlacement::CommentStart {
+                    format!("8A - Energy {energy} - {user_text}")
+                } else {
+                    format!("{user_text} - 8A - Energy {energy}")
+                };
+                assert_eq!(comment, expected, "{fixture} {placement:?}");
             }
         }
     }
@@ -560,23 +650,24 @@ fn changed_label_replaces_the_previous_one() {
 #[test]
 fn user_text_that_resembles_a_label_is_kept() {
     let look_alikes = [
-        "8A - warm up",
-        "[8A] warm up",
-        "warm {8A} up",
-        "{8A}warm up",
-        "{8A warm up",
+        "8A-side remix",
+        "A - side",
+        "Am - my favourite",
+        "Energy 11 - warm up",
+        "High Energy 7",
+        "warm 8A - Energy 7 up",
     ];
     for fixture in ALL_FIXTURES {
         for user_text in look_alikes {
             let path = scratch_copy(fixture, "label-look-alike");
             write_user_comment(&path, user_text);
-            for label in ["9A", "10A"] {
-                let options = label_options(label, LabelTarget::Comment);
-                let plan = plan_write(&path, &Analysis::default(), &options).unwrap();
+            for energy in [6, 7] {
+                let options = label_options(LabelPlacement::CommentStart);
+                let plan = plan_write(&path, a_minor_with_energy(energy), &options).unwrap();
                 apply_plan(&plan).unwrap();
                 assert_eq!(
-                    labelled_field(&path, LabelTarget::Comment),
-                    Some(format!("{{{label}}} {user_text}")),
+                    read_tags(&path).unwrap().comment,
+                    Some(format!("8A - Energy {energy} - {user_text}")),
                     "{fixture}"
                 );
             }
@@ -589,30 +680,31 @@ fn undoing_a_changed_label_brings_back_the_previous_one() {
     for fixture in [MP3, FLAC] {
         let path = scratch_copy(fixture, "label-undo");
         seed(&path);
-        let first = label_options("Energy 7", LabelTarget::Comment);
-        apply_plan(&plan_write(&path, &Analysis::default(), &first).unwrap()).unwrap();
-        let second = label_options("Energy 8", LabelTarget::Comment);
+        let options = label_options(LabelPlacement::CommentStart);
+        apply_plan(&plan_write(&path, a_minor_with_energy(7), &options).unwrap()).unwrap();
         let backup =
-            apply_plan(&plan_write(&path, &Analysis::default(), &second).unwrap()).unwrap();
+            apply_plan(&plan_write(&path, a_minor_with_energy(8), &options).unwrap()).unwrap();
 
         undo(&backup).unwrap();
         assert_eq!(
-            labelled_field(&path, LabelTarget::Comment).as_deref(),
-            Some("{Energy 7} warm up"),
+            read_tags(&path).unwrap().comment.as_deref(),
+            Some("8A - Energy 7 - warm up"),
             "{fixture}"
         );
     }
 }
 
 #[test]
-fn label_with_a_brace_is_refused() {
-    let path = scratch_copy(FLAC, "label-brace");
-    let options = label_options("8A}", LabelTarget::Comment);
-    let error = plan_write(&path, &Analysis::default(), &options).unwrap_err();
-    assert!(
-        matches!(&error, EuphoriaError::TagWrite { .. }),
-        "{error:?}"
-    );
+fn energy_outside_the_scale_is_refused() {
+    let path = scratch_copy(FLAC, "label-energy-range");
+    for energy in [0, 11] {
+        let options = label_options(LabelPlacement::CommentStart);
+        let error = plan_write(&path, a_minor_with_energy(energy), &options).unwrap_err();
+        assert!(
+            matches!(&error, EuphoriaError::TagWrite { .. }),
+            "{error:?}"
+        );
+    }
 }
 
 #[test]
@@ -636,7 +728,7 @@ fn id3_comment_keeps_its_language_and_described_comments() {
     assert_eq!(
         comments,
         [
-            (*b"fra", String::new(), "{8A} warm up".to_string()),
+            (*b"fra", String::new(), "8A - warm up".to_string()),
             (*b"eng", "iTunNORM".to_string(), "0000 0000".to_string()),
         ]
     );
@@ -672,7 +764,7 @@ fn matching_values_produce_an_empty_plan_that_leaves_the_file_alone() {
         let options = TagWriteOptions {
             write_bpm: true,
             preset: DjSoftware::Rekordbox,
-            ..TagWriteOptions::default()
+            ..bare_options()
         };
         apply_plan(&plan_write(&path, &a_minor_at(128.0), &options).unwrap()).unwrap();
         let bytes = std::fs::read(&path).unwrap();
@@ -696,7 +788,7 @@ fn tempo_written_with_decimals_elsewhere_counts_as_matching() {
     let options = TagWriteOptions {
         write_bpm: true,
         preset: DjSoftware::Traktor,
-        ..TagWriteOptions::default()
+        ..bare_options()
     };
     let analysis = Analysis {
         key: None,
@@ -732,7 +824,7 @@ fn presets_write_the_documented_fields() {
         let path = scratch_copy(fixture, "presets");
         let mut options = TagWriteOptions {
             write_bpm: true,
-            ..TagWriteOptions::default()
+            ..bare_options()
         };
         for preset in commercial {
             options.preset = preset;
@@ -757,7 +849,7 @@ fn commercial_presets_write_a_whole_tempo() {
     let options = TagWriteOptions {
         write_bpm: true,
         preset: DjSoftware::Serato,
-        ..TagWriteOptions::default()
+        ..bare_options()
     };
     apply_plan(&plan_write(&path, &a_minor_at(127.5), &options).unwrap()).unwrap();
     assert_eq!(read_tags(&path).unwrap().bpm.as_deref(), Some("128"));
@@ -785,7 +877,7 @@ fn musical_notation_and_no_tempo() {
     let options = TagWriteOptions {
         key_notation: KeyNotation::Musical,
         preset: DjSoftware::Traktor,
-        ..TagWriteOptions::default()
+        ..bare_options()
     };
     apply_plan(&plan_write(&path, &a_minor_at(128.0), &options).unwrap()).unwrap();
     let tags = read_tags(&path).unwrap();
@@ -799,7 +891,7 @@ fn analysis_without_results_plans_nothing() {
     let path = scratch_copy(MP3, "no-results");
     let options = TagWriteOptions {
         write_bpm: true,
-        ..TagWriteOptions::default()
+        ..bare_options()
     };
     assert!(
         plan_write(&path, &Analysis::default(), &options)
