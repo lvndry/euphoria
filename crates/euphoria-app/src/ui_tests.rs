@@ -2512,6 +2512,22 @@ fn a_track_in_one_key_has_no_timeline_and_no_curve_shows_before_it_is_worked_out
 }
 
 #[gpui::test]
+fn a_timeline_that_contradicts_the_key_of_the_track_is_not_shown(cx: &mut TestAppContext) {
+    let mut track = track_changing_key();
+    if let Ok(analysis) = &mut track.outcome {
+        analysis.key = Some(euphoria_core::Key::new(3, euphoria_core::Mode::Minor));
+    }
+    let (window, view) = open_window_on(vec![track], Box::new(SilentOutput), cx);
+    cx.update(|cx| view.update(cx, |app, _| app.show_waveform(waveform_with_energy())));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("energy-curve").is_some());
+        assert!(window.try_find("key-timeline").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
 fn the_strip_at_its_shortest_still_holds_the_waveform_the_curve_and_the_timeline(
     cx: &mut TestAppContext,
 ) {

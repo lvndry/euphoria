@@ -57,6 +57,25 @@ pub(crate) fn energy_steps(points: &[EnergyCurvePoint], duration_seconds: f32) -
         .collect()
 }
 
+/// The shortest a key section may be for the timeline to be shown.
+pub(crate) const SHORTEST_SHOWN_KEY_SECTION_SECONDS: f32 = 30.0;
+
+/// Whether the key timeline of a track whose overall key is `track_key` is
+/// shown at all. The sections are not always consistent with the key of
+/// the whole track yet, so a timeline is shown only when that key is one of
+/// its sections and every section lasts at least
+/// [`SHORTEST_SHOWN_KEY_SECTION_SECONDS`]; otherwise it could contradict the
+/// key shown above it. Relaxing this rule is a change to this function only.
+pub(crate) fn shows_key_timeline(track_key: Option<Key>, sections: &[KeySection]) -> bool {
+    let Some(track_key) = track_key else {
+        return false;
+    };
+    sections.iter().any(|section| section.key == track_key)
+        && sections.iter().all(|section| {
+            section.end_seconds - section.start_seconds >= SHORTEST_SHOWN_KEY_SECTION_SECONDS
+        })
+}
+
 /// A stretch of the track in one key.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct KeyStretch {
@@ -176,6 +195,41 @@ mod tests {
             end_seconds,
             key: Key::new(tonic, Mode::Minor),
         }
+    }
+
+    #[test]
+    fn a_timeline_is_shown_only_when_it_agrees_with_the_key_of_the_track() {
+        let sections = [section(0.0, 80.0, 9), section(100.0, 200.0, 4)];
+        let a_minor = Some(Key::new(9, Mode::Minor));
+        assert!(shows_key_timeline(a_minor, &sections));
+        assert!(shows_key_timeline(
+            Some(Key::new(4, Mode::Minor)),
+            &sections
+        ));
+
+        let e_flat_minor = Some(Key::new(3, Mode::Minor));
+        assert!(
+            !shows_key_timeline(e_flat_minor, &sections),
+            "the key of the track is none of the sections"
+        );
+        assert!(!shows_key_timeline(None, &sections));
+        assert!(!shows_key_timeline(
+            Some(Key::new(9, Mode::Major)),
+            &sections
+        ));
+    }
+
+    #[test]
+    fn a_timeline_with_a_section_shorter_than_thirty_seconds_is_not_shown() {
+        let a_minor = Some(Key::new(9, Mode::Minor));
+        let brief = [
+            section(0.0, 80.0, 9),
+            section(80.0, 109.0, 4),
+            section(109.0, 200.0, 9),
+        ];
+        assert!(!shows_key_timeline(a_minor, &brief));
+        let just_long_enough = [section(0.0, 80.0, 9), section(80.0, 110.0, 4)];
+        assert!(shows_key_timeline(a_minor, &just_long_enough));
     }
 
     #[test]

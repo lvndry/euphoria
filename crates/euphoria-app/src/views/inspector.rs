@@ -19,7 +19,7 @@ use crate::format;
 use crate::library::{Track, TrackStatus};
 use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
-use crate::track_overview::key_stretches;
+use crate::track_overview::{key_stretches, shows_key_timeline};
 use crate::views::key_chip::key_chip;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::track_overview;
@@ -335,6 +335,9 @@ fn waveform_section(
         _ => None,
     };
     let key_timeline = track.analysis().and_then(|analysis| {
+        if !shows_key_timeline(analysis.key, &analysis.key_timeline) {
+            return None;
+        }
         let stretches = key_stretches(&analysis.key_timeline, analysis.duration_seconds);
         (!stretches.is_empty()).then(|| {
             track_overview::key_timeline(
