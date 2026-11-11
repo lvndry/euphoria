@@ -158,6 +158,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         store_error,
         ..
     } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let corrections = batch::corrections(&results, &arguments.analysis);
 
     // Planning only reads the files.
     let options = arguments.options();
@@ -166,8 +167,12 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     let mut failures: Vec<Failure> = Vec::new();
     let mut unchanged_count = 0;
     for result in results {
+        // The tags get the values the user set; the cache keeps the
+        // analysis as detected, so a correction can still be reset.
+        let correction = corrections.get(&result.path).copied().unwrap_or_default();
         let planned = result.outcome.and_then(|analysis| {
-            plan_write(&result.path, &analysis, &options).map(|plan| (plan, analysis))
+            plan_write(&result.path, &correction.apply(analysis.clone()), &options)
+                .map(|plan| (plan, analysis))
         });
         match planned {
             Ok((plan, _)) if plan.is_empty() => unchanged_count += 1,

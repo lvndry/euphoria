@@ -97,6 +97,8 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let corrections = batch::corrections(&results, &arguments.analysis);
+    let results = batch::corrected(results, &corrections);
 
     let loose_playlist_name = output_file
         .file_stem()

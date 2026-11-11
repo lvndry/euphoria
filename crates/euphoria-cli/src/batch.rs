@@ -121,6 +121,51 @@ fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
     batch
 }
 
+/// The corrections users set, by file, for the files of `results` that
+/// have one. Nothing is read without a cache, with `--no-cache`, or when no
+/// file was ever corrected; a cache that cannot be read gives none.
+pub fn corrections(
+    results: &[euphoria_core::FileResult],
+    options: &AnalysisOptions,
+) -> Corrections {
+    if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
+        return Corrections::new();
+    }
+    let Ok(cache) = open_cache() else {
+        return Corrections::new();
+    };
+    results
+        .iter()
+        .filter(|result| result.outcome.is_ok())
+        .filter_map(|result| {
+            let correction = cache.correction_for(&result.path).ok().flatten()?;
+            Some((result.path.clone(), correction))
+        })
+        .collect()
+}
+
+/// The corrections of a batch, by file.
+pub type Corrections = std::collections::HashMap<PathBuf, euphoria_core::Correction>;
+
+/// The results of a batch with every correction in place of the detected
+/// key and tempo.
+pub fn corrected(
+    results: Vec<euphoria_core::FileResult>,
+    corrections: &Corrections,
+) -> Vec<euphoria_core::FileResult> {
+    results
+        .into_iter()
+        .map(|mut result| {
+            if let (Ok(analysis), Some(correction)) =
+                (&mut result.outcome, corrections.get(&result.path))
+            {
+                *analysis = correction.apply(analysis.clone());
+            }
+            result
+        })
+        .collect()
+}
+
 /// Opens the analysis cache in the data folder.
 pub fn open_cache() -> Result<Cache, EuphoriaError> {
     Cache::open(&default_cache_path()?)

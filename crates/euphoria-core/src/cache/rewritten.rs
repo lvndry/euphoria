@@ -44,6 +44,7 @@ impl Cache {
         path: &Path,
         analysis: &TrackAnalysis,
     ) -> Result<(), EuphoriaError> {
+        let previous = self.previous_content(path)?;
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(());
         };
@@ -52,7 +53,13 @@ impl Cache {
             analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
             location,
         })
-        .map_err(cache_error(&self.path))
+        .map_err(cache_error(&self.path))?;
+        match previous {
+            Some(previous) => self
+                .carry_correction(&previous, &content_hash)
+                .map_err(cache_error(&self.path)),
+            None => Ok(()),
+        }
     }
 
     /// Records where the file at `path` is when the cache already holds a
@@ -65,9 +72,14 @@ impl Cache {
     /// [`EuphoriaError::Scan`] when the file cannot be read, and
     /// [`EuphoriaError::Cache`] when the database cannot be read or written.
     pub fn recognise_file(&mut self, path: &Path) -> Result<bool, EuphoriaError> {
+        let previous = self.previous_content(path)?;
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(false);
         };
+        if let Some(previous) = previous {
+            self.carry_correction(&previous, &content_hash)
+                .map_err(cache_error(&self.path))?;
+        }
         let is_known = self
             .connection
             .query_row(

@@ -228,6 +228,12 @@ pub enum EuphoriaError {
         "cannot read the tempo range {0:?}: write it as two numbers joined by a hyphen, such as 70-140"
     )]
     UnreadableTempoRange(String),
+    /// A key or tempo correction that cannot be kept.
+    #[error("cannot keep this correction: {reason}")]
+    InvalidCorrection {
+        /// What is wrong with it.
+        reason: &'static str,
+    },
     /// No folder for Euphoria's data could be worked out from the environment.
     #[error(
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"

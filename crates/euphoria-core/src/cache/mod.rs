@@ -52,6 +52,7 @@
 //! each number.
 
 mod batch;
+mod corrections;
 mod identity;
 mod location;
 mod rewritten;
@@ -82,7 +83,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 5] = [
+const MIGRATIONS: [&str; 6] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -113,6 +114,14 @@ const MIGRATIONS: [&str; 5] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN quality TEXT;
+",
+    "
+    CREATE TABLE corrections (
+        content_hash BLOB    NOT NULL PRIMARY KEY,
+        key          TEXT,
+        bpm          REAL,
+        corrected_at INTEGER NOT NULL
+    ) WITHOUT ROWID;
 ",
 ];
 

@@ -15,6 +15,8 @@ pub mod audio_stream;
 pub mod cache;
 /// How far to trust a detected key or tempo.
 pub mod confidence;
+/// Keys and tempos set by the user.
+pub mod correction;
 /// Key and tempo detectors.
 pub mod detect;
 /// Energy rating from 1 to 10 and the features behind it.
@@ -49,6 +51,7 @@ pub use cache::{
     DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
 pub use confidence::Confidence;
+pub use correction::Correction;
 pub use detect::KeySection;
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
