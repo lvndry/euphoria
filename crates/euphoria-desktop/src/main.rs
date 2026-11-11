@@ -14,6 +14,7 @@ mod assets;
 mod camelot;
 mod columns;
 mod demo;
+mod display_settings;
 mod dock_icon;
 mod folder_tree;
 mod format;

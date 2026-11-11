@@ -226,7 +226,19 @@ mod tests {
                         key: crate::Key::new((checksum % 12) as u8, crate::Mode::Major),
                     },
                 ],
-                quality: None,
+                quality: Some(crate::quality::QualityReport {
+                    codec: "pcm_s16le".to_string(),
+                    lossless: true,
+                    bitrate_kbps: Some(1_411),
+                    sample_rate: 44_100,
+                    bit_depth: Some(16),
+                    channels: Some(2),
+                    cutoff_hz: None,
+                    clipped_share: 0.0,
+                    integrated_loudness_lufs: Some(-9.0 - (checksum % 5) as f32),
+                    true_peak_dbtp: Some(-0.5),
+                    verdict: crate::quality::QualityVerdict::Lossless,
+                }),
             })
         }
 
@@ -492,6 +504,38 @@ mod tests {
         assert_eq!(next_run.cached_count, 1);
         assert_eq!(analyses(&after_upgrade), analyses(&next_run));
         assert_eq!(library.cache.entry_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_track_stored_by_a_version_4_database_is_analyzed_again_and_replaced() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, "a track").unwrap();
+        crate::cache::test_support::create_version_4_database(&database, &track);
+        let mut library = Library {
+            cache: Cache::open(&database).unwrap(),
+            folder,
+            analyzer: CountingAnalyzer::new(),
+        };
+
+        let after_upgrade = library.analyze(std::slice::from_ref(&track));
+        let next_run = library.analyze(std::slice::from_ref(&track));
+
+        assert_eq!(after_upgrade.cached_count, 0);
+        assert_eq!(library.analyzer.runs(), 1);
+        assert!(analyses(&after_upgrade)[0].quality.is_some());
+        assert_eq!(next_run.cached_count, 1);
+        assert_eq!(analyses(&after_upgrade), analyses(&next_run));
+        assert_eq!(library.cache.entry_count().unwrap(), 1);
+        let stored_version: String = library
+            .cache
+            .connection
+            .query_row("SELECT analyzer_version FROM analyses", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored_version, crate::ANALYZER_VERSION);
     }
 
     #[test]

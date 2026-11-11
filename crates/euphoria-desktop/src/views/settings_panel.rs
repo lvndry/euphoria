@@ -1,12 +1,15 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The settings panel: how tags are written.
+//! The settings panel: how keys and tempos are shown, and how tags are
+//! written.
 
+use gpui::component::input::Input;
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
+use crate::display_settings::TempoPreset;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 use crate::theme::Palette;
 use crate::views::tag_panel::choice_button;
@@ -16,7 +19,7 @@ use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, sec
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let palette = app.theme.palette;
     let settings = app.tag_settings;
-    let (backdrop, card) = modal("settings-panel", px(620.0), &palette);
+    let (backdrop, card) = modal("settings-panel", px(680.0), &palette);
 
     let programs = ProgramChoice::ALL
         .iter()
@@ -57,6 +60,84 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .on_click(cx.listener(move |this, _, _, cx| this.set_label_place(place, cx)))
         .test_support()
     });
+    let display = app.display;
+    let shown_notations = NotationChoice::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, notation)| {
+            let notation = *notation;
+            choice_button(
+                ("key-display", index),
+                notation.label(),
+                display.key_notation == notation,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_key_display(notation, cx)))
+            .test_support()
+        });
+    let current_preset = (!app.is_custom_tempo_range)
+        .then(|| display.tempo_range.preset())
+        .flatten();
+    let mut tempo_choices: Vec<AnyElement> = TempoPreset::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, preset)| {
+            let preset = *preset;
+            choice_button(
+                ("tempo-preset", index),
+                preset.label(),
+                current_preset == Some(preset),
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.set_tempo_preset(preset, window, cx);
+            }))
+            .test_support()
+            .into_any_element()
+        })
+        .collect();
+    tempo_choices.push(
+        choice_button("tempo-custom", "Custom", current_preset.is_none(), &palette)
+            .on_click(cx.listener(|this, _, window, cx| this.choose_custom_tempo_range(window, cx)))
+            .test_support()
+            .into_any_element(),
+    );
+    let custom_range = current_preset.is_none().then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_secondary)
+                    .child("From")
+                    .child(
+                        div()
+                            .w(px(64.0))
+                            .child(Input::new(&app.tempo_from_input).id("tempo-from")),
+                    )
+                    .child("up to")
+                    .child(
+                        div()
+                            .w(px(64.0))
+                            .child(Input::new(&app.tempo_to_input).id("tempo-to")),
+                    )
+                    .child("beats per minute"),
+            )
+            .children(app.tempo_range_problem.clone().map(|problem| {
+                div()
+                    .id("tempo-range-problem")
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.danger)
+                    .child(problem)
+                    .test_support()
+            }))
+    });
+
     let tempo_hint = if settings.program == ProgramChoice::Serato {
         "Serato detects the tempo itself and builds its beat grid from it only when a file has \
          none, so it is left alone unless you tick this."
@@ -73,6 +154,47 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Settings"),
                 )
+                .child(
+                    div()
+                        .id("settings-body")
+                        .flex()
+                        .flex_col()
+                        .gap(px(14.0))
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                .child(part_heading("Showing keys and tempos", &palette))
+                .child(setting(
+                    "Keys",
+                    "How keys are written in the table and the track detail. The wheel always \
+                     uses Camelot codes.",
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.0))
+                        .children(shown_notations),
+                    &palette,
+                ))
+                .child(setting(
+                    "Tempo range",
+                    "Tempos are shown from the first number up to the second, at most an octave \
+                     apart. A track counted at half or double speed moves into the range; \
+                     nothing is analyzed again.",
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.0))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap(px(6.0))
+                                .children(tempo_choices),
+                        )
+                        .children(custom_range),
+                    &palette,
+                ))
+                .child(part_heading("Writing tags", &palette))
                 .child(setting(
                     "DJ program",
                     "Tags are written to the fields this program reads.",
@@ -81,7 +203,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                 ))
                 .child(setting(
                     "Key notation",
-                    "How the key is spelled, in the key field and in the label.",
+                    "How the key is spelled in the tags, in the key field and in the label.",
                     div().flex().flex_wrap().gap(px(6.0)).children(notations),
                     &palette,
                 ))
@@ -111,9 +233,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     ),
                     &palette,
                 ))
+                )
                 .child(
                     div()
                         .flex()
+                        .flex_shrink_0()
                         .justify_between()
                         .pt(px(4.0))
                         .child(
@@ -133,6 +257,15 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         )
         .test_support()
         .into_any_element()
+}
+
+/// The title of a part of the settings.
+fn part_heading(text: &'static str, palette: &Palette) -> impl IntoElement {
+    div()
+        .pt(px(6.0))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(palette.text)
+        .child(text)
 }
 
 /// One setting: its name, a line on what it does, and its choices.

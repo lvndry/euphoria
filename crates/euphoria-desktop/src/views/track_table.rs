@@ -138,9 +138,11 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
     } else if app.session.library().tracks().is_empty() {
         "No tracks yet"
     } else if app.filter == LibraryFilter::NeedsReview && app.folder.is_some() {
-        "No tracks in this folder need review"
+        "Nothing to review in this folder: every key and tempo is rated medium or high, and \
+         every file was analyzed"
     } else if app.filter == LibraryFilter::NeedsReview {
-        "No tracks need review"
+        "Nothing to review: every key and tempo is rated medium or high, and every file was \
+         analyzed"
     } else if app.filter == LibraryFilter::QualityToCheck {
         "No tracks with a low bit rate or likely re-encoded"
     } else {
@@ -179,11 +181,27 @@ fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
         .border_color(palette.line)
         .child(
             div()
+                .flex()
+                .flex_col()
                 .min_w_0()
-                .truncate()
-                .text_size(px(14.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title),
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(px(14.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .when(app.filter == LibraryFilter::NeedsReview, |heading| {
+                    heading.child(
+                        div()
+                            .id("review-explanation")
+                            .truncate()
+                            .text_size(SMALL_TEXT_SIZE)
+                            .text_color(palette.text_secondary)
+                            .child(REVIEW_EXPLANATION)
+                            .test_support(),
+                    )
+                }),
         )
         .child(
             div()
@@ -193,6 +211,10 @@ fn heading(app: &EuphoriaApp, palette: &Palette) -> Div {
                 .child(count),
         )
 }
+
+/// Why tracks are listed under Needs review, under its heading.
+const REVIEW_EXPLANATION: &str =
+    "A key or tempo rated low confidence, or a file that could not be analyzed. Check them by ear.";
 
 fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let layout = &app.table_layout;
@@ -416,7 +438,7 @@ fn cell_contents(
             .children(track.artist.clone())
             .into_any_element(),
         ColumnId::Key => match (&track.status, track.key()) {
-            (_, Some(key)) => key_chip(&key, theme).into_any_element(),
+            (_, Some(key)) => key_chip(&key, theme, app.display.key_notation).into_any_element(),
             (TrackStatus::Queued, _) => status_text("Queued", palette.text_tertiary, false),
             (TrackStatus::Analyzing, _) => status_text("Analyzing", palette.accent, true),
             (TrackStatus::Failed(_), _) => status_text("Failed", palette.danger, true),

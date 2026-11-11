@@ -141,6 +141,11 @@ impl Session {
         queued
     }
 
+    /// Shows every tempo in `range`, without analyzing anything again.
+    pub(crate) fn set_tempo_range(&mut self, range: euphoria_core::TempoRange) {
+        self.library.set_tempo_range(range);
+    }
+
     /// Takes the titles and artists read from the files' tags.
     pub(crate) fn set_track_names(&mut self, names: Vec<(PathBuf, euphoria_core::TrackName)>) {
         for (path, name) in names {
@@ -343,7 +348,7 @@ mod tests {
         wait_until_idle(&mut session);
         let reason = session.library().tracks()[0].failure().unwrap();
         assert!(reason.contains("README.md"), "{reason}");
-        assert_eq!(session.library().counts().failed, 1);
+        assert_eq!(session.library().counts().needs_review, 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">How bit rate and cutoff make the verdict</title>
-<desc id="chart-desc">Scatter of the lowest cutoff of each encoding against its measured average bit rate, over the verdict zones. Below 144 kbit/s is weak on a big system, 144 to 199 acceptable, 200 and above good. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, a step line marks the cutoff below which the file is likely re-encoded: 15.5 kHz to 199 kbit/s, 18 kHz to 287 and 19.5 kHz from 288. The lowest cutoff of each encoding made once from a lossless source sits above the line, Apple AAC at 192 kbit/s closest at 16.4 kHz. The lowest cutoff of each transcode to a higher bit rate sits below it. Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, are likely re-encoded below 19 kHz.</desc>
+<desc id="chart-desc">Scatter of the lowest cutoff of each encoding against its measured average bit rate, over the verdict zones. Below 144 kbit/s is weak on a big system, 144 to 199 acceptable, 200 and above good. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, a step line marks the cutoff below which the file is likely re-encoded: 15.5 kHz to 199 kbit/s, 18 kHz to 287 and 19.5 kHz from 288. The lowest cutoff of each encoding made once from a lossless source sits above the line, MP3 at 256 kbit/s closest at 19.3 kHz, 1.3 kHz above it. The lowest cutoff of each transcode to a higher bit rate sits below it. Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, are likely re-encoded below 19 kHz.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -82,18 +82,17 @@
 <circle cx="502.08" cy="140" r="5" class="series-1-fill ring"/>
 <circle cx="564.08" cy="140" r="5" class="series-1-fill ring"/>
 <circle cx="108.62" cy="372.36" r="5" class="series-1-fill ring"/>
-<circle cx="175.38" cy="318.32" r="5" class="series-1-fill ring"/>
-<circle cx="308.92" cy="343.54" r="5" class="series-1-fill ring"/>
-<circle cx="473.46" cy="264.29" r="5" class="series-1-fill ring"/>
+<circle cx="175.38" cy="311.12" r="5" class="series-1-fill ring"/>
+<circle cx="308.92" cy="235.47" r="5" class="series-1-fill ring"/>
+<circle cx="473.46" cy="140" r="5" class="series-1-fill ring"/>
 <circle cx="645.15" cy="140" r="5" class="series-1-fill ring"/>
 <circle cx="652.31" cy="357.95" r="5" class="series-2-fill ring"/>
 <circle cx="652.31" cy="264.29" r="5" class="series-2-fill ring"/>
 <circle cx="421" cy="314.72" r="5" class="series-2-fill ring"/>
 <circle cx="473.46" cy="357.95" r="5" class="series-2-fill ring"/>
-<circle cx="626.08" cy="318.32" r="5" class="series-2-fill ring"/>
+<circle cx="626.08" cy="311.12" r="5" class="series-2-fill ring"/>
 <text x="640.31" y="362.45" class="label" text-anchor="end">MP3 128 made 320</text>
 <text x="664.31" y="214.75" class="label" text-anchor="start">MP3 320</text>
 <text x="206.46" y="362.45" class="label" text-anchor="start">MP3 128</text>
-<text x="308.92" y="329.54" class="label" text-anchor="middle">Apple AAC 192</text>
 <text x="712" y="144" class="tick" text-anchor="start">full band</text>
 </svg>

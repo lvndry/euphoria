@@ -1,18 +1,20 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The Camelot code of a key, coloured by its number.
+//! The code of a key in the notation chosen, coloured by its Camelot number.
 
 use euphoria_core::Key;
 use gpui::prelude::*;
 use gpui::{Div, FontWeight, div, px};
 
 use crate::camelot::CamelotPosition;
+use crate::tag_settings::NotationChoice;
 use crate::theme::AppTheme;
 use crate::views::SMALL_TEXT_SIZE;
 
-/// The chip for `key`: its Camelot code in the colours of its number.
-pub(crate) fn key_chip(key: &Key, theme: &AppTheme) -> Div {
+/// The chip for `key`: its code in `notation`, in the colours of its
+/// Camelot number.
+pub(crate) fn key_chip(key: &Key, theme: &AppTheme, notation: NotationChoice) -> Div {
     let colours = theme.key_colours(CamelotPosition::of(key));
     let chip = div()
         .flex()
@@ -23,7 +25,7 @@ pub(crate) fn key_chip(key: &Key, theme: &AppTheme) -> Div {
         .text_size(SMALL_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(colours.foreground)
-        .child(key.camelot());
+        .child(notation.spell(key));
     match colours.background {
         Some(background) => chip.min_w(px(30.0)).px(px(6.0)).bg(background),
         None => chip,
