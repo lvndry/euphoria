@@ -150,6 +150,30 @@ fn a_tempo_range_wider_than_an_octave_is_refused() {
 }
 
 #[test]
+fn a_large_finite_tempo_range_does_not_turn_a_detected_tempo_into_null() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--json",
+        "--no-cache",
+        "--tempo-range",
+        "2e38-3e38",
+        fixture.to_str().expect("UTF-8 path"),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tracks: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tempo = tracks[0]["bpm"]
+        .as_f64()
+        .expect("a detected tempo stays a number");
+    assert!(tempo.is_finite() && tempo > 0.0, "{tracks}");
+    assert!(tracks[0]["error"].is_null(), "{tracks}");
+}
+
+#[test]
 fn needs_review_lists_only_tracks_rated_low() {
     let all = analyze_json(&[]);
     let to_review = analyze_json(&["--needs-review"]);

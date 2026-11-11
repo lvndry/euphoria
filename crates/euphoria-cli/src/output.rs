@@ -477,7 +477,14 @@ fn format_duration(seconds: f32) -> String {
 }
 
 fn round_to_tenths(value: f32) -> f32 {
-    (value * 10.0).round() / 10.0
+    let scaled = value * 10.0;
+    if scaled.is_finite() {
+        scaled.round() / 10.0
+    } else {
+        // Scaling can overflow a finite value whose spacing already
+        // exceeds a tenth, so there is no fractional digit to round.
+        value
+    }
 }
 
 #[cfg(test)]
@@ -546,6 +553,15 @@ mod tests {
 
     fn write_json_in_default_range(writer: &mut Vec<u8>, results: &[FileResult]) -> io::Result<()> {
         write_json(writer, results, TempoRange::DEFAULT)
+    }
+
+    #[test]
+    fn rounding_large_finite_values_keeps_them_finite() {
+        for value in [f32::MAX, -f32::MAX] {
+            assert_eq!(round_to_tenths(value), value);
+        }
+        assert_eq!(round_to_tenths(124.04), 124.0);
+        assert_eq!(round_to_tenths(124.06), 124.1);
     }
 
     #[test]
