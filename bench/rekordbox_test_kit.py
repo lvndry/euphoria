@@ -246,7 +246,7 @@ Euphoria's rekordbox preset and its documentation can rest on a test
 instead of guesses. It takes about ten minutes. Write what you see into
 the tables and send them back.
 
-Files: `tags/` holds the tracks T01 to T10, `xml/` holds X01 and X02, and
+Files: `tags/` holds the tracks T01 to T11, `xml/` holds X01 and X02, and
 `rekordbox.xml` lists X01, X02 and T01. Every title starts with
 `EUPHORIA` and the test number, so search the collection for `EUPHORIA`.
 
