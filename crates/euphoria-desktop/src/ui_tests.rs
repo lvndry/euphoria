@@ -4892,3 +4892,28 @@ fn a_corrected_tempo_drops_the_automatic_cues_but_keeps_the_users(cx: &mut TestA
     );
 
 }
+
+#[gpui::test]
+fn a_cue_name_commits_when_selecting_another_track(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    click(window, ("cue-name", 0_usize), cx);
+    cx.update_window(window, |_, window, cx| window.input("Intro", cx))
+        .unwrap();
+    click(window, track(1), cx);
+    click(window, track(0), cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+}
+
+#[gpui::test]
+fn a_cue_command_keeps_a_name_typed_before_blurring(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    click(window, ("cue-name", 0_usize), cx);
+    cx.update_window(window, |_, window, cx| window.input("Intro", cx))
+        .unwrap();
+    click(window, "add-cue", cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+    click(window, "undo-cue-edit", cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+    click(window, "undo-cue-edit", cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Start");
+}

@@ -272,6 +272,9 @@ impl EuphoriaApp {
     /// Makes `change` to the cues of the selected track, which become the
     /// user's own set.
     pub(crate) fn change_cues(&mut self, change: CueChange, cx: &mut Context<'_, Self>) {
+        if !matches!(change, CueChange::Rename { .. }) {
+            self.finish_renaming_cue(cx);
+        }
         let Some(track) = self.selected_track() else {
             return;
         };
@@ -498,6 +501,7 @@ impl EuphoriaApp {
 
     /// Goes back to the cues analysis placed for the selected track.
     pub(crate) fn reset_cues(&mut self, cx: &mut Context<'_, Self>) {
+        self.finish_renaming_cue(cx);
         let Some(path) = self
             .selected_track()
             .filter(|track| track.edited_cues.is_some())
@@ -510,6 +514,7 @@ impl EuphoriaApp {
 
     /// Undoes the latest edit of the selected track's cues.
     pub(crate) fn undo_cue_edit(&mut self, cx: &mut Context<'_, Self>) {
+        self.finish_renaming_cue(cx);
         let Some(path) = self.selected_track().map(|track| track.path.clone()) else {
             return;
         };
