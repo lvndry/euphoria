@@ -1,0 +1,27 @@
+{
+  "format": "k10-native-cqt-evidence-index-v1",
+  "protocol_sha256": "4b66f2f7b16b06581aa07b45a8ca710a422baad87b31e54f129129de3338b118",
+  "reference_export_source": "drone:b1c90d3",
+  "provenance_collector_source": "drone:b9c22f2",
+  "first_comparison_source": "euphoria:d8424bf",
+  "diagnostic_comparison_source": "euphoria:9fd6c34",
+  "first_executable_sha256": "9ee59e01709bf6f9def5fbeaade529944e5835731910ca166ac5d22554616f4b",
+  "diagnostic_executable_sha256": "66bf6b105e31d4443cbfa836ce2012292a78e5731c791bbfb1679b9c81856b35",
+  "source_archive_sha256": {
+    "drone-cqt-source.tar": "c1f65cebb98a3fc4089b55f8f8817d0246a4180c22b865981acd75e623e99cd2",
+    "euphoria-cqt-source.tar": "5f31f242d7233b249c29d6efb34a8713393edeec16302777e83e96baea5866f4",
+    "euphoria-cqt-diagnostic.tar": "66caf83ea9c94ad4bd08f53f6d4f11dc7e1c06900ba70118e528b4cb990fb970"
+  },
+  "files": {
+    "build-evidence-v2.json": "35fa6cad00c030c66be93e615de53cc953b3cf3da7a09f90176f007e52d28328",
+    "exported-d8424bf.json": "bff6020b466149e68f61b20563d90b8cb31aca6a4f1012c7d24286cfe90f85da",
+    "exported-diagnostics-9fd6c34.json": "f53ca43fb491273aa4979a415e9474397a2cc49b3535638e9140ec08f51560b0",
+    "owner-d8424bf.json": "29ad3f2535034d654fb75986ec3e0331b9583c01cfbeef945849272c9bb0c708",
+    "reference-summary.json": "3e86ad29c451b627896132db7d67618c20fd595eea9e9c7b6f3ee51f88288b99"
+  },
+  "notes": [
+    "No raw audio, PCM or features committed. Owner WIP source remains external.",
+    "Build evidence v2 corrects wrapper license metadata from draft v1; numerical reports and binaries remain unchanged.",
+    "Nine-case passing gate is not a labeled accuracy or production/end-to-end claim."
+  ]
+}

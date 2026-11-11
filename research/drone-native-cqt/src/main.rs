@@ -15,6 +15,10 @@ mod owner {
 }
 #[derive(Parser)]
 struct Args {
+    #[arg(long)]
+    single_case: bool,
+    #[arg(long)]
+    expect_manifest_sha256: Option<String>,
     #[arg(long, default_value = "owner")]
     candidate: String,
     #[arg(long)]
@@ -53,6 +57,7 @@ fn read_f32(root: &Path, artifact: &Value) -> Result<Vec<f32>> {
     Ok(values)
 }
 fn diagnostics(actual: &[f32], reference: &[f32]) -> Result<Value> {
+    ensure!(!actual.is_empty(), "empty features");
     ensure!(actual.len() == reference.len(), "feature size mismatch");
     ensure!(actual.iter().all(|v| v.is_finite()), "nonfinite features");
     let mut maximum = 0.0f64;
@@ -81,12 +86,32 @@ fn main() -> Result<()> {
         "unknown candidate"
     );
     let manifest: Value = serde_json::from_slice(&fs::read(&args.manifest)?)?;
-    ensure!(
-        manifest["complete"] == true
-            && manifest["tracks"] == 9
-            && manifest["format"] == "k10-cqt-goldens-v1",
-        "incomplete/wrong goldens"
-    );
+    if args.single_case {
+        ensure!(
+            args.candidate == "exported",
+            "failed owner candidate is not qualified for expansion"
+        );
+        check_file(
+            &args.manifest,
+            args.expect_manifest_sha256
+                .as_deref()
+                .context("single case requires expected manifest hash")?,
+        )?;
+        ensure!(
+            manifest["complete"] == true
+                && manifest["tracks"] == 1
+                && manifest["format"] == "k10-cqt-expansion-case-v1"
+                && manifest["expected_study_tracks"] == 376,
+            "incomplete/wrong expansion case"
+        );
+    } else {
+        ensure!(
+            manifest["complete"] == true
+                && manifest["tracks"] == 9
+                && manifest["format"] == "k10-cqt-goldens-v1",
+            "incomplete/wrong goldens"
+        );
+    }
     check_file(
         &args.full_model,
         manifest["full_model_sha256"]
@@ -96,9 +121,39 @@ fn main() -> Result<()> {
     let environment = environment(&args.ort_library)?;
     let mut model = Full::new(&environment, &args.full_model)?;
     let root = args.manifest.parent().context("golden root")?;
+    let cases = manifest["cases"].as_array().context("cases")?;
+    if args.single_case {
+        ensure!(cases.len() == 1, "exactly one expansion case required");
+    } else {
+        let expected = [
+            "silence",
+            "impulses",
+            "tone",
+            "major",
+            "minor",
+            "noise",
+            "fmak-110544",
+            "fmak-107354",
+            "fmak-087373",
+        ];
+        ensure!(cases.len() == expected.len(), "exactly nine cases required");
+        for (case, id) in cases.iter().zip(expected) {
+            ensure!(
+                case["id"].as_str() == Some(id),
+                "frozen case membership/order changed"
+            );
+        }
+    }
+    ensure!(
+        manifest["sample_rate"] == 22050
+            && manifest["hop"] == 4096
+            && manifest["bins"] == 208
+            && manifest["core_slice"] == json!([8, 200]),
+        "frontend contract mismatch"
+    );
     let mut rows = Vec::new();
     let mut passed = true;
-    for case in manifest["cases"].as_array().context("cases")? {
+    for case in cases {
         let pcm = read_f32(root, &case["pcm"])?;
         let reference = read_f32(root, &case["core"])?;
         let (actual, frames, stage_diagnostics) = if args.candidate == "exported" {
@@ -132,7 +187,7 @@ fn main() -> Result<()> {
         eprintln!("{}", row);
         rows.push(row);
     }
-    let result = json!({"format":"k10-native-cqt-feasibility-v1","candidate":args.candidate,"passed":passed,"gate":"finite logits; atol=1e-5 rtol=1e-5; zero argmax disagreement; nine fixed identical-PCM cases","manifest_sha256":file_sha256(&args.manifest)?,"full_model_sha256":file_sha256(&args.full_model)?,"ort_library_sha256":file_sha256(&args.ort_library)?,"executable_sha256":file_sha256(&std::env::current_exe()?)?,"source_sha256":bytes_sha256(include_bytes!("main.rs")),"plan_source_sha256":bytes_sha256(include_bytes!("plan.rs")),"soxr_wrapper_sha256":args.soxr_wrapper.as_ref().map(|p|file_sha256(p)).transpose()?,"owner_source_sha256":owner::identity(),"cases":rows});
+    let result = json!({"format":"k10-native-cqt-feasibility-v1","candidate":args.candidate,"single_case":args.single_case,"passed":passed,"gate":"finite logits; atol=1e-5 rtol=1e-5; zero argmax disagreement; fixed identical-PCM cases","manifest_sha256":file_sha256(&args.manifest)?,"full_model_sha256":file_sha256(&args.full_model)?,"ort_library_sha256":file_sha256(&args.ort_library)?,"executable_sha256":file_sha256(&std::env::current_exe()?)?,"source_sha256":bytes_sha256(include_bytes!("main.rs")),"plan_source_sha256":bytes_sha256(include_bytes!("plan.rs")),"soxr_wrapper_sha256":args.soxr_wrapper.as_ref().map(|p|file_sha256(p)).transpose()?,"owner_source_sha256":owner::identity(),"cases":rows});
     fs::write(&args.output, serde_json::to_vec_pretty(&result)?)?;
     ensure!(
         passed,
@@ -166,6 +221,16 @@ mod tests {
         artifact["bytes"] = json!(4);
         artifact["sha256"] = json!("0".repeat(64));
         ensure!(read_f32(&root, &artifact).is_err());
+        let nan = f32::NAN.to_le_bytes();
+        fs::write(&path, nan)?;
+        artifact["sha256"] = json!(bytes_sha256(&nan));
+        ensure!(read_f32(&root, &artifact).is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("/etc/hosts", root.join("escape"))?;
+            artifact["path"] = json!("escape");
+            ensure!(read_f32(&root, &artifact).is_err());
+        }
         fs::remove_dir_all(root)?;
         Ok(())
     }

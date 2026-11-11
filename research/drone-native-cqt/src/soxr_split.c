@@ -1,5 +1,6 @@
 /* Research wrapper reproducing python-soxr 1.1.0 csoxr_split_ch<float>.
- * Wrapper source: BSD-3-Clause python-soxr; libsoxr: LGPL-2.1-or-later.
+ * Wrapper source and libsoxr: LGPL-2.1-or-later.
+ * Python-SoXR copyright (c) 2024 Myungchul Keum. See LICENSE-python-soxr.
  * Input/output are mono FLOAT32 split buffers; block=96000, final NULL flush.
  */
 #include <soxr.h>
