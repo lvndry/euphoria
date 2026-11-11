@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="380" viewBox="0 0 800 380" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Cues on a two minute preview</title>
+<desc id="chart-desc">Step chart of the energy rating of a two minute GiantSteps preview at 123.9 BPM, with vertical lines at the four cues Euphoria sets. Start is at 0.2 seconds, where the rating is 2 to 3. Main is at 15.7 seconds, where the rating rises to 7 and then 8. Breakdown is at 77.7 seconds, where it falls to 4 and then 1. Drop is at 93.1 seconds, where it comes back to 7 and then 8.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .series-line { stroke: #3987e5; }
+  .series-fill, .series-wash { fill: #3987e5; }
+  .ring { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="379" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Cues on a two minute preview</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Where Euphoria sets cues, over the energy rating of the preview every 4 seconds.</text>
+<line x1="64" y1="316" x2="740" y2="316" class="grid"/>
+<text x="54" y="320" class="tick" text-anchor="end">1</text>
+<line x1="64" y1="249.33" x2="740" y2="249.33" class="grid"/>
+<text x="54" y="253.33" class="tick" text-anchor="end">4</text>
+<line x1="64" y1="182.67" x2="740" y2="182.67" class="grid"/>
+<text x="54" y="186.67" class="tick" text-anchor="end">7</text>
+<line x1="64" y1="116" x2="740" y2="116" class="grid"/>
+<text x="54" y="120" class="tick" text-anchor="end">10</text>
+<line x1="64" y1="316" x2="740" y2="316" class="axis"/>
+<text x="64" y="336" class="tick" text-anchor="middle">0:00</text>
+<text x="176.67" y="336" class="tick" text-anchor="middle">0:20</text>
+<text x="289.33" y="336" class="tick" text-anchor="middle">0:40</text>
+<text x="402" y="336" class="tick" text-anchor="middle">1:00</text>
+<text x="514.67" y="336" class="tick" text-anchor="middle">1:20</text>
+<text x="627.33" y="336" class="tick" text-anchor="middle">1:40</text>
+<text x="740" y="336" class="tick" text-anchor="middle">2:00</text>
+<text x="402" y="360" class="label" text-anchor="middle">Time in the preview</text>
+<polygon points="75.27,316 75.27,271.56 97.8,271.56 97.8,293.78 120.33,293.78 120.33,271.56 142.87,271.56 142.87,182.67 165.4,182.67 165.4,160.44 187.93,160.44 187.93,160.44 210.47,160.44 210.47,160.44 233,160.44 233,160.44 255.53,160.44 255.53,160.44 278.07,160.44 278.07,160.44 300.6,160.44 300.6,160.44 323.13,160.44 323.13,160.44 345.67,160.44 345.67,160.44 368.2,160.44 368.2,160.44 390.73,160.44 390.73,160.44 413.27,160.44 413.27,160.44 435.8,160.44 435.8,160.44 458.33,160.44 458.33,160.44 480.87,160.44 480.87,249.33 503.4,249.33 503.4,316 525.93,316 525.93,316 548.47,316 548.47,316 571,316 571,249.33 593.53,249.33 593.53,182.67 616.07,182.67 616.07,182.67 638.6,182.67 638.6,182.67 661.13,182.67 661.13,182.67 683.67,182.67 683.67,160.44 706.2,160.44 706.2,160.44 728.73,160.44 728.73,316" class="series-wash"/>
+<polyline points="75.27,271.56 97.8,271.56 97.8,293.78 120.33,293.78 120.33,271.56 142.87,271.56 142.87,182.67 165.4,182.67 165.4,160.44 187.93,160.44 187.93,160.44 210.47,160.44 210.47,160.44 233,160.44 233,160.44 255.53,160.44 255.53,160.44 278.07,160.44 278.07,160.44 300.6,160.44 300.6,160.44 323.13,160.44 323.13,160.44 345.67,160.44 345.67,160.44 368.2,160.44 368.2,160.44 390.73,160.44 390.73,160.44 413.27,160.44 413.27,160.44 435.8,160.44 435.8,160.44 458.33,160.44 458.33,160.44 480.87,160.44 480.87,249.33 503.4,249.33 503.4,316 525.93,316 525.93,316 548.47,316 548.47,316 571,316 571,249.33 593.53,249.33 593.53,182.67 616.07,182.67 616.07,182.67 638.6,182.67 638.6,182.67 661.13,182.67 661.13,182.67 683.67,182.67 683.67,160.44 706.2,160.44 706.2,160.44 728.73,160.44" class="series-line"/>
+<line x1="65.35" y1="94" x2="65.35" y2="316" class="reference"/>
+<text x="71.35" y="90" class="value" text-anchor="start">Start</text>
+<line x1="152.56" y1="94" x2="152.56" y2="316" class="reference"/>
+<text x="158.56" y="90" class="value" text-anchor="start">Main</text>
+<line x1="501.48" y1="94" x2="501.48" y2="316" class="reference"/>
+<text x="507.48" y="90" class="value" text-anchor="start">Breakdown</text>
+<line x1="588.75" y1="94" x2="588.75" y2="316" class="reference"/>
+<text x="594.75" y="90" class="value" text-anchor="start">Drop</text>
+</svg>

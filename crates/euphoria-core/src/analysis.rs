@@ -11,7 +11,9 @@ use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::detect::KeyDetector;
 #[cfg(feature = "libkeyfinder")]
 use crate::detect::KeyFinderDetector;
-use crate::detect::{BeatGrid, KeyReading, KeySection, StratumDetector, detect_beat_grid};
+use crate::detect::{
+    BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
+};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -31,9 +33,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "9+libkeyfinder"
+    "10+libkeyfinder"
 } else {
-    "9+stratum"
+    "10+stratum"
 };
 
 /// What Euphoria found in one track.
@@ -87,6 +89,10 @@ pub struct TrackAnalysis {
     /// Where the beats and bars fall, with the tempo of [`TrackAnalysis::bpm`]
     /// made precise, or `None` when the track has no tempo or no clear beat.
     pub beat_grid: Option<BeatGrid>,
+    /// Where the sections a DJ cues start, on bars of the beat grid, in
+    /// order and at most [`MAXIMUM_CUES`](crate::detect::MAXIMUM_CUES).
+    /// Empty when the track has no beat grid.
+    pub cues: Vec<SectionCue>,
 }
 
 impl TrackAnalysis {
@@ -199,7 +205,9 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     // that tempo whatever range the tempo is reported in.
     let tempo = tempo_reading.map(|reading| reading.tempo_in(TempoRange::DEFAULT));
     let energy_rating = rate_energy(&audio, tempo)?;
-    let beat_grid = tempo.and_then(|tempo| detect_beat_grid(&audio, f64::from(tempo)));
+    let (beat_grid, cues) = tempo.map_or((None, Vec::new()), |tempo| {
+        detect_beat_grid_and_cues(&audio, f64::from(tempo))
+    });
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
     let quality = pending_quality.finish(&audio, loudness);
@@ -217,6 +225,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         tempo_estimate: tempo_reading.map(|reading| reading.estimate),
         tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
         beat_grid,
+        cues,
     })
 }
 

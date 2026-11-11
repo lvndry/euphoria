@@ -76,7 +76,8 @@ impl Correction {
     /// A corrected key has no runner up and no score margin, and a corrected
     /// tempo no estimate and no margin, so neither is rated for confidence:
     /// the user decided it. A corrected tempo also drops the beat grid,
-    /// which was fitted to the detected tempo. Place the analysis in a tempo range before
+    /// which was fitted to the detected tempo, and the cues, which sit on its
+    /// bars. Place the analysis in a tempo range before
     /// applying a correction, since a corrected tempo is not moved into a
     /// range.
     pub fn apply(&self, mut analysis: TrackAnalysis) -> TrackAnalysis {
@@ -92,6 +93,7 @@ impl Correction {
             // A grid fitted to the detected tempo would put its beats where
             // the corrected tempo has none; a DJ program builds its own.
             analysis.beat_grid = None;
+            analysis.cues.clear();
         }
         analysis
     }
@@ -117,25 +119,33 @@ mod tests {
             tempo_estimate: Some(87.0),
             tempo_score_margin: Some(0.01),
             beat_grid: None,
+            cues: Vec::new(),
         }
     }
 
     #[test]
-    fn a_corrected_tempo_drops_the_beat_grid_and_a_corrected_key_keeps_it() {
+    fn a_corrected_tempo_drops_the_beat_grid_and_its_cues_and_a_corrected_key_keeps_them() {
         let grid = crate::detect::BeatGrid {
             first_downbeat_seconds: 0.1,
             bpm: 174.0,
             salience: 2.0,
             drift_seconds: Some(0.01),
         };
+        let cues = vec![crate::detect::SectionCue {
+            seconds: 0.1,
+            section: crate::detect::CueSection::Start,
+        }];
         let with_grid = TrackAnalysis {
             beat_grid: Some(grid),
+            cues: cues.clone(),
             ..doubtful()
         };
         let key_only = Correction::of_key(Key::new(4, Mode::Minor)).apply(with_grid.clone());
         assert_eq!(key_only.beat_grid, Some(grid));
+        assert_eq!(key_only.cues, cues);
         let tempo = Correction::of_bpm(87.0).unwrap().apply(with_grid);
         assert_eq!(tempo.beat_grid, None);
+        assert!(tempo.cues.is_empty());
     }
 
     #[test]

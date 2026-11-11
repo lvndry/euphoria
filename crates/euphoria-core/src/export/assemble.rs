@@ -9,9 +9,10 @@ use std::time::Duration;
 use rayon::prelude::*;
 
 use super::playlists::playlists_from_folders;
-use super::rekordbox::{Library, Track};
+use super::rekordbox::{CueKind, CuePoint, Library, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
 use crate::confidence::Confidence;
+use crate::detect::{MAXIMUM_CUES, SectionCue};
 use crate::error::EuphoriaError;
 use crate::track_name::{TrackName, read_track_name};
 
@@ -69,6 +70,11 @@ pub struct ExportContents {
     /// own. A grid rated low confidence is left out, and the program
     /// analyzes that track itself.
     pub beat_grid: bool,
+    /// Write each track's cues, as memory cues and as hot cues from pad A
+    /// in order, on tracks whose beat grid is written. A track gets none
+    /// when [`ExportContents::beat_grid`] is off or its grid is left out,
+    /// since the cues sit on the bars of that grid.
+    pub cues: bool,
 }
 
 /// Builds the library to export from analysis results.
@@ -165,6 +171,11 @@ fn track_from_analysis(
     let beat_grid = analysis
         .beat_grid
         .filter(|grid| contents.beat_grid && grid.confidence() != Confidence::Low);
+    let cue_points = if contents.cues && beat_grid.is_some() {
+        cue_points(&analysis.cues)
+    } else {
+        Vec::new()
+    };
     let track = Track {
         title,
         artist: tags.artist,
@@ -175,7 +186,26 @@ fn track_from_analysis(
         comment: analysis.energy.map(|energy| format!("Energy {energy}")),
         first_beat: beat_grid
             .and_then(|grid| Duration::try_from_secs_f64(grid.first_downbeat_seconds).ok()),
+        cue_points,
         ..Track::new(path, duration)
     };
     (track, unread_tags)
+}
+
+/// Each cue as a memory cue and as a hot cue, on pads from A in order.
+fn cue_points(cues: &[SectionCue]) -> Vec<CuePoint> {
+    let mut points = Vec::with_capacity(cues.len() * 2);
+    for (pad, cue) in (0..MAXIMUM_CUES as u8).zip(cues) {
+        let Ok(time) = Duration::try_from_secs_f64(cue.seconds) else {
+            continue;
+        };
+        for kind in [CueKind::Memory, CueKind::Hot(pad)] {
+            points.push(CuePoint {
+                name: cue.section.name().to_string(),
+                time,
+                kind,
+            });
+        }
+    }
+    points
 }
