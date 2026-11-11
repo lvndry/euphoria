@@ -9,6 +9,8 @@ Find the key, BPM and energy of every track in your music collection, so you can
 
 Euphoria reads your music, finds the key and tempo of every track, rates its energy, and exports the results to your DJ software. It is an open alternative to paid harmonic mixing tools such as Mixed In Key: no account, no activation, and nothing leaves your computer.
 
+![The Euphoria desktop app in its dark theme. A sidebar holds a folder tree of house and techno subfolders with track counts. The table lists eleven house tracks with their title, artist, Camelot key chip, musical key, tempo, an energy rating with a bar, length, format and subfolder. The selected track, Lady Paris by Francesco Bonora and SeHou, is shown on the right with its key 8A, 124.9 BPM, energy 5, its coloured waveform with the energy curve under it, and four tracks that mix well with it.](docs/images/desktop-app/main-window.png)
+
 ## Features
 
 Available now:
