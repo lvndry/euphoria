@@ -180,6 +180,7 @@ pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
     output::write_tag_preview(&mut standard_output, &Theme::stdout(), &plans)?;
     standard_output.flush()?;
     drop(standard_output);
+    let theme = Theme::stderr();
     let mut standard_error = std::io::stderr().lock();
     output::write_tag_failures(&mut standard_error, &theme, &failures)?;
     output::write_tag_plan_summary(
