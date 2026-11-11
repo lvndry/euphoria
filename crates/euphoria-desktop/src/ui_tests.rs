@@ -4008,7 +4008,7 @@ fn suggestions_can_come_from_a_playlist(cx: &mut TestAppContext) {
             let id = app.session.playlists_mut().create();
             app.session
                 .playlists_mut()
-                .add_tracks(id, &[wav_path.clone()]);
+                .add_tracks(id, std::slice::from_ref(&wav_path));
             app.load_on_deck(DeckId::A, flac, cx);
         })
     });
