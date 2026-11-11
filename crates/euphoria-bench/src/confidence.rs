@@ -118,12 +118,12 @@ pub struct TempoConfidenceReport {
 struct TempoLevel {
     tracks: usize,
     accurate: usize,
-    right_modulo_octaves: usize,
+    right_up_to_an_octave: usize,
 }
 
-/// Factors that leave a tempo in the same octave class, allowing up to two
-/// doublings or halvings. This rates the beat period, not its reported octave.
-const OCTAVE_FACTORS: [f32; 5] = [0.25, 0.5, 1.0, 2.0, 4.0];
+/// The reported tempo, its half and its double: what a tempo counts as when
+/// it is right up to an octave, as the half or double alternative offers.
+const OCTAVE_FACTORS: [f32; 3] = [0.5, 1.0, 2.0];
 
 impl TempoConfidenceReport {
     fn record(&mut self, reference: f32, reading: TempoReading) {
@@ -133,7 +133,7 @@ impl TempoConfidenceReport {
         level.tracks += 1;
         let accurate = within_tolerance(reference, reported);
         level.accurate += usize::from(accurate);
-        level.right_modulo_octaves += usize::from(
+        level.right_up_to_an_octave += usize::from(
             OCTAVE_FACTORS
                 .iter()
                 .any(|factor| within_tolerance(reference, reported * factor)),
@@ -239,7 +239,7 @@ impl Display for TempoConfidenceReport {
         )?;
         writeln!(
             formatter,
-            "| Confidence | Tracks | Accuracy 1 | Right modulo octaves |"
+            "| Confidence | Tracks | Accuracy 1 | Right up to an octave |"
         )?;
         writeln!(formatter, "| --- | --- | --- | --- |")?;
         let rated = self.rated();
@@ -250,7 +250,7 @@ impl Display for TempoConfidenceReport {
                 level.tracks,
                 percent(level.tracks, rated),
                 percent(level.accurate, level.tracks),
-                percent(level.right_modulo_octaves, level.tracks),
+                percent(level.right_up_to_an_octave, level.tracks),
             )?;
         }
         writeln!(
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn tempo_confidence_accuracy_accepts_two_octaves_but_not_a_triple() {
+    fn right_up_to_an_octave_accepts_half_and_double_but_not_two_octaves_or_a_triple() {
         let mut report = TempoConfidenceReport::default();
         // The reported tempo is always 120; its octave is the range's choice.
         for reference in [30.0, 60.0, 120.0, 240.0, 480.0, 360.0] {
@@ -352,8 +352,8 @@ mod tests {
         let high = report.levels[0];
         assert_eq!(high.tracks, 6);
         assert_eq!(high.accurate, 1);
-        assert_eq!(high.right_modulo_octaves, 5);
-        assert!(report.to_string().contains("Right modulo octaves"));
+        assert_eq!(high.right_up_to_an_octave, 3);
+        assert!(report.to_string().contains("Right up to an octave"));
     }
 
     #[test]
@@ -366,10 +366,10 @@ mod tests {
 
         let high = report.levels[0];
         assert_eq!(
-            (high.tracks, high.accurate, high.right_modulo_octaves),
+            (high.tracks, high.accurate, high.right_up_to_an_octave),
             (2, 1, 2)
         );
-        assert_eq!(report.levels[1].right_modulo_octaves, 0);
+        assert_eq!(report.levels[1].right_up_to_an_octave, 0);
         assert_eq!(report.levels[2].accurate, 1);
         assert_eq!(
             (report.octave_errors, report.resolved_by_alternative),

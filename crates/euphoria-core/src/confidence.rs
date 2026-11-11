@@ -9,7 +9,7 @@ use std::fmt::{self, Display, Formatter};
 /// the next best one, with band edges set on half of the GiantSteps previews
 /// and checked on the other half. On that other half, a key rated high was
 /// exactly right 74% of the time, medium 57% and low 41%; a tempo rated high
-/// was right modulo octaves 98% of the time, medium 90% and low 63%.
+/// was right up to an octave 98% of the time, medium 90% and low 63%.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Confidence {
     /// About one track in five. Worth checking by ear.
