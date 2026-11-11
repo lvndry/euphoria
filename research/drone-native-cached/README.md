@@ -1,5 +1,9 @@
 # Native K10 cached-feature research
 
+Measured parity, memory and latency results with an inline figure are in the
+[native report](REPORT.md). The frozen execution source is `58c290b`; report/CI
+updates do not replace those measured artifacts.
+
 This standalone Rust 1.92+ workspace leaves Euphoria's production workspace,
 MSRV, dependencies, detector and cache unchanged. It measures **native cached
 feature inference**, not audio-to-key end-to-end behavior. It does not decode,
