@@ -24,6 +24,7 @@ Available now:
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, and `euphoria tags undo`, which puts the old tags back byte for byte
 - MP3, M4A (AAC), FLAC, WAV and AIFF
 - An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
+- Playlists built in the desktop app, with each set's key path, tempo range and energy flow at a glance, exported to rekordbox or as M3U8 for any other program
 
 In development: exports for Serato, Traktor and Engine DJ.
 

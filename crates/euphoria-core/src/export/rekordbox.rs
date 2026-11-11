@@ -222,6 +222,24 @@ pub fn write_xml_file(
     existing: ExistingFile,
 ) -> Result<(), EuphoriaError> {
     let document = render(library, options)?;
+    write_file(destination, document.as_bytes(), existing)
+}
+
+/// Writes `contents` to `destination` through a temporary file next to it
+/// that is moved into place once complete, so `destination` holds either
+/// all of `contents` or what it held before.
+///
+/// # Errors
+///
+/// Returns [`EuphoriaError::ExportDestinationExists`] when `destination`
+/// exists and `existing` is [`ExistingFile::Keep`], and
+/// [`EuphoriaError::ExportFile`] when the file cannot be created, written or
+/// moved into place.
+pub(crate) fn write_file(
+    destination: &Path,
+    contents: &[u8],
+    existing: ExistingFile,
+) -> Result<(), EuphoriaError> {
     let file_error = |source: io::Error| EuphoriaError::ExportFile {
         path: destination.to_path_buf(),
         source,
@@ -237,7 +255,7 @@ pub fn write_xml_file(
     let (mut temporary_file, temporary_path) =
         create_temporary_file(destination).map_err(file_error)?;
     let installed = temporary_file
-        .write_all(document.as_bytes())
+        .write_all(contents)
         .and_then(|()| temporary_file.sync_all())
         .map_err(file_error)
         .and_then(|()| install(&temporary_path, destination, existing));

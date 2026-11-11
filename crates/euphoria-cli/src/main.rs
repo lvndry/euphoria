@@ -7,6 +7,7 @@ mod batch;
 mod collection;
 mod export;
 mod output;
+mod playlists;
 mod tags;
 mod terminal;
 
@@ -58,6 +59,8 @@ enum Command {
         #[command(subcommand)]
         target: ExportTarget,
     },
+    /// List the playlists built in the desktop app.
+    Playlists,
     /// Write the analysis into the tags of audio files, or undo that.
     Tags {
         #[command(subcommand)]
@@ -110,6 +113,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         } => analyze(&paths, json, needs_review, &analysis),
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
+        Command::Playlists => playlists::list(),
         Command::Cache { command } => manage_cache(command),
     }
 }
