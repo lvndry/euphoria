@@ -270,7 +270,7 @@ impl Cache {
                     key_timeline: key_timeline_in_column(row, 9)?,
                     key_runner_up: key_in_column(row, 10)?,
                     key_score_margin: row.get(11)?,
-                    tempo_estimate: row.get(12)?,
+                    tempo_estimate: tempo_in_column(row, 12)?,
                     tempo_score_margin: row.get(13)?,
                 },
             );
@@ -482,6 +482,22 @@ fn key_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<Key>> 
         .map_err(|error: EuphoriaError| {
             rusqlite::Error::FromSqlConversionFailure(column, Type::Text, Box::new(error))
         })
+}
+
+/// A stored tempo estimate, which is placed in a tempo range when it is
+/// shown and so must be a positive number.
+fn tempo_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<f32>> {
+    let Some(stored) = row.get::<_, Option<f32>>(column)? else {
+        return Ok(None);
+    };
+    if stored.is_finite() && stored > 0.0 {
+        return Ok(Some(stored));
+    }
+    Err(rusqlite::Error::FromSqlConversionFailure(
+        column,
+        Type::Real,
+        format!("tempo estimate {stored} is not a positive number").into(),
+    ))
 }
 
 fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
@@ -970,6 +986,30 @@ mod tests {
         assert_eq!(stored.tempo_score_margin, None);
         assert_eq!(stored.key_confidence(), None);
         assert_eq!(stored.tempo_confidence(), None);
+    }
+
+    #[test]
+    fn a_tempo_estimate_that_is_not_a_positive_number_is_an_error_and_not_a_panic() {
+        for damaged in [0.0, -120.0] {
+            let folder = TemporaryFolder::new();
+            let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache
+                .connection
+                .execute(
+                    "INSERT INTO analyses
+                     VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                             NULL, NULL, ?4, NULL)",
+                    params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
+                )
+                .unwrap();
+
+            let description = cache.snapshot().unwrap_err().chain();
+
+            assert!(
+                description.contains("is not a positive number"),
+                "{damaged}: {description}"
+            );
+        }
     }
 
     #[test]

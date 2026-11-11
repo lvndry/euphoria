@@ -113,6 +113,19 @@ fn another_range_moves_the_tempo_without_a_new_analysis() {
 }
 
 #[test]
+fn a_tempo_that_is_not_a_positive_number_has_no_place_in_a_range() {
+    for unusable in [0.0, -128.0, f32::NAN, f32::INFINITY] {
+        let analysis = TrackAnalysis {
+            bpm: Some(unusable),
+            tempo_estimate: None,
+            ..rated(0.02, 124.0, 0.5)
+        };
+        assert_eq!(analysis.tempo_in(TempoRange::DEFAULT), None, "{unusable}");
+        assert_eq!(analysis.tempo_alternative_in(TempoRange::DEFAULT), None);
+    }
+}
+
+#[test]
 fn a_track_needs_review_when_its_key_or_its_tempo_is_rated_low() {
     let confident = rated(0.02, 124.0, 0.5);
     assert_eq!(confident.key_confidence(), Some(Confidence::High));

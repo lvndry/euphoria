@@ -97,10 +97,12 @@ impl TrackAnalysis {
 
     /// The tempo reported in `range`. Without a stored estimate, as in an
     /// analysis built by hand, it is [`TrackAnalysis::bpm`] placed in the
-    /// range.
+    /// range. `None` when there is no tempo, or when it is not a positive
+    /// number and so has no place in a range.
     pub fn tempo_in(&self, range: TempoRange) -> Option<f32> {
         self.tempo_estimate
             .or(self.bpm)
+            .filter(|tempo| tempo.is_finite() && *tempo > 0.0)
             .map(|tempo| range.fold(tempo))
     }
 
