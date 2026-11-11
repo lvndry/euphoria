@@ -1114,6 +1114,8 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key: None,
                 bpm: Some(124.0),
                 energy: None,
+                tuning_cents: None,
+                key_timeline: Vec::new(),
             })
         } else {
             Err("cannot decode".to_string())

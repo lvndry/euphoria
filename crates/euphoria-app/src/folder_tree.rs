@@ -590,7 +590,9 @@ mod tests {
         let started = std::time::Instant::now();
         let tree = tree_of(&library);
         let rows = tree.visible_rows(&everything_expanded(&tree));
-        assert!(started.elapsed() < std::time::Duration::from_millis(500));
+        // Generous, because test machines can be heavily loaded; a quadratic
+        // build takes minutes on this library.
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
         assert_eq!(tree.node(tree.roots[0]).unwrap().track_count, 20_000);
         assert!(rows.len() > 400, "{}", rows.len());
     }
