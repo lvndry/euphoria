@@ -582,8 +582,14 @@ fn waveform_section(
         }
         _ => None,
     };
+    // The timeline is the detector's. Once the user corrects the key, the
+    // detector's sections are the very thing they disagreed with, and a
+    // strip of them under a different key reads as a contradiction, so it
+    // is hidden until the correction is reset.
     let key_timeline = track.analysis().and_then(|analysis| {
-        if !shows_key_timeline(track.key(), &analysis.key_timeline) {
+        if track.correction.key.is_some()
+            || !shows_key_timeline(analysis.key, &analysis.key_timeline)
+        {
             return None;
         }
         let stretches = key_stretches(&analysis.key_timeline, analysis.duration_seconds);

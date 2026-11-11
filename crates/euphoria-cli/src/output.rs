@@ -135,7 +135,11 @@ pub fn write_json(
                     .collect(),
                 quality: analysis.quality.as_ref().map(JsonQuality::from),
                 needs_review: Some(analysis.needs_review()),
-                set_by_user: set_by_user(corrections.get(&result.path)),
+                set_by_user: set_by_user(
+                    corrections
+                        .get(&result.path)
+                        .and_then(|looked_up| looked_up.as_ref().ok()),
+                ),
                 error: None,
             },
             Err(error) => JsonTrack {
@@ -190,7 +194,9 @@ pub fn write_table(
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
-            let correction = corrections.get(&result.path);
+            let correction = corrections
+                .get(&result.path)
+                .and_then(|looked_up| looked_up.as_ref().ok());
             let key_letter = match correction.and_then(|correction| correction.key) {
                 Some(_) => "U",
                 None => confidence_letter(analysis.key_confidence()),
@@ -724,7 +730,10 @@ Key             BPM  Energy  Conf  Quality  Time  File
     fn values_the_user_set_are_marked_in_the_table_and_the_json() {
         let results = sample_results();
         let mut corrections = Corrections::new();
-        corrections.insert(results[0].path.clone(), Correction::of_bpm(85.0).unwrap());
+        corrections.insert(
+            results[0].path.clone(),
+            Ok(Correction::of_bpm(85.0).unwrap()),
+        );
         let mut table = Vec::new();
         write_table(&mut table, &results, &corrections).unwrap();
         let table = String::from_utf8(table).unwrap();

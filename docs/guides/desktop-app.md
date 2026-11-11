@@ -169,7 +169,7 @@ Under the waveform, across the same width, a row of bars shows the [energy curve
 
 ### Key changes
 
-When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it.
+When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
 
 ## Write tags
 

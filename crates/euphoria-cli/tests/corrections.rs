@@ -101,3 +101,103 @@ fn tags_and_the_rekordbox_export_get_the_values_the_user_set() {
     assert!(xml.contains("AverageBpm=\"87.00\""), "{xml}");
     assert!(xml.contains("Tonality=\"9A\""), "{xml}");
 }
+
+#[test]
+fn written_tags_hold_the_correction_and_a_later_analysis_still_reports_it() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+
+    let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
+    assert_success(&written);
+    let tags = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
+    assert_eq!(tags.key.as_deref(), Some("9A"));
+    assert_eq!(tags.bpm.as_deref(), Some("87"));
+
+    let json = euphoria.run(&["analyze", "--json", text(&track)]);
+    assert_success(&json);
+    let tracks: serde_json::Value = serde_json::from_slice(&json.stdout).expect("JSON");
+    assert_eq!(tracks[0]["key"]["camelot"], "9A");
+    assert_eq!(tracks[0]["bpm"], 87.0);
+    assert_eq!(tracks[0]["set_by_user"], serde_json::json!(["key", "bpm"]));
+    let again = euphoria.run(&["tags", "write", "--dry-run", text(&track)]);
+    assert_success(&again);
+    assert!(
+        !String::from_utf8_lossy(&again.stdout).contains("->"),
+        "the tags already hold the corrected values"
+    );
+}
+
+#[test]
+fn a_correction_that_cannot_be_checked_leaves_the_file_out_of_tags_and_exports() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+    let before = std::fs::read(&track).expect("the track is read");
+    let connection = rusqlite::Connection::open(euphoria.cache_path()).expect("the cache opens");
+    connection
+        .execute_batch("ALTER TABLE corrections RENAME COLUMN bpm TO tempo")
+        .expect("the cache is damaged on purpose");
+    drop(connection);
+
+    let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
+    assert!(!written.status.success());
+    assert!(
+        standard_error(&written).contains("was corrected, so it was left out"),
+        "{}",
+        standard_error(&written)
+    );
+    assert_eq!(std::fs::read(&track).expect("the track is read"), before);
+
+    let exported = folder.path().join("rekordbox.xml");
+    let export = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "--output",
+        text(&exported),
+    ]);
+    assert!(!export.status.success());
+    assert!(
+        standard_error(&export).contains("was corrected, so it was left out"),
+        "{}",
+        standard_error(&export)
+    );
+    assert!(!exported.exists(), "the only file was left out");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_file_is_left_out_rather_than_written_with_detected_values() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+    let other = folder.path().join("other.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-stereo.wav"), &other)
+        .expect("the fixture is copied");
+    assert_success(&euphoria.run(&["analyze", text(folder.path())]));
+    std::fs::set_permissions(&track, std::fs::Permissions::from_mode(0o000))
+        .expect("the track is made unreadable");
+
+    let exported = folder.path().join("rekordbox.xml");
+    let export = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(folder.path()),
+        "--output",
+        text(&exported),
+    ]);
+    std::fs::set_permissions(&track, std::fs::Permissions::from_mode(0o644))
+        .expect("the track is made readable again");
+    assert!(!export.status.success());
+    let xml = std::fs::read_to_string(&exported).expect("the other track is exported");
+    assert!(xml.contains("other.wav"), "{xml}");
+    assert!(!xml.contains("track.wav"), "{xml}");
+    assert!(
+        standard_error(&export).contains("Left 1 file out"),
+        "{}",
+        standard_error(&export)
+    );
+}

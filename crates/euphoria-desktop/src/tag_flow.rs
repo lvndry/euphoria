@@ -20,32 +20,45 @@ use crate::tag_writing::{
     undo_last, write_plans,
 };
 
-/// The targets with each correction loaded from the cache checked against
-/// the whole file, since it is about to go into the file's tags: a file
-/// replaced by other audio of the same size and modification time loses a
-/// correction that was never meant for it. A correction made in this session
-/// and still on its way to the cache is the user's own and is kept.
+/// The targets with their corrections checked against the whole file, since
+/// the values are about to go into the file's tags: a file replaced by other
+/// audio of the same size and modification time loses a correction that was
+/// never meant for it, and one corrected since the library was read gets
+/// its correction. A correction made in this session and still on its way
+/// to the cache is the user's own and is kept. A file whose correction
+/// cannot be checked is left out, with the reason, rather than written with
+/// values the user may have replaced. The cache reads no file while no
+/// track was ever corrected.
 fn verified_corrections(
     targets: Vec<WriteTarget>,
     cache: Option<&euphoria_core::CachedAnalyzer>,
     writer: &crate::key_by_ear::CorrectionWriter,
-) -> Vec<WriteTarget> {
+) -> (Vec<WriteTarget>, Vec<LeftOut>) {
     let Some(cache) = cache else {
-        return targets;
+        return (targets, Vec::new());
     };
-    targets
-        .into_iter()
-        .map(|mut target| {
-            if !target.correction.is_empty() && !writer.is_pending(&target.path) {
-                target.correction = cache
-                    .verified_correction_for(&target.path)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
+    let mut checked = Vec::with_capacity(targets.len());
+    let mut left_out = Vec::new();
+    for mut target in targets {
+        if target.analysis.is_some() && !writer.is_pending(&target.path) {
+            match cache.verified_correction_for(&target.path) {
+                Ok(correction) => target.correction = correction.unwrap_or_default(),
+                Err(error) => {
+                    left_out.push(LeftOut {
+                        reason: euphoria_core::EuphoriaError::CorrectionUnchecked {
+                            path: target.path.clone(),
+                            source: error.chain().into(),
+                        }
+                        .chain(),
+                        path: target.path,
+                    });
+                    continue;
+                }
             }
-            target
-        })
-        .collect()
+        }
+        checked.push(target);
+    }
+    (checked, left_out)
 }
 
 /// How often the progress of a write is shown.
@@ -175,8 +188,11 @@ impl EuphoriaApp {
             let planned = cx
                 .background_executor()
                 .spawn(async move {
-                    let targets = verified_corrections(targets, cache.as_deref(), &writer);
-                    plan_writes(&targets, &settings.write_options())
+                    let (targets, unchecked) =
+                        verified_corrections(targets, cache.as_deref(), &writer);
+                    let mut planned = plan_writes(&targets, &settings.write_options());
+                    planned.failures.extend(unchecked);
+                    planned
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -382,7 +398,7 @@ mod tests {
         };
         let writer = CorrectionWriter::default();
         assert_eq!(
-            verified_corrections(target(), Some(&cache), &writer)[0].correction,
+            verified_corrections(target(), Some(&cache), &writer).0[0].correction,
             correction
         );
 
@@ -395,7 +411,7 @@ mod tests {
             .set_modified(modified)
             .unwrap();
         assert!(
-            verified_corrections(target(), Some(&cache), &writer)[0]
+            verified_corrections(target(), Some(&cache), &writer).0[0]
                 .correction
                 .is_empty(),
             "other audio of the same size and time is not the corrected file"
@@ -403,9 +419,42 @@ mod tests {
 
         writer.queue(&track, correction);
         assert_eq!(
-            verified_corrections(target(), Some(&cache), &writer)[0].correction,
+            verified_corrections(target(), Some(&cache), &writer).0[0].correction,
             correction,
             "a correction just made for the file as it is now is kept"
+        );
+
+        let empty = || {
+            vec![WriteTarget {
+                path: track.clone(),
+                analysis: Some(tag_testing::analysis()),
+                correction: Correction::default(),
+            }]
+        };
+        std::fs::write(&track, b"audio").unwrap();
+        let fresh_writer = CorrectionWriter::default();
+        assert_eq!(
+            verified_corrections(empty(), Some(&cache), &fresh_writer).0[0].correction,
+            correction,
+            "a correction the library had not loaded is found by content"
+        );
+
+        let mut unreadable = std::fs::metadata(&track).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut unreadable, 0o000);
+        std::fs::set_permissions(&track, unreadable).unwrap();
+        let (checked, left_out) = verified_corrections(empty(), Some(&cache), &fresh_writer);
+        let mut readable = std::fs::metadata(&track).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut readable, 0o644);
+        std::fs::set_permissions(&track, readable).unwrap();
+        assert!(
+            checked.is_empty(),
+            "nothing is written with the detected values"
+        );
+        assert_eq!(left_out.len(), 1);
+        assert!(
+            left_out[0].reason.contains("was corrected"),
+            "{}",
+            left_out[0].reason
         );
     }
 }

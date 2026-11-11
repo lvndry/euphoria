@@ -3138,3 +3138,27 @@ fn a_tone_without_an_audio_output_says_so(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut TestAppContext) {
+    let (window, view) =
+        open_track_changing_key(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    assert!(is_shown(window, "key-timeline", cx));
+    let detected = cx.update(|cx| {
+        view.read(cx)
+            .selected_track()
+            .unwrap()
+            .detected_key()
+            .unwrap()
+    });
+    let other = euphoria_core::Key::new((detected.tonic() + 1) % 12, detected.mode());
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_key(other, cx)));
+    assert!(!is_shown(window, "key-timeline", cx));
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_key(detected, cx)));
+    assert!(
+        !is_shown(window, "key-timeline", cx),
+        "a correction to the detected key is still the user's"
+    );
+    cx.update(|cx| view.update(cx, |app, cx| app.reset_key(cx)));
+    assert!(is_shown(window, "key-timeline", cx));
+}

@@ -124,6 +124,14 @@ fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
 /// The corrections users set, by file, for the files of `results` that
 /// have one. Nothing is read without a cache, with `--no-cache`, or when no
 /// file was ever corrected; a cache that cannot be read gives none.
+///
+/// With [`CorrectionCheck::Quick`] a correction that cannot be looked up is
+/// left out, so the detected values are shown. With
+/// [`CorrectionCheck::ReadFile`] the file is marked as unchecked instead,
+/// and [`corrected`] turns it into a failure so it is not written or
+/// exported with values the user may have replaced. A cache that cannot be
+/// opened at all gives none, as with `--no-cache`: the analysis already
+/// warned that it runs without the cache.
 pub fn corrections(
     results: &[euphoria_core::FileResult],
     options: &AnalysisOptions,
@@ -132,19 +140,27 @@ pub fn corrections(
     if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
         return Corrections::new();
     }
+    let analyzed = results.iter().filter(|result| result.outcome.is_ok());
+    // A cache that cannot be opened was already reported by the analysis,
+    // which then ran as with --no-cache; corrections follow it.
     let Ok(cache) = open_cache() else {
         return Corrections::new();
     };
-    results
-        .iter()
-        .filter(|result| result.outcome.is_ok())
+    analyzed
         .filter_map(|result| {
-            let correction = match check {
+            let looked_up = match check {
                 CorrectionCheck::Quick => cache.correction_for(&result.path),
                 CorrectionCheck::ReadFile => cache.verified_correction_for(&result.path),
             };
-            let correction = correction.ok().flatten()?;
-            Some((result.path.clone(), correction))
+            match (looked_up, check) {
+                (Ok(correction), _) => {
+                    correction.map(|correction| (result.path.clone(), Ok(correction)))
+                }
+                (Err(_), CorrectionCheck::Quick) => None,
+                (Err(error), CorrectionCheck::ReadFile) => {
+                    Some((result.path.clone(), Err(error.chain())))
+                }
+            }
         })
         .collect()
 }
@@ -160,8 +176,10 @@ pub enum CorrectionCheck {
     ReadFile,
 }
 
-/// The corrections of a batch, by file.
-pub type Corrections = std::collections::HashMap<PathBuf, euphoria_core::Correction>;
+/// The corrections of a batch, by file, or why a file's could not be
+/// checked.
+pub type Corrections =
+    std::collections::HashMap<PathBuf, Result<euphoria_core::Correction, String>>;
 
 /// The results of a batch with every correction in place of the detected
 /// key and tempo.
@@ -172,10 +190,17 @@ pub fn corrected(
     results
         .into_iter()
         .map(|mut result| {
-            if let (Ok(analysis), Some(correction)) =
-                (&mut result.outcome, corrections.get(&result.path))
-            {
-                *analysis = correction.apply(analysis.clone());
+            match (&mut result.outcome, corrections.get(&result.path)) {
+                (Ok(analysis), Some(Ok(correction))) => {
+                    *analysis = correction.apply(analysis.clone());
+                }
+                (Ok(_), Some(Err(reason))) => {
+                    result.outcome = Err(EuphoriaError::CorrectionUnchecked {
+                        path: result.path.clone(),
+                        source: reason.clone().into(),
+                    });
+                }
+                _ => {}
             }
             result
         })
