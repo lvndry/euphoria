@@ -35,7 +35,7 @@ LOSSLESS_EXPECTED_CUTOFF_KHZ = 19.0
 ENCODED_ONCE = [
     ("MP3 96", 96, 15.2, 15.4, 0),
     ("MP3 128", 128, 16.0, 16.8, 0),
-    ("MP3 192", 192, 18.6, 18.9, 0),
+    ("MP3 192", 192, 18.6, 18.9, 1),
     ("MP3 256", 256, 19.3, 19.6, 0),
     ("MP3 320", 320, 20.1, 20.3, 0),
     ("FFmpeg AAC 96", 97, 15.9, 16.7, 0),
@@ -43,10 +43,10 @@ ENCODED_ONCE = [
     ("FFmpeg AAC 192", 194, 19.3, 19.4, 0),
     ("FFmpeg AAC 256", 257, None, None, 7),
     ("FFmpeg AAC 320", 283, None, None, 7),
-    ("Apple AAC 96", 92, 15.6, 15.6, 1),
-    ("Apple AAC 128", 120, 17.1, 18.7, 2),
-    ("Apple AAC 192", 176, 16.4, 19.7, 2),
-    ("Apple AAC 256", 245, 18.6, 18.6, 6),
+    ("Apple AAC 96", 92, 15.6, 15.8, 1),
+    ("Apple AAC 128", 120, 17.3, 18.5, 3),
+    ("Apple AAC 192", 176, 19.4, 19.7, 3),
+    ("Apple AAC 256", 245, None, None, 7),
     ("Apple AAC 320", 317, None, None, 7),
 ]
 # The same table, the transcodes: a lossy file decoded and encoded again at a
@@ -56,8 +56,8 @@ TRANSCODED = [
     ("MP3 128 to FLAC", None, 16.0, 16.8, 0),
     ("MP3 192 to MP3 320", 320, 18.6, 18.9, 1),
     ("FFmpeg AAC 128 to 256", 223, 17.2, 17.3, 0),
-    ("MP3 128 to Apple AAC 256", 245, 16.0, 16.9, 0),
-    ("Apple AAC 128 to 320", 309, 17.1, 18.5, 2),
+    ("MP3 128 to Apple AAC 256", 245, 16.0, 16.8, 0),
+    ("Apple AAC 128 to 320", 309, 17.3, 18.5, 3),
 ]
 
 # The same table, the column "Error below 15 kHz (dB)", for 96, 128, 192, 256
@@ -326,7 +326,6 @@ def verdicts_chart():
     body.append(text(to_x(320) - 12, to_y(16.0) + 4.5, "MP3 128 made 320", "label", "end"))
     body.append(text(to_x(320) + 12, to_y(20.1) + 4.5, "MP3 320", "label"))
     body.append(text(to_x(128) + 12, to_y(16.0) + 4.5, "MP3 128", "label"))
-    body.append(text(to_x(176), to_y(16.4) - 14, "Apple AAC 192", "label", "middle"))
     body.append(text(plot_right + 12, to_y(FULL_BAND_KHZ) + 4, "full band", "tick"))
 
     description = (
@@ -336,7 +335,7 @@ def verdicts_chart():
         "weak regardless of cutoff. From 144 kbit/s, a step line marks the cutoff below "
         "which the file is likely re-encoded: 15.5 kHz to 199 kbit/s, 18 kHz to 287 and "
         "19.5 kHz from 288. The lowest cutoff of each encoding made once from a "
-        "lossless source sits above the line, Apple AAC at 192 kbit/s closest at 16.4 kHz. "
+        "lossless source sits above the line, MP3 at 256 kbit/s closest at 19.3 kHz, 1.3 kHz above it. "
         "The lowest cutoff of each transcode to a higher bit rate sits below it. "
         "Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, "
         "are likely re-encoded below 19 kHz."

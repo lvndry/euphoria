@@ -49,12 +49,12 @@ The thresholds were set by measurement, not from received wisdom about bit rates
 | --- | --- | --- | --- |
 | MP3 96 | 96 | 15.2 to 15.4 kHz | -24 dB |
 | MP3 128 | 128 | 16.0 to 16.8 kHz | -26 dB |
-| MP3 192 | 192 | 18.6 to 18.9 kHz | -30 dB |
+| MP3 192 | 192 | 18.6 to 18.9 kHz, or none | -30 dB |
 | MP3 256 | 256 | 19.3 to 19.6 kHz | -47 dB |
 | MP3 320 | 320 | 20.1 to 20.3 kHz | -52 dB |
-| Apple AAC 128 | 106 to 126 | 17.1 to 18.7 kHz, or none | -33 dB |
-| Apple AAC 192 | 155 to 190 | 16.4 to 19.7 kHz, or none | -40 dB |
-| Apple AAC 256 | 208 to 261 | none, once 18.6 kHz | -42 dB |
+| Apple AAC 128 | 106 to 126 | 17.3 to 18.5 kHz, or none | -33 dB |
+| Apple AAC 192 | 155 to 190 | 19.4 to 19.7 kHz, or none | -40 dB |
+| Apple AAC 256 | 208 to 261 | none | -42 dB |
 | Apple AAC 320 | 297 to 317 | none | -43 dB |
 
 The encoding error is the difference between the decoded file and the original below 15 kHz, below every cutoff, relative to the music. It is a plain measure of how much the encoder changed, not a measure of what you hear, but it shows where the big step is: from 192 to 256 kbit/s for MP3, and from 128 to 192 kbit/s for AAC.
@@ -66,7 +66,7 @@ The thresholds that follow:
 - **Good** from an average of 200 kbit/s. Apple's encoder set to 256 kbit/s averaged 208 on the quietest track, so the line sits below the nominal rate.
 - **Acceptable** from 144 kbit/s. Encoders set to 128 kbit/s measured at most 129, and set to 192 kbit/s at least 155.
 - **Weak on a big system** below that.
-- **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. In the initial calibration run, 39 of 42 music transcodes were caught. The 3 that were missed show no clear fall in their spectrum after re-encoding: twice because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
+- **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. 38 of 42 music transcodes are caught. The 4 that are missed show no clear fall in their spectrum after re-encoding: three times because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
 - Clipping never changes the verdict. When at least 0.1% of the samples are clipped, the reason adds that the master is clipped in places.
 
 ![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, the lowest cutoff of each encoding made once from a lossless source sits above the step line; the lowest cutoff of each transcode to a higher bit rate sits below it, in the likely re-encoded zone. Some transcoded files have no cutoff and cannot be identified.](../images/audio-quality/verdicts.svg)
@@ -74,7 +74,7 @@ The thresholds that follow:
 ## Limits
 
 - **It judges the file, not the master.** A badly mastered track in a lossless file is still lossless.
-- **Medium bit rates hide their source.** Apple's AAC encoder at 192 kbit/s sometimes cuts at 16.4 kHz, as a 128 kbit/s MP3 does, so between 144 and 199 kbit/s only a source of 96 kbit/s or less is recognised.
+- **Medium bit rates hide their source.** Between 144 and 199 kbit/s the line sits at 15.5 kHz, so only a source of 96 kbit/s or less is recognised. The three encoders measured all stopped at 18.6 kHz or higher at 192 kbit/s, but the line stays low because encoders not measured here may cut lower at these bit rates.
 - **Good sources leave no trace.** A file made from a 320 kbit/s MP3 or from a 256 kbit/s AAC file keeps a high cutoff and passes as what it claims.
 - **Some files have their own lowpass.** A master with a deliberate lowpass, or an old recording, can stop early without having been encoded twice. The verdict then says "likely", and the cutoff in the details shows where it stops.
 - **Lossy encoding hides clipping.** A master clipped hard measured about 1% of its samples clipped as a lossless file, and between 0% and 0.2% after lossy encoding. A clipping figure of zero in a lossy file does not prove a clean master.
