@@ -18,10 +18,14 @@ const MINIMUM_FRAME_LENGTH: usize = 64;
 const MAXIMUM_FRAME_LENGTH: usize = 16_384;
 /// Each frame starts half a frame after the one before it.
 const FRAMES_PER_FRAME_LENGTH: usize = 2;
+/// Upper edge of the band that holds the kick drum and the bass.
+const LOW_FREQUENCY_LIMIT_HZ: f32 = 150.0;
 
 /// The features read from the spectrum of a stretch of audio.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct SpectralFeatures {
+    /// Share of signal power below 150 Hz, from 0.0 to 1.0.
+    pub(crate) low_frequency_share: f32,
     /// Mean rise per frequency bin and frame of the square root of the
     /// magnitude, with magnitudes relative to the level of the signal.
     pub(crate) spectral_flux: f32,
@@ -41,6 +45,7 @@ pub(crate) struct SpectralAnalyzer {
     previous_compressed: Vec<f32>,
     onset_strength: Vec<f32>,
     hop_length: usize,
+    low_bin_end: usize,
     sample_rate: f32,
 }
 
@@ -51,6 +56,7 @@ impl SpectralAnalyzer {
         let transform = FftPlanner::new().plan_fft_forward(frame_length);
         let scratch_length = transform.get_inplace_scratch_len();
         let bin_count = frame_length / 2;
+        let bin_width = sample_rate / frame_length as f32;
         Self {
             transform,
             window: hann_window(frame_length),
@@ -60,6 +66,7 @@ impl SpectralAnalyzer {
             previous_compressed: vec![0.0; bin_count],
             onset_strength: Vec::new(),
             hop_length: frame_length / FRAMES_PER_FRAME_LENGTH,
+            low_bin_end: ((LOW_FREQUENCY_LIMIT_HZ / bin_width).ceil() as usize).min(bin_count),
             sample_rate,
         }
     }
@@ -77,16 +84,23 @@ impl SpectralAnalyzer {
         let magnitude_scale = 2.0 / (frame_length as f32 * level * SQRT_2);
         let compressed_scale = magnitude_scale.sqrt() / self.compressed.len() as f32;
 
+        let mut low_power = 0.0_f64;
+        let mut total_power = 0.0_f64;
         self.onset_strength.clear();
         for start in (0..=samples.len() - frame_length).step_by(self.hop_length) {
             self.transform_frame(&samples[start..start + frame_length]);
             let is_first_frame = self.onset_strength.is_empty();
             let mut rise = 0.0_f32;
-            // Bin 0 is skipped: a constant offset is not sound.
+            // Bin 0 is skipped: it holds only what is left of the offset.
             for bin in 1..self.compressed.len() {
+                let power = self.frame[bin].norm_sqr();
+                total_power += f64::from(power);
+                if bin < self.low_bin_end {
+                    low_power += f64::from(power);
+                }
                 // The square root of the magnitude lets quiet partials
                 // count next to loud ones.
-                let compressed = self.frame[bin].norm_sqr().sqrt().sqrt();
+                let compressed = power.sqrt().sqrt();
                 rise += (compressed - self.previous_compressed[bin]).max(0.0);
                 self.compressed[bin] = compressed;
             }
@@ -98,10 +112,15 @@ impl SpectralAnalyzer {
             self.onset_strength.push(strength);
             std::mem::swap(&mut self.compressed, &mut self.previous_compressed);
         }
+        if total_power <= 0.0 {
+            return None;
+        }
+
         let frames_per_second = self.sample_rate / self.hop_length as f32;
         let duration_seconds = samples.len() as f32 / self.sample_rate;
         let onset_count = count_onsets(&self.onset_strength, frames_per_second);
         Some(SpectralFeatures {
+            low_frequency_share: (low_power / total_power) as f32,
             spectral_flux: self.onset_strength.iter().sum::<f32>()
                 / self.onset_strength.len() as f32,
             onset_rate: onset_count as f32 / duration_seconds,
@@ -109,8 +128,11 @@ impl SpectralAnalyzer {
     }
 
     fn transform_frame(&mut self, samples: &[f32]) {
+        // Removing the mean keeps a constant offset from leaking into the
+        // lowest bins, where it would count as bass.
+        let offset = samples.iter().sum::<f32>() / samples.len() as f32;
         for ((slot, sample), weight) in self.frame.iter_mut().zip(samples).zip(&self.window) {
-            *slot = Complex::new(sample * weight, 0.0);
+            *slot = Complex::new((sample - offset) * weight, 0.0);
         }
         self.transform
             .process_with_scratch(&mut self.frame, &mut self.scratch);
@@ -230,6 +252,37 @@ mod tests {
     }
 
     #[test]
+    fn a_low_tone_is_all_low_frequency_and_a_high_tone_is_none() {
+        let low = analyzer().analyze(&sine(60.0, 0.5, 2.0)).unwrap();
+        let high = analyzer().analyze(&sine(2_000.0, 0.5, 2.0)).unwrap();
+        assert!(low.low_frequency_share > 0.99, "{low:?}");
+        assert!(high.low_frequency_share < 0.01, "{high:?}");
+    }
+
+    #[test]
+    fn adding_bass_raises_the_low_frequency_share() {
+        let treble = sine(2_000.0, 0.3, 2.0);
+        let bass = sine(60.0, 0.3, 2.0);
+        let mixed: Vec<f32> = treble
+            .iter()
+            .zip(&bass)
+            .map(|(treble_sample, bass_sample)| treble_sample + bass_sample)
+            .collect();
+        let share = analyzer().analyze(&mixed).unwrap().low_frequency_share;
+        assert!((share - 0.5).abs() < 0.02, "{share}");
+    }
+
+    #[test]
+    fn a_constant_offset_is_not_counted_as_bass() {
+        let offset: Vec<f32> = sine(2_000.0, 0.3, 2.0)
+            .iter()
+            .map(|sample| sample + 0.5)
+            .collect();
+        let share = analyzer().analyze(&offset).unwrap().low_frequency_share;
+        assert!(share < 0.05, "{share}");
+    }
+
+    #[test]
     fn noise_has_more_flux_than_a_steady_tone() {
         let tone = analyzer().analyze(&sine(440.0, 0.5, 2.0)).unwrap();
         let hiss = analyzer().analyze(&noise(0.5, 2.0)).unwrap();
@@ -273,6 +326,7 @@ mod tests {
         let quiet = analyzer().analyze(&quiet).unwrap();
         assert_eq!(loud.onset_rate, quiet.onset_rate);
         assert!((loud.spectral_flux - quiet.spectral_flux).abs() < 1.0e-4);
+        assert!((loud.low_frequency_share - quiet.low_frequency_share).abs() < 1.0e-4);
     }
 
     #[test]

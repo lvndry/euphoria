@@ -1,8 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Pins the direction of the energy rating with synthesized audio: louder
-//! and busier never rate lower, and silence has no rating.
+//! Pins the direction of the energy rating with synthesized audio: louder,
+//! busier, bassier and faster never rate lower, and silence has no rating.
 
 use std::f32::consts::TAU;
 use std::num::NonZeroU32;
@@ -10,7 +10,7 @@ use std::num::NonZeroU32;
 use euphoria_core::{
     AudioBuffer, ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, energy_curve,
-    energy_features, rate_energy,
+    energy_features, rate_energy, rate_features,
 };
 
 const SAMPLE_RATE: u32 = 44_100;
@@ -72,7 +72,7 @@ fn mix(first: &[f32], second: &[f32]) -> Vec<f32> {
 }
 
 fn rate(samples: Vec<f32>) -> EnergyRating {
-    rate_energy(&buffer(samples))
+    rate_energy(&buffer(samples), None)
         .expect("rating failed")
         .expect("the audio has a rating")
 }
@@ -88,14 +88,15 @@ fn assert_never_lower(lower: &EnergyRating, higher: &EnergyRating) {
 fn silence_has_no_rating() {
     let audio = buffer(silence(5.0));
     assert_eq!(energy_features(&audio).unwrap(), None);
-    assert_eq!(rate_energy(&audio).unwrap(), None);
+    assert_eq!(rate_energy(&audio, None).unwrap(), None);
+    assert_eq!(rate_energy(&audio, Some(128.0)).unwrap(), None);
 }
 
 #[test]
 fn audio_shorter_than_one_second_has_no_rating() {
     let audio = buffer(sine(440.0, 0.5, 0.5));
-    assert_eq!(rate_energy(&audio).unwrap(), None);
-    assert_eq!(rate_energy(&buffer(Vec::new())).unwrap(), None);
+    assert_eq!(rate_energy(&audio, None).unwrap(), None);
+    assert_eq!(rate_energy(&buffer(Vec::new()), None).unwrap(), None);
 }
 
 #[test]
@@ -103,6 +104,7 @@ fn a_quiet_sine_rates_one() {
     let rating = rate(sine(440.0, 0.01, 5.0));
     assert_eq!(rating.rating, 1);
     assert_eq!(rating.model_version, ENERGY_MODEL_VERSION);
+    assert_eq!(rating.tempo, None);
 }
 
 #[test]
@@ -148,14 +150,9 @@ fn faster_pulses_never_rate_lower() {
         }
         previous = Some(rating);
     }
-    let hiss = noise(0.05, 8.0);
-    let slowest = rate(mix(&hiss, &pulse_train(6_000.0, 1.0, 0.9, 8.0)));
-    let fastest = rate(mix(&hiss, &pulse_train(6_000.0, 8.0, 0.9, 8.0)));
-    assert!(
-        fastest.features.onset_rate > slowest.features.onset_rate,
-        "{fastest:?} {slowest:?}"
-    );
-    assert!(fastest.score > slowest.score, "{fastest:?} {slowest:?}");
+    let slowest = rate(pulse_train(KICK_FREQUENCY, 1.0, 0.8, 8.0));
+    let fastest = rate(pulse_train(KICK_FREQUENCY, 8.0, 0.8, 8.0));
+    assert!(fastest.rating > slowest.rating);
 }
 
 #[test]
@@ -169,14 +166,36 @@ fn busier_never_rates_lower() {
 }
 
 #[test]
-fn bass_alone_does_not_change_what_is_measured_above_it() {
-    let hats = pulse_train(8_000.0, 4.0, 0.2, 8.0);
-    let thin = rate(hats.clone());
-    let with_sub_bass = rate(mix(&hats, &sine(50.0, 0.2, 8.0)));
-    assert_eq!(with_sub_bass.features.onset_rate, thin.features.onset_rate);
-    assert!(
-        with_sub_bass.features.integrated_loudness_lufs > thin.features.integrated_loudness_lufs
-    );
+fn bassier_never_rates_lower() {
+    let thin = rate(pulse_train(400.0, 4.0, 0.5, 8.0));
+    let bassy = rate(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 8.0));
+    assert!(bassy.features.low_frequency_share > 0.8, "{bassy:?}");
+    assert!(thin.features.low_frequency_share < 0.2, "{thin:?}");
+
+    let only_bass_differs = rate_features(
+        &euphoria_core::EnergyFeatures {
+            low_frequency_share: bassy.features.low_frequency_share,
+            ..thin.features
+        },
+        None,
+    )
+    .expect("the features are finite");
+    assert_never_lower(&thin, &only_bass_differs);
+    assert!(only_bass_differs.score > thin.score);
+}
+
+#[test]
+fn a_faster_tempo_never_rates_lower() {
+    let audio = buffer(pulse_train(KICK_FREQUENCY, 2.0, 0.5, 8.0));
+    let mut previous: Option<EnergyRating> = None;
+    for tempo in [90.0, 110.0, 124.0, 128.0, 140.0, 174.0] {
+        let rating = rate_energy(&audio, Some(tempo)).unwrap().unwrap();
+        assert_eq!(rating.tempo, Some(tempo));
+        if let Some(previous) = previous {
+            assert_never_lower(&previous, &rating);
+        }
+        previous = Some(rating);
+    }
 }
 
 #[test]
@@ -195,7 +214,7 @@ fn the_curve_rises_when_the_audio_gets_more_energetic() {
         &pulse_train(KICK_FREQUENCY, 8.0, 0.8, 16.0),
         &noise(0.2, 16.0),
     ));
-    let curve = energy_curve(&buffer(samples)).unwrap();
+    let curve = energy_curve(&buffer(samples), None).unwrap();
 
     let expected_points =
         ((32.0 - ENERGY_CURVE_WINDOW_SECONDS) / ENERGY_CURVE_HOP_SECONDS) as usize + 1;
@@ -223,26 +242,26 @@ fn each_curve_point_is_the_rating_of_its_window() {
         &pulse_train(KICK_FREQUENCY, 4.0, 0.5, 14.0),
         &sine(440.0, 0.1, 14.0),
     );
-    let curve = energy_curve(&buffer(samples.clone())).unwrap();
+    let curve = energy_curve(&buffer(samples.clone()), Some(120.0)).unwrap();
     let point = curve[1];
     let start = sample_count(point.start_seconds);
     let end = start + sample_count(point.duration_seconds);
     let window = buffer(samples[start..end].to_vec());
-    assert_eq!(point.rating, rate_energy(&window).unwrap());
+    assert_eq!(point.rating, rate_energy(&window, Some(120.0)).unwrap());
 }
 
 #[test]
 fn silent_windows_of_the_curve_have_no_rating() {
     let mut samples = silence(12.0);
     samples.extend(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 12.0));
-    let curve = energy_curve(&buffer(samples)).unwrap();
+    let curve = energy_curve(&buffer(samples), None).unwrap();
     assert_eq!(curve[0].rating, None);
     assert!(curve[curve.len() - 1].rating.is_some());
 }
 
 #[test]
 fn audio_shorter_than_one_window_gives_a_single_point() {
-    let curve = energy_curve(&buffer(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 3.0))).unwrap();
+    let curve = energy_curve(&buffer(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 3.0)), None).unwrap();
     assert_eq!(curve.len(), 1);
     assert_eq!(curve[0].start_seconds, 0.0);
     assert!((curve[0].duration_seconds - 3.0).abs() < 1.0e-3);
@@ -251,7 +270,7 @@ fn audio_shorter_than_one_window_gives_a_single_point() {
 
 #[test]
 fn empty_audio_has_an_empty_curve() {
-    assert!(energy_curve(&buffer(Vec::new())).unwrap().is_empty());
+    assert!(energy_curve(&buffer(Vec::new()), None).unwrap().is_empty());
 }
 
 fn buffer_at(samples: Vec<f32>, rate: u32) -> AudioBuffer {
@@ -292,8 +311,18 @@ fn an_unsupported_sample_rate_is_an_error_for_empty_short_and_long_audio() {
                 is_unsupported_rate(&energy_features(&audio), rate),
                 "{case}"
             );
-            assert!(is_unsupported_rate(&rate_energy(&audio), rate), "{case}");
-            assert!(is_unsupported_rate(&energy_curve(&audio), rate), "{case}");
+            assert!(
+                is_unsupported_rate(&rate_energy(&audio, None), rate),
+                "{case}"
+            );
+            assert!(
+                is_unsupported_rate(&rate_energy(&audio, Some(128.0)), rate),
+                "{case}"
+            );
+            assert!(
+                is_unsupported_rate(&energy_curve(&audio, None), rate),
+                "{case}"
+            );
         }
     }
 }
@@ -308,9 +337,9 @@ fn the_lowest_and_highest_supported_sample_rates_are_rated() {
             .take(two_seconds)
             .collect();
         let audio = buffer_at(samples, rate);
-        let rating = rate_energy(&audio).unwrap();
+        let rating = rate_energy(&audio, None).unwrap();
         assert!(rating.is_some(), "{rate} Hz");
-        assert_eq!(energy_curve(&audio).unwrap().len(), 1, "{rate} Hz");
+        assert_eq!(energy_curve(&audio, None).unwrap().len(), 1, "{rate} Hz");
     }
 }
 
@@ -320,7 +349,25 @@ fn short_and_empty_audio_at_a_supported_rate_has_no_rating_and_no_error() {
         for sample_count in [0, 4, rate as usize - 1] {
             let audio = buffer_at(vec![0.5; sample_count], rate);
             assert_eq!(energy_features(&audio).unwrap(), None);
-            assert_eq!(rate_energy(&audio).unwrap(), None);
+            assert_eq!(rate_energy(&audio, None).unwrap(), None);
+        }
+    }
+}
+
+#[test]
+fn an_unusable_tempo_is_an_error_even_for_silence() {
+    let sound = buffer(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 3.0));
+    let quiet = buffer(silence(3.0));
+    for tempo in [0.0, -128.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for audio in [&sound, &quiet] {
+            assert!(matches!(
+                rate_energy(audio, Some(tempo)),
+                Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
+            ));
+            assert!(matches!(
+                energy_curve(audio, Some(tempo)),
+                Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
+            ));
         }
     }
 }
@@ -329,6 +376,6 @@ fn short_and_empty_audio_at_a_supported_rate_has_no_rating_and_no_error() {
 fn audio_with_a_sample_that_is_not_a_number_never_gets_an_invalid_rating() {
     let mut samples = pulse_train(KICK_FREQUENCY, 4.0, 0.5, 3.0);
     samples[1_000] = f32::NAN;
-    let outcome = rate_energy(&buffer(samples)).unwrap();
+    let outcome = rate_energy(&buffer(samples), None).unwrap();
     assert!(outcome.is_none_or(|rating| rating.score.is_finite()));
 }

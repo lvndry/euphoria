@@ -8,14 +8,15 @@
 """Fits the anchors and weights of the energy model.
 
 Reads the files that `euphoria-bench energy LABELS --dump FILE` writes: one
-line per track with a reference, the rating and every feature, and no track
-names.
+line per track with a reference, the rating, every feature and the tempo,
+and no track names. The tempo is a candidate like the features.
 
     uv run bench/fit_energy_model.py \\
         --tuning tuning.dump.tsv --held-out held-out.dump.tsv \\
         --spread giantsteps.dump.tsv
 
-The model is the one in `crates/euphoria-core/src/energy/model.rs`: every
+The model has the form of the one in
+`crates/euphoria-core/src/energy/model.rs`: every
 feature becomes a score from 0 to 1 between a low and a high anchor, the
 scores are averaged with weights, and the average is spread over the ratings.
 
@@ -31,7 +32,10 @@ scores are averaged with weights, and the average is spread over the ratings.
 - The range of the average that is spread over the ratings comes from the
   2nd and 98th percentile of the spread file.
 
-The numbers printed at the end go into `ENERGY_MODEL`, rounded.
+The result is the fitted model that `euphoria-bench energy` scores next to
+the shipped one (`crates/euphoria-bench/src/alternative.rs`). It is not what
+Euphoria reports: see `bench/results/energy.md`. The reference data is under
+non commercial terms, so check them before shipping weights fitted on it.
 """
 
 import argparse
@@ -47,6 +51,8 @@ FOLD_COUNT = 5
 # A feature joins the model only when it improves the cross validated
 # correlation by at least this much.
 MINIMUM_GAIN = 0.003
+# Features where a lower value means more energy.
+FALLING_FEATURES = {"loudness_range"}
 
 
 def read_dump(path):
@@ -70,7 +76,8 @@ def choose_anchors(dumps, inputs):
             low, high = numpy.percentile(values, ANCHOR_PERCENTILES)
             lows.append(low)
             highs.append(high)
-        anchors[name] = (min(lows), max(highs))
+        low, high = min(lows), max(highs)
+        anchors[name] = (high, low) if name in FALLING_FEATURES else (low, high)
     return anchors
 
 

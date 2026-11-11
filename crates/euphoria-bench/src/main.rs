@@ -4,6 +4,7 @@
 //! Measures key and tempo detectors against the GiantSteps datasets, and the
 //! energy rating against a labels file, and prints a Markdown report.
 
+mod alternative;
 mod dataset;
 mod energy;
 mod evaluate;

@@ -9,6 +9,10 @@
 //! references come from. Without references it reports only how the ratings
 //! and the features are distributed.
 //!
+//! Next to the rating that Euphoria ships, the report scores the model in
+//! [`crate::alternative`], which was fitted to listener ratings and is not
+//! shipped.
+//!
 //! The report holds aggregates only, never a track name or a path, so that a
 //! private music library can serve as reference data.
 
@@ -18,11 +22,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use cpu_time::ThreadTime;
+use euphoria_core::detect::{StratumDetector, TempoDetector};
 use euphoria_core::{
     ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, decode_mono, energy_features, rate_features,
 };
 use rayon::prelude::*;
 
+use crate::alternative::{ModelOutput, rate_with_fitted_model, shipped_average};
 use crate::statistics::{mean, ordered_pair_share, percentile, spearman_correlation};
 
 /// Usage of the energy mode.
@@ -66,15 +72,32 @@ enum Outcome {
 #[derive(Debug, Clone)]
 struct Measurement {
     reference: Option<f64>,
+    /// The shipped rating, made with the detected tempo as `analyze` makes
+    /// it.
     rating: EnergyRating,
+    /// The weighted average behind the shipped rating, before it is spread
+    /// over the scale.
+    shipped_average: f32,
+    /// What the fitted model, which is not shipped, makes of the track.
+    fitted: ModelOutput,
     /// CPU time of measuring the features and rating them, without
-    /// decoding.
+    /// decoding and tempo detection.
     energy_cpu_time: Duration,
 }
 
 impl Measurement {
+    fn new(reference: Option<f64>, rating: EnergyRating, energy_cpu_time: Duration) -> Self {
+        Self {
+            reference,
+            rating,
+            shipped_average: shipped_average(&rating.features, rating.tempo),
+            fitted: rate_with_fitted_model(&rating.features),
+            energy_cpu_time,
+        }
+    }
+
     /// The features by name.
-    fn inputs(&self) -> Vec<(&'static str, f64)> {
+    fn features(&self) -> Vec<(&'static str, f64)> {
         self.rating
             .features
             .named()
@@ -167,19 +190,21 @@ fn measure(track: &LabelledTrack) -> Outcome {
         Ok(audio) => audio,
         Err(error) => return Outcome::Failed(failure_kind(&error)),
     };
+    let tempo = match StratumDetector.detect_tempo(&audio) {
+        Ok(tempo) => tempo,
+        Err(error) => return Outcome::Failed(failure_kind(&error)),
+    };
     let started = ThreadTime::now();
     let rating = energy_features(&audio).and_then(|features| {
         features
-            .map(|features| rate_features(&features))
+            .map(|features| rate_features(&features, tempo))
             .transpose()
     });
     let energy_cpu_time = started.elapsed();
     match rating {
-        Ok(Some(rating)) => Outcome::Rated(Measurement {
-            reference: track.reference,
-            rating,
-            energy_cpu_time,
-        }),
+        Ok(Some(rating)) => {
+            Outcome::Rated(Measurement::new(track.reference, rating, energy_cpu_time))
+        }
         Ok(None) => Outcome::Unrated,
         Err(error) => Outcome::Failed(failure_kind(&error)),
     }
@@ -204,8 +229,9 @@ fn rated(outcomes: &[Outcome]) -> Vec<&Measurement> {
         .collect()
 }
 
-/// One line per rated track with its reference, rating and inputs, and
-/// nothing that names the track. A fitting script reads it.
+/// One line per rated track with its reference, its shipped rating, its
+/// features and its tempo, and nothing that names the track. A fitting
+/// script reads it.
 fn render_dump(outcomes: &[Outcome]) -> String {
     let measurements = rated(outcomes);
     let mut dump = String::new();
@@ -216,7 +242,7 @@ fn render_dump(outcomes: &[Outcome]) -> String {
     for (name, _) in first.rating.features.named() {
         let _ = write!(dump, "\t{}", name.replace(' ', "_"));
     }
-    dump.push('\n');
+    dump.push_str("\ttempo\n");
     for measurement in &measurements {
         let reference = measurement
             .reference
@@ -230,7 +256,12 @@ fn render_dump(outcomes: &[Outcome]) -> String {
         for (_, value) in measurement.rating.features.named() {
             let _ = write!(dump, "\t{value}");
         }
-        dump.push('\n');
+        let tempo = measurement
+            .rating
+            .tempo
+            .map(|tempo| tempo.to_string())
+            .unwrap_or_default();
+        let _ = writeln!(dump, "\t{tempo}");
     }
     dump
 }
@@ -245,7 +276,7 @@ fn render_report(outcomes: &[Outcome]) -> String {
         .count();
     let _ = writeln!(
         report,
-        "Energy model version {ENERGY_MODEL_VERSION}. {} tracks listed, {} rated, {unrated} with nothing to rate.",
+        "Energy model version {ENERGY_MODEL_VERSION}, rated with the detected tempo. {} tracks listed, {} rated, {unrated} with nothing to rate.",
         outcomes.len(),
         measurements.len(),
     );
@@ -265,6 +296,10 @@ fn render_report(outcomes: &[Outcome]) -> String {
     if measurements.is_empty() {
         return report;
     }
+    let _ = writeln!(
+        report,
+        "\nRating and score are what Euphoria reports. The fitted model is an alternative that is not shipped. A weighted average is a model's result before it is spread over the scale from 1 to 10."
+    );
 
     let references: Option<Vec<f64>> = measurements
         .iter()
@@ -283,42 +318,59 @@ fn render_report(outcomes: &[Outcome]) -> String {
         .collect();
     let _ = writeln!(
         report,
-        "\n## Cost\n\n{:.3} CPU seconds per track for measuring and rating energy, after decoding.",
+        "\n## Cost\n\n{:.3} CPU seconds per track for measuring and rating energy, after decoding and tempo detection.",
         mean(&cpu_seconds).unwrap_or(0.0)
     );
     report
 }
 
-/// The columns to compare with the reference: the rating, the score it is
-/// cut from, then every feature.
+/// The columns to compare with the reference: what each model makes of the
+/// tracks, then every input.
 fn columns(measurements: &[&Measurement]) -> Vec<(&'static str, Vec<f64>)> {
+    let column = |value: fn(&Measurement) -> f64| -> Vec<f64> {
+        measurements
+            .iter()
+            .map(|measurement| value(measurement))
+            .collect()
+    };
     let mut columns = vec![
         (
             "Rating",
-            measurements
-                .iter()
-                .map(|measurement| f64::from(measurement.rating.rating))
-                .collect(),
+            column(|measurement| f64::from(measurement.rating.rating)),
         ),
         (
             "Score",
-            measurements
-                .iter()
-                .map(|measurement| f64::from(measurement.rating.score))
-                .collect(),
+            column(|measurement| f64::from(measurement.rating.score)),
+        ),
+        (
+            "Weighted average",
+            column(|measurement| f64::from(measurement.shipped_average)),
+        ),
+        (
+            "Fitted model rating",
+            column(|measurement| f64::from(measurement.fitted.rating)),
+        ),
+        (
+            "Fitted model score",
+            column(|measurement| f64::from(measurement.fitted.score)),
+        ),
+        (
+            "Fitted model weighted average",
+            column(|measurement| f64::from(measurement.fitted.average)),
         ),
     ];
     columns.extend(input_columns(measurements));
     columns
 }
 
-/// One column per feature.
+/// One column per feature, then the tempo when every track has one, so
+/// that all columns are as long as the list of tracks.
 fn input_columns(measurements: &[&Measurement]) -> Vec<(&'static str, Vec<f64>)> {
     let Some(first) = measurements.first() else {
         return Vec::new();
     };
-    first
-        .inputs()
+    let mut columns: Vec<(&'static str, Vec<f64>)> = first
+        .features()
         .iter()
         .enumerate()
         .map(|(index, (name, _))| {
@@ -326,11 +378,19 @@ fn input_columns(measurements: &[&Measurement]) -> Vec<(&'static str, Vec<f64>)>
                 *name,
                 measurements
                     .iter()
-                    .map(|measurement| measurement.inputs()[index].1)
+                    .map(|measurement| measurement.features()[index].1)
                     .collect(),
             )
         })
-        .collect()
+        .collect();
+    let tempos: Option<Vec<f64>> = measurements
+        .iter()
+        .map(|measurement| measurement.rating.tempo.map(f64::from))
+        .collect();
+    if let Some(tempos) = tempos {
+        columns.push(("tempo", tempos));
+    }
+    columns
 }
 
 fn render_agreement(report: &mut String, measurements: &[&Measurement], references: &[f64]) {
@@ -419,25 +479,35 @@ fn reference_groups(references: &[f64]) -> Vec<(String, Vec<usize>)> {
 }
 
 fn render_histogram(report: &mut String, measurements: &[&Measurement]) {
-    let mut counts = [0_usize; 10];
-    for measurement in measurements {
-        counts[usize::from(measurement.rating.rating.clamp(1, 10)) - 1] += 1;
-    }
     let _ = writeln!(
         report,
         "\n## Rating histogram\n\n| Rating | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     );
-    let _ = write!(report, "| Tracks |");
-    for count in counts {
-        let _ = write!(report, " {count} |");
+    let shipped: Vec<u8> = measurements
+        .iter()
+        .map(|measurement| measurement.rating.rating)
+        .collect();
+    let fitted: Vec<u8> = measurements
+        .iter()
+        .map(|measurement| measurement.fitted.rating)
+        .collect();
+    for (name, ratings) in [("Tracks", shipped), ("Tracks, fitted model", fitted)] {
+        let mut counts = [0_usize; 10];
+        for rating in ratings {
+            counts[usize::from(rating.clamp(1, 10)) - 1] += 1;
+        }
+        let _ = write!(report, "| {name} |");
+        for count in counts {
+            let _ = write!(report, " {count} |");
+        }
+        let _ = writeln!(report);
     }
-    let _ = writeln!(report);
 }
 
 fn render_distributions(report: &mut String, measurements: &[&Measurement]) {
     let _ = writeln!(
         report,
-        "\n## Feature values\n\n| Feature | 3rd percentile | Median | 97th percentile |\n| --- | --- | --- | --- |"
+        "\n## Input values\n\n| Input | 3rd percentile | Median | 97th percentile |\n| --- | --- | --- | --- |"
     );
     for (name, values) in input_columns(measurements) {
         let _ = writeln!(
@@ -488,15 +558,17 @@ mod tests {
     /// A rated track whose features all rise with `level`, from 0.0 to 1.0.
     fn measurement(level: f32, reference: Option<f64>) -> Measurement {
         let features = EnergyFeatures {
-            spectral_flux: 0.002 + 0.008 * level,
-            onset_rate: 1.0 + 6.0 * level,
             integrated_loudness_lufs: -22.0 + 15.0 * level,
+            loudness_range_lu: 12.0 - 10.0 * level,
+            onset_rate: 1.0 + 6.0 * level,
+            low_frequency_share: 0.3 + 0.6 * level,
+            spectral_flux: 0.002 + 0.008 * level,
         };
-        Measurement {
+        Measurement::new(
             reference,
-            rating: rate_features(&features).unwrap(),
-            energy_cpu_time: Duration::from_millis(250),
-        }
+            rate_features(&features, Some(100.0 + 40.0 * level)).unwrap(),
+            Duration::from_millis(250),
+        )
     }
 
     fn rated_outcomes(references: &[Option<f64>]) -> Vec<Outcome> {
@@ -568,6 +640,21 @@ mod tests {
         assert!(report.contains("12 tracks listed, 12 rated, 0 with nothing to rate."));
         assert!(report.contains("| Rating | +0.9"), "{report}");
         assert!(
+            report.contains("| Weighted average | +1.000 | 100.0% |"),
+            "{report}"
+        );
+        assert!(report.contains("| Fitted model rating | +0.9"), "{report}");
+        assert!(
+            report.contains("| Fitted model weighted average | +1.000 | 100.0% |"),
+            "{report}"
+        );
+        assert!(
+            report.contains("| Loudness range | -1.000 | 0.0% |"),
+            "{report}"
+        );
+        assert!(report.contains("| Tempo | +1.000 | 100.0% |"), "{report}");
+        assert!(report.contains("| Tracks, fitted model |"), "{report}");
+        assert!(
             report.contains("| Onset rate | +1.000 | 100.0% |"),
             "{report}"
         );
@@ -596,7 +683,7 @@ mod tests {
         assert!(!report.contains("## Agreement"));
         assert!(!report.contains("## Averages by reference"));
         assert!(report.contains("## Rating histogram"));
-        assert!(report.contains("## Feature values"));
+        assert!(report.contains("## Input values"));
         assert!(report.contains("| Onset rate |"));
     }
 
@@ -626,13 +713,14 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(
             lines[0],
-            "reference\trating\tscore\tspectral_flux\tonset_rate\tintegrated_loudness"
+            "reference\trating\tscore\tintegrated_loudness\tloudness_range\tonset_rate\tlow_frequency_share\tspectral_flux\ttempo"
         );
         assert!(
-            lines[1].starts_with("1\t1\t0\t0.002\t1\t-22"),
+            lines[1].starts_with("1\t1\t0\t-22\t12\t1\t"),
             "{}",
             lines[1]
         );
+        assert!(lines[1].ends_with("\t100"), "{}", lines[1]);
         assert_eq!(render_dump(&[Outcome::Unrated]), "");
     }
 
@@ -643,5 +731,52 @@ mod tests {
         assert_eq!(significant(1.2345), "1.23");
         assert_eq!(significant(0.12345), "0.123");
         assert_eq!(significant(0.0012345), "0.00123");
+    }
+}
+
+#[cfg(test)]
+mod tempo_tests {
+    use euphoria_core::EnergyFeatures;
+
+    use super::*;
+
+    #[test]
+    fn tracks_without_a_tempo_leave_the_tempo_column_out() {
+        let features = EnergyFeatures {
+            integrated_loudness_lufs: -10.0,
+            loudness_range_lu: 5.0,
+            onset_rate: 4.0,
+            low_frequency_share: 0.6,
+            spectral_flux: 0.007,
+        };
+        let with_tempo = Measurement::new(
+            Some(1.0),
+            rate_features(&features, Some(124.0)).unwrap(),
+            Duration::ZERO,
+        );
+        let without_tempo = Measurement::new(
+            Some(2.0),
+            rate_features(&features, None).unwrap(),
+            Duration::ZERO,
+        );
+        let names = |measurements: &[&Measurement]| -> Vec<&'static str> {
+            input_columns(measurements)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect()
+        };
+        assert_eq!(names(&[&with_tempo]).last(), Some(&"tempo"));
+        assert_eq!(
+            names(&[&with_tempo, &without_tempo]).last(),
+            Some(&"spectral flux")
+        );
+
+        let dump = render_dump(&[
+            Outcome::Rated(with_tempo.clone()),
+            Outcome::Rated(without_tempo.clone()),
+        ]);
+        let lines: Vec<&str> = dump.lines().collect();
+        assert!(lines[1].ends_with("\t124"), "{}", lines[1]);
+        assert!(lines[2].ends_with('\t'), "{}", lines[2]);
     }
 }

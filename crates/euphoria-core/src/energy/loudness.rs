@@ -8,18 +8,29 @@ use ebur128::{Channel, EbuR128, Mode};
 use super::check_sample_rate;
 use crate::error::EuphoriaError;
 
-/// Measures integrated loudness in LUFS, as EBU R128 describes. Returns
-/// `Ok(None)` when the standard gives no loudness: the audio is shorter than
-/// one 400 millisecond block or never rises above -70 LUFS.
+/// Loudness of a stretch of audio, measured as EBU R128 describes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Loudness {
+    /// Integrated loudness in LUFS.
+    pub(crate) integrated_lufs: f32,
+    /// Loudness range in LU.
+    pub(crate) range_lu: f32,
+}
+
+/// Measures integrated loudness and loudness range. Returns `Ok(None)` when
+/// the standard gives no loudness: the audio is shorter than one 400
+/// millisecond block or never rises above -70 LUFS.
 ///
-/// The memory of the meter grows with the sample rate. A sample rate
-/// outside the supported range is an error before the meter is created.
+/// The meter keeps three seconds of filtered audio, so its memory grows with
+/// the sample rate. A sample rate outside the supported range is an error
+/// before the meter is created.
 pub(crate) fn measure_loudness(
     samples: &[f32],
     sample_rate: NonZeroU32,
-) -> Result<Option<f32>, EuphoriaError> {
+) -> Result<Option<Loudness>, EuphoriaError> {
     check_sample_rate(sample_rate)?;
-    let mut meter = EbuR128::new(1, sample_rate.get(), Mode::I).map_err(loudness_error)?;
+    let mut meter =
+        EbuR128::new(1, sample_rate.get(), Mode::I | Mode::LRA).map_err(loudness_error)?;
     // The buffer is a mixdown that both speakers play, which is 3 dB louder
     // than the same signal from one speaker.
     meter
@@ -27,9 +38,14 @@ pub(crate) fn measure_loudness(
         .map_err(loudness_error)?;
     meter.add_frames_f32(samples).map_err(loudness_error)?;
     let integrated_lufs = meter.loudness_global().map_err(loudness_error)?;
-    Ok(integrated_lufs
-        .is_finite()
-        .then_some(integrated_lufs as f32))
+    if !integrated_lufs.is_finite() {
+        return Ok(None);
+    }
+    let range_lu = meter.loudness_range().map_err(loudness_error)?;
+    Ok(Some(Loudness {
+        integrated_lufs: integrated_lufs as f32,
+        range_lu: range_lu as f32,
+    }))
 }
 
 fn loudness_error(error: ebur128::Error) -> EuphoriaError {
@@ -64,7 +80,11 @@ mod tests {
         let loudness = measure_loudness(&sine(997.0, 1.0, 5.0), sample_rate())
             .unwrap()
             .unwrap();
-        assert!(loudness.abs() < 0.1, "{loudness}");
+        assert!(
+            loudness.integrated_lufs.abs() < 0.1,
+            "{}",
+            loudness.integrated_lufs
+        );
     }
 
     #[test]
@@ -75,8 +95,27 @@ mod tests {
         let quiet = measure_loudness(&sine(997.0, 0.25, 5.0), sample_rate())
             .unwrap()
             .unwrap();
-        let difference = loud - quiet;
+        let difference = loud.integrated_lufs - quiet.integrated_lufs;
         assert!((difference - 6.02).abs() < 0.1, "{difference}");
+    }
+
+    #[test]
+    fn a_steady_tone_has_no_loudness_range() {
+        let loudness = measure_loudness(&sine(440.0, 0.5, 10.0), sample_rate())
+            .unwrap()
+            .unwrap();
+        assert!(loudness.range_lu < 0.1, "{}", loudness.range_lu);
+    }
+
+    #[test]
+    fn a_tone_that_alternates_between_two_levels_has_a_loudness_range() {
+        let mut samples = Vec::new();
+        for _ in 0..3 {
+            samples.extend(sine(440.0, 0.5, 6.0));
+            samples.extend(sine(440.0, 0.05, 6.0));
+        }
+        let loudness = measure_loudness(&samples, sample_rate()).unwrap().unwrap();
+        assert!(loudness.range_lu > 10.0, "{}", loudness.range_lu);
     }
 
     #[test]
