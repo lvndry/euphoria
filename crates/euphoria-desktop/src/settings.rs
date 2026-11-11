@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::columns::ColumnWidths;
+use crate::display_settings::DisplaySettings;
 use crate::panels::Panels;
 use crate::tag_settings::TagSettings;
 use crate::theme::ThemeName;
@@ -53,6 +54,8 @@ pub(crate) struct Settings {
     pub(crate) column_widths: ColumnWidths,
     /// How tags are written.
     pub(crate) tags: TagSettings,
+    /// How keys and tempos are shown.
+    pub(crate) display: DisplaySettings,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -177,6 +180,10 @@ mod tests {
                 label: LabelChoice::Grouping,
                 write_tempo: false,
             },
+            display: DisplaySettings {
+                key_notation: NotationChoice::OpenKey,
+                tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
+            },
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -199,6 +206,7 @@ mod tests {
             folder_tree: FolderTreeMemory::default(),
             column_widths: ColumnWidths::default(),
             tags: TagSettings::default(),
+            display: DisplaySettings::default(),
         })
         .unwrap();
         assert_eq!(
@@ -208,7 +216,9 @@ mod tests {
                 r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
-                r#""label":"comment-start","write_tempo":true}}"#
+                r#""label":"comment-start","write_tempo":true},"#,
+                r#""display":{"key_notation":"camelot","#,
+                r#""tempo_range":{"slowest":90,"fastest":180}}}"#
             )
         );
     }
@@ -235,6 +245,7 @@ mod tests {
         assert!(settings.panels.sidebar_folded);
         assert_eq!(settings.column_widths, ColumnWidths::default());
         assert_eq!(settings.tags, TagSettings::default());
+        assert_eq!(settings.display, DisplaySettings::default());
     }
 
     #[test]

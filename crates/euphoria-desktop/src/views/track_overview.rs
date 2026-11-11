@@ -12,6 +12,7 @@ use gpui::{AnyElement, FontWeight, SharedString, TestSupportExt, div, px, relati
 
 use crate::camelot::CamelotPosition;
 use crate::format;
+use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Palette};
 use crate::track_overview::{EnergyStep, KeyStretch};
 
@@ -87,6 +88,7 @@ pub(crate) fn key_timeline(
     duration_seconds: f32,
     progress: Option<f32>,
     theme: &AppTheme,
+    notation: NotationChoice,
 ) -> AnyElement {
     let palette = &theme.palette;
     let sections = stretches.iter().enumerate().map(|(index, stretch)| {
@@ -97,7 +99,7 @@ pub(crate) fn key_timeline(
         };
         let description: SharedString = format!(
             "{}, {}, {} to {}",
-            stretch.key.camelot(),
+            notation.spell(&stretch.key),
             stretch.key,
             format::duration(stretch.start * duration_seconds),
             format::duration(stretch.end * duration_seconds)
@@ -121,7 +123,7 @@ pub(crate) fn key_timeline(
             .text_color(foreground)
             .text_size(px(10.0))
             .font_weight(FontWeight::SEMIBOLD)
-            .child(stretch.key.camelot())
+            .child(notation.spell(&stretch.key))
             .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
             .test_support()
     });

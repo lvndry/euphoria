@@ -29,8 +29,9 @@ pub(crate) struct FolderNode {
     pub(crate) children: Vec<usize>,
     /// How many tracks are in this folder and the folders inside it.
     pub(crate) track_count: usize,
-    /// How many of those tracks could not be analyzed.
-    pub(crate) failed_count: usize,
+    /// How many of those tracks need review: a key or tempo rated low, or
+    /// a file that could not be analyzed.
+    pub(crate) review_count: usize,
 }
 
 /// The folders the user added and the subfolders holding their tracks.
@@ -122,9 +123,9 @@ impl FolderTree {
             else {
                 continue;
             };
-            let is_failed = track.failure().is_some();
+            let is_to_review = track.needs_review();
             let mut current = tree.index_by_path[*root];
-            tree.count(current, is_failed);
+            tree.count(current, is_to_review);
             let mut path = root.to_path_buf();
             for component in relative.components() {
                 path.push(component);
@@ -136,7 +137,7 @@ impl FolderTree {
                         index
                     }
                 };
-                tree.count(current, is_failed);
+                tree.count(current, is_to_review);
             }
             if let Some(folder) = tree.folder_of_track.last_mut() {
                 *folder = Some(current);
@@ -163,33 +164,33 @@ impl FolderTree {
             parent,
             children: Vec::new(),
             track_count: 0,
-            failed_count: 0,
+            review_count: 0,
         });
         index
     }
 
-    fn count(&mut self, index: usize, is_failed: bool) {
+    fn count(&mut self, index: usize, is_to_review: bool) {
         let node = &mut self.nodes[index];
         node.track_count += 1;
-        if is_failed {
-            node.failed_count += 1;
+        if is_to_review {
+            node.review_count += 1;
         }
     }
 
-    /// Counts again how many tracks failed under each folder, after results
+    /// Counts again how many tracks need review under each folder, after results
     /// came in for `tracks`, the same tracks the tree was built from. No
     /// paths are looked at: each track's folder is already known.
-    pub(crate) fn recount_failures(&mut self, tracks: &[Track]) {
+    pub(crate) fn recount_reviews(&mut self, tracks: &[Track]) {
         for node in &mut self.nodes {
-            node.failed_count = 0;
+            node.review_count = 0;
         }
         for (track, folder) in tracks.iter().zip(&self.folder_of_track) {
-            if track.failure().is_none() {
+            if !track.needs_review() {
                 continue;
             }
             let mut candidate = *folder;
             while let Some(index) = candidate {
-                self.nodes[index].failed_count += 1;
+                self.nodes[index].review_count += 1;
                 candidate = self.nodes[index].parent;
             }
         }
@@ -566,7 +567,7 @@ mod tests {
         let tree = tree_of(&library);
         let failed = |path: &str| {
             let index = tree.index_of(Path::new(path)).unwrap();
-            tree.node(index).unwrap().failed_count
+            tree.node(index).unwrap().review_count
         };
         assert_eq!(failed("/music/DJ tracks"), 1);
         assert_eq!(failed("/music/DJ tracks/afro_house"), 1);
@@ -650,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn results_coming_in_recount_failures_as_a_fresh_build_would_and_faster() {
+    fn results_coming_in_recount_reviews_as_a_fresh_build_would_and_faster() {
         let mut library = large_library();
         let started = std::time::Instant::now();
         let mut tree = tree_of(&library);
@@ -667,7 +668,7 @@ mod tests {
             library.record_outcome(Path::new(&file), Err("cannot decode".to_string()));
         }
         let started = std::time::Instant::now();
-        tree.recount_failures(library.tracks());
+        tree.recount_reviews(library.tracks());
         let recount_time = started.elapsed();
 
         let fresh = tree_of(&library);

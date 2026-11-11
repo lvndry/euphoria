@@ -78,7 +78,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Needs review",
-                Some(counts.failed),
+                Some(counts.needs_review),
                 needs_review_is_current,
                 &palette,
             )
