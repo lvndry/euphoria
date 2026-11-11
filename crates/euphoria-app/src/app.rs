@@ -4,6 +4,7 @@
 //! The window's root view: it owns the library session and what the user has
 //! chosen to see, and lays the screen out from the views.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -685,31 +686,43 @@ impl EuphoriaApp {
         self.remember_column_widths(cx);
     }
 
-    /// The texts `column` shows among the rows on show.
-    pub(crate) fn column_texts(&self, column: ColumnId) -> Vec<String> {
+    /// The distinct texts `column` shows among the rows on show. Every one
+    /// is kept, since in a proportional font a text with fewer characters
+    /// can be the wider, but a text is copied only the first time it is
+    /// met, and the row number only for the last row, which has the most
+    /// digits.
+    pub(crate) fn column_texts(&self, column: ColumnId) -> HashSet<String> {
         let library = self.session.library();
-        self.visible
-            .iter()
-            .enumerate()
-            .filter_map(|(row, index)| {
-                let track = library.track(*index)?;
-                match column {
-                    ColumnId::Number => Some(crate::format::count(row + 1)),
-                    ColumnId::Title => Some(track.title().to_string()),
-                    ColumnId::Artist => track.artist.clone(),
-                    ColumnId::Key => track.key().map(|key| key.camelot()),
-                    ColumnId::MusicalKey => track.key().map(|key| key.to_string()),
-                    ColumnId::Bpm => track.bpm().map(crate::format::bpm),
-                    ColumnId::Energy => track.energy().map(|_| "10 ".repeat(4)),
-                    ColumnId::Time => track.duration_seconds().map(crate::format::duration),
-                    ColumnId::Format => Some(track.format.clone()),
-                    ColumnId::Folder => self
-                        .folder_column
-                        .label(*index)
-                        .map(|label| label.text.clone()),
-                }
-            })
-            .collect()
+        let mut texts: HashSet<String> = HashSet::new();
+        for (row, index) in self.visible.iter().enumerate() {
+            let Some(track) = library.track(*index) else {
+                continue;
+            };
+            let text: Option<Cow<'_, str>> = match column {
+                ColumnId::Number => (row + 1 == self.visible.len())
+                    .then(|| Cow::Owned(crate::format::count(row + 1))),
+                ColumnId::Title => Some(Cow::Borrowed(track.title())),
+                ColumnId::Artist => track.artist.as_deref().map(Cow::Borrowed),
+                ColumnId::Key => track.key().map(|key| Cow::Owned(key.camelot())),
+                ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
+                ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
+                ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Time => track
+                    .duration_seconds()
+                    .map(|seconds| Cow::Owned(crate::format::duration(seconds))),
+                ColumnId::Format => Some(Cow::Borrowed(track.format.as_str())),
+                ColumnId::Folder => self
+                    .folder_column
+                    .label(*index)
+                    .map(|label| Cow::Borrowed(label.text.as_str())),
+            };
+            if let Some(text) = text
+                && !texts.contains(text.as_ref())
+            {
+                texts.insert(text.into_owned());
+            }
+        }
+        texts
     }
 
     /// Reset column widths: every column back to its usual width.
@@ -1450,6 +1463,10 @@ const NAME_BATCH: usize = 256;
 /// Room added to measured contents when a column is fitted, for the
 /// rounding of text layout.
 const FIT_SLACK: f32 = 4.0;
+
+/// Text as wide as an energy rating and its bar, which the Energy column is
+/// fitted to.
+const WIDEST_ENERGY_TEXT: &str = "10 10 10 10 ";
 
 /// Room for the sort arrow beside a column's header.
 const SORT_ARROW_WIDTH: f32 = 16.0;
