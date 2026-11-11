@@ -5,6 +5,7 @@
 // checks its pointers and lengths and returns a status instead of letting a
 // C++ exception reach Rust.
 
+#include <memory>
 #include <new>
 
 #include "signalsmith-stretch/signalsmith-stretch.h"
@@ -37,9 +38,9 @@ enum {
 euphoria_stretch *euphoria_stretch_new(int channels, float sample_rate) noexcept {
     if (channels <= 0 || !(sample_rate > 0)) return nullptr;
     try {
-        auto *stretch = new euphoria_stretch(channels);
+        auto stretch = std::make_unique<euphoria_stretch>(channels);
         stretch->stretch.presetDefault(channels, sample_rate);
-        return stretch;
+        return stretch.release();
     } catch (...) {
         return nullptr;
     }

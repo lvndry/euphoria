@@ -52,7 +52,7 @@ pub(crate) struct Stretch {
     channels: usize,
 }
 
-// The stretcher holds only its own buffers, and every call takes `&mut self`
+// SAFETY: the stretcher holds only its own buffers, and every call takes `&mut self`
 // or reads plain numbers, so it may move to another thread.
 unsafe impl Send for Stretch {}
 

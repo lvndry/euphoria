@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 mod flac;
 
+use crate::audio::{MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE};
 use crate::audio_stream::AudioStream;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -33,10 +34,9 @@ const MAXIMUM_WAV_SAMPLES: u64 = (u32::MAX as u64 - 61) / (BITS_PER_SAMPLE as u6
 /// while keeping its timing, chunk by chunk, so that a long track never
 /// has to be held in memory twice.
 ///
-/// Every chunk given to [`PitchShifter::process`] comes back the same
-/// length, apart from a delay at the start that [`PitchShifter::finish`]
-/// makes up at the end, so the whole output is exactly as long as the
-/// input and every beat stays where it was.
+/// Output begins after a startup delay. [`PitchShifter::finish`] emits the
+/// remaining frames, so the whole output has the same complete channel
+/// frames as the input and every beat stays where it was.
 pub struct PitchShifter {
     stretch: Stretch,
     channels: usize,
@@ -52,16 +52,24 @@ pub struct PitchShifter {
     to_drop: usize,
     /// Input samples per channel seen.
     input_length: usize,
+    /// An interleaved frame split across chunk boundaries.
+    pending_frame: Vec<f32>,
 }
 
 impl PitchShifter {
     /// A shifter for `channels` channels at `sample_rate` that moves every
     /// pitch by `semitones`, from -[`MAXIMUM_SHIFT_SEMITONES`] to
-    /// [`MAXIMUM_SHIFT_SEMITONES`].
+    /// [`MAXIMUM_SHIFT_SEMITONES`]. Sample rates follow the supported audio
+    /// range, 8 kHz through 384 kHz.
     pub fn new(channels: usize, sample_rate: u32, semitones: i8) -> Result<Self, String> {
         if semitones.unsigned_abs() > MAXIMUM_SHIFT_SEMITONES.unsigned_abs() {
             return Err(format!(
                 "a shift of {semitones} semitones is more than {MAXIMUM_SHIFT_SEMITONES} either way"
+            ));
+        }
+        if !(MINIMUM_SAMPLE_RATE..=MAXIMUM_SAMPLE_RATE).contains(&sample_rate) {
+            return Err(format!(
+                "cannot shift audio at {sample_rate} Hz; supported rates are {MINIMUM_SAMPLE_RATE} to {MAXIMUM_SAMPLE_RATE} Hz"
             ));
         }
         let mut stretch = Stretch::new(channels, sample_rate)?;
@@ -77,13 +85,25 @@ impl PitchShifter {
             started: false,
             to_drop: output_latency,
             input_length: 0,
+            pending_frame: Vec::new(),
         })
     }
 
     /// Shifts the next stretch of interleaved audio and returns the shifted
-    /// audio that is ready, interleaved.
+    /// audio that is ready, interleaved. Chunks may split a channel frame;
+    /// the full input must end on a complete frame.
     pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>, String> {
-        let mut channels = deinterleave(interleaved, self.channels);
+        let mut joined = std::mem::take(&mut self.pending_frame);
+        let interleaved = if joined.is_empty() {
+            interleaved
+        } else {
+            joined.extend_from_slice(interleaved);
+            &joined
+        };
+        let complete = interleaved.len() / self.channels * self.channels;
+        self.pending_frame
+            .extend_from_slice(&interleaved[complete..]);
+        let mut channels = deinterleave(&interleaved[..complete], self.channels);
         self.input_length += channels[0].len();
         if !self.started {
             let wanted = self.input_latency.saturating_sub(self.preroll[0].len());
@@ -103,24 +123,27 @@ impl PitchShifter {
     /// Shifts what is left and returns the rest of the output, so that the
     /// whole output is as long as the whole input.
     pub fn finish(mut self) -> Result<Vec<f32>, String> {
-        if !self.started {
-            // Fewer samples than the shifter needs to start: the start of
-            // the track is all there is, so it is used as the pre-roll and
-            // shifted from zeros on.
-            let length = self.preroll[0].len();
+        if self.input_length == 0 {
+            return Ok(Vec::new());
+        }
+        let short = !self.started;
+        if short {
+            // Seek a full pre-roll with silence after the actual short clip,
+            // so its first sample still starts at processing time zero.
+            for channel in &mut self.preroll {
+                channel.resize(self.input_latency, 0.0);
+            }
             self.stretch.seek(&self.preroll, 1.0)?;
             self.started = true;
-            let silence = vec![vec![0.0; length]; self.channels];
-            let mut output = self.shift(&silence)?;
-            output.extend(self.flushed()?);
-            output.truncate(self.input_length * self.channels);
-            return Ok(output);
         }
         // The pre-roll is still owed to the shifter as input: zeros stand in
         // for what would follow the end of the track.
         let silence = vec![vec![0.0; self.input_latency]; self.channels];
         let mut output = self.shift(&silence)?;
         output.extend(self.flushed()?);
+        if short {
+            output.truncate(self.input_length * self.channels);
+        }
         Ok(output)
     }
 
@@ -261,9 +284,9 @@ pub fn write_shifted_copy(
         let mut writer = ShiftedWriter::create(file, &temporary, format, channels, sample_rate)?;
         let mut chunk = Vec::new();
         while stream.read_chunk(&mut chunk)? {
-            writer.write(&shifter.process(&chunk).map_err(&failure)?)?;
+            writer.write(&shifter.process(&chunk).map_err(failure)?)?;
         }
-        writer.write(&shifter.finish().map_err(&failure)?)?;
+        writer.write(&shifter.finish().map_err(failure)?)?;
         writer.finish()
     })();
     let frames = match written {
@@ -737,6 +760,48 @@ mod tests {
         );
         assert!(refused.is_err(), "the original was overwritten");
         std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn short_audio_keeps_its_sound_not_only_its_length() {
+        let input = tone(440.0, 0.01);
+        let output = shifted(&input, 1, 1, 100);
+        assert_eq!(output.len(), input.len());
+        let peak = output.iter().copied().map(f32::abs).fold(0.0, f32::max);
+        assert!(peak > 0.01, "short audio became silence: peak {peak}");
+    }
+
+    #[test]
+    fn streaming_chunks_can_split_interleaved_frames() {
+        let input: Vec<f32> = tone(440.0, 0.2)
+            .iter()
+            .flat_map(|sample| [*sample, 0.0])
+            .collect();
+        let mut shifter = PitchShifter::new(2, SAMPLE_RATE, 1).unwrap();
+        let mut output = Vec::new();
+        for chunk in input.chunks(301) {
+            output.extend(shifter.process(chunk).unwrap());
+        }
+        output.extend(shifter.finish().unwrap());
+        assert_eq!(output.len(), input.len());
+        let silent_peak = output
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .copied()
+            .map(f32::abs)
+            .fold(0.0, f32::max);
+        assert!(silent_peak < 0.0001, "channels leaked: peak {silent_peak}");
+    }
+
+    #[test]
+    fn unsupported_sample_rates_are_refused_before_native_setup() {
+        for sample_rate in [7_999, 0, 384_001, u32::MAX] {
+            assert!(
+                PitchShifter::new(1, sample_rate, 1).is_err(),
+                "accepted {sample_rate} Hz"
+            );
+        }
     }
 
     #[test]
