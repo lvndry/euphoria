@@ -610,9 +610,15 @@ impl BeatGrid {
     /// within the first bar.
     pub fn in_tempo_range(&self, range: TempoRange) -> Self {
         let bpm = f64::from(range.fold(self.bpm as f32));
-        let octaves = (bpm / self.bpm).log2().round();
+        self.near_tempo(bpm)
+    }
+
+    /// Counts the grid in the octave closest to a reported tempo, retaining
+    /// its refinement. Range boundaries must not separate the two counts.
+    pub(crate) fn near_tempo(&self, bpm: f64) -> Self {
+        let octaves = (bpm / self.bpm).log2().round() as i32;
         let moved = Self {
-            bpm: self.bpm * 2.0_f64.powf(octaves),
+            bpm: self.bpm * 2.0_f64.powi(octaves),
             ..*self
         };
         Self {
