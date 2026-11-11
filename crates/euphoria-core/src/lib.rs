@@ -35,6 +35,9 @@ pub mod library;
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// Changing the key of a track by shifting its pitch.
+#[cfg(feature = "pitch-shift")]
+pub mod shift;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;

@@ -179,6 +179,15 @@ pub enum EuphoriaError {
         /// The underlying input or output error.
         source: std::io::Error,
     },
+    /// The pitch of a track could not be shifted, or the shifted copy
+    /// could not be written.
+    #[error("cannot shift {path}: {reason}")]
+    Shift {
+        /// The original track.
+        path: PathBuf,
+        /// What went wrong.
+        reason: String,
+    },
     /// Text could not be read as a key: a name such as "A minor", a Camelot
     /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]
