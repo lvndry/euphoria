@@ -16,9 +16,10 @@ No DJ software vendor publishes which tag fields its program reads. What this pa
 | --- | --- |
 | **Confirmed** | Stated by the vendor, or visible in the program's own source code. |
 | **Reported** | Stated by another vendor's guide, such as Mixed In Key's, or by user reports, or suggested by the names stored inside the program, and not contradicted. |
+| **Tested** | Checked in the program itself with the test kit. |
 | **Unconfirmed** | Sources disagree, or nothing was found. |
 
-None of the presets has yet been tried in the program it is named after. A test kit for rekordbox is described [below](#check-it-yourself-in-rekordbox).
+The rekordbox facts marked **Tested** were checked in rekordbox 7 with the test kit described [below](#check-it-yourself-in-rekordbox), with automatic analysis switched off. The other presets have not yet been tried in the program they are named after.
 
 ## The same in every program
 
@@ -32,11 +33,11 @@ Every preset writes these fields. The key is written in the notation you choose:
 
 Why these choices:
 
-- **Two key fields in M4A.** rekordbox 7 holds only the name `KEY`, the other programs are reported to read `initialkey`, and no program is known to misread a file that has both. Most of a typical library is M4A, so this is the field that matters most.
+- **Two key fields in M4A.** rekordbox reads the key only from `KEY` (tested), the other programs are reported to read `initialkey`, and no program is known to misread a file that has both. Most of a typical library is M4A, so this is the field that matters most.
 - **No new `KEY` in FLAC.** VirtualDJ is reported to read neither field when a FLAC file has both. When a file already has a `KEY`, left by another program, Euphoria gives it the same value, so the two never disagree.
 - **Whole number tempos.** Only Mixxx is known to read a tempo with decimals. Every preset except Mixxx writes `128`, not `127.6`. A tempo with decimals belongs in the rekordbox XML, which keeps two.
 - **The energy rating is in the comment.** No program has a tag field for it. The label `8A - Energy 7` has the form Mixed In Key writes, so sorting and searching on it works the same way.
-- **WAV is the weakest case.** Euphoria writes an ID3 chunk into WAV files, as most tag editors do. rekordbox's manual lists only RIFF INFO for WAV, which has no key or tempo field, Serato's staff have said WAV holds no tags for Serato, and Mixed In Key does not tag WAV at all. For WAV files, use the rekordbox XML, or convert them to AIFF.
+- **WAV is the weakest case.** Euphoria writes an ID3 chunk into WAV files, as most tag editors do. rekordbox shows the title and comment from a WAV file's RIFF INFO list, not from its ID3 chunk (tested), and RIFF INFO has no key or tempo field. Serato's staff have said WAV holds no tags for Serato, and Mixed In Key does not tag WAV at all. For WAV files, use the rekordbox XML, or convert them to AIFF.
 
 ## rekordbox
 
@@ -44,7 +45,7 @@ Why these choices:
 
 What to set in rekordbox:
 
-1. **Preferences > Analysis > Track Analysis > Track Analysis Setting**: untick **KEY**, so that rekordbox's analysis does not replace Euphoria's key. Leave **BPM / Grid** ticked: rekordbox needs its own beat grid. This is what Mixed In Key tells its users. **Confirmed** that the checkboxes exist; that a ticked KEY replaces a tagged key is **reported**.
+1. **Preferences > Analysis > Track Analysis > Track Analysis Setting**: untick **KEY**, so that rekordbox's analysis does not replace Euphoria's key. **Tested**: with KEY ticked, analyzing a track replaced the key it had been given, and the tempo too. Leave **BPM / Grid** ticked if you want rekordbox's own beat grid, knowing that its analysis then sets the tempo. This is what Mixed In Key tells its users.
 2. Leave **Preferences > Analysis > Key Analysis > Write the value to the ID3 tag** off, or rekordbox writes its own key over Euphoria's. **Confirmed** by the manual.
 3. For tracks already in your collection, select them, right click and choose **Reload Tag**. rekordbox reads tags when a track is added and on Reload Tag. **Confirmed** by the manual.
 
@@ -52,19 +53,19 @@ Reload Tag replaces information you edited inside rekordbox with what the file s
 
 | What | Status |
 | --- | --- |
-| Key from `TKEY` in MP3 and AIFF | **Reported**: the name is stored in rekordbox, and Mixed In Key's guide says Reload Tag brings the key in. |
-| Key from M4A | **Unconfirmed** which name: rekordbox 7 holds `----:com.apple.iTunes:KEY` and no `initialkey`. Euphoria writes both. |
-| Key from FLAC | **Unconfirmed**: rekordbox holds the name `INITIALKEY`, but whether its FLAC reader uses it is not known. |
-| Key and tempo from WAV | **Unconfirmed**, and doubtful: the manual lists only RIFF INFO for WAV. |
-| Tempo from `TBPM` and `tmpo` | **Unconfirmed**: rekordbox holds both names and Mixed In Key's guide says Reload Tag brings the tempo in, while a reply on Pioneer's forum says the tempo tag is not read. |
-| Whether `8A`, `Am` and `1m` in a tag are recognised as keys or shown as plain text | **Unconfirmed**. |
-| Comment from `COMM` | **Reported** by another tool vendor. |
+| Key from `TKEY` in MP3 (ID3v2.3 and 2.4) and AIFF | **Tested**: read when the track is added. |
+| Key from M4A | **Tested**: read from `----:com.apple.iTunes:KEY`. A file with only `initialkey` shows the text in the Alphanumeric display but no key in the Classic display, so rekordbox does not take it as a key. Euphoria writes both names. |
+| Key from FLAC | **Tested**: read from `INITIALKEY`. A file with only `KEY` shows no key. |
+| Title and comment from WAV | **Tested**: read from RIFF INFO, not from the ID3 chunk. |
+| Tempo from `TBPM`, `tmpo` and FLAC `BPM` | **Tested**: not read when a track is added; the BPM column stays empty until rekordbox analyzes the track. Use the rekordbox XML to hand rekordbox a tempo. |
+| `8A`, `Am` and `1m` in a key tag | **Tested**: all three are recognised as keys and shown in the display format you chose. **Display key information on the database** shows the text as written. |
+| Comment from `COMM`, M4A `©cmt`, FLAC `COMMENT` and AIFF | **Tested**: read when the track is added. |
 
-The rekordbox XML is the route Pioneer documents for handing rekordbox a key, a tempo with decimals and a comment, for any format. How rekordbox treats each value on import is **unconfirmed**, and the test kit below checks it. [Export to rekordbox](export-to-rekordbox.md) has the steps.
+The rekordbox XML is the route Pioneer documents for handing rekordbox a key, a tempo with decimals and a comment, for any format, and the only one that brings in a tempo. **Tested**: a new track imported from the XML gets its key, its tempo with decimals and its comment. For a track already in your collection, importing only a playlist changes nothing, while **Import To Collection** on the track replaces its key, tempo and comment. [Export to rekordbox](export-to-rekordbox.md) has the steps.
 
 ### Check it yourself in rekordbox
 
-The repository has a script that builds a test kit: a few short clips, each tagged one way, a rekordbox XML file, and a ten minute checklist with a table to fill in. It answers the open questions above for your rekordbox version.
+The repository has a script that builds a test kit: a few short clips, each tagged one way, a rekordbox XML file, and a ten minute checklist with a table to fill in. It answers the questions above for your rekordbox version.
 
 ```
 uv run bench/rekordbox_test_kit.py --clips bench/data/key/audio --output /tmp/euphoria-kit
