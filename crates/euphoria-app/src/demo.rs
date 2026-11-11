@@ -26,6 +26,10 @@ const FOLDERS: [&str; 5] = [
     "Downtempo",
     "Promos",
 ];
+
+/// The made up folder the made up tracks are in.
+pub(crate) const DEMO_FOLDER: &str = "/Demo";
+
 const EXTENSIONS: [&str; 4] = ["flac", "mp3", "aiff", "m4a"];
 
 /// One made up track: where it would be on disk and what analysis would

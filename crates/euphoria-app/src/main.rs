@@ -14,6 +14,7 @@ mod assets;
 mod camelot;
 mod demo;
 mod dock_icon;
+mod folder_tree;
 mod format;
 mod library;
 mod mixes;
@@ -30,6 +31,7 @@ mod ui_tests;
 mod views;
 mod waveforms;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError};
@@ -102,6 +104,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
     let mut session = Session::start(cache)
         .map_err(|error| format!("cannot start the analysis workers: {error}"))?;
     if let Some(count) = demo::requested_track_count() {
+        session.add_demo_folder(PathBuf::from(demo::DEMO_FOLDER));
         session.add_demo_tracks(demo::tracks(count));
     }
 
