@@ -42,8 +42,12 @@ pub struct WriteArguments {
     #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
     key_notation: KeyNotationChoice,
     /// Leave the tempo field alone.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "tempo")]
     no_tempo: bool,
+    /// Write the tempo even with the Serato preset, which leaves it out so
+    /// that Serato detects the tempo itself.
+    #[arg(long)]
+    tempo: bool,
     /// Where the key and energy label, such as "8A - Energy 7", goes. The
     /// text already in that field is kept.
     #[arg(long, value_enum, default_value_t, value_name = "WHERE")]
@@ -62,6 +66,8 @@ enum KeyNotationChoice {
     Camelot,
     /// Musical names such as Am.
     Musical,
+    /// Open Key codes such as 1m, as Traktor writes them.
+    OpenKey,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -86,29 +92,42 @@ enum PresetChoice {
     Serato,
     Traktor,
     EngineDj,
+    #[value(name = "virtualdj")]
+    VirtualDj,
+    Mixxx,
+}
+
+impl PresetChoice {
+    fn dj_software(self) -> DjSoftware {
+        match self {
+            PresetChoice::Generic => DjSoftware::Generic,
+            PresetChoice::Rekordbox => DjSoftware::Rekordbox,
+            PresetChoice::Serato => DjSoftware::Serato,
+            PresetChoice::Traktor => DjSoftware::Traktor,
+            PresetChoice::EngineDj => DjSoftware::EngineDj,
+            PresetChoice::VirtualDj => DjSoftware::VirtualDj,
+            PresetChoice::Mixxx => DjSoftware::Mixxx,
+        }
+    }
 }
 
 impl WriteArguments {
     fn options(&self) -> TagWriteOptions {
+        let preset = self.preset.dj_software();
         TagWriteOptions {
             key_notation: match self.key_notation {
                 KeyNotationChoice::Camelot => KeyNotation::Camelot,
                 KeyNotationChoice::Musical => KeyNotation::Musical,
+                KeyNotationChoice::OpenKey => KeyNotation::OpenKey,
             },
-            write_bpm: !self.no_tempo,
+            write_bpm: !self.no_tempo && (self.tempo || preset.writes_bpm_by_default()),
             label: match self.label {
                 LabelChoice::CommentStart => LabelPlacement::CommentStart,
                 LabelChoice::CommentEnd => LabelPlacement::CommentEnd,
                 LabelChoice::Grouping => LabelPlacement::Grouping,
                 LabelChoice::None => LabelPlacement::None,
             },
-            preset: match self.preset {
-                PresetChoice::Generic => DjSoftware::Generic,
-                PresetChoice::Rekordbox => DjSoftware::Rekordbox,
-                PresetChoice::Serato => DjSoftware::Serato,
-                PresetChoice::Traktor => DjSoftware::Traktor,
-                PresetChoice::EngineDj => DjSoftware::EngineDj,
-            },
+            preset,
         }
     }
 }
@@ -288,6 +307,35 @@ fn undo() -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_preset_name_selects_its_own_program() {
+        let expected = [
+            ("generic", DjSoftware::Generic),
+            ("rekordbox", DjSoftware::Rekordbox),
+            ("serato", DjSoftware::Serato),
+            ("traktor", DjSoftware::Traktor),
+            ("engine-dj", DjSoftware::EngineDj),
+            ("virtualdj", DjSoftware::VirtualDj),
+            ("mixxx", DjSoftware::Mixxx),
+        ];
+        for (name, program) in expected {
+            let choice = PresetChoice::from_str(name, false).unwrap();
+            assert_eq!(choice.dj_software(), program, "{name}");
+        }
+        let names: Vec<String> = PresetChoice::value_variants()
+            .iter()
+            .filter_map(|choice| choice.to_possible_value())
+            .map(|value| value.get_name().to_string())
+            .collect();
+        assert_eq!(names.len(), expected.len());
+        for program in DjSoftware::ALL {
+            assert!(
+                expected.iter().any(|(_, mapped)| *mapped == program),
+                "{program:?} has no preset name"
+            );
+        }
+    }
 
     #[test]
     fn only_a_clear_yes_confirms() {

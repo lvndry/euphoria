@@ -204,10 +204,11 @@ To put the old tags back: euphoria tags undo
 | --- | --- |
 | `--dry-run` | Show the preview and write nothing. Cannot be combined with `--yes`. |
 | `-y`, `--yes` | Write without asking for confirmation. |
-| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. Applies to the key field and to the label. |
+| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. Applies to the key field and to the label. |
 | `--no-tempo` | Leave the tempo field alone. |
+| `--tempo` | Write the tempo with the `serato` preset, which leaves it out otherwise. Cannot be combined with `--no-tempo`. |
 | `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start` (the default), `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. |
-| `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor` or `engine-dj`. |
+| `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |

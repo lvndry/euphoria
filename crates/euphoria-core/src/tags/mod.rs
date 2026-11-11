@@ -139,6 +139,19 @@ pub enum KeyNotation {
     Camelot,
     /// Short musical names such as "Am".
     Musical,
+    /// Open Key codes such as "1m", the notation Traktor uses for its own
+    /// keys.
+    OpenKey,
+}
+
+impl KeyNotation {
+    fn spell(self, key: Key) -> String {
+        match self {
+            KeyNotation::Camelot => key.camelot(),
+            KeyNotation::Musical => key.short_name(),
+            KeyNotation::OpenKey => key.open_key(),
+        }
+    }
 }
 
 /// What an analysis found, as far as tags record it.
@@ -333,15 +346,19 @@ pub fn plan_write(
     }
     let file = TagFile::load(path, Purpose::Rewriting)?;
     let format = file.format();
-    let mut wanted: Vec<(&str, String)> = Vec::new();
+    let preset = options.preset;
+    // Each field to write, its value, and whether the value is a tempo.
+    let mut wanted: Vec<(&str, String, bool)> = Vec::new();
 
     if let Some(key) = values.key {
-        let text = match options.key_notation {
-            KeyNotation::Camelot => key.camelot(),
-            KeyNotation::Musical => key.short_name(),
-        };
-        for field in options.preset.key_fields(format) {
-            wanted.push((field, text.clone()));
+        let text = options.key_notation.spell(key);
+        for field in preset.key_fields(format) {
+            wanted.push((field, text.clone(), false));
+        }
+        for field in preset.key_fields_if_present(format) {
+            if file.get(field)?.is_some() {
+                wanted.push((field, text.clone(), false));
+            }
         }
     }
 
@@ -349,16 +366,23 @@ pub fn plan_write(
         if !tempo.is_finite() || tempo <= 0.0 {
             return Err(refuse(format!("a tempo of {tempo} cannot be written")));
         }
-        for field in options.preset.bpm_fields(format) {
-            let fractional = options.preset.writes_fractional_bpm() && *field != MP4_TEMPO;
-            wanted.push((field, format_bpm(tempo, fractional)));
+        let text = |field: &str| {
+            let fractional = preset.writes_fractional_bpm() && field != MP4_TEMPO;
+            format_bpm(tempo, fractional)
+        };
+        for field in preset.bpm_fields(format) {
+            wanted.push((field, text(field), true));
+        }
+        for field in preset.bpm_fields_if_present(format) {
+            if file.get(field)?.is_some() {
+                wanted.push((field, text(field), true));
+            }
         }
     }
 
     let mut changes = Vec::new();
-    for (field, new) in wanted {
+    for (field, new, is_bpm) in wanted {
         let current = file.get(field)?;
-        let is_bpm = options.preset.bpm_fields(format).contains(&field);
         let matches = current
             .as_deref()
             .is_some_and(|current| current == new || (is_bpm && same_bpm(current, &new)));
