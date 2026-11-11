@@ -89,7 +89,7 @@ $ euphoria tags write ~/Music/DJ
 Write these changes to 340 files? [y/N]
 ```
 
-Answer `y` to write. Any other answer writes nothing.
+On a terminal, the current values are dimmed and the new ones are green. Answer `y` to write. Any other answer writes nothing.
 
 - `--dry-run` stops after the preview. Nothing is written and nothing is asked.
 - `--yes` writes without asking, for use in scripts.

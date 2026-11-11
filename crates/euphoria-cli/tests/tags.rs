@@ -190,7 +190,7 @@ fn without_a_terminal_and_without_yes_nothing_is_written() {
     assert_eq!(log_count(&euphoria), 0);
     let report = standard_error(&output);
     assert!(
-        report.contains("Nothing was written: standard input is not a terminal"),
+        report.contains("error: nothing was written: standard input is not a terminal"),
         "{report}"
     );
     assert!(report.contains("--yes"), "{report}");

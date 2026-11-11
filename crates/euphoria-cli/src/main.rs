@@ -6,18 +6,23 @@
 mod batch;
 mod collection;
 mod export;
+mod help;
 mod output;
 mod playlists;
+mod stages;
+mod style;
 mod tag_edit;
 mod tags;
 mod terminal;
+mod view;
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use euphoria_core::quality::QualityVerdict;
 use euphoria_core::{
     CachedBatch, EuphoriaError, FileResult, TrackAnalysis, clear_cache, default_cache_path,
     find_audio_files,
@@ -25,69 +30,158 @@ use euphoria_core::{
 
 use crate::batch::AnalysisOptions;
 use crate::export::ExportTarget;
+use crate::output::Narrowing;
+use crate::style::{ColorChoice, Theme};
 use crate::tags::TagsCommand;
+use crate::view::{KeyNotationChoice, ViewOptions};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "euphoria",
     version,
-    about = "Find the key and BPM of every track in your music collection"
+    about = "Find the key, tempo, energy and sound quality of your music, write them into \
+             your tags, and export them to rekordbox.",
+    after_help = help::main_examples(),
 )]
 struct Cli {
+    /// When to use colour: auto colours a terminal and respects NO_COLOR
+    /// and CLICOLOR_FORCE.
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value_t,
+        value_name = "WHEN",
+        display_order = 1000
+    )]
+    color: ColorChoice,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Detect the key, tempo and energy of audio files and folders.
-    Analyze {
-        /// Audio files, or folders to search recursively.
-        #[arg(required = true)]
-        paths: Vec<PathBuf>,
-        /// Print JSON instead of a table.
-        #[arg(long)]
-        json: bool,
-        /// List only the tracks whose key or tempo is rated low confidence,
-        /// and the files that could not be analyzed.
-        #[arg(long)]
-        needs_review: bool,
-        #[command(flatten)]
-        analysis: AnalysisOptions,
-    },
-    /// Analyze audio files and write the results for other DJ software.
-    Export {
-        #[command(subcommand)]
-        target: ExportTarget,
-    },
+    /// Show the key, tempo, energy and sound quality of tracks.
+    #[command(
+        long_about = "Show the key, tempo, energy and sound quality of tracks.\n\n\
+                      On a terminal, a folder is shown as a table that fits the window and \
+                      one file is shown in detail. Into a pipe or a file, the output is a \
+                      plain table with fixed columns, or JSON with --json. Results are \
+                      saved, so a second run over the same files is instant.",
+        after_help = help::analyze_examples(),
+    )]
+    Analyze(AnalyzeArguments),
     /// List the playlists built in the desktop app.
     Playlists,
-    /// Write the analysis into the tags of audio files, or undo that.
+    /// Write the analysis into the tags of your files, or undo the last write.
+    #[command(after_help = help::tags_examples())]
     Tags {
         #[command(subcommand)]
         command: TagsCommand,
     },
-    /// Manage the cache of analysis results.
+    /// Write the analysis for other DJ software, such as a rekordbox XML file.
+    #[command(after_help = help::export_examples())]
+    Export {
+        #[command(subcommand)]
+        target: ExportTarget,
+    },
+    /// Show where the saved analyses are, or forget them.
+    #[command(after_help = help::cache_examples())]
     Cache {
         #[command(subcommand)]
         command: CacheCommand,
     },
 }
 
+#[derive(Debug, Args)]
+struct AnalyzeArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required = true)]
+    paths: Vec<PathBuf>,
+    /// Print JSON instead of a table.
+    #[arg(long, conflicts_with = "detail")]
+    json: bool,
+    /// Show every track in detail: the runner up key, the half or double
+    /// tempo, the reason for the sound quality and more. One file on a
+    /// terminal is always shown this way.
+    #[arg(long)]
+    detail: bool,
+    /// List only the tracks whose key or tempo is rated low confidence,
+    /// and the files that could not be analyzed.
+    #[arg(long)]
+    needs_review: bool,
+    /// List only the tracks with one of these sound qualities, separated by
+    /// commas, such as weak,reencoded to find the files to replace.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "QUALITY")]
+    quality: Vec<QualityChoice>,
+    /// How keys are shown in the table and the detailed view.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: KeyNotationChoice,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+/// A sound quality to list with `--quality`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum QualityChoice {
+    /// Lossless files with a full spectrum.
+    Lossless,
+    /// High bit rate files with the spectrum that bit rate keeps.
+    Good,
+    /// Medium bit rate files, fine in most rooms.
+    Acceptable,
+    /// Low bit rate files, whose top end suffers on a big system.
+    #[value(alias = "weak-on-a-big-system")]
+    Weak,
+    /// Files whose sound stops where a lower quality file's would.
+    #[value(alias = "likely-reencoded", alias = "re-encoded")]
+    Reencoded,
+}
+
+impl QualityChoice {
+    fn verdict(self) -> QualityVerdict {
+        match self {
+            QualityChoice::Lossless => QualityVerdict::Lossless,
+            QualityChoice::Good => QualityVerdict::Good,
+            QualityChoice::Acceptable => QualityVerdict::Acceptable,
+            QualityChoice::Weak => QualityVerdict::WeakOnABigSystem,
+            QualityChoice::Reencoded => QualityVerdict::LikelyReencoded,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum CacheCommand {
     /// Print where the cache database is stored.
     Path,
-    /// Forget every cached result, so every track is analyzed again.
+    /// Forget every saved analysis, so every track is analyzed again.
     Clear,
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let arguments: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let choice = style::choice_in_arguments(&arguments);
+    style::init(choice);
+    let parser_colour = match choice {
+        ColorChoice::Auto => clap::ColorChoice::Auto,
+        ColorChoice::Always => clap::ColorChoice::Always,
+        ColorChoice::Never => clap::ColorChoice::Never,
+    };
+    let mut command = Cli::command().color(parser_colour);
+    let cli = command
+        .try_get_matches_from_mut(arguments)
+        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches))
+        .unwrap_or_else(|error| error.format(&mut command).exit());
+
+    match run(cli) {
         Ok(exit_code) => exit_code,
         Err(error) if is_broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {}", terminal::Printable(format!("{error:#}")));
+            let _ = output::write_error(
+                &mut std::io::stderr().lock(),
+                &Theme::stderr(),
+                terminal::Printable(format!("{error:#}")),
+            );
             ExitCode::FAILURE
         }
     }
@@ -106,12 +200,7 @@ fn is_broken_pipe(error: &anyhow::Error) -> bool {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
-        Command::Analyze {
-            paths,
-            json,
-            needs_review,
-            analysis,
-        } => analyze(&paths, json, needs_review, &analysis),
+        Command::Analyze(arguments) => analyze(&arguments),
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
@@ -134,15 +223,24 @@ fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn analyze(
-    paths: &[PathBuf],
-    json: bool,
-    needs_review: bool,
-    analysis: &AnalysisOptions,
-) -> Result<ExitCode> {
-    let audio_files = find_audio_files(paths).map_err(with_causes)?;
+/// How the results of `analyze` are shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    Json,
+    /// The table with fixed columns, for pipes and files.
+    PlainTable,
+    /// The table that fits the terminal.
+    Table,
+    /// A detailed view per track.
+    Detail,
+}
+
+fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
+    let analysis = &arguments.analysis;
+    let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let standard_error_theme = Theme::stderr();
     if audio_files.is_empty() {
-        eprintln!("No audio files found.");
+        output::write_no_audio_files(&mut std::io::stderr().lock(), &standard_error_theme)?;
         return Ok(ExitCode::SUCCESS);
     }
     let CachedBatch {
@@ -153,46 +251,139 @@ fn analyze(
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &corrections);
     let analyzed_count = results.len();
-    let results: Vec<FileResult> = if needs_review {
-        results
-            .into_iter()
-            .filter(|result| {
-                result
-                    .outcome
+
+    let verdicts: Vec<QualityVerdict> = arguments
+        .quality
+        .iter()
+        .map(|choice| choice.verdict())
+        .collect();
+    let is_listed = |analysis: &TrackAnalysis| {
+        (!arguments.needs_review || analysis.needs_review())
+            && (verdicts.is_empty()
+                || analysis
+                    .quality
                     .as_ref()
-                    .map_or(true, TrackAnalysis::needs_review)
-            })
-            .collect()
-    } else {
-        results
+                    .is_some_and(|quality| verdicts.contains(&quality.verdict)))
     };
-
-    let mut standard_output = std::io::stdout().lock();
-    if json {
-        output::write_json(
-            &mut standard_output,
-            &results,
-            analysis.tempo_range(),
-            &corrections,
-        )?;
-    } else {
-        output::write_table(&mut standard_output, &results, &corrections)?;
-    }
-    standard_output.flush()?;
-    if !json {
-        output::write_quality_summary(&mut std::io::stderr().lock(), &results)?;
-    }
-    if cached_count > 0 {
-        output::write_cache_summary(&mut std::io::stderr().lock(), cached_count, analyzed_count)?;
-    }
-
+    let narrowing = Narrowing {
+        needs_review: arguments.needs_review,
+        verdicts: verdicts.clone(),
+        shown_count: results
+            .iter()
+            .filter(|result| result.outcome.as_ref().is_ok_and(is_listed))
+            .count(),
+    };
     let failure_count = results
         .iter()
         .filter(|result| result.outcome.is_err())
         .count();
-    if failure_count > 0 && !json {
-        output::write_failures(&mut std::io::stderr().lock(), &results)?;
+
+    let stdout_is_terminal = std::io::stdout().is_terminal();
+    let layout = if arguments.json {
+        Layout::Json
+    } else if arguments.detail || (stdout_is_terminal && audio_files.len() == 1) {
+        Layout::Detail
+    } else if stdout_is_terminal {
+        Layout::Table
+    } else {
+        Layout::PlainTable
+    };
+    let view_options = ViewOptions {
+        notation: arguments.key_notation,
+        tempo_range: analysis.tempo_range(),
+        width: if stdout_is_terminal {
+            view::terminal_width()
+        } else {
+            view::DEFAULT_WIDTH
+        },
+    };
+
+    // Written before the results are narrowed, as it speaks of all of them,
+    // and shown after them.
+    let mut report = Vec::new();
+    // On a terminal, blocks are set apart by a blank line, once something
+    // is above them.
+    let mut needs_space = layout != Layout::PlainTable && narrowing.shown_count > 0;
+    if layout != Layout::Json {
+        if failure_count > 0 {
+            if needs_space {
+                writeln!(report)?;
+            }
+            output::write_failures(&mut report, &standard_error_theme, &results)?;
+            needs_space = layout != Layout::PlainTable;
+        }
+        let one_track_in_detail = layout == Layout::Detail && results.len() == 1;
+        if needs_space && (!one_track_in_detail || cached_count > 0) {
+            writeln!(report)?;
+        }
+        if !one_track_in_detail {
+            output::write_analysis_summary(
+                &mut report,
+                &standard_error_theme,
+                &results,
+                &narrowing,
+            )?;
+        }
     }
+    if cached_count > 0 {
+        output::write_cache_summary(&mut report, cached_count, analyzed_count)?;
+    }
+
+    let listed_results: Vec<FileResult> = results
+        .into_iter()
+        .filter(|result| result.outcome.as_ref().map_or(true, is_listed))
+        .collect();
+    let standard_output_theme = Theme::stdout();
+    let mut standard_output = std::io::stdout().lock();
+    match layout {
+        Layout::Json => output::write_json(
+            &mut standard_output,
+            &listed_results,
+            analysis.tempo_range(),
+            &corrections,
+        )?,
+        Layout::PlainTable => {
+            output::write_plain_table(&mut standard_output, &listed_results, &corrections)?
+        }
+        Layout::Table => view::write_table(
+            &mut standard_output,
+            &standard_output_theme,
+            &listed_results,
+            &view_options,
+            &corrections,
+        )?,
+        Layout::Detail => {
+            let mut first = true;
+            for result in &listed_results {
+                if let Ok(track) = &result.outcome {
+                    if !first {
+                        writeln!(standard_output)?;
+                    }
+                    first = false;
+                    view::write_detail(
+                        &mut standard_output,
+                        &standard_output_theme,
+                        &result.path,
+                        track,
+                        &view_options,
+                        corrections
+                            .get(&result.path)
+                            .and_then(|looked_up| looked_up.as_ref().ok()),
+                    )?;
+                }
+            }
+        }
+    }
+    standard_output.flush()?;
+    drop(standard_output);
+
+    let report = String::from_utf8_lossy(&report);
+    let report = match view::standard_error_width() {
+        Some(width) if std::io::stderr().is_terminal() => view::wrap_lines(&report, width),
+        _ => report.into_owned(),
+    };
+    std::io::stderr().lock().write_all(report.as_bytes())?;
+
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
@@ -227,5 +418,31 @@ mod tests {
         let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
         assert!(!is_broken_pipe(&anyhow::Error::from(denied)));
         assert!(!is_broken_pipe(&anyhow::anyhow!("no audio files")));
+    }
+
+    #[test]
+    fn the_command_line_is_well_formed() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn every_quality_choice_names_its_own_verdict() {
+        let verdicts: Vec<QualityVerdict> = QualityChoice::value_variants()
+            .iter()
+            .map(|choice| choice.verdict())
+            .collect();
+        for verdict in [
+            QualityVerdict::Lossless,
+            QualityVerdict::Good,
+            QualityVerdict::Acceptable,
+            QualityVerdict::WeakOnABigSystem,
+            QualityVerdict::LikelyReencoded,
+        ] {
+            assert!(verdicts.contains(&verdict), "{verdict:?}");
+        }
+        assert_eq!(
+            QualityChoice::from_str("weak-on-a-big-system", false).unwrap(),
+            QualityChoice::Weak
+        );
     }
 }

@@ -17,6 +17,7 @@ use euphoria_core::tags::{
 use euphoria_core::{CachedAnalyzer, TrackAnalysis, default_cache_path, find_audio_files};
 
 use crate::batch::open_cache;
+use crate::style::Theme;
 use crate::tags::{Decision, Failure, decide, report_nothing_written};
 use crate::{output, with_causes};
 
@@ -175,13 +176,15 @@ pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
     }
 
     let mut standard_output = std::io::stdout().lock();
-    output::write_tag_preview(&mut standard_output, &plans)?;
+    output::write_tag_preview(&mut standard_output, &Theme::stdout(), &plans)?;
     standard_output.flush()?;
     drop(standard_output);
+    let theme = Theme::stderr();
     let mut standard_error = std::io::stderr().lock();
-    output::write_tag_failures(&mut standard_error, &failures)?;
+    output::write_tag_failures(&mut standard_error, &theme, &failures)?;
     output::write_tag_plan_summary(
         &mut standard_error,
+        &theme,
         plans.len(),
         unchanged_count,
         failures.len(),
@@ -191,11 +194,12 @@ pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
         plans.len(),
         arguments.dry_run,
         arguments.yes,
+        &theme,
         &mut standard_error,
     )?;
     let mut failed = !failures.is_empty();
     if !matches!(decision, Decision::Write) {
-        failed |= report_nothing_written(decision, &mut standard_error)?;
+        failed |= report_nothing_written(decision, &theme, &mut standard_error)?;
         return Ok(exit_code(failed));
     }
 
@@ -238,13 +242,14 @@ pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
         if let (true, Some(cache), Some(analysis)) = (written, &cache, analysis)
             && let Err(error) = cache.record_retagged_file(plan.path(), analysis)
         {
-            output::write_cache_record_warning(&mut standard_error, &error)?;
+            output::write_cache_record_warning(&mut standard_error, &theme, &error)?;
         }
     }
-    output::write_tag_failures(&mut standard_error, &write_failures)?;
-    output::write_unrecorded_tag_writes(&mut standard_error, &unrecorded)?;
+    output::write_tag_failures(&mut standard_error, &theme, &write_failures)?;
+    output::write_unrecorded_tag_writes(&mut standard_error, &theme, &unrecorded)?;
     output::write_tag_write_summary(
         &mut standard_error,
+        &theme,
         plans.len() - write_failures.len(),
         write_failures.len(),
     )?;

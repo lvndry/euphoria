@@ -19,11 +19,15 @@ use euphoria_core::{
 };
 
 use crate::batch::{self, AnalysisOptions};
+use crate::style::Theme;
+use crate::view::KeyNotationChoice;
 use crate::{output, with_causes};
 
 #[derive(Debug, Subcommand)]
 pub enum TagsCommand {
-    /// Write the key, tempo and energy into the tags of audio files.
+    /// Write the key, tempo and energy into the tags of audio files, after
+    /// showing what would change.
+    #[command(after_help = crate::help::tags_examples())]
     Write(WriteArguments),
     /// Edit tag fields by hand, such as the genre or the album, across
     /// many files at once.
@@ -63,17 +67,6 @@ pub struct WriteArguments {
     preset: PresetChoice,
     #[command(flatten)]
     analysis: AnalysisOptions,
-}
-
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-enum KeyNotationChoice {
-    /// Camelot codes such as 8A.
-    #[default]
-    Camelot,
-    /// Musical names such as Am.
-    Musical,
-    /// Open Key codes such as 1m, as Traktor writes them.
-    OpenKey,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -154,8 +147,9 @@ pub struct Failure {
 
 fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let theme = Theme::stderr();
     if audio_files.is_empty() {
-        eprintln!("No audio files found.");
+        output::write_no_audio_files(&mut std::io::stderr().lock(), &theme)?;
         return Ok(ExitCode::SUCCESS);
     }
     // Before the analysis, which can take hours, and before anything is
@@ -213,13 +207,14 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     }
 
     let mut standard_output = std::io::stdout().lock();
-    output::write_tag_preview(&mut standard_output, &plans)?;
+    output::write_tag_preview(&mut standard_output, &Theme::stdout(), &plans)?;
     standard_output.flush()?;
     drop(standard_output);
     let mut standard_error = std::io::stderr().lock();
-    output::write_tag_failures(&mut standard_error, &failures)?;
+    output::write_tag_failures(&mut standard_error, &theme, &failures)?;
     output::write_tag_plan_summary(
         &mut standard_error,
+        &theme,
         plans.len(),
         unchanged_count,
         failures.len(),
@@ -229,12 +224,13 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         plans.len(),
         arguments.dry_run,
         arguments.yes,
+        &theme,
         &mut standard_error,
     )?;
     let mut failed = !failures.is_empty();
     match decision {
         Decision::Stop | Decision::CannotAsk => {
-            failed |= report_nothing_written(decision, &mut standard_error)?;
+            failed |= report_nothing_written(decision, &theme, &mut standard_error)?;
         }
         Decision::Write => {
             let log_directory = default_write_log_directory().map_err(with_causes)?;
@@ -260,13 +256,14 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                         .try_for_each(|(path, analysis)| cache.record_retagged_file(path, analysis))
                 });
                 if let Err(error) = recorded {
-                    output::write_cache_record_warning(&mut standard_error, &error)?;
+                    output::write_cache_record_warning(&mut standard_error, &theme, &error)?;
                 }
             }
-            output::write_tag_failures(&mut standard_error, &write_failures)?;
-            output::write_unrecorded_tag_writes(&mut standard_error, &unrecorded)?;
+            output::write_tag_failures(&mut standard_error, &theme, &write_failures)?;
+            output::write_unrecorded_tag_writes(&mut standard_error, &theme, &unrecorded)?;
             output::write_tag_write_summary(
                 &mut standard_error,
+                &theme,
                 plans.len() - write_failures.len(),
                 write_failures.len(),
             )?;
@@ -298,6 +295,7 @@ pub(crate) fn decide(
     plan_count: usize,
     dry_run: bool,
     yes: bool,
+    theme: &Theme,
     standard_error: &mut impl Write,
 ) -> Result<Decision> {
     Ok(if plan_count == 0 || dry_run {
@@ -309,8 +307,11 @@ pub(crate) fn decide(
     } else {
         write!(
             standard_error,
-            "Write these changes to {}? [y/N] ",
-            output::counted_files(plan_count)
+            "{} ",
+            theme.bold(format_args!(
+                "Write these changes to {}? [y/N]",
+                output::counted_files(plan_count)
+            ))
         )?;
         standard_error.flush()?;
         if is_yes(&mut std::io::stdin().lock())? {
@@ -324,15 +325,21 @@ pub(crate) fn decide(
 /// Says why nothing was written. Returns true when that is a failure.
 pub(crate) fn report_nothing_written(
     decision: Decision,
+    theme: &Theme,
     standard_error: &mut impl Write,
 ) -> Result<bool> {
     match decision {
         Decision::CannotAsk => {
-            writeln!(
+            output::write_error(
                 standard_error,
-                "Nothing was written: standard input is not a terminal, so there is nobody to \
-                 confirm the changes. Run again with --yes to write them, or with --dry-run to \
-                 only preview them."
+                theme,
+                "nothing was written: standard input is not a terminal, so there is nobody to \
+                 confirm the changes.",
+            )?;
+            output::write_hint(
+                standard_error,
+                theme,
+                "Run again with --yes to write them, or with --dry-run to only preview them.",
             )?;
             Ok(true)
         }
@@ -386,9 +393,11 @@ fn undo() -> Result<ExitCode> {
         .map(|(path, error)| Failure { path, error })
         .collect();
     let mut standard_error = std::io::stderr().lock();
-    output::write_tag_failures(&mut standard_error, &failures)?;
+    let theme = Theme::stderr();
+    output::write_tag_failures(&mut standard_error, &theme, &failures)?;
     output::write_tag_undo_summary(
         &mut standard_error,
+        &theme,
         undone.restored.len(),
         undone.untouched.len(),
         failures.len(),

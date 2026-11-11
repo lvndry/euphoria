@@ -23,6 +23,7 @@ use euphoria_core::{
 use crate::batch::{self, AnalysisOptions};
 use crate::collection::{self, CuedTracks};
 use crate::playlists::find_playlist;
+use crate::style::Theme;
 use crate::terminal::Printable;
 use crate::{output, with_causes};
 
@@ -32,7 +33,9 @@ const FALLBACK_PLAYLIST_NAME: &str = "Euphoria";
 
 #[derive(Debug, Subcommand)]
 pub enum ExportTarget {
-    /// Write a rekordbox XML file with the key and tempo of every track.
+    /// Write a rekordbox XML file with the key and tempo of every track, and
+    /// a playlist per folder.
+    #[command(after_help = crate::help::export_examples())]
     Rekordbox(RekordboxArguments),
     /// Write a playlist built in the desktop app as an M3U8 file, which
     /// nearly every DJ and music program can open.
@@ -240,15 +243,13 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     };
 
     let mut standard_error = std::io::stderr().lock();
-    if !skipped.is_empty() {
-        output::write_skipped_tracks(&mut standard_error, &skipped)?;
-    }
+    let theme = Theme::stderr();
+    output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
     written?;
-    if !unread_tags.is_empty() {
-        output::write_unread_tags(&mut standard_error, &unread_tags)?;
-    }
+    output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
     output::write_export_summary(
         &mut standard_error,
+        &theme,
         &output::ExportSummary {
             track_count: library.tracks.len(),
             playlist_count: (!arguments.no_playlists).then(|| playlist_count(&library.playlists)),
@@ -278,7 +279,10 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             output::write_unmatched_cued_tracks(&mut standard_error, &cued_tracks.unmatched)?;
         }
     }
-    output::write_rekordbox_import_steps(&mut standard_error)?;
+    if !skipped.is_empty() {
+        output::write_skipped_summary(&mut standard_error, skipped.len())?;
+    }
+    output::write_rekordbox_import_steps(&mut standard_error, &theme)?;
 
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
