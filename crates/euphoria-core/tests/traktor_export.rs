@@ -133,7 +133,7 @@ fn parse_back(document: &str) -> (Vec<ReadTrack>, Vec<String>) {
     let collection = root
         .children()
         .find(|node| node.has_tag_name("COLLECTION"))
-        .unwrap();
+        .expect("the export has the expected element or value");
     let entries: Vec<_> = collection
         .children()
         .filter(|node| node.has_tag_name("ENTRY"))
@@ -151,47 +151,71 @@ fn parse_back(document: &str) -> (Vec<ReadTrack>, Vec<String>) {
     let tracks = entries
         .iter()
         .map(|entry| {
-            let location = child(*entry, "LOCATION").unwrap();
-            let info = child(*entry, "INFO").unwrap();
+            let location =
+                child(*entry, "LOCATION").expect("the export has the expected element or value");
+            let info = child(*entry, "INFO").expect("the export has the expected element or value");
             let cues: Vec<_> = entry
                 .children()
                 .filter(|node| node.has_tag_name("CUE_V2"))
                 .collect();
             let start = |cue: &roxmltree::Node<'_, '_>| {
-                micro(cue.attribute("START").unwrap().parse::<f64>().unwrap() / 1000.0)
+                micro(
+                    cue.attribute("START")
+                        .expect("START is present")
+                        .parse::<f64>()
+                        .expect("a numeric attribute")
+                        / 1000.0,
+                )
             };
             ReadTrack {
                 primary_key: format!(
                     "{}{}{}",
-                    location.attribute("VOLUME").unwrap(),
-                    location.attribute("DIR").unwrap(),
-                    location.attribute("FILE").unwrap()
+                    location.attribute("VOLUME").expect("VOLUME is present"),
+                    location.attribute("DIR").expect("DIR is present"),
+                    location.attribute("FILE").expect("FILE is present")
                 ),
                 title: entry.attribute("TITLE").map(str::to_string),
                 artist: entry.attribute("ARTIST").map(str::to_string),
                 playtime_milliseconds: (info
                     .attribute("PLAYTIME_FLOAT")
-                    .unwrap()
+                    .expect("the export has the expected element or value")
                     .parse::<f64>()
-                    .unwrap()
+                    .expect("the export has the expected element or value")
                     * 1000.0)
                     .round() as u64,
                 key_text: info.attribute("KEY").map(str::to_string),
                 musical_key: child(*entry, "MUSICAL_KEY").map(|node| {
-                    key_from_musical_key_value(node.attribute("VALUE").unwrap().parse().unwrap())
-                        .unwrap()
+                    key_from_musical_key_value(
+                        node.attribute("VALUE")
+                            .expect("VALUE is present")
+                            .parse()
+                            .expect("a valid numeric attribute"),
+                    )
+                    .expect("the export has the expected element or value")
                 }),
-                bpm_micro: child(*entry, "TEMPO")
-                    .map(|node| micro(node.attribute("BPM").unwrap().parse().unwrap())),
+                bpm_micro: child(*entry, "TEMPO").map(|node| {
+                    micro(
+                        node.attribute("BPM")
+                            .expect("BPM is present")
+                            .parse()
+                            .expect("a valid numeric attribute"),
+                    )
+                }),
                 comment: info.attribute("COMMENT").map(str::to_string),
                 grid: cues
                     .iter()
                     .find(|cue| cue.attribute("TYPE") == Some("4"))
                     .map(|cue| {
-                        let grid = child(*cue, "GRID").unwrap();
+                        let grid = child(*cue, "GRID")
+                            .expect("the export has the expected element or value");
                         (
                             start(cue),
-                            micro(grid.attribute("BPM").unwrap().parse().unwrap()),
+                            micro(
+                                grid.attribute("BPM")
+                                    .expect("BPM is present")
+                                    .parse()
+                                    .expect("a valid numeric attribute"),
+                            ),
                         )
                     }),
                 cues: cues
@@ -199,9 +223,12 @@ fn parse_back(document: &str) -> (Vec<ReadTrack>, Vec<String>) {
                     .filter(|cue| cue.attribute("TYPE") == Some("0"))
                     .map(|cue| {
                         (
-                            cue.attribute("NAME").unwrap().to_string(),
+                            cue.attribute("NAME").expect("NAME is present").to_string(),
                             start(cue),
-                            cue.attribute("HOTCUE").unwrap().parse().unwrap(),
+                            cue.attribute("HOTCUE")
+                                .expect("HOTCUE is present")
+                                .parse()
+                                .expect("a valid numeric attribute"),
                         )
                     })
                     .collect(),
@@ -211,14 +238,14 @@ fn parse_back(document: &str) -> (Vec<ReadTrack>, Vec<String>) {
 
     let mut playlists = Vec::new();
     fn walk(node: roxmltree::Node<'_, '_>, prefix: &str, playlists: &mut Vec<String>) {
-        let name = node.attribute("NAME").unwrap();
+        let name = node.attribute("NAME").expect("NAME is present");
         let path = format!("{prefix}/{name}");
         match node.attribute("TYPE") {
             Some("FOLDER") => {
                 let subnodes = node
                     .children()
                     .find(|child| child.has_tag_name("SUBNODES"))
-                    .unwrap();
+                    .expect("the export has the expected element or value");
                 let children: Vec<_> = subnodes
                     .children()
                     .filter(|child| child.has_tag_name("NODE"))
@@ -236,15 +263,18 @@ fn parse_back(document: &str) -> (Vec<ReadTrack>, Vec<String>) {
                 let playlist = node
                     .children()
                     .find(|child| child.has_tag_name("PLAYLIST"))
-                    .unwrap();
+                    .expect("the export has the expected element or value");
                 assert_eq!(playlist.attribute("TYPE"), Some("LIST"));
-                assert_eq!(playlist.attribute("UUID").unwrap().len(), 32);
+                assert_eq!(
+                    playlist.attribute("UUID").expect("UUID is present").len(),
+                    32
+                );
                 let keys: Vec<&str> = playlist
                     .descendants()
                     .filter(|child| child.has_tag_name("PRIMARYKEY"))
                     .map(|key| {
                         assert_eq!(key.attribute("TYPE"), Some("TRACK"));
-                        key.attribute("KEY").unwrap()
+                        key.attribute("KEY").expect("KEY is present")
                     })
                     .collect();
                 assert_eq!(
@@ -259,10 +289,10 @@ fn parse_back(document: &str) -> (Vec<ReadTrack>, Vec<String>) {
     let root_node = root
         .children()
         .find(|node| node.has_tag_name("PLAYLISTS"))
-        .unwrap()
+        .expect("the export has the expected element or value")
         .children()
         .find(|node| node.has_tag_name("NODE"))
-        .unwrap();
+        .expect("the export has the expected element or value");
     assert_eq!(root_node.attribute("NAME"), Some("$ROOT"));
     walk(root_node, "", &mut playlists);
     (tracks, playlists)
@@ -356,6 +386,25 @@ fn every_notation_is_written_in_key_text_and_the_key_column_is_the_same() {
         let (tracks, _) = parse_back(&export(&library, &options));
         assert_eq!(tracks[0].key_text.as_deref(), Some(text));
         assert_eq!(tracks[0].musical_key, Some(Key::new(9, Mode::Minor)));
+    }
+}
+
+#[test]
+fn a_small_tempo_that_stays_positive_at_six_decimals_is_kept() {
+    let track = Track {
+        bpm: Some(0.000_001),
+        first_beat: Some(Duration::from_millis(100)),
+        ..Track::new("/a.mp3", Duration::from_secs(10))
+    };
+    let text = export(&one_track(track), &options());
+    let document =
+        roxmltree::Document::parse(&text).expect("the export has the expected element or value");
+    for name in ["TEMPO", "GRID"] {
+        let element = document
+            .descendants()
+            .find(|node| node.has_tag_name(name))
+            .expect("the export has the expected element or value");
+        assert_eq!(element.attribute("BPM"), Some("0.000001"));
     }
 }
 
@@ -456,7 +505,8 @@ fn the_export_uses_only_the_elements_and_attributes_of_a_real_collection() {
         })
         .collect();
     let document = export(&library(), &options());
-    let document = roxmltree::Document::parse(&document).unwrap();
+    let document = roxmltree::Document::parse(&document)
+        .expect("the export has the expected element or value");
     for node in document.descendants().filter(|node| node.is_element()) {
         let parent = node
             .parent_element()
@@ -510,6 +560,16 @@ fn libraries_traktor_cannot_hold_are_refused() {
     };
     assert_eq!(refusal(&one_track(no_tempo)).1, ExportProblem::InvalidTempo);
 
+    let rounds_to_zero = Track {
+        bpm: Some(0.000_000_1),
+        first_beat: Some(Duration::from_millis(100)),
+        ..Track::new("/a.mp3", Duration::from_secs(10))
+    };
+    assert_eq!(
+        refusal(&one_track(rounds_to_zero)).1,
+        ExportProblem::InvalidTempo
+    );
+
     assert_eq!(
         refusal(&one_track(Track::new(
             "Music/a.mp3",
@@ -547,6 +607,42 @@ fn libraries_traktor_cannot_hold_are_refused() {
         refusal(&not_in_collection).1,
         ExportProblem::NotInCollection
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_name_xml_cannot_represent_is_refused_instead_of_changed() {
+    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("traktor-name-\u{1}.mp3");
+    std::fs::write(&path, b"scratch audio").expect("the scratch file can be written");
+    let mut document = Vec::new();
+    let result = write_nml(
+        &mut document,
+        &one_track(Track::new(&path, Duration::from_secs(1))),
+        &options(),
+    );
+    std::fs::remove_file(&path).expect("the scratch file can be removed");
+    assert!(matches!(
+        result,
+        Err(EuphoriaError::Export {
+            problem: ExportProblem::PathNotXml,
+            ..
+        })
+    ));
+    assert!(document.is_empty());
+}
+
+#[test]
+fn xml_whitespace_in_file_names_is_preserved() {
+    let file = "name\t\n\r.mp3";
+    let library = one_track(Track::new(format!("/Music/{file}"), Duration::from_secs(1)));
+    let text = export(&library, &options());
+    let document =
+        roxmltree::Document::parse(&text).expect("the export has the expected element or value");
+    let location = document
+        .descendants()
+        .find(|node| node.has_tag_name("LOCATION"))
+        .expect("the export has the expected element or value");
+    assert_eq!(location.attribute("FILE"), Some(file));
 }
 
 #[cfg(unix)]

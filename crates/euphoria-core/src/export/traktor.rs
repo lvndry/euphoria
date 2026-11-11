@@ -155,7 +155,8 @@ impl NmlLocation {
 ///
 /// Returns [`ExportProblem::NotAbsolutePath`] for a path that is neither,
 /// or that names no file, and [`ExportProblem::PathNotUnicode`] for one
-/// that is not valid Unicode.
+/// that is not valid Unicode, or [`ExportProblem::PathNotXml`] when the
+/// location contains characters XML cannot represent.
 pub fn nml_location(path: &Path, startup_volume: &str) -> Result<NmlLocation, ExportProblem> {
     let text = path.to_str().ok_or(ExportProblem::PathNotUnicode)?;
     let bytes = text.as_bytes();
@@ -195,11 +196,23 @@ pub fn nml_location(path: &Path, startup_volume: &str) -> Result<NmlLocation, Ex
         directory.push_str(folder);
         directory.push_str(SEPARATOR);
     }
-    Ok(NmlLocation {
+    let location = NmlLocation {
         volume,
         directory,
         file: (*file).to_string(),
-    })
+    };
+    let xml_character = |character| match character {
+        '\t' | '\n' | '\r' => true,
+        '\0'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}' => false,
+        _ => true,
+    };
+    if [&location.volume, &location.directory, &location.file]
+        .into_iter()
+        .any(|part| !part.chars().all(xml_character))
+    {
+        return Err(ExportProblem::PathNotXml);
+    }
+    Ok(location)
 }
 
 /// The number Traktor stores for a key in `MUSICAL_KEY`: 0 to 11 for the
@@ -234,8 +247,9 @@ pub fn key_from_musical_key_value(value: u8) -> Option<Key> {
 /// # Errors
 ///
 /// Returns [`EuphoriaError::Export`] when a track path is not an absolute
-/// local path, is not Unicode, or names the same file as another track;
-/// when a tempo is not a positive number; when a hot cue pad is not below
+/// local path, is not Unicode, contains characters XML cannot represent,
+/// or names the same file as another track; when a tempo is not a positive
+/// number at six-decimal precision; when a hot cue pad is not below
 /// [`HOT_CUE_PADS`]; or when a playlist names a path that is not in the
 /// collection. Returns [`EuphoriaError::ExportFolderDepth`] when folders are
 /// nested deeper than [`MAX_FOLDER_DEPTH`]. Returns
@@ -316,8 +330,13 @@ fn push_entry(
     options: &TraktorOptions,
 ) -> Result<(), EuphoriaError> {
     let tempo = match track.bpm {
-        Some(bpm) if bpm.is_finite() && bpm > 0.0 => Some(format!("{bpm:.6}")),
-        Some(_) => return Err(export_error(&track.path, ExportProblem::InvalidTempo)),
+        Some(bpm) => {
+            let text = format!("{bpm:.6}");
+            if !(bpm.is_finite() && bpm > 0.0) || text == "0.000000" {
+                return Err(export_error(&track.path, ExportProblem::InvalidTempo));
+            }
+            Some(text)
+        }
         None => None,
     };
     if track

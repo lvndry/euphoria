@@ -49,6 +49,8 @@ pub enum ExportProblem {
     /// The path is not valid Unicode, which a format that stores paths as
     /// text cannot hold.
     PathNotUnicode,
+    /// A path contains characters XML cannot represent, even as references.
+    PathNotXml,
 }
 
 impl fmt::Display for ExportProblem {
@@ -57,9 +59,12 @@ impl fmt::Display for ExportProblem {
             ExportProblem::NotAbsolutePath => "not an absolute local path",
             ExportProblem::DuplicatePath => "listed more than once",
             ExportProblem::NotInCollection => "in a playlist but not in the collection",
-            ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
+            ExportProblem::InvalidTempo => {
+                "tempo is not a positive number at the export's precision"
+            }
             ExportProblem::InvalidHotCue => "hot cue pad is out of range",
             ExportProblem::PathNotUnicode => "path is not valid Unicode",
+            ExportProblem::PathNotXml => "path contains characters XML cannot represent",
         })
     }
 }
