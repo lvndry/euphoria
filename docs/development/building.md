@@ -70,6 +70,17 @@ uv run bench/essentia_reference.py bench/data
 
 The benchmark is run by hand, not in CI.
 
+## rekordbox test kit
+
+`bench/rekordbox_test_kit.py` builds a folder for checking by hand which tags and rekordbox XML values rekordbox reads, the questions [use Euphoria with your DJ program](../guides/dj-programs.md#rekordbox) leaves open. It cuts twelve 30 second clips from the benchmark previews, tags each in one variant (key field name per format, key notation, tempo with and without decimals, comment), writes a rekordbox XML file covering three of them, and a checklist with tables to fill in. It needs [uv](https://docs.astral.sh/uv/) and ffmpeg:
+
+```
+./bench/download_datasets.sh
+uv run bench/rekordbox_test_kit.py --clips bench/data/key/audio --output /tmp/euphoria-kit
+```
+
+The script writes only into the new output folder. It never opens a rekordbox library or its settings; the checklist asks whoever runs it to back up the library first and says how to remove the test tracks afterwards.
+
 ## Energy benchmark
 
 `euphoria-bench energy` scores the [energy rating](../concepts/energy.md) against reference ratings. It reads a labels file with one track per line: the path of an audio file, relative to the labels file, then a tab and a number where higher means more energy.
