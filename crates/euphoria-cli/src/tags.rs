@@ -29,7 +29,11 @@ pub enum TagsCommand {
     /// showing what would change.
     #[command(after_help = crate::help::tags_examples())]
     Write(WriteArguments),
-    /// Put back the tags that the last `tags write` replaced.
+    /// Edit tag fields by hand, such as the genre or the album, across
+    /// many files at once.
+    Set(crate::tag_edit::SetArguments),
+    /// Put back the tags that the last `tags write` or `tags set`
+    /// replaced.
     Undo,
 }
 
@@ -130,6 +134,7 @@ impl WriteArguments {
 pub fn run(command: TagsCommand) -> Result<ExitCode> {
     match command {
         TagsCommand::Write(arguments) => write(&arguments),
+        TagsCommand::Set(arguments) => crate::tag_edit::set(&arguments),
         TagsCommand::Undo => undo(),
     }
 }
@@ -304,11 +309,63 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     })
 }
 
-enum Decision {
+pub(crate) enum Decision {
     Write,
     Stop,
     /// There is nobody to ask, and nobody said yes beforehand.
     CannotAsk,
+}
+
+/// Whether to write `plan_count` files: never on a dry run or when there is
+/// nothing to change, at once with `--yes`, and otherwise after asking on a
+/// terminal.
+pub(crate) fn decide(
+    plan_count: usize,
+    dry_run: bool,
+    yes: bool,
+    standard_error: &mut impl Write,
+) -> Result<Decision> {
+    Ok(if plan_count == 0 || dry_run {
+        Decision::Stop
+    } else if yes {
+        Decision::Write
+    } else if !std::io::stdin().is_terminal() {
+        Decision::CannotAsk
+    } else {
+        write!(
+            standard_error,
+            "Write these changes to {}? [y/N] ",
+            output::counted_files(plan_count)
+        )?;
+        standard_error.flush()?;
+        if is_yes(&mut std::io::stdin().lock())? {
+            Decision::Write
+        } else {
+            Decision::Stop
+        }
+    })
+}
+
+/// Says why nothing was written. Returns true when that is a failure.
+pub(crate) fn report_nothing_written(
+    decision: Decision,
+    standard_error: &mut impl Write,
+) -> Result<bool> {
+    match decision {
+        Decision::CannotAsk => {
+            writeln!(
+                standard_error,
+                "Nothing was written: standard input is not a terminal, so there is nobody to \
+                 confirm the changes. Run again with --yes to write them, or with --dry-run to \
+                 only preview them."
+            )?;
+            Ok(true)
+        }
+        Decision::Stop | Decision::Write => {
+            writeln!(standard_error, "Nothing was written.")?;
+            Ok(false)
+        }
+    }
 }
 
 /// Reads one line and tells whether it says yes. Anything else, including

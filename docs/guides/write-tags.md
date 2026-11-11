@@ -105,6 +105,10 @@ The backup of every file is saved on disk before the file is changed, so a write
 
 If you changed the tags of a file after the write, undo leaves that file alone rather than overwrite your change, reports it, and restores the others. Running `euphoria tags undo` again tries that file again.
 
+## Edit other fields
+
+`euphoria tags set` edits the title, artist, album, genre, year, track number, comment, grouping, key and BPM fields by hand across many files, with find and replace and prefixes and suffixes, through the same preview, safety and undo. The [command reference](../reference/cli.md#euphoria-tags-set) lists its options, and the desktop app does the same with **Edit tags**.
+
 ## Limits
 
 A file that cannot be written safely is reported with the reason and skipped. The other files are written, and the command exits with status 1.

@@ -7,6 +7,7 @@
 //! [`undo`] puts those values back. [`WriteLog`] keeps the backups of a
 //! write on disk, so the write can be undone later by another run.
 
+mod edit;
 mod flac;
 mod history;
 mod id3v2;
@@ -25,6 +26,7 @@ use crate::analysis::TrackAnalysis;
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
 use crate::key::Key;
+pub use edit::{EditableTags, FieldEdit, TagField, TextChange, plan_edit, read_editable_tags};
 pub use history::{
     LoggedWrite, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
 };

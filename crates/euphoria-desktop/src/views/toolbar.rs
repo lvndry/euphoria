@@ -142,6 +142,12 @@ fn write_tags(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphori
         .gap(px(6.0))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
+            secondary_button("Edit tags", palette)
+                .id("edit-tags")
+                .on_click(cx.listener(|this, _, window, cx| this.open_tag_editor(window, cx)))
+                .test_support(),
+        )
+        .child(
             secondary_button("Write tags", palette)
                 .id("write-tags")
                 .on_click(cx.listener(|this, _, _, cx| this.open_tag_writer(cx)))
