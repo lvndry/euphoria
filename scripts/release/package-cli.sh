@@ -64,6 +64,10 @@ for file in "$folder/lib"/*.dylib "$folder/bin/euphoria"; do
   codesign --force --sign - --timestamp=none "$file"
 done
 cp "$repository/LICENSE" "$repository/README.md" "$folder/"
+# The licences of the C++ libraries compiled into the executable.
+mkdir -p "$folder/licenses"
+cp "$repository/crates/euphoria-core/vendor/signalsmith-stretch/LICENSE.txt" "$folder/licenses/signalsmith-stretch.txt"
+cp "$repository/crates/euphoria-core/vendor/signalsmith-linear/LICENSE.txt" "$folder/licenses/signalsmith-linear.txt"
 
 python3 "$repository/scripts/macos_libraries.py" verify --root "$folder" --executable "$folder/bin/euphoria"
 "$folder/bin/euphoria" --version > /dev/null

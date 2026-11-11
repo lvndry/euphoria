@@ -93,6 +93,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
+      # cargo deny cannot see vendored C++, so its files are checked against
+      # the tags and checksums recorded when it was vendored.
+      - name: Vendored Signalsmith libraries match VENDORED.md
+        run: python3 scripts/vendor_signalsmith.py check
 
   python:
     name: Release and benchmark script tests
