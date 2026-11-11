@@ -73,6 +73,10 @@ fn main() -> Result<()> {
     let args = Args::parse();
     ensure!(!args.output.exists(), "immutable output exists");
     ensure!(
+        args.candidate != "owner" || cfg!(owner_snapshot),
+        "owner candidate requires explicit external snapshot at build"
+    );
+    ensure!(
         matches!(args.candidate.as_str(), "owner" | "exported"),
         "unknown candidate"
     );
@@ -124,7 +128,7 @@ fn main() -> Result<()> {
             .map_err(|_| anyhow::anyhow!("24 logits"))?;
         let parity = compare(&logits, &expected)?;
         passed &= parity.allclose && parity.argmax_agrees;
-        let row = json!({"id":case["id"],"frames":frames,"stage_diagnostics":stage_diagnostics,"features":diagnostics(&actual,&reference)?,"comparison":parity,"logits":logits,"argmax":argmax(&logits)?});
+        let row = json!({"id":case["id"],"pcm_sha256":case["pcm"]["sha256"],"frames":frames,"stage_diagnostics":stage_diagnostics,"features":diagnostics(&actual,&reference)?,"comparison":parity,"logits":logits,"argmax":argmax(&logits)?});
         eprintln!("{}", row);
         rows.push(row);
     }

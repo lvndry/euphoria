@@ -78,12 +78,42 @@ fn complex_values(root: &Path, artifact: &Value) -> Result<Vec<Complex<f32>>> {
         .collect())
 }
 fn observed_error(root: &Path, actual: &[f32], observation: &Value) -> Result<Value> {
-    if observation.get("path").is_none() {
-        return Ok(json!({"complete":false,"note":"public intermediates only hashed/probed"}));
+    if observation.get("path").is_some() {
+        let expected = read_f32(root, observation)?;
+        return super::diagnostics(actual, &expected);
     }
-    let expected = read_f32(root, observation)?;
-    super::diagnostics(actual, &expected)
+    let raw: Vec<u8> = actual
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
+    let exact = drone_native_cached::bytes_sha256(&raw)
+        == observation["sha256"].as_str().context("observation hash")?;
+    let mut probes = Vec::new();
+    let shape = observation["shape"].as_array().context("shape")?;
+    let columns = shape.last().and_then(Value::as_u64).context("columns")? as usize;
+    let components = if observation["dtype"].as_str() == Some("<c8") {
+        2
+    } else {
+        1
+    };
+    let outer = actual.len() / (columns * components);
+    for probe in observation["probes"].as_array().context("probes")? {
+        let start = probe["start"].as_u64().context("probe start")? as usize;
+        let reference = read_f32(root, &probe["artifact"])?;
+        let width = reference.len() / (outer * components);
+        ensure!(start + width <= columns, "probe outside observation");
+        let mut selected = Vec::with_capacity(reference.len());
+        for row in 0..outer {
+            selected.extend_from_slice(
+                &actual[(row * columns + start) * components
+                    ..(row * columns + start + width) * components],
+            );
+        }
+        probes.push(json!({"start":start,"diagnostics":super::diagnostics(&selected,&reference)?}));
+    }
+    Ok(json!({"full_hash_equal":exact,"probes":probes}))
 }
+
 pub fn features(
     root: &Path,
     case: &Value,
@@ -143,6 +173,8 @@ pub fn features(
         }
         // Top-to-bottom stages: each stage prepends its rows, final lowest
         // partial octave keeps its highest rows (librosa __trim_stack).
+        let response_components: Vec<f32> = response.iter().flat_map(|v| [v.re, v.im]).collect();
+        diagnostics.push(json!({"stage":stage_index,"response":observed_error(root,&response_components,&stage["response"])?}));
         let mut stage_rows = Vec::new();
         for row in 0..rows {
             stage_rows.push(response[row * frames..(row + 1) * frames].to_vec());
