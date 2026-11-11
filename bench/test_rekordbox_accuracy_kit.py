@@ -4,6 +4,7 @@
 """Regression tests: python3 -m unittest discover -s bench -p 'test_rekordbox_accuracy_kit.py'."""
 
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -63,6 +64,28 @@ class VerificationTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("tempo/preview.mp3", result.stdout)
                 self.assertIn("1 of 2 previews are missing or differ", result.stdout)
+
+    def test_checklist_commands_preserve_output_and_source_paths(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder) / "DJ's source data $folder"
+            kit = (Path(folder) / "DJ's accuracy kit $folder").resolve()
+            for dataset in ("key", "tempo"):
+                source = data / dataset / "audio" / "preview.mp3"
+                source.parent.mkdir(parents=True)
+                source.write_bytes(b"made-up preview contents")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--data", str(data), "--output", str(kit)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            checklist = (kit / "CHECKLIST.md").read_text(encoding="utf-8")
+            commands = [shlex.split(block.strip()) for block in checklist.split("```\n")[1::2]]
+            self.assertEqual(commands, [
+                ["cargo", "run", "--release", "-p", "euphoria-bench", "--", "rekordbox",
+                 str(kit / "rekordbox-collection.xml"), str(data)],
+                ["uv", "run", "bench/rekordbox_accuracy_kit.py", "--data", str(data),
+                 "--verify", str(kit)],
+            ])
 
 
 if __name__ == "__main__":

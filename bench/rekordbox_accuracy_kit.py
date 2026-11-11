@@ -25,6 +25,7 @@ show that rekordbox changed no file.
 
 import argparse
 import filecmp
+import shlex
 import shutil
 import subprocess
 import sys
@@ -114,13 +115,13 @@ of your own music, so send only the scores if you would rather keep it
 private. To score it:
 
 ```
-cargo run --release -p euphoria-bench -- rekordbox {kit}/{export_name} bench/data
+{score_command}
 ```
 
 To check that rekordbox changed none of the previews:
 
 ```
-uv run bench/rekordbox_accuracy_kit.py --data bench/data --verify {kit}
+{verify_command}
 ```
 
 ## 6. Clean up (2 minutes)
@@ -173,7 +174,14 @@ def build(data, output):
         key_count=counts["key"],
         tempo_count=counts["tempo"],
         export_name=EXPORT_NAME,
-        kit=output,
+        score_command=shlex.join([
+            "cargo", "run", "--release", "-p", "euphoria-bench", "--", "rekordbox",
+            str(output / EXPORT_NAME), str(data),
+        ]),
+        verify_command=shlex.join([
+            "uv", "run", "bench/rekordbox_accuracy_kit.py", "--data", str(data),
+            "--verify", str(output),
+        ]),
     )
     (output / "CHECKLIST.md").write_text(checklist, encoding="utf-8")
     return counts, cloned
