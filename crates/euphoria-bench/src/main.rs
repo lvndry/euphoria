@@ -15,6 +15,7 @@ mod quality;
 mod rekordbox;
 mod render;
 mod scoring;
+mod shift;
 mod statistics;
 
 use std::path::PathBuf;
@@ -26,12 +27,14 @@ use euphoria_core::detect::{
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench beats [DATA_DIRECTORY] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench beats [DATA_DIRECTORY] [--tracks all|development|held-out]\n       euphoria-bench shift [AUDIO_DIRECTORY] [--every N]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
 /// The first argument that selects the beat grid benchmark.
 const BEATS_MODE: &str = "beats";
+/// The first argument that selects the pitch shifting benchmark.
+const SHIFT_MODE: &str = "shift";
 /// The first argument that selects the audio quality measurement.
 const QUALITY_MODE: &str = "quality";
 
@@ -140,6 +143,10 @@ fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Argume
 
 fn main() -> Result<()> {
     let mut command_line = std::env::args().skip(1).peekable();
+    if command_line.peek().map(String::as_str) == Some(SHIFT_MODE) {
+        let arguments = shift::parse_arguments(command_line.skip(1))?;
+        return shift::run(&arguments);
+    }
     if command_line.peek().map(String::as_str) == Some(BEATS_MODE) {
         let arguments = beats::parse_arguments(command_line.skip(1))?;
         return beats::run(&arguments);
