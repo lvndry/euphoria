@@ -29,7 +29,7 @@ bench/              dataset download script, Essentia reference script, results
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
 | `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. |
 | `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and analyzes only the files it does not know, as a batch or one file at a time. |
-| `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
+| `audio` | Decodes MP3, AAC and ALAC in MP4, FLAC, Ogg Vorbis, WAV and AIFF with Symphonia and mixes them to mono. |
 | `audio_stream` | Decodes the same formats a packet at a time with their channels kept, with seeking, for playback. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
