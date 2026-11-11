@@ -522,7 +522,7 @@ fn check_output_is_not_an_input(
 /// Where the output file really is: the file a symbolic link at that path
 /// leads to, or for a file that does not exist yet, its name in its resolved
 /// folder.
-fn resolve_output(output_file: &Path) -> Result<PathBuf> {
+pub(crate) fn resolve_output(output_file: &Path) -> Result<PathBuf> {
     if let Ok(resolved) = output_file.canonicalize() {
         return Ok(resolved);
     }

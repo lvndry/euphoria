@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use euphoria_core::export::rekordbox::ExistingFile;
 use euphoria_core::{
@@ -16,7 +16,7 @@ use euphoria_core::{
     write_corrections_file,
 };
 
-use crate::export::check_output_file;
+use crate::export::{check_output_file, resolve_output};
 use crate::output::{self, counted};
 use crate::style::Theme;
 use crate::terminal::Printable;
@@ -71,6 +71,7 @@ fn export(arguments: &ExportArguments) -> Result<ExitCode> {
         .transpose()?;
     if let Some(output_file) = &output_file {
         check_output_file(output_file, existing)?;
+        check_output_is_not_cache(output_file)?;
     }
 
     let corrections = stored_corrections()?;
@@ -125,4 +126,29 @@ fn stored_corrections() -> Result<Vec<StoredCorrection>> {
     Cache::open(&cache_path)
         .and_then(|cache| cache.stored_corrections())
         .map_err(with_causes)
+}
+
+/// The database and SQLite's companion files are sources, never export
+/// destinations. Compare both names and file identities, including aliases.
+fn check_output_is_not_cache(output: &std::path::Path) -> Result<()> {
+    let cache = default_cache_path().map_err(with_causes)?;
+    let resolved_output = resolve_output(output)?;
+    let resolved_cache = resolve_output(&cache).unwrap_or_else(|_| cache.clone());
+    for base in [&cache, &resolved_cache] {
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let mut name = base.as_os_str().to_os_string();
+            name.push(suffix);
+            let source = PathBuf::from(name);
+            let same_name =
+                resolve_output(&source).is_ok_and(|resolved| resolved == resolved_output);
+            let same_file = same_file::is_same_file(&source, output).unwrap_or(false);
+            if same_name || same_file {
+                bail!(
+                    "{} is the analysis cache or one of its SQLite companion files; choose another output file. --force does not change this",
+                    output.display()
+                );
+            }
+        }
+    }
+    Ok(())
 }

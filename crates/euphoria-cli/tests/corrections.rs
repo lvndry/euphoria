@@ -414,3 +414,86 @@ fn corrections_export_reports_a_cache_folder_it_cannot_look_into() {
         standard_error(&exported)
     );
 }
+
+#[test]
+fn corrections_export_never_replaces_its_source_cache_even_with_force() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    corrected_track(&euphoria, &folder);
+    let cache_path = euphoria.cache_path();
+    let before = std::fs::read(&cache_path).unwrap();
+    let exported = euphoria.run(&["corrections", "export", "--force", "-o", text(&cache_path)]);
+    assert!(
+        !exported.status.success(),
+        "export must preserve its source database"
+    );
+    assert_eq!(std::fs::read(&cache_path).unwrap(), before);
+    assert_eq!(
+        Cache::open(&cache_path)
+            .unwrap()
+            .stored_corrections()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn corrections_export_keeps_sqlite_companion_files() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    corrected_track(&euphoria, &folder);
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut name = euphoria.cache_path().into_os_string();
+        name.push(suffix);
+        let source = std::path::PathBuf::from(name);
+        std::fs::write(&source, b"sqlite companion").unwrap();
+        let exported = euphoria.run(&["corrections", "export", "--force", "-o", text(&source)]);
+        assert!(!exported.status.success());
+        assert!(
+            standard_error(&exported).contains("SQLite companion"),
+            "{}",
+            standard_error(&exported)
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), b"sqlite companion");
+        std::fs::remove_file(source).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn corrections_export_refuses_directory_symlink_and_hard_link_aliases_of_the_cache() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    corrected_track(&euphoria, &folder);
+    let directory_alias = folder.path().join("data-alias");
+    std::os::unix::fs::symlink(euphoria.data_directory(), &directory_alias).unwrap();
+    let hard_link = folder.path().join("cache-alias.jsonl");
+    std::fs::hard_link(euphoria.cache_path(), &hard_link).unwrap();
+    for destination in [directory_alias.join("analysis-cache.sqlite3"), hard_link] {
+        let before = std::fs::read(&destination).unwrap();
+        let exported =
+            euphoria.run(&["corrections", "export", "--force", "-o", text(&destination)]);
+        assert!(!exported.status.success());
+        assert!(
+            standard_error(&exported).contains("SQLite companion"),
+            "{}",
+            standard_error(&exported)
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), before);
+    }
+}
+
+#[test]
+fn corrections_export_cannot_create_an_export_at_the_missing_cache_path() {
+    let euphoria = Euphoria::new();
+    let exported = euphoria.run(&[
+        "corrections",
+        "export",
+        "--force",
+        "-o",
+        text(&euphoria.cache_path()),
+    ]);
+    assert!(!exported.status.success());
+    assert!(!euphoria.cache_path().exists());
+}
