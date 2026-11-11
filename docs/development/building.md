@@ -124,7 +124,7 @@ uv run bench/fit_energy_model.py --tuning tuning.tsv --held-out held-out.tsv --s
 
 A feature has to be measured by `euphoria-core` before it can be fitted: add it to `EnergyFeatures` and its `named` list, run the dumps again, and keep it only if the script selects it.
 
-The fitter excludes features with missing values in tuning or spread (including undetected tempos), and features whose low and high anchors are equal. Reports omit tracks missing a reference or a selected feature and show how many were omitted. Held-out data does not decide which features are used. A fit without useful features, positive weights or a usable output range stops with a diagnostic instead of emitting an invalid model.
+The fitter excludes features with missing values in tuning or spread (including undetected tempos), and features whose low and high anchors are equal. Reports omit tracks missing a reference or a selected feature and show how many were omitted. Held-out data does not decide which features are used, and in cross validation each fold's anchors come from its training songs and the spread file only, so the songs a fold scores do not shape their own scaling. A fit without useful features, positive weights or a usable output range stops with a diagnostic instead of emitting an invalid model.
 
 Run the fitting regression tests with:
 

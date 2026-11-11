@@ -106,35 +106,35 @@ Each input alone against the arousal ratings of the 1216 tuning songs. A negativ
 
 The candidates were measured in a working version of the analysis and are not in the code. They are the feature fixes that were proposed for the rating: onsets per frequency band, flux without the bass, kick strength, brightness, and time at full level.
 
-A feature counts for what it adds to the others, measured by five fold cross validation on the tuning songs:
+A feature counts for what it adds to the others, measured by five fold cross validation on the tuning songs. In each fold the anchors and weights come from the other four fifths of the tuning songs and from the GiantSteps previews, never from the songs being scored:
 
 | Features, weights fitted | Cross validated correlation |
 | --- | --- |
 | Spectral flux | 0.639 |
-| Spectral flux, onset rate | 0.669 |
-| Spectral flux, onset rate, integrated loudness (the fitted model) | 0.683 |
-| The five audio features of the shipped rating, weights fitted again | 0.681 |
-| The fitted model with the onset rate from 150 Hz to 5 kHz in place of the onset rate | 0.684 |
+| Spectral flux, onset rate | 0.668 |
+| Spectral flux, onset rate, integrated loudness (the fitted model) | 0.682 |
+| The five audio features of the shipped rating, weights fitted again | 0.680 |
+| The fitted model with the onset rate from 150 Hz to 5 kHz in place of the onset rate | 0.683 |
 | Eight features and candidates together | 0.688 |
 
 What this shows:
 
-- Against listener ratings, the gain of the fitted model comes from fitting the weights, not from new features. None of the candidates added more than 0.005, which is within the noise of this measurement.
+- Against listener ratings, the gain of the fitted model comes from fitting the weights, not from new features. Forward selection added none of the candidates: none raised the cross validated correlation by the 0.003 that the fit script requires. All eight features and candidates together reached 0.688 against 0.682, a gain of 0.006, small next to the uncertainty of the held out comparisons above.
 - Loudness range and low frequency share received weights of 0.03 and 0.02 when fitted. Tempo received a weight of zero.
 - Onsets in dense mixes are not fixed. On GiantSteps the onset rate falls as loudness rises (correlation -0.23), and so do the candidate onset rates from 150 Hz to 5 kHz (-0.22) and above 5 kHz (-0.16). Onsets below 150 Hz came out as noise: the band is only a few frequency bins wide.
 - Spectral flux follows the share of power above 5 kHz closely (correlation 0.88), so it works in part as a measure of brightness.
 
 ### Tempo
 
-With the tempo detector reporting every tempo between 90 and 180 BPM, tempo has no relation to the arousal ratings (-0.007), including among the songs tagged electronic (+0.038). Giving it a fixed share of the weight in the fitted model lowers agreement with listeners:
+With the tempo detector reporting every tempo between 90 and 180 BPM, tempo has no relation to the arousal ratings (-0.007), including among the songs tagged electronic (+0.038). Giving it a fixed share of the weight in the fitted model, with tempo scored between the shipped rating's anchors of 100 and 140 BPM, lowers agreement with listeners:
 
 | Share of the weight given to tempo | Cross validated correlation, tuning songs |
 | --- | --- |
-| 0 | 0.683 |
-| 0.05 | 0.677 |
-| 0.10 | 0.661 |
+| 0 | 0.682 |
+| 0.05 | 0.676 |
+| 0.10 | 0.660 |
 | 0.15 | 0.632 |
-| 0.20 | 0.590 |
+| 0.20 | 0.592 |
 
 The one DJ's folders say the opposite, as described above. Tempo stays in the shipped rating with its weight of 0.10.
 

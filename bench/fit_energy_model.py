@@ -30,8 +30,10 @@ scores are averaged with weights, and the average is spread over the ratings.
   tuning file, with every weight held at zero or above. That keeps the
   direction of every feature: louder and busier never rate lower.
 - Features are added one at a time, best first, for as long as five fold
-  cross validation on the tuning file improves. The held out file takes no
-  part in any choice and is only scored at the end.
+  cross validation on the tuning file improves. In each fold the anchors
+  and weights come from the training part of the tuning file and from the
+  spread file, never from the fold that is scored. The held out file takes
+  no part in any choice and is only scored at the end.
 - The range of the average that is spread over the ratings comes from the
   2nd and 98th percentile of the spread file.
 
@@ -72,6 +74,10 @@ def read_dump(path):
     return columns
 
 
+def subset(dump, rows):
+    return {name: values[rows] for name, values in dump.items()}
+
+
 def choose_anchors(dumps, inputs):
     anchors = {}
     for name in inputs:
@@ -100,8 +106,15 @@ def scores(dump, inputs, anchors):
     for name in inputs:
         if name not in dump:
             raise ValueError(f"feature {name!r} is missing from a dump")
+        if name not in anchors:
+            raise ValueError(f"feature {name!r} has no anchors")
         low, high = anchors[name]
-        columns.append(numpy.clip((dump[name] - low) / (high - low), 0.0, 1.0))
+        if not numpy.isfinite([low, high]).all() or low == high:
+            raise ValueError(f"feature {name!r} has unusable anchors {low} and {high}")
+        values = dump[name]
+        if not numpy.isfinite(values).all():
+            raise ValueError(f"feature {name!r} has missing or infinite values")
+        columns.append(numpy.clip((values - low) / (high - low), 0.0, 1.0))
     return numpy.column_stack(columns)
 
 
@@ -134,17 +147,30 @@ def ordered_pair_share(estimate, reference):
     return float(agreement[comparable].sum() / comparable.sum())
 
 
-def cross_validated_correlation(score_matrix, reference, folds):
+def fold_anchors(tuning, spread, inputs, training):
+    """Anchors from the training rows of the tuning file and from the spread
+    file, so that the rows a fold scores take no part in their scaling."""
+    anchors = choose_anchors([subset(tuning, training), spread], inputs)
+    unusable = [name for name in inputs if name not in anchors]
+    if unusable:
+        raise ValueError(
+            f"in a cross validation fold, {', '.join(unusable)} has missing values or equal anchors"
+        )
+    return anchors
+
+
+def cross_validated_correlation(tuning, spread, inputs, folds):
+    reference = tuning["reference"]
     estimate = numpy.zeros(len(reference))
     for fold in range(FOLD_COUNT):
         test = folds == fold
-        weights = fit_weights(score_matrix[~test], reference[~test])
-        estimate[test] = combined(score_matrix[test], weights)
+        anchors = fold_anchors(tuning, spread, inputs, ~test)
+        weights = fit_weights(scores(subset(tuning, ~test), inputs, anchors), reference[~test])
+        estimate[test] = combined(scores(subset(tuning, test), inputs, anchors), weights)
     return correlation(estimate, reference)
 
 
-def select_inputs(tuning, candidates, anchors, folds):
-    reference = tuning["reference"]
+def select_inputs(tuning, spread, candidates, folds):
     chosen = []
     best = 0.0
     while True:
@@ -153,7 +179,7 @@ def select_inputs(tuning, candidates, anchors, folds):
             if name in chosen:
                 continue
             trial = chosen + [name]
-            value = cross_validated_correlation(scores(tuning, trial, anchors), reference, folds)
+            value = cross_validated_correlation(tuning, spread, trial, folds)
             gains.append((value, name))
         if not gains:
             break
@@ -240,11 +266,11 @@ def fit_model(arguments):
         unavailable = [name for name in inputs if name not in anchors]
         if unavailable:
             raise ValueError(f"forced features are unavailable: {', '.join(unavailable)}")
-        value = cross_validated_correlation(scores(tuning, inputs, anchors), tuning["reference"], folds)
+        value = cross_validated_correlation(tuning, spread, inputs, folds)
         print(f"forced features, cross validated correlation {value:.3f}")
     else:
         print("selection:")
-        inputs, _ = select_inputs(tuning, candidates, anchors, folds)
+        inputs, _ = select_inputs(tuning, spread, candidates, folds)
 
     weights = fit_weights(scores(tuning, inputs, anchors), tuning["reference"])
     inputs = [name for name, weight in zip(inputs, weights) if weight > 0]
