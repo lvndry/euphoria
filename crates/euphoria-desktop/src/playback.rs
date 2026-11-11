@@ -724,6 +724,47 @@ pub(crate) mod testing {
             Err(PlaybackProblem::NoOutput)
         }
     }
+    /// A deterministic decoder feed for tests that need a read-ahead gap.
+    pub(crate) struct ControlledFeed(SyncSender<Decoded>);
+
+    impl ControlledFeed {
+        /// Makes one more chunk available at its original content position.
+        pub(crate) fn push(&self, start_frame: u64, samples: Vec<f32>) {
+            self.0
+                .send(Decoded::Chunk {
+                    seek_count: 0,
+                    start_frame,
+                    samples,
+                })
+                .expect("the controlled source is still alive");
+        }
+    }
+
+    /// A mono 44.1 kHz source with a supplied first chunk and no decoder
+    /// thread. An empty feed inserts silence exactly as a late decoder does.
+    pub(crate) fn controlled_source(
+        samples: Vec<f32>,
+        start_frame: u64,
+    ) -> (TrackSource, ControlledFeed) {
+        let sample_rate = NonZeroU32::new(44_100).expect("nonzero sample rate");
+        let state = Arc::new(VoiceState::new(sample_rate));
+        state.frames_played.store(start_frame, Ordering::Relaxed);
+        let (sender, decoded) = sync_channel(4);
+        let source = TrackSource {
+            state,
+            decoded,
+            sample_rate,
+            channel_count: NonZeroU16::MIN,
+            duration_seconds: None,
+            chunk: samples,
+            chunk_seek_count: 0,
+            next_sample: 0,
+            silence_owed: 0,
+            chunk_start_frame: start_frame,
+            is_patient: false,
+        };
+        (source, ControlledFeed(sender))
+    }
 }
 
 #[cfg(test)]
