@@ -70,6 +70,27 @@ pub(crate) struct Playlists {
     /// twice, and a file that has gone keeps the content it had.
     contents: HashMap<PathBuf, ContentHash>,
     revision: u64,
+    applied_rewrites: usize,
+}
+
+/// Hashes observed around one safe metadata rewrite.
+#[derive(Debug, Clone)]
+pub(crate) struct PlaylistRewrite {
+    pub(crate) path: PathBuf,
+    pub(crate) before: ContentHash,
+    pub(crate) after: ContentHash,
+    pub(crate) paths: HashMap<PathBuf, PathBuf>,
+}
+
+impl PlaylistRewrite {
+    pub(crate) fn apply(&self, entry: &mut PlaylistEntry) {
+        if entry.content == self.before
+            && let Some(path) = self.paths.get(&entry.path)
+        {
+            entry.content = self.after;
+            entry.path = path.clone();
+        }
+    }
 }
 
 impl Playlists {
@@ -142,7 +163,61 @@ impl Playlists {
 
     /// Remembers contents worked out off the main thread.
     pub(crate) fn learn_contents(&mut self, contents: HashMap<PathBuf, ContentHash>) {
-        self.contents.extend(contents);
+        let used: HashSet<&PathBuf> = self
+            .items
+            .iter()
+            .flat_map(|playlist| &playlist.tracks)
+            .collect();
+        for (path, content) in contents {
+            if used.contains(&path) {
+                self.contents.entry(path).or_insert(content);
+            }
+        }
+    }
+
+    /// Keeps the live model aligned with its explicitly rewritten files.
+    pub(crate) fn follow_rewrites(&mut self, rewrites: &[PlaylistRewrite]) {
+        for rewrite in rewrites {
+            for (old, new) in &rewrite.paths {
+                if self
+                    .contents
+                    .get(old)
+                    .is_some_and(|content| *content != rewrite.before)
+                    || !self
+                        .items
+                        .iter()
+                        .any(|playlist| playlist.tracks.contains(old))
+                {
+                    continue;
+                }
+                self.contents.remove(old);
+                self.contents.insert(new.clone(), rewrite.after);
+                for playlist in &mut self.items {
+                    for path in &mut playlist.tracks {
+                        if path == old {
+                            *path = new.clone();
+                        }
+                    }
+                    let mut seen = HashSet::new();
+                    playlist.tracks.retain(|path| seen.insert(path.clone()));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn follow_rewrite_history(&mut self, rewrites: &[PlaylistRewrite]) {
+        let from = self.applied_rewrites.min(rewrites.len());
+        self.follow_rewrites(&rewrites[from..]);
+        self.applied_rewrites = rewrites.len();
+    }
+
+    fn forget_unreferenced_contents(&mut self) {
+        let used: HashSet<&PathBuf> = self
+            .items
+            .iter()
+            .flat_map(|playlist| &playlist.tracks)
+            .collect();
+        self.contents.retain(|path, _| used.contains(path));
     }
 
     /// A number that changes with every change, to know when to save.
@@ -221,6 +296,7 @@ impl Playlists {
     /// Deletes the playlist. The tracks stay in the library.
     pub(crate) fn delete(&mut self, id: PlaylistId) {
         self.items.retain(|playlist| playlist.id != id);
+        self.forget_unreferenced_contents();
         self.revision += 1;
     }
 
@@ -270,6 +346,7 @@ impl Playlists {
                 self.revision += 1;
             }
         }
+        self.forget_unreferenced_contents();
     }
 
     /// Moves `paths`, keeping their order, so they come just before the

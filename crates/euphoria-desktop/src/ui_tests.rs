@@ -3529,6 +3529,84 @@ fn the_text_tool_and_remove_change_every_track_and_the_table_follows(cx: &mut Te
         titles.iter().all(|title| title.ends_with(" (Edit)")),
         "{titles:?}"
     );
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    let titles = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .tracks()
+            .iter()
+            .map(|track| track.title().to_string())
+            .collect::<Vec<_>>()
+    });
+    assert!(
+        titles.iter().all(|title| !title.ends_with(" (Edit)")),
+        "{titles:?}"
+    );
+}
+
+#[gpui::test]
+fn playlist_identity_follows_tag_edits_and_undo_in_the_same_window(cx: &mut TestAppContext) {
+    use euphoria_core::tags::TagField;
+    let (scratch, files, store_path, window, view) =
+        open_with_playlist_store("ui-playlist-retag", cx);
+    let original = std::fs::read(&files[0]).unwrap();
+    let id = cx
+        .update_window(window, |_, window, cx| {
+            view.update(cx, |app, cx| {
+                app.write_log_directory = Some(scratch.log_directory());
+                let id = app.create_playlist(window, cx);
+                app.renaming_playlist = None;
+                app.add_to_playlist(id, &files[..1], cx);
+                let index = app.session.library().index_of(&files[0]).unwrap();
+                app.select(index, cx);
+                id
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        view.update(cx, |app, cx| app.open_tag_editor(window, cx))
+    })
+    .unwrap();
+    cx.run_until_parked();
+    type_into(
+        window,
+        crate::views::tag_editor::field_input_id(TagField::Genre),
+        "Deep House",
+        cx,
+    );
+    click(window, "preview-tag-edits", cx);
+    click(window, "confirm-tag-write", cx);
+    let check = |name: &str, cx: &mut TestAppContext| {
+        let stored = euphoria_core::PlaylistStore::open(&store_path)
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(
+            stored[0].entries[0].content,
+            euphoria_core::ContentHash::of_file(&files[0]).unwrap()
+        );
+        let job = cx.update(|cx| {
+            view.read(cx)
+                .playlist_export_job(id, crate::playlist_flow::PlaylistFormat::M3u8)
+                .unwrap()
+        });
+        let destination = scratch.0.join(name);
+        let message = job.write(&destination).unwrap();
+        assert!(!message.contains("other audio"), "{message}");
+        assert!(
+            std::fs::read_to_string(destination)
+                .unwrap()
+                .contains(files[0].to_str().unwrap())
+        );
+    };
+    check("after-edit.m3u8", cx);
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    check("after-undo.m3u8", cx);
+    assert_eq!(std::fs::read(&files[0]).unwrap(), original);
 }
 
 #[gpui::test]

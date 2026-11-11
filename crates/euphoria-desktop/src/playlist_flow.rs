@@ -303,10 +303,17 @@ impl EuphoriaApp {
         let Some(saver) = self.session.playlist_saver() else {
             return;
         };
+        let history = saver.rewrites();
+        self.session
+            .playlists_mut()
+            .follow_rewrite_history(&history);
+        let rewrite_epoch = history.len();
         let playlists = self.session.playlists();
+        saver.register(playlists);
         let revision = playlists.revision();
         let mut snapshot = playlists.clone();
         let cache = self.session.cache();
+        let completion = saver.clone();
         cx.spawn(async move |this, cx| {
             let saved = cx
                 .background_executor()
@@ -317,12 +324,19 @@ impl EuphoriaApp {
                             .map(|entry| entry.content)
                     });
                     saver
-                        .save(&stored, revision)
+                        .save(&stored, revision, rewrite_epoch)
                         .map(|()| snapshot.known_contents())
                 })
                 .await;
             this.update(cx, |this, cx| match saved {
-                Ok(contents) => this.session.playlists_mut().learn_contents(contents),
+                Ok(contents) => {
+                    if this.session.playlists().revision() == revision {
+                        this.session
+                            .playlists_mut()
+                            .follow_rewrite_history(&completion.rewrites());
+                        this.session.playlists_mut().learn_contents(contents);
+                    }
+                }
                 Err(error) => {
                     this.notice = Some(format!(
                         "The playlists could not be kept: {}",

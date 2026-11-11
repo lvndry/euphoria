@@ -12,14 +12,103 @@
 //!
 //! Everything here reads or writes files, so it runs off the main thread.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::playlists::PlaylistRewrite;
+use crate::state::PlaylistSaver;
 use euphoria_core::tags::{
-    FieldChange, LoggedWrite, TagWriteOptions, WriteLog, WritePlan, plan_write, undo_last_write,
+    FieldChange, LoggedWrite, RewriteStage, TagWriteOptions, WriteLog, WritePlan, plan_write,
+    undo_last_write_with_observer,
 };
 use euphoria_core::{CachedAnalyzer, Correction, TrackAnalysis};
+
+struct RewriteUpdates<'a> {
+    playlists: Option<&'a PlaylistSaver>,
+    cache: Option<&'a CachedAnalyzer>,
+    before: HashMap<PathBuf, Result<euphoria_core::ContentHash, String>>,
+    rewrites: Vec<PlaylistRewrite>,
+    problem: Option<String>,
+}
+
+impl<'a> RewriteUpdates<'a> {
+    fn new(playlists: Option<&'a PlaylistSaver>, cache: Option<&'a CachedAnalyzer>) -> Self {
+        Self {
+            playlists,
+            cache,
+            before: HashMap::new(),
+            rewrites: Vec::new(),
+            problem: None,
+        }
+    }
+
+    fn observe(&mut self, path: &Path, stage: RewriteStage) {
+        if self.playlists.is_none() && self.cache.is_none() {
+            return;
+        }
+        match stage {
+            RewriteStage::Before => {
+                self.before.insert(
+                    path.to_path_buf(),
+                    euphoria_core::ContentHash::of_file(path).map_err(|error| error.to_string()),
+                );
+            }
+            RewriteStage::After => {
+                let mut update = || -> Result<PlaylistRewrite, String> {
+                    let before = self
+                        .before
+                        .remove(path)
+                        .ok_or("the original file identity was not captured")??;
+                    let after = euphoria_core::ContentHash::of_file(path)
+                        .map_err(|error| error.to_string())?;
+                    let path = std::path::absolute(path).map_err(|error| error.to_string())?;
+                    let mut paths = HashMap::from([(path.clone(), path.clone())]);
+                    if let Ok(canonical) = std::fs::canonicalize(&path) {
+                        paths.insert(canonical.clone(), canonical);
+                    }
+                    let rewrite = PlaylistRewrite {
+                        path,
+                        before,
+                        after,
+                        paths,
+                    };
+                    Ok(rewrite)
+                };
+                match update() {
+                    Ok(mut rewrite) => {
+                        if let Some(cache) = self.cache
+                            && let Err(error) =
+                                cache.carry_rewritten_correction(rewrite.before, rewrite.after)
+                        {
+                            self.note_problem(error.chain());
+                        }
+                        if let Some(playlists) = self.playlists
+                            && let Err(error) = playlists.rebind(&mut rewrite)
+                        {
+                            self.note_problem(error.chain());
+                        }
+                        self.rewrites.push(rewrite);
+                    }
+                    Err(error) => {
+                        self.note_problem(error);
+                    }
+                }
+            }
+        }
+    }
+
+    fn note_problem(&mut self, error: String) {
+        match &mut self.problem {
+            Some(problem) => {
+                problem.push_str("; ");
+                problem.push_str(&error);
+            }
+            None => self.problem = Some(error),
+        }
+    }
+}
 
 /// A file and what it should say about itself, or `None` when it has no
 /// analysis to write.
@@ -127,12 +216,15 @@ pub(crate) struct WriteReport {
     /// Why the cache could not be told about the files written, which are
     /// then analyzed again the next time they are added.
     pub(crate) cache_problem: Option<String>,
+    pub(crate) playlist_rewrites: Vec<PlaylistRewrite>,
+    pub(crate) metadata_problem: Option<String>,
 }
 
 /// Writes `plans` through a new write log in `log_directory`, counting each
 /// file done in `done` as it goes, and records `analyses`, in the same
 /// order, in `cache` for each file written. A file that fails does not stop
 /// the others.
+#[cfg(test)]
 pub(crate) fn write_plans(
     plans: &[WritePlan],
     analyses: &[Option<TrackAnalysis>],
@@ -140,14 +232,31 @@ pub(crate) fn write_plans(
     cache: Option<&CachedAnalyzer>,
     done: &Arc<AtomicUsize>,
 ) -> WriteReport {
+    write_plans_with_playlists(plans, analyses, log_directory, cache, done, None)
+}
+
+pub(crate) fn write_plans_with_playlists(
+    plans: &[WritePlan],
+    analyses: &[Option<TrackAnalysis>],
+    log_directory: &Path,
+    cache: Option<&CachedAnalyzer>,
+    done: &Arc<AtomicUsize>,
+    playlists: Option<&PlaylistSaver>,
+) -> WriteReport {
     let mut log = WriteLog::new(log_directory);
     let mut report = WriteReport::default();
+    let mut updates = RewriteUpdates::new(playlists, cache);
     for (plan, analysis) in plans.iter().zip(analyses) {
         let path = plan.path().to_path_buf();
-        let written = log.apply(plan);
+        // The display range can irreversibly project a grid's phase. Keep
+        // the canonical cached detector result while its old stamp matches.
+        let canonical = cache
+            .and_then(|cache| cache.stored_analysis(&path))
+            .or_else(|| analysis.clone());
+        let written = log.apply_with_observer(plan, |path, stage| updates.observe(path, stage));
         if written.is_ok()
             && report.cache_problem.is_none()
-            && let (Some(cache), Some(analysis)) = (cache, analysis)
+            && let (Some(cache), Some(analysis)) = (cache, &canonical)
             && let Err(error) = cache.record_retagged_file(&path, analysis)
         {
             report.cache_problem = Some(error.chain());
@@ -168,6 +277,8 @@ pub(crate) fn write_plans(
         }
         done.fetch_add(1, Ordering::Relaxed);
     }
+    report.playlist_rewrites = updates.rewrites;
+    report.metadata_problem = updates.problem;
     report
 }
 
@@ -176,21 +287,36 @@ pub(crate) fn write_plans(
 pub(crate) struct UndoReport {
     /// The files that got their old tags back.
     pub(crate) restored: Vec<PathBuf>,
-    /// Files the write had not reached, which needed nothing.
+    /// Files whose original tags were already in place, including an undo
+    /// that restored the bytes before reporting a synchronization error.
     pub(crate) untouched: usize,
     /// Files that could not be restored, and why. Undoing again tries them
     /// again.
     pub(crate) failures: Vec<LeftOut>,
+    pub(crate) playlist_rewrites: Vec<PlaylistRewrite>,
+    pub(crate) metadata_problem: Option<String>,
 }
 
 /// Undoes the last write logged in `log_directory`, by the app or by the
 /// command line, and tells `cache` where the restored files are, since it
 /// usually knows their old bytes. `Ok(None)` when there is no write to undo.
+#[cfg(test)]
 pub(crate) fn undo_last(
     log_directory: &Path,
     cache: Option<&CachedAnalyzer>,
 ) -> Result<Option<UndoReport>, String> {
-    let undone = undo_last_write(log_directory).map_err(|error| error.chain())?;
+    undo_last_with_playlists(log_directory, cache, None)
+}
+
+pub(crate) fn undo_last_with_playlists(
+    log_directory: &Path,
+    cache: Option<&CachedAnalyzer>,
+    playlists: Option<&PlaylistSaver>,
+) -> Result<Option<UndoReport>, String> {
+    let mut updates = RewriteUpdates::new(playlists, cache);
+    let undone =
+        undo_last_write_with_observer(log_directory, |path, stage| updates.observe(path, stage))
+            .map_err(|error| error.chain())?;
     if let (Some(cache), Some(undone)) = (cache, &undone) {
         for path in &undone.restored {
             if cache.recognise_file(path).is_err() {
@@ -199,6 +325,8 @@ pub(crate) fn undo_last(
         }
     }
     Ok(undone.map(|undone| UndoReport {
+        playlist_rewrites: updates.rewrites,
+        metadata_problem: updates.problem,
         restored: undone.restored,
         untouched: undone.untouched.len(),
         failures: undone
@@ -298,6 +426,108 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
+    use euphoria_core::Cache;
+    #[test]
+    fn a_disposable_cache_failure_does_not_prevent_playlist_identity_updates() {
+        let scratch = ScratchFolder::new("playlist-cache-failure");
+        let files = scratch.copy_fixtures();
+        let path = &files[0];
+        let before = euphoria_core::ContentHash::of_file(path).unwrap();
+        let cache_path = scratch.0.join("analysis-cache.sqlite3");
+        let mut cache = Cache::open(&cache_path).unwrap();
+        cache.record_retagged_file(path, &analysis()).unwrap();
+        let cache = CachedAnalyzer::new(cache).unwrap();
+        let store_path = scratch.0.join("playlists.sqlite3");
+        let mut store = euphoria_core::PlaylistStore::open(&store_path).unwrap();
+        store
+            .save(&[euphoria_core::StoredPlaylist {
+                name: "Set".into(),
+                label: None,
+                entries: vec![euphoria_core::PlaylistEntry {
+                    path: path.clone(),
+                    content: before,
+                }],
+            }])
+            .unwrap();
+        let mut session = crate::state::Session::start(None).unwrap();
+        session.use_playlist_store(store).unwrap();
+        let saver = session.playlist_saver().unwrap();
+        saver.register(session.playlists());
+        rusqlite::Connection::open(&cache_path)
+            .unwrap()
+            .execute("DROP TABLE corrections", [])
+            .unwrap();
+        let plan = euphoria_core::tags::plan_edit(
+            path,
+            &[euphoria_core::tags::FieldEdit {
+                field: euphoria_core::tags::TagField::Genre,
+                change: euphoria_core::tags::TextChange::Set("Deep House".into()),
+            }],
+        )
+        .unwrap();
+        let report = write_plans_with_playlists(
+            &[plan],
+            &[None],
+            &scratch.log_directory(),
+            Some(&cache),
+            &Arc::new(AtomicUsize::new(0)),
+            Some(&saver),
+        );
+        assert_eq!(report.written.len(), 1);
+        assert!(report.metadata_problem.is_some());
+        let kept = euphoria_core::PlaylistStore::open(&store_path)
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(
+            kept[0].entries[0].content,
+            euphoria_core::ContentHash::of_file(path).unwrap()
+        );
+        assert_ne!(kept[0].entries[0].content, before);
+    }
+
+    #[test]
+    fn a_tag_write_keeps_the_canonical_cached_grid_instead_of_its_display_projection() {
+        let scratch = ScratchFolder::new("canonical-grid");
+        let files = scratch.copy_fixtures();
+        let path = &files[0];
+        let mut canonical = analysis();
+        canonical.bpm = Some(160.0);
+        canonical.tempo_estimate = Some(80.0);
+        canonical.beat_grid = Some(euphoria_core::detect::BeatGrid {
+            bpm: 160.0,
+            first_downbeat_seconds: 0.9,
+            salience: 2.0,
+            drift_seconds: None,
+        });
+        let mut cache = Cache::open(&scratch.0.join("analysis-cache.sqlite3")).unwrap();
+        cache.record_retagged_file(path, &canonical).unwrap();
+        let cache = CachedAnalyzer::new(cache).unwrap();
+        let projected = canonical
+            .clone()
+            .with_tempo_range(euphoria_core::TempoRange::new(200.0, 400.0).unwrap());
+        assert_ne!(projected.beat_grid, canonical.beat_grid);
+        let target = WriteTarget {
+            path: path.clone(),
+            analysis: Some(projected),
+            correction: Correction::default(),
+        };
+        let planned = plan_writes(&[target], &TagSettings::default().write_options());
+        let report = write_plans(
+            &planned.plans,
+            &planned.analyses.into_iter().map(Some).collect::<Vec<_>>(),
+            &scratch.log_directory(),
+            Some(&cache),
+            &Arc::new(AtomicUsize::new(0)),
+        );
+        assert!(report.cache_problem.is_none());
+        let reopened = launch_cache(&scratch);
+        assert_eq!(
+            reopened.stored_analysis(path).unwrap().beat_grid,
+            canonical.beat_grid
+        );
+    }
+
     use super::testing::{ScratchFolder, analysis, contents};
     use super::*;
     use crate::tag_settings::{ProgramChoice, TagSettings};
@@ -454,7 +684,7 @@ mod tests {
     /// The analyzer over a cache in the scratch folder, as a new launch of
     /// the app opens it.
     fn launch_cache(scratch: &ScratchFolder) -> CachedAnalyzer {
-        let cache = euphoria_core::Cache::open(&scratch.0.join("analysis-cache.sqlite3")).unwrap();
+        let cache = Cache::open(&scratch.0.join("analysis-cache.sqlite3")).unwrap();
         CachedAnalyzer::new(cache).unwrap()
     }
 
