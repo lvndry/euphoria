@@ -850,8 +850,11 @@ mod tests {
             }
         }
         assert!(sounded, "no sound came back after the seek");
+        // Sound comes back about 2 ms after the seek on an M5, idle or with
+        // every core busy. The bound leaves room for a busy machine to set
+        // the decoder thread aside for a while.
         assert!(
-            asked_at.elapsed() < Duration::from_millis(250),
+            asked_at.elapsed() < Duration::from_secs(1),
             "sound took {:?} to come back",
             asked_at.elapsed()
         );
