@@ -1240,6 +1240,100 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
 }
 
 #[test]
+fn the_cues_the_user_set_replace_the_automatic_ones_in_the_json_and_the_export() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let automatic = analyzed_as_json(&euphoria, music_folder.path());
+    assert_eq!(automatic[0]["cues"][0]["hot_cue"], "A");
+    assert_eq!(automatic[0]["set_by_user"], serde_json::json!([]));
+
+    let edited = vec![
+        euphoria_core::Cue {
+            seconds: 2.25,
+            name: "My drop".to_string(),
+            hot_cue: euphoria_core::HotCue::from_letter('C'),
+        },
+        euphoria_core::Cue {
+            seconds: 10.0,
+            name: "Memory only".to_string(),
+            hot_cue: None,
+        },
+    ];
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .set_edited_cues(&track, Some(&edited))
+        .expect("the cues are kept");
+
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    assert_eq!(
+        analyzed[0]["cues"],
+        serde_json::json!([
+            {"seconds": 2.25, "name": "My drop", "hot_cue": "C"},
+            {"seconds": 10.0, "name": "Memory only", "hot_cue": null},
+        ])
+    );
+    assert_eq!(analyzed[0]["set_by_user"], serde_json::json!(["cues"]));
+
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let empty_collection = output.join("empty-collection.xml");
+    std::fs::write(
+        &empty_collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let cued_collection = output.join("cued-collection.xml");
+    std::fs::write(
+        &cued_collection,
+        format!(
+            "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"1\">\
+             <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
+             <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
+             </TRACK></COLLECTION></DJ_PLAYLISTS>",
+            text(&track)
+        ),
+    )
+    .expect("the collection is written");
+    let export = |name: &str, collection: &Path| {
+        let file = output.join(name);
+        let run = euphoria.run(&[
+            "export",
+            "rekordbox",
+            text(&track),
+            "-o",
+            text(&file),
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(collection),
+        ]);
+        (run, file)
+    };
+
+    let (exported, exported_file) = export("edited.xml", &empty_collection);
+    assert_success(&exported);
+    assert_eq!(
+        exported_cues(&exported_file),
+        [
+            ("My drop".to_string(), "-1".to_string()),
+            ("My drop".to_string(), "2".to_string()),
+            ("Memory only".to_string(), "-1".to_string()),
+        ]
+    );
+
+    let (left_out, left_out_file) = export("left-out.xml", &cued_collection);
+    assert_eq!(left_out.status.code(), Some(1));
+    assert!(
+        standard_error(&left_out).contains("every track already has cues"),
+        "{}",
+        standard_error(&left_out)
+    );
+    assert!(!left_out_file.exists());
+}
+
+#[test]
 fn a_grid_rated_low_is_left_out_and_not_counted() {
     let euphoria = Euphoria::new();
     let music_folder = TemporaryFolder::new();

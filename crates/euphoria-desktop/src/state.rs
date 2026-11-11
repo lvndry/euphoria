@@ -32,6 +32,8 @@ pub(crate) struct Scan {
     pub(crate) cached: HashMap<PathBuf, TrackAnalysis>,
     /// The keys and tempos the user set for those files.
     pub(crate) corrections: HashMap<PathBuf, euphoria_core::Correction>,
+    /// The cues the user set for those files.
+    pub(crate) edited_cues: HashMap<PathBuf, Vec<euphoria_core::Cue>>,
     /// One message for each path that could not be read.
     pub(crate) problems: Vec<String>,
 }
@@ -61,6 +63,9 @@ pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
             }
             if let Ok(Some(correction)) = cache.correction_for(file) {
                 scan.corrections.insert(file.clone(), correction);
+            }
+            if let Ok(Some(cues)) = cache.edited_cues_for(file) {
+                scan.edited_cues.insert(file.clone(), cues);
             }
         }
     }
@@ -303,6 +308,9 @@ impl Session {
         for (file, correction) in scan.corrections {
             self.library.set_correction(&file, correction);
         }
+        for (file, cues) in scan.edited_cues {
+            self.library.set_edited_cues(&file, Some(cues));
+        }
         let queued = files_to_analyze.len();
         self.progress.enqueue(queued);
         self.workers.enqueue(files_to_analyze);
@@ -315,6 +323,14 @@ impl Session {
     /// off the main thread.
     pub(crate) fn set_correction(&mut self, path: &Path, correction: euphoria_core::Correction) {
         self.library.set_correction(path, correction);
+    }
+
+    /// Sets the cues the user chose for the track at `path`, or goes back to
+    /// the automatic ones with `None`, in the library at once. Keeping them
+    /// in the cache is [`CachedAnalyzer::set_edited_cues`], off the main
+    /// thread.
+    pub(crate) fn set_edited_cues(&mut self, path: &Path, cues: Option<Vec<euphoria_core::Cue>>) {
+        self.library.set_edited_cues(path, cues);
     }
 
     /// Shows every tempo in `range`, without analyzing anything again.
@@ -589,6 +605,34 @@ mod tests {
             reopened.analysis().is_some(),
             "the analysis came from the cache"
         );
+    }
+
+    #[test]
+    fn cues_kept_in_the_cache_come_back_on_the_next_launch() {
+        let folder = TemporaryFolder::new("edited-cues");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let cues = vec![euphoria_core::Cue {
+            seconds: 0.5,
+            name: "Mine".to_string(),
+            hot_cue: euphoria_core::HotCue::from_letter('D'),
+        }];
+        {
+            let cache = folder.open_cache();
+            let mut session = Session::start(Some(cache.clone())).unwrap();
+            session.add(scan(std::slice::from_ref(&folder.0), Some(&cache)));
+            wait_until_idle(&mut session);
+            cache.set_edited_cues(&track, Some(&cues)).unwrap();
+        }
+
+        let cache = folder.open_cache();
+        let found = scan(std::slice::from_ref(&folder.0), Some(&cache));
+        assert_eq!(found.edited_cues.get(&track), Some(&cues));
+        let mut session = Session::start(Some(cache)).unwrap();
+        session.add(found);
+        let reopened = session.library().tracks()[0].cues();
+        assert!(reopened.is_edited());
+        assert_eq!(reopened.cues, cues);
     }
 
     #[test]

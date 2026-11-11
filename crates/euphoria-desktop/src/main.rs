@@ -13,6 +13,7 @@ mod app;
 mod assets;
 mod camelot;
 mod columns;
+mod cue_editing;
 mod deck_audio;
 mod decks;
 mod demo;
@@ -56,9 +57,9 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks,
-    ToggleDecks, TogglePlayback, ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
-    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    AddCueAtPlayhead, AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths,
+    SelectAllTracks, ToggleDecks, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
+    UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -192,11 +193,16 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         // Space plays and pauses, except in a text field, where it types.
         KeyBinding::new("space", TogglePlayback, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
+        // Outside a text field, where Command Z undoes typing.
+        KeyBinding::new("cmd-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("c", AddCueAtPlayhead, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
         KeyBinding::new("cmd-i", EditTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-,", OpenSettings, None),
         #[cfg(not(target_os = "macos"))]
@@ -232,6 +238,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<UndoTagWrite>(view, cx, |view, cx| view.open_tag_undo(cx));
     register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
+    register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
+    register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_cue_edit(cx));
     register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
         view.reset_column_widths(cx);
     });
@@ -339,6 +347,11 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::action("Write Tags\u{2026}", WriteTags),
             MenuItem::action("Undo Last Tag Write\u{2026}", UndoTagWrite),
         ]),
-        Menu::new("Playback").items([MenuItem::action("Play or Pause", TogglePlayback)]),
+        Menu::new("Playback").items([
+            MenuItem::action("Play or Pause", TogglePlayback),
+            MenuItem::separator(),
+            MenuItem::action("Add Cue at Playhead", AddCueAtPlayhead),
+            MenuItem::action("Undo Cue Edit", UndoCueEdit),
+        ]),
     ]);
 }

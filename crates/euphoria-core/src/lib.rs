@@ -43,6 +43,8 @@ pub mod stems;
 pub mod tags;
 /// The range of tempos a track is reported at.
 pub mod tempo_range;
+/// The cues of a track: those analysis placed, or the user's.
+pub mod track_cues;
 /// Reading the title and artist stored in audio files.
 pub mod track_name;
 
@@ -82,4 +84,5 @@ pub use playlists::{
     default_playlists_path, locate_entry, locate_moved_files,
 };
 pub use tempo_range::TempoRange;
+pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
 pub use track_name::{TrackName, read_track_name};

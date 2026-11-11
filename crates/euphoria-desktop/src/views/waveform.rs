@@ -4,7 +4,8 @@
 //! The waveform of the selected track, drawn as thin vertical bars. Each bar
 //! shows three bands on top of one another, bass behind and treble in front,
 //! so a kick, a breakdown and a hi hat each look different. The part already
-//! played is fainter, and a line marks where playing is.
+//! played is fainter, a line marks where playing is, and a line in the
+//! accent colour marks each cue.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -39,6 +40,8 @@ pub(crate) struct WaveformColours {
     flat: Hsla,
     /// The line that marks where playing is.
     playhead: Hsla,
+    /// The lines that mark the cues.
+    cue: Hsla,
 }
 
 impl WaveformColours {
@@ -49,18 +52,20 @@ impl WaveformColours {
             played: palette.played_band_colours(),
             flat: palette.waveform,
             playhead: palette.text,
+            cue: palette.accent,
         }
     }
 }
 
 /// A waveform as wide as its container. Without columns it is a flat line of
 /// the shortest bars. `progress` is how far playing has got, from 0.0 to 1.0,
-/// `seen_bounds` is told where the waveform was drawn, and `height` is how
-/// tall to draw it.
+/// `cue_fractions` how far along each cue is, `seen_bounds` is told where
+/// the waveform was drawn, and `height` is how tall to draw it.
 pub(crate) fn waveform(
     columns: Option<Arc<[BandPeaks]>>,
     colours: WaveformColours,
     progress: Option<f32>,
+    cue_fractions: Vec<f32>,
     seen_bounds: SeenBounds,
     height: Pixels,
 ) -> impl IntoElement {
@@ -112,14 +117,20 @@ pub(crate) fn waveform(
                 }
             }
 
-            if let Some(progress) = progress {
-                let left = (progress.clamp(0.0, 1.0) * width - PLAYHEAD_WIDTH / 2.0)
+            let mut paint_line = |fraction: f32, colour: Hsla| {
+                let left = (fraction.clamp(0.0, 1.0) * width - PLAYHEAD_WIDTH / 2.0)
                     .clamp(0.0, width - PLAYHEAD_WIDTH);
-                let playhead = Bounds::new(
+                let line = Bounds::new(
                     bounds.origin + point(px(left), px(0.0)),
                     size(px(PLAYHEAD_WIDTH), px(height)),
                 );
-                window.paint_quad(fill(playhead, colours.playhead));
+                window.paint_quad(fill(line, colour));
+            };
+            for fraction in &cue_fractions {
+                paint_line(*fraction, colours.cue);
+            }
+            if let Some(progress) = progress {
+                paint_line(progress, colours.playhead);
             }
         },
     )

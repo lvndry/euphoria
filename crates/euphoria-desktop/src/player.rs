@@ -237,6 +237,29 @@ impl Player {
         }
     }
 
+    /// A click on a cue: playing goes on from `seconds`, whatever the player
+    /// was doing. Returns the requests for the output, in order.
+    pub(crate) fn play_from(&mut self, seconds: f32) -> Vec<PlayerRequest> {
+        let Some(path) = self.track.clone() else {
+            return Vec::new();
+        };
+        let end = self.duration_seconds.unwrap_or(f32::MAX);
+        self.position_seconds = seconds.clamp(0.0, end);
+        match self.status {
+            PlayerStatus::Playing => vec![PlayerRequest::SeekTo(self.position_seconds)],
+            PlayerStatus::Paused => {
+                self.status = PlayerStatus::Playing;
+                vec![
+                    PlayerRequest::SeekTo(self.position_seconds),
+                    PlayerRequest::Resume,
+                ]
+            }
+            PlayerStatus::Starting | PlayerStatus::Stopped | PlayerStatus::Failed(_) => {
+                vec![self.start(path)]
+            }
+        }
+    }
+
     /// The output opened the file of `attempt` and sound is starting.
     /// Returns false when that is not the attempt the player is waiting
     /// for: it stopped, retried or moved on since. The output should then
@@ -378,6 +401,27 @@ mod tests {
 
         player.stems_ready(false);
         starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+    }
+
+    #[test]
+    fn playing_from_a_cue_starts_jumps_or_resumes_from_there() {
+        let mut player = Player::default();
+        assert!(
+            player.play_from(30.0).is_empty(),
+            "no track, nothing to play"
+        );
+        player.select(Some(first()), Some(420.0));
+        let mut requests = player.play_from(30.0);
+        starts(requests.pop(), first(), 30.0);
+
+        let mut player = playing();
+        assert_eq!(player.play_from(64.0), vec![PlayerRequest::SeekTo(64.0)]);
+        assert_eq!(player.toggle(), Some(PlayerRequest::Pause));
+        assert_eq!(
+            player.play_from(500.0),
+            vec![PlayerRequest::SeekTo(420.0), PlayerRequest::Resume]
+        );
+        assert!(player.is_playing());
     }
 
     #[test]

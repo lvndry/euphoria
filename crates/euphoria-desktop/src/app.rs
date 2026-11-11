@@ -174,6 +174,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) decks: crate::decks::Decks,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
+    /// Moving, adding, renaming and deleting the selected track's cues.
+    pub(crate) cue_editor: crate::cue_editing::CueEditor,
+    /// The field the name of a cue is typed in.
+    pub(crate) cue_name_input: Entity<InputState>,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -259,6 +263,16 @@ impl EuphoriaApp {
                 this.accept_typed_bpm(cx);
             }
         });
+        let cue_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Cue name"));
+        let cue_named = cx.subscribe(
+            &cue_name_input,
+            |this: &mut Self, _, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                    this.finish_renaming_cue(cx);
+                }
+                InputEvent::Change | InputEvent::Focus => {}
+            },
+        );
         let tempo_from_changed = cx.subscribe(&tempo_from_input, range_typed);
         let tempo_to_changed = cx.subscribe(&tempo_to_input, range_typed);
         let mut session = session;
@@ -333,6 +347,8 @@ impl EuphoriaApp {
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
             decks: crate::decks::Decks::default(),
             bpm_input,
+            cue_editor: crate::cue_editing::CueEditor::default(),
+            cue_name_input,
             voice: None,
             start_task: None,
             is_following_playhead: false,
@@ -347,6 +363,7 @@ impl EuphoriaApp {
             _subscriptions: vec![
                 playlist_named,
                 bpm_entered,
+                cue_named,
                 search_changed,
                 quitting,
                 tempo_from_changed,
@@ -1175,6 +1192,7 @@ impl EuphoriaApp {
         self.by_ear.is_editing = false;
         self.by_ear.bpm_problem = None;
         self.selected = Some(index);
+        self.cue_editor.forget_selection();
         self.refresh_mixes();
         self.load_selected_waveform(cx);
         self.point_player_at_selection(cx);
@@ -1236,7 +1254,7 @@ impl EuphoriaApp {
     }
 
     /// Passes what the player asked for on to the audio output.
-    fn carry_out(&mut self, request: Option<PlayerRequest>, cx: &mut Context<'_, Self>) {
+    pub(crate) fn carry_out(&mut self, request: Option<PlayerRequest>, cx: &mut Context<'_, Self>) {
         match request {
             None => {}
             Some(PlayerRequest::Start {
@@ -1856,14 +1874,20 @@ impl Render for EuphoriaApp {
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
-                    this.resize_to(event.position, window, cx);
+                    if !this.drag_cue_to(event.position.x, event.modifiers, cx) {
+                        this.resize_to(event.position, window, cx);
+                    }
                 } else {
                     this.finish_resizing(cx);
+                    this.release_cue(cx);
                 }
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.finish_resizing(cx)),
+                cx.listener(|this, _, _, cx| {
+                    this.finish_resizing(cx);
+                    this.release_cue(cx);
+                }),
             )
             .child(views::toolbar::render(self, cx))
             .child(body)
