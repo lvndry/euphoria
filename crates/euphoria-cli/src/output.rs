@@ -706,7 +706,7 @@ pub fn write_unmatched_cued_tracks(
         },
     )?;
     for description in unmatched {
-        writeln!(writer, "  {description}")?;
+        writeln!(writer, "  {}", Printable(description))?;
     }
     Ok(())
 }
