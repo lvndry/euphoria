@@ -221,7 +221,7 @@ def cutoffs_chart():
         swatch(236, 90, "series-2-fill"),
         text(256, 90, "Encoded again at a higher bit rate", "label"),
         line(490, 80, 490, 92, "reference"),
-        text(502, 90, "Likely re-encoded when the content stops left of it", "label"),
+        text(502, 90, "Likely re-encoded left of the tick", "label"),
     ]
     for kilohertz in range(14, 23, 2):
         body.append(line(to_x(kilohertz), chart_top + 8, to_x(kilohertz), plot_bottom, "grid"))
@@ -234,8 +234,9 @@ def cutoffs_chart():
             body.append(text(plot_left - 14, middle + 4.5, encoding, "label", "end"))
             if lowest is not None:
                 body.append(range_bar(to_x(lowest), to_x(highest), middle, 12, css_class))
-            expected = to_x(expected_cutoff_khz(bitrate))
-            body.append(line(expected, middle - 9, expected, middle + 9, "reference"))
+            if bitrate is None or bitrate >= ACCEPTABLE_FROM_KBPS:
+                expected = to_x(expected_cutoff_khz(bitrate))
+                body.append(line(expected, middle - 9, expected, middle + 9, "reference"))
             note = full_band_note(full_band_count, lowest is not None)
             if note:
                 body.append(text(plot_right + 12, middle + 4.5, note, "tick"))
@@ -247,9 +248,10 @@ def cutoffs_chart():
 
     description = (
         "Range bars of the frequency where the content stops, for seven tracks per "
-        "encoding, with a tick at the cutoff below which a file of that bit rate is "
-        "likely re-encoded. Encoded once from a lossless source, every bar sits at or "
-        "right of its tick: MP3 cuts at about 15.3 kHz at 96 kbit/s, 16 to 16.8 kHz at "
+        "encoding. From 144 kbit/s, and for lossless files, a tick marks the cutoff "
+        "below which the file is likely re-encoded. Below 144 kbit/s the verdict is "
+        "weak regardless of cutoff. Each encoding made once from a lossless source "
+        "with a tick sits at or right of it: MP3 cuts at about 15.3 kHz at 96 kbit/s, 16 to 16.8 kHz at "
         "128, 18.6 to 18.9 at 192, 19.3 to 19.6 at 256 and 20.1 to 20.3 at 320; the AAC "
         "encoders cut higher or not at all. Transcoded to a higher bit rate or to FLAC, "
         "the bars stay where the low bit rate source put them, at 16 to 18.9 kHz, left "
@@ -270,16 +272,18 @@ def verdicts_chart():
 
     body = [
         text(24, 36, "How bit rate and cutoff make the verdict", "title"),
-        text(24, 58, "Bit rate sets Weak, Acceptable or Good. A cutoff below the line marks a likely re-encode.", "subtitle"),
+        text(24, 58, "Bit rate sets Weak, Acceptable or Good. From 144 kbit/s, a cutoff below the line marks a likely re-encode.", "subtitle"),
         '<circle cx="30" cy="85" r="5" class="series-1-fill ring"/>',
         text(42, 90, "Encoded once from lossless", "label"),
         '<circle cx="236" cy="85" r="5" class="series-2-fill ring"/>',
         text(248, 90, "Encoded again at a higher bit rate", "label"),
     ]
 
-    zone = [(to_x(80), plot_bottom)]
+    zone = [(to_x(ACCEPTABLE_FROM_KBPS), plot_bottom)]
     for index, (lowest_bitrate, cutoff) in enumerate(EXPECTED_CUTOFF_STEPS):
-        start = max(lowest_bitrate, 80)
+        if lowest_bitrate < ACCEPTABLE_FROM_KBPS:
+            continue
+        start = lowest_bitrate
         end = EXPECTED_CUTOFF_STEPS[index + 1][0] if index + 1 < len(EXPECTED_CUTOFF_STEPS) else 340
         zone.append((to_x(start), to_y(cutoff)))
         zone.append((to_x(end), to_y(cutoff)))
@@ -303,7 +307,9 @@ def verdicts_chart():
 
     step_points = []
     for index, (lowest_bitrate, cutoff) in enumerate(EXPECTED_CUTOFF_STEPS):
-        start = max(lowest_bitrate, 80)
+        if lowest_bitrate < ACCEPTABLE_FROM_KBPS:
+            continue
+        start = lowest_bitrate
         end = EXPECTED_CUTOFF_STEPS[index + 1][0] if index + 1 < len(EXPECTED_CUTOFF_STEPS) else 340
         step_points.append((to_x(start), to_y(cutoff)))
         step_points.append((to_x(end), to_y(cutoff)))
@@ -326,11 +332,13 @@ def verdicts_chart():
     description = (
         "Scatter of the lowest cutoff of each encoding against its measured average "
         "bit rate, over the verdict zones. Below 144 kbit/s is weak on a big system, "
-        "144 to 199 acceptable, 200 and above good. A step line marks the cutoff below "
-        "which the file is likely re-encoded: 14.5 kHz below 144 kbit/s, 15.5 kHz to "
-        "199, 18 kHz to 287 and 19.5 kHz from 288. Every file encoded once from a "
+        "144 to 199 acceptable, 200 and above good. Below 144 kbit/s the verdict stays "
+        "weak regardless of cutoff. From 144 kbit/s, a step line marks the cutoff below "
+        "which the file is likely re-encoded: 15.5 kHz to 199 kbit/s, 18 kHz to 287 and "
+        "19.5 kHz from 288. The lowest cutoff of each encoding made once from a "
         "lossless source sits above the line, Apple AAC at 192 kbit/s closest at 16.4 kHz. "
-        "Every transcode to a higher bit rate sits below it. Lossless files, not shown, "
+        "The lowest cutoff of each transcode to a higher bit rate sits below it. "
+        "Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, "
         "are likely re-encoded below 19 kHz."
     )
     return document(width, height, "How bit rate and cutoff make the verdict", description, body)

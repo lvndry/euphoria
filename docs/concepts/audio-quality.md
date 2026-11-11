@@ -69,7 +69,7 @@ The thresholds that follow:
 - **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. Of the 42 transcodes of music measured, 39 were caught. The 3 that were missed show no clear fall in their spectrum after re-encoding: twice because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
 - Clipping never changes the verdict. When at least 0.1% of the samples are clipped, the reason adds that the master is clipped in places.
 
-![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Every file encoded once from a lossless source sits above the step line of expected cutoffs; every transcode to a higher bit rate sits below it, in the likely re-encoded zone.](../images/audio-quality/verdicts.svg)
+![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, the lowest cutoff of each encoding made once from a lossless source sits above the step line; the lowest cutoff of each transcode to a higher bit rate sits below it, in the likely re-encoded zone. Some transcoded files have no cutoff and cannot be identified.](../images/audio-quality/verdicts.svg)
 
 ## Limits
 

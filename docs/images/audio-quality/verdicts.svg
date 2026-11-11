@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">How bit rate and cutoff make the verdict</title>
-<desc id="chart-desc">Scatter of the lowest cutoff of each encoding against its measured average bit rate, over the verdict zones. Below 144 kbit/s is weak on a big system, 144 to 199 acceptable, 200 and above good. A step line marks the cutoff below which the file is likely re-encoded: 14.5 kHz below 144 kbit/s, 15.5 kHz to 199, 18 kHz to 287 and 19.5 kHz from 288. Every file encoded once from a lossless source sits above the line, Apple AAC at 192 kbit/s closest at 16.4 kHz. Every transcode to a higher bit rate sits below it. Lossless files, not shown, are likely re-encoded below 19 kHz.</desc>
+<desc id="chart-desc">Scatter of the lowest cutoff of each encoding against its measured average bit rate, over the verdict zones. Below 144 kbit/s is weak on a big system, 144 to 199 acceptable, 200 and above good. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, a step line marks the cutoff below which the file is likely re-encoded: 15.5 kHz to 199 kbit/s, 18 kHz to 287 and 19.5 kHz from 288. The lowest cutoff of each encoding made once from a lossless source sits above the line, Apple AAC at 192 kbit/s closest at 16.4 kHz. The lowest cutoff of each transcode to a higher bit rate sits below it. Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, are likely re-encoded below 19 kHz.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -39,12 +39,12 @@
 </style>
 <rect x="0.5" y="0.5" width="799" height="499" rx="12" class="surface"/>
 <text x="24" y="36" class="title" text-anchor="start">How bit rate and cutoff make the verdict</text>
-<text x="24" y="58" class="subtitle" text-anchor="start">Bit rate sets Weak, Acceptable or Good. A cutoff below the line marks a likely re-encode.</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Bit rate sets Weak, Acceptable or Good. From 144 kbit/s, a cutoff below the line marks a likely re-encode.</text>
 <circle cx="30" cy="85" r="5" class="series-1-fill ring"/>
 <text x="42" y="90" class="label" text-anchor="start">Encoded once from lossless</text>
 <circle cx="236" cy="85" r="5" class="series-2-fill ring"/>
 <text x="248" y="90" class="label" text-anchor="start">Encoded again at a higher bit rate</text>
-<polygon points="80,430 80,411.99 232.62,411.99 232.62,375.96 366.15,375.96 366.15,285.9 576,285.9 576,231.86 700,231.86 700,430" class="zone"/>
+<polygon points="232.62,430 232.62,375.96 366.15,375.96 366.15,285.9 576,285.9 576,231.86 700,231.86 700,430" class="zone"/>
 <line x1="80" y1="430" x2="700" y2="430" class="axis"/>
 <text x="70" y="434" class="tick" text-anchor="end">14 kHz</text>
 <line x1="80" y1="357.95" x2="700" y2="357.95" class="grid"/>
@@ -69,7 +69,7 @@
 <text x="156.31" y="126" class="value" text-anchor="middle">Weak on a big system</text>
 <text x="299.38" y="126" class="value" text-anchor="middle">Acceptable</text>
 <text x="533.08" y="126" class="value" text-anchor="middle">Good</text>
-<polyline points="80,411.99 232.62,411.99 232.62,375.96 366.15,375.96 366.15,285.9 576,285.9 576,231.86 700,231.86" class="reference"/>
+<polyline points="232.62,375.96 366.15,375.96 366.15,285.9 576,285.9 576,231.86 700,231.86" class="reference"/>
 <text x="499.69" y="408.39" class="value" text-anchor="middle">Likely re-encoded</text>
 <circle cx="118.15" cy="386.77" r="5" class="series-1-fill ring"/>
 <circle cx="194.46" cy="357.95" r="5" class="series-1-fill ring"/>
