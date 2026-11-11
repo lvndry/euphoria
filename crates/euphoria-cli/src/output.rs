@@ -7,8 +7,11 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
-use euphoria_core::{EuphoriaError, FileResult, Key, KeySection, SkippedTrack, UnreadTags};
+use euphoria_core::{
+    Confidence, EuphoriaError, FileResult, Key, KeySection, SkippedTrack, TempoRange, UnreadTags,
+};
 use serde::Serialize;
 
 use crate::tags::Failure;
@@ -19,11 +22,32 @@ struct JsonTrack<'result> {
     path: &'result Path,
     duration_seconds: Option<f32>,
     key: Option<JsonKey>,
+    runner_up_key: Option<JsonKey>,
     bpm: Option<f32>,
+    bpm_confidence: Option<&'static str>,
+    bpm_alternative: Option<f32>,
     energy: Option<u8>,
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
+    quality: Option<JsonQuality<'result>>,
+    needs_review: Option<bool>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonQuality<'result> {
+    #[serde(flatten)]
+    report: &'result QualityReport,
+    reason: String,
+}
+
+impl<'result> From<&'result QualityReport> for JsonQuality<'result> {
+    fn from(report: &'result QualityReport) -> Self {
+        Self {
+            report,
+            reason: report.reason(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -47,6 +71,18 @@ impl From<&KeySection> for JsonKeySection {
 struct JsonKey {
     camelot: String,
     name: String,
+    open_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence: Option<&'static str>,
+}
+
+impl JsonKey {
+    fn rated(key: Key, confidence: Option<Confidence>) -> Self {
+        Self {
+            confidence: confidence.map(Confidence::as_str),
+            ..Self::from(key)
+        }
+    }
 }
 
 impl From<Key> for JsonKey {
@@ -54,21 +90,36 @@ impl From<Key> for JsonKey {
         Self {
             camelot: key.camelot(),
             name: key.to_string(),
+            open_key: key.open_key(),
+            confidence: None,
         }
     }
 }
 
 /// Writes one JSON array with an object per file, including failed files with
-/// their error.
-pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result<()> {
+/// their error. Tempos are taken to be reported in `range`, which decides
+/// the half or double tempo offered as an alternative.
+pub fn write_json(
+    writer: &mut impl Write,
+    results: &[FileResult],
+    range: TempoRange,
+) -> io::Result<()> {
     let tracks: Vec<JsonTrack<'_>> = results
         .iter()
         .map(|result| match &result.outcome {
             Ok(analysis) => JsonTrack {
                 path: &result.path,
                 duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
-                key: analysis.key.map(JsonKey::from),
+                key: analysis
+                    .key
+                    .map(|key| JsonKey::rated(key, analysis.key_confidence())),
+                runner_up_key: analysis.key_runner_up.map(JsonKey::from),
                 bpm: analysis.bpm.map(round_to_tenths),
+                bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
+                bpm_alternative: analysis
+                    .bpm
+                    .and_then(|bpm| range.alternative(bpm))
+                    .map(round_to_tenths),
                 energy: analysis.energy,
                 tuning_cents: analysis.tuning_cents.map(round_to_tenths),
                 key_timeline: analysis
@@ -76,16 +127,23 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
                     .iter()
                     .map(JsonKeySection::from)
                     .collect(),
+                quality: analysis.quality.as_ref().map(JsonQuality::from),
+                needs_review: Some(analysis.needs_review()),
                 error: None,
             },
             Err(error) => JsonTrack {
                 path: &result.path,
                 duration_seconds: None,
                 key: None,
+                runner_up_key: None,
                 bpm: None,
+                bpm_confidence: None,
+                bpm_alternative: None,
                 energy: None,
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                quality: None,
+                needs_review: None,
                 error: Some(error.chain()),
             },
         })
@@ -94,10 +152,14 @@ pub fn write_json(writer: &mut impl Write, results: &[FileResult]) -> io::Result
     writeln!(writer)
 }
 
-/// Writes an aligned table of the files that were analyzed.
+/// Writes an aligned table of the files that were analyzed. The Conf column
+/// holds the confidence of the key and of the tempo, each as H, M or L for
+/// high, medium or low.
 pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Result<()> {
-    let header = ["Key", "", "BPM", "Energy", "Time", "File"];
-    let rows: Vec<[String; 6]> = results
+    let header = [
+        "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
+    ];
+    let rows: Vec<[String; 8]> = results
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
@@ -115,6 +177,16 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
                     .energy
                     .map(|energy| energy.to_string())
                     .unwrap_or_else(|| "-".to_string()),
+                format!(
+                    "{}/{}",
+                    confidence_letter(analysis.key_confidence()),
+                    confidence_letter(analysis.tempo_confidence())
+                ),
+                analysis
+                    .quality
+                    .as_ref()
+                    .map(|quality| short_verdict(quality.verdict).to_string())
+                    .unwrap_or_else(|| "-".to_string()),
                 format_duration(analysis.duration_seconds),
                 Printable(result.path.display()).to_string(),
             ])
@@ -130,18 +202,77 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
 
     let header_cells = header.map(str::to_string);
     for row in std::iter::once(&header_cells).chain(&rows) {
-        let [camelot, key_name, bpm, energy, duration, file] = row;
+        let [
+            camelot,
+            key_name,
+            bpm,
+            energy,
+            confidence,
+            quality,
+            duration,
+            file,
+        ] = row;
         writeln!(
             writer,
-            "{camelot:<camelot_width$}  {key_name:<key_name_width$}  {bpm:>bpm_width$}  {energy:>energy_width$}  {duration:>duration_width$}  {file}",
+            "{camelot:<camelot_width$}  {key_name:<key_name_width$}  {bpm:>bpm_width$}  {energy:>energy_width$}  {confidence:<confidence_width$}  {quality:<quality_width$}  {duration:>duration_width$}  {file}",
             camelot_width = widths[0],
             key_name_width = widths[1],
             bpm_width = widths[2],
             energy_width = widths[3],
-            duration_width = widths[4],
+            confidence_width = widths[4],
+            quality_width = widths[5],
+            duration_width = widths[6],
         )?;
     }
     Ok(())
+}
+
+/// The verdict in a word or two, for the table.
+fn short_verdict(verdict: QualityVerdict) -> &'static str {
+    match verdict {
+        QualityVerdict::Lossless => "Lossless",
+        QualityVerdict::Good => "Good",
+        QualityVerdict::Acceptable => "Acceptable",
+        QualityVerdict::WeakOnABigSystem => "Weak",
+        QualityVerdict::LikelyReencoded => "Re-encoded?",
+    }
+}
+
+/// Writes how many tracks have each quality verdict, best first, such as
+/// "Quality: 186 good, 380 weak on a big system, 7 likely re-encoded."
+/// Writes nothing when no track has a quality report.
+pub fn write_quality_summary(writer: &mut impl Write, results: &[FileResult]) -> io::Result<()> {
+    let order = [
+        QualityVerdict::Lossless,
+        QualityVerdict::Good,
+        QualityVerdict::Acceptable,
+        QualityVerdict::WeakOnABigSystem,
+        QualityVerdict::LikelyReencoded,
+    ];
+    let verdicts: Vec<QualityVerdict> = results
+        .iter()
+        .filter_map(|result| Some(result.outcome.as_ref().ok()?.quality.as_ref()?.verdict))
+        .collect();
+    let parts: Vec<String> = order
+        .iter()
+        .filter_map(|verdict| {
+            let count = verdicts.iter().filter(|found| *found == verdict).count();
+            (count > 0).then(|| format!("{count} {}", verdict.label().to_lowercase()))
+        })
+        .collect();
+    if parts.is_empty() {
+        return Ok(());
+    }
+    writeln!(writer, "Quality: {}.", parts.join(", "))
+}
+
+fn confidence_letter(confidence: Option<Confidence>) -> &'static str {
+    match confidence {
+        Some(Confidence::High) => "H",
+        Some(Confidence::Medium) => "M",
+        Some(Confidence::Low) => "L",
+        None => "-",
+    }
 }
 
 /// Writes the files that could not be analyzed and why.
@@ -439,7 +570,14 @@ fn format_duration(seconds: f32) -> String {
 }
 
 fn round_to_tenths(value: f32) -> f32 {
-    (value * 10.0).round() / 10.0
+    let scaled = value * 10.0;
+    if scaled.is_finite() {
+        scaled.round() / 10.0
+    } else {
+        // Scaling can overflow a finite value whose spacing already
+        // exceeds a tenth, so there is no fractional digit to round.
+        value
+    }
 }
 
 #[cfg(test)]
@@ -450,6 +588,22 @@ mod tests {
 
     use super::*;
 
+    fn sample_quality() -> QualityReport {
+        QualityReport {
+            codec: "aac".to_string(),
+            lossless: false,
+            bitrate_kbps: Some(128),
+            sample_rate: 44_100,
+            bit_depth: None,
+            channels: Some(2),
+            cutoff_hz: Some(16_123.0),
+            clipped_share: 0.0,
+            integrated_loudness_lufs: Some(-9.25),
+            true_peak_dbtp: Some(0.8),
+            verdict: QualityVerdict::WeakOnABigSystem,
+        }
+    }
+
     fn sample_results() -> Vec<FileResult> {
         vec![
             FileResult {
@@ -457,9 +611,13 @@ mod tests {
                 outcome: Ok(TrackAnalysis {
                     duration_seconds: 408.4,
                     key: Some(Key::new(9, Mode::Minor)),
-                    bpm: Some(124.04),
+                    bpm: Some(170.0),
                     energy: Some(7),
                     tuning_cents: Some(-31.26),
+                    key_runner_up: Some(Key::new(0, Mode::Major)),
+                    key_score_margin: Some(0.02),
+                    tempo_estimate: Some(85.0),
+                    tempo_score_margin: Some(0.05),
                     key_timeline: vec![
                         KeySection {
                             start_seconds: 0.0,
@@ -472,6 +630,7 @@ mod tests {
                             key: Key::new(4, Mode::Minor),
                         },
                     ],
+                    quality: Some(sample_quality()),
                 }),
             },
             FileResult {
@@ -482,7 +641,12 @@ mod tests {
                     bpm: None,
                     energy: None,
                     tuning_cents: None,
+                    key_runner_up: None,
+                    key_score_margin: None,
+                    tempo_estimate: None,
+                    tempo_score_margin: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                 }),
             },
             FileResult {
@@ -498,22 +662,70 @@ mod tests {
         String::from_utf8(buffer).unwrap()
     }
 
+    fn write_json_in_default_range(writer: &mut Vec<u8>, results: &[FileResult]) -> io::Result<()> {
+        write_json(writer, results, TempoRange::DEFAULT)
+    }
+
+    #[test]
+    fn rounding_large_finite_values_keeps_them_finite() {
+        for value in [f32::MAX, -f32::MAX] {
+            assert_eq!(round_to_tenths(value), value);
+        }
+        assert_eq!(round_to_tenths(124.04), 124.0);
+        assert_eq!(round_to_tenths(124.06), 124.1);
+    }
+
     #[test]
     fn table_aligns_columns_and_leaves_failures_out() {
         let expected = "\
-Key             BPM  Energy  Time  File
-8A   A minor  124.0       7  6:48  music/low tide.flac
--                 -       -  1:00  music/intro.wav
+Key             BPM  Energy  Conf  Quality  Time  File
+8A   A minor  170.0       7  H/L   Weak     6:48  music/low tide.flac
+-                 -       -  -/-   -        1:00  music/intro.wav
 ";
         assert_eq!(render(write_table), expected);
     }
 
     #[test]
+    fn quality_summary_counts_each_verdict_best_first() {
+        let mut results = sample_results();
+        let mut good = sample_quality();
+        good.verdict = QualityVerdict::Good;
+        if let Ok(analysis) = &mut results[1].outcome {
+            analysis.quality = Some(good);
+        }
+        let mut buffer = Vec::new();
+        write_quality_summary(&mut buffer, &results).unwrap();
+        assert_eq!(
+            String::from_utf8(buffer).unwrap(),
+            "Quality: 1 good, 1 weak on a big system.\n"
+        );
+
+        let mut buffer = Vec::new();
+        write_quality_summary(&mut buffer, &results[1..1]).unwrap();
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
     fn json_includes_every_file_and_the_error_of_failed_ones() {
-        let parsed: serde_json::Value = serde_json::from_str(&render(write_json)).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&render(write_json_in_default_range)).unwrap();
         assert_eq!(parsed[0]["key"]["camelot"], "8A");
         assert_eq!(parsed[0]["key"]["name"], "A minor");
-        assert_eq!(parsed[0]["bpm"], 124.0);
+        assert_eq!(parsed[0]["key"]["open_key"], "1m");
+        assert_eq!(parsed[0]["key"]["confidence"], "high");
+        assert_eq!(
+            parsed[0]["runner_up_key"],
+            serde_json::json!({ "camelot": "8B", "name": "C major", "open_key": "1d" })
+        );
+        assert_eq!(parsed[0]["bpm"], 170.0);
+        assert_eq!(parsed[0]["bpm_confidence"], "low");
+        assert_eq!(parsed[0]["bpm_alternative"], 85.0);
+        assert_eq!(parsed[0]["needs_review"], true);
+        assert!(parsed[1]["runner_up_key"].is_null());
+        assert!(parsed[1]["bpm_confidence"].is_null());
+        assert!(parsed[1]["bpm_alternative"].is_null());
+        assert_eq!(parsed[1]["needs_review"], false);
+        assert!(parsed[2]["needs_review"].is_null());
         assert_eq!(parsed[0]["duration_seconds"], 408.4);
         assert_eq!(parsed[0]["energy"], 7);
         assert_eq!(parsed[0]["tuning_cents"], -31.3);
@@ -523,15 +735,27 @@ Key             BPM  Energy  Time  File
                 {
                     "start_seconds": 0.0,
                     "end_seconds": 250.0,
-                    "key": { "camelot": "8A", "name": "A minor" }
+                    "key": { "camelot": "8A", "name": "A minor", "open_key": "1m" }
                 },
                 {
                     "start_seconds": 250.0,
                     "end_seconds": 408.4,
-                    "key": { "camelot": "9A", "name": "E minor" }
+                    "key": { "camelot": "9A", "name": "E minor", "open_key": "2m" }
                 }
             ])
         );
+        assert_eq!(parsed[0]["quality"]["codec"], "aac");
+        assert_eq!(parsed[0]["quality"]["bitrate_kbps"], 128);
+        assert_eq!(parsed[0]["quality"]["cutoff_hz"], 16_123.0);
+        assert_eq!(parsed[0]["quality"]["verdict"], "weak-on-a-big-system");
+        assert!(
+            parsed[0]["quality"]["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with("128 kbit/s. ")
+        );
+        assert!(parsed[1]["quality"].is_null());
+        assert!(parsed[2]["quality"].is_null());
         assert!(parsed[1]["tuning_cents"].is_null());
         assert_eq!(parsed[1]["key_timeline"], serde_json::json!([]));
         assert_eq!(parsed[2]["key_timeline"], serde_json::json!([]));

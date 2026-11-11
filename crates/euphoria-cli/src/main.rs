@@ -16,7 +16,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use euphoria_core::{
-    CachedBatch, EuphoriaError, clear_cache, default_cache_path, find_audio_files,
+    CachedBatch, EuphoriaError, FileResult, TrackAnalysis, clear_cache, default_cache_path,
+    find_audio_files,
 };
 
 use crate::batch::AnalysisOptions;
@@ -44,6 +45,10 @@ enum Command {
         /// Print JSON instead of a table.
         #[arg(long)]
         json: bool,
+        /// List only the tracks whose key or tempo is rated low confidence,
+        /// and the files that could not be analyzed.
+        #[arg(long)]
+        needs_review: bool,
         #[command(flatten)]
         analysis: AnalysisOptions,
     },
@@ -99,8 +104,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Analyze {
             paths,
             json,
+            needs_review,
             analysis,
-        } => analyze(&paths, json, &analysis),
+        } => analyze(&paths, json, needs_review, &analysis),
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
         Command::Cache { command } => manage_cache(command),
@@ -122,7 +128,12 @@ fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn analyze(paths: &[PathBuf], json: bool, analysis: &AnalysisOptions) -> Result<ExitCode> {
+fn analyze(
+    paths: &[PathBuf],
+    json: bool,
+    needs_review: bool,
+    analysis: &AnalysisOptions,
+) -> Result<ExitCode> {
     let audio_files = find_audio_files(paths).map_err(with_causes)?;
     if audio_files.is_empty() {
         eprintln!("No audio files found.");
@@ -133,16 +144,33 @@ fn analyze(paths: &[PathBuf], json: bool, analysis: &AnalysisOptions) -> Result<
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, analysis)?;
+    let analyzed_count = results.len();
+    let results: Vec<FileResult> = if needs_review {
+        results
+            .into_iter()
+            .filter(|result| {
+                result
+                    .outcome
+                    .as_ref()
+                    .map_or(true, TrackAnalysis::needs_review)
+            })
+            .collect()
+    } else {
+        results
+    };
 
     let mut standard_output = std::io::stdout().lock();
     if json {
-        output::write_json(&mut standard_output, &results)?;
+        output::write_json(&mut standard_output, &results, analysis.tempo_range())?;
     } else {
         output::write_table(&mut standard_output, &results)?;
     }
     standard_output.flush()?;
+    if !json {
+        output::write_quality_summary(&mut std::io::stderr().lock(), &results)?;
+    }
     if cached_count > 0 {
-        output::write_cache_summary(&mut std::io::stderr().lock(), cached_count, results.len())?;
+        output::write_cache_summary(&mut std::io::stderr().lock(), cached_count, analyzed_count)?;
     }
 
     let failure_count = results

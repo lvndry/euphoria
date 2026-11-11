@@ -76,12 +76,13 @@ use crate::detect::KeySection;
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
+use crate::quality::QualityReport;
 use identity::FileStamp;
 
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 3] = [
+const MIGRATIONS: [&str; 5] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -103,6 +104,15 @@ const MIGRATIONS: [&str; 3] = [
     "
     ALTER TABLE analyses ADD COLUMN tuning_cents REAL;
     ALTER TABLE analyses ADD COLUMN key_timeline TEXT;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN key_runner_up TEXT;
+    ALTER TABLE analyses ADD COLUMN key_score_margin REAL;
+    ALTER TABLE analyses ADD COLUMN tempo_estimate REAL;
+    ALTER TABLE analyses ADD COLUMN tempo_score_margin REAL;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN quality TEXT;
 ",
 ];
 
@@ -133,7 +143,14 @@ enum Schema {
 /// from A = 440 Hz, and `key_timeline` holds one line per section of the key
 /// over time: its start and end in seconds and its key name, separated by
 /// tabs. Rows stored before those two existed, and tracks without them, hold
-/// null.
+/// null. `key_runner_up` is a key name and `key_score_margin` how far the
+/// key scored above it; `tempo_estimate` is the tempo before it is placed
+/// in a range and `tempo_score_margin` what its confidence is based on.
+/// Confidence levels and the reported tempo are worked out from these when
+/// they are read, so neither the band edges nor the tempo range are stored.
+/// `quality` holds the quality report as JSON, with the field names of
+/// [`QualityReport`](crate::quality::QualityReport); rows stored before it
+/// existed hold null.
 #[derive(Debug)]
 pub struct Cache {
     connection: Connection,
@@ -243,7 +260,8 @@ impl Cache {
         let mut statement = self.connection.prepare(
             "SELECT content_hash, duration_seconds, key, bpm,
                     last_known_path, file_size, modified_at, energy,
-                    tuning_cents, key_timeline
+                    tuning_cents, key_timeline, key_runner_up, key_score_margin,
+                    tempo_estimate, tempo_score_margin, quality
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -261,6 +279,11 @@ impl Cache {
                     energy: energy_in_column(row, 7)?,
                     tuning_cents: row.get(8)?,
                     key_timeline: key_timeline_in_column(row, 9)?,
+                    key_runner_up: key_in_column(row, 10)?,
+                    key_score_margin: row.get(11)?,
+                    tempo_estimate: tempo_in_column(row, 12)?,
+                    tempo_score_margin: row.get(13)?,
+                    quality: quality_in_column(row, 14)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -313,8 +336,10 @@ impl Cache {
                 "INSERT OR REPLACE INTO analyses (
                      content_hash, duration_seconds, key, bpm, analyzer_version,
                      analyzed_at, last_known_path, file_size, modified_at,
-                     energy, energy_model_version, tuning_cents, key_timeline
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                     energy, energy_model_version, tuning_cents, key_timeline,
+                     key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                           ?14, ?15, ?16, ?17, ?18)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -329,6 +354,11 @@ impl Cache {
                     self.energy_model_version,
                     analysis.tuning_cents,
                     key_timeline_text(&analysis.key_timeline),
+                    analysis.key_runner_up.map(|key| key.to_string()),
+                    analysis.key_score_margin,
+                    analysis.tempo_estimate,
+                    analysis.tempo_score_margin,
+                    quality_text(analysis.quality.as_ref()),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -467,6 +497,22 @@ fn key_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<Key>> 
         })
 }
 
+/// A stored tempo estimate, which is placed in a tempo range when it is
+/// shown and so must be a positive number.
+fn tempo_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<f32>> {
+    let Some(stored) = row.get::<_, Option<f32>>(column)? else {
+        return Ok(None);
+    };
+    if stored.is_finite() && stored > 0.0 {
+        return Ok(Some(stored));
+    }
+    Err(rusqlite::Error::FromSqlConversionFailure(
+        column,
+        Type::Real,
+        format!("tempo estimate {stored} is not a positive number").into(),
+    ))
+}
+
 fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
     let Some(stored) = row.get::<_, Option<i64>>(column)? else {
         return Ok(None);
@@ -482,6 +528,20 @@ fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>
                 format!("energy rating {stored} is not between 1 and 10").into(),
             )
         })
+}
+
+/// The stored form of a quality report, or `None` when there is none.
+fn quality_text(quality: Option<&QualityReport>) -> Option<String> {
+    quality.and_then(|report| serde_json::to_string(report).ok())
+}
+
+fn quality_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<QualityReport>> {
+    let Some(stored) = row.get::<_, Option<String>>(column)? else {
+        return Ok(None);
+    };
+    serde_json::from_str(&stored).map(Some).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(column, Type::Text, Box::new(error))
+    })
 }
 
 /// The stored form of a key timeline, or `None` for an empty one.
@@ -575,6 +635,39 @@ pub(crate) mod test_support {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// An analyzer version that schema version 3 databases were filled by.
+    pub(crate) const VERSION_3_ANALYZER: &str = "5+libkeyfinder";
+
+    /// Creates a database as the last release with schema version 3 left
+    /// it, with one analysis of `track` stored at its current path.
+    pub(crate) fn create_version_3_database(database: &Path, track: &Path) {
+        use super::identity::FileStamp;
+        use super::{ContentHash, MIGRATIONS};
+        use crate::energy::ENERGY_MODEL_VERSION;
+
+        let stamp = FileStamp::of(track).unwrap();
+        let connection = rusqlite::Connection::open(database).unwrap();
+        for migration in &MIGRATIONS[..3] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 3).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, ?3, ?4, ?5, 6, ?6, -12.5,
+                         '0\t300\tA minor')",
+                rusqlite::params![
+                    ContentHash::of_file(track).unwrap().as_bytes(),
+                    VERSION_3_ANALYZER,
+                    track.to_str().unwrap(),
+                    stamp.size,
+                    stamp.modified_nanoseconds,
+                    ENERGY_MODEL_VERSION,
+                ],
+            )
+            .unwrap();
     }
 
     /// An analyzer version that schema version 2 databases were filled by.
@@ -673,6 +766,10 @@ mod tests {
             bpm: Some(127.98),
             energy: Some(7),
             tuning_cents: Some(-31.37),
+            key_runner_up: Some("A major".parse().unwrap()),
+            key_score_margin: Some(0.012_5),
+            tempo_estimate: Some(63.99),
+            tempo_score_margin: Some(0.47),
             key_timeline: vec![
                 KeySection {
                     start_seconds: 0.0,
@@ -685,6 +782,19 @@ mod tests {
                     key: "A major".parse().unwrap(),
                 },
             ],
+            quality: Some(QualityReport {
+                codec: "aac".to_string(),
+                lossless: false,
+                bitrate_kbps: Some(256),
+                sample_rate: 44_100,
+                bit_depth: None,
+                channels: Some(2),
+                cutoff_hz: Some(16_451.17),
+                clipped_share: 0.000_123_4,
+                integrated_loudness_lufs: Some(-8.75),
+                true_peak_dbtp: Some(1.04),
+                verdict: crate::quality::QualityVerdict::LikelyReencoded,
+            }),
         };
 
         let mut cache = Cache::open(&database).unwrap();
@@ -735,7 +845,8 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL)",
+                 VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                         NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -753,7 +864,8 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
+                         NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -882,6 +994,84 @@ mod tests {
     }
 
     #[test]
+    fn a_version_3_database_upgrades_in_place_and_its_rows_are_analyzed_again() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, b"audio").unwrap();
+        test_support::create_version_3_database(&database, &track);
+
+        let mut cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(cache.entry_count().unwrap(), 1);
+        assert_ne!(ANALYZER_VERSION, test_support::VERSION_3_ANALYZER);
+        assert!(
+            cache.snapshot().unwrap().analyses.is_empty(),
+            "an analysis from before confidence was measured must not be served"
+        );
+
+        // A row that has none of the new values reads as a track without them.
+        cache.analyzer_version = test_support::VERSION_3_ANALYZER.to_string();
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot
+            .of_content(&ContentHash::of_file(&track).unwrap())
+            .unwrap();
+        assert_eq!(stored.key, Some("A minor".parse().unwrap()));
+        assert_eq!(stored.tuning_cents, Some(-12.5));
+        assert_eq!(stored.key_timeline.len(), 1);
+        assert_eq!(stored.key_runner_up, None);
+        assert_eq!(stored.key_score_margin, None);
+        assert_eq!(stored.tempo_estimate, None);
+        assert_eq!(stored.tempo_score_margin, None);
+        assert_eq!(stored.key_confidence(), None);
+        assert_eq!(stored.tempo_confidence(), None);
+    }
+
+    #[test]
+    fn a_tempo_estimate_that_is_not_a_positive_number_is_an_error_and_not_a_panic() {
+        for damaged in [0.0, -120.0] {
+            let folder = TemporaryFolder::new();
+            let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache
+                .connection
+                .execute(
+                    "INSERT INTO analyses
+                     VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                             NULL, NULL, ?4, NULL, NULL)",
+                    params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
+                )
+                .unwrap();
+
+            let description = cache.snapshot().unwrap_err().chain();
+
+            assert!(
+                description.contains("is not a positive number"),
+                "{damaged}: {description}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_damaged_runner_up_key_is_an_error_and_not_a_panic() {
+        let folder = TemporaryFolder::new();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                         'H lydian', 0.01, NULL, NULL, NULL)",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+
+        let description = cache.snapshot().unwrap_err().chain();
+
+        assert!(description.contains("H lydian"), "{description}");
+    }
+
+    #[test]
     fn a_damaged_key_timeline_is_an_error_and_not_a_panic() {
         for damaged in [
             "0\t10",
@@ -896,7 +1086,8 @@ mod tests {
                 .connection
                 .execute(
                     "INSERT INTO analyses
-                     VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4)",
+                     VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
+                             NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -905,6 +1096,24 @@ mod tests {
 
             assert!(description.contains("key timeline"), "{description}");
         }
+    }
+
+    #[test]
+    fn a_damaged_quality_report_is_an_error_and_not_a_panic() {
+        let folder = TemporaryFolder::new();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}')",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+
+        let description = cache.snapshot().unwrap_err().chain();
+
+        assert!(description.contains("expected a string"), "{description}");
     }
 
     #[test]
@@ -1015,7 +1224,12 @@ mod tests {
                     bpm: None,
                     energy: None,
                     tuning_cents: None,
+                    key_runner_up: None,
+                    key_score_margin: None,
+                    tempo_estimate: None,
+                    tempo_score_margin: None,
                     key_timeline: Vec::new(),
+                    quality: None,
                 },
                 location: FileLocation {
                     absolute_path: track.to_path_buf(),

@@ -220,8 +220,10 @@ pub(crate) mod testing {
     impl ScratchFolder {
         /// An empty folder whose name includes `name` and the process id.
         pub(crate) fn new(name: &str) -> Self {
-            let folder = std::env::temp_dir()
-                .join(format!("euphoria-app-tags-{name}-{}", std::process::id()));
+            let folder = std::env::temp_dir().join(format!(
+                "euphoria-desktop-tags-{name}-{}",
+                std::process::id()
+            ));
             let _ = std::fs::remove_dir_all(&folder);
             std::fs::create_dir_all(&folder).unwrap();
             Self(folder)
@@ -268,7 +270,12 @@ pub(crate) mod testing {
             bpm: Some(124.0),
             energy: Some(7),
             tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: Vec::new(),
+            quality: None,
         }
     }
 

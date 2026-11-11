@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">How bit rate and cutoff make the verdict</title>
+<desc id="chart-desc">Scatter of the lowest cutoff of each encoding against its measured average bit rate, over the verdict zones. Below 144 kbit/s is weak on a big system, 144 to 199 acceptable, 200 and above good. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, a step line marks the cutoff below which the file is likely re-encoded: 15.5 kHz to 199 kbit/s, 18 kHz to 287 and 19.5 kHz from 288. The lowest cutoff of each encoding made once from a lossless source sits above the line, Apple AAC at 192 kbit/s closest at 16.4 kHz. The lowest cutoff of each transcode to a higher bit rate sits below it. Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, are likely re-encoded below 19 kHz.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #52514e; stroke-width: 2; fill: none; stroke-linecap: round; }
+.zone { fill: #898781; fill-opacity: 0.12; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
+.series-1-line { stroke: #2a78d6; }
+.series-2-line { stroke: #eb6834; }
+.series-3-line { stroke: #1baf7a; }
+.line { stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .reference { stroke: #c3c2b7; }
+  .zone { fill-opacity: 0.18; }
+  .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
+  .series-1-line { stroke: #3987e5; }
+  .series-2-line { stroke: #d95926; }
+  .series-3-line { stroke: #199e70; }
+  .ring { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="499" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">How bit rate and cutoff make the verdict</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Bit rate sets Weak, Acceptable or Good. From 144 kbit/s, a cutoff below the line marks a likely re-encode.</text>
+<circle cx="30" cy="85" r="5" class="series-1-fill ring"/>
+<text x="42" y="90" class="label" text-anchor="start">Encoded once from lossless</text>
+<circle cx="236" cy="85" r="5" class="series-2-fill ring"/>
+<text x="248" y="90" class="label" text-anchor="start">Encoded again at a higher bit rate</text>
+<polygon points="232.62,430 232.62,375.96 366.15,375.96 366.15,285.9 576,285.9 576,231.86 700,231.86 700,430" class="zone"/>
+<line x1="80" y1="430" x2="700" y2="430" class="axis"/>
+<text x="70" y="434" class="tick" text-anchor="end">14 kHz</text>
+<line x1="80" y1="357.95" x2="700" y2="357.95" class="grid"/>
+<text x="70" y="361.95" class="tick" text-anchor="end">16 kHz</text>
+<line x1="80" y1="285.9" x2="700" y2="285.9" class="grid"/>
+<text x="70" y="289.9" class="tick" text-anchor="end">18 kHz</text>
+<line x1="80" y1="213.85" x2="700" y2="213.85" class="grid"/>
+<text x="70" y="217.85" class="tick" text-anchor="end">20 kHz</text>
+<line x1="80" y1="141.8" x2="700" y2="141.8" class="grid"/>
+<text x="70" y="145.8" class="tick" text-anchor="end">22 kHz</text>
+<text x="118.15" y="450" class="tick" text-anchor="middle">96</text>
+<text x="194.46" y="450" class="tick" text-anchor="middle">128</text>
+<text x="270.77" y="450" class="tick" text-anchor="middle">160</text>
+<text x="347.08" y="450" class="tick" text-anchor="middle">192</text>
+<text x="423.38" y="450" class="tick" text-anchor="middle">224</text>
+<text x="499.69" y="450" class="tick" text-anchor="middle">256</text>
+<text x="576" y="450" class="tick" text-anchor="middle">288</text>
+<text x="652.31" y="450" class="tick" text-anchor="middle">320</text>
+<text x="390" y="474" class="label" text-anchor="middle">Average bit rate measured, kbit/s</text>
+<line x1="232.62" y1="132" x2="232.62" y2="430" class="axis"/>
+<line x1="366.15" y1="132" x2="366.15" y2="430" class="axis"/>
+<text x="156.31" y="126" class="value" text-anchor="middle">Weak on a big system</text>
+<text x="299.38" y="126" class="value" text-anchor="middle">Acceptable</text>
+<text x="533.08" y="126" class="value" text-anchor="middle">Good</text>
+<polyline points="232.62,375.96 366.15,375.96 366.15,285.9 576,285.9 576,231.86 700,231.86" class="reference"/>
+<text x="499.69" y="408.39" class="value" text-anchor="middle">Likely re-encoded</text>
+<circle cx="118.15" cy="386.77" r="5" class="series-1-fill ring"/>
+<circle cx="194.46" cy="357.95" r="5" class="series-1-fill ring"/>
+<circle cx="347.08" cy="264.29" r="5" class="series-1-fill ring"/>
+<circle cx="499.69" cy="239.07" r="5" class="series-1-fill ring"/>
+<circle cx="652.31" cy="210.25" r="5" class="series-1-fill ring"/>
+<circle cx="120.54" cy="361.55" r="5" class="series-1-fill ring"/>
+<circle cx="196.85" cy="311.12" r="5" class="series-1-fill ring"/>
+<circle cx="351.85" cy="239.07" r="5" class="series-1-fill ring"/>
+<circle cx="502.08" cy="140" r="5" class="series-1-fill ring"/>
+<circle cx="564.08" cy="140" r="5" class="series-1-fill ring"/>
+<circle cx="108.62" cy="372.36" r="5" class="series-1-fill ring"/>
+<circle cx="175.38" cy="318.32" r="5" class="series-1-fill ring"/>
+<circle cx="308.92" cy="343.54" r="5" class="series-1-fill ring"/>
+<circle cx="473.46" cy="264.29" r="5" class="series-1-fill ring"/>
+<circle cx="645.15" cy="140" r="5" class="series-1-fill ring"/>
+<circle cx="652.31" cy="357.95" r="5" class="series-2-fill ring"/>
+<circle cx="652.31" cy="264.29" r="5" class="series-2-fill ring"/>
+<circle cx="421" cy="314.72" r="5" class="series-2-fill ring"/>
+<circle cx="473.46" cy="357.95" r="5" class="series-2-fill ring"/>
+<circle cx="626.08" cy="318.32" r="5" class="series-2-fill ring"/>
+<text x="640.31" y="362.45" class="label" text-anchor="end">MP3 128 made 320</text>
+<text x="664.31" y="214.75" class="label" text-anchor="start">MP3 320</text>
+<text x="206.46" y="362.45" class="label" text-anchor="start">MP3 128</text>
+<text x="308.92" y="329.54" class="label" text-anchor="middle">Apple AAC 192</text>
+<text x="712" y="144" class="tick" text-anchor="start">full band</text>
+</svg>

@@ -3,6 +3,8 @@
 
 //! Turning numbers into the text shown in the interface.
 
+use euphoria_core::quality::{QualityReport, QualityVerdict};
+
 /// A length in seconds as minutes and seconds, for example "6:48".
 pub(crate) fn duration(seconds: f32) -> String {
     let whole_seconds = seconds.max(0.0).round() as u64;
@@ -51,9 +53,92 @@ pub(crate) fn track_summary(shown: usize, total: usize, from_cache: usize) -> St
     summary
 }
 
+/// A quality verdict in a word or two, for the table.
+pub(crate) fn quality_verdict(verdict: QualityVerdict) -> &'static str {
+    match verdict {
+        QualityVerdict::Lossless => "Lossless",
+        QualityVerdict::Good => "Good",
+        QualityVerdict::Acceptable => "Acceptable",
+        QualityVerdict::WeakOnABigSystem => "Weak",
+        QualityVerdict::LikelyReencoded => "Re-encoded?",
+    }
+}
+
+/// What a quality verdict rests on, for example
+/// "AAC, 128 kbit/s, 44.1 kHz, 2 channels. Content up to 16.1 kHz.
+/// -9.3 LUFS, true peak +0.8 dB".
+pub(crate) fn quality_details(report: &QualityReport) -> String {
+    let mut encoding = vec![report.codec.to_uppercase()];
+    if let Some(bitrate) = report.bitrate_kbps {
+        encoding.push(format!("{bitrate} kbit/s"));
+    }
+    encoding.push(format!("{:.1} kHz", report.sample_rate as f32 / 1000.0));
+    if let Some(depth) = report.bit_depth {
+        encoding.push(format!("{depth} bit"));
+    }
+    if let Some(channels) = report.channels {
+        encoding.push(match channels {
+            1 => "mono".to_string(),
+            count => format!("{count} channels"),
+        });
+    }
+    let mut details = format!("{}.", encoding.join(", "));
+    details.push_str(&match report.cutoff_hz {
+        Some(hz) => format!(" Content up to {:.1} kHz.", hz / 1000.0),
+        None => " Content across the whole spectrum.".to_string(),
+    });
+    let mut levels = Vec::new();
+    if let Some(lufs) = report.integrated_loudness_lufs {
+        levels.push(format!("{lufs:.1} LUFS"));
+    }
+    if let Some(peak) = report.true_peak_dbtp {
+        levels.push(format!("true peak {peak:+.1} dB"));
+    }
+    if !levels.is_empty() {
+        details.push_str(&format!(" {}", levels.join(", ")));
+    }
+    details
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quality_details_name_what_the_verdict_rests_on() {
+        let mut report = QualityReport {
+            codec: "aac".to_string(),
+            lossless: false,
+            bitrate_kbps: Some(128),
+            sample_rate: 44_100,
+            bit_depth: None,
+            channels: Some(2),
+            cutoff_hz: Some(16_123.0),
+            clipped_share: 0.0,
+            integrated_loudness_lufs: Some(-9.25),
+            true_peak_dbtp: Some(0.8),
+            verdict: QualityVerdict::WeakOnABigSystem,
+        };
+        assert_eq!(
+            quality_details(&report),
+            "AAC, 128 kbit/s, 44.1 kHz, 2 channels. Content up to 16.1 kHz. -9.2 LUFS, true peak +0.8 dB"
+        );
+        report.codec = "flac".to_string();
+        report.lossless = true;
+        report.bit_depth = Some(24);
+        report.channels = Some(1);
+        report.cutoff_hz = None;
+        report.integrated_loudness_lufs = None;
+        report.true_peak_dbtp = None;
+        assert_eq!(
+            quality_details(&report),
+            "FLAC, 128 kbit/s, 44.1 kHz, 24 bit, mono. Content across the whole spectrum."
+        );
+        assert_eq!(
+            quality_verdict(QualityVerdict::LikelyReencoded),
+            "Re-encoded?"
+        );
+    }
 
     #[test]
     fn summarises_the_tracks_shown_and_those_from_the_cache() {

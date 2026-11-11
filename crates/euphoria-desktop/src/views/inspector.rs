@@ -152,6 +152,7 @@ pub(crate) fn render(
         .child(sized(waveform_section(track, app, room, cx), None))
         .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
+        .children(quality(track, &palette).map(|section| sized(divided(section), Some(280.0))))
         .children(mixes(app, room, cx).map(|section| sized(divided(section), Some(300.0))))
         .when(is_column, |inspector| {
             inspector.child(divided(location(track, &palette)))
@@ -561,6 +562,34 @@ fn status(track: &Track, palette: &Palette) -> Option<Div> {
                 ),
         ),
     }
+}
+
+/// The sound quality verdict, why, and what it is based on.
+fn quality(track: &Track, palette: &Palette) -> Option<Div> {
+    let report = track.quality()?;
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(section_label("Sound quality", palette))
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(report.verdict.label()),
+            )
+            .child(
+                div()
+                    .text_color(palette.text_secondary)
+                    .child(report.reason()),
+            )
+            .child(
+                div()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_tertiary)
+                    .child(format::quality_details(report)),
+            ),
+    )
 }
 
 /// Where the file is on disk.

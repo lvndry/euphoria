@@ -32,5 +32,6 @@ Exports for other DJ software are in development.
 - Prefer a window to a terminal: [desktop app](guides/desktop-app.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Curious what the energy number means: [energy rating](concepts/energy.md).
+- Wondering whether your files are good enough to play loud: [audio quality](concepts/audio-quality.md).
 - Wondering how much to trust the results: [accuracy](concepts/accuracy.md).
 - Want to know what gets written to your files: [tags](reference/tags.md).

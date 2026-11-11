@@ -74,7 +74,12 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             bpm: None,
             energy: None,
             tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: Vec::new(),
+            quality: None,
         }),
     })
     .collect()
@@ -1105,7 +1110,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 9;
+const FOLDER_COLUMN: usize = 10;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1127,7 +1132,12 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 bpm: Some(124.0),
                 energy: None,
                 tuning_cents: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
                 key_timeline: Vec::new(),
+                quality: None,
             })
         } else {
             Err("cannot decode".to_string())
@@ -1685,7 +1695,7 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 8;
+const FORMAT_COLUMN: usize = 9;
 
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
@@ -2090,7 +2100,7 @@ fn fitting_a_column_keeps_shorter_titles_after_many_long_names(cx: &mut TestAppC
 
 /// The same check as the scratch fixture test, on copies of real two minute
 /// benchmark clips. They are not in the repository, so this runs only by
-/// hand: `cargo test -p euphoria-app -- --ignored bench_clips`, with
+/// hand: `cargo test -p euphoria -- --ignored bench_clips`, with
 /// `EUPHORIA_BENCH_CLIPS` naming the folder when it is elsewhere.
 #[gpui::test]
 #[ignore = "needs the benchmark clips in bench/data/key/audio"]
@@ -2377,10 +2387,15 @@ fn track_changing_key() -> DemoTrack {
         path: fixtures.join("sine-440hz-mono.flac"),
         outcome: Ok(TrackAnalysis {
             duration_seconds: 100.0,
+            quality: None,
             key: Some(euphoria_core::Key::new(9, euphoria_core::Mode::Minor)),
             bpm: Some(124.0),
             energy: Some(6),
             tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: vec![
                 euphoria_core::KeySection {
                     start_seconds: 0.0,

@@ -1,5 +1,5 @@
 [package]
-name = "euphoria-app"
+name = "euphoria"
 version = "0.1.0"
 description = "The Euphoria desktop app: find the key and BPM of every track in your music collection"
 readme = "../../README.md"
@@ -11,6 +11,10 @@ keywords.workspace = true
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+
+[[bin]]
+name = "euphoria-desktop"
+path = "src/main.rs"
 
 [dependencies]
 euphoria-core.workspace = true

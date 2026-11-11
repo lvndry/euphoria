@@ -6,9 +6,11 @@
 //! scores the keys and tempos in a rekordbox collection export.
 
 mod alternative;
+mod confidence;
 mod dataset;
 mod energy;
 mod evaluate;
+mod quality;
 mod rekordbox;
 mod render;
 mod scoring;
@@ -23,10 +25,12 @@ use euphoria_core::detect::{
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
+/// The first argument that selects the audio quality measurement.
+const QUALITY_MODE: &str = "quality";
 
 /// The first argument that scores a rekordbox collection export.
 const REKORDBOX_MODE: &str = "rekordbox";
@@ -137,6 +141,10 @@ fn main() -> Result<()> {
         let arguments = energy::parse_arguments(command_line.skip(1))?;
         return energy::run(&arguments);
     }
+    if command_line.peek().map(String::as_str) == Some(QUALITY_MODE) {
+        let arguments = quality::parse_arguments(command_line.skip(1))?;
+        return quality::run(&arguments);
+    }
     if command_line.peek().map(String::as_str) == Some(REKORDBOX_MODE) {
         let arguments = rekordbox::parse_arguments(command_line.skip(1))?;
         return rekordbox::run(&arguments);
@@ -166,10 +174,20 @@ fn main() -> Result<()> {
         }
     }
 
-    let key = key_tracks.map(|dataset| evaluate_keys(&dataset, &KEY_DETECTORS));
-    let tempo = tempo_tracks.map(|dataset| evaluate_tempo(&dataset, &[&StratumDetector]));
-
+    let key = key_tracks
+        .as_ref()
+        .map(|dataset| evaluate_keys(dataset, &KEY_DETECTORS));
+    let tempo = tempo_tracks
+        .as_ref()
+        .map(|dataset| evaluate_tempo(dataset, &[&StratumDetector]));
     print!("{}", render::render_report(&Report { key, tempo }));
+
+    if let Some(dataset) = &key_tracks {
+        print!("{}", confidence::evaluate_key_confidence(dataset));
+    }
+    if let Some(dataset) = &tempo_tracks {
+        print!("{}", confidence::evaluate_tempo_confidence(dataset));
+    }
     Ok(())
 }
 

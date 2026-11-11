@@ -141,14 +141,14 @@ pub fn evaluate_tempo(
 /// One detector's answer for one track, with the CPU time the call used on
 /// its own thread. Errors are already flattened to their full chain.
 #[derive(Debug)]
-struct Measurement<Estimate> {
-    estimate: Result<Option<Estimate>, String>,
+pub(crate) struct Measurement<Estimate> {
+    pub(crate) estimate: Result<Option<Estimate>, String>,
     cpu_time: Duration,
 }
 
 /// Every detector's measurement for one track in detector order, or the
 /// decode error chain when the track could not be decoded.
-type TrackOutcome<Estimate> = Result<Vec<Measurement<Estimate>>, String>;
+pub(crate) type TrackOutcome<Estimate> = Result<Vec<Measurement<Estimate>>, String>;
 
 fn measure<Estimate>(
     detect: impl FnOnce() -> Result<Option<Estimate>, EuphoriaError>,
@@ -164,7 +164,7 @@ fn measure<Estimate>(
 
 /// Decodes each track and runs every detector on it, in parallel across
 /// tracks. Returns one outcome per track, in track order.
-fn measure_tracks<Annotation: Sync, Estimate: Send>(
+pub(crate) fn measure_tracks<Annotation: Sync, Estimate: Send>(
     tracks: &[Track<Annotation>],
     detector_count: usize,
     detect: impl Fn(usize, &AudioBuffer) -> Result<Option<Estimate>, EuphoriaError> + Sync,

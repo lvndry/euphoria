@@ -42,6 +42,38 @@ The two count columns are how many of the 661 results fall below 70 and above 18
 
 Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also accepts 2, 1/2, 3 and 1/3 times the annotated tempo, as in the standard tempo evaluation.
 
+## Confidence
+
+Measured on 11 November 2026 with the same machine and settings, by the confidence sections at the end of the key and tempo benchmarks. The band edges were set on the development half (every other preview in name order, starting with the first) and checked on the held out half; the development column is therefore not a test of them.
+
+| Key confidence | All 604 | Development half | Held out half |
+| --- | --- | --- | --- |
+| High, share of tracks | 40.2% | 40.7% | 39.7% |
+| High, exact | 75.7% | 77.2% | 74.2% |
+| Medium, exact | 56.4% | 55.8% | 57.0% |
+| Low, exact | 38.3% | 35.6% | 41.0% |
+| High, key or runner up exact | 86.4% | 91.1% | 81.7% |
+| Medium, key or runner up exact | 75.5% | 72.5% | 78.5% |
+| Low, key or runner up exact | 65.8% | 62.7% | 68.9% |
+
+Of the 238 previews whose detected key is wrong, the runner up is the annotated key for 105 (53 and 52 in the two halves). Against the detected key, the runner up is a fifth away for 211 previews, the parallel key for 196, the relative key for 112 and another key for 85.
+
+“Right modulo octaves” accepts the reported tempo multiplied by 1/4, 1/2, 1, 2 or 4, within the same 4% tolerance as Accuracy 1. This measures the beat period independently of its octave, allowing up to two doublings or halvings; it is separate from Accuracy 2.
+
+| Tempo confidence, between 90 and 180 BPM | All 661 | Development half | Held out half |
+| --- | --- | --- | --- |
+| High, share of tracks | 39.2% | 39.3% | 39.1% |
+| High, right modulo octaves | 98.1% | 98.5% | 97.7% |
+| Medium, right modulo octaves | 85.6% | 81.2% | 89.8% |
+| Low, right modulo octaves | 60.6% | 58.8% | 62.5% |
+| High, Accuracy 1 | 85.7% | 88.5% | 82.9% |
+| Medium, Accuracy 1 | 80.4% | 73.7% | 86.9% |
+| Low, Accuracy 1 | 56.1% | 54.4% | 57.8% |
+
+Half or double the tempo is offered as an alternative for 267 previews (40.4%), and is the annotated tempo for 46 of the 52 previews reported an octave off: 24 of 26 in the development half, where the span of 75 to 200 BPM was chosen, and 22 of 26 in the held out half.
+
+Rating confidence costs no measurable time: the tempogram already scores the candidate tempos the margin is taken from, and the key margin is the difference of two scores libkeyfinder already computed. On the same machine, under heavy load from other work, `euphoria analyze --no-cache` took 1.10 CPU seconds on one preview before and 1.06 after, 4.92 and 4.69 on an eight minute file, and 42.8 and 42.4 on 40 previews with 4 workers, with the same peak memory.
+
 ## Reading the numbers
 
 - libkeyfinder is level with Essentia's best profile on key (69.4% against 69.5% MIREX) and about 8 times cheaper than stratum-dsp.
