@@ -73,7 +73,12 @@ def breaking_description(body):
     return " ".join(line.strip() for line in match["description"].splitlines())
 
 
-def notes(version, since, until, repository):
+# The last line of every set of notes the workflow writes. A release whose
+# notes end without it was not finished, and the next run finishes it.
+COMPLETE_MARKER = "<!-- euphoria-release-complete -->"
+
+
+def notes(version, since, until, repository, minimum_macos=None):
     grouped = {kind: [] for kind, _ in SECTIONS}
     breaking = []
     for sha, subject, body in commits(since, until):
@@ -96,7 +101,8 @@ def notes(version, since, until, repository):
         "[Installation](https://github.com/"
         + repository
         + "/blob/main/docs/getting-started/installation.md) "
-        "has the details. It needs a Mac with Apple Silicon.",
+        "has the details. It needs a Mac with Apple Silicon"
+        + (f" and macOS {minimum_macos} or later." if minimum_macos else "."),
         "",
     ]
     if breaking:
@@ -114,6 +120,7 @@ def notes(version, since, until, repository):
             f"Every change: https://github.com/{repository}/compare/{since}...v{version}",
             "",
         ]
+    lines += [COMPLETE_MARKER, ""]
     return "\n".join(lines)
 
 
@@ -123,10 +130,18 @@ def main():
     parser.add_argument("--since", help="the tag of the previous release")
     parser.add_argument("--until", default="HEAD")
     parser.add_argument("--repository", default="lvndry/euphoria")
+    parser.add_argument(
+        "--minimum-macos",
+        help="the oldest macOS the app runs on, as its Info.plist says",
+    )
     arguments = parser.parse_args()
     print(
         notes(
-            arguments.version, arguments.since, arguments.until, arguments.repository
+            arguments.version,
+            arguments.since,
+            arguments.until,
+            arguments.repository,
+            arguments.minimum_macos,
         ),
         end="",
     )

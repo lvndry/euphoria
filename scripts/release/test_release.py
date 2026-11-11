@@ -77,9 +77,62 @@ class NextVersionTests(unittest.TestCase):
             next_version.next_version(["v2026.12.0"], day("2026-11-30"))
 
 
+# The files a release carries, written out rather than taken from
+# plan_release, so that a change there has to be made here too.
+RELEASE_FILES_OF_2026_11_0 = {
+    "Euphoria-2026.11.0.dmg",
+    "Euphoria.dmg",
+    "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz",
+    "SHA256SUMS",
+}
+
+
+def finished(tag):
+    """A release as the workflow leaves it when it finishes."""
+    version = tag[1:]
+    return {
+        "assets": sorted(plan_release.expected_assets(version)),
+        "title": f"Euphoria {version}",
+        "notes": f"Euphoria {version}.\n\n{release_notes.COMPLETE_MARKER}\n",
+        "is_latest": True,
+    }
+
+
 class PlanTests(unittest.TestCase):
-    def complete(self, tag):
-        return sorted(plan_release.expected_assets(tag[1:]))
+    def test_a_release_carries_these_files(self):
+        self.assertEqual(
+            plan_release.expected_assets("2026.11.0"), RELEASE_FILES_OF_2026_11_0
+        )
+
+    def test_the_workflow_builds_the_files_a_release_carries(self):
+        workflow = (REPOSITORY / ".github" / "workflows" / "release.yml").read_text()
+        package = (REPOSITORY / "scripts" / "release" / "package-cli.sh").read_text()
+        # The disk image, its copy without the version, and the checksums
+        # are gathered into dist/ by the workflow.
+        self.assertIn(
+            'cp "target/release/bundle/Euphoria-$VERSION.dmg" dist/\n', workflow
+        )
+        self.assertIn(
+            'cp "target/release/bundle/Euphoria-$VERSION.dmg" dist/Euphoria.dmg',
+            workflow,
+        )
+        self.assertIn("shasum -a 256 -- * > SHA256SUMS", workflow)
+        self.assertIn("./scripts/release/package-cli.sh dist", workflow)
+        # The tarball is named by package-cli.sh, built on an Apple Silicon
+        # runner, whose Rust host is aarch64-apple-darwin.
+        self.assertIn('name="euphoria-$version-$target"', package)
+        self.assertIn('"$output/$name.tar.gz"', package)
+        self.assertIn("runs-on: macos-15", workflow)
+        built = {
+            "Euphoria-2026.11.0.dmg",
+            "Euphoria.dmg",
+            "SHA256SUMS",
+            "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz",
+        }
+        self.assertEqual(built, RELEASE_FILES_OF_2026_11_0)
+        # Everything in dist/ is published.
+        self.assertIn('gh release create "v$VERSION" dist/*', workflow)
+        self.assertIn('gh release upload "v$VERSION" dist/* --clobber', workflow)
 
     def test_without_releases_the_plan_is_a_new_version(self):
         self.assertEqual(
@@ -87,44 +140,85 @@ class PlanTests(unittest.TestCase):
             ("new", "2026.11.0", ""),
         )
 
-    def test_a_complete_newest_release_leads_to_the_next_version(self):
+    def test_a_finished_newest_release_leads_to_the_next_version(self):
         tags = ["v2026.11.0", "v2026.11.1"]
         self.assertEqual(
-            plan_release.plan(tags, self.complete, day("2026-11-20")),
+            plan_release.plan(tags, finished, day("2026-11-20")),
             ("new", "2026.11.2", "v2026.11.1"),
         )
 
     def test_a_tag_without_a_release_is_resumed(self):
         tags = ["v2026.11.0", "v2026.11.1"]
 
-        def assets(tag):
-            return None if tag == "v2026.11.1" else self.complete(tag)
+        def state(tag):
+            return None if tag == "v2026.11.1" else finished(tag)
 
         # Resuming does not depend on the date, so a run in the next month
         # still finishes the stranded version.
         self.assertEqual(
-            plan_release.plan(tags, assets, day("2026-12-02")),
+            plan_release.plan(tags, state, day("2026-12-02")),
             ("resume", "2026.11.1", "v2026.11.0"),
         )
 
-    def test_a_release_missing_a_file_is_resumed(self):
-        def assets(tag):
-            return ["Euphoria.dmg", f"Euphoria-{tag[1:]}.dmg"]
+    def test_a_release_left_unfinished_in_any_way_is_resumed(self):
+        unfinished = {
+            "a missing file": {"assets": ["Euphoria.dmg", "Euphoria-2026.11.0.dmg"]},
+            "the title gh gives by default": {"title": "v2026.11.0"},
+            "notes without the closing marker": {"notes": "Euphoria 2026.11.0.\n"},
+            "empty notes": {"notes": ""},
+            "not marked as the latest": {"is_latest": False},
+        }
+        for reason, change in unfinished.items():
+            state = {**finished("v2026.11.0"), **change}
+            self.assertEqual(
+                plan_release.plan(
+                    ["v2026.11.0"], lambda tag, state=state: state, day("2026-11-20")
+                ),
+                ("resume", "2026.11.0", ""),
+                reason,
+            )
 
-        self.assertEqual(
-            plan_release.plan(["v2026.11.0"], assets, day("2026-11-20")),
-            ("resume", "2026.11.0", ""),
+    def test_the_notes_the_workflow_writes_count_as_finished(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        subprocess.run(["git", "-C", str(folder), "init", "--quiet"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(folder),
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "--message",
+                "feat: a thing (#1)",
+            ],
+            check=True,
         )
+        original = pathlib.Path.cwd()
+        os.chdir(folder)
+        try:
+            written = release_notes.notes(
+                "2026.11.0", None, "HEAD", "owner/repository", "15.0"
+            )
+        finally:
+            os.chdir(original)
+        state = {**finished("v2026.11.0"), "notes": written}
+        self.assertTrue(plan_release.is_complete(state, "2026.11.0"))
 
     def test_only_the_newest_tag_is_looked_at(self):
         asked = []
 
-        def assets(tag):
+        def state(tag):
             asked.append(tag)
-            return self.complete(tag)
+            return finished(tag)
 
         plan_release.plan(
-            ["v2026.10.3", "v2026.11.0", "v0.1.0"], assets, day("2026-11-20")
+            ["v2026.10.3", "v2026.11.0", "v0.1.0"], state, day("2026-11-20")
         )
         self.assertEqual(asked, ["v2026.11.0"])
 
@@ -266,6 +360,23 @@ class ReleaseNotesTests(unittest.TestCase):
             breaking,
         )
         self.assertIn("- **core:** Drop an old function ([", breaking)
+
+    def test_the_notes_name_the_minimum_macos_and_end_with_the_marker(self):
+        self.commit("feat: a thing (#1)")
+        original = pathlib.Path.cwd()
+        os.chdir(self.folder)
+        try:
+            with_minimum = release_notes.notes(
+                "2026.11.1", None, "HEAD", "owner/repository", "15.0"
+            )
+            without = release_notes.notes("2026.11.1", None, "HEAD", "owner/repository")
+        finally:
+            os.chdir(original)
+        self.assertIn(
+            "It needs a Mac with Apple Silicon and macOS 15.0 or later.", with_minimum
+        )
+        self.assertIn("It needs a Mac with Apple Silicon.", without)
+        self.assertTrue(with_minimum.rstrip().endswith(release_notes.COMPLETE_MARKER))
 
     def test_only_commits_since_the_previous_tag_are_counted(self):
         self.commit("feat: before (#1)")
