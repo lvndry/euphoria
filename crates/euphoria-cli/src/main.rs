@@ -6,6 +6,7 @@
 mod batch;
 mod export;
 mod output;
+mod tag_edit;
 mod tags;
 mod terminal;
 
