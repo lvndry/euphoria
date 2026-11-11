@@ -1,11 +1,11 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use super::batch::{Origin, cached_or_analyzed};
-use super::identity::FileStamp;
+use super::identity::{ContentHash, FileStamp};
 use super::{Cache, FileLocation, Snapshot};
 use crate::analysis::{TrackAnalysis, analyze_file};
 use crate::correction::Correction;
@@ -121,6 +121,27 @@ impl CachedAnalyzer {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .recognise_file(path)
+    }
+
+    /// The content of the file at `path`, when the cache recorded it there
+    /// with its current size and modification time. Does not read the file.
+    pub fn known_content(&self, path: &Path) -> Option<ContentHash> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recorded_content(path)
+            .ok()
+            .flatten()
+    }
+
+    /// Where the cache last saw a file with `content`, when it knows.
+    pub fn last_seen_path_of(&self, content: &ContentHash) -> Option<PathBuf> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .last_seen_path_of(content)
+            .ok()
+            .flatten()
     }
 
     fn analyze_file_with(

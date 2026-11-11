@@ -6,7 +6,7 @@
 
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -29,6 +29,7 @@ use crate::panels::{PanelEdge, Panels};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
 use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
+use crate::playlists::PlaylistId;
 use crate::settings::{FolderTreeMemory, Settings};
 use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
@@ -74,6 +75,15 @@ pub(crate) struct EuphoriaApp {
     pub(crate) filter: LibraryFilter,
     /// The folder whose tracks the table shows, or `None` for every folder.
     pub(crate) folder: Option<PathBuf>,
+    /// The playlist whose tracks the table shows, in its order, in place of
+    /// the library.
+    pub(crate) playlist: Option<PlaylistId>,
+    /// The place in the playlist on show of each track in it, from 1.
+    pub(crate) playlist_positions: HashMap<usize, usize>,
+    /// The playlist whose name is being typed.
+    pub(crate) renaming_playlist: Option<PlaylistId>,
+    /// The field the name of a playlist is typed in.
+    pub(crate) playlist_name_input: Entity<InputState>,
     /// The folders the user added and the subfolders holding their tracks.
     pub(crate) folder_tree: FolderTree,
     /// Indexes into the folder tree of the folders the sidebar lists.
@@ -163,7 +173,7 @@ pub(crate) struct EuphoriaApp {
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
     is_following_playhead: bool,
-    query: String,
+    pub(crate) query: String,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
     waveform_task: Option<Task<()>>,
@@ -227,6 +237,17 @@ impl EuphoriaApp {
                 this.apply_typed_tempo_range(cx);
             }
         };
+        let playlist_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
+        let playlist_named = cx.subscribe(
+            &playlist_name_input,
+            |this: &mut Self, _, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                    this.finish_renaming_playlist(cx);
+                }
+                InputEvent::Change | InputEvent::Focus => {}
+            },
+        );
         let bpm_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
         let bpm_entered = cx.subscribe(&bpm_input, |this: &mut Self, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
@@ -253,6 +274,10 @@ impl EuphoriaApp {
             search_input,
             filter: LibraryFilter::AllTracks,
             folder: settings.folder_tree.selected.clone(),
+            playlist: None,
+            playlist_positions: HashMap::new(),
+            renaming_playlist: None,
+            playlist_name_input,
             folder_tree: FolderTree::default(),
             folder_rows: Vec::new(),
             expanded_folders,
@@ -314,6 +339,7 @@ impl EuphoriaApp {
             folder_tree_revisions: None,
             folder_column_basis: None,
             _subscriptions: vec![
+                playlist_named,
                 bpm_entered,
                 search_changed,
                 quitting,
@@ -538,13 +564,41 @@ impl EuphoriaApp {
                 FolderColumn::new(library.tracks(), library.folders(), self.folder.as_deref());
             self.folder_column_basis = Some(basis);
         }
-        self.visible = library.visible_tracks(
-            self.filter,
-            self.folder.as_deref(),
-            &self.query,
-            self.sort_order,
-            &self.folder_column,
-        );
+        let playlist = self
+            .playlist
+            .and_then(|id| self.session.playlists().get(id));
+        if self.playlist.is_some() && playlist.is_none() {
+            self.playlist = None;
+        }
+        self.playlist_positions = playlist
+            .map(|playlist| {
+                // Numbered before the tracks that are not in the library are
+                // left out, so each keeps its place in the saved order.
+                playlist
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(position, path)| {
+                        library.index_of(path).map(|index| (index, position + 1))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.visible = match playlist {
+            Some(playlist) => library.playlist_rows(
+                &playlist.tracks,
+                &self.query,
+                self.sort_order,
+                &self.folder_column,
+            ),
+            None => library.visible_tracks(
+                self.filter,
+                self.folder.as_deref(),
+                &self.query,
+                self.sort_order,
+                &self.folder_column,
+            ),
+        };
         let visible: HashSet<usize> = self.visible.iter().copied().collect();
         self.marked.retain(|index| visible.contains(index));
         self.folder_path_widths.set_paths(
@@ -991,6 +1045,7 @@ impl EuphoriaApp {
 
     /// Shows every track of every folder.
     pub(crate) fn show_all_tracks(&mut self, cx: &mut Context<'_, Self>) {
+        self.playlist = None;
         self.filter = LibraryFilter::AllTracks;
         self.folder = None;
         self.refresh_visible();
@@ -1000,6 +1055,7 @@ impl EuphoriaApp {
 
     /// Shows only the tracks that need review, within the folder on show.
     pub(crate) fn show_tracks_needing_review(&mut self, cx: &mut Context<'_, Self>) {
+        self.playlist = None;
         self.filter = LibraryFilter::NeedsReview;
         self.refresh_visible();
         cx.notify();
@@ -1008,6 +1064,7 @@ impl EuphoriaApp {
     /// Shows only the tracks whose quality is weak on a big system or likely
     /// re-encoded, within the folder on show.
     pub(crate) fn show_tracks_with_quality_to_check(&mut self, cx: &mut Context<'_, Self>) {
+        self.playlist = None;
         self.filter = LibraryFilter::QualityToCheck;
         self.refresh_visible();
         cx.notify();
@@ -1015,6 +1072,7 @@ impl EuphoriaApp {
 
     /// Shows every track in the folder at `path` and the folders inside it.
     pub(crate) fn show_folder(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        self.playlist = None;
         self.filter = LibraryFilter::AllTracks;
         self.folder = Some(path);
         self.refresh_visible();

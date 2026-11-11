@@ -27,10 +27,13 @@ mod panels;
 mod peaks;
 mod playback;
 mod player;
+mod playlist_flow;
+mod playlists;
 mod progress;
 mod reference_sound;
 mod settings;
 mod state;
+mod tag_editor;
 mod tag_flow;
 mod tag_settings;
 mod tag_writing;
@@ -44,7 +47,7 @@ mod waveforms;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError};
+use euphoria_core::{Cache, CachedAnalyzer, EuphoriaError, PlaylistStore};
 use gpui::prelude::*;
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, KeyBinding, Menu, MenuItem, QuitMode,
@@ -52,9 +55,9 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddFolder, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks, ToggleDecks,
-    TogglePlayback, ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme,
-    UsePaperTheme, UseSlateTheme, WriteTags,
+    AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks,
+    ToggleDecks, TogglePlayback, ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
+    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -109,11 +112,24 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
             )),
         ),
     };
-    let problems: Vec<String> = settings_problem.into_iter().chain(cache_problem).collect();
-    let notice = (!problems.is_empty()).then(|| problems.join(" "));
-
     let mut session = Session::start(cache)
         .map_err(|error| format!("cannot start the analysis workers: {error}"))?;
+    let playlist_problem = euphoria_core::default_playlists_path()
+        .and_then(|path| PlaylistStore::open(&path))
+        .and_then(|store| session.use_playlist_store(store))
+        .err()
+        .map(|error| {
+            format!(
+                "Playlists cannot be kept, so changes to them are lost on quitting: {}.",
+                error.chain()
+            )
+        });
+    let problems: Vec<String> = settings_problem
+        .into_iter()
+        .chain(cache_problem)
+        .chain(playlist_problem)
+        .collect();
+    let notice = (!problems.is_empty()).then(|| problems.join(" "));
     if let Some(count) = demo::requested_track_count() {
         session.add_demo_folder(PathBuf::from(demo::DEMO_FOLDER));
         session.add_demo_tracks(demo::tracks(count));
@@ -172,12 +188,15 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
+        KeyBinding::new("cmd-i", EditTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-,", OpenSettings, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-t", WriteTags, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-i", EditTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
@@ -223,6 +242,18 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .update(cx, |_, window, cx| {
                 weak_view
                     .update(cx, |view, cx| view.focus_search(window, cx))
+                    .ok();
+            })
+            .ok();
+    });
+
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &EditTags, cx| {
+        let weak_view = weak_view.clone();
+        window
+            .update(cx, |_, window, cx| {
+                weak_view
+                    .update(cx, |view, cx| view.open_tag_editor(window, cx))
                     .ok();
             })
             .ok();
@@ -298,6 +329,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::submenu(Menu::new("Theme").items(theme_items)),
         ]),
         Menu::new("Tags").items([
+            MenuItem::action("Edit Tags\u{2026}", EditTags),
             MenuItem::action("Write Tags\u{2026}", WriteTags),
             MenuItem::action("Undo Last Tag Write\u{2026}", UndoTagWrite),
         ]),

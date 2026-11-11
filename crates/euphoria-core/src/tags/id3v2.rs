@@ -30,13 +30,17 @@ const UTF8: u8 = 3;
 
 /// Frame names in ID3v2.2, which has three letters where later versions
 /// have four.
-const VERSION_2_NAMES: [(&str, &str); 6] = [
+const VERSION_2_NAMES: [(&str, &str); 10] = [
     ("TKEY", "TKE"),
     ("TBPM", "TBP"),
     ("COMM", "COM"),
     ("TIT1", "TT1"),
     ("TIT2", "TT2"),
     ("TPE1", "TP1"),
+    ("TALB", "TAL"),
+    ("TCON", "TCO"),
+    ("TYER", "TYE"),
+    ("TRCK", "TRK"),
 ];
 
 /// The length of the whole tag that starts with `header`, footer included,
@@ -130,6 +134,11 @@ pub(super) struct Id3Tag {
 }
 
 impl Id3Tag {
+    /// The major version: 2, 3 or 4.
+    pub(super) fn version(&self) -> u8 {
+        self.version
+    }
+
     /// An empty ID3v2.3 tag, the version the widest range of software
     /// reads.
     pub(super) fn new() -> Self {

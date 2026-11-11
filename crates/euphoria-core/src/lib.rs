@@ -31,6 +31,8 @@ pub mod harmony;
 pub mod key;
 /// Finding audio files in folders.
 pub mod library;
+/// Playlists the user builds, kept by the content of their files.
+pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
 /// Reading audio file tags and writing analysis results into them, with a
@@ -61,13 +63,18 @@ pub use energy::{
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{
-    AssembledLibrary, ExportContents, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library,
-    assemble_library_with, playlist_count, playlists_from_folders,
+    AssembledLibrary, ExportContents, M3uTrack, PlaylistLayout, SkippedTrack, UnreadTags,
+    assemble_library, assemble_library_with, playlist_count, playlists_from_folders, render_m3u8,
+    write_m3u8_file,
 };
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
+pub use playlists::{
+    EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
+    default_playlists_path, locate_entry, locate_moved_files,
+};
 pub use tempo_range::TempoRange;
 pub use track_name::{TrackName, read_track_name};

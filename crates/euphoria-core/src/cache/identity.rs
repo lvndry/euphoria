@@ -27,7 +27,7 @@ impl ContentHash {
         &self.0
     }
 
-    pub(super) fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 }

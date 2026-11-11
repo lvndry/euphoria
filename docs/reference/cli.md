@@ -176,6 +176,7 @@ Analyzes audio files and writes the results as a rekordbox XML file, which rekor
 
 ```
 euphoria export rekordbox [OPTIONS] --output <FILE> <PATHS>...
+euphoria export rekordbox [OPTIONS] --output <FILE> --playlist <NAME>
 ```
 
 Paths are searched as in [`euphoria analyze`](#euphoria-analyze), and results come from the [cache](#the-analysis-cache) when the tracks were analyzed before. Each path is turned into a full path first, taken from the current directory when it is relative, with any symbolic link in it followed, because rekordbox finds tracks by their full path.
@@ -196,6 +197,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
+| `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
 | `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
 | `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. It is never replaced by the export, even with `--force`. |
 | `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
@@ -278,6 +280,42 @@ The command also exits with status 1, and writes no file, when:
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
+## euphoria export m3u8
+
+Writes a playlist built in the desktop app as an M3U8 file, the playlist format nearly every DJ and music program opens: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx and music players.
+
+```
+euphoria export m3u8 --playlist <NAME> --output <FILE> [--force] [--no-cache]
+```
+
+```
+$ euphoria export m3u8 --playlist "Peak time" --output ~/Music/peak-time.m3u8
+Exported 14 tracks of Peak time to /Users/you/Music/peak-time.m3u8
+```
+
+The file starts with `#EXTM3U` and `#PLAYLIST:` and the playlist's name, then gives each track as an `#EXTINF:` line with its length in seconds and "Artist - Title" from its tags, followed by its full path, in UTF-8. A length the [cache](#the-analysis-cache) does not know is written as `-1`. Nothing is analyzed.
+
+| Option | Effect |
+| --- | --- |
+| `--playlist <NAME>` | The playlist, matched ignoring case. Required. |
+| `-o`, `--output <FILE>` | The file to write. Required. |
+| `--force` | Replace the output file if it exists. |
+| `--no-cache` | Neither look for files that moved where the cache last saw them, nor read lengths from it. |
+
+Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere, or whose file was replaced at its path by other audio, is left out with a warning, and the command then exits with status 1. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+
+## euphoria playlists
+
+Lists the playlists built in the [desktop app](../guides/desktop-app.md#playlists), in the app's order, each with its label and how many tracks it holds:
+
+```
+$ euphoria playlists
+🔥 Peak time  (14 tracks)
+Warmup  (9 tracks)
+```
+
+Playlists are kept in `playlists.sqlite3` beside the [cache](#where-the-cache-is-stored), each track by the content of its file and its last path, so `euphoria cache clear` leaves them as they are.
+
 ## euphoria tags write
 
 Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.
@@ -340,9 +378,63 @@ If a file was changed but the log of the write could not note it, for example be
 
 The command exits with status 0 when every file was written or was already up to date, and also when you answered no. It exits with status 1 when any file failed, when a change could not be recorded, when it could not ask for confirmation, and, after writing, when saving analysis results to the cache failed partway.
 
+## euphoria tags set
+
+Edits tag fields by hand across many files at once: give a field a value, remove it, find and replace in it, or add or remove a prefix or a suffix. It shows the same preview and asks the same question as [`euphoria tags write`](#euphoria-tags-write), writes the same safe way, and [`euphoria tags undo`](#euphoria-tags-undo) puts the old tags back.
+
+```
+euphoria tags set [OPTIONS] <PATHS>...
+```
+
+```
+$ euphoria tags set --field "genre=Deep House" --field year=2024 ~/Music/DJ/new
+/Users/you/Music/DJ/new/low tide.flac
+  GENRE: House -> Deep House
+  DATE: (none) -> 2024
+...
+14 files to change, 0 already up to date, 0 left out.
+Write these changes to 14 files? [y/N]
+```
+
+Nothing is analyzed. The fields are the same in every format:
+
+| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A) | Vorbis (FLAC) |
+| --- | --- | --- | --- |
+| `title` | `TIT2` | `©nam` | `TITLE` |
+| `artist` | `TPE1` | `©ART` | `ARTIST` |
+| `album` | `TALB` | `©alb` | `ALBUM` |
+| `genre` | `TCON` | `©gen` | `GENRE` |
+| `year` | `TYER`, or `TDRC` in an ID3v2.4 tag | `©day` | `DATE` |
+| `track` | `TRCK` | `trkn` | `TRACKNUMBER` |
+| `comment` | `COMM` | `©cmt` | `COMMENT` |
+| `grouping` | `TIT1` | `©grp` | `GROUPING` |
+| `key` | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
+| `bpm` | `TBPM` | `----:com.apple.iTunes:BPM` | `BPM` |
+
+`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
+
+A comment or a grouping keeps the key and energy label that `tags write` put there, such as `8A - Energy 7`: the edit changes your own text next to it. `--field "comment=Peak opener"` turns `8A - Energy 7 - Purchased` into `8A - Energy 7 - Peak opener`, `--clear comment` leaves `8A - Energy 7`, and a value typed with its label, such as `8A - Energy 7 - Opener`, replaces the label rather than adding a second one. Only a label with an energy rating is recognised, so text of yours that starts with a key is kept as it is.
+
+### Options
+
+| Option | Effect |
+| --- | --- |
+| `--field <FIELD=VALUE>` | Give a field a value. An empty value, such as `album=`, removes the field. May be given more than once. |
+| `--clear <FIELD>` | Remove a field. May be given more than once. |
+| `--replace <FIELD>` with `--find <TEXT>` and `--with <TEXT>` | Replace every occurrence of the text in the field. Letters match in either case unless `--match-case` is given. `--with ""` deletes the text. |
+| `--add-prefix <FIELD=TEXT>`, `--add-suffix <FIELD=TEXT>` | Put text in front of or after a field, unless it is already there. A file without the field is left without it. |
+| `--remove-prefix <FIELD=TEXT>`, `--remove-suffix <FIELD=TEXT>` | Take text off the front or the end of a field, where it is there. |
+| `-y`, `--yes` | Write without asking. |
+| `--dry-run` | Show the preview and write nothing. |
+| `-h`, `--help` | Show help. |
+
+Several edits of the same field apply in the order of this table. A value that leaves nothing removes the field. A tempo must be a positive number, and a track number a number such as `7` or `7/12`; a file whose value would not be one is listed as an error and left unchanged.
+
+The preview, the question, what is written and the exit status are as for [`euphoria tags write`](#preview-and-confirmation). A file the [cache](#the-analysis-cache) knew stays known after its tags change, so it is not analyzed again.
+
 ## euphoria tags undo
 
-Puts back the tags that the last `euphoria tags write` replaced.
+Puts back the tags that the last `euphoria tags write` or `euphoria tags set` replaced, or the last write or edit made in the desktop app.
 
 ```
 $ euphoria tags undo

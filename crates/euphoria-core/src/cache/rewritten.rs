@@ -12,7 +12,7 @@
 //! content now is needs recording.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -112,6 +112,30 @@ impl Cache {
             carry(&self.connection).map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
+    }
+}
+
+impl Cache {
+    /// Where a file with `content` was last seen, by an analysis of any
+    /// version, when the cache knows.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn last_seen_path_of(
+        &self,
+        content: &ContentHash,
+    ) -> Result<Option<PathBuf>, EuphoriaError> {
+        let path: Option<Option<String>> = self
+            .connection
+            .query_row(
+                "SELECT last_known_path FROM analyses WHERE content_hash = ?1",
+                params![content.as_bytes()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(cache_error(&self.path))?;
+        Ok(path.flatten().map(PathBuf::from))
     }
 }
 

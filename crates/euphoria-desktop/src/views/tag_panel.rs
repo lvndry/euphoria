@@ -13,7 +13,7 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::format;
-use crate::tag_flow::{Preview, TagPanel, WriteScope};
+use crate::tag_flow::{Preview, PreviewKind, TagPanel, WriteScope};
 use crate::tag_settings::TagSettings;
 use crate::tag_writing::{LeftOut, PreviewRow};
 use crate::theme::Palette;
@@ -38,6 +38,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
             buttons(vec![cancel_button("cancel-tag-write", &palette, cx)]),
         ],
         TagPanel::Preview(preview) => preview_contents(app, preview, &palette, cx),
+        TagPanel::Editing(editor) => crate::views::tag_editor::contents(editor, &palette, cx),
         TagPanel::Writing { .. } => {
             let (done, total) = app.tag_write_progress().unwrap_or_default();
             vec![
@@ -193,25 +194,38 @@ fn preview_contents(
         ));
     }
 
-    let mut contents = vec![
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(12.0))
-            .child(title(&format!(
-                "Write tags for {}",
-                preview.settings.program.label_in_sentence()
-            )))
-            .child(
-                secondary_button("Change settings", palette)
-                    .id("change-tag-settings")
-                    .on_click(cx.listener(|this, _, _, cx| this.change_tag_settings(cx)))
-                    .test_support(),
-            )
-            .into_any_element(),
-        quiet(&settings_sentence(&preview.settings), palette),
-        scope_switch(app, preview.scope, palette, cx),
+    let mut contents = match &preview.kind {
+        PreviewKind::Analysis { scope } => vec![
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(12.0))
+                .child(title(&format!(
+                    "Write tags for {}",
+                    preview.settings.program.label_in_sentence()
+                )))
+                .child(
+                    secondary_button("Change settings", palette)
+                        .id("change-tag-settings")
+                        .on_click(cx.listener(|this, _, _, cx| this.change_tag_settings(cx)))
+                        .test_support(),
+                )
+                .into_any_element(),
+            quiet(&settings_sentence(&preview.settings), palette),
+            scope_switch(app, *scope, palette, cx),
+        ],
+        PreviewKind::Edit { summary } => vec![
+            title("Edit tags"),
+            div()
+                .id("edit-summary")
+                .text_color(palette.text_secondary)
+                .child(summary.clone())
+                .test_support()
+                .into_any_element(),
+        ],
+    };
+    contents.push(
         div()
             .id("tag-summary")
             .text_size(SMALL_TEXT_SIZE)
@@ -219,7 +233,7 @@ fn preview_contents(
             .child(summary.join(", ") + ".")
             .test_support()
             .into_any_element(),
-    ];
+    );
     if !preview.rows.is_empty() {
         contents.push(preview_list(preview, palette, cx));
     }

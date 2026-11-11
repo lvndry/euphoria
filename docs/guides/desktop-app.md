@@ -203,6 +203,51 @@ The app can write the key, tempo and energy it found into the files themselves, 
 
 A key or tempo you corrected is written in place of the detected one. Each file written, and each file put back by an undo, is recorded in the [analysis cache](../reference/cli.md#the-analysis-cache) as it is, so it is not analyzed again the next time the app starts, and its corrections stay with it.
 
+## Playlists
+
+Playlists are where you build a set: a folder holds the tracks you own, a playlist holds the order you will play them in.
+
+- **Make one** with the **+** beside **Playlists** in the sidebar, under the folders, then type its name and press Return. Right click tracks in the table and choose **New playlist from selection** to start one from them.
+- **Add tracks** by dragging them from the table onto a playlist in the sidebar, or with **Add to playlist** in their right click menu. A track is in a playlist once; adding it again changes nothing.
+- **Rename** a playlist by double clicking it, or from its right click menu. The menu also gives it a **Label**, one emoji to tell it apart, and **Delete playlist**, which leaves the tracks in the library.
+- **Reorder playlists** by dragging them up or down the sidebar.
+
+Click a playlist to show its tracks in the table in their order, with their place in the **#** column. Drag rows to move them; a row dropped on another goes just above it, and a whole selection moves together. **Remove from playlist** in the right click menu takes tracks out. Search and sorting work as everywhere else, but sorting is only a view: the playlist keeps its order, and clicking the **#** header goes back to it. While the table is sorted or searched, rows cannot be dragged to a new place.
+
+### A set at a glance
+
+Above a playlist's table, a line shows it as a set:
+
+- **The key path**: each track's key in play order, in the notation you chose. A `›` between two keys is a [compatible move](../concepts/keys-and-camelot.md); a red `×` marks a step that is not, the place to look for a smoother order or a key change you meant.
+- **The tempo range**, from the slowest track to the fastest.
+- **The energy flow**: a small line of each track's [energy](../concepts/energy.md) in order, rising from 1 to 10.
+
+The count beside the name says how many of the playlist's tracks are not in the library, for example after their folder was removed; they come back when the folder is added again.
+
+### Export a playlist
+
+The **rekordbox** and **M3U8** buttons after **Export**, at the end of the line above the table, or the playlist's right click menu, ask where to save the playlist and write it there:
+
+- **rekordbox** writes a rekordbox XML file holding the playlist's tracks and one playlist in its order, with their keys, tempos and energy, as [`euphoria export rekordbox`](../reference/cli.md#euphoria-export-rekordbox) does. [Export to rekordbox](export-to-rekordbox.md) explains the import.
+- **M3U8** writes the playlist for nearly any other program: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx or a music player. It holds the tracks' paths, lengths and names, not their keys; [write the tags](#write-tags) for those programs to see the keys.
+
+Tracks not analyzed yet are left out of a rekordbox export, and the app says how many were. Every file is read and compared with the track that was added before it is exported, so a file replaced at the same path by other audio is left out too, with a note saying so.
+
+### Where playlists are kept
+
+Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [data folder](#what-the-app-remembers). Each track is kept by the content of its file, like a remembered result, together with its path. A file moved or renamed is found again once the app or `euphoria analyze` has seen it in its new place, and only when the file there holds the same content. Playlists live in their own file so that clearing or deleting the cache never touches them. The command line lists them with [`euphoria playlists`](../reference/cli.md#euphoria-playlists) and exports one by name.
+
+## Edit tags
+
+Select one track or thousands and click **Edit tags** in the toolbar, or choose **Tags > Edit Tags…** (Command I), to edit their title, artist, album, genre, year, track number, comment, grouping, key and BPM fields.
+
+- Each field shows the value the selected tracks share. When they differ, it is empty, shows **mixed** and is marked **differs**; leave it empty to keep each track's own value, or type to give them all one.
+- Type in a field to change it. Emptying a field that has a value removes it, and **Remove** beside a field removes it from every track; click **Keep** to take that back.
+- **Change text in one field** works on one field at a time: **Find and replace** (with **Match case** for capital letters), **Add prefix**, **Add suffix**, **Remove prefix** and **Remove suffix**. Choose the field under the tool and type the text.
+- **Preview changes** shows the same preview as [writing tags](#write-tags): each file with each field's value now and the value it would get. Click **Write** to write them, or **Cancel**.
+
+The edit is written with the same safety as a tag write and shares its backups, so **Undo this write**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. The titles and artists in the table follow the edit. A comment or a grouping keeps the key and energy label a tag write put there, as [`euphoria tags set`](../reference/cli.md#euphoria-tags-set) explains, and the comment field shows only your own text. The key and BPM fields are the tags in the files; the key and tempo Euphoria detected stay as they were.
+
 ## Settings
 
 Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.
@@ -245,7 +290,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) explains. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
@@ -297,6 +342,6 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend, and suggestions from a playlist.
 - Editing cue points: the decks show and play the cues analysis places, but they cannot be moved or added yet.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
-- Exporting to DJ software from the app; `euphoria export rekordbox` does it from the command line.
+- Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
 - Filters for key and tempo ranges.
 - Linux and Windows builds: the app is only built and tested on macOS so far.

@@ -16,6 +16,10 @@ use crate::error::ErrorSource;
 /// The tempo item, which holds a whole number.
 pub(super) const TEMPO: &str = "tmpo";
 
+/// The track number item, which holds numbers rather than text: the track
+/// and how many tracks there are.
+pub(super) const TRACK_NUMBER: &str = "trkn";
+
 const ATOM_HEADER_LENGTH: usize = 8;
 const FULL_BOX_HEADER_LENGTH: usize = 4;
 const DATA_HEADER_LENGTH: usize = 16;
@@ -159,8 +163,26 @@ impl ItemName {
     }
 }
 
+/// The payload of a track number item for "7" or "7/12".
+fn track_number_payload(value: &str) -> Result<Vec<u8>, ErrorSource> {
+    let refuse = || format!("{value:?} is not a track number such as 7 or 7/12");
+    let (track, total) = match value.trim().split_once('/') {
+        Some((track, total)) => (track.trim(), total.trim()),
+        None => (value.trim(), "0"),
+    };
+    let track: u16 = track.parse().map_err(|_| refuse())?;
+    let total: u16 = total.parse().map_err(|_| refuse())?;
+    let mut payload = vec![0, 0];
+    payload.extend(track.to_be_bytes());
+    payload.extend(total.to_be_bytes());
+    payload.extend([0, 0]);
+    Ok(payload)
+}
+
 fn data_atom(field: &str, value: &str) -> Result<Vec<u8>, ErrorSource> {
-    let (data_type, payload) = if field == TEMPO {
+    let (data_type, payload) = if field == TRACK_NUMBER {
+        (DATA_TYPE_IMPLICIT, track_number_payload(value)?)
+    } else if field == TEMPO {
         let tempo: u16 = value
             .parse()
             .map_err(|_| format!("{value:?} is not a whole tempo that fits in {TEMPO}"))?;
@@ -380,6 +402,18 @@ impl Mp4File {
         let data_type =
             big_endian_u32(data, ATOM_HEADER_LENGTH).ok_or_else(unreadable)? & 0x00FF_FFFF;
         let payload = data.get(DATA_HEADER_LENGTH..).ok_or_else(unreadable)?;
+        if field == TRACK_NUMBER {
+            let number = |offset: usize| {
+                payload
+                    .get(offset..offset + 2)
+                    .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            };
+            let track = number(2).ok_or_else(unreadable)?;
+            return Ok(Some(match number(4) {
+                Some(total) if total > 0 => format!("{track}/{total}"),
+                _ => track.to_string(),
+            }));
+        }
         match data_type {
             DATA_TYPE_UTF8 => Ok(Some(String::from_utf8_lossy(payload).into_owned())),
             DATA_TYPE_UTF16 => {

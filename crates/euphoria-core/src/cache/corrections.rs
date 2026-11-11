@@ -101,11 +101,12 @@ impl Cache {
 
     /// The content an analysis last recorded at `path`, whatever its
     /// analyzer version, when the file there still has the size and
-    /// modification time recorded with it.
-    pub(super) fn recorded_content(
-        &self,
-        path: &Path,
-    ) -> Result<Option<ContentHash>, EuphoriaError> {
+    /// modification time recorded with it. Does not read the file.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn recorded_content(&self, path: &Path) -> Result<Option<ContentHash>, EuphoriaError> {
         let (Ok(absolute_path), Ok(stamp)) = (std::path::absolute(path), FileStamp::of(path))
         else {
             return Ok(None);
