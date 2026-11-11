@@ -5,6 +5,7 @@
 //! energy rating against a labels file, and prints a Markdown report.
 
 mod alternative;
+mod confidence;
 mod dataset;
 mod energy;
 mod evaluate;
@@ -157,10 +158,20 @@ fn main() -> Result<()> {
         }
     }
 
-    let key = key_tracks.map(|dataset| evaluate_keys(&dataset, &KEY_DETECTORS));
-    let tempo = tempo_tracks.map(|dataset| evaluate_tempo(&dataset, &[&StratumDetector]));
-
+    let key = key_tracks
+        .as_ref()
+        .map(|dataset| evaluate_keys(dataset, &KEY_DETECTORS));
+    let tempo = tempo_tracks
+        .as_ref()
+        .map(|dataset| evaluate_tempo(dataset, &[&StratumDetector]));
     print!("{}", render::render_report(&Report { key, tempo }));
+
+    if let Some(dataset) = &key_tracks {
+        print!("{}", confidence::evaluate_key_confidence(dataset));
+    }
+    if let Some(dataset) = &tempo_tracks {
+        print!("{}", confidence::evaluate_tempo_confidence(dataset));
+    }
     Ok(())
 }
 
