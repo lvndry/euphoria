@@ -121,8 +121,12 @@ impl PitchShifter {
     }
 
     /// Shifts what is left and returns the rest of the output, so that the
-    /// whole output is as long as the whole input.
+    /// whole output is as long as the whole input. Returns an error if the
+    /// final chunk leaves an incomplete interleaved frame.
     pub fn finish(mut self) -> Result<Vec<f32>, String> {
+        if !self.pending_frame.is_empty() {
+            return Err("the input ends with an incomplete interleaved frame".to_string());
+        }
         if self.input_length == 0 {
             return Ok(Vec::new());
         }
@@ -792,6 +796,18 @@ mod tests {
             .map(f32::abs)
             .fold(0.0, f32::max);
         assert!(silent_peak < 0.0001, "channels leaked: peak {silent_peak}");
+    }
+
+    #[test]
+    fn an_incomplete_final_frame_is_rejected() {
+        for samples in [1, 3] {
+            let mut shifter = PitchShifter::new(2, SAMPLE_RATE, 1).unwrap();
+            shifter.process(&vec![0.25; samples]).unwrap();
+            let error = shifter
+                .finish()
+                .expect_err("a partial final frame must not disappear");
+            assert!(error.contains("frame"));
+        }
     }
 
     #[test]
