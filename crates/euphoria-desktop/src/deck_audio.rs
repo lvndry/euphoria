@@ -10,10 +10,9 @@
 //! slower than recorded, keeping its pitch unless key lock is off, so that
 //! one deck's beats run at the other's tempo.
 //!
-//! Both decks are mixed in the same block, so a deck can start on the
-//! other's next downbeat to the sample: the mix counts the frames until the
-//! other deck's input reaches its downbeat and starts the deck after that
-//! many frames, allowing for the time each stretcher holds the sound.
+//! Both decks are mixed in the same block, so their upcoming downbeats can
+//! line up to the sample. A deck starts from its selected position after a
+//! delay accounting for both grids and the sound held by each stretcher.
 //!
 //! The window talks to the mix through a channel of commands, and reads
 //! what it needs, such as the position of each deck, from shared counters.
@@ -125,8 +124,9 @@ pub(crate) enum DeckCommand {
         source: Box<TrackSource>,
         grid: Option<GridTiming>,
     },
-    /// Plays a deck. With `quantize_to`, it waits for the next downbeat of
-    /// that deck when that deck is playing and both have a beat grid.
+    /// Plays from the held position. With `quantize_to`, schedules the
+    /// decks' upcoming downbeats to align when the other deck plays and
+    /// both have a beat grid.
     Play {
         deck: DeckId,
         quantize_to: Option<DeckId>,
@@ -504,10 +504,10 @@ impl DeckMix {
         }
     }
 
-    /// Output frames from now until `deck`, started now from where it
-    /// stands, would sound its position at the moment `other` sounds its
-    /// next downbeat. `None` when `other` is not playing or either deck
-    /// has no grid, and the deck then starts at once.
+    /// Output frames to wait before starting `deck` from its held position
+    /// so its next downbeat coincides with a future downbeat of `other`.
+    /// May wait additional bars to leave enough time to reach that beat.
+    /// `None` when `other` is not playing or either deck has no grid.
     fn frames_until_downbeat(&self, deck: DeckId, other: DeckId) -> Option<u64> {
         let starting = self.decks[deck.index()].as_ref()?;
         let leading = self.decks[other.index()].as_ref()?;
@@ -517,9 +517,8 @@ impl DeckMix {
         let starting_grid = starting.grid?;
         let grid = leading.grid?;
         let input_now = leading.input_seconds();
-        // The other deck's input reaches its next downbeat after this many
-        // output seconds, and sounds it its own delay later. This deck,
-        // started then, sounds its first frame its own delay later.
+        // Match the time the leading downbeat is heard against this deck's
+        // travel to its own downbeat, including any initial stretcher delay.
         let downbeat = grid.next_downbeat(input_now);
         let until_input = (downbeat - input_now) / leading.rate;
         let held = starting.heard_seconds();

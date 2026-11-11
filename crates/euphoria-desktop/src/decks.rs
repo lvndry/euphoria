@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Two decks to prepare a set: a track on each, played, paused and moved
-//! through, with deck B's tempo following deck A's and starting on A's
-//! downbeat, a volume for each and a crossfader, and the tracks that would
+//! through, with deck B's tempo following deck A's and aligned to A's
+//! beat grid, a volume for each and a crossfader, and the tracks that would
 //! mix best after the one on deck A, for the energy going up, staying or
 //! going down.
 
@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use euphoria_core::harmony::{EnergyDirection, MixOptions, Relation, next_tracks};
 use euphoria_core::{SectionCue, TrackAnalysis};
-use gpui::Context;
+use gpui::{Context, Task};
 
 use crate::app::EuphoriaApp;
 use crate::deck_audio::{DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate};
@@ -46,6 +46,8 @@ pub(crate) struct DeckView {
     pub(crate) volume: f32,
     /// True while the window asked the deck to play.
     pub(crate) playing: bool,
+    /// The replacement source is still being opened. Transport must wait.
+    pub(crate) loading: bool,
     /// Why the track could not be loaded, when it could not.
     pub(crate) problem: Option<String>,
 }
@@ -57,6 +59,22 @@ impl DeckView {
             keylock: true,
             volume: 1.0,
             ..Self::default()
+        }
+    }
+
+    fn refresh_track(&mut self, track: &Track) {
+        let analysis = track.analysis();
+        self.grid = analysis.and_then(|analysis| grid_of(track, analysis));
+        self.bpm = self
+            .grid
+            .map(|grid| grid.bpm)
+            .or_else(|| track.bpm().map(f64::from));
+        self.cues = analysis
+            .filter(|_| self.grid.is_some())
+            .map(|analysis| analysis.cues.clone())
+            .unwrap_or_default();
+        if let Some(analysis) = analysis {
+            self.duration_seconds = Some(f64::from(analysis.duration_seconds));
         }
     }
 
@@ -107,6 +125,7 @@ pub(crate) struct Decks {
     /// dropped.
     load_generation: [u64; 2],
     is_refreshing: bool,
+    waveform_tasks: [Option<Task<()>>; 2],
     /// Where each deck's waveform was last drawn, for turning a click into
     /// a position in its track.
     pub(crate) waveform_bounds: [SeenBounds; 2],
@@ -129,6 +148,7 @@ impl Default for Decks {
             suggestions: Vec::new(),
             load_generation: [0, 0],
             is_refreshing: false,
+            waveform_tasks: [None, None],
             waveform_bounds: Default::default(),
             fader_bounds: Default::default(),
             crossfader_bounds: Default::default(),
@@ -151,6 +171,12 @@ impl Decks {
         self.link
             .as_ref()
             .map_or(0.0, |link| link.meter(deck).position_seconds())
+    }
+
+    fn is_finished(&self, deck: DeckId) -> bool {
+        self.link
+            .as_ref()
+            .is_some_and(|link| link.meter(deck).is_finished())
     }
 
     /// True while `deck` waits for the other's downbeat to start.
@@ -181,8 +207,8 @@ impl Decks {
         }
     }
 
-    /// The volume of each deck after its fader and the crossfader, with
-    /// equal power across the crossfader so the mix keeps its loudness.
+    /// The volume after each fader and the crossfader. Both decks stay at
+    /// full gain in the middle; toward either end the other fades out.
     pub(crate) fn gains(&self) -> [f32; 2] {
         let position = self.crossfader.clamp(0.0, 1.0);
         let a = (position * FRAC_PI_2).cos() * std::f32::consts::SQRT_2;
@@ -251,8 +277,12 @@ impl EuphoriaApp {
             self.decks.is_open = false;
             self.decks.voice = None;
             self.decks.link = None;
-            for view in &mut self.decks.views {
+            self.decks.waveform_tasks = [None, None];
+            for deck in DeckId::BOTH {
+                self.decks.load_generation[index(deck)] += 1;
+                let view = self.decks.view_mut(deck);
                 view.playing = false;
+                view.loading = false;
             }
             cx.notify();
             return;
@@ -296,34 +326,36 @@ impl EuphoriaApp {
             return;
         };
         let path = track.path.clone();
-        let analysis = track.analysis().cloned();
-        let grid = analysis
-            .as_ref()
-            .and_then(|analysis| grid_of(track, analysis));
         let view = self.decks.view_mut(deck);
         view.playing = false;
         view.track_index = Some(track_index);
         view.path = Some(path.clone());
-        view.grid = grid;
-        view.bpm = grid
-            .map(|grid| grid.bpm)
-            .or_else(|| track.bpm().map(f64::from));
-        view.cues = analysis
-            .as_ref()
-            .filter(|_| grid.is_some())
-            .map(|analysis| analysis.cues.clone())
-            .unwrap_or_default();
-        view.duration_seconds = analysis
-            .as_ref()
-            .map(|analysis| f64::from(analysis.duration_seconds));
+        view.duration_seconds = None;
+        view.refresh_track(track);
         view.problem = None;
         view.rate = 1.0;
         self.decks.send(DeckCommand::Pause(deck));
-        self.load_deck_waveform(&path, track.bpm(), cx);
+        self.decks.waveform_tasks[index(deck)] = self.load_deck_waveform(&path, track.bpm(), cx);
         if deck == DeckId::A {
             self.refresh_suggestions();
         }
         self.decks.follow_tempo();
+        self.open_deck_source(deck, 0.0, false, cx);
+    }
+
+    fn open_deck_source(
+        &mut self,
+        deck: DeckId,
+        seconds: f64,
+        play: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(path) = self.decks.view(deck).path.clone() else {
+            return;
+        };
+        self.decks.view_mut(deck).loading = true;
+        self.decks.view_mut(deck).playing = false;
+        self.decks.send(DeckCommand::Pause(deck));
         self.decks.load_generation[index(deck)] += 1;
         let generation = self.decks.load_generation[index(deck)];
         cx.notify();
@@ -334,12 +366,13 @@ impl EuphoriaApp {
             let opened_path = path.clone();
             let opened = cx
                 .background_executor()
-                .spawn(async move { TrackSource::open(&opened_path, 0.0) })
+                .spawn(async move { TrackSource::open(&opened_path, seconds as f32) })
                 .await;
             this.update(cx, |this, cx| {
                 if this.decks.load_generation[index(deck)] != generation {
                     return;
                 }
+                this.decks.view_mut(deck).loading = false;
                 match opened {
                     Ok(source) => {
                         if this.decks.view(deck).duration_seconds.is_none() {
@@ -349,7 +382,7 @@ impl EuphoriaApp {
                         this.decks.send(DeckCommand::Load {
                             deck,
                             source: Box::new(source),
-                            grid,
+                            grid: this.decks.view(deck).grid,
                         });
                         let view = this.decks.view(deck);
                         this.decks.send(DeckCommand::SetKeylock {
@@ -360,6 +393,10 @@ impl EuphoriaApp {
                             deck,
                             rate: view.rate,
                         });
+                        if play {
+                            this.start_deck(deck);
+                            this.follow_decks(cx);
+                        }
                     }
                     Err(problem) => {
                         this.decks.view_mut(deck).problem = Some(problem.message().to_string());
@@ -372,16 +409,22 @@ impl EuphoriaApp {
         .detach();
     }
 
-    /// Plays `deck`, on the other deck's next downbeat when the other
-    /// plays, or pauses it.
+    /// Plays `deck` with its upcoming downbeats aligned to the other deck
+    /// when it plays, or pauses it.
     pub(crate) fn toggle_deck_play(&mut self, deck: DeckId, cx: &mut Context<'_, Self>) {
         let view = self.decks.view(deck);
-        if view.track_index.is_none() || view.problem.is_some() {
+        if !self.decks.is_open
+            || view.loading
+            || view.track_index.is_none()
+            || view.problem.is_some()
+        {
             return;
         }
         if view.playing {
             self.decks.view_mut(deck).playing = false;
             self.decks.send(DeckCommand::Pause(deck));
+        } else if self.decks.is_finished(deck) {
+            self.open_deck_source(deck, 0.0, true, cx);
         } else {
             self.start_deck(deck);
         }
@@ -400,27 +443,42 @@ impl EuphoriaApp {
 
     /// Moves `deck` to `fraction` of its track.
     pub(crate) fn seek_deck(&mut self, deck: DeckId, fraction: f32, cx: &mut Context<'_, Self>) {
+        if self.decks.view(deck).loading || self.decks.view(deck).problem.is_some() {
+            return;
+        }
         let Some(duration) = self.decks.view(deck).duration_seconds else {
             return;
         };
-        self.decks.send(DeckCommand::Seek {
-            deck,
-            seconds: duration * f64::from(fraction.clamp(0.0, 1.0)),
-        });
+        let seconds = duration * f64::from(fraction.clamp(0.0, 1.0));
+        if self.decks.is_finished(deck) {
+            self.open_deck_source(deck, seconds, false, cx);
+        } else {
+            self.decks.send(DeckCommand::Seek { deck, seconds });
+        }
         cx.notify();
     }
 
-    /// Plays `deck` from its cue `cue_index`, on the other deck's next
-    /// downbeat when the other plays.
+    /// Plays `deck` from its cue `cue_index`, aligning the upcoming
+    /// downbeats when the other deck plays.
     pub(crate) fn play_deck_cue(
         &mut self,
         deck: DeckId,
         cue_index: usize,
         cx: &mut Context<'_, Self>,
     ) {
+        if !self.decks.is_open
+            || self.decks.view(deck).loading
+            || self.decks.view(deck).problem.is_some()
+        {
+            return;
+        }
         let Some(cue) = self.decks.view(deck).cues.get(cue_index).copied() else {
             return;
         };
+        if self.decks.is_finished(deck) {
+            self.open_deck_source(deck, cue.seconds, true, cx);
+            return;
+        }
         self.decks.send(DeckCommand::Pause(deck));
         self.decks.send(DeckCommand::Seek {
             deck,
@@ -492,8 +550,40 @@ impl EuphoriaApp {
         self.load_on_deck(DeckId::B, track_index, cx);
     }
 
+    /// Reflects analysis and manual tempo corrections without reopening the audio.
+    pub(crate) fn refresh_deck_metadata(&mut self) {
+        let mut tempo_changed = false;
+        for deck in DeckId::BOTH {
+            let Some(track) = self
+                .decks
+                .view(deck)
+                .track_index
+                .and_then(|index| self.session.library().track(index))
+            else {
+                continue;
+            };
+            let old_grid = self.decks.view(deck).grid;
+            let old_bpm = self.decks.view(deck).bpm;
+            self.decks.view_mut(deck).refresh_track(track);
+            let view = self.decks.view(deck);
+            if old_grid != view.grid {
+                self.decks.send(DeckCommand::SetGrid {
+                    deck,
+                    grid: view.grid,
+                });
+            }
+            tempo_changed |= old_bpm != view.bpm;
+        }
+        if tempo_changed {
+            self.decks.follow_tempo();
+        }
+    }
+
     /// Works out the tracks that mix best after the one on deck A.
     pub(crate) fn refresh_suggestions(&mut self) {
+        if !self.decks.is_open {
+            return;
+        }
         let library = self.session.library();
         let Some(playing) = self
             .decks
@@ -558,6 +648,20 @@ impl EuphoriaApp {
             loop {
                 cx.background_executor().timer(DECK_REFRESH).await;
                 let goes_on = this.update(cx, |this, cx| {
+                    for deck in DeckId::BOTH {
+                        if !this.decks.view(deck).loading && this.decks.is_finished(deck) {
+                            this.decks.view_mut(deck).playing = false;
+                            if let Some(problem) = this
+                                .decks
+                                .link
+                                .as_ref()
+                                .and_then(|link| link.meter(deck).problem())
+                            {
+                                this.decks.view_mut(deck).problem =
+                                    Some(problem.message().to_string());
+                            }
+                        }
+                    }
                     cx.notify();
                     let goes_on =
                         this.decks.is_open && this.decks.views.iter().any(|view| view.playing);
@@ -580,7 +684,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_crossfader_keeps_the_loudness_and_the_faders_scale_it() {
+    fn the_crossfader_keeps_both_decks_full_at_center_and_the_faders_scale_it() {
         let mut decks = Decks::default();
         let gains = decks.gains();
         assert!((gains[0] - 1.0).abs() < 1e-6 && (gains[1] - 1.0).abs() < 1e-6);
