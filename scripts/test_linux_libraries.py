@@ -149,6 +149,47 @@ class SyntheticLibraryTests(unittest.TestCase):
         shutil.rmtree(self.outside)
         subprocess.run([str(executable)], check=True, env={"PATH": "/usr/bin:/bin"})
 
+    def test_an_executable_outside_the_package_is_not_modified(self):
+        program = compile_program(self.outside, "int main(void) { return 0; }\n")
+        original = program.read_bytes()
+        with self.assertRaisesRegex(linux_libraries.LibraryError, "not under"):
+            self.bundle(program)
+        self.assertEqual(program.read_bytes(), original)
+
+    def test_absolute_needed_paths_are_relocated_without_changing_sources(self):
+        self.assert_needed_path_is_relocated(None)
+
+    def test_origin_in_needed_paths_is_expanded_and_relocated(self):
+        self.assert_needed_path_is_relocated("$ORIGIN/libinner.so")
+
+    def assert_needed_path_is_relocated(self, name):
+        inner = self.outside / "libinner.so"
+        needed = str(inner) if name is None else name
+        versions = self.outside / "inner.versions"
+        versions.write_text("INNER_1 { global: inner; local: *; };\n")
+        flags = [f"-Wl,-soname,{needed}"]
+        if name is None:
+            flags.append(f"-Wl,--version-script,{versions}")
+        compile_library(self.outside, "inner", "int inner(void) { return 2; }\n", flags=flags)
+        outer = compile_library(
+            self.outside, "outer", "int inner(void); int outer(void) { return inner(); }\n",
+            needs=[(self.outside, "inner")], flags=[f"-Wl,-rpath,{self.outside}"])
+        original = outer.read_bytes()
+        program = compile_program(
+            self.outside, "int outer(void); int main(void) { return outer() == 2 ? 0 : 1; }\n",
+            needs=[(self.outside, "outer")],
+            flags=[f"-Wl,-rpath,{self.outside}", "-Wl,--allow-shlib-undefined"])
+        subprocess.run([str(program)], check=True, env={"PATH": "/usr/bin:/bin"})
+        executable = self.root / "bin" / "main"
+        shutil.copy(program, executable)
+        self.assertIn(needed, linux_libraries.Elf(outer).needed)
+        self.bundle(executable)
+        self.assertEqual(linux_libraries.verify(self.root, executable), [])
+        self.assertEqual(outer.read_bytes(), original)
+        self.assertIn("libinner.so", linux_libraries.Elf(self.root / "lib" / "libouter.so").needed)
+        shutil.rmtree(self.outside)
+        subprocess.run([str(executable)], check=True, env={"PATH": "/usr/bin:/bin"})
+
     def test_libraries_found_through_an_old_style_rpath_are_copied(self):
         executable = self.build_chain(flags=["-Wl,--disable-new-dtags"])
         self.assertIsNotNone(linux_libraries.Elf(executable).rpaths)

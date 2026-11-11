@@ -295,9 +295,9 @@ def resolve(name, chain, system=None):
     """The file the loader loads for the needed library `name` of the last
     binary of `chain`, or None. With `system`, the loader's cache and its
     default folders are searched after the run paths."""
-    _, binary = chain[-1]
+    loader, binary = chain[-1]
     if "/" in name:
-        candidate = pathlib.Path(name)
+        candidate = pathlib.Path(expand(name, loader))
         return candidate.resolve() if is_loadable(candidate, binary.identity) else None
     for folder in search_folders(chain):
         if not os.path.isabs(folder):
@@ -346,12 +346,15 @@ def set_run_path(path, run_path):
 def bundle(root, executable, libraries, run_path):
     root = root.resolve()
     executable = executable.resolve()
+    if not inside(executable, root):
+        raise LibraryError(f"{executable} is not under {root}")
     libraries.mkdir(parents=True, exist_ok=True)
     libraries = libraries.resolve()
     if not inside(libraries, root):
         raise LibraryError(f"{libraries} is not under {root}")
     system = system_folders()
     copied_from = {}
+    packaged = {executable}
     pending = [(executable, [])]
     visited = set()
     steps = [0]
@@ -372,6 +375,7 @@ def bundle(root, executable, libraries, run_path):
             if is_loaded_higher_up(target, here):
                 continue
             if inside(target, root):
+                packaged.add(target)
                 pending.append((target, here))
                 continue
             copy = libraries / pathlib.PurePath(name).name
@@ -385,10 +389,20 @@ def bundle(root, executable, libraries, run_path):
                 copy.chmod(0o755)
                 set_run_path(copy, "$ORIGIN")
                 copied_from[copy.name] = target
+            packaged.add(copy)
             # The original is followed, since its run paths still lead to
             # the libraries it needs, which the copy finds once they are
             # copied beside it.
             pending.append((target, here))
+    # Path-valued DT_NEEDED ignores run paths. Change only packaged files;
+    # the originals above must retain their paths while their graph is read.
+    for path in sorted(packaged):
+        for name in Elf(path).needed:
+            if "/" in name:
+                subprocess.run(
+                    ["patchelf", "--replace-needed", name, pathlib.PurePath(name).name, str(path)],
+                    check=True, capture_output=True,
+                )
     set_run_path(executable, run_path)
 
 
