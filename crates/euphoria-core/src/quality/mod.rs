@@ -227,7 +227,7 @@ pub fn analyze_quality(path: &Path) -> Result<QualityReport, EuphoriaError> {
 /// Decodes the file at `path` once, returning the mono mixdown that the
 /// other analyses read and the quality report measured on the way.
 pub fn decode_with_quality(path: &Path) -> Result<(AudioBuffer, QualityReport), EuphoriaError> {
-    let (audio, pending) = decode_measuring_quality(path)?;
+    let (audio, pending) = decode_measuring_quality(path, |_| {})?;
     let loudness = measure_loudness(audio.samples(), audio.sample_rate())?;
     let report = pending.finish(&audio, loudness.map(|loudness| loudness.integrated_lufs));
     Ok((audio, report))
@@ -238,10 +238,38 @@ pub fn decode_with_quality(path: &Path) -> Result<(AudioBuffer, QualityReport), 
 /// of the same audio.
 pub(crate) fn decode_measuring_quality(
     path: &Path,
+    on_decoded_share: impl FnMut(f32),
 ) -> Result<(AudioBuffer, PendingQuality), EuphoriaError> {
-    let mut probe = QualityProbe::default();
+    let mut probe = ReportingProbe {
+        probe: QualityProbe::default(),
+        on_decoded_share,
+    };
     let audio = decode_mono_observed(path, &mut probe)?;
-    Ok((audio, PendingQuality(probe)))
+    Ok((audio, PendingQuality(probe.probe)))
+}
+
+/// A quality probe that also passes on how far decoding has come.
+struct ReportingProbe<Report: FnMut(f32)> {
+    probe: QualityProbe,
+    on_decoded_share: Report,
+}
+
+impl<Report: FnMut(f32)> DecodeObserver for ReportingProbe<Report> {
+    fn stream(&mut self, parameters: &AudioCodecParameters) {
+        self.probe.stream(parameters);
+    }
+
+    fn packet(&mut self, bytes: usize) {
+        self.probe.packet(bytes);
+    }
+
+    fn samples(&mut self, interleaved: &[f32], channel_count: usize, sample_rate: u32) {
+        self.probe.samples(interleaved, channel_count, sample_rate);
+    }
+
+    fn decoded_share(&mut self, share: f32) {
+        (self.on_decoded_share)(share);
+    }
 }
 
 /// A quality report that waits for the loudness.

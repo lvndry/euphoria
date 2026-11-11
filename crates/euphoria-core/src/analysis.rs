@@ -153,6 +153,56 @@ pub struct Progress<'batch> {
     pub path: &'batch Path,
 }
 
+/// A step in the analysis of one file, in the order they run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AnalysisStage {
+    /// Reading the file and decoding its audio, while measuring its quality.
+    Decoding,
+    /// Finding the tempo.
+    Tempo,
+    /// Finding the key, the tuning and the key over time.
+    Key,
+    /// Rating the energy.
+    Energy,
+    /// Completing the quality report.
+    Quality,
+}
+
+impl AnalysisStage {
+    /// A short lower case name for showing to a person, such as "decoding".
+    pub fn label(self) -> &'static str {
+        match self {
+            AnalysisStage::Decoding => "decoding",
+            AnalysisStage::Tempo => "finding the tempo",
+            AnalysisStage::Key => "finding the key",
+            AnalysisStage::Energy => "rating the energy",
+            AnalysisStage::Quality => "checking the quality",
+        }
+    }
+}
+
+/// Follows the analysis of files as it happens. Every method does nothing
+/// unless implemented, and [`Unobserved`] implements none, so a caller that
+/// does not watch pays only for calls that return at once.
+///
+/// The methods are called from the worker thread analyzing the file, so
+/// several files can report at the same time.
+pub trait AnalysisObserver: Sync {
+    /// `path` has started `stage`.
+    fn stage(&self, _path: &Path, _stage: AnalysisStage) {}
+
+    /// The share of `path` decoded so far, from 0 to 1, while it is
+    /// [`AnalysisStage::Decoding`]. Called each time the share rises by a
+    /// hundredth or more, and only for files that say how long they are.
+    fn decoded(&self, _path: &Path, _share: f32) {}
+}
+
+/// An observer that watches nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Unobserved;
+
+impl AnalysisObserver for Unobserved {}
+
 /// Decodes one file once and finds its key, its tempo, its energy and its
 /// audio quality.
 ///
@@ -166,12 +216,25 @@ pub struct Progress<'batch> {
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].
 pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
-    let (audio, pending_quality) = decode_measuring_quality(path)?;
+    analyze_file_observed(path, &Unobserved)
+}
+
+/// Analyzes one file like [`analyze_file`], telling `observer` which stage
+/// it is in and how far decoding has come.
+pub fn analyze_file_observed(
+    path: &Path,
+    observer: &impl AnalysisObserver,
+) -> Result<TrackAnalysis, EuphoriaError> {
+    observer.stage(path, AnalysisStage::Decoding);
+    let (audio, pending_quality) =
+        decode_measuring_quality(path, |share| observer.decoded(path, share))?;
 
     // Tempo runs first because it has the larger peak. libkeyfinder then
     // reuses the memory tempo released, where the other order keeps
     // libkeyfinder's released memory resident under the tempo peak.
+    observer.stage(path, AnalysisStage::Tempo);
     let tempo_reading = StratumDetector.read_tempo(&audio)?;
+    observer.stage(path, AnalysisStage::Key);
     #[cfg(feature = "libkeyfinder")]
     let reading = KeyFinderDetector.read_key(&audio)?;
     #[cfg(not(feature = "libkeyfinder"))]
@@ -191,9 +254,11 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     // The energy rating was set with tempos in the default range, so it uses
     // that tempo whatever range the tempo is reported in.
     let tempo = tempo_reading.map(|reading| reading.tempo_in(TempoRange::DEFAULT));
+    observer.stage(path, AnalysisStage::Energy);
     let energy_rating = rate_energy(&audio, tempo)?;
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
+    observer.stage(path, AnalysisStage::Quality);
     let quality = pending_quality.finish(&audio, loudness);
 
     Ok(TrackAnalysis {
@@ -221,11 +286,21 @@ pub fn analyze_files(
     paths: &[PathBuf],
     on_progress: impl Fn(Progress<'_>) + Sync,
 ) -> Vec<FileResult> {
+    analyze_files_observed(paths, &Unobserved, on_progress)
+}
+
+/// Analyzes every file like [`analyze_files`], telling `observer` the stage
+/// of each file as it is analyzed.
+pub fn analyze_files_observed(
+    paths: &[PathBuf],
+    observer: &impl AnalysisObserver,
+    on_progress: impl Fn(Progress<'_>) + Sync,
+) -> Vec<FileResult> {
     let completed = AtomicUsize::new(0);
     paths
         .par_iter()
         .map(|path| {
-            let outcome = analyze_file(path);
+            let outcome = analyze_file_observed(path, observer);
             on_progress(Progress {
                 completed: completed.fetch_add(1, Ordering::Relaxed) + 1,
                 total: paths.len(),
