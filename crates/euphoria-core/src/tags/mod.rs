@@ -1,10 +1,10 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Tags are changed in three steps. [`plan_write`] computes the changes
-//! without touching the file, so they can be shown first. [`apply_plan`]
-//! writes them and returns a [`TagBackup`] of the values it replaced.
-//! [`undo`] puts those values back. [`WriteLog`] keeps the backups of a
+//! Tags are changed in three steps. [`crate::tags::plan_write`] computes the changes
+//! without touching the file, so they can be shown first. [`crate::tags::apply_plan`]
+//! writes them and returns a [`crate::tags::TagBackup`] of the values it replaced.
+//! [`crate::tags::undo`] puts those values back. [`crate::tags::WriteLog`] keeps the backups of a
 //! write on disk, so the write can be undone later by another run.
 
 mod edit;
@@ -331,8 +331,8 @@ pub struct TagBackup {
 /// The file is only read.
 ///
 /// `values` is a [`TagValues`], or a reference to a
-/// [`TrackAnalysis`](crate::TrackAnalysis) or to a detector's
-/// [`Analysis`](crate::detect::Analysis).
+/// [`TrackAnalysis`] or to a detector's
+/// [`Analysis`].
 pub fn plan_write(
     path: &Path,
     values: impl Into<TagValues>,

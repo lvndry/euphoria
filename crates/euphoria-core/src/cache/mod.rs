@@ -167,7 +167,7 @@ enum Schema {
 /// Confidence levels and the reported tempo are worked out from these when
 /// they are read, so neither the band edges nor the tempo range are stored.
 /// `quality` holds the quality report as JSON, with the field names of
-/// [`QualityReport`](crate::quality::QualityReport); rows stored before it
+/// [`QualityReport`]; rows stored before it
 /// existed hold null.
 #[derive(Debug)]
 pub struct Cache {
