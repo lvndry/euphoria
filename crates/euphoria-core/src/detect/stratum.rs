@@ -1,11 +1,10 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::ops::Range;
-
 use stratum_dsp::features::chroma::extractor::compute_stft;
 use stratum_dsp::features::period::tempogram::{
-    TempogramBandFusionConfig, estimate_bpm_tempogram_band_fusion,
+    TempogramBandFusionConfig, TempogramCandidateDebug,
+    estimate_bpm_tempogram_with_candidates_band_fusion,
 };
 use stratum_dsp::preprocessing::normalization::{NormalizationConfig, normalize};
 use stratum_dsp::preprocessing::silence::{SilenceDetector, detect_and_trim};
@@ -13,16 +12,18 @@ use stratum_dsp::{AnalysisConfig, AnalysisResult, Key as StratumKey, analyze_aud
 
 use crate::audio::AudioBuffer;
 use crate::detect::decimate::decimate;
-use crate::detect::{Analysis, KeyDetector, TempoDetector};
+use crate::detect::{Analysis, KeyDetector, TempoDetector, TempoReading};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
+use crate::tempo_range::TempoRange;
 
 /// Key and tempo detection through the pure Rust `stratum-dsp` crate.
 ///
 /// Tempo detection is the cheap half. It reads at most the middle ten
 /// minutes of a track, at less than twice 44.1 kHz, and computes one
-/// spectrogram of them. It reports the tempo between 90 and 180 beats per
-/// minute. Key detection analyzes the whole track and holds several larger
+/// spectrogram of them. [`TempoDetector::detect_tempo`] reports the tempo in
+/// [`TempoRange::DEFAULT`], and [`StratumDetector::read_tempo`] the estimate
+/// before it is placed in a range. Key detection analyzes the whole track and holds several larger
 /// spectrograms of it in memory, so it costs several times more time and
 /// memory.
 #[derive(Debug, Default, Clone, Copy)]
@@ -44,11 +45,10 @@ const TEMPO_EXCERPT_SECONDS: usize = 600;
 /// 44.1 kHz file does.
 const TEMPO_SAMPLE_RATE_FLOOR: u32 = 44_100;
 
-/// The octave a tempo is reported in, in beats per minute. The estimate
-/// often lands on half or double the tempo a DJ counts, and most dance music
-/// sits in this octave, so an estimate outside it is doubled or halved into
-/// it.
-const TEMPO_OCTAVE: Range<f32> = 90.0..180.0;
+/// A tempogram candidate within this share of the estimate is the estimate,
+/// and two tempos whose ratio is this close to a power of two are octaves of
+/// each other. It is the tolerance of the standard tempo evaluation.
+const SAME_TEMPO_TOLERANCE: f32 = 0.04;
 
 impl StratumDetector {
     /// Returns both key and tempo, the same values as the two trait methods.
@@ -60,6 +60,13 @@ impl StratumDetector {
             key: self.detect_key(audio)?,
             tempo: self.detect_tempo(audio)?,
         })
+    }
+
+    /// The tempo estimate before it is placed in a [`TempoRange`], with what
+    /// its confidence is based on. `None` for silent audio and audio shorter
+    /// than one second.
+    pub fn read_tempo(&self, audio: &AudioBuffer) -> Result<Option<TempoReading>, EuphoriaError> {
+        tempo_of_middle(audio, TEMPO_EXCERPT_SECONDS)
     }
 }
 
@@ -87,7 +94,9 @@ impl TempoDetector for StratumDetector {
     }
 
     fn detect_tempo(&self, audio: &AudioBuffer) -> Result<Option<f32>, EuphoriaError> {
-        tempo_of_middle(audio, TEMPO_EXCERPT_SECONDS)
+        Ok(self
+            .read_tempo(audio)?
+            .map(|reading| reading.tempo_in(TempoRange::DEFAULT)))
     }
 }
 
@@ -96,7 +105,7 @@ impl TempoDetector for StratumDetector {
 fn tempo_of_middle(
     audio: &AudioBuffer,
     excerpt_seconds: usize,
-) -> Result<Option<f32>, EuphoriaError> {
+) -> Result<Option<TempoReading>, EuphoriaError> {
     let sample_rate = audio.sample_rate().get();
     let excerpt = middle_excerpt(audio.samples(), sample_rate, excerpt_seconds);
     if !is_analyzable(excerpt, sample_rate) {
@@ -105,14 +114,17 @@ fn tempo_of_middle(
     let factor = decimation_factor(sample_rate);
     let analysis_rate = sample_rate / factor as u32;
     let config = tempo_config();
-    let tempo = match tempogram_tempo(decimate(excerpt, factor), analysis_rate, &config) {
-        Some(tempo) => Some(tempo),
+    match tempogram_tempo(decimate(excerpt, factor), analysis_rate, &config) {
+        Some(reading) => Ok(Some(reading)),
         None => {
             let samples = decimate(excerpt, factor);
-            valid_tempo(run_analysis(&samples, analysis_rate, config)?.bpm)
+            let estimate = valid_tempo(run_analysis(&samples, analysis_rate, config)?.bpm);
+            Ok(estimate.map(|estimate| TempoReading {
+                estimate,
+                score_margin: None,
+            }))
         }
-    };
-    Ok(tempo.map(fold_into_tempo_octave))
+    }
 }
 
 /// How many input samples become one sample of tempo analysis.
@@ -125,16 +137,27 @@ fn valid_tempo(tempo: f32) -> Option<f32> {
     Some(tempo).filter(|tempo| tempo.is_finite() && *tempo > 0.0)
 }
 
-/// Doubles or halves a valid tempo until it lies in [`TEMPO_OCTAVE`].
-fn fold_into_tempo_octave(tempo: f32) -> f32 {
-    let mut folded = tempo;
-    while folded < TEMPO_OCTAVE.start {
-        folded *= 2.0;
-    }
-    while folded >= TEMPO_OCTAVE.end {
-        folded /= 2.0;
-    }
-    folded
+/// How far the tempogram scored `estimate` above the best tempo that is not
+/// an octave of it: how clearly the beat period was found, whatever octave it
+/// is counted in.
+fn octave_score_margin(estimate: f32, candidates: &[TempogramCandidateDebug]) -> f32 {
+    let best_score = |keep: &dyn Fn(f32) -> bool| {
+        candidates
+            .iter()
+            .filter(|candidate| keep(candidate.bpm))
+            .map(|candidate| candidate.score)
+            .fold(0.0_f32, f32::max)
+    };
+    let estimate_score =
+        best_score(&|bpm| (bpm - estimate).abs() <= SAME_TEMPO_TOLERANCE * estimate);
+    let rival_score = best_score(&|bpm| !are_octaves(estimate, bpm));
+    estimate_score - rival_score
+}
+
+/// Whether one tempo is the other doubled or halved any number of times.
+fn are_octaves(first: f32, second: f32) -> bool {
+    let octaves = (second / first).log2();
+    (octaves - octaves.round()).abs() < (1.0 + SAME_TEMPO_TOLERANCE).log2()
 }
 
 /// False for silence and for audio too short to analyze.
@@ -169,9 +192,9 @@ fn middle_excerpt(samples: &[f32], sample_rate: u32, excerpt_seconds: usize) -> 
 /// The tempogram estimate that `analyze_audio` reports under
 /// [`tempo_config`], computed through the same `stratum-dsp` steps but
 /// without the onset lists, beat grid and key that `analyze_audio` also
-/// builds. Returns `None` when a step fails or the estimate is not a valid
-/// tempo, which is when `analyze_audio` falls back to its estimate from
-/// onset intervals.
+/// builds, with the margin its confidence is based on. Returns `None` when a
+/// step fails or the estimate is not a valid tempo, which is when
+/// `analyze_audio` falls back to its estimate from onset intervals.
 ///
 /// Takes the samples by value and normalizes them in place, so the only
 /// full length copy of the audio is the one the caller made.
@@ -179,7 +202,7 @@ fn tempogram_tempo(
     mut normalized: Vec<f32>,
     sample_rate: u32,
     config: &AnalysisConfig,
-) -> Option<f32> {
+) -> Option<TempoReading> {
     let normalization = NormalizationConfig {
         method: config.normalization,
         ..NormalizationConfig::default()
@@ -198,17 +221,22 @@ fn tempogram_tempo(
     if spectrogram.is_empty() {
         return None;
     }
-    estimate_bpm_tempogram_band_fusion(
+    let (estimate, candidates) = estimate_bpm_tempogram_with_candidates_band_fusion(
         &spectrogram,
         sample_rate,
         config.hop_size as u32,
         config.min_bpm,
         config.max_bpm,
         config.bpm_resolution,
+        usize::MAX,
         band_fusion_config(config),
     )
-    .ok()
-    .and_then(|estimate| valid_tempo(estimate.bpm))
+    .ok()?;
+    let estimate = valid_tempo(estimate.bpm)?;
+    Some(TempoReading {
+        estimate,
+        score_margin: Some(octave_score_margin(estimate, &candidates)),
+    })
 }
 
 /// The tempogram settings `analyze_audio` derives from its configuration.
@@ -309,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn tempos_are_folded_into_the_reported_octave() {
+    fn detected_tempos_are_folded_into_the_default_range() {
         let expectations = [
             (125.5, 125.5),
             (90.0, 90.0),
@@ -321,8 +349,64 @@ mod tests {
             (350.0, 175.0),
         ];
         for (tempo, folded) in expectations {
-            assert_eq!(fold_into_tempo_octave(tempo), folded, "{tempo}");
+            let reading = TempoReading {
+                estimate: tempo,
+                score_margin: None,
+            };
+            assert_eq!(reading.tempo_in(TempoRange::DEFAULT), folded, "{tempo}");
         }
+    }
+
+    #[test]
+    fn tempos_doubled_or_halved_are_octaves_of_each_other() {
+        assert!(are_octaves(125.0, 125.0));
+        assert!(are_octaves(125.0, 62.5));
+        assert!(are_octaves(125.0, 250.0));
+        assert!(are_octaves(125.0, 31.25));
+        assert!(are_octaves(125.0, 127.0));
+        assert!(!are_octaves(125.0, 83.3));
+        assert!(!are_octaves(125.0, 187.5));
+        assert!(!are_octaves(125.0, 140.0));
+    }
+
+    fn candidate(bpm: f32, score: f32) -> TempogramCandidateDebug {
+        TempogramCandidateDebug {
+            bpm,
+            score,
+            fft_norm: 0.0,
+            autocorr_norm: 0.0,
+            selected: false,
+        }
+    }
+
+    #[test]
+    fn the_margin_is_over_the_best_tempo_that_is_not_an_octave() {
+        let candidates = [
+            candidate(124.0, 0.9),
+            candidate(62.0, 0.95),
+            candidate(248.0, 0.7),
+            candidate(186.0, 0.6),
+            candidate(93.0, 0.4),
+        ];
+        let margin = octave_score_margin(124.0, &candidates);
+        assert!((margin - 0.3).abs() < 1.0e-6, "{margin}");
+        assert_eq!(octave_score_margin(124.0, &[]), 0.0);
+        let alone = octave_score_margin(124.0, &[candidate(124.0, 0.8)]);
+        assert!((alone - 0.8).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn a_steady_click_track_has_a_tempo_with_high_confidence() {
+        let reading = StratumDetector
+            .read_tempo(&buffer(clicks(128.0, 20.0, 44_100), 44_100))
+            .unwrap()
+            .unwrap();
+        assert!(
+            (reading.tempo_in(TempoRange::DEFAULT) - 128.0).abs() < 0.04 * 128.0,
+            "{reading:?}"
+        );
+        assert!(reading.score_margin.is_some());
+        assert_eq!(reading.confidence(), crate::Confidence::High, "{reading:?}");
     }
 
     #[test]
@@ -354,11 +438,26 @@ mod tests {
         assert_eq!(tempogram_tempo(samples.clone(), sample_rate, &config), None);
 
         let fallback = run_analysis(&samples, sample_rate, config).unwrap().bpm;
+        let samples_again = samples.clone();
         let detected = StratumDetector
             .detect_tempo(&buffer(samples, sample_rate))
             .unwrap();
 
-        assert_eq!(detected, valid_tempo(fallback).map(fold_into_tempo_octave));
+        assert_eq!(
+            detected,
+            valid_tempo(fallback).map(|tempo| TempoRange::DEFAULT.fold(tempo))
+        );
+        let reading = StratumDetector
+            .read_tempo(&buffer(samples_again, sample_rate))
+            .unwrap();
+        assert_eq!(
+            reading,
+            valid_tempo(fallback).map(|estimate| TempoReading {
+                estimate,
+                score_margin: None,
+            }),
+            "a fallback estimate has no margin to base its confidence on"
+        );
     }
 
     #[test]
@@ -375,10 +474,12 @@ mod tests {
         );
         let whole = buffer(whole, sample_rate);
 
-        let tempo_of_excerpt = tempo_of_middle(&whole, excerpt_seconds).unwrap().unwrap();
-        let tempo_of_whole = tempo_of_middle(&whole, 5 * excerpt_seconds)
-            .unwrap()
-            .unwrap();
+        let tempo_of = |seconds: usize| {
+            let reading = tempo_of_middle(&whole, seconds).unwrap().unwrap();
+            reading.tempo_in(TempoRange::DEFAULT)
+        };
+        let tempo_of_excerpt = tempo_of(excerpt_seconds);
+        let tempo_of_whole = tempo_of(5 * excerpt_seconds);
 
         assert!(
             (tempo_of_excerpt - middle_tempo).abs() < 0.04 * middle_tempo,
@@ -395,7 +496,8 @@ mod tests {
         let samples = click_track();
         let config = tempo_config();
 
-        let direct = tempogram_tempo(samples.clone(), 44_100, &config);
+        let direct =
+            tempogram_tempo(samples.clone(), 44_100, &config).map(|reading| reading.estimate);
         let reported = run_analysis(&samples, 44_100, config).unwrap().bpm;
 
         assert_eq!(direct, Some(reported));

@@ -22,8 +22,10 @@ pub use stratum::StratumDetector;
 pub use tuning::{Tuning, measure_tuning};
 
 use crate::audio::AudioBuffer;
+use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::error::EuphoriaError;
 use crate::key::Key;
+use crate::tempo_range::TempoRange;
 
 /// Estimates the musical key of a track.
 pub trait KeyDetector: Sync {
@@ -72,6 +74,13 @@ pub struct KeySection {
 pub struct KeyReading {
     /// The detected key, or `None` when the track has no detectable key.
     pub key: Option<Key>,
+    /// The key that matched the track second best, or `None` when there is
+    /// no key or the detector does not rank keys.
+    pub runner_up: Option<Key>,
+    /// How far the score of the key is above that of the runner up, the
+    /// basis of [`KeyReading::confidence`]. `None` when there is no
+    /// runner up.
+    pub score_margin: Option<f32>,
     /// How far the track is tuned from A = 440 Hz, in cents from -50 to 50
     /// with sharp as positive, or `None` when it could not be measured.
     pub tuning_cents: Option<f32>,
@@ -81,4 +90,37 @@ pub struct KeyReading {
     /// when the track has no key or the detector does not follow the key
     /// over time.
     pub timeline: Vec<KeySection>,
+}
+
+/// A tempo estimate before it is placed in a [`TempoRange`], with what its
+/// confidence is based on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TempoReading {
+    /// The tempo in beats per minute as the detector estimated it, which is
+    /// often half or double the tempo a DJ counts.
+    pub estimate: f32,
+    /// How far the tempogram scored the estimate above the best tempo that
+    /// is not an octave of it, the basis of [`TempoReading::confidence`].
+    /// `None` when the tempogram gave no estimate and a fallback did.
+    pub score_margin: Option<f32>,
+}
+
+impl TempoReading {
+    /// The tempo reported in `range`.
+    pub fn tempo_in(&self, range: TempoRange) -> f32 {
+        range.fold(self.estimate)
+    }
+
+    /// How far to trust the beat period, whatever octave it is counted in.
+    pub fn confidence(&self) -> Confidence {
+        tempo_confidence(self.score_margin)
+    }
+}
+
+impl KeyReading {
+    /// How far to trust the key, or `None` when there is no key or the
+    /// detector does not rank keys.
+    pub fn confidence(&self) -> Option<Confidence> {
+        self.key.and(self.score_margin).map(key_confidence)
+    }
 }

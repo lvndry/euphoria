@@ -109,7 +109,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         let reading = KeyReading {
             key: analysis.key,
             tuning_cents: crate::detect::measure_tuning(&audio).map(|tuning| tuning.cents),
-            timeline: Vec::new(),
+            ..KeyReading::default()
         };
         (reading, analysis.tempo)
     };
@@ -117,6 +117,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         key,
         tuning_cents,
         timeline,
+        ..
     } = reading;
 
     let energy = rate_energy(&audio, tempo)?.map(|rating| rating.rating);
