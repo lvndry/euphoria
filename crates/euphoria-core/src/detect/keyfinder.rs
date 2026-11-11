@@ -77,13 +77,16 @@ impl KeyFinderDetector {
     pub fn read_key(&self, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
         let tuning = measure_tuning(audio);
         let analysis = ChromaAnalysis::of_audio(audio, tuning.filter(is_worth_correcting))?;
-        let key = analysis.key_of_whole_track()?;
+        let ranking = analysis.ranking_of_whole_track()?;
+        let key = ranking.map(|ranking| ranking.key);
         let timeline = match key {
             Some(key) => analysis.timeline(key, audio.duration_seconds())?,
             None => Vec::new(),
         };
         Ok(KeyReading {
             key,
+            runner_up: ranking.map(|ranking| ranking.runner_up),
+            score_margin: ranking.map(|ranking| ranking.score_margin),
             tuning_cents: tuning.map(|tuning| tuning.cents),
             timeline,
         })
@@ -191,9 +194,15 @@ impl ChromaAnalysis {
     }
 
     fn key_of_whole_track(&self) -> Result<Option<Key>, EuphoriaError> {
+        Ok(self.ranking_of_whole_track()?.map(|ranking| ranking.key))
+    }
+
+    /// The two keys that best match the whole track at once, or `None` when
+    /// no key scores above zero.
+    fn ranking_of_whole_track(&self) -> Result<Option<Ranking>, EuphoriaError> {
         let whole_track = self.chromagram.mean_of_hops(0..self.chromagram.hop_count());
         let scores = key_scores(&whole_track)?;
-        Ok(scores.first().and_then(best_key))
+        Ok(scores.first().and_then(rank))
     }
 
     /// The scores of every key in every window of the track, or `None` for
@@ -276,17 +285,31 @@ fn frame_middle_hops(hop: f32) -> f32 {
     hop + HOPS_PER_FRAME as f32 / 2.0
 }
 
-/// The key with the highest score, or `None` when no key scores above zero,
+/// The two best matching keys of a track and how far apart their scores are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Ranking {
+    key: Key,
+    runner_up: Key,
+    score_margin: f32,
+}
+
+/// The best and second best keys, or `None` when no key scores above zero,
 /// which is how libkeyfinder reports silence. Among equal scores the first
-/// in libkeyfinder key code order wins, as in libkeyfinder.
-fn best_key(scores: &[f64; KEY_COUNT]) -> Option<Key> {
-    let mut best: Option<(usize, f64)> = None;
-    for (code, &score) in scores.iter().enumerate() {
-        if score > best.map_or(0.0, |(_, best_score)| best_score) {
-            best = Some((code, score));
-        }
-    }
-    best.map(|(code, _)| key_from_code(code))
+/// in libkeyfinder key code order ranks higher, as in libkeyfinder.
+fn rank(scores: &[f64; KEY_COUNT]) -> Option<Ranking> {
+    let mut codes: Vec<usize> = (0..KEY_COUNT).collect();
+    codes.sort_by(|left, right| {
+        scores[*right]
+            .total_cmp(&scores[*left])
+            .then(left.cmp(right))
+    });
+    let best = codes[0];
+    let second = codes[1];
+    (scores[best] > 0.0).then(|| Ranking {
+        key: key_from_code(best),
+        runner_up: key_from_code(second),
+        score_margin: (scores[best] - scores[second]) as f32,
+    })
 }
 
 /// libkeyfinder numbers keys from A major upwards by semitone, with the
@@ -337,12 +360,46 @@ mod tests {
     }
 
     #[test]
+    fn the_runner_up_is_the_second_best_score_and_the_margin_their_difference() {
+        let mut scores = [0.1; KEY_COUNT];
+        scores[4] = 0.8;
+        scores[9] = 0.75;
+        scores[17] = 0.75;
+        let ranking = rank(&scores).unwrap();
+        assert_eq!(ranking.key, key_from_code(4));
+        assert_eq!(ranking.runner_up, key_from_code(9));
+        assert!((ranking.score_margin - 0.05).abs() < 1.0e-6);
+        assert_eq!(rank(&[0.0; KEY_COUNT]), None);
+    }
+
+    #[test]
+    fn a_reading_carries_the_runner_up_and_a_confidence() {
+        let audio = buffer(chord_progression(key("C major"), 0.0, 24.0));
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        assert_eq!(reading.key, Some(key("C major")));
+        let runner_up = reading.runner_up.expect("a progression has a runner up");
+        assert_ne!(runner_up, key("C major"));
+        assert!(reading.score_margin.unwrap() > 0.0);
+        assert!(reading.confidence().is_some());
+        let silent = KeyFinderDetector
+            .read_key(&buffer(vec![0.0; 4 * SAMPLE_RATE as usize]))
+            .unwrap();
+        assert_eq!((silent.runner_up, silent.score_margin), (None, None));
+        assert_eq!(silent.confidence(), None);
+    }
+
+    #[test]
     fn the_best_key_is_the_first_highest_score_and_no_score_is_no_key() {
         let mut scores = [0.1; KEY_COUNT];
         scores[7] = 0.9;
         scores[12] = 0.9;
-        assert_eq!(best_key(&scores), Some(key_from_code(7)));
-        assert_eq!(best_key(&[0.0; KEY_COUNT]), None);
+        let ranking = rank(&scores).unwrap();
+        assert_eq!(ranking.key, key_from_code(7));
+        assert_eq!(ranking.runner_up, key_from_code(12));
+        assert_eq!(ranking.score_margin, 0.0);
+        assert_eq!(rank(&[0.0; KEY_COUNT]), None);
     }
 
     #[test]

@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use euphoria_core::{
-    Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, analyze_files, analyze_files_cached,
-    default_cache_path,
+    Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, TempoRange, analyze_files,
+    analyze_files_cached, default_cache_path,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -37,6 +37,18 @@ pub struct AnalysisOptions {
     /// Analyze every file again and replace its cached result.
     #[arg(long)]
     reanalyze: bool,
+    /// Report tempos from SLOWEST up to FASTEST beats per minute, at most an
+    /// octave apart, such as 70-140 for hip hop or 120-200 for drum and bass.
+    /// Changing it needs no new analysis.
+    #[arg(long, value_name = "SLOWEST-FASTEST", default_value_t = TempoRange::DEFAULT)]
+    tempo_range: TempoRange,
+}
+
+impl AnalysisOptions {
+    /// The range tempos are reported in.
+    pub fn tempo_range(&self) -> TempoRange {
+        self.tempo_range
+    }
 }
 
 /// Analyzes `audio_files` as the options ask, showing a progress bar on a
@@ -96,7 +108,17 @@ pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<Cac
         }
     };
     progress_bar.finish_and_clear();
-    Ok(batch)
+    Ok(in_tempo_range(batch, options.tempo_range))
+}
+
+/// The batch with every tempo reported in `range`.
+fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
+    for result in &mut batch.results {
+        if let Ok(analysis) = &mut result.outcome {
+            *analysis = analysis.clone().with_tempo_range(range);
+        }
+    }
+    batch
 }
 
 /// Opens the analysis cache in the data folder.

@@ -6,12 +6,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
+use crate::confidence::{Confidence, key_confidence, tempo_confidence};
+#[cfg(not(feature = "libkeyfinder"))]
+use crate::detect::KeyDetector;
 #[cfg(feature = "libkeyfinder")]
-use crate::detect::{KeyFinderDetector, TempoDetector};
+use crate::detect::KeyFinderDetector;
 use crate::detect::{KeyReading, KeySection, StratumDetector};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
+use crate::tempo_range::TempoRange;
 
 /// Identifies the detection behind a [`TrackAnalysis`]. The analysis cache
 /// serves a stored result only when it was produced under the same version.
@@ -26,9 +30,9 @@ use crate::key::Key;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "6+libkeyfinder"
+    "8+libkeyfinder"
 } else {
-    "6+stratum"
+    "8+stratum"
 };
 
 /// What Euphoria found in one track.
@@ -39,7 +43,9 @@ pub struct TrackAnalysis {
     /// The detected key, or `None` when the track has no detectable key.
     pub key: Option<Key>,
     /// The detected tempo in beats per minute, or `None` when the track has
-    /// no detectable tempo.
+    /// no detectable tempo. An analysis reports it in [`TempoRange::DEFAULT`],
+    /// and [`TrackAnalysis::with_tempo_range`] in another range. The energy
+    /// rating always uses the tempo in the default range.
     pub bpm: Option<f32>,
     /// The energy rating from 1 (calm) to 10 (intense), or `None` when there
     /// is nothing to rate, such as silence. It is Euphoria's own scale, set
@@ -59,6 +65,67 @@ pub struct TrackAnalysis {
     /// builds without the `libkeyfinder` feature. It is reported only: `key`
     /// is decided from the whole track at once.
     pub key_timeline: Vec<KeySection>,
+    /// The key that matched the track second best, or `None` when there is
+    /// no key or the key detector does not rank keys, as in builds without
+    /// the `libkeyfinder` feature.
+    pub key_runner_up: Option<Key>,
+    /// How far the score of the key is above that of the runner up, the
+    /// basis of [`TrackAnalysis::key_confidence`].
+    pub key_score_margin: Option<f32>,
+    /// The tempo as the detector estimated it, before it is reported in a
+    /// range, so that the range can change without analyzing again.
+    pub tempo_estimate: Option<f32>,
+    /// How far the tempogram scored the tempo above the best tempo that is
+    /// not an octave of it, the basis of [`TrackAnalysis::tempo_confidence`].
+    /// `None` for a tempo from the fallback estimate, which is rated low.
+    pub tempo_score_margin: Option<f32>,
+}
+
+impl TrackAnalysis {
+    /// How far to trust the key, or `None` when there is no key or no
+    /// margin to rate it by.
+    pub fn key_confidence(&self) -> Option<Confidence> {
+        self.key.and(self.key_score_margin).map(key_confidence)
+    }
+
+    /// How far to trust the beat period of the tempo, whatever octave it is
+    /// reported in, or `None` when there is no tempo.
+    pub fn tempo_confidence(&self) -> Option<Confidence> {
+        self.tempo_estimate
+            .map(|_| tempo_confidence(self.tempo_score_margin))
+    }
+
+    /// The tempo reported in `range`. Without a stored estimate, as in an
+    /// analysis built by hand, it is [`TrackAnalysis::bpm`] placed in the
+    /// range. `None` when there is no tempo, or when it is not a positive
+    /// number and so has no place in a range.
+    pub fn tempo_in(&self, range: TempoRange) -> Option<f32> {
+        self.tempo_estimate
+            .or(self.bpm)
+            .filter(|tempo| tempo.is_finite() && *tempo > 0.0)
+            .map(|tempo| range.fold(tempo))
+    }
+
+    /// The same analysis with [`TrackAnalysis::bpm`] reported in `range`.
+    /// Nothing is analyzed again: the tempo comes from the stored estimate.
+    pub fn with_tempo_range(mut self, range: TempoRange) -> Self {
+        self.bpm = self.tempo_in(range);
+        self
+    }
+
+    /// Half or double the tempo reported in `range`, when a DJ could
+    /// plausibly count it that way. See [`TempoRange::alternative`].
+    pub fn tempo_alternative_in(&self, range: TempoRange) -> Option<f32> {
+        self.tempo_in(range)
+            .and_then(|tempo| range.alternative(tempo))
+    }
+
+    /// Whether the key or the tempo is rated low, so the track is worth
+    /// checking by ear.
+    pub fn needs_review(&self) -> bool {
+        self.key_confidence() == Some(Confidence::Low)
+            || self.tempo_confidence() == Some(Confidence::Low)
+    }
 }
 
 /// The result of analyzing one file.
@@ -98,27 +165,26 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     // Tempo runs first because it has the larger peak. libkeyfinder then
     // reuses the memory tempo released, where the other order keeps
     // libkeyfinder's released memory resident under the tempo peak.
+    let tempo_reading = StratumDetector.read_tempo(&audio)?;
     #[cfg(feature = "libkeyfinder")]
-    let (tempo, reading) = (
-        StratumDetector.detect_tempo(&audio)?,
-        KeyFinderDetector.read_key(&audio)?,
-    );
+    let reading = KeyFinderDetector.read_key(&audio)?;
     #[cfg(not(feature = "libkeyfinder"))]
-    let (reading, tempo) = {
-        let analysis = StratumDetector.analyze(&audio)?;
-        let reading = KeyReading {
-            key: analysis.key,
-            tuning_cents: crate::detect::measure_tuning(&audio).map(|tuning| tuning.cents),
-            timeline: Vec::new(),
-        };
-        (reading, analysis.tempo)
+    let reading = KeyReading {
+        key: StratumDetector.detect_key(&audio)?,
+        tuning_cents: crate::detect::measure_tuning(&audio).map(|tuning| tuning.cents),
+        ..KeyReading::default()
     };
     let KeyReading {
         key,
+        runner_up,
+        score_margin,
         tuning_cents,
         timeline,
     } = reading;
 
+    // The energy rating was set with tempos in the default range, so it uses
+    // that tempo whatever range the tempo is reported in.
+    let tempo = tempo_reading.map(|reading| reading.tempo_in(TempoRange::DEFAULT));
     let energy = rate_energy(&audio, tempo)?.map(|rating| rating.rating);
 
     Ok(TrackAnalysis {
@@ -128,6 +194,10 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         energy,
         tuning_cents,
         key_timeline: timeline,
+        key_runner_up: runner_up,
+        key_score_margin: score_margin,
+        tempo_estimate: tempo_reading.map(|reading| reading.estimate),
+        tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
     })
 }
 

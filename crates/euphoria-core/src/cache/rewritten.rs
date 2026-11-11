@@ -20,6 +20,7 @@ use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, cache_error};
 use crate::analysis::TrackAnalysis;
 use crate::error::EuphoriaError;
+use crate::tempo_range::TempoRange;
 
 impl Cache {
     /// Records `analysis` for the file at `path` as it is now, after a tag
@@ -28,7 +29,9 @@ impl Cache {
     /// `analysis` must be what this version of Euphoria found for the file
     /// before the write, such as an analysis this cache served or stored: it
     /// is recorded under the current analyzer and energy model versions,
-    /// like any new analysis. The file is read once to hash it. When it
+    /// like any new analysis. Its BPM is restored to the default tempo range
+    /// for consumers sharing the cache, even if the writer used another
+    /// range for its tags. The file is read once to hash it. When it
     /// changes while being read, nothing is recorded, and the file is
     /// analyzed again on the next run.
     ///
@@ -46,7 +49,7 @@ impl Cache {
         };
         self.apply_write(&CacheWrite::Store {
             content_hash,
-            analysis: analysis.clone(),
+            analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
             location,
         })
         .map_err(cache_error(&self.path))
@@ -128,6 +131,10 @@ mod tests {
             bpm: Some(124.0),
             energy: Some(7),
             tuning_cents: Some(-3.0),
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: Vec::new(),
         }
     }
@@ -166,6 +173,29 @@ mod tests {
         let served = analyzer.analyze_file(&track).unwrap();
         assert!(served.from_cache);
         assert_eq!(served.analysis, analysis());
+    }
+
+    #[test]
+    fn retagged_analysis_is_stored_in_the_default_tempo_range() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("track.flac");
+        std::fs::write(&track, b"audio with new tags").unwrap();
+        let mut original = analysis();
+        original.bpm = Some(170.0);
+        original.tempo_estimate = Some(85.0);
+        original.tempo_score_margin = Some(0.4);
+        let projected = original
+            .clone()
+            .with_tempo_range(TempoRange::new(70.0, 140.0).unwrap());
+        assert_eq!(projected.bpm, Some(85.0));
+
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache.record_retagged_file(&track, &projected).unwrap();
+
+        assert_eq!(
+            fresh_analyzer(&folder).stored_analysis(&track),
+            Some(original)
+        );
     }
 
     #[test]

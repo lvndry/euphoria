@@ -29,9 +29,11 @@ use crate::tag_settings::{ProgramChoice, TagSettings};
 use crate::tag_writing;
 use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
 use crate::theme::{AppTheme, Layout, ThemeName};
+use crate::track_overview::{EnergyCurve, EnergyStep};
 use crate::views::sidebar::{disclosure_id, folder_row_id};
 use crate::views::tag_panel::ProblemList;
 use crate::views::track_table::{edge_id, header_id};
+use crate::waveforms::Waveform;
 
 /// Index of the BPM column among the table's column headers.
 const BPM_COLUMN: usize = 5;
@@ -50,7 +52,9 @@ fn open_library(
 
 /// A library of the one second audio files the core is tested with, each
 /// already analyzed, with an audio output that makes no sound.
-fn open_fixture_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+pub(crate) fn open_fixture_library(
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
     open_window_on(fixture_tracks(), Box::new(SilentOutput), cx)
 }
 
@@ -70,6 +74,10 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             bpm: None,
             energy: None,
             tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: Vec::new(),
         }),
     })
@@ -1123,6 +1131,10 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 bpm: Some(124.0),
                 energy: None,
                 tuning_cents: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
                 key_timeline: Vec::new(),
             })
         } else {
@@ -2363,4 +2375,277 @@ fn fitting_a_column_measures_each_distinct_text_once(cx: &mut TestAppContext) {
             .collect();
         assert_eq!(titles.len(), distinct_titles.len());
     });
+}
+
+/// One fixture track that changes key: A minor for its first 40 seconds,
+/// silence, then E minor from 50 seconds to its end at 100.
+fn track_changing_key() -> DemoTrack {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    DemoTrack {
+        path: fixtures.join("sine-440hz-mono.flac"),
+        outcome: Ok(TrackAnalysis {
+            duration_seconds: 100.0,
+            key: Some(euphoria_core::Key::new(9, euphoria_core::Mode::Minor)),
+            bpm: Some(124.0),
+            energy: Some(6),
+            tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
+            key_timeline: vec![
+                euphoria_core::KeySection {
+                    start_seconds: 0.0,
+                    end_seconds: 40.0,
+                    key: euphoria_core::Key::new(9, euphoria_core::Mode::Minor),
+                },
+                euphoria_core::KeySection {
+                    start_seconds: 50.0,
+                    end_seconds: 100.0,
+                    key: euphoria_core::Key::new(4, euphoria_core::Mode::Minor),
+                },
+            ],
+        }),
+    }
+}
+
+/// A waveform with an energy curve that dips in the middle.
+fn waveform_with_energy() -> Waveform {
+    let columns: Vec<crate::peaks::BandPeaks> = (0..200)
+        .map(|_| crate::peaks::BandPeaks {
+            low: 0.5,
+            mid: 0.4,
+            high: 0.2,
+        })
+        .collect();
+    let steps = vec![
+        EnergyStep {
+            start: 0.0,
+            end: 0.4,
+            rating: Some(9),
+        },
+        EnergyStep {
+            start: 0.4,
+            end: 0.6,
+            rating: None,
+        },
+        EnergyStep {
+            start: 0.6,
+            end: 1.0,
+            rating: Some(10),
+        },
+    ];
+    Waveform::Ready(columns.into(), Some(EnergyCurve::Steps(steps.into())))
+}
+
+fn open_track_changing_key(
+    theme: ThemeName,
+    panels: Panels,
+    window_size: gpui::Size<gpui::Pixels>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let (window, view) = open_window_with(
+        vec![track_changing_key()],
+        Box::new(SilentOutput),
+        Settings {
+            theme,
+            panels,
+            ..Settings::default()
+        },
+        None,
+        window_size,
+        cx,
+    );
+    cx.update(|cx| view.update(cx, |app, _| app.show_waveform(waveform_with_energy())));
+    (window, view)
+}
+
+#[gpui::test]
+fn the_energy_curve_and_the_key_timeline_line_up_under_the_waveform_in_both_layouts(
+    cx: &mut TestAppContext,
+) {
+    for theme in [ThemeName::Slate, ThemeName::Deck] {
+        let (window, _) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let waveform = window.find("waveform").bounds();
+            let energy = window.find("energy-curve").bounds();
+            let timeline = window.find("key-timeline").bounds();
+            for under in [energy, timeline] {
+                assert_eq!(under.left(), waveform.left(), "{theme:?}");
+                assert_eq!(under.right(), waveform.right(), "{theme:?}");
+            }
+            assert!(energy.top() >= waveform.bottom(), "{theme:?}");
+            assert!(timeline.top() >= energy.bottom(), "{theme:?}");
+
+            let first = window.find(("key-stretch", 0_usize)).bounds();
+            let second = window.find(("key-stretch", 1_usize)).bounds();
+            let at = |fraction: f32| waveform.left() + waveform.size.width * fraction;
+            assert!((first.left() - at(0.0)).abs() < px(1.0), "{theme:?}");
+            assert!((first.right() - at(0.4)).abs() < px(1.0), "{theme:?}");
+            assert!((second.left() - at(0.5)).abs() < px(1.0), "{theme:?}");
+            assert!(second.left() > first.right(), "the silence stays a gap");
+            if theme == ThemeName::Deck {
+                let strip = window.find("inspector").bounds();
+                assert!(
+                    timeline.bottom() <= strip.bottom(),
+                    "{timeline:?} in {strip:?}"
+                );
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn a_track_in_one_key_has_no_timeline_and_no_curve_shows_before_it_is_worked_out(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(Waveform::Ready(
+                vec![crate::peaks::BandPeaks {
+                    low: 0.5,
+                    mid: 0.5,
+                    high: 0.5,
+                }]
+                .into(),
+                None,
+            ));
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("waveform").is_some());
+        assert!(window.try_find("energy-curve").is_none());
+        assert!(window.try_find("key-timeline").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn a_curve_the_core_could_not_work_out_says_so_quietly_and_an_empty_one_shows_nothing(
+    cx: &mut TestAppContext,
+) {
+    let columns = || -> std::sync::Arc<[crate::peaks::BandPeaks]> {
+        vec![crate::peaks::BandPeaks {
+            low: 0.5,
+            mid: 0.5,
+            high: 0.5,
+        }]
+        .into()
+    };
+    let (window, view) = open_fixture_library(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(Waveform::Ready(
+                columns(),
+                Some(EnergyCurve::Unavailable(
+                    "a sample rate of 4000 Hz is not supported".to_string(),
+                )),
+            ));
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        let unavailable = window.find("energy-unavailable").bounds();
+        assert!(unavailable.top() >= waveform.bottom());
+        assert!(window.try_find("energy-curve").is_none());
+    })
+    .unwrap();
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(Waveform::Ready(
+                columns(),
+                Some(EnergyCurve::Steps(Vec::new().into())),
+            ));
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("energy-unavailable").is_none());
+        assert!(window.try_find("energy-curve").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn a_timeline_that_contradicts_the_key_of_the_track_is_not_shown(cx: &mut TestAppContext) {
+    let mut track = track_changing_key();
+    if let Ok(analysis) = &mut track.outcome {
+        analysis.key = Some(euphoria_core::Key::new(3, euphoria_core::Mode::Minor));
+    }
+    let (window, view) = open_window_on(vec![track], Box::new(SilentOutput), cx);
+    cx.update(|cx| view.update(cx, |app, _| app.show_waveform(waveform_with_energy())));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("energy-curve").is_some());
+        assert!(window.try_find("key-timeline").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn the_strip_at_its_shortest_still_holds_the_waveform_the_curve_and_the_timeline(
+    cx: &mut TestAppContext,
+) {
+    let shortest = Panels {
+        strip_height: 0,
+        ..Panels::default()
+    };
+    for window_size in [USUAL_WINDOW, SMALLEST_WINDOW] {
+        let (window, _) = open_track_changing_key(ThemeName::Deck, shortest, window_size, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let strip = window.find("inspector").bounds();
+            assert_eq!(strip.size.height, px(124.0));
+            let inside_bottom = strip.bottom() - px(16.0);
+            for part in ["waveform", "energy-curve", "key-timeline", "play-button"] {
+                let bounds = window.find(part).bounds();
+                assert!(
+                    bounds.top() >= strip.top(),
+                    "{part}: {bounds:?} in {strip:?}"
+                );
+                assert!(
+                    bounds.bottom() <= inside_bottom + px(0.5),
+                    "{part}: {bounds:?} in {strip:?}"
+                );
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn the_curve_is_worked_out_from_the_decoded_audio_after_the_waveform(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+    }
+    cx.update(|cx| match view.read(cx).selected_waveform() {
+        Some(Waveform::Ready(columns, Some(_))) => assert!(!columns.is_empty()),
+        other => panic!("{other:?}"),
+    });
+}
+
+#[gpui::test]
+fn the_key_first_wheel_shows_both_rings_around_the_selected_key(cx: &mut TestAppContext) {
+    let (window, _) =
+        open_track_changing_key(ThemeName::KeyFirst, Panels::default(), USUAL_WINDOW, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let wheel = window.find("camelot-wheel").bounds();
+        assert_eq!(wheel.size.width, px(crate::views::wheel::WHEEL_SIZE));
+        assert!(window.find("inspector").bounds().contains(&wheel.center()));
+    })
+    .unwrap();
 }

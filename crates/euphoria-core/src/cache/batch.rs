@@ -209,6 +209,10 @@ mod tests {
                 bpm: Some(60.0 + (checksum % 120) as f32 + 0.37),
                 energy: Some((checksum % 10) as u8 + 1),
                 tuning_cents: Some((checksum % 100) as f32 - 49.63),
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
                 key_timeline: vec![
                     crate::KeySection {
                         start_seconds: 0.0,
@@ -422,6 +426,28 @@ mod tests {
         assert_eq!(next_run.cached_count, 1);
         assert_eq!(library.analyzer.runs(), 2);
         assert_eq!(library.cache.entry_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn confidence_only_timelines_are_recomputed_after_the_timeline_rule_changes() {
+        let mut library = Library::new();
+        let track = library.add_track("track.wav", "a track");
+        let current_version = library.cache.analyzer_version.clone();
+        library.cache.analyzer_version = if cfg!(feature = "libkeyfinder") {
+            "6+libkeyfinder"
+        } else {
+            "6+stratum"
+        }
+        .to_string();
+        library.analyze(std::slice::from_ref(&track));
+
+        library.cache.analyzer_version = current_version;
+        let after_upgrade = library.analyze(std::slice::from_ref(&track));
+        let next_run = library.analyze(std::slice::from_ref(&track));
+
+        assert_eq!(after_upgrade.cached_count, 0);
+        assert_eq!(next_run.cached_count, 1);
+        assert_eq!(library.analyzer.runs(), 2);
     }
 
     #[test]

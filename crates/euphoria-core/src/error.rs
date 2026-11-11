@@ -212,6 +212,22 @@ pub enum EuphoriaError {
         /// The value that was given.
         value: f32,
     },
+    /// A tempo range that cannot give every track one tempo.
+    #[error("cannot use the tempo range {slowest} to {fastest}: {reason}")]
+    InvalidTempoRange {
+        /// The slowest tempo given.
+        slowest: f32,
+        /// The fastest tempo given.
+        fastest: f32,
+        /// What is wrong with the range.
+        reason: &'static str,
+    },
+    /// Text that is not a tempo range, which is written as two numbers
+    /// joined by a hyphen, such as `70-140`.
+    #[error(
+        "cannot read the tempo range {0:?}: write it as two numbers joined by a hyphen, such as 70-140"
+    )]
+    UnreadableTempoRange(String),
     /// No folder for Euphoria's data could be worked out from the environment.
     #[error(
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"
