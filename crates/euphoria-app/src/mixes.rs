@@ -98,6 +98,10 @@ mod tests {
                     bpm: Some(*bpm),
                     energy: None,
                     tuning_cents: None,
+                    key_runner_up: None,
+                    key_score_margin: None,
+                    tempo_estimate: None,
+                    tempo_score_margin: None,
                     key_timeline: Vec::new(),
                 }),
             );
@@ -140,6 +144,10 @@ mod tests {
                     bpm: Some(124.0),
                     energy: Some(energy),
                     tuning_cents: None,
+                    key_runner_up: None,
+                    key_score_margin: None,
+                    tempo_estimate: None,
+                    tempo_score_margin: None,
                     key_timeline: Vec::new(),
                 }),
             );

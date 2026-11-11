@@ -41,6 +41,53 @@ fn a_second_run_comes_from_the_cache_and_prints_the_same_results() {
 }
 
 #[test]
+fn another_tempo_range_comes_from_the_cache_with_tempos_in_that_range() {
+    let euphoria = Euphoria::new();
+    let fixtures = fixtures_directory();
+    let in_default = euphoria.run(&["analyze", "--json", text(&fixtures)]);
+    let in_other_range = euphoria.run(&[
+        "analyze",
+        "--json",
+        "--tempo-range",
+        "70-140",
+        text(&fixtures),
+    ]);
+
+    assert_success(&in_default);
+    assert_success(&in_other_range);
+    assert_eq!(
+        standard_error(&in_other_range),
+        "7 of 7 tracks came from the cache.\n"
+    );
+    let tempos = |output: &Output| -> Vec<Option<f64>> {
+        let tracks: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("the output is JSON");
+        tracks
+            .as_array()
+            .expect("an array")
+            .iter()
+            .map(|track| track["bpm"].as_f64())
+            .collect()
+    };
+    let mut moved = 0;
+    for (default, other) in tempos(&in_default).into_iter().zip(tempos(&in_other_range)) {
+        let (Some(default), Some(other)) = (default, other) else {
+            assert_eq!(default, other);
+            continue;
+        };
+        assert!((70.0..140.0).contains(&other), "{other}");
+        if default >= 140.0 {
+            assert!(
+                (other - default / 2.0).abs() < 0.11,
+                "{default} became {other}"
+            );
+            moved += 1;
+        }
+    }
+    assert!(moved > 0, "no fixture tempo was above 140 to move");
+}
+
+#[test]
 fn a_renamed_and_moved_file_comes_from_the_cache() {
     let euphoria = Euphoria::new();
     let music = TemporaryFolder::new();
@@ -237,7 +284,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
     let schema_version: u32 = upgraded
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(schema_version, 3);
+    assert_eq!(schema_version, 4);
     let old_rows: u32 = upgraded
         .query_row(
             "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
@@ -263,6 +310,16 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
         )
         .expect("a count");
     assert_eq!(with_tuning_and_key_timeline, 1);
+    let with_confidence_margins_and_tempo_estimate: u32 = upgraded
+        .query_row(
+            "SELECT COUNT(*) FROM analyses
+             WHERE key_runner_up IS NOT NULL AND key_score_margin IS NOT NULL
+               AND tempo_estimate IS NOT NULL AND tempo_score_margin IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("a count");
+    assert_eq!(with_confidence_margins_and_tempo_estimate, 1);
 }
 
 #[cfg(unix)]

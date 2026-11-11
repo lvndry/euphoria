@@ -268,6 +268,10 @@ pub(crate) mod testing {
             bpm: Some(124.0),
             energy: Some(7),
             tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
             key_timeline: Vec::new(),
         }
     }

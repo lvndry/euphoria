@@ -78,6 +78,10 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 bpm: (next(40) != 0).then(|| 112.0 + next(200) as f32 / 10.0),
                 energy: (next(30) != 0).then(|| next(10) as u8 + 1),
                 tuning_cents: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
                 key_timeline: Vec::new(),
             };
             let outcome = if next(150) == 0 {

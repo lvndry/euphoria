@@ -720,6 +720,49 @@ fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
 }
 
 #[test]
+fn a_custom_tag_tempo_range_keeps_the_shared_cache_in_the_default_range() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = folder.path().join("track.flac");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.flac"), &track).unwrap();
+    assert_success(&run(&euphoria, &["analyze", "--json", text(&track)]));
+    let cached = || {
+        euphoria_core::CachedAnalyzer::new(
+            euphoria_core::Cache::open(&euphoria.cache_path()).unwrap(),
+        )
+        .unwrap()
+        .stored_analysis(&track)
+        .unwrap()
+    };
+    let original = cached();
+    let projected = original.tempo_in(euphoria_core::TempoRange::new(45.0, 90.0).unwrap());
+    assert_ne!(original.bpm, projected);
+
+    assert_success(&run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--tempo-range",
+            "45-90",
+            text(&track),
+        ],
+    ));
+
+    assert!(
+        read_tags(&track)
+            .unwrap()
+            .bpm
+            .unwrap()
+            .parse::<f32>()
+            .unwrap()
+            < 90.0
+    );
+    assert_eq!(cached(), original);
+}
+
+#[test]
 fn a_write_without_the_cache_leaves_no_cache_behind() {
     let euphoria = Euphoria::new();
     let library = Library::new();
