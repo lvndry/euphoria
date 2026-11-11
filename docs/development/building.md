@@ -118,6 +118,18 @@ uv run bench/quality_benchmark.py bench/data/quality
 
 It prints the table in [bench/results/quality.md](https://github.com/lvndry/euphoria/blob/main/bench/results/quality.md). `euphoria-bench quality LIST_FILE` measures any list of files on its own: each line is a label, a tab and a path, and the output is one tab separated line per file with the label and never the path, so a private library can be measured too.
 
+## Beat grid benchmark
+
+The [beat grid](../concepts/accuracy.md#beat-grid) is measured on the disco and hip hop excerpts of GTZAN with the MIT licensed beat and downbeat annotations of beat_this. Download them (about 1.2 GB for the GTZAN archive, of which about 260 MB of WAV files is kept in `bench/data/beats`) and run the benchmark:
+
+```
+./bench/download_beat_dataset.sh
+cargo run --release -p euphoria-bench -- beats --tracks development
+cargo run --release -p euphoria-bench -- beats --tracks held-out
+```
+
+It prints the tables in [bench/results/beats.md](https://github.com/lvndry/euphoria/blob/main/bench/results/beats.md): the beat F-measure and how often the grid and the downbeat are right, with the tempo as reported and with its octave taken from the annotation, and how often each confidence level is right. Settings are chosen on the development half and checked on the held out half.
+
 ## Energy benchmark
 
 `euphoria-bench energy` scores the [energy rating](../concepts/energy.md) against reference ratings. It reads a labels file with one track per line: the path of an audio file, relative to the labels file, then a tab and a number where higher means more energy.
