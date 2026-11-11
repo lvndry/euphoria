@@ -19,6 +19,8 @@ euphoria tags undo
 
 A write changes the tag fields it shows and nothing else. Your comments, artwork, cue points, ratings and the audio stay byte for byte what they were, and an undo returns each file to exactly the bytes it had. [Tags](../reference/tags.md) describes how that is done and checked.
 
+The [desktop app](desktop-app.md#write-tags) does the same from its toolbar, with the preview in a window, and shares the backups with these commands: `euphoria tags undo` undoes a write made in the app, and the app undoes one made here.
+
 ## What is written
 
 | What | Where | Example |

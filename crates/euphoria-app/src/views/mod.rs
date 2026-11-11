@@ -11,14 +11,16 @@ pub(crate) mod logo;
 pub(crate) mod notice;
 pub(crate) mod panel_edge;
 pub(crate) mod player;
+pub(crate) mod settings_panel;
 pub(crate) mod sidebar;
+pub(crate) mod tag_panel;
 pub(crate) mod toolbar;
 pub(crate) mod track_table;
 pub(crate) mod waveform;
 pub(crate) mod wheel;
 
 use gpui::prelude::*;
-use gpui::{Div, FontWeight, Pixels, SharedString, div, px};
+use gpui::{Div, FontWeight, Pixels, SharedString, Stateful, div, px};
 
 use crate::theme::Palette;
 
@@ -82,4 +84,35 @@ pub(crate) fn primary_button(label: impl Into<SharedString>, palette: &Palette) 
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
         .child(label.into())
+}
+
+/// A card in the middle of the window over a dimmed backdrop, for a panel
+/// that needs an answer before the window is used again. Clicks on the
+/// backdrop go nowhere.
+pub(crate) fn modal(id: &'static str, width: Pixels, palette: &Palette) -> (Stateful<Div>, Div) {
+    let backdrop = div()
+        .id(id)
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(gpui::black().opacity(if palette.is_dark { 0.55 } else { 0.3 }))
+        .occlude();
+    let card = div()
+        .flex()
+        .flex_col()
+        .w(width)
+        .max_w(gpui::relative(0.92))
+        .max_h(gpui::relative(0.86))
+        .gap(px(14.0))
+        .p(px(20.0))
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(palette.line)
+        .bg(palette.panel)
+        .shadow_lg();
+    (backdrop, card)
 }

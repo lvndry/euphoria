@@ -4,16 +4,18 @@
 //! Tests that open the real root view in a headless window and use it with
 //! clicks and keys, as a person would.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::TrackAnalysis;
 use gpui::test::TestWindowExt;
 use gpui::{
-    AnyWindowHandle, AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds,
+    AnyWindowHandle, AppContext, Bounds, Entity, Modifiers, Point, TestAppContext, WindowBounds,
     WindowOptions, px, size,
 };
 
 use crate::app::EuphoriaApp;
+use crate::columns::ColumnId;
 use crate::demo::{self, DemoTrack};
 use crate::library::{SortColumn, SortOrder};
 use crate::panels::Panels;
@@ -22,14 +24,20 @@ use crate::playback::{AudioOutput, PlaybackProblem};
 use crate::player::{PlayerRequest, PlayerStatus};
 use crate::settings::{FolderTreeMemory, Settings};
 use crate::state::Session;
+use crate::tag_flow::TagPanel;
+use crate::tag_settings::{ProgramChoice, TagSettings};
+use crate::tag_writing;
+use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
 use crate::theme::{AppTheme, Layout, ThemeName};
 use crate::views::sidebar::{disclosure_id, folder_row_id};
+use crate::views::tag_panel::ProblemList;
+use crate::views::track_table::{edge_id, header_id};
 
 /// Index of the BPM column among the table's column headers.
-const BPM_COLUMN: usize = 4;
+const BPM_COLUMN: usize = 5;
 
 /// Index of the Energy column among the table's column headers.
-const ENERGY_COLUMN: usize = 5;
+const ENERGY_COLUMN: usize = 6;
 
 /// A library of made up tracks whose files do not exist, with an audio
 /// output that makes no sound.
@@ -1093,7 +1101,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 8;
+const FOLDER_COLUMN: usize = 9;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1673,4 +1681,686 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 7;
+const FORMAT_COLUMN: usize = 8;
+
+/// A window on scratch copies of the core's test files, each analyzed with
+/// a key, a tempo and an energy rating, writing its tag backups into the
+/// scratch folder.
+fn open_taggable_files(
+    scratch: &ScratchFolder,
+    files: &[PathBuf],
+    settings_path: Option<PathBuf>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let tracks = files
+        .iter()
+        .map(|path| DemoTrack {
+            path: path.clone(),
+            outcome: Ok(tag_testing::analysis()),
+        })
+        .collect();
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(SilentOutput),
+        Settings::default(),
+        settings_path,
+        USUAL_WINDOW,
+        cx,
+    );
+    let log_directory = scratch.log_directory();
+    cx.update(|cx| {
+        view.update(cx, |app, _| app.write_log_directory = Some(log_directory));
+    });
+    (window, view)
+}
+
+fn click(window: AnyWindowHandle, id: impl Into<gpui::ElementId>, cx: &mut TestAppContext) {
+    let id = id.into();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(id, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+fn preview_file_count(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<usize> {
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => Some(preview.plans.len()),
+        _ => None,
+    })
+}
+
+#[gpui::test]
+fn writing_tags_shows_a_preview_writes_only_on_confirm_and_undo_restores_every_byte(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-write");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+
+    click(window, "write-tags", cx);
+    assert_eq!(preview_file_count(&view, cx), Some(1), "the selected track");
+    click(window, "scope-shown", cx);
+    assert_eq!(preview_file_count(&view, cx), Some(3));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find(("tag-preview-row", 0_usize)).is_some());
+        assert!(window.try_find(("tag-preview-row", 1_usize)).is_some());
+    })
+    .unwrap();
+    assert_eq!(
+        tag_testing::contents(&files),
+        before,
+        "a preview writes nothing"
+    );
+
+    click(window, "cancel-tag-write", cx);
+    cx.update(|cx| assert!(view.read(cx).tag_panel.is_none()));
+    assert_eq!(
+        tag_testing::contents(&files),
+        before,
+        "cancel writes nothing"
+    );
+    assert!(!scratch.log_directory().exists());
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    click(window, "confirm-tag-write", cx);
+    let written = cx.update(|cx| view.read(cx).written_files());
+    assert_eq!(written, Some(files.clone()));
+    assert_ne!(tag_testing::contents(&files), before);
+
+    click(window, "undo-tag-write", cx);
+    cx.update(|cx| {
+        assert!(matches!(
+            view.read(cx).tag_panel,
+            Some(TagPanel::ConfirmUndo)
+        ));
+    });
+    assert_ne!(tag_testing::contents(&files), before, "undo asks first");
+    click(window, "confirm-tag-undo", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Undone(Ok(Some(report)))) => {
+            assert_eq!(report.restored.len(), 3);
+            assert!(report.failures.is_empty());
+        }
+        other => panic!("{other:?}"),
+    });
+    assert_eq!(tag_testing::contents(&files), before);
+    click(window, "close-tag-panel", cx);
+    cx.update(|cx| assert!(view.read(cx).tag_panel.is_none()));
+}
+
+#[gpui::test]
+fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-shared-log");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let targets: Vec<tag_writing::WriteTarget> = files
+        .iter()
+        .map(|path| tag_writing::WriteTarget {
+            path: path.clone(),
+            analysis: Some(tag_testing::analysis()),
+        })
+        .collect();
+    let planned = tag_writing::plan_writes(&targets, &TagSettings::default().write_options());
+    let mut log = euphoria_core::tags::WriteLog::new(&scratch.log_directory());
+    for plan in &planned.plans {
+        assert!(matches!(
+            log.apply(plan),
+            Ok(euphoria_core::tags::LoggedWrite::Recorded)
+        ));
+    }
+    assert_ne!(tag_testing::contents(&files), before);
+
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_tag_undo(cx)));
+    click(window, "confirm-tag-undo", cx);
+    assert_eq!(tag_testing::contents(&files), before);
+}
+
+#[gpui::test]
+fn files_left_out_of_a_write_are_listed_with_the_reason(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-left-out");
+    let mut files = scratch.copy_fixtures();
+    files.push(scratch.0.join("music/gone.mp3"));
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => {
+            assert_eq!(preview.plans.len(), 3);
+            assert_eq!(preview.failures.len(), 1);
+            assert_eq!(preview.failures[0].path, files[3]);
+        }
+        other => panic!("{other:?}"),
+    });
+}
+
+#[gpui::test]
+fn opening_settings_discards_a_tag_preview_still_being_planned(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-settings-during-plan");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (_, view) = open_taggable_files(&scratch, &files, None, cx);
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.plan_tag_write(crate::tag_flow::WriteScope::Shown, cx);
+            app.open_settings(cx);
+            assert!(app.settings_open);
+            assert!(app.tag_panel.is_none());
+        });
+    });
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.settings_open);
+        assert!(app.tag_panel.is_none(), "a dismissed preview reopened");
+    });
+    assert_eq!(tag_testing::contents(&files), before);
+    assert!(!scratch.log_directory().exists());
+}
+
+#[gpui::test]
+fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-settings");
+    let files = scratch.copy_fixtures();
+    let settings_path = scratch.0.join("settings.json");
+    let (window, view) = open_taggable_files(&scratch, &files, Some(settings_path.clone()), cx);
+
+    click(window, "tag-program", cx);
+    cx.update(|cx| assert!(view.read(cx).settings_open));
+    click(window, ("program", 1_usize), cx);
+    click(window, ("notation", 2_usize), cx);
+    click(window, ("label-place", 2_usize), cx);
+    cx.update(|cx| {
+        let settings = view.read(cx).tag_settings;
+        assert_eq!(settings.program, ProgramChoice::Serato);
+        assert!(!settings.write_tempo, "Serato starts without the tempo");
+    });
+    click(window, "write-tempo", cx);
+    click(window, "close-settings", cx);
+    cx.update(|cx| assert!(!view.read(cx).settings_open));
+
+    let saved = Settings::load(&settings_path).unwrap().tags;
+    assert_eq!(
+        saved,
+        TagSettings {
+            program: ProgramChoice::Serato,
+            key_notation: crate::tag_settings::NotationChoice::OpenKey,
+            label: crate::tag_settings::LabelChoice::Grouping,
+            write_tempo: true,
+        }
+    );
+
+    click(window, "write-tags", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => {
+            assert_eq!(preview.settings.program, ProgramChoice::Serato);
+            let fields: Vec<&str> = preview
+                .plans
+                .iter()
+                .flat_map(|plan| plan.changes())
+                .map(|change| change.field.as_str())
+                .collect();
+            assert!(fields.contains(&"TBPM"), "{fields:?}");
+            assert!(fields.contains(&"TIT1"), "{fields:?}");
+        }
+        other => panic!("{other:?}"),
+    });
+    click(window, "change-tag-settings", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.settings_open);
+        assert!(app.tag_panel.is_none());
+    });
+}
+
+#[gpui::test]
+fn command_click_and_shift_click_select_several_tracks_to_write(cx: &mut TestAppContext) {
+    let (window, view) = open_library(6, cx);
+    let shown = cx.update(|cx| view.read(cx).visible.clone());
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(track(shown[0]), cx);
+        window.click_with_modifiers(track(shown[2]), Modifiers::secondary_key(cx), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).selected_tracks(), [shown[0], shown[2]]));
+
+    cx.update_window(window, |_, window, cx| {
+        window.click_with_modifiers(track(shown[4]), Modifiers::shift(), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).selected_tracks(), shown[2..=4]));
+
+    cx.update_window(window, |_, window, cx| window.click(track(shown[1]), cx))
+        .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).selected_tracks(), [shown[1]]));
+
+    cx.update(|cx| view.update(cx, |app, cx| app.select_all_shown(cx)));
+    cx.update(|cx| assert_eq!(view.read(cx).selected_tracks(), shown));
+}
+
+/// Presses on the grip after `column` and lets go `by` further right.
+fn drag_column_edge(window: AnyWindowHandle, column: ColumnId, by: f32, cx: &mut TestAppContext) {
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let grip = window.find(edge_id(column)).bounds().center();
+        window.drag(grip, gpui::point(grip.x + px(by), grip.y), cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn dragging_a_header_edge_resizes_that_column_and_is_remembered(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-columns");
+    let settings_path = scratch.0.join("settings.json");
+    let (window, view) = open_window_with(
+        demo::tracks(20),
+        Box::new(SilentOutput),
+        Settings {
+            panels: Panels {
+                sidebar_folded: true,
+                ..Panels::default()
+            },
+            ..Settings::default()
+        },
+        Some(settings_path.clone()),
+        size(px(1800.0), px(900.0)),
+        cx,
+    );
+    let before = cx
+        .update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.find(header_id(ColumnId::Title)).bounds()
+        })
+        .unwrap();
+    drag_column_edge(window, ColumnId::Title, 120.0, cx);
+    let after = cx
+        .update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.find(header_id(ColumnId::Title)).bounds()
+        })
+        .unwrap();
+    assert_eq!(after.left(), before.left());
+    assert_eq!(after.size.width, before.size.width + px(120.0));
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.column_resize, None);
+        assert_eq!(
+            app.column_widths.get(ColumnId::Title),
+            Some(before.size.width / px(1.0) + 120.0)
+        );
+    });
+    let saved = Settings::load(&settings_path).unwrap();
+    assert_eq!(
+        saved.column_widths.get(ColumnId::Title),
+        Some(before.size.width / px(1.0) + 120.0)
+    );
+
+    drag_column_edge(window, ColumnId::Bpm, -500.0, cx);
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).column_widths.get(ColumnId::Bpm),
+            Some(ColumnId::Bpm.minimum())
+        );
+    });
+
+    cx.update(|cx| view.update(cx, |app, cx| app.reset_column_widths(cx)));
+    assert_eq!(
+        Settings::load(&settings_path).unwrap().column_widths,
+        crate::columns::ColumnWidths::default()
+    );
+}
+
+#[gpui::test]
+fn a_double_click_on_a_header_edge_fits_the_column_to_its_longest_text(cx: &mut TestAppContext) {
+    let mut tracks = demo::tracks(5);
+    tracks[3].path = PathBuf::from(
+        "/Demo/Promos/An extended title that is much longer than the column (Original Mix).flac",
+    );
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(SilentOutput),
+        Settings::default(),
+        None,
+        USUAL_WINDOW,
+        cx,
+    );
+    let (fitted, needed) = cx
+        .update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let needed = crate::app::text_width(
+                window,
+                "An extended title that is much longer than the column (Original Mix).flac",
+                crate::views::TEXT_SIZE,
+            );
+            window.double_click(edge_id(ColumnId::Title), cx);
+            window.render_frame(cx);
+            (
+                window.find(header_id(ColumnId::Title)).bounds().size.width,
+                needed,
+            )
+        })
+        .unwrap();
+    assert!(fitted >= px(needed), "{fitted:?} for {needed}");
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).column_widths.get(ColumnId::Title),
+            Some(fitted / px(1.0))
+        );
+    });
+    cx.update_window(window, |_, window, _| {
+        assert!(window.try_find(("title-cell", 3_usize)).is_some());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn fitting_a_column_keeps_shorter_titles_after_many_long_names(cx: &mut TestAppContext) {
+    let mut tracks = demo::tracks(42);
+    for (index, track) in tracks.iter_mut().enumerate() {
+        track.path = PathBuf::from(format!("/Demo/{}-{index}.mp3", "i".repeat(80)));
+    }
+    let wide_title = format!("{}.mp3", "W".repeat(30));
+    tracks[41].path = Path::new("/Demo").join(&wide_title);
+    let (_, view) = open_window_on(tracks, Box::new(SilentOutput), cx);
+
+    cx.update(|cx| {
+        let candidates = view.read(cx).column_texts(ColumnId::Title);
+        assert_eq!(candidates.len(), 42);
+        assert!(
+            candidates.contains(&wide_title),
+            "a shorter title can be wider in the table's proportional font"
+        );
+    });
+}
+
+/// The same check as the scratch fixture test, on copies of real two minute
+/// benchmark clips. They are not in the repository, so this runs only by
+/// hand: `cargo test -p euphoria-app -- --ignored bench_clips`, with
+/// `EUPHORIA_BENCH_CLIPS` naming the folder when it is elsewhere.
+#[gpui::test]
+#[ignore = "needs the benchmark clips in bench/data/key/audio"]
+fn writing_and_undoing_tags_on_bench_clips_restores_every_byte(cx: &mut TestAppContext) {
+    let clips = std::env::var_os("EUPHORIA_BENCH_CLIPS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/data/key/audio")
+        });
+    let mut names: Vec<PathBuf> = std::fs::read_dir(&clips)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    names.sort();
+    let scratch = ScratchFolder::new("ui-bench");
+    let music = scratch.0.join("music");
+    std::fs::create_dir_all(&music).unwrap();
+    let files: Vec<PathBuf> = names
+        .iter()
+        .take(12)
+        .map(|clip| {
+            let copy = music.join(clip.file_name().unwrap());
+            std::fs::copy(clip, &copy).unwrap();
+            copy
+        })
+        .collect();
+    let before = tag_testing::contents(&files);
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    assert_eq!(preview_file_count(&view, cx), Some(files.len()));
+    click(window, "confirm-tag-write", cx);
+    assert_eq!(
+        cx.update(|cx| view.read(cx).written_files())
+            .map(|written| written.len()),
+        Some(files.len())
+    );
+    assert_ne!(tag_testing::contents(&files), before);
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    assert_eq!(tag_testing::contents(&files), before);
+}
+
+#[gpui::test]
+fn titles_and_artists_are_read_from_the_tags_off_the_main_thread(cx: &mut TestAppContext) {
+    let tagged =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/tagged-fixtures");
+    let untagged = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let paths = vec![
+        tagged.join("tagged.mp3"),
+        tagged.join("tagged.flac"),
+        untagged.join("sine-440hz-mono.wav"),
+    ];
+    let tracks = paths
+        .iter()
+        .map(|path| DemoTrack {
+            path: path.clone(),
+            outcome: Ok(tag_testing::analysis()),
+        })
+        .collect();
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(SilentOutput),
+        Settings::default(),
+        None,
+        USUAL_WINDOW,
+        cx,
+    );
+    cx.update(|cx| view.update(cx, |app, cx| app.read_track_names(paths.clone(), cx)));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let library = view.read(cx).session.library();
+        let names: Vec<(&str, Option<&str>)> = library
+            .tracks()
+            .iter()
+            .map(|track| (track.title(), track.artist.as_deref()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Low Tide", Some("Saffron & Co")),
+                ("Low Tide", Some("Saffron & Co")),
+                ("sine-440hz-mono.wav", None),
+            ]
+        );
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(header_id(ColumnId::Artist), cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(
+            app.sort_order.map(|order| order.column),
+            Some(SortColumn::Artist)
+        );
+        assert_eq!(app.visible.last(), Some(&2));
+    });
+}
+
+#[gpui::test]
+fn the_shortcuts_open_the_panels_and_escape_closes_them(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-escape");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    let (settings_key, write_key) = if cfg!(target_os = "macos") {
+        ("cmd-,", "cmd-shift-t")
+    } else {
+        ("ctrl-,", "ctrl-shift-t")
+    };
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.press(settings_key, cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(view.read(cx).settings_open));
+    cx.update_window(window, |_, window, cx| window.press("escape", cx))
+        .unwrap();
+    cx.update(|cx| assert!(!view.read(cx).settings_open));
+
+    cx.update_window(window, |_, window, cx| window.press(write_key, cx))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(preview_file_count(&view, cx), Some(1));
+    cx.update_window(window, |_, window, cx| window.press("escape", cx))
+        .unwrap();
+    cx.update(|cx| assert!(view.read(cx).tag_panel.is_none()));
+    assert_eq!(tag_testing::contents(&files), before);
+}
+
+#[gpui::test]
+fn files_written_from_the_window_are_served_from_the_cache_on_the_next_launch(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-cache");
+    let files = scratch.copy_fixtures();
+    let cache_path = scratch.0.join("analysis-cache.sqlite3");
+    let launch = || {
+        euphoria_core::CachedAnalyzer::new(euphoria_core::Cache::open(&cache_path).unwrap())
+            .unwrap()
+    };
+    let first_launch = std::sync::Arc::new(launch());
+    let tracks: Vec<DemoTrack> = files
+        .iter()
+        .map(|path| DemoTrack {
+            path: path.clone(),
+            outcome: Ok(first_launch.analyze_file(path).unwrap().analysis),
+        })
+        .collect();
+    let analyses: Vec<TrackAnalysis> = tracks
+        .iter()
+        .map(|track| track.outcome.clone().unwrap())
+        .collect();
+
+    let log_directory = scratch.log_directory();
+    let (window, view) = cx.update(|cx| {
+        gpui::init(cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: Point::default(),
+                size: USUAL_WINDOW,
+            })),
+            ..Default::default()
+        };
+        let (window, view) = gpui::open_window(options, cx, |window, cx| {
+            cx.new(|cx| {
+                let mut session = Session::start(Some(first_launch.clone())).unwrap();
+                session.add_demo_tracks(tracks);
+                let mut app = EuphoriaApp::new(
+                    session,
+                    Settings::default(),
+                    None,
+                    None,
+                    Box::new(SilentOutput),
+                    window,
+                    cx,
+                );
+                app.write_log_directory = Some(log_directory);
+                app
+            })
+        })
+        .unwrap();
+        crate::register_commands(window, &view, cx);
+        (window, view)
+    });
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    click(window, "confirm-tag-write", cx);
+    assert_eq!(
+        cx.update(|cx| view.read(cx).written_files()),
+        Some(files.clone())
+    );
+    let after_write = launch();
+    for (path, analysis) in files.iter().zip(&analyses) {
+        assert_eq!(after_write.stored_analysis(path).as_ref(), Some(analysis));
+    }
+
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    let after_undo = launch();
+    for (path, analysis) in files.iter().zip(&analyses) {
+        assert_eq!(after_undo.stored_analysis(path).as_ref(), Some(analysis));
+    }
+}
+
+#[gpui::test]
+fn a_long_list_of_files_left_out_builds_only_the_lines_in_view_and_scrolls_to_every_one(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-many-failures");
+    let files: Vec<PathBuf> = (0..300)
+        .map(|number| scratch.0.join(format!("music/gone {number:03}.mp3")))
+        .collect();
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(panel) => assert_eq!(ProblemList::CannotBeWritten.files(panel).len(), 300),
+        None => panic!("no preview"),
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find(("cannot-be-written", 0_usize)).is_some());
+        assert!(window.try_find(("cannot-be-written", 299_usize)).is_none());
+        window.scroll(
+            "cannot-be-written-section",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-100_000.0))),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(window.try_find(("cannot-be-written", 299_usize)).is_some());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn opening_undo_discards_a_tag_preview_still_being_planned(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-undo-during-plan");
+    let files = scratch.copy_fixtures();
+    let (_, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.plan_tag_write(crate::tag_flow::WriteScope::Shown, cx);
+            app.open_tag_undo(cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert!(matches!(
+            view.read(cx).tag_panel,
+            Some(TagPanel::ConfirmUndo)
+        ));
+    });
+}
+
+#[gpui::test]
+fn fitting_a_column_measures_each_distinct_text_once(cx: &mut TestAppContext) {
+    let (_, view) = open_library(500, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let numbers = app.column_texts(ColumnId::Number);
+        assert_eq!(numbers.len(), 1);
+        assert!(numbers.contains("500"));
+        let formats = app.column_texts(ColumnId::Format);
+        assert!(formats.len() <= 4, "{formats:?}");
+        let titles = app.column_texts(ColumnId::Title);
+        let distinct_titles: HashSet<&str> = app
+            .visible
+            .iter()
+            .map(|index| app.session.library().tracks()[*index].title())
+            .collect();
+        assert_eq!(titles.len(), distinct_titles.len());
+    });
+}
