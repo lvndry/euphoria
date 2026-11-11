@@ -234,7 +234,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "v$VERSION" > /dev/null 2>&1; then
+          # Only a confirmed "not found" means the release must be created;
+          # any other failure stops the run with its own message.
+          if view_error="$(gh release view "v$VERSION" 2>&1 >/dev/null)"; then
+            release_exists=true
+          elif grep -qi "release not found" <<<"$view_error"; then
+            release_exists=false
+          else
+            echo "$view_error" >&2
+            exit 1
+          fi
+          if [ "$release_exists" = true ]; then
             # An earlier run made the release but did not finish it. The
             # notes are written last, so their closing marker shows the
             # release is complete.
