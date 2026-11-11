@@ -29,6 +29,8 @@ pub mod harmony;
 pub mod key;
 /// Finding audio files in folders.
 pub mod library;
+/// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
+pub mod quality;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;

@@ -8,7 +8,7 @@
 //! has dragged keeps the width they gave it, remembered by name in the
 //! settings file. When everything does not fit, the least needed columns are
 //! left out, in a fixed order, so the title, key, tempo and energy always
-//! stay readable.
+//! stay readable. Format and Quality go before a folder path is cut short.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -45,6 +45,8 @@ pub(crate) enum ColumnId {
     Bpm,
     /// The energy rating, with a bar.
     Energy,
+    /// The sound quality verdict in a word.
+    Quality,
     /// The length.
     Time,
     /// The file type.
@@ -64,8 +66,9 @@ enum UsualWidth {
 }
 
 /// The columns left out when the table is too narrow, first to last.
-const LEFT_OUT_FIRST: [ColumnId; 6] = [
+const LEFT_OUT_FIRST: [ColumnId; 7] = [
     ColumnId::Format,
+    ColumnId::Quality,
     ColumnId::Folder,
     ColumnId::Artist,
     ColumnId::Time,
@@ -73,9 +76,14 @@ const LEFT_OUT_FIRST: [ColumnId; 6] = [
     ColumnId::Number,
 ];
 
+/// The columns left out before a folder path is cut short: where a track is
+/// filed is read more often than its file type or quality verdict, which the
+/// inspector and the Quality to check filter also show.
+const LEFT_OUT_BEFORE_PATHS_ARE_CUT: [ColumnId; 2] = [ColumnId::Format, ColumnId::Quality];
+
 impl ColumnId {
     /// Every column, left to right.
-    pub(crate) const ALL: [ColumnId; 10] = [
+    pub(crate) const ALL: [ColumnId; 11] = [
         ColumnId::Number,
         ColumnId::Title,
         ColumnId::Artist,
@@ -83,6 +91,7 @@ impl ColumnId {
         ColumnId::MusicalKey,
         ColumnId::Bpm,
         ColumnId::Energy,
+        ColumnId::Quality,
         ColumnId::Time,
         ColumnId::Format,
         ColumnId::Folder,
@@ -98,6 +107,7 @@ impl ColumnId {
             ColumnId::MusicalKey => "musical-key",
             ColumnId::Bpm => "bpm",
             ColumnId::Energy => "energy",
+            ColumnId::Quality => "quality",
             ColumnId::Time => "time",
             ColumnId::Format => "format",
             ColumnId::Folder => "folder",
@@ -114,6 +124,7 @@ impl ColumnId {
             ColumnId::MusicalKey => "Musical key",
             ColumnId::Bpm => "BPM",
             ColumnId::Energy => "Energy",
+            ColumnId::Quality => "Quality",
             ColumnId::Time => "Time",
             ColumnId::Format => "Format",
             ColumnId::Folder => "Folder",
@@ -129,6 +140,7 @@ impl ColumnId {
             ColumnId::MusicalKey => UsualWidth::Fixed(84.0),
             ColumnId::Bpm => UsualWidth::Fixed(60.0),
             ColumnId::Energy => UsualWidth::Fixed(86.0),
+            ColumnId::Quality => UsualWidth::Fixed(90.0),
             ColumnId::Time => UsualWidth::Fixed(48.0),
             ColumnId::Format => UsualWidth::Fixed(56.0),
             ColumnId::Folder => UsualWidth::FolderPaths,
@@ -146,6 +158,7 @@ impl ColumnId {
             ColumnId::MusicalKey => 64.0,
             ColumnId::Bpm => 44.0,
             ColumnId::Energy => 70.0,
+            ColumnId::Quality => 56.0,
             ColumnId::Time => 40.0,
             ColumnId::Format => 44.0,
             ColumnId::Folder => NARROWEST_FOLDER,
@@ -166,6 +179,7 @@ impl ColumnId {
             ColumnId::Key | ColumnId::MusicalKey => Some(SortColumn::Key),
             ColumnId::Bpm => Some(SortColumn::Bpm),
             ColumnId::Energy => Some(SortColumn::Energy),
+            ColumnId::Quality => Some(SortColumn::Quality),
             ColumnId::Time => Some(SortColumn::Duration),
             ColumnId::Format => Some(SortColumn::Format),
             ColumnId::Folder => Some(SortColumn::Folder),
@@ -252,8 +266,9 @@ impl TableLayout {
     /// Columns the user sized keep their size, and so do the fixed ones.
     /// The Folder column, unless sized, takes what its longest path needs.
     /// Title and Artist, unless sized, share the rest, each at least its
-    /// narrowest. When that does not fit, Format is left out first; then an
-    /// unsized Folder column is narrowed, cutting its paths short; then
+    /// narrowest. When that does not fit, Format and then Quality are left
+    /// out first; then an unsized Folder column is narrowed, cutting its
+    /// paths short; then
     /// columns are left out in the order of [`LEFT_OUT_FIRST`]. When even
     /// that does not fit, the sized columns go down to their narrowest.
     pub(crate) fn new(table_width: f32, chosen: &ColumnWidths, longest_path: f32) -> Self {
@@ -304,9 +319,10 @@ impl TableLayout {
             }
             let short_by = sharing_minimum - room;
 
-            if left_out_next.peek() == Some(&&ColumnId::Format) {
-                left_out_next.next();
-                shown.retain(|column| *column != ColumnId::Format);
+            if let Some(next) =
+                left_out_next.next_if(|column| LEFT_OUT_BEFORE_PATHS_ARE_CUT.contains(column))
+            {
+                shown.retain(|column| column != next);
                 continue;
             }
             let folder_is_narrowable = chosen.get(ColumnId::Folder).is_none()
@@ -445,9 +461,10 @@ mod tests {
     }
 
     #[test]
-    fn the_usual_table_leaves_out_format_so_two_level_paths_show_in_full() {
+    fn the_usual_table_leaves_out_format_and_quality_so_two_level_paths_show_in_full() {
         let layout = TableLayout::new(USUAL_TABLE, &ColumnWidths::default(), 133.0);
         assert!(!layout.shows(ColumnId::Format));
+        assert!(!layout.shows(ColumnId::Quality));
         assert_eq!(layout.width_of(ColumnId::Folder), Some(133.0));
         assert!(layout.width_of(ColumnId::Title).unwrap() >= 160.0);
         assert!(layout.width_of(ColumnId::Artist).unwrap() >= 90.0);
@@ -465,8 +482,19 @@ mod tests {
     }
 
     #[test]
+    fn quality_comes_back_with_the_sidebar_folded_or_the_inspector_closed() {
+        for table_width in [1440.0 - 320.0, 1440.0 - 220.0] {
+            let layout = TableLayout::new(table_width, &ColumnWidths::default(), 133.0);
+            assert_eq!(layout.width_of(ColumnId::Quality), Some(90.0));
+            assert_eq!(layout.width_of(ColumnId::Folder), Some(133.0));
+            assert!(total_width(&layout) <= table_width);
+        }
+    }
+
+    #[test]
     fn a_long_path_is_cut_short_before_a_column_is_left_out() {
         let layout = TableLayout::new(USUAL_TABLE, &ColumnWidths::default(), 600.0);
+        assert!(!layout.shows(ColumnId::Quality));
         assert!(layout.shows(ColumnId::Folder));
         assert!(layout.shows(ColumnId::Artist));
         assert!(layout.width_of(ColumnId::Folder).unwrap() < 600.0);
@@ -550,12 +578,12 @@ mod tests {
     #[test]
     fn widths_are_stored_by_name_unknown_names_survive_and_reset_forgets_them() {
         let mut chosen: ColumnWidths =
-            serde_json::from_str(r#"{"quality":120,"title":300}"#).unwrap();
+            serde_json::from_str(r#"{"rating":120,"title":300}"#).unwrap();
         assert_eq!(chosen.get(ColumnId::Title), Some(300.0));
         chosen.set(ColumnId::Artist, 150.0);
         assert_eq!(
             serde_json::to_string(&chosen).unwrap(),
-            r#"{"artist":150,"quality":120,"title":300}"#
+            r#"{"artist":150,"rating":120,"title":300}"#
         );
         chosen.reset();
         assert!(chosen.is_empty());

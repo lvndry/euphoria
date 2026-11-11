@@ -18,7 +18,7 @@ use std::num::NonZeroU32;
 
 use crate::audio::AudioBuffer;
 use crate::error::EuphoriaError;
-use loudness::measure_loudness;
+pub(crate) use loudness::measure_loudness;
 use spectrum::SpectralAnalyzer;
 
 /// Length of each window of the energy curve.
