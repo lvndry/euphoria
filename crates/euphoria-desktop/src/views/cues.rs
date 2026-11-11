@@ -300,7 +300,7 @@ pub(crate) fn lane(
                         cx.stop_propagation();
                     }),
                 );
-            if fraction > LABEL_FLIP_FRACTION {
+            let placed = if fraction > LABEL_FLIP_FRACTION {
                 marker
                     .right(relative(1.0 - fraction))
                     .border_r_2()
@@ -311,8 +311,14 @@ pub(crate) fn lane(
                     .border_l_2()
                     .border_color(palette.accent)
             }
-            .test_support()
+            .test_support();
+            (place.label == MarkerLabel::Tick, placed)
         });
+    // A tick is never placed clear of labels, so it is drawn first and any
+    // label it runs into covers it.
+    let mut markers: Vec<_> = markers.collect();
+    markers.sort_by_key(|(is_tick, _)| !is_tick);
+    let markers = markers.into_iter().map(|(_, marker)| marker);
     div()
         .id("cue-lane")
         .relative()
