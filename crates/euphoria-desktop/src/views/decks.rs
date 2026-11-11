@@ -477,10 +477,20 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .on_click(cx.listener(move |this, _, _, cx| this.set_energy_direction(direction, cx)))
             .test_support()
         });
+    let playlists = app.session.playlists().all();
     let scopes = [
-        (SuggestionScope::Library, "Whole library"),
-        (SuggestionScope::Shown, "Tracks shown"),
+        (SuggestionScope::Library, "Whole library".to_string()),
+        (SuggestionScope::Shown, "Tracks shown".to_string()),
     ]
+    .into_iter()
+    .chain(playlists.iter().map(|playlist| {
+        let name = match &playlist.label {
+            Some(label) => format!("{label} {}", playlist.name),
+            None => playlist.name.clone(),
+        };
+        (SuggestionScope::Playlist(playlist.id), name)
+    }))
+    .collect::<Vec<_>>()
     .into_iter()
     .enumerate()
     .map(|(index, (scope, label))| {

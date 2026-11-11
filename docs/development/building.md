@@ -11,6 +11,7 @@ description: Build, test and benchmark Euphoria from a source checkout.
 - CMake and pkg-config
 - libkeyfinder
 - FFTW, with its threads library, which the commands below install
+- For the desktop app only, libclang, which generates the bindings of the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) time stretcher the decks use. On macOS it comes with the Xcode Command Line Tools (`xcode-select --install`), which Homebrew and Rust need anyway. The `euphoria` command line tool does not use it.
 
 macOS:
 
@@ -24,6 +25,8 @@ Debian and Ubuntu do not package libkeyfinder, so a script builds it from source
 sudo apt-get install cargo cmake pkg-config libfftw3-dev
 ./.github/scripts/install-libkeyfinder.sh
 ```
+
+The desktop app is only built and tested on macOS so far. On Linux, build the command line tool with `cargo build --release -p euphoria-cli`; building the app there would also need `libclang-dev` and the X11, Wayland and font development packages GPUI links against.
 
 ## Build and run
 

@@ -57,7 +57,7 @@ This puts the `euphoria` command in `~/.cargo/bin`, which the Rust installer add
 
 ### The desktop app
 
-From the same folder, build the app and a disk image to install it from, as the releases are built. This also needs [uv](https://docs.astral.sh/uv/), which lays out the disk image window:
+From the same folder, build the app and a disk image to install it from, as the releases are built. This also needs [uv](https://docs.astral.sh/uv/), which lays out the disk image window, and the Xcode Command Line Tools (`xcode-select --install`, already there if Homebrew is), whose libclang generates the bindings of the time stretcher the decks use:
 
 ```
 brew install uv

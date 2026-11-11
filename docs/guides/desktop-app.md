@@ -163,7 +163,7 @@ Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsm
 
 ### Next on deck B
 
-With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library** and **Tracks shown** choose between every track and the tracks the table shows, such as a folder or a search. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
+With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
 
 ## The waveform
 
@@ -339,7 +339,7 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 
 ## Not there yet
 
-- On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend, and suggestions from a playlist.
+- On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend.
 - Editing cue points: the decks show and play the cues analysis places, but they cannot be moved or added yet.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.

@@ -19,6 +19,7 @@ use crate::app::EuphoriaApp;
 use crate::deck_audio::{DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate};
 use crate::library::Track;
 use crate::playback::{TrackSource, Voice};
+use crate::playlists::PlaylistId;
 use crate::views::waveform::SeenBounds;
 
 /// How many tracks the suggestions list.
@@ -71,9 +72,11 @@ pub(crate) enum SuggestionScope {
     /// Every track in the library.
     #[default]
     Library,
-    /// The tracks the table shows: the folder on show, filtered by the
-    /// search.
+    /// The tracks the table shows: the folder or playlist on show,
+    /// filtered by the search.
     Shown,
+    /// The tracks of a playlist.
+    Playlist(PlaylistId),
 }
 
 /// A track that would mix well after the one on deck A.
@@ -504,6 +507,18 @@ impl EuphoriaApp {
         let indexes: Vec<usize> = match self.decks.scope {
             SuggestionScope::Library => (0..library.tracks().len()).collect(),
             SuggestionScope::Shown => self.visible.clone(),
+            SuggestionScope::Playlist(id) => self
+                .session
+                .playlists()
+                .get(id)
+                .map(|playlist| {
+                    playlist
+                        .tracks
+                        .iter()
+                        .filter_map(|path| library.index_of(path))
+                        .collect()
+                })
+                .unwrap_or_default(),
         };
         let candidates: Vec<&Track> = indexes
             .iter()

@@ -3986,3 +3986,43 @@ fn the_decks_without_an_audio_output_say_so(cx: &mut TestAppContext) {
         assert!(app.notice.is_some());
     });
 }
+
+#[gpui::test]
+fn suggestions_can_come_from_a_playlist(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    let wav_path = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .track(wav)
+            .unwrap()
+            .path
+            .clone()
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let id = app.session.playlists_mut().create();
+            app.session
+                .playlists_mut()
+                .add_tracks(id, &[wav_path.clone()]);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    let suggested = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            view.read(cx)
+                .decks
+                .suggestions
+                .iter()
+                .map(|suggestion| suggestion.track_index)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(suggested(cx).len(), 2, "the whole library");
+    click(window, ("suggestion-scope", 2_usize), cx);
+    assert_eq!(suggested(cx), [wav], "only the playlist's track");
+}
