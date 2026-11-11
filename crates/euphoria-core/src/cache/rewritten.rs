@@ -12,7 +12,7 @@
 //! content now is needs recording.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{OptionalExtension, params};
 
@@ -92,6 +92,59 @@ impl Cache {
             .map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
+    }
+}
+
+impl Cache {
+    /// The content recorded for the file at `path` when it was last seen
+    /// there with its current size and modification time, by an analysis of
+    /// any version. Does not read the file.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn recorded_content(&self, path: &Path) -> Result<Option<ContentHash>, EuphoriaError> {
+        let Ok(absolute_path) = std::path::absolute(path) else {
+            return Ok(None);
+        };
+        let (Some(text), Ok(stamp)) = (absolute_path.to_str(), FileStamp::of(path)) else {
+            return Ok(None);
+        };
+        let bytes: Option<Vec<u8>> = self
+            .connection
+            .query_row(
+                "SELECT content_hash FROM analyses
+                 WHERE last_known_path = ?1 AND file_size = ?2 AND modified_at = ?3",
+                params![text, stamp.size, stamp.modified_nanoseconds],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(cache_error(&self.path))?;
+        Ok(bytes
+            .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
+            .map(ContentHash::from_bytes))
+    }
+
+    /// Where a file with `content` was last seen, by an analysis of any
+    /// version, when the cache knows.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn last_seen_path_of(
+        &self,
+        content: &ContentHash,
+    ) -> Result<Option<PathBuf>, EuphoriaError> {
+        let path: Option<Option<String>> = self
+            .connection
+            .query_row(
+                "SELECT last_known_path FROM analyses WHERE content_hash = ?1",
+                params![content.as_bytes()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(cache_error(&self.path))?;
+        Ok(path.flatten().map(PathBuf::from))
     }
 }
 

@@ -9,7 +9,7 @@ use std::time::Duration;
 use rayon::prelude::*;
 
 use super::playlists::playlists_from_folders;
-use super::rekordbox::{Library, Track};
+use super::rekordbox::{Library, Playlist, PlaylistNode, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
 use crate::error::EuphoriaError;
 use crate::track_name::{TrackName, read_track_name};
@@ -26,6 +26,14 @@ pub enum PlaylistLayout<'paths> {
         folders: &'paths [PathBuf],
         /// Name of the playlist for tracks inside none of `folders`.
         loose_playlist_name: &'paths str,
+    },
+    /// One playlist with the tracks in the order given, such as a playlist
+    /// the user built. A path whose analysis failed is left out of it.
+    Ordered {
+        /// The playlist's name.
+        name: &'paths str,
+        /// The tracks in play order.
+        tracks: &'paths [PathBuf],
     },
 }
 
@@ -106,6 +114,21 @@ pub fn assemble_library(results: Vec<FileResult>, layout: PlaylistLayout<'_>) ->
         } => {
             let track_paths: Vec<PathBuf> = tracks.iter().map(|track| track.path.clone()).collect();
             playlists_from_folders(folders, &track_paths, loose_playlist_name)
+        }
+        PlaylistLayout::Ordered {
+            name,
+            tracks: order,
+        } => {
+            let exported: std::collections::HashSet<&Path> =
+                tracks.iter().map(|track| track.path.as_path()).collect();
+            vec![PlaylistNode::Playlist(Playlist {
+                name: name.to_string(),
+                tracks: order
+                    .iter()
+                    .filter(|path| exported.contains(path.as_path()))
+                    .cloned()
+                    .collect(),
+            })]
         }
     };
     AssembledLibrary {

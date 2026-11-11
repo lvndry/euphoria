@@ -191,6 +191,14 @@ pub enum EuphoriaError {
         /// What went wrong, usually the database library's own error.
         source: ErrorSource,
     },
+    /// The playlists database could not be opened, read or written.
+    #[error("cannot use the playlists at {path}")]
+    Playlists {
+        /// The playlists database file.
+        path: PathBuf,
+        /// What went wrong, usually the database library's own error.
+        source: ErrorSource,
+    },
     /// The audio has a sample rate outside the range Euphoria analyzes.
     #[error(
         "a sample rate of {sample_rate} Hz is not supported: Euphoria reads audio from {minimum} to {maximum} Hz"
