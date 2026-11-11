@@ -206,6 +206,7 @@ mod tests {
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
+            cues: Vec::new(),
         }
     }
 
