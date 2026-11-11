@@ -4,7 +4,7 @@
 /// Version of [`ENERGY_MODEL`]. It changes whenever an anchor, a weight or
 /// the way a feature is measured changes, so ratings made with different
 /// versions are never compared by mistake.
-pub const ENERGY_MODEL_VERSION: u32 = 1;
+pub const ENERGY_MODEL_VERSION: u32 = 2;
 
 /// How one feature turns into a score from 0.0 to 1.0, and how much that
 /// score counts in the rating.
@@ -36,19 +36,12 @@ impl FeatureAnchor {
 pub struct EnergyModel {
     /// Equal to [`ENERGY_MODEL_VERSION`].
     pub version: u32,
-    /// Integrated loudness in LUFS. Louder scores higher.
-    pub integrated_loudness: FeatureAnchor,
-    /// Loudness range in LU. A narrower range scores higher.
-    pub loudness_range: FeatureAnchor,
-    /// Onsets per second. More scores higher.
-    pub onset_rate: FeatureAnchor,
-    /// Share of signal power below 150 Hz. More scores higher.
-    pub low_frequency_share: FeatureAnchor,
     /// Spectral flux. More scores higher.
     pub spectral_flux: FeatureAnchor,
-    /// Tempo in beats per minute, used only when the caller supplies it.
-    /// Faster scores higher.
-    pub tempo: FeatureAnchor,
+    /// Onsets per second. More scores higher.
+    pub onset_rate: FeatureAnchor,
+    /// Integrated loudness in LUFS. Louder scores higher.
+    pub integrated_loudness: FeatureAnchor,
     /// The weighted average score at the bottom of rating 1.
     pub combined_low: f32,
     /// The weighted average score at the top of rating 10.
@@ -57,46 +50,38 @@ pub struct EnergyModel {
 
 /// The model behind every rating this version of the library produces.
 ///
-/// The anchors of the audio features sit near the values reached by the
-/// lowest and the highest 3% of the 604 dance music previews of the
-/// GiantSteps Key dataset, so ratings of dance music spread over the whole
-/// scale. Onset rate, spectral flux and loudness carry the most weight.
-/// Loudness range, low frequency share and tempo are coarser hints and
-/// carry less.
+/// `bench/fit_energy_model.py` produced these numbers, rounded here:
+///
+/// - The weights are a least squares fit to the arousal that listeners gave
+///   1216 songs of the DEAM dataset, with every weight held at zero or
+///   above. Features that did not improve the fit under cross validation
+///   are not part of the model.
+/// - The anchors are the 3rd and 97th percentile of each feature over those
+///   songs and over the 604 dance music previews of the GiantSteps Key
+///   dataset, taking the wider of the two, so that neither quiet acoustic
+///   music nor loud dance music runs into an anchor.
+/// - `combined_low` and `combined_high` are the 2nd and 98th percentile of
+///   the weighted average over the GiantSteps previews, so that dance music
+///   uses the whole scale.
 pub const ENERGY_MODEL: EnergyModel = EnergyModel {
     version: ENERGY_MODEL_VERSION,
-    integrated_loudness: FeatureAnchor {
-        low: -14.0,
-        high: -6.5,
-        weight: 0.25,
-    },
-    loudness_range: FeatureAnchor {
-        low: 12.0,
-        high: 1.5,
-        weight: 0.2,
+    spectral_flux: FeatureAnchor {
+        low: 0.0017,
+        high: 0.0104,
+        weight: 0.55,
     },
     onset_rate: FeatureAnchor {
-        low: 2.5,
-        high: 7.0,
-        weight: 0.25,
+        low: 0.7,
+        high: 7.2,
+        weight: 0.26,
     },
-    low_frequency_share: FeatureAnchor {
-        low: 0.35,
-        high: 0.9,
-        weight: 0.1,
+    integrated_loudness: FeatureAnchor {
+        low: -23.3,
+        high: -6.5,
+        weight: 0.19,
     },
-    spectral_flux: FeatureAnchor {
-        low: 0.0045,
-        high: 0.0105,
-        weight: 0.2,
-    },
-    tempo: FeatureAnchor {
-        low: 100.0,
-        high: 140.0,
-        weight: 0.1,
-    },
-    combined_low: 0.2,
-    combined_high: 0.8,
+    combined_low: 0.41,
+    combined_high: 0.90,
 };
 
 const fn is_usable(anchor: FeatureAnchor) -> bool {
@@ -104,12 +89,9 @@ const fn is_usable(anchor: FeatureAnchor) -> bool {
 }
 
 const _: () = {
-    assert!(is_usable(ENERGY_MODEL.integrated_loudness));
-    assert!(is_usable(ENERGY_MODEL.loudness_range));
-    assert!(is_usable(ENERGY_MODEL.onset_rate));
-    assert!(is_usable(ENERGY_MODEL.low_frequency_share));
     assert!(is_usable(ENERGY_MODEL.spectral_flux));
-    assert!(is_usable(ENERGY_MODEL.tempo));
+    assert!(is_usable(ENERGY_MODEL.onset_rate));
+    assert!(is_usable(ENERGY_MODEL.integrated_loudness));
     assert!(ENERGY_MODEL.combined_low < ENERGY_MODEL.combined_high);
 };
 

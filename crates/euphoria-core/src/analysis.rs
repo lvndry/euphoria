@@ -72,8 +72,8 @@ pub struct Progress<'batch> {
 /// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
 /// as it is the more accurate detector, and tempo comes from the tempo only
 /// path of `stratum-dsp`, so its costly key analysis does not run. Without
-/// the feature, `stratum-dsp` finds both. The energy rating takes the
-/// detected tempo into account when there is one.
+/// the feature, `stratum-dsp` finds both. The energy rating is measured
+/// from the audio alone.
 ///
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].
@@ -94,7 +94,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         (analysis.key, analysis.tempo)
     };
 
-    let energy = rate_energy(&audio, tempo)?.map(|rating| rating.rating);
+    let energy = rate_energy(&audio)?.map(|rating| rating.rating);
 
     Ok(TrackAnalysis {
         duration_seconds: audio.duration_seconds(),

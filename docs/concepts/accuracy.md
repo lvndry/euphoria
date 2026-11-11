@@ -45,6 +45,10 @@ Euphoria therefore reports every tempo between 90 and 180 BPM. An estimate below
 
 The price is that a track whose real tempo is below 90 BPM, such as slow hip hop at 85, is reported at double, 170, and one at 180 or above at half. 50 of the 661 previews are labelled below 90 BPM and 6 at 180 or above, and those count as misses in Accuracy 1 above. The harmonic matching can treat half and double tempo as a match for such tracks.
 
+## Energy
+
+The energy rating has no labelled dance music to be scored on, so it is measured against how listeners rated the arousal of 1802 songs of many genres. The method, the results and what they do not show are on the [energy rating](energy.md#how-well-it-works) page.
+
 ## Reproducing
 
 See [running the accuracy benchmark](../development/building.md#accuracy-benchmark).

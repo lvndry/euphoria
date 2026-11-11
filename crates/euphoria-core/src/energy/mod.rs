@@ -6,6 +6,10 @@
 //! The rating is a weighted average of a few measured features, each mapped
 //! to a score through the anchors in [`ENERGY_MODEL`]. It is Euphoria's own
 //! scale and is not comparable to the energy numbers of other tools.
+//!
+//! The rating reads the audio only. Tempo takes no part in it: on the
+//! reference data the model is fitted to, tempo told nothing about energy
+//! that the audio features had not already told.
 
 mod loudness;
 mod model;
@@ -43,19 +47,25 @@ const HIGHEST_RATING: u8 = 10;
 /// The measurements a rating is built from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnergyFeatures {
-    /// Integrated loudness in LUFS, measured as EBU R128 describes.
-    pub integrated_loudness_lufs: f32,
-    /// Loudness range in LU, measured as EBU R128 describes: how far the
-    /// loud and the quiet passages are apart.
-    pub loudness_range_lu: f32,
+    /// How much the spectrum changes from one moment to the next, relative
+    /// to the level of the audio. It is near 0.0 for a held tone and grows
+    /// as the sound gets busier and brighter.
+    pub spectral_flux: f32,
     /// Percussive events per second.
     pub onset_rate: f32,
-    /// Share of signal power below 150 Hz, from 0.0 to 1.0: the weight of
-    /// the kick drum and the bass.
-    pub low_frequency_share: f32,
-    /// How much the spectrum changes from one moment to the next. It is
-    /// near 0.0 for a held tone and grows as the sound gets busier.
-    pub spectral_flux: f32,
+    /// Integrated loudness in LUFS, measured as EBU R128 describes.
+    pub integrated_loudness_lufs: f32,
+}
+
+impl EnergyFeatures {
+    /// Every feature with its name, in the order of the fields.
+    pub fn named(&self) -> [(&'static str, f32); 3] {
+        [
+            ("spectral flux", self.spectral_flux),
+            ("onset rate", self.onset_rate),
+            ("integrated loudness", self.integrated_loudness_lufs),
+        ]
+    }
 }
 
 /// An energy rating with everything needed to reproduce it.
@@ -68,9 +78,6 @@ pub struct EnergyRating {
     pub score: f32,
     /// The features the rating was computed from.
     pub features: EnergyFeatures,
-    /// The tempo in beats per minute that took part in the rating, when the
-    /// caller supplied a usable one.
-    pub tempo: Option<f32>,
     /// The [`ENERGY_MODEL_VERSION`] that produced the rating.
     pub model_version: u32,
 }
@@ -103,44 +110,23 @@ pub fn energy_features(audio: &AudioBuffer) -> Result<Option<EnergyFeatures>, Eu
 
 /// Rates features with [`ENERGY_MODEL`].
 ///
-/// `tempo` is in beats per minute. When it is `None`, the rating is built
-/// from the audio features alone. A rating made with a tempo and one made
-/// without are both valid, but a library is best rated one way throughout.
-///
 /// Fails with [`EuphoriaError::InvalidEnergyInput`] when a feature is not a
-/// finite number, or when the tempo is not finite or not positive, so a
-/// rating that is returned always has a finite score.
-pub fn rate_features(
-    features: &EnergyFeatures,
-    tempo: Option<f32>,
-) -> Result<EnergyRating, EuphoriaError> {
+/// finite number, so a rating that is returned always has a finite score.
+pub fn rate_features(features: &EnergyFeatures) -> Result<EnergyRating, EuphoriaError> {
     let model = &ENERGY_MODEL;
-    check_tempo(tempo)?;
-    let named = [
-        ("integrated loudness", features.integrated_loudness_lufs),
-        ("loudness range", features.loudness_range_lu),
-        ("onset rate", features.onset_rate),
-        ("low frequency share", features.low_frequency_share),
-        ("spectral flux", features.spectral_flux),
-    ];
-    for (name, value) in named {
+    for (name, value) in features.named() {
         if !value.is_finite() {
             return Err(EuphoriaError::InvalidEnergyInput { name, value });
         }
     }
     let scored = [
-        (model.integrated_loudness, features.integrated_loudness_lufs),
-        (model.loudness_range, features.loudness_range_lu),
-        (model.onset_rate, features.onset_rate),
-        (model.low_frequency_share, features.low_frequency_share),
         (model.spectral_flux, features.spectral_flux),
+        (model.onset_rate, features.onset_rate),
+        (model.integrated_loudness, features.integrated_loudness_lufs),
     ];
     let mut weighted_score = 0.0;
     let mut weight_total = 0.0;
-    for (anchor, value) in scored
-        .into_iter()
-        .chain(tempo.map(|tempo| (model.tempo, tempo)))
-    {
+    for (anchor, value) in scored {
         weighted_score += anchor.weight * anchor.score(value);
         weight_total += anchor.weight;
     }
@@ -151,7 +137,6 @@ pub fn rate_features(
         rating: rating_of(score),
         score,
         features: *features,
-        tempo,
         model_version: ENERGY_MODEL_VERSION,
     })
 }
@@ -159,15 +144,10 @@ pub fn rate_features(
 /// Rates the whole buffer. Returns `Ok(None)` for silence and for audio
 /// shorter than one second, as the key and tempo detectors do.
 ///
-/// Fails as [`energy_features`] does for an unsupported sample rate and as
-/// [`rate_features`] does for an unusable tempo, whatever the audio holds.
-pub fn rate_energy(
-    audio: &AudioBuffer,
-    tempo: Option<f32>,
-) -> Result<Option<EnergyRating>, EuphoriaError> {
-    check_tempo(tempo)?;
+/// Fails as [`energy_features`] does for an unsupported sample rate.
+pub fn rate_energy(audio: &AudioBuffer) -> Result<Option<EnergyRating>, EuphoriaError> {
     energy_features(audio)?
-        .map(|features| rate_features(&features, tempo))
+        .map(|features| rate_features(&features))
         .transpose()
 }
 
@@ -179,13 +159,8 @@ pub fn rate_energy(
 /// single point that covers all of it, and the last partial hop of a longer
 /// track is covered only by the windows before it.
 ///
-/// Fails as [`rate_energy`] does for an unsupported sample rate or an
-/// unusable tempo.
-pub fn energy_curve(
-    audio: &AudioBuffer,
-    tempo: Option<f32>,
-) -> Result<Vec<EnergyCurvePoint>, EuphoriaError> {
-    check_tempo(tempo)?;
+/// Fails as [`rate_energy`] does for an unsupported sample rate.
+pub fn energy_curve(audio: &AudioBuffer) -> Result<Vec<EnergyCurvePoint>, EuphoriaError> {
     let sample_rate = audio.sample_rate();
     check_sample_rate(sample_rate)?;
     let samples = audio.samples();
@@ -205,7 +180,7 @@ pub fn energy_curve(
             start_seconds: start as f32 / rate,
             duration_seconds: window_length as f32 / rate,
             rating: features
-                .map(|features| rate_features(&features, tempo))
+                .map(|features| rate_features(&features))
                 .transpose()?,
         });
     }
@@ -224,18 +199,6 @@ fn check_sample_rate(sample_rate: NonZeroU32) -> Result<(), EuphoriaError> {
     })
 }
 
-fn check_tempo(tempo: Option<f32>) -> Result<(), EuphoriaError> {
-    match tempo {
-        Some(value) if !value.is_finite() || value <= 0.0 => {
-            Err(EuphoriaError::InvalidEnergyInput {
-                name: "tempo",
-                value,
-            })
-        }
-        _ => Ok(()),
-    }
-}
-
 fn is_too_short(samples: &[f32], sample_rate: NonZeroU32) -> bool {
     (samples.len() as f64) < f64::from(MINIMUM_ANALYSIS_SECONDS) * f64::from(sample_rate.get())
 }
@@ -248,18 +211,16 @@ fn measure_features(
     if is_too_short(samples, sample_rate) {
         return Ok(None);
     }
-    let Some(loudness) = measure_loudness(samples, sample_rate)? else {
+    let Some(integrated_loudness_lufs) = measure_loudness(samples, sample_rate)? else {
         return Ok(None);
     };
     let Some(spectral) = analyzer.analyze(samples) else {
         return Ok(None);
     };
     Ok(Some(EnergyFeatures {
-        integrated_loudness_lufs: loudness.integrated_lufs,
-        loudness_range_lu: loudness.range_lu,
-        onset_rate: spectral.onset_rate,
-        low_frequency_share: spectral.low_frequency_share,
         spectral_flux: spectral.spectral_flux,
+        onset_rate: spectral.onset_rate,
+        integrated_loudness_lufs,
     }))
 }
 
@@ -274,14 +235,14 @@ fn rating_of(score: f32) -> u8 {
 mod tests {
     use super::*;
 
+    /// Features that all sit at the same position between their anchors,
+    /// which is then also the weighted average of their scores.
     fn features_at(position: f32) -> EnergyFeatures {
         let between = |anchor: FeatureAnchor| anchor.low + (anchor.high - anchor.low) * position;
         EnergyFeatures {
-            integrated_loudness_lufs: between(ENERGY_MODEL.integrated_loudness),
-            loudness_range_lu: between(ENERGY_MODEL.loudness_range),
-            onset_rate: between(ENERGY_MODEL.onset_rate),
-            low_frequency_share: between(ENERGY_MODEL.low_frequency_share),
             spectral_flux: between(ENERGY_MODEL.spectral_flux),
+            onset_rate: between(ENERGY_MODEL.onset_rate),
+            integrated_loudness_lufs: between(ENERGY_MODEL.integrated_loudness),
         }
     }
 
@@ -296,29 +257,40 @@ mod tests {
     }
 
     #[test]
-    fn features_at_the_low_anchors_rate_one_and_at_the_high_anchors_rate_ten() {
-        let lowest = rate_features(&features_at(0.0), None).unwrap();
-        let highest = rate_features(&features_at(1.0), None).unwrap();
+    fn the_range_of_the_model_spans_rating_one_to_rating_ten() {
+        let lowest = rate_features(&features_at(ENERGY_MODEL.combined_low)).unwrap();
+        let highest = rate_features(&features_at(ENERGY_MODEL.combined_high)).unwrap();
         assert_eq!(lowest.rating, 1);
-        assert_eq!(lowest.score, 0.0);
+        assert!(lowest.score < 1.0e-3, "{lowest:?}");
         assert_eq!(highest.rating, 10);
-        assert_eq!(highest.score, 1.0);
+        assert!(highest.score > 1.0 - 1.0e-3, "{highest:?}");
+
+        let middle = (ENERGY_MODEL.combined_low + ENERGY_MODEL.combined_high) / 2.0;
+        let halfway = rate_features(&features_at(middle)).unwrap();
+        assert!((halfway.score - 0.5).abs() < 1.0e-3, "{halfway:?}");
     }
 
     #[test]
-    fn a_rating_carries_its_inputs_and_the_model_version() {
+    fn features_beyond_the_anchors_rate_one_and_ten() {
+        assert_eq!(rate_features(&features_at(-1.0)).unwrap().rating, 1);
+        assert_eq!(rate_features(&features_at(0.0)).unwrap().rating, 1);
+        assert_eq!(rate_features(&features_at(1.0)).unwrap().rating, 10);
+        assert_eq!(rate_features(&features_at(2.0)).unwrap().rating, 10);
+    }
+
+    #[test]
+    fn a_rating_carries_its_features_and_the_model_version() {
         let features = features_at(0.5);
-        let rating = rate_features(&features, Some(126.0)).unwrap();
+        let rating = rate_features(&features).unwrap();
         assert_eq!(rating.features, features);
-        assert_eq!(rating.tempo, Some(126.0));
         assert_eq!(rating.model_version, ENERGY_MODEL_VERSION);
     }
 
     #[test]
     fn the_score_never_falls_as_the_features_rise() {
-        let mut previous = rate_features(&features_at(-0.5), None).unwrap();
+        let mut previous = rate_features(&features_at(-0.5)).unwrap();
         for step in -4..=15 {
-            let rating = rate_features(&features_at(step as f32 / 10.0), None).unwrap();
+            let rating = rate_features(&features_at(step as f32 / 10.0)).unwrap();
             assert!(rating.score >= previous.score);
             assert!(rating.rating >= previous.rating);
             previous = rating;
@@ -326,68 +298,27 @@ mod tests {
     }
 
     #[test]
-    fn raising_one_feature_alone_never_lowers_the_score() {
-        let base = features_at(0.5);
-        let base_score = rate_features(&base, None).unwrap().score;
+    fn raising_one_feature_alone_raises_the_score() {
+        let base = features_at(0.6);
+        let base_score = rate_features(&base).unwrap().score;
         let raised = [
             EnergyFeatures {
+                spectral_flux: base.spectral_flux * 1.2,
+                ..base
+            },
+            EnergyFeatures {
+                onset_rate: base.onset_rate + 1.0,
+                ..base
+            },
+            EnergyFeatures {
                 integrated_loudness_lufs: base.integrated_loudness_lufs + 3.0,
-                ..base
-            },
-            EnergyFeatures {
-                loudness_range_lu: base.loudness_range_lu - 3.0,
-                ..base
-            },
-            EnergyFeatures {
-                onset_rate: base.onset_rate + 2.0,
-                ..base
-            },
-            EnergyFeatures {
-                low_frequency_share: base.low_frequency_share + 0.2,
-                ..base
-            },
-            EnergyFeatures {
-                spectral_flux: base.spectral_flux * 1.5,
                 ..base
             },
         ];
         for features in raised {
             assert!(
-                rate_features(&features, None).unwrap().score > base_score,
+                rate_features(&features).unwrap().score > base_score,
                 "{features:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_faster_tempo_never_lowers_the_score() {
-        let features = features_at(0.5);
-        let mut previous_score = 0.0;
-        for tempo in [60.0, 100.0, 120.0, 128.0, 140.0, 174.0, 300.0] {
-            let score = rate_features(&features, Some(tempo)).unwrap().score;
-            assert!(score >= previous_score, "{tempo}");
-            previous_score = score;
-        }
-        let slow = rate_features(&features, Some(ENERGY_MODEL.tempo.low))
-            .unwrap()
-            .score;
-        let fast = rate_features(&features, Some(ENERGY_MODEL.tempo.high))
-            .unwrap()
-            .score;
-        assert!(fast > slow);
-    }
-
-    #[test]
-    fn an_unusable_tempo_is_an_error() {
-        let features = features_at(0.5);
-        for tempo in [0.0, -120.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            let outcome = rate_features(&features, Some(tempo));
-            assert!(
-                matches!(
-                    outcome,
-                    Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
-                ),
-                "{tempo} gave {outcome:?}"
             );
         }
     }
@@ -398,16 +329,9 @@ mod tests {
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let cases = [
                 (
-                    "integrated loudness",
+                    "spectral flux",
                     EnergyFeatures {
-                        integrated_loudness_lufs: value,
-                        ..base
-                    },
-                ),
-                (
-                    "loudness range",
-                    EnergyFeatures {
-                        loudness_range_lu: value,
+                        spectral_flux: value,
                         ..base
                     },
                 ),
@@ -419,32 +343,23 @@ mod tests {
                     },
                 ),
                 (
-                    "low frequency share",
+                    "integrated loudness",
                     EnergyFeatures {
-                        low_frequency_share: value,
-                        ..base
-                    },
-                ),
-                (
-                    "spectral flux",
-                    EnergyFeatures {
-                        spectral_flux: value,
+                        integrated_loudness_lufs: value,
                         ..base
                     },
                 ),
             ];
             for (expected_name, features) in cases {
-                for tempo in [None, Some(126.0)] {
-                    let outcome = rate_features(&features, tempo);
-                    assert!(
-                        matches!(
-                            outcome,
-                            Err(EuphoriaError::InvalidEnergyInput { name, .. })
-                                if name == expected_name
-                        ),
-                        "{expected_name} = {value} gave {outcome:?}"
-                    );
-                }
+                let outcome = rate_features(&features);
+                assert!(
+                    matches!(
+                        outcome,
+                        Err(EuphoriaError::InvalidEnergyInput { name, .. })
+                            if name == expected_name
+                    ),
+                    "{expected_name} = {value} gave {outcome:?}"
+                );
             }
         }
     }
@@ -453,15 +368,22 @@ mod tests {
     fn every_rating_of_finite_features_has_a_finite_score() {
         for value in [f32::MIN, -1.0e30, -1.0, 0.0, 1.0, 1.0e30, f32::MAX] {
             let features = EnergyFeatures {
-                integrated_loudness_lufs: value,
-                loudness_range_lu: value,
-                onset_rate: value,
-                low_frequency_share: value,
                 spectral_flux: value,
+                onset_rate: value,
+                integrated_loudness_lufs: value,
             };
-            let rating = rate_features(&features, Some(f32::MAX)).unwrap();
+            let rating = rate_features(&features).unwrap();
             assert!(rating.score.is_finite(), "{value} gave {rating:?}");
             assert!((1..=10).contains(&rating.rating), "{value} gave {rating:?}");
         }
+    }
+
+    #[test]
+    fn features_are_named_in_field_order() {
+        let names = features_at(0.5).named().map(|(name, _)| name);
+        assert_eq!(
+            names,
+            ["spectral flux", "onset rate", "integrated loudness"]
+        );
     }
 }

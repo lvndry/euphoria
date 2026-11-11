@@ -1,13 +1,15 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Measures key and tempo detectors against the GiantSteps datasets and
-//! prints a Markdown report.
+//! Measures key and tempo detectors against the GiantSteps datasets, and the
+//! energy rating against a labels file, and prints a Markdown report.
 
 mod dataset;
+mod energy;
 mod evaluate;
 mod render;
 mod scoring;
+mod statistics;
 
 use std::path::PathBuf;
 
@@ -16,7 +18,10 @@ use euphoria_core::detect::{KeyFinderDetector, StratumDetector};
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo]\n       euphoria-bench energy LABELS_FILE [--dump FILE]";
+
+/// The first argument that selects the energy benchmark.
+const ENERGY_MODE: &str = "energy";
 
 /// Which benchmarks a run covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +67,12 @@ fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Argume
 }
 
 fn main() -> Result<()> {
-    let arguments = parse_arguments(std::env::args().skip(1))?;
+    let mut command_line = std::env::args().skip(1).peekable();
+    if command_line.peek().map(String::as_str) == Some(ENERGY_MODE) {
+        let arguments = energy::parse_arguments(command_line.skip(1))?;
+        return energy::run(&arguments);
+    }
+    let arguments = parse_arguments(command_line)?;
     let data_directory = &arguments.data_directory;
 
     let key_tracks = (arguments.selection != Selection::TempoOnly)

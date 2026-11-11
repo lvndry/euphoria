@@ -194,11 +194,10 @@ pub enum EuphoriaError {
         /// The highest supported sample rate.
         maximum: u32,
     },
-    /// A number given to the energy rating is not usable: not finite, or a
-    /// tempo that is not positive.
+    /// A number given to the energy rating is not finite.
     #[error("cannot rate energy: {name} is {value}")]
     InvalidEnergyInput {
-        /// Which input it was, such as "onset rate" or "tempo".
+        /// Which input it was, such as "onset rate".
         name: &'static str,
         /// The value that was given.
         value: f32,
