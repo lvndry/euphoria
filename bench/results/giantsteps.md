@@ -58,14 +58,14 @@ Measured on 11 November 2026 with the same machine and settings, by the confiden
 
 Of the 238 previews whose detected key is wrong, the runner up is the annotated key for 105 (53 and 52 in the two halves). Against the detected key, the runner up is a fifth away for 211 previews, the parallel key for 196, the relative key for 112 and another key for 85.
 
-Right up to an octave accepts the reported tempo, its half or its double within the same 4% tolerance as Accuracy 1. It rates the beat period whatever octave it is reported in, and unlike Accuracy 2 does not accept a third or three times the tempo. Counting two octaves off as right too changes none of the figures below: every reported tempo lies between 90 and 180 BPM, and no annotation is below 45 or at 360 BPM and above.
+“Right modulo octaves” accepts the reported tempo multiplied by 1/4, 1/2, 1, 2 or 4, within the same 4% tolerance as Accuracy 1. This measures the beat period independently of its octave, allowing up to two doublings or halvings; it is separate from Accuracy 2.
 
 | Tempo confidence, between 90 and 180 BPM | All 661 | Development half | Held out half |
 | --- | --- | --- | --- |
 | High, share of tracks | 39.2% | 39.3% | 39.1% |
-| High, right up to an octave | 98.1% | 98.5% | 97.7% |
-| Medium, right up to an octave | 85.6% | 81.2% | 89.8% |
-| Low, right up to an octave | 60.6% | 58.8% | 62.5% |
+| High, right modulo octaves | 98.1% | 98.5% | 97.7% |
+| Medium, right modulo octaves | 85.6% | 81.2% | 89.8% |
+| Low, right modulo octaves | 60.6% | 58.8% | 62.5% |
 | High, Accuracy 1 | 85.7% | 88.5% | 82.9% |
 | Medium, Accuracy 1 | 80.4% | 73.7% | 86.9% |
 | Low, Accuracy 1 | 56.1% | 54.4% | 57.8% |

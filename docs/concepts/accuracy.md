@@ -79,15 +79,15 @@ The tempogram scores many candidate tempos. The confidence is how far the chosen
 
 Bands were set the same way, from the fifths of the first half: low below 0.09, high from 0.45.
 
-Right up to an octave accepts a reported tempo within 4% of the annotation, or of half or double it, the same octaves the half or double alternative offers. Unlike Accuracy 2 it does not accept a third or three times the tempo.
+“Right modulo octaves” accepts a reported tempo within 4% of the annotation after multiplying it by 1/4, 1/2, 1, 2 or 4. It allows up to two doublings or halvings, unlike Accuracy 1, and does not accept tripling or dividing by three as Accuracy 2 does.
 
-| Tempo confidence | Share of the held out half | Right up to an octave | Accuracy 1 |
+| Tempo confidence | Share of the held out half | Right modulo octaves | Accuracy 1 |
 | --- | --- | --- | --- |
 | High | 39% | 97.7% | 82.9% |
 | Medium | 42% | 89.8% | 86.9% |
 | Low | 19% | 62.5% | 57.8% |
 
-On the first half the bands are right up to an octave 98.5%, 81.2% and 58.8% of the time. Accuracy 1 is not ordered between high and medium on the held out half because its misses are mostly octave errors, which the confidence does not rate: a tempo can be certain and still be counted at double.
+On the first half the bands are right modulo octaves 98.5%, 81.2% and 58.8% of the time. Accuracy 1 is not ordered between high and medium on the held out half because its misses are mostly octave errors, which the confidence does not rate: a tempo can be certain and still be counted at double.
 
 ### Half or double tempo
 
