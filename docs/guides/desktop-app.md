@@ -35,7 +35,7 @@ Your files are only read, until you choose to [write tags](#write-tags) into the
 | --- | --- |
 | Title | The title in the file's tags, or the file name when there is none |
 | Artist | The artist in the file's tags |
-| Key | The Camelot code, coloured by its number |
+| Key | The key's code, coloured by its Camelot number: Camelot (8A) unless you choose musical (Am) or Open Key (1m) in the [settings](#settings) |
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
@@ -63,7 +63,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence, and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
@@ -96,6 +96,12 @@ To give the table more room, fold the sidebar away. Any of these folds it, and t
 ## The inspector
 
 The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track. Below them, **Sound quality** gives the quality verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak.
+
+### How sure the key and the tempo are
+
+The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, beside the box's name. Low is shown in red, and puts the track under **Needs review**. Point at the word for what it means.
+
+When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". For now these are shown only; the track keeps the key and tempo Euphoria found.
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
@@ -167,10 +173,19 @@ Each file written, and each file put back by an undo, is recorded in the [analys
 
 Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.
 
+How keys and tempos are shown:
+
+| Setting | Choices |
+| --- | --- |
+| Keys | Camelot (8A), musical (Am) or Open Key (1m), in the table, the track detail, the mixes and the key timeline. The wheel keeps Camelot codes. Search finds a key in any of the three. |
+| Tempo range | House and techno, 90 to 180 (the default); hip hop, 70 to 140; drum and bass, 120 to 200; or a custom range of whole beats per minute, at most an octave wide, such as 80 up to 160. A track counted at half or double speed moves into the range. Nothing is analyzed again, and tags are written with the tempo as shown. A custom range that cannot be used is explained under it, and the last range that worked stays in use. [Choosing the range](../concepts/accuracy.md#choosing-the-range) says more. |
+
+How tags are written:
+
 | Setting | Choices |
 | --- | --- |
 | DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
-| Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. |
+| Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
 | Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. |
 | Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
 
@@ -196,7 +211,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
