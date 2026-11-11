@@ -734,6 +734,24 @@ pub fn write_detail(
         None => write_line(writer, theme, "Tempo", &theme.dim("none found"))?,
     }
 
+    if let Some(grid) = analysis.beat_grid {
+        write_line(
+            writer,
+            theme,
+            "Beat grid",
+            &format!(
+                "first downbeat at {:.3} s, {:.2} BPM",
+                grid.first_downbeat_seconds, grid.bpm
+            ),
+        )?;
+        write_line(
+            writer,
+            theme,
+            "",
+            &confidence_words(theme, grid.confidence()),
+        )?;
+    }
+
     match analysis.energy {
         Some(energy) => write_line(
             writer,
@@ -764,24 +782,6 @@ pub fn write_detail(
             }
             write_line(writer, theme, "Loudness", &text)?;
         }
-    }
-
-    if let Some(grid) = analysis.beat_grid {
-        write_line(
-            writer,
-            theme,
-            "Beat grid",
-            &format!(
-                "first downbeat at {:.3} s, {:.2} BPM",
-                grid.first_downbeat_seconds, grid.bpm
-            ),
-        )?;
-        write_line(
-            writer,
-            theme,
-            "",
-            &confidence_words(theme, grid.confidence()),
-        )?;
     }
 
     if let Some(cents) = analysis.tuning_cents {

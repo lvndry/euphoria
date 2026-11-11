@@ -66,6 +66,8 @@ Intro.m4a
                  runner up 9A  E minor
   Tempo          149.8 BPM
                  ●●● high confidence
+  Beat grid      first downbeat at 0.412 s, 149.82 BPM
+                 ●●○ medium confidence
   Energy         6 of 10  ━━━━━━────
   Sound quality  Weak on a big system
                  96 kbit/s. Fine for practice and small rooms; on a club system the top end and
