@@ -63,7 +63,7 @@ KEY_A = 0
 KEY_T = 17
 KEY_DOWN = 125
 SELECT_A_TAGGED_TRACK = [(KEY_DOWN, "")] * 2
-SELECT_THE_SAME_TRACK_SORTED_BY_KEY = [(KEY_DOWN, "")] * 10
+SELECT_A_TRACK_SORTED_BY_KEY = [(KEY_DOWN, "")] * 10
 OPEN_WRITE_TAGS = [(KEY_A, "cmd"), (KEY_T, "cmd,shift")]
 
 
@@ -95,7 +95,7 @@ def main():
             (
                 "key-first",
                 {"theme": "key-first", "selected": None},
-                SELECT_THE_SAME_TRACK_SORTED_BY_KEY,
+                SELECT_A_TRACK_SORTED_BY_KEY,
             ),
         ]
         for name, choices, keys in shots:
