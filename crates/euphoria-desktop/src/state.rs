@@ -302,14 +302,17 @@ impl Session {
                     self.library.record_outcome(&file, Ok(analysis));
                     self.cached_count += 1;
                 }
-                None => files_to_analyze.push(file),
+                None => files_to_analyze.push(file.clone()),
             }
-        }
-        for (file, correction) in scan.corrections {
-            self.library.set_correction(&file, correction);
-        }
-        for (file, cues) in scan.edited_cues {
-            self.library.set_edited_cues(&file, Some(cues));
+            // A scan can finish after an edit in the window. Only new
+            // tracks need its snapshot; existing tracks already hold the
+            // current edits, including resets to the automatic values.
+            if let Some(correction) = scan.corrections.remove(&file) {
+                self.library.set_correction(&file, correction);
+            }
+            if let Some(cues) = scan.edited_cues.remove(&file) {
+                self.library.set_edited_cues(&file, Some(cues));
+            }
         }
         let queued = files_to_analyze.len();
         self.progress.enqueue(queued);
@@ -605,6 +608,67 @@ mod tests {
             reopened.analysis().is_some(),
             "the analysis came from the cache"
         );
+    }
+
+    #[test]
+    fn a_late_scan_does_not_replace_cues_edited_or_reset_since_it_started() {
+        let path = PathBuf::from("/tracks/edited.wav");
+        let cue = |name: &str| euphoria_core::Cue {
+            seconds: 0.5,
+            name: name.to_string(),
+            hot_cue: None,
+        };
+        for current in [Some(vec![cue("New edit")]), None] {
+            let mut session = Session::start(None).unwrap();
+            let mut track = crate::demo::tracks(1).remove(0);
+            track.path = path.clone();
+            session.add_demo_tracks(vec![track]);
+            let mut pending = Scan {
+                files: vec![path.clone()],
+                ..Scan::default()
+            };
+            pending
+                .edited_cues
+                .insert(path.clone(), vec![cue("Before")]);
+
+            session.set_edited_cues(&path, current.clone());
+            session.add(pending);
+
+            assert_eq!(
+                session.library().track_by_path(&path).unwrap().edited_cues,
+                current
+            );
+        }
+    }
+
+    #[test]
+    fn a_late_scan_does_not_replace_a_correction_edited_or_reset_since_it_started() {
+        let path = PathBuf::from("/tracks/corrected.wav");
+        for current in [
+            euphoria_core::Correction::of_bpm(90.0).unwrap(),
+            euphoria_core::Correction::default(),
+        ] {
+            let mut session = Session::start(None).unwrap();
+            let mut track = crate::demo::tracks(1).remove(0);
+            track.path = path.clone();
+            session.add_demo_tracks(vec![track]);
+            let mut pending = Scan {
+                files: vec![path.clone()],
+                ..Scan::default()
+            };
+            pending.corrections.insert(
+                path.clone(),
+                euphoria_core::Correction::of_bpm(120.0).unwrap(),
+            );
+
+            session.set_correction(&path, current);
+            session.add(pending);
+
+            assert_eq!(
+                session.library().track_by_path(&path).unwrap().correction,
+                current
+            );
+        }
     }
 
     #[test]
