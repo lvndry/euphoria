@@ -210,16 +210,26 @@ fn run(cli: Cli) -> Result<ExitCode> {
 
 fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
     let cache_path = default_cache_path().map_err(with_causes)?;
+    let mut standard_output = std::io::stdout().lock();
     match command {
-        CacheCommand::Path => println!("{}", cache_path.display()),
+        CacheCommand::Path => writeln!(standard_output, "{}", cache_path.display())?,
         CacheCommand::Clear => {
             if clear_cache(&cache_path).map_err(with_causes)? {
-                println!("Cleared the cache at {}", cache_path.display());
+                writeln!(
+                    standard_output,
+                    "Cleared the cache at {}",
+                    cache_path.display()
+                )?;
             } else {
-                println!("There is no cache at {}", cache_path.display());
+                writeln!(
+                    standard_output,
+                    "There is no cache at {}",
+                    cache_path.display()
+                )?;
             }
         }
     }
+    standard_output.flush()?;
     Ok(ExitCode::SUCCESS)
 }
 

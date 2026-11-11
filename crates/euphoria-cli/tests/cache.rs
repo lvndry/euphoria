@@ -480,3 +480,33 @@ fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
         .expect("a schema version");
     assert_eq!(version, 8);
 }
+
+#[cfg(unix)]
+#[test]
+fn cache_commands_treat_a_closed_output_pipe_as_a_finished_reader() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::Stdio;
+
+    for arguments in [["cache", "path"], ["cache", "clear"]] {
+        let euphoria = Euphoria::new();
+        let (reader, writer) = UnixStream::pair().unwrap();
+        drop(reader);
+        let output = euphoria
+            .command(&arguments)
+            .stdout(Stdio::from(OwnedFd::from(writer)))
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}",
+            standard_error(&output)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{arguments:?}: {}",
+            standard_error(&output)
+        );
+    }
+}
