@@ -10,18 +10,15 @@ const TAPS: usize = 2 * HALF_TAPS;
 /// Points computed between two samples: a quarter, a half and three
 /// quarters of the way.
 const PHASES: usize = 3;
-/// The points between two samples are computed only when one of the two
-/// samples reaches this share of the highest peak found so far. Between
-/// two smaller samples, a band limited signal does not rise that far: the
-/// overshoot of an inter-sample peak stays well under 6 dB for music.
-const NEAR_PEAK: f32 = 0.5;
 
 /// The highest true peak over every channel, estimated by interpolating
 /// four times between samples with a windowed sinc filter. Interpolation
-/// runs only near the loudest samples, which keeps it cheap: a loud master
-/// has few samples within 6 dB of its peak.
+/// is skipped only when a bound on all filter taps proves that the current
+/// peak cannot be exceeded.
 pub(crate) struct TruePeakMeter {
     coefficients: [[f32; TAPS]; PHASES],
+    maximum_gain: f32,
+    history_peaks: Vec<f32>,
     /// The last `TAPS` samples of each channel, oldest first, in a ring.
     history: Vec<[f32; TAPS]>,
     position: usize,
@@ -31,8 +28,16 @@ pub(crate) struct TruePeakMeter {
 
 impl Default for TruePeakMeter {
     fn default() -> Self {
+        let coefficients = coefficients();
+        let maximum_gain = coefficients
+            .iter()
+            .map(|phase| phase.iter().map(|weight| weight.abs()).sum::<f32>())
+            .fold(0.0_f32, f32::max)
+            * (1.0 + 2.0 * TAPS as f32 * f32::EPSILON);
         Self {
-            coefficients: coefficients(),
+            coefficients,
+            maximum_gain,
+            history_peaks: Vec::new(),
             history: Vec::new(),
             position: 0,
             filled: 0,
@@ -47,12 +52,23 @@ impl TruePeakMeter {
         let channel_count = channel_count.max(1);
         if self.history.len() != channel_count {
             self.history = vec![[0.0; TAPS]; channel_count];
+            self.history_peaks = vec![0.0; channel_count];
             self.position = 0;
             self.filled = 0;
         }
         for frame in interleaved.chunks_exact(channel_count) {
             for (channel, sample) in frame.iter().enumerate() {
+                let previous = self.history[channel][self.position].abs();
                 self.history[channel][self.position] = *sample;
+                let history_peak = &mut self.history_peaks[channel];
+                if sample.abs() >= *history_peak {
+                    *history_peak = sample.abs();
+                } else if previous >= *history_peak {
+                    *history_peak = self.history[channel]
+                        .iter()
+                        .map(|sample| sample.abs())
+                        .fold(0.0_f32, f32::max);
+                }
                 self.peak = self.peak.max(sample.abs());
             }
             self.position = (self.position + 1) % TAPS;
@@ -70,9 +86,9 @@ impl TruePeakMeter {
     fn interpolate(&mut self, channel: usize) {
         let ring = &self.history[channel];
         let sample_at = |offset: usize| ring[(self.position + offset) % TAPS];
-        let before = sample_at(HALF_TAPS - 1).abs();
-        let after = sample_at(HALF_TAPS).abs();
-        if before.max(after) < self.peak * NEAR_PEAK {
+        // Every tap contributes to the bound, including those outside the
+        // two middle samples. The absolute coefficient sum bounds the gain.
+        if self.history_peaks[channel] * self.maximum_gain < self.peak {
             return;
         }
         for phase in &self.coefficients {
@@ -180,6 +196,51 @@ mod tests {
                 (found - actual).abs() < 0.1,
                 "{frequency}: {found} against {actual}"
             );
+        }
+    }
+
+    #[test]
+    fn surrounding_taps_can_peak_above_quiet_middle_samples() {
+        let samples = [
+            -1.0, 1.0, -1.0, 1.0, -1.0, 0.49, 0.49, -1.0, 1.0, -1.0, 1.0, -1.0,
+        ];
+        let mut meter = TruePeakMeter::default();
+        meter.add(&samples[..7], 1);
+        meter.add(&samples[7..], 1);
+        // The half-sample phase reaches 1.3227458 even though both middle
+        // samples are below half the sample peak.
+        assert!((meter.decibels().unwrap() - 2.429_525).abs() < 0.001);
+    }
+
+    #[test]
+    fn skipped_interpolations_cannot_change_the_peak() {
+        let mut state = 0x2545_f491_u32;
+        for _ in 0..2_048 {
+            let samples: Vec<f32> = (0..40)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    state as f32 / u32::MAX as f32 * 2.0 - 1.0
+                })
+                .collect();
+            let mut meter = TruePeakMeter::default();
+            meter.add(&samples, 1);
+            let sample_peak = samples
+                .iter()
+                .map(|sample| sample.abs())
+                .fold(0.0_f32, f32::max);
+            let expected = samples.windows(TAPS).fold(sample_peak, |peak, window| {
+                coefficients().iter().fold(peak, |peak, phase| {
+                    let value: f32 = phase
+                        .iter()
+                        .zip(window)
+                        .map(|(weight, sample)| weight * sample)
+                        .sum();
+                    peak.max(value.abs())
+                })
+            });
+            assert!((meter.decibels().unwrap() - 20.0 * expected.log10()).abs() < 1.0e-5);
         }
     }
 
