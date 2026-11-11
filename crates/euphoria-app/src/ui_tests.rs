@@ -793,14 +793,101 @@ fn the_toolbar_button_folds_the_sidebar_in_the_strip_layout_too(cx: &mut TestApp
     );
 }
 
+/// The shortcut that folds the sidebar on the platform the tests run on.
+const SIDEBAR_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "ctrl-cmd-s"
+} else {
+    "ctrl-alt-s"
+};
+
 #[gpui::test]
 fn the_keyboard_shortcut_folds_the_sidebar_and_brings_it_back(cx: &mut TestAppContext) {
     fold_and_unfold(
         ThemeName::Graphite,
-        |window, cx| window.press("ctrl-cmd-s", cx),
-        |window, cx| window.press("ctrl-cmd-s", cx),
+        |window, cx| window.press(SIDEBAR_SHORTCUT, cx),
+        |window, cx| window.press(SIDEBAR_SHORTCUT, cx),
         cx,
     );
+}
+
+#[gpui::test]
+fn the_empty_first_run_window_has_no_track_detail_to_resize(cx: &mut TestAppContext) {
+    for theme in [ThemeName::Slate, ThemeName::Deck] {
+        let (window, _) = open_window_with(
+            Vec::new(),
+            Box::new(SilentOutput),
+            Settings {
+                theme,
+                ..Settings::default()
+            },
+            None,
+            USUAL_WINDOW,
+            cx,
+        );
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("all-tracks").is_some(), "{theme:?}");
+            assert!(window.try_find("inspector").is_none(), "{theme:?}");
+            assert!(window.try_find("panel-edge").is_none(), "{theme:?}");
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn the_inspector_edge_lands_under_the_pointer_with_the_sidebar_shown_or_folded(
+    cx: &mut TestAppContext,
+) {
+    for sidebar_folded in [false, true] {
+        let panels = Panels {
+            sidebar_folded,
+            ..Panels::default()
+        };
+        let (window, view) = open_arranged(ThemeName::Slate, panels, USUAL_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            for pointer_x in [1_000.0, 1_100.0, 900.0] {
+                drag_edge_to(window, gpui::point(px(pointer_x), px(400.0)), cx);
+                let inspector = window.find("inspector").bounds();
+                let edge = window.find("panel-edge").bounds();
+                assert_eq!(inspector.left(), px(pointer_x), "folded {sidebar_folded}");
+                assert_eq!(edge.center().x, px(pointer_x), "folded {sidebar_folded}");
+                assert_eq!(window.find(track(0)).bounds().right(), px(pointer_x));
+            }
+        })
+        .unwrap();
+        cx.update(|cx| assert_eq!(view.read(cx).panels.inspector_width, 540));
+    }
+}
+
+#[gpui::test]
+fn everything_in_the_strip_fits_at_its_shortest(cx: &mut TestAppContext) {
+    let shortest = Panels {
+        strip_height: 0,
+        ..Panels::default()
+    };
+    for window_size in [USUAL_WINDOW, SMALLEST_WINDOW] {
+        let (window, _) = open_arranged(ThemeName::Deck, shortest, window_size, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let strip = window.find("inspector").bounds();
+            assert_eq!(strip.size.height, px(124.0));
+            let inside_bottom = strip.bottom() - px(16.0);
+            for part in ["waveform", "play-button"] {
+                let bounds = window.find(part).bounds();
+                assert!(
+                    bounds.top() >= strip.top(),
+                    "{part}: {bounds:?} in {strip:?}"
+                );
+                assert!(
+                    bounds.bottom() <= inside_bottom,
+                    "{part}: {bounds:?} in {strip:?}"
+                );
+            }
+            assert!(window.find("waveform").bounds().size.height >= px(64.0));
+        })
+        .unwrap();
+    }
 }
 
 #[gpui::test]
