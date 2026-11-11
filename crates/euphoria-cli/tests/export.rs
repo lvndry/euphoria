@@ -1418,3 +1418,45 @@ fn cued_tracks_that_match_no_file_stop_the_export_unless_allowed() {
     );
     assert!(!exported_cues(&allowed_file).is_empty());
 }
+
+#[test]
+fn unmatched_collection_metadata_cannot_rewrite_terminal_messages() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let collection = folder.path().join("collection.xml");
+    let output_file = folder.path().join("export.xml");
+    std::fs::write(
+        &collection,
+        "<DJ_PLAYLISTS><COLLECTION>\
+        <TRACK Name=\"fake&#13;forged&#10;error: spoofed\" Artist=\"\u{202e}\" \
+        Location=\"file://localhost/definitely-absent.mp3\"><POSITION_MARK Start=\"1\"/></TRACK>\
+        </COLLECTION></DJ_PLAYLISTS>",
+    )
+    .unwrap();
+    let track = fixtures_directory().join("sine-440hz-mono.flac");
+    let output = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&output_file),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+        "--allow-unmatched-cued-tracks",
+    ]);
+    assert_success(&output);
+    let message = standard_error(&output);
+    assert!(!message.contains(['\r', '\u{202e}']), "{message:?}");
+    assert!(
+        message.contains("fake\\rforged\\nerror: spoofed by \\u{202e}"),
+        "{message:?}"
+    );
+    assert!(
+        !message
+            .lines()
+            .any(|line| line
+                == "error: spoofed by \u{202e} at file://localhost/definitely-absent.mp3")
+    );
+}

@@ -239,3 +239,25 @@ fn a_cache_made_unreadable_after_analysis_stops_tag_writing_but_not_analysis() {
         standard_error(&shown)
     );
 }
+
+#[test]
+fn manual_tag_edits_after_cache_clear_keep_the_users_corrections() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+    assert_success(&euphoria.run(&["cache", "clear"]));
+    assert_success(&euphoria.run(&[
+        "tags",
+        "set",
+        "--field",
+        "genre=Techno",
+        "--yes",
+        text(&track),
+    ]));
+    let shown = euphoria.run(&["analyze", "--json", text(&track)]);
+    assert_success(&shown);
+    let tracks: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(tracks[0]["key"]["camelot"], "9A");
+    assert_eq!(tracks[0]["bpm"], 87.0);
+    assert_eq!(tracks[0]["set_by_user"], serde_json::json!(["key", "bpm"]));
+}

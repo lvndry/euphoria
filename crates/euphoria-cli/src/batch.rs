@@ -60,6 +60,17 @@ impl AnalysisOptions {
 /// cannot be used is a warning on standard error, and the files are
 /// analyzed without it.
 pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<CachedBatch> {
+    let batch = analyze_in_default_range(audio_files, options)?;
+    Ok(in_tempo_range(batch, options.tempo_range))
+}
+
+/// Runs the same batch while retaining the detected analysis in the default
+/// range. Tag writers keep this copy for the cache, since projecting a grid
+/// into shorter bars can discard its original downbeat phase.
+pub fn analyze_in_default_range(
+    audio_files: &[PathBuf],
+    options: &AnalysisOptions,
+) -> Result<CachedBatch> {
     let policy = if options.no_cache {
         None
     } else if options.reanalyze {
@@ -130,7 +141,7 @@ pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<Cac
     };
     count_bar.finish_and_clear();
     let _ = progress.clear();
-    Ok(in_tempo_range(batch, options.tempo_range))
+    Ok(batch)
 }
 
 /// Runs the batch with `observer` watching each file, with the cache when

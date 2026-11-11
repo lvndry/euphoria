@@ -431,3 +431,43 @@ fn help_ends_with_examples() {
         assert!(!help.contains('\u{1b}'), "{arguments:?}: {help:?}");
     }
 }
+
+#[test]
+fn an_empty_filtered_detail_explains_why_the_track_is_not_shown() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.flac");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--no-cache",
+        "--detail",
+        "--quality",
+        "weak",
+        fixture.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", standard_error(&output));
+    assert!(output.stdout.is_empty());
+    assert!(
+        standard_error(&output)
+            .starts_with("Showing 0 of 1 track, those with sound quality weak on a big system.\n"),
+        "{}",
+        standard_error(&output)
+    );
+}
+
+#[test]
+fn a_literal_path_after_double_dash_cannot_change_the_colour_policy() {
+    let euphoria = Euphoria::new();
+    let folder = support::TemporaryFolder::new();
+    std::fs::create_dir(folder.path().join("--color=always")).unwrap();
+    let output = euphoria
+        .command(&["--color", "never", "analyze", "--", "--color=always"])
+        .current_dir(folder.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(
+        !output.stderr.contains(&0x1b),
+        "{:?}",
+        standard_error(&output)
+    );
+    assert!(standard_error(&output).contains("no audio files found"));
+}

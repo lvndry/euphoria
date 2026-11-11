@@ -27,8 +27,12 @@ update_package_lists() {
   # apt-get update only warns when a mirror cannot be reached, so the
   # warnings are turned into a failure that the retry can see.
   local output
-  output="$(sudo apt-get update 2>&1)"
+  local status=0
+  output="$(sudo apt-get update 2>&1)" || status=$?
   echo "$output"
+  if ((status != 0)); then
+    return "$status"
+  fi
   ! grep -q '^W: Failed to fetch\|^E: ' <<<"$output"
 }
 

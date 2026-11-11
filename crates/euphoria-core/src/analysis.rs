@@ -127,7 +127,15 @@ impl TrackAnalysis {
     /// shorter bar, so halving it again may not bring back the same one.
     pub fn with_tempo_range(mut self, range: TempoRange) -> Self {
         self.bpm = self.tempo_in(range);
-        self.beat_grid = self.beat_grid.map(|grid| grid.in_tempo_range(range));
+        self.beat_grid = self.beat_grid.map(|grid| {
+            if let Some(bpm) = self.bpm {
+                // Refinement can cross a range edge without changing the
+                // counted beat. Match the reported tempo's nearest octave.
+                grid.near_tempo(f64::from(bpm))
+            } else {
+                grid.in_tempo_range(range)
+            }
+        });
         self
     }
 

@@ -161,7 +161,12 @@ impl Replacement {
     /// Puts the new file in place of the original by renaming it over the
     /// original, which is one step: readers see the old file or the new
     /// one, and the original is whole until that step.
+    #[cfg(test)]
     pub(super) fn commit(self) -> Result<(), ErrorSource> {
+        self.commit_with_observer(|| {})
+    }
+
+    pub(super) fn commit_with_observer(self, after: impl FnOnce()) -> Result<(), ErrorSource> {
         if let Err(error) = self.file.sync_all() {
             // The sync error is the one reported.
             let _ = self.discard();
@@ -172,8 +177,9 @@ impl Replacement {
             let _ = self.discard();
             return Err(error.into());
         }
-        sync_directory(&self.target)?;
-        Ok(())
+        let synced = sync_directory(&self.target);
+        after();
+        synced.map_err(Into::into)
     }
 }
 

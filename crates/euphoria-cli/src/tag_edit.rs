@@ -17,6 +17,7 @@ use euphoria_core::tags::{
 use euphoria_core::{CachedAnalyzer, TrackAnalysis, default_cache_path, find_audio_files};
 
 use crate::batch::open_cache;
+use crate::rewrites::RewriteIdentities;
 use crate::style::Theme;
 use crate::tags::{Decision, Failure, decide, report_nothing_written};
 use crate::{output, with_causes};
@@ -159,8 +160,9 @@ impl SetArguments {
 pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
     let edits = arguments.edits()?;
     let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let theme = Theme::stderr();
     if audio_files.is_empty() {
-        eprintln!("No audio files found.");
+        output::write_no_audio_files(&mut std::io::stderr().lock(), &theme)?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -221,30 +223,33 @@ pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
 
     let log_directory = default_write_log_directory().map_err(with_causes)?;
     let mut log = WriteLog::new(&log_directory);
+    let mut identities = RewriteIdentities::new(true);
     let mut write_failures = Vec::new();
     let mut unrecorded = Vec::new();
     for (plan, analysis) in plans.iter().zip(&known) {
         let path = plan.path().to_path_buf();
-        let written = match log.apply(plan) {
-            Ok(LoggedWrite::Recorded) => true,
-            Ok(LoggedWrite::NotRecorded(error)) => {
-                unrecorded.push(Failure {
-                    path: path.clone(),
-                    error,
-                });
-                true
-            }
-            Err(error) => {
-                write_failures.push(Failure { path, error });
-                false
-            }
-        };
+        let written =
+            match log.apply_with_observer(plan, |path, stage| identities.observe(path, stage)) {
+                Ok(LoggedWrite::Recorded) => true,
+                Ok(LoggedWrite::NotRecorded(error)) => {
+                    unrecorded.push(Failure {
+                        path: path.clone(),
+                        error,
+                    });
+                    true
+                }
+                Err(error) => {
+                    write_failures.push(Failure { path, error });
+                    false
+                }
+            };
         if let (true, Some(cache), Some(analysis)) = (written, &cache, analysis)
             && let Err(error) = cache.record_retagged_file(plan.path(), analysis)
         {
             output::write_cache_record_warning(&mut standard_error, &theme, &error)?;
         }
     }
+    identities.report(&mut standard_error, &theme)?;
     output::write_tag_failures(&mut standard_error, &theme, &write_failures)?;
     output::write_unrecorded_tag_writes(&mut standard_error, &theme, &unrecorded)?;
     output::write_tag_write_summary(

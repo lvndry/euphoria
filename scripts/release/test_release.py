@@ -10,6 +10,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 import datetime
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -99,6 +100,24 @@ def finished(tag):
 
 
 class PlanTests(unittest.TestCase):
+    def test_a_failed_planner_stops_the_workflow_step(self):
+        workflow = (REPOSITORY / ".github/workflows/release.yml").read_text()
+        step = workflow.split("      - name: Choose a new version or the one to finish\n", 1)[1]
+        script = re.search(r"(?m)^        run: \|\n((?:          .*\n)+)", step)[1]
+        script = "\n".join(line[10:] for line in script.splitlines())
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            python = root / "python3"
+            python.write_text("#!/bin/sh\nexit 42\n")
+            python.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-e", "-c", script],
+                env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
+                     "GITHUB_OUTPUT": str(root / "output")},
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(result.returncode, 42, result.stderr)
+
     def test_a_release_carries_these_files(self):
         self.assertEqual(
             plan_release.expected_assets("2026.11.0"), RELEASE_FILES_OF_2026_11_0

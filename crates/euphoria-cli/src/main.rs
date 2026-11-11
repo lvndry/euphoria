@@ -9,6 +9,7 @@ mod export;
 mod help;
 mod output;
 mod playlists;
+mod rewrites;
 mod stages;
 mod style;
 mod tag_edit;
@@ -210,16 +211,26 @@ fn run(cli: Cli) -> Result<ExitCode> {
 
 fn manage_cache(command: CacheCommand) -> Result<ExitCode> {
     let cache_path = default_cache_path().map_err(with_causes)?;
+    let mut standard_output = std::io::stdout().lock();
     match command {
-        CacheCommand::Path => println!("{}", cache_path.display()),
+        CacheCommand::Path => writeln!(standard_output, "{}", cache_path.display())?,
         CacheCommand::Clear => {
             if clear_cache(&cache_path).map_err(with_causes)? {
-                println!("Cleared the cache at {}", cache_path.display());
+                writeln!(
+                    standard_output,
+                    "Cleared the cache at {}",
+                    cache_path.display()
+                )?;
             } else {
-                println!("There is no cache at {}", cache_path.display());
+                writeln!(
+                    standard_output,
+                    "There is no cache at {}",
+                    cache_path.display()
+                )?;
             }
         }
     }
+    standard_output.flush()?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -312,7 +323,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             output::write_failures(&mut report, &standard_error_theme, &results)?;
             needs_space = layout != Layout::PlainTable;
         }
-        let one_track_in_detail = layout == Layout::Detail && results.len() == 1;
+        let one_track_in_detail = layout == Layout::Detail
+            && results.len() == 1
+            && !arguments.needs_review
+            && verdicts.is_empty();
         if needs_space && (!one_track_in_detail || cached_count > 0) {
             writeln!(report)?;
         }

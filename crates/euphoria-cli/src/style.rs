@@ -36,8 +36,14 @@ pub fn init(choice: ColorChoice) {
 /// parsed so that the help and the errors of the parser follow it too.
 pub fn choice_in_arguments(arguments: &[std::ffi::OsString]) -> ColorChoice {
     let mut choice = ColorChoice::Auto;
-    let mut arguments = arguments.iter().filter_map(|argument| argument.to_str());
+    let mut arguments = arguments
+        .iter()
+        .skip(1)
+        .filter_map(|argument| argument.to_str());
     while let Some(argument) = arguments.next() {
+        if argument == "--" {
+            break;
+        }
         let value = if argument == "--color" {
             arguments.next()
         } else {
@@ -76,6 +82,7 @@ fn environment(name: &str) -> Option<String> {
 /// How text written to one stream is styled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
+    terminal: bool,
     colour: bool,
     true_colour: bool,
 }
@@ -84,6 +91,7 @@ impl Theme {
     /// No colour and no style at all, for tests.
     #[cfg(test)]
     pub const PLAIN: Theme = Theme {
+        terminal: false,
         colour: false,
         true_colour: false,
     };
@@ -91,6 +99,7 @@ impl Theme {
     /// Colour with 24 bit key hues, for tests.
     #[cfg(test)]
     pub const COLOURED: Theme = Theme {
+        terminal: false,
         colour: true,
         true_colour: true,
     };
@@ -101,6 +110,7 @@ impl Theme {
         let true_colour = environment("COLORTERM")
             .is_some_and(|value| matches!(value.as_str(), "truecolor" | "24bit"));
         Self {
+            terminal: is_terminal,
             colour,
             true_colour: colour && true_colour,
         }
@@ -114,6 +124,11 @@ impl Theme {
     /// The theme for standard error.
     pub fn stderr() -> Self {
         Self::for_stream(std::io::stderr().is_terminal())
+    }
+
+    /// Whether the stream is a terminal, independently of its colour policy.
+    pub fn is_terminal(&self) -> bool {
+        self.terminal
     }
 
     fn paint(&self, codes: &str, text: impl Display) -> String {
@@ -312,6 +327,22 @@ mod tests {
             ])),
             ColorChoice::Always
         );
+    }
+
+    #[test]
+    fn positional_paths_cannot_override_the_colour_flag() {
+        let arguments: Vec<std::ffi::OsString> = [
+            "euphoria",
+            "--color",
+            "never",
+            "analyze",
+            "--",
+            "--color=always",
+        ]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+        assert_eq!(choice_in_arguments(&arguments), ColorChoice::Never);
     }
 
     #[test]

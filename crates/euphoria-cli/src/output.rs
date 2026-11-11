@@ -24,13 +24,40 @@ use crate::tags::Failure;
 use crate::terminal::Printable;
 use crate::view::format_duration;
 
+/// Writes a labeled message, wrapping only for the stream's terminal.
+fn write_message(
+    writer: &mut impl Write,
+    theme: &Theme,
+    label: &str,
+    message: impl Display,
+) -> io::Result<()> {
+    let width = theme
+        .is_terminal()
+        .then(crate::view::standard_error_width)
+        .flatten();
+    write_message_at_width(writer, label, message, width)
+}
+
+fn write_message_at_width(
+    writer: &mut impl Write,
+    label: &str,
+    message: impl Display,
+    width: Option<usize>,
+) -> io::Result<()> {
+    let line = format!("{label} {message}\n");
+    match width {
+        Some(width) => writer.write_all(crate::view::wrap_lines(&line, width).as_bytes()),
+        None => writer.write_all(line.as_bytes()),
+    }
+}
+
 /// Writes `error: message`.
 pub fn write_error(
     writer: &mut impl Write,
     theme: &Theme,
     message: impl Display,
 ) -> io::Result<()> {
-    writeln!(writer, "{} {message}", theme.error_label())
+    write_message(writer, theme, &theme.error_label(), message)
 }
 
 /// Writes `warning: message`.
@@ -39,17 +66,17 @@ pub fn write_warning(
     theme: &Theme,
     message: impl Display,
 ) -> io::Result<()> {
-    writeln!(writer, "{} {message}", theme.warning_label())
+    write_message(writer, theme, &theme.warning_label(), message)
 }
 
 /// Writes `hint: message`, what to do next.
 pub fn write_hint(writer: &mut impl Write, theme: &Theme, message: impl Display) -> io::Result<()> {
-    writeln!(writer, "{} {message}", theme.hint_label())
+    write_message(writer, theme, &theme.hint_label(), message)
 }
 
 /// Writes `note: message`, something worth knowing that needs no action.
 pub fn write_note(writer: &mut impl Write, theme: &Theme, message: impl Display) -> io::Result<()> {
-    writeln!(writer, "{} {message}", theme.note_label())
+    write_message(writer, theme, &theme.note_label(), message)
 }
 
 /// Writes `error: file: reason` for a file something went wrong with.
@@ -706,7 +733,7 @@ pub fn write_unmatched_cued_tracks(
         },
     )?;
     for description in unmatched {
-        writeln!(writer, "  {description}")?;
+        writeln!(writer, "  {}", Printable(description))?;
     }
     Ok(())
 }
@@ -879,13 +906,22 @@ pub fn write_tag_write_summary(
     written_count: usize,
     failure_count: usize,
 ) -> io::Result<()> {
+    let completed = if failure_count == 0 {
+        "Wrote the tags of"
+    } else {
+        "Completed tag writes for"
+    };
     write!(
         writer,
-        "Wrote the tags of {}",
+        "{completed} {}",
         theme.bold(counted_files(written_count))
     )?;
     if failure_count > 0 {
-        write!(writer, ", {failure_count} failed and were not changed")?;
+        write!(
+            writer,
+            "; {} reported errors and their tags may have changed",
+            counted_files(failure_count)
+        )?;
     }
     writeln!(writer, ".")?;
     if written_count > 0 {
@@ -922,7 +958,7 @@ pub fn write_tag_undo_summary(
     if untouched_count > 0 {
         write!(
             writer,
-            ", {untouched_count} had not been changed by the write"
+            ", {untouched_count} already had their original tags"
         )?;
     }
     if failure_count > 0 {
@@ -1058,6 +1094,61 @@ mod tests {
         let mut buffer = Vec::new();
         write_analysis_summary(&mut buffer, &Theme::PLAIN, results, narrowing).unwrap();
         String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn direct_messages_wrap_without_splitting_words_or_changing_piped_bytes() {
+        let message = "nothing was written because standard input is not a terminal; run again with --yes or --dry-run.";
+        let mut terminal = Vec::new();
+        write_message_at_width(
+            &mut terminal,
+            &Theme::COLOURED.error_label(),
+            message,
+            Some(40),
+        )
+        .unwrap();
+        let terminal = String::from_utf8(terminal).unwrap();
+        let plain = console::strip_ansi_codes(&terminal);
+        assert!(plain.lines().count() > 1);
+        assert!(
+            plain
+                .lines()
+                .all(|line| console::measure_text_width(line) <= 40)
+        );
+        assert_eq!(
+            plain.split_whitespace().collect::<Vec<_>>(),
+            format!("error: {message}")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+        );
+        let mut piped = Vec::new();
+        write_message_at_width(&mut piped, "error:", message, None).unwrap();
+        assert_eq!(
+            String::from_utf8(piped).unwrap(),
+            format!("error: {message}\n")
+        );
+    }
+
+    #[test]
+    fn undo_counts_files_that_already_have_their_original_tags() {
+        let mut output = Vec::new();
+        write_tag_undo_summary(&mut output, &Theme::PLAIN, 0, 2, 0).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "Restored the tags of 0 files, 2 already had their original tags.\n"
+        );
+    }
+
+    #[test]
+    fn tag_write_errors_do_not_promise_that_the_files_are_unchanged() {
+        let mut output = Vec::new();
+        write_tag_write_summary(&mut output, &Theme::PLAIN, 0, 1).unwrap();
+        let report = String::from_utf8(output).unwrap();
+        assert_eq!(
+            report,
+            "Completed tag writes for 0 files; 1 file reported errors and their tags may have changed.\n"
+        );
+        assert!(!report.contains("were not changed"));
     }
 
     #[test]
