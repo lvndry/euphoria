@@ -810,17 +810,42 @@ impl EuphoriaApp {
     }
 
     /// Shows tempos in the range of `preset`.
-    pub(crate) fn set_tempo_preset(&mut self, preset: TempoPreset, cx: &mut Context<'_, Self>) {
+    pub(crate) fn set_tempo_preset(
+        &mut self,
+        preset: TempoPreset,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.is_custom_tempo_range = false;
         self.tempo_range_problem = None;
         self.use_tempo_range(preset.setting(), cx);
+        self.show_tempo_range_in_inputs(window, cx);
     }
 
     /// Shows the fields of a custom tempo range, starting from the range in
     /// use, and uses what is typed in them.
-    pub(crate) fn choose_custom_tempo_range(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn choose_custom_tempo_range(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.is_custom_tempo_range = true;
+        self.tempo_range_problem = None;
+        self.show_tempo_range_in_inputs(window, cx);
         cx.notify();
+    }
+
+    /// Writes the range in use into both custom fields, so that editing one
+    /// of them starts from the range on show. Setting a field's text this
+    /// way sends no change, so nothing is applied half updated.
+    fn show_tempo_range_in_inputs(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        let range = self.display.tempo_range;
+        self.tempo_from_input.update(cx, |input, cx| {
+            input.set_value(range.slowest.to_string(), window, cx);
+        });
+        self.tempo_to_input.update(cx, |input, cx| {
+            input.set_value(range.fastest.to_string(), window, cx);
+        });
     }
 
     /// Uses the custom range typed, or says why it cannot be used.

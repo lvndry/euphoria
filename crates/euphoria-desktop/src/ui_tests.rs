@@ -2854,3 +2854,34 @@ fn the_key_display_setting_spells_keys_in_the_table_and_is_remembered(cx: &mut T
         crate::tag_settings::NotationChoice::OpenKey
     );
 }
+
+#[gpui::test]
+fn custom_starts_from_the_preset_in_use_so_editing_one_field_keeps_the_other(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_tracks_to_review(None, cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
+    click(window, ("tempo-preset", 1_usize), cx);
+    click(window, "tempo-custom", cx);
+    let typed = |view: &Entity<EuphoriaApp>, cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            (
+                app.tempo_from_input.read(cx).value().to_string(),
+                app.tempo_to_input.read(cx).value().to_string(),
+            )
+        })
+    };
+    assert_eq!(typed(&view, cx), ("70".to_string(), "140".to_string()));
+
+    retype(window, "tempo-from", "75", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let range = app.session.library().tempo_range();
+        assert_eq!((range.slowest(), range.fastest()), (75.0, 140.0));
+        assert!(app.tempo_range_problem.is_none());
+    });
+
+    click(window, ("tempo-preset", 2_usize), cx);
+    assert_eq!(typed(&view, cx), ("120".to_string(), "200".to_string()));
+}

@@ -89,14 +89,16 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                 current_preset == Some(preset),
                 &palette,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.set_tempo_preset(preset, cx)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.set_tempo_preset(preset, window, cx);
+            }))
             .test_support()
             .into_any_element()
         })
         .collect();
     tempo_choices.push(
         choice_button("tempo-custom", "Custom", current_preset.is_none(), &palette)
-            .on_click(cx.listener(|this, _, _, cx| this.choose_custom_tempo_range(cx)))
+            .on_click(cx.listener(|this, _, window, cx| this.choose_custom_tempo_range(window, cx)))
             .test_support()
             .into_any_element(),
     );

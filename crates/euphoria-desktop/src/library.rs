@@ -391,7 +391,9 @@ impl Library {
         self.tempo_range = range;
         for track in &mut self.tracks {
             if let TrackStatus::Analyzed(analysis) = &mut track.status {
-                *analysis = analysis.clone().with_tempo_range(range);
+                // The same as `with_tempo_range`, in place, so the rest of
+                // the analysis, such as its key timeline, is not copied.
+                analysis.bpm = analysis.tempo_in(range);
             }
         }
         self.revision += 1;
@@ -807,6 +809,45 @@ mod tests {
             Some(75.0),
             "a result that comes in later"
         );
+    }
+
+    #[test]
+    fn a_range_set_in_place_gives_the_tempos_a_new_analysis_would() {
+        let mut library = Library::default();
+        let paths = [
+            "/music/a.mp3",
+            "/music/b.mp3",
+            "/music/c.mp3",
+            "/music/d.mp3",
+        ];
+        library.add_files(paths.map(PathBuf::from).to_vec());
+        let estimates = [87.0, 124.0, 150.0, 61.5];
+        for (path, estimate) in paths.iter().zip(estimates) {
+            library.record_outcome(Path::new(path), Ok(rated(0.02, estimate, 0.6)));
+        }
+        let mut no_estimate = analysis(Some("A minor"), Some(95.0), 300.0);
+        no_estimate.key_timeline = vec![euphoria_core::KeySection {
+            start_seconds: 0.0,
+            end_seconds: 300.0,
+            key: "A minor".parse().unwrap(),
+        }];
+        library.add_files(vec![PathBuf::from("/music/e.mp3")]);
+        library.record_outcome(Path::new("/music/e.mp3"), Ok(no_estimate.clone()));
+
+        for range in [
+            TempoRange::new(70.0, 140.0).unwrap(),
+            TempoRange::new(120.0, 200.0).unwrap(),
+            TempoRange::DEFAULT,
+        ] {
+            library.set_tempo_range(range);
+            for track in library.tracks() {
+                let analysis = track.analysis().unwrap();
+                let expected = analysis.clone().with_tempo_range(range);
+                assert_eq!(analysis.bpm, expected.bpm, "{range}");
+            }
+        }
+        let kept = library.tracks()[4].analysis().unwrap();
+        assert_eq!(kept.key_timeline, no_estimate.key_timeline);
     }
 
     #[test]
