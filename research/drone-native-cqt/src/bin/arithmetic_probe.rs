@@ -150,7 +150,7 @@ mod tests {
     }
     #[test]
     fn half_tie_preserves_nearest_even_boundary() {
-        let midpoint = 1.00048828125f32;
+        let midpoint = f32::from_bits(0x3f80_1000); // exactly 1 + 2^-11
         assert_eq!(tie(midpoint)["signed_distance"], 0.0);
         assert_eq!(half::f16::from_f32(midpoint).to_bits(), 0x3c00);
         assert_eq!(
