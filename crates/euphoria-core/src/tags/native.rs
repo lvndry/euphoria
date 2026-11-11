@@ -575,6 +575,15 @@ impl TagFile {
         })
     }
 
+    /// The major version of the file's ID3v2 tag, for a file that has
+    /// one: 2, 3 or 4.
+    pub(super) fn id3_version(&self) -> Option<u8> {
+        match &self.document {
+            Document::Id3(file) => Some(file.tag.version()),
+            Document::Mp4(_) | Document::Flac(_) => None,
+        }
+    }
+
     pub(super) fn format(&self) -> TagFormat {
         match self.document {
             Document::Id3(_) => TagFormat::Id3v2,

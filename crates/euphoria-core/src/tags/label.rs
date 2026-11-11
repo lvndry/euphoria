@@ -178,6 +178,35 @@ fn without_trailing_label<'a>(text: &'a str, new_label: &str, recognise: Recogni
         .map_or(text, |(index, _)| &text[..index])
 }
 
+/// `text` cut into the label it starts with, the user's own text, and the
+/// label it ends with. Only labels with an energy rating are taken for
+/// labels here, the shape Euphoria writes, so that text of the user's that
+/// merely starts with a key stays theirs.
+pub(super) fn split_labels(text: &str) -> (Option<&str>, &str, Option<&str>) {
+    let without_leading = without_leading_label(text, "", Recognise::WithEnergy);
+    let leading = (without_leading.len() < text.len()).then(|| {
+        let label_end = text.len() - without_leading.len();
+        text[..label_end]
+            .strip_suffix(SEPARATOR)
+            .unwrap_or(&text[..label_end])
+    });
+    let own = without_trailing_label(without_leading, "", Recognise::WithEnergy);
+    let trailing = (own.len() < without_leading.len()).then(|| {
+        let rest = &without_leading[own.len()..];
+        rest.strip_prefix(SEPARATOR).unwrap_or(rest)
+    });
+    (leading, own, trailing)
+}
+
+/// Puts labels back around the user's own text.
+pub(super) fn join_labels(leading: Option<&str>, own: &str, trailing: Option<&str>) -> String {
+    [leading, (!own.is_empty()).then_some(own), trailing]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(SEPARATOR)
+}
+
 /// The new contents of a field that holds `existing`: the user's own text
 /// with `label` in front of it or after it. A label that an earlier write
 /// left there is taken out first, so the field never holds two.
@@ -331,6 +360,33 @@ mod tests {
         assert_eq!(
             with_label("9A - Energy 6", Some(&at_the_end), false),
             format!("9A - Energy 6 - {URL}")
+        );
+    }
+
+    #[test]
+    fn a_field_splits_into_its_labels_and_the_users_own_text() {
+        assert_eq!(
+            split_labels("8A - Energy 7 - Purchased at Beatport"),
+            (Some("8A - Energy 7"), "Purchased at Beatport", None)
+        );
+        assert_eq!(
+            split_labels("Purchased - Am - Energy 4"),
+            (None, "Purchased", Some("Am - Energy 4"))
+        );
+        assert_eq!(split_labels("Energy 5"), (Some("Energy 5"), "", None));
+        assert_eq!(split_labels("8A - side B"), (None, "8A - side B", None));
+        assert_eq!(split_labels(""), (None, "", None));
+        assert_eq!(
+            join_labels(Some("8A - Energy 7"), "Opener", None),
+            "8A - Energy 7 - Opener"
+        );
+        assert_eq!(
+            join_labels(Some("8A - Energy 7"), "", None),
+            "8A - Energy 7"
+        );
+        assert_eq!(
+            join_labels(None, "Opener", Some("Energy 3")),
+            "Opener - Energy 3"
         );
     }
 
