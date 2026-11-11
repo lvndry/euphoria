@@ -54,9 +54,10 @@ pub(crate) struct ChangeRules {
 /// Each window scores the track key at zero and every other key at how far
 /// it beats the track key, less [`ChangeRules::per_window_margin`], and
 /// [`steadiest_keys`] follows those scores with
-/// [`ChangeRules::change_penalty`] for every change. A section in another
-/// key shorter than [`ChangeRules::minimum_windows`] goes back to the track
-/// key. A window without evidence gets no key, as in [`steadiest_keys`].
+/// [`ChangeRules::change_penalty`] for every change. A run in another key
+/// with fewer than [`ChangeRules::minimum_windows`] evidence-bearing windows
+/// goes back to the track key. Windows without evidence get no key and do
+/// not break a run, as in [`steadiest_keys`].
 pub(crate) fn keys_against_track_key<const KEY_COUNT: usize>(
     window_scores: &[Option<[f64; KEY_COUNT]>],
     track_key: usize,
@@ -295,15 +296,33 @@ mod tests {
     }
 
     #[test]
-    fn a_key_clearly_ahead_for_long_enough_takes_over() {
+    fn a_key_clearly_ahead_for_three_windows_at_the_end_takes_over() {
         let mut scores = vec![ahead_of_the_track_key(0, 0.0); 6];
         scores.extend(vec![ahead_of_the_track_key(2, 0.045); 3]);
         let keys = keys_against_track_key(&scores, 0, RULES);
         assert_eq!(
             runs(&keys),
             [(0..6, Some(0)), (6..9, Some(2))],
-            "three windows of a modulation a fifth away are kept"
+            "a terminal section pays only for entering the other key"
         );
+    }
+
+    #[test]
+    fn an_internal_section_must_pay_for_both_entering_and_leaving() {
+        for (windows, accepted) in [(3, false), (6, true)] {
+            let mut scores = vec![ahead_of_the_track_key(0, 0.0); 6];
+            scores.extend(vec![ahead_of_the_track_key(2, 0.045); windows]);
+            scores.extend(vec![ahead_of_the_track_key(0, 0.0); 6]);
+            let keys = keys_against_track_key(&scores, 0, RULES);
+            let expected = if accepted { Some(2) } else { Some(0) };
+            assert!(keys[6..6 + windows].iter().all(|key| *key == expected));
+            assert!(
+                keys[..6]
+                    .iter()
+                    .chain(&keys[6 + windows..])
+                    .all(|key| *key == Some(0))
+            );
+        }
     }
 
     #[test]

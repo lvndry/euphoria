@@ -43,8 +43,10 @@ const HOPS_PER_WINDOW: usize = 8;
 /// window for half a minute. On synthesized chord progressions that move to
 /// another key, the new key wins by 0.04 to 0.05 per window when it is a
 /// fifth away and 0.2 when it is distant. The margin of 0.025 is the
-/// largest step of 0.005 with which a move a fifth away that lasts three
-/// windows, 22 seconds, still shows. Checked on the GiantSteps previews
+/// largest step of 0.005 with which a move a fifth away lasting three
+/// windows at the end of a track still shows. A section in the middle pays
+/// for entering and leaving, so the same lead needs more windows. Checked
+/// on the GiantSteps previews
 /// against the earlier rule, which followed the best key from window to
 /// window with a penalty of 0.1: previews with more than one section fell
 /// from 4.3% to 1.0% on the half the setting was chosen on and from 5.3% to
