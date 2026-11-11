@@ -31,6 +31,11 @@ const IDENTIFICATION_HEADER: u8 = 1;
 const COMMENT_HEADER: u8 = 3;
 const SETUP_HEADER: u8 = 5;
 const HEADER_PACKETS: usize = 3;
+/// The most the three header packets may hold together. Artwork kept in a
+/// comment makes the comment header large, but a few megabytes at most; a
+/// packet that keeps going past this is a damaged or hostile file, which is
+/// refused before it is read into memory.
+const MOST_HEADER_BYTES: usize = 64 * 1024 * 1024;
 
 /// One page header, without its segment table and checksum, which a
 /// rewrite works out again.
@@ -175,13 +180,26 @@ impl OggVorbisFile {
         let mut offset = 0;
         let mut first_page_end = 0;
         let mut serial_number = None;
+        let mut sequence_number: Option<u32> = None;
         let mut comment_segments = 0;
+        let mut header_bytes = 0;
         while packets.len() < HEADER_PACKETS {
             let read = read_page(file, offset)?;
             let is_first = offset == 0;
             if *serial_number.get_or_insert(read.page.serial_number) != read.page.serial_number {
                 return Err("the Ogg file holds more than one stream".into());
             }
+            header_bytes += read.data.len();
+            if header_bytes > MOST_HEADER_BYTES {
+                return Err("the Vorbis headers are larger than any real file's".into());
+            }
+            let expected_sequence = sequence_number.map_or(0, |previous| previous.wrapping_add(1));
+            if read.page.sequence_number != expected_sequence {
+                // The first page of a stream is page 0, and every page after
+                // it is numbered one more than the page before.
+                problem = Some("its Ogg pages are out of order");
+            }
+            sequence_number = Some(read.page.sequence_number);
             if is_first && read.page.flags & FIRST_PAGE == 0 {
                 return Err("the Ogg stream does not start where the file does".into());
             }
@@ -241,10 +259,8 @@ impl OggVorbisFile {
         if comment_end.first().is_none_or(|framing| framing & 1 == 0) {
             problem = Some("its Vorbis comment header is damaged");
         }
-        for (previous, next) in pages.iter().zip(pages.iter().skip(1)) {
-            if previous.sequence_number.wrapping_add(1) != next.sequence_number {
-                problem = Some("its Ogg pages are out of order");
-            }
+        if let Some(serial_number) = serial_number {
+            problem = problem.or(later_page_problem(file, offset, serial_number)?);
         }
         Ok(Self {
             identification: identification.clone(),
@@ -404,6 +420,37 @@ impl OggVorbisFile {
             bytes,
         }])
     }
+}
+
+/// What keeps the pages from `offset` on from being carried over as they
+/// are: a page of a stream other than `serial_number`, such as a second
+/// stream chained after the first, or something that is not an Ogg page.
+/// Only the page headers are read. A file that stops in the middle of its
+/// last page is not a problem: the bytes it has are carried over unchanged.
+fn later_page_problem(
+    file: &mut File,
+    offset: u64,
+    serial_number: u32,
+) -> Result<Option<&'static str>, ErrorSource> {
+    let length = file.metadata()?.len();
+    let mut offset = offset;
+    while offset + PAGE_HEADER_LENGTH <= length {
+        let header = read_exactly(file, offset, PAGE_HEADER_LENGTH)?;
+        if &header[..4] != CAPTURE_PATTERN {
+            return Ok(Some("something other than Ogg pages follows its headers"));
+        }
+        let serial = u32::from_le_bytes([header[14], header[15], header[16], header[17]]);
+        if serial != serial_number {
+            return Ok(Some("its Ogg file holds more than one stream"));
+        }
+        let segments = u64::from(header[26]);
+        let Ok(lacing) = read_exactly(file, offset + PAGE_HEADER_LENGTH, segments) else {
+            return Ok(None);
+        };
+        let data_length: u64 = lacing.iter().map(|value| u64::from(*value)).sum();
+        offset += PAGE_HEADER_LENGTH + segments + data_length;
+    }
+    Ok(None)
 }
 
 /// Whether a file that starts with `beginning` is an Ogg file.

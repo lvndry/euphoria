@@ -511,3 +511,93 @@ fn second_stream_among_the_header_pages_is_not_read() {
     );
     assert_eq!(all[0].serial_number, SERIAL_NUMBER);
 }
+
+/// `bytes` with every page renumbered by `number`, which gets the page's
+/// index, and its checksum computed again.
+fn renumbered(bytes: &[u8], number: impl Fn(usize) -> u32) -> Vec<u8> {
+    let mut output = Vec::new();
+    for (index, page) in pages(bytes).iter().enumerate() {
+        let mut page_bytes = page.bytes.clone();
+        page_bytes[18..22].copy_from_slice(&number(index).to_le_bytes());
+        page_bytes[22..26].fill(0);
+        let crc = checksum(&page_bytes);
+        page_bytes[22..26].copy_from_slice(&crc.to_le_bytes());
+        output.extend(page_bytes);
+    }
+    output
+}
+
+#[test]
+fn header_pages_out_of_order_are_read_but_not_rewritten() {
+    let comment = comment_header("numbered", &[b"TITLE=Numbered"], b"");
+    let file = ogg_file(&comment, 255, true);
+    let cases = [
+        (
+            "first-page-not-zero",
+            renumbered(&file, |index| index as u32 + 1),
+        ),
+        (
+            "gap-after-first-page",
+            renumbered(&file, |index| if index == 0 { 0 } else { index as u32 + 1 }),
+        ),
+    ];
+    for (name, bytes) in cases {
+        let path = scratch_file(name, &bytes);
+        assert_eq!(
+            read_tags(&path).expect(WORKS).title.as_deref(),
+            Some("Numbered"),
+            "{name}"
+        );
+        assert_refused(name, &bytes, "out of order");
+    }
+}
+
+#[test]
+fn second_stream_after_the_first_is_read_but_not_rewritten() {
+    let comment = comment_header("chained", &[b"TITLE=Chained"], b"");
+    let mut bytes = ogg_file(&comment, 255, false);
+    let mut other = page_bytes(0x02, 0, 0, &[4], b"next");
+    other[14..18].copy_from_slice(&9_u32.to_le_bytes());
+    other[22..26].fill(0);
+    let crc = checksum(&other);
+    other[22..26].copy_from_slice(&crc.to_le_bytes());
+    bytes.extend(other);
+    let path = scratch_file("chained", &bytes);
+    assert_eq!(
+        read_tags(&path).expect(WORKS).title.as_deref(),
+        Some("Chained")
+    );
+    assert_refused("chained", &bytes, "more than one stream");
+}
+
+#[test]
+fn data_that_is_not_ogg_after_the_pages_is_refused() {
+    let comment = comment_header("trailing", &[b"TITLE=Trailing"], b"");
+    let mut bytes = ogg_file(&comment, 255, false);
+    bytes.extend(b"TAG".iter().chain([0_u8; 125].iter()));
+    assert_refused("trailing", &bytes, "other than Ogg pages");
+}
+
+#[test]
+fn a_header_packet_that_never_ends_is_refused_before_it_fills_memory() {
+    // The comment header continues from page to page and never ends,
+    // for more than 64 MiB.
+    let mut bytes = ogg_file(&comment_header("short", &[], b""), 255, false);
+    bytes.truncate(pages(&bytes)[0].bytes.len());
+    let data = vec![b'x'; 255 * 255];
+    let mut packet_start = b"\x03vorbis".to_vec();
+    packet_start.extend(&data[packet_start.len()..]);
+    for index in 0..1100_u32 {
+        let flags = u8::from(index > 0);
+        let page = if index == 0 { &packet_start } else { &data };
+        bytes.extend(page_bytes(flags, u64::MAX, index + 1, &[255; 255], page));
+    }
+    let path = scratch_file("endless", &bytes);
+    let error = read_tags(&path).expect_err("the file is refused");
+    assert!(
+        error.chain().contains("larger than any real file"),
+        "{}",
+        error.chain()
+    );
+    std::fs::remove_file(&path).expect(WORKS);
+}

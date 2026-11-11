@@ -757,6 +757,11 @@ impl TagFile {
         after: &mut impl FnMut(),
     ) -> Result<(), ErrorSource> {
         let target = std::fs::canonicalize(&self.path)?;
+        // The new file is built from the original as it is now, with the
+        // changes worked out from the tag as it was loaded, so a file that
+        // changed since is refused before it is built from. The check is
+        // made again last thing before the replacement.
+        self.check_source_is_unchanged(&target)?;
         let mut original = File::open(&target)?;
         let mut splices = self.document.splices()?;
         let mut replacement = Replacement::start(&target)?;
