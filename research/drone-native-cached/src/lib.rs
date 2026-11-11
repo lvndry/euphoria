@@ -67,6 +67,9 @@ pub fn check_file(path: &Path, expected: &str) -> Result<()> {
 
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
+    pub complete: bool,
+    pub tracks: usize,
+    pub selected_tracks: usize,
     pub format: String,
     pub feature_spec: String,
     pub label_schema: String,
@@ -118,9 +121,16 @@ impl Manifest {
         ] {
             check_sha256(hash)?;
         }
-        ensure!(result.rows.len() == 376, "Require all 376 validation rows");
         ensure!(
-            result.rows.iter().filter(|r| r.selection20).count() == 20,
+            result.complete && result.tracks == 376 && result.selected_tracks == 20,
+            "Require complete=true, tracks=376 and selected_tracks=20"
+        );
+        ensure!(
+            result.rows.len() == result.tracks,
+            "Require all 376 validation rows"
+        );
+        ensure!(
+            result.rows.iter().filter(|r| r.selection20).count() == result.selected_tracks,
             "Require exactly 20 selected rows"
         );
         let mut identities = HashSet::new();
@@ -167,28 +177,129 @@ impl Manifest {
 }
 
 pub fn load_features(root: &Path, fixture: &Fixture) -> Result<Vec<f32>> {
-    let path = root.join(&fixture.path);
-    let expected_bytes = BANDS
-        .checked_mul(fixture.frames)
-        .and_then(|n| n.checked_mul(4))
-        .context("Feature dimensions overflow")?;
+    let root = std::fs::canonicalize(root)?;
+    let path = std::fs::canonicalize(root.join(&fixture.path))?;
     ensure!(
-        std::fs::metadata(&path)?.len() == u64::try_from(expected_bytes)?,
+        path.starts_with(&root),
+        "Fixture symlink escapes manifest directory"
+    );
+    let count = BANDS
+        .checked_mul(fixture.frames)
+        .context("Feature dimensions overflow")?;
+    let expected_bytes = count
+        .checked_mul(4)
+        .context("Feature dimensions overflow")?;
+    let mut file = File::open(&path)?;
+    ensure!(
+        file.metadata()?.len() == u64::try_from(expected_bytes)?,
         "Wrong feature byte count"
     );
-    let bytes = std::fs::read(&path)?;
+    // One initialized, correctly aligned allocation. All f32 bit patterns are
+    // valid Rust values, and bytemuck's safe cast exposes exactly these bytes.
+    let mut values = vec![0_f32; count];
+    let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut values);
+    file.read_exact(bytes)?;
     ensure!(
-        bytes_sha256(&bytes) == fixture.sha256,
+        bytes_sha256(bytes) == fixture.sha256,
         "Changed feature fixture"
     );
-    let values: Vec<_> = bytes
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect();
+    ensure!(
+        file.read(&mut [0_u8; 1])? == 0,
+        "Feature grew while being read"
+    );
+    // Digest original LE bytes before host conversion.
+    convert_le_values(&mut values, cfg!(target_endian = "big"));
     check_features(&values, fixture.frames)?;
     Ok(values)
+}
+
+fn convert_le_values(values: &mut [f32], swap: bool) {
+    if swap {
+        for value in values {
+            *value = f32::from_bits(value.to_bits().swap_bytes());
+        }
+    }
+}
+
+/// Bind paired measurements to CPU capabilities, kernel and host identity.
+pub fn hardware_identity() -> Result<serde_json::Value> {
+    let mut info = std::mem::MaybeUninit::<libc::utsname>::uninit();
+    // SAFETY: uname writes a complete utsname on success; checked before access.
+    let status = unsafe { libc::uname(info.as_mut_ptr()) };
+    ensure!(status == 0, "uname failed");
+    // SAFETY: initialized by successful uname above.
+    let info = unsafe { info.assume_init() };
+    let text = |array: &[libc::c_char]| -> Result<String> {
+        let bytes: Vec<_> = array.iter().map(|&x| x as u8).collect();
+        Ok(CStr::from_bytes_until_nul(&bytes)?.to_str()?.to_owned())
+    };
+    Ok(serde_json::json!({
+        "cpu":cpu_identity()?, "kernel_release":text(&info.release)?,
+        "kernel_version":text(&info.version)?, "machine":text(&info.machine)?,
+        "host_name_sha256":bytes_sha256(text(&info.nodename)?.as_bytes()),
+        "machine_id_sha256":std::fs::read("/etc/machine-id").ok().map(|b| bytes_sha256(&b)),
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn cpu_identity() -> Result<serde_json::Value> {
+    let source = std::fs::read_to_string("/proc/cpuinfo")?;
+    let mut descriptions = std::collections::BTreeSet::new();
+    for line in source.lines() {
+        if let Some((key, value)) = line.split_once(':') {
+            if [
+                "vendor_id",
+                "model name",
+                "cpu family",
+                "model",
+                "stepping",
+                "flags",
+                "CPU implementer",
+                "CPU architecture",
+                "CPU variant",
+                "CPU part",
+                "CPU revision",
+                "Features",
+            ]
+            .contains(&key.trim())
+            {
+                descriptions.insert(format!("{}:{}", key.trim(), value.trim()));
+            }
+        }
+    }
+    ensure!(!descriptions.is_empty(), "Missing CPU hardware identity");
+    Ok(serde_json::json!(descriptions))
+}
+
+#[cfg(target_os = "macos")]
+fn cpu_identity() -> Result<serde_json::Value> {
+    let mut size = 0;
+    // SAFETY: documented sysctl size query with valid static nul-terminated name.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"machdep.cpu.brand_string".as_ptr(),
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    ensure!(status == 0 && size > 0, "CPU model query failed");
+    let mut bytes = vec![0_u8; size];
+    // SAFETY: output buffer has the size returned by sysctl's size query.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"machdep.cpu.brand_string".as_ptr(),
+            bytes.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    ensure!(status == 0 && size <= bytes.len(), "CPU model read failed");
+    Ok(serde_json::json!(
+        CStr::from_bytes_until_nul(&bytes[..size])?.to_str()?
+    ))
 }
 
 pub fn check_features(values: &[f32], frames: usize) -> Result<()> {
@@ -546,4 +657,48 @@ pub fn median(values: &[f64]) -> Result<f64> {
     } else {
         sorted[middle]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn byte_order_conversion_preserves_exact_bits_and_signed_zero() {
+        let expected = [
+            1.0_f32,
+            -0.0,
+            -13.25,
+            f32::INFINITY,
+            f32::from_bits(0x7fc0_0123),
+        ];
+        let mut native = expected;
+        convert_le_values(&mut native, false);
+        assert_eq!(native.map(f32::to_bits), expected.map(f32::to_bits));
+        let mut swapped = expected.map(|x| f32::from_bits(x.to_bits().swap_bytes()));
+        convert_le_values(&mut swapped, true);
+        assert_eq!(swapped.map(f32::to_bits), expected.map(f32::to_bits));
+    }
+
+    #[test]
+    fn hardware_metadata_contains_cpu_kernel_and_machine_identity() -> Result<()> {
+        let hardware = hardware_identity()?;
+        assert!(!hardware["cpu"].is_null());
+        assert!(
+            hardware["kernel_release"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+        assert!(
+            hardware["kernel_version"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+        check_sha256(
+            hardware["host_name_sha256"]
+                .as_str()
+                .context("host identity")?,
+        )?;
+        Ok(())
+    }
 }

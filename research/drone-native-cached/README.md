@@ -43,6 +43,9 @@ Real-arithmetic equivalence does not promise bitwise floating-point parity.
 
 ```json
 {
+  "complete": true,
+  "tracks": 376,
+  "selected_tracks": 20,
   "format": "k10-core-f32le-v1",
   "feature_spec": "cqt24-8oct-c1-pad4-hop4096-v2",
   "label_schema": "tonic-times-two-plus-minor-v1",
@@ -69,8 +72,10 @@ Real-arithmetic equivalence does not promise bitwise floating-point parity.
 }
 ```
 
-Require exactly376 unique domain/id rows and exactly20 selected unique audio
-identities. Relative feature paths contain normal components only. Raw files
+Require complete=true, tracks=376, selected_tracks=20, exactly376 unique domain/id
+rows and exactly20 selected unique audio identities. Relative feature paths
+contain normal components only and canonical resolution must stay within the
+manifest directory, including through symlinks. Raw files
 are headerless, contiguous band-major `[192,T]` little-endian f32: take the
 original padded cache `[8:200]`, widen its FP16 values to FP32, **without recomputing
 or renormalizing features**. The raw hash is separate from source/cache hashes.
@@ -125,10 +130,15 @@ env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREA
 ```
 
 Reports bind the executable, compiled source, lockfile, ORT library, model,
-bundle and fixture hashes, CPU affinity and thread environment. Changing code or
+bundle and fixture hashes, CPU affinity and thread environment. CPU model and
+capabilities, kernel release/version, machine architecture and hashed host/machine
+identity prevent accidental pairing across different machines. Changing code or
 runtime requires validation again. Timings include input validation and tensor
 construction; fixture I/O/hash/parse time is reported separately. RSS covers the
-whole native process, including feature loading. Linux uses ru_maxrss KiB;
+whole native process, including feature loading. The reader fills one initialized
+Vec<f32> directly through a safe byte view, hashes original LE bytes, then converts
+endianness in place if needed; no second whole-feature byte allocation is held.
+Linux uses ru_maxrss KiB;
 macOS bytes are converted to KiB. CPU time includes all threads in this process.
 No child processes run. Process thread counts are reported on Linux.
 

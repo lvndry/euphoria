@@ -113,10 +113,51 @@ fn raw_little_endian_fixtures_are_finite_and_integrity_checked() -> Result<()> {
     };
     assert_eq!(load_features(&scratch.0, &fixture)?, values);
     assert!(check_file(&path, &"0".repeat(64)).is_err());
+    let mut changed = bytes.clone();
+    changed[0] ^= 1;
+    fs::write(&path, &changed)?;
+    let error = load_features(&scratch.0, &fixture).expect_err("changed fixture must fail");
+    assert!(error.to_string().contains("Changed feature fixture"));
+    fs::write(&path, &bytes)?;
     fixture.frames = 9;
+    assert!(load_features(&scratch.0, &fixture).is_err());
+    fixture.frames = 8;
+    let mut nonfinite = values.clone();
+    nonfinite[0] = f32::NAN;
+    let nonfinite_bytes: Vec<_> = nonfinite.iter().flat_map(|x| x.to_le_bytes()).collect();
+    fs::write(&path, &nonfinite_bytes)?;
+    fixture.sha256 = bytes_sha256(&nonfinite_bytes);
     assert!(load_features(&scratch.0, &fixture).is_err());
     assert!(check_features(&vec![0.0; BANDS * 7], 7).is_err());
     assert!(check_features(&vec![f32::INFINITY; BANDS * 8], 8).is_err());
+    Ok(())
+}
+
+#[test]
+fn feature_symlinks_must_resolve_inside_the_fixture_root() -> Result<()> {
+    let scratch = Scratch::new()?;
+    let outside = Scratch::new()?;
+    let bytes = vec![0_u8; BANDS * 8 * 4];
+    fs::write(outside.0.join("outside.f32"), &bytes)?;
+    fs::write(scratch.0.join("inside.f32"), &bytes)?;
+    std::os::unix::fs::symlink(outside.0.join("outside.f32"), scratch.0.join("escape.f32"))?;
+    std::os::unix::fs::symlink(scratch.0.join("inside.f32"), scratch.0.join("internal.f32"))?;
+    let mut fixture = Fixture {
+        id: "synthetic".to_owned(),
+        domain: "test".to_owned(),
+        frames: 8,
+        path: PathBuf::from("escape.f32"),
+        sha256: bytes_sha256(&bytes),
+        audio_sha256: "0".repeat(64),
+        cache_sha256: "1".repeat(64),
+        source_sha256: "1".repeat(64),
+        reference_logits: [0.0; 24],
+        selection20: false,
+    };
+    let error = load_features(&scratch.0, &fixture).expect_err("symlink escape must fail");
+    assert!(error.to_string().contains("escapes"));
+    fixture.path = PathBuf::from("internal.f32");
+    assert_eq!(load_features(&scratch.0, &fixture)?, vec![0.0; BANDS * 8]);
     Ok(())
 }
 
@@ -125,6 +166,7 @@ fn manifest_requires_unique_complete_public_validation_and_exact_version() -> Re
     let scratch = Scratch::new()?;
     let path = scratch.0.join("manifest.json");
     let mut manifest = json!({
+        "complete":true, "tracks":376, "selected_tracks":20,
         "format":"k10-core-f32le-v1", "feature_spec":drone_native_cached::FEATURE_SPEC,
         "label_schema":drone_native_cached::LABEL_SCHEMA, "layout":"bands,time",
         "dtype":"float32-le", "bands":192, "full_model_sha256":"0".repeat(64),
@@ -139,6 +181,22 @@ fn manifest_requires_unique_complete_public_validation_and_exact_version() -> Re
     });
     fs::write(&path, serde_json::to_vec(&manifest)?)?;
     assert!(Manifest::load(&path).is_ok());
+    for (field, wrong) in [
+        ("complete", json!(false)),
+        ("tracks", json!(375)),
+        ("selected_tracks", json!(19)),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid[field] = wrong;
+        fs::write(&path, serde_json::to_vec(&invalid)?)?;
+        assert!(Manifest::load(&path).is_err());
+        invalid
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("object"))?
+            .remove(field);
+        fs::write(&path, serde_json::to_vec(&invalid)?)?;
+        assert!(Manifest::load(&path).is_err());
+    }
     manifest["reference_onnxruntime"] = json!("1.31.2");
     fs::write(&path, serde_json::to_vec(&manifest)?)?;
     assert!(Manifest::load(&path).is_err());

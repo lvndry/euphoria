@@ -10,7 +10,8 @@ use anyhow::{Context, Result, ensure};
 use clap::{Parser, ValueEnum};
 use drone_native_cached::{
     ATOL, Bundle, Chunked, Full, Manifest, RTOL, RUNTIME_VERSION, argmax, bytes_sha256, check_file,
-    compare, environment, file_sha256, key_name, limit_cpu, load_features, median, process_usage,
+    compare, environment, file_sha256, hardware_identity, key_name, limit_cpu, load_features,
+    median, process_usage,
 };
 use serde_json::{Value, json};
 
@@ -90,6 +91,7 @@ fn identity(args: &Arguments) -> Result<Value> {
         "cargo_lock_sha256": bytes_sha256(include_bytes!("../Cargo.lock")),
         "ort_crate": "2.0.0-rc.15", "onnxruntime": RUNTIME_VERSION,
         "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
+        "hardware":hardware_identity()?,
         "cpu_affinity": cpu_affinity(), "thread_environment": thread_environment(),
         "atol": ATOL, "rtol": RTOL, "core_outputs": 64,
         "intra_threads": 1, "inter_threads": 1,
@@ -357,13 +359,15 @@ mod tests {
 
     #[test]
     fn report_rejects_code_runtime_or_environment_drift() {
-        let identity = json!({"executable_sha256":"a", "ort_library_sha256":"b", "thread_environment":{"OMP_NUM_THREADS":"1"}});
+        let identity = json!({"executable_sha256":"a", "ort_library_sha256":"b", "thread_environment":{"OMP_NUM_THREADS":"1"},
+            "hardware":{"cpu":"CPU A", "kernel_release":"1.0", "host_name_sha256":"a"}});
         let report = json!({"mode":"validate", "passed":true, "tracks":376, "identity":identity});
         assert!(verify_validation(&report, &identity).is_ok());
         for key in [
             "executable_sha256",
             "ort_library_sha256",
             "thread_environment",
+            "hardware",
         ] {
             let mut changed = identity.clone();
             changed[key] = json!("changed");
