@@ -125,7 +125,7 @@ Euphoria never changes cues you set. `--cues` needs `--collection`, your collect
 euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml --beat-grid --cues --collection ~/Music/rekordbox-collection.xml
 ```
 
-Export your collection again before each export, so it lists the cues you set since. The command says how many tracks it left out. To update the key and tempo of those tracks, export again without `--cues`; that file has no cues, but see [what happens to tracks you already have](#what-happens-to-tracks-you-already-have) before importing it.
+Export your collection again before each export, so it lists the cues you set since. Export it on the computer you export from: a track with cues whose file Euphoria cannot find stops the export, since its cues could not be protected. The [command reference](../reference/cli.md#cue-points) explains this and `--allow-unmatched-cued-tracks`. The command says how many tracks it left out. To update the key and tempo of those tracks, export again without `--cues`; that file has no cues, but see [what happens to tracks you already have](#what-happens-to-tracks-you-already-have) before importing it.
 
 The cues are right only where the bars of the grid are. When the grid's first downbeat is off, which happens on about half of the benchmark excerpts, every cue is off by the same one to three beats. Look at a few tracks before you rely on them.
 

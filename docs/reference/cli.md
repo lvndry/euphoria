@@ -197,7 +197,8 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
-| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. |
+| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. It is never replaced by the export, even with `--force`. |
+| `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -239,6 +240,10 @@ Left out 16 tracks that already have cues in your rekordbox collection, so impor
 ```
 
 When every track already has cues, nothing is written and the command exits with status 1.
+
+A track with cues in the collection is recognised by its file. When such a track matches no file on this computer, because it has no location, its location is not a local file, or no file is at its path (a collection exported on another computer, a moved or deleted file, a drive that is not mounted), Euphoria cannot tell whether it is one of the tracks being exported and so cannot protect its cues. The export then stops before analyzing anything, lists those tracks by title, artist and location, and writes nothing. Export the collection from rekordbox on this computer, or relocate or remove those tracks in rekordbox. If none of them is a track you are exporting, pass `--allow-unmatched-cued-tracks`: the export goes ahead and lists them again under "Not protected".
+
+The output file is never the collection file, however either path is written, through a symbolic link, with `.` or `..`, or another spelling of the same file, and `--force` does not change this.
 
 The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written. Without `--force` it only takes a name that is free: a file that another program creates at the output path while the export runs is kept, and the export fails.
 

@@ -489,6 +489,28 @@ pub fn write_cue_summary(
     writeln!(writer, ".")
 }
 
+/// Writes which cued tracks of the collection could not be matched to a
+/// file here, when the user chose to export anyway.
+pub fn write_unmatched_cued_tracks(
+    writer: &mut impl Write,
+    unmatched: &[String],
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "Not protected, as --allow-unmatched-cued-tracks asked: {} with cues in your rekordbox collection {} no file on this computer:",
+        counted(unmatched.len(), "track", "tracks"),
+        if unmatched.len() == 1 {
+            "matches"
+        } else {
+            "match"
+        },
+    )?;
+    for description in unmatched {
+        writeln!(writer, "  {description}")?;
+    }
+    Ok(())
+}
+
 /// Writes how many tracks were left out of the export because they have
 /// cues in rekordbox, and how to update them.
 pub fn write_left_out_for_cues(writer: &mut impl Write, left_out: usize) -> io::Result<()> {
@@ -685,7 +707,7 @@ pub fn counted_files(count: usize) -> String {
     counted(count, "file", "files")
 }
 
-fn counted(count: usize, singular: &str, plural: &str) -> String {
+pub fn counted(count: usize, singular: &str, plural: &str) -> String {
     let noun = if count == 1 { singular } else { plural };
     format!("{count} {noun}")
 }
