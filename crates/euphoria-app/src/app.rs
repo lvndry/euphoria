@@ -13,12 +13,14 @@ use std::time::Duration;
 use gpui::component::input::{InputEvent, InputState};
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, ExternalPaths, FocusHandle, KeyDownEvent, PathPromptOptions, Pixels,
-    ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window, div, px, relative,
+    Context, Div, Entity, ExternalPaths, FocusHandle, KeyDownEvent, MouseButton, MouseMoveEvent,
+    PathPromptOptions, Pixels, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window,
+    canvas, div, px, relative,
 };
 
 use crate::library::{LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
+use crate::panels::{PanelEdge, Panels};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
 use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
@@ -76,6 +78,12 @@ pub(crate) struct EuphoriaApp {
     pub(crate) scans_in_progress: usize,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
+    /// Whether the sidebar is folded and how large the track detail is.
+    pub(crate) panels: Panels,
+    /// The edge being dragged, between the press on it and the release.
+    pub(crate) resizing: Option<PanelEdge>,
+    /// Where the table and the track detail were last drawn, together.
+    pub(crate) detail_area_bounds: SeenBounds,
     /// What the player is doing with the selected track.
     pub(crate) player: Player,
     /// Where the waveform was last drawn, for turning a click into a
@@ -154,6 +162,9 @@ impl EuphoriaApp {
             notice,
             scans_in_progress: 0,
             toolbar_drag_armed: false,
+            panels: settings.panels,
+            resizing: None,
+            detail_area_bounds: Rc::new(Cell::new(None)),
             player: Player::default(),
             waveform_bounds: Rc::new(Cell::new(None)),
             progress_line_bounds: Rc::new(Cell::new(None)),
@@ -579,7 +590,7 @@ impl EuphoriaApp {
         if let Some(problem) = self.save_settings() {
             self.notice = Some(problem);
         }
-        crate::install_menus(name, cx);
+        crate::install_menus(name, self.panels.sidebar_folded, cx);
         cx.refresh_windows();
         cx.notify();
     }
@@ -596,6 +607,91 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Folds the sidebar away, or brings it back, and remembers the choice.
+    pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<'_, Self>) {
+        self.panels.toggle_sidebar();
+        self.remember_panels(cx);
+        crate::install_menus(self.theme.name, self.panels.sidebar_folded, cx);
+    }
+
+    /// A press on the edge of the track detail starts resizing it.
+    pub(crate) fn start_resizing(&mut self, edge: PanelEdge, cx: &mut Context<'_, Self>) {
+        self.resizing = Some(edge);
+        cx.stop_propagation();
+    }
+
+    /// The pointer moved to `position`. While an edge is held, the track
+    /// detail follows it.
+    fn resize_to(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match self.resizing {
+            None => return,
+            Some(PanelEdge::InspectorLeft) => {
+                self.panels.drag_inspector_edge_to(
+                    position.x / px(1.0),
+                    window.viewport_size().width / px(1.0),
+                );
+            }
+            Some(PanelEdge::StripTop) => {
+                let Some(area) = self.detail_area_bounds.get() else {
+                    return;
+                };
+                self.panels.drag_strip_edge_to(
+                    position.y / px(1.0),
+                    area.bottom() / px(1.0),
+                    area.size.height / px(1.0),
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    /// The button was released: the size the edge was dragged to is kept.
+    fn finish_resizing(&mut self, cx: &mut Context<'_, Self>) {
+        if self.resizing.take().is_some() {
+            self.remember_panels(cx);
+        }
+    }
+
+    /// A double click on an edge returns that size to its default.
+    pub(crate) fn reset_size(&mut self, edge: PanelEdge, cx: &mut Context<'_, Self>) {
+        match edge {
+            PanelEdge::InspectorLeft => self.panels.reset_inspector_width(),
+            PanelEdge::StripTop => self.panels.reset_strip_height(),
+        }
+        self.resizing = None;
+        self.remember_panels(cx);
+    }
+
+    fn remember_panels(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
+        cx.notify();
+    }
+
+    /// The width to draw the inspector at in a window of the current size.
+    pub(crate) fn inspector_width(&self, window: &Window) -> Pixels {
+        px(self
+            .panels
+            .inspector_width_in(window.viewport_size().width / px(1.0)))
+    }
+
+    /// The height to draw the strip under the table at. Until the area it
+    /// shares with the table has been drawn once, the window's height
+    /// stands in for that area's.
+    pub(crate) fn strip_height(&self, window: &Window) -> Pixels {
+        let available_height = match self.detail_area_bounds.get() {
+            Some(area) => area.size.height,
+            None => window.viewport_size().height,
+        };
+        px(self.panels.strip_height_in(available_height / px(1.0)))
+    }
+
     /// Writes the folders and theme to disk. Returns what to tell the user
     /// when that fails.
     fn save_settings(&self) -> Option<String> {
@@ -603,6 +699,7 @@ impl EuphoriaApp {
         let settings = Settings {
             folders: self.session.library().folders().to_vec(),
             theme: self.theme.name,
+            panels: self.panels,
         };
         settings
             .save(settings_path)
@@ -669,38 +766,45 @@ impl EuphoriaApp {
 }
 
 impl Render for EuphoriaApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let palette = self.theme.palette;
+        let shows_sidebar = !self.panels.sidebar_folded;
         let body = if self.is_empty() {
             div()
                 .flex()
                 .flex_1()
                 .min_h_0()
-                .child(views::sidebar::render(self, cx))
+                .when(shows_sidebar, |body| {
+                    body.child(views::sidebar::render(self, cx))
+                })
                 .child(views::empty_state::render(self, cx))
         } else {
-            let library_and_detail = match self.theme.layout {
-                Layout::InspectorRight => div()
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(views::track_table::render(self, cx))
-                    .child(views::inspector::render(self, cx)),
-                Layout::DeckBelow => div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(views::track_table::render(self, cx))
-                    .child(views::inspector::render(self, cx)),
-            };
+            let seen_bounds = self.detail_area_bounds.clone();
+            let library_and_detail = div()
+                .relative()
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .when(self.theme.layout == Layout::DeckBelow, Div::flex_col)
+                .child(
+                    canvas(
+                        move |bounds, _, _| seen_bounds.set(Some(bounds)),
+                        |_, _, _, _| (),
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .child(views::track_table::render(self, cx))
+                .child(views::inspector::render(self, window, cx))
+                .child(views::panel_edge::render(self, window, cx));
             div()
                 .flex()
                 .flex_1()
                 .min_h_0()
-                .child(views::sidebar::render(self, cx))
+                .when(shows_sidebar, |body| {
+                    body.child(views::sidebar::render(self, cx))
+                })
                 .child(library_and_detail)
         };
 
@@ -728,6 +832,17 @@ impl Render for EuphoriaApp {
             .on_drop(cx.listener(|this, dropped: &ExternalPaths, _, cx| {
                 this.add_paths(dropped.paths().to_vec(), cx);
             }))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                if event.pressed_button == Some(MouseButton::Left) {
+                    this.resize_to(event.position, window, cx);
+                } else {
+                    this.finish_resizing(cx);
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.finish_resizing(cx)),
+            )
             .child(views::toolbar::render(self, cx))
             .child(body)
             .when(has_player_bar, |window| {

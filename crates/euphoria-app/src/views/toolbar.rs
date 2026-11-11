@@ -9,7 +9,9 @@ use gpui::component::input::Input;
 use gpui::component::menu::DropdownMenu;
 use gpui::component::{Icon, IconName, InteractiveElementExt};
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, MouseButton, Stateful, div, px, relative};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, MouseButton, Stateful, TestSupportExt, div, px, relative,
+};
 
 use crate::actions;
 use crate::app::EuphoriaApp;
@@ -23,6 +25,39 @@ const WINDOW_BUTTONS_WIDTH: f32 = if cfg!(target_os = "macos") { 72.0 } else { 0
 /// Width of the app name, chosen so the search field starts where the
 /// sidebar ends.
 const APP_NAME_WIDTH: f32 = 194.0 - WINDOW_BUTTONS_WIDTH;
+
+/// The button that folds the sidebar away and brings it back. It sits
+/// beside the window's own buttons, where macOS apps put it, and stays in
+/// the toolbar in both states, so there is always a way back.
+fn sidebar_toggle(
+    app: &EuphoriaApp,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let hover_background = palette.raised;
+    let hover_colour = palette.text;
+    let colour = if app.panels.sidebar_folded {
+        palette.text_tertiary
+    } else {
+        palette.text_secondary
+    };
+    div()
+        .id("sidebar-toggle")
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .size(px(24.0))
+        .rounded(px(5.0))
+        .text_color(colour)
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover_background).text_color(hover_colour))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx)))
+        .child(Icon::new(IconName::PanelLeft).size(px(16.0)))
+        .test_support()
+        .into_any_element()
+}
 
 /// The toolbar.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
@@ -61,10 +96,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .gap(px(6.0))
                 .w(px(APP_NAME_WIDTH))
                 .flex_shrink_0()
                 .font_weight(FontWeight::SEMIBOLD)
+                .child(sidebar_toggle(app, &palette, cx))
                 .child(logo(px(18.0), palette.text))
                 .child("Euphoria"),
         )

@@ -58,6 +58,19 @@ pub struct EnergyFeatures {
     pub spectral_flux: f32,
 }
 
+impl EnergyFeatures {
+    /// Every feature with its name, in the order of the fields.
+    pub fn named(&self) -> [(&'static str, f32); 5] {
+        [
+            ("integrated loudness", self.integrated_loudness_lufs),
+            ("loudness range", self.loudness_range_lu),
+            ("onset rate", self.onset_rate),
+            ("low frequency share", self.low_frequency_share),
+            ("spectral flux", self.spectral_flux),
+        ]
+    }
+}
+
 /// An energy rating with everything needed to reproduce it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnergyRating {
@@ -116,14 +129,7 @@ pub fn rate_features(
 ) -> Result<EnergyRating, EuphoriaError> {
     let model = &ENERGY_MODEL;
     check_tempo(tempo)?;
-    let named = [
-        ("integrated loudness", features.integrated_loudness_lufs),
-        ("loudness range", features.loudness_range_lu),
-        ("onset rate", features.onset_rate),
-        ("low frequency share", features.low_frequency_share),
-        ("spectral flux", features.spectral_flux),
-    ];
-    for (name, value) in named {
+    for (name, value) in features.named() {
         if !value.is_finite() {
             return Err(EuphoriaError::InvalidEnergyInput { name, value });
         }

@@ -16,8 +16,8 @@ use gpui::{Bounds, Hsla, Pixels, canvas, fill, point, px, size};
 use crate::peaks::{BandPeaks, bars_from_columns};
 use crate::theme::{BandColours, Palette};
 
-/// Height of the waveform.
-pub(crate) const WAVEFORM_HEIGHT: Pixels = px(64.0);
+/// Height of the waveform in the inspector column.
+pub(crate) const WAVEFORM_HEIGHT: f32 = 64.0;
 
 const BAR_SPACING: f32 = 4.0;
 const BAR_WIDTH: f32 = 2.4;
@@ -55,12 +55,14 @@ impl WaveformColours {
 
 /// A waveform as wide as its container. Without columns it is a flat line of
 /// the shortest bars. `progress` is how far playing has got, from 0.0 to 1.0,
-/// and `seen_bounds` is told where the waveform was drawn.
+/// `seen_bounds` is told where the waveform was drawn, and `height` is how
+/// tall to draw it.
 pub(crate) fn waveform(
     columns: Option<Arc<[BandPeaks]>>,
     colours: WaveformColours,
     progress: Option<f32>,
     seen_bounds: SeenBounds,
+    height: Pixels,
 ) -> impl IntoElement {
     canvas(
         move |bounds: Bounds<Pixels>, _, _| seen_bounds.set(Some(bounds)),
@@ -122,7 +124,7 @@ pub(crate) fn waveform(
         },
     )
     .w_full()
-    .h(WAVEFORM_HEIGHT)
+    .h(height)
 }
 
 /// True when the middle of bar `bar_index` of `bar_count` lies before the
