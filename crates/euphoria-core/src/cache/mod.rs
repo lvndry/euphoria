@@ -646,6 +646,40 @@ pub(crate) mod test_support {
         }
     }
 
+    /// An analyzer version that schema version 4 databases were filled by.
+    pub(crate) const VERSION_4_ANALYZER: &str = "6+libkeyfinder";
+
+    /// Creates a database as the last release with schema version 4 left
+    /// it, with one analysis of `track`, confidence included, stored at its
+    /// current path.
+    pub(crate) fn create_version_4_database(database: &Path, track: &Path) {
+        use super::identity::FileStamp;
+        use super::{ContentHash, MIGRATIONS};
+        use crate::energy::ENERGY_MODEL_VERSION;
+
+        let stamp = FileStamp::of(track).unwrap();
+        let connection = rusqlite::Connection::open(database).unwrap();
+        for migration in &MIGRATIONS[..4] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 4).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, ?3, ?4, ?5, 6, ?6, -12.5,
+                         '0\t300\tA minor', 'C major', 0.25, 124.0, 0.4)",
+                rusqlite::params![
+                    ContentHash::of_file(track).unwrap().as_bytes(),
+                    VERSION_4_ANALYZER,
+                    track.to_str().unwrap(),
+                    stamp.size,
+                    stamp.modified_nanoseconds,
+                    ENERGY_MODEL_VERSION,
+                ],
+            )
+            .unwrap();
+    }
+
     /// An analyzer version that schema version 3 databases were filled by.
     pub(crate) const VERSION_3_ANALYZER: &str = "5+libkeyfinder";
 
@@ -1000,6 +1034,38 @@ mod tests {
         assert_eq!(stored.key, Some("A minor".parse().unwrap()));
         assert_eq!(stored.tuning_cents, None);
         assert!(stored.key_timeline.is_empty());
+    }
+
+    #[test]
+    fn a_version_4_database_upgrades_in_place_and_its_rows_are_analyzed_again() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, b"audio").unwrap();
+        test_support::create_version_4_database(&database, &track);
+
+        let mut cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(cache.entry_count().unwrap(), 1);
+        assert_ne!(ANALYZER_VERSION, test_support::VERSION_4_ANALYZER);
+        assert!(
+            cache.snapshot().unwrap().analyses.is_empty(),
+            "an analysis from before audio quality was measured must not be served"
+        );
+
+        // The row keeps its confidence and reads as a track without a quality report.
+        cache.analyzer_version = test_support::VERSION_4_ANALYZER.to_string();
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot
+            .of_content(&ContentHash::of_file(&track).unwrap())
+            .unwrap();
+        assert_eq!(stored.key, Some("A minor".parse().unwrap()));
+        assert_eq!(stored.key_runner_up, Some("C major".parse().unwrap()));
+        assert_eq!(stored.key_score_margin, Some(0.25));
+        assert_eq!(stored.tempo_estimate, Some(124.0));
+        assert_eq!(stored.tempo_score_margin, Some(0.4));
+        assert_eq!(stored.quality, None);
     }
 
     #[test]

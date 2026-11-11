@@ -65,6 +65,7 @@
 <text x="206" y="216.5" class="label" text-anchor="end">MP3 192</text>
 <rect x="461.5" y="206" width="15.75" height="12" rx="4" class="series-1-fill"/>
 <line x1="298.75" y1="203" x2="298.75" y2="221" class="reference"/>
+<text x="652" y="216.5" class="tick" text-anchor="start">no cutoff in 1 of 7</text>
 <text x="206" y="240.5" class="label" text-anchor="end">MP3 256</text>
 <rect x="498.25" y="230" width="15.75" height="12" rx="4" class="series-1-fill"/>
 <line x1="430" y1="227" x2="430" y2="245" class="reference"/>
@@ -85,19 +86,18 @@
 <line x1="430" y1="371" x2="430" y2="389" class="reference"/>
 <text x="652" y="384.5" class="tick" text-anchor="start">no cutoff in 7 of 7</text>
 <text x="206" y="408.5" class="label" text-anchor="end">Apple AAC 96</text>
-<rect x="300" y="398" width="8" height="12" rx="4" class="series-1-fill"/>
+<rect x="304" y="398" width="10.5" height="12" rx="4" class="series-1-fill"/>
 <text x="652" y="408.5" class="tick" text-anchor="start">no cutoff in 1 of 7</text>
 <text x="206" y="432.5" class="label" text-anchor="end">Apple AAC 128</text>
-<rect x="382.75" y="422" width="84" height="12" rx="4" class="series-1-fill"/>
-<text x="652" y="432.5" class="tick" text-anchor="start">no cutoff in 2 of 7</text>
+<rect x="393.25" y="422" width="63" height="12" rx="4" class="series-1-fill"/>
+<text x="652" y="432.5" class="tick" text-anchor="start">no cutoff in 3 of 7</text>
 <text x="206" y="456.5" class="label" text-anchor="end">Apple AAC 192</text>
-<rect x="346" y="446" width="173.25" height="12" rx="4" class="series-1-fill"/>
+<rect x="503.5" y="446" width="15.75" height="12" rx="4" class="series-1-fill"/>
 <line x1="298.75" y1="443" x2="298.75" y2="461" class="reference"/>
-<text x="652" y="456.5" class="tick" text-anchor="start">no cutoff in 2 of 7</text>
+<text x="652" y="456.5" class="tick" text-anchor="start">no cutoff in 3 of 7</text>
 <text x="206" y="480.5" class="label" text-anchor="end">Apple AAC 256</text>
-<rect x="457.5" y="470" width="8" height="12" rx="4" class="series-1-fill"/>
 <line x1="430" y1="467" x2="430" y2="485" class="reference"/>
-<text x="652" y="480.5" class="tick" text-anchor="start">no cutoff in 6 of 7</text>
+<text x="652" y="480.5" class="tick" text-anchor="start">no cutoff in 7 of 7</text>
 <text x="206" y="504.5" class="label" text-anchor="end">Apple AAC 320</text>
 <line x1="508.75" y1="491" x2="508.75" y2="509" class="reference"/>
 <text x="652" y="504.5" class="tick" text-anchor="start">no cutoff in 7 of 7</text>
@@ -116,10 +116,10 @@
 <rect x="386.62" y="630" width="8" height="12" rx="4" class="series-2-fill"/>
 <line x1="430" y1="627" x2="430" y2="645" class="reference"/>
 <text x="206" y="664.5" class="label" text-anchor="end">MP3 128 to Apple AAC 256</text>
-<rect x="325" y="654" width="47.25" height="12" rx="4" class="series-2-fill"/>
+<rect x="325" y="654" width="42" height="12" rx="4" class="series-2-fill"/>
 <line x1="430" y1="651" x2="430" y2="669" class="reference"/>
 <text x="206" y="688.5" class="label" text-anchor="end">Apple AAC 128 to 320</text>
-<rect x="382.75" y="678" width="73.5" height="12" rx="4" class="series-2-fill"/>
+<rect x="393.25" y="678" width="63" height="12" rx="4" class="series-2-fill"/>
 <line x1="508.75" y1="675" x2="508.75" y2="693" class="reference"/>
-<text x="652" y="688.5" class="tick" text-anchor="start">no cutoff in 2 of 7</text>
+<text x="652" y="688.5" class="tick" text-anchor="start">no cutoff in 3 of 7</text>
 </svg>
