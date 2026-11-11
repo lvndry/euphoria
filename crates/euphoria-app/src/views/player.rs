@@ -123,10 +123,13 @@ pub(crate) fn seek_on_press_and_drag(
 pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let palette = app.theme.palette;
     let track = app.selected_track();
-    let name = track.map(|track| track.file_name.clone());
+    let name = track.map(|track| track.title().to_string());
     let detail = match (app.player.failure(), track) {
         (Some(problem), _) => Some((problem.to_string(), palette.danger)),
-        (None, Some(track)) => Some((track.folder.clone(), palette.text_secondary)),
+        (None, Some(track)) => Some((
+            track.artist.clone().unwrap_or_else(|| track.folder.clone()),
+            palette.text_secondary,
+        )),
         (None, None) => None,
     };
     let progress = app.player.progress().unwrap_or(0.0);

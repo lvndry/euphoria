@@ -255,6 +255,23 @@ pub fn write_cache_warning(writer: &mut impl Write, error: &EuphoriaError) -> io
     )
 }
 
+/// Warns that the cache could not be told about rewritten files, which
+/// are then analyzed again on the next run.
+pub fn write_cache_record_warning(
+    writer: &mut impl Write,
+    error: &EuphoriaError,
+) -> io::Result<()> {
+    writeln!(
+        writer,
+        "warning: the cache could not be updated for the changed files: {}",
+        Printable(error.chain())
+    )?;
+    writeln!(
+        writer,
+        "  Their tags are as reported. They will be analyzed again the next time they are read."
+    )
+}
+
 /// What an export wrote.
 pub struct ExportSummary<'export> {
     /// Tracks in the exported file.

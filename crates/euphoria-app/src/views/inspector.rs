@@ -190,13 +190,13 @@ fn summary(track: &Track, palette: &Palette) -> Div {
                         .text_size(px(15.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .line_clamp(2)
-                        .child(track.file_name.clone()),
+                        .child(track.title().to_string()),
                 )
                 .child(
                     div()
                         .truncate()
                         .text_color(palette.text_secondary)
-                        .child(track.folder.clone()),
+                        .child(track.artist.clone().unwrap_or_else(|| track.folder.clone())),
                 )
                 .child(
                     div()
@@ -406,7 +406,7 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .child(track.file_name.clone()),
+                            .child(track.title().to_string()),
                     )
                     .child(
                         div()

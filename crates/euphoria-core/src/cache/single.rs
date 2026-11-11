@@ -69,6 +69,27 @@ impl CachedAnalyzer {
         self.analyze_file_with(path, analyze_file)
     }
 
+    /// [`Cache::record_retagged_file`] on the cache this analyzer stores
+    /// into. Lookups by this analyzer keep the analyses it started with.
+    pub fn record_retagged_file(
+        &self,
+        path: &Path,
+        analysis: &TrackAnalysis,
+    ) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record_retagged_file(path, analysis)
+    }
+
+    /// [`Cache::recognise_file`] on the cache this analyzer stores into.
+    pub fn recognise_file(&self, path: &Path) -> Result<bool, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recognise_file(path)
+    }
+
     fn analyze_file_with(
         &self,
         path: &Path,

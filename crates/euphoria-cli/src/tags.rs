@@ -14,7 +14,9 @@ use euphoria_core::tags::{
     DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, TagWriteOptions, WriteLog, WritePlan,
     default_write_log_directory, plan_write, undo_last_write,
 };
-use euphoria_core::{CachedBatch, EuphoriaError, find_audio_files};
+use euphoria_core::{
+    CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
+};
 
 use crate::batch::{self, AnalysisOptions};
 use crate::{output, with_causes};
@@ -160,15 +162,19 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     // Planning only reads the files.
     let options = arguments.options();
     let mut plans: Vec<WritePlan> = Vec::new();
+    let mut analyses: Vec<TrackAnalysis> = Vec::new();
     let mut failures: Vec<Failure> = Vec::new();
     let mut unchanged_count = 0;
     for result in results {
-        let planned = result
-            .outcome
-            .and_then(|analysis| plan_write(&result.path, &analysis, &options));
+        let planned = result.outcome.and_then(|analysis| {
+            plan_write(&result.path, &analysis, &options).map(|plan| (plan, analysis))
+        });
         match planned {
-            Ok(plan) if plan.is_empty() => unchanged_count += 1,
-            Ok(plan) => plans.push(plan),
+            Ok((plan, _)) if plan.is_empty() => unchanged_count += 1,
+            Ok((plan, analysis)) => {
+                plans.push(plan);
+                analyses.push(analysis);
+            }
             Err(error) => failures.push(Failure {
                 path: result.path,
                 error,
@@ -226,12 +232,26 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
             let mut log = WriteLog::new(&log_directory);
             let mut write_failures = Vec::new();
             let mut unrecorded = Vec::new();
-            for plan in &plans {
+            let mut written = Vec::new();
+            for (plan, analysis) in plans.iter().zip(&analyses) {
                 let path = plan.path().to_path_buf();
                 match log.apply(plan) {
-                    Ok(LoggedWrite::Recorded) => {}
-                    Ok(LoggedWrite::NotRecorded(error)) => unrecorded.push(Failure { path, error }),
+                    Ok(LoggedWrite::Recorded) => written.push((path, analysis)),
+                    Ok(LoggedWrite::NotRecorded(error)) => {
+                        written.push((path.clone(), analysis));
+                        unrecorded.push(Failure { path, error });
+                    }
                     Err(error) => write_failures.push(Failure { path, error }),
+                }
+            }
+            if arguments.analysis.uses_cache() && !written.is_empty() {
+                let recorded = batch::open_cache().and_then(|mut cache| {
+                    written
+                        .iter()
+                        .try_for_each(|(path, analysis)| cache.record_retagged_file(path, analysis))
+                });
+                if let Err(error) = recorded {
+                    output::write_cache_record_warning(&mut standard_error, &error)?;
                 }
             }
             output::write_tag_failures(&mut standard_error, &write_failures)?;
@@ -281,6 +301,21 @@ fn undo() -> Result<ExitCode> {
     };
     let mut standard_output = std::io::stdout().lock();
     output::write_restored_files(&mut standard_output, &undone.restored)?;
+    // The restored files have the bytes they had before the write, which
+    // the cache usually knows; noting where they are spares hashing them on
+    // the next run. No cache is created for this, and one that cannot be
+    // used changes nothing.
+    let has_cache = default_cache_path().is_ok_and(|path| path.exists());
+    if has_cache
+        && !undone.restored.is_empty()
+        && let Ok(mut cache) = batch::open_cache()
+    {
+        for path in &undone.restored {
+            if cache.recognise_file(path).is_err() {
+                break;
+            }
+        }
+    }
     standard_output.flush()?;
     drop(standard_output);
 

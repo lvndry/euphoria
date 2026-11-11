@@ -4,6 +4,7 @@
 //! The window's root view: it owns the library session and what the user has
 //! chosen to see, and lays the screen out from the views.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -14,11 +15,12 @@ use std::time::Duration;
 use gpui::component::input::{InputEvent, InputState};
 use gpui::prelude::*;
 use gpui::{
-    Context, Div, Entity, ExternalPaths, FocusHandle, KeyDownEvent, MouseButton, MouseMoveEvent,
-    PathPromptOptions, Pixels, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window,
-    canvas, div, px, relative,
+    Context, Div, Entity, ExternalPaths, FocusHandle, KeyDownEvent, Modifiers, MouseButton,
+    MouseMoveEvent, PathPromptOptions, Pixels, ScrollStrategy, Subscription, Task,
+    UniformListScrollHandle, Window, canvas, div, px, relative,
 };
 
+use crate::columns::{ColumnId, ColumnWidths, TableLayout, fitted_width, widest_text};
 use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
 use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
@@ -28,6 +30,8 @@ use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceSta
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
 use crate::settings::{FolderTreeMemory, Settings};
 use crate::state::{Scan, Session, scan};
+use crate::tag_flow::TagPanel;
+use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
 use crate::views;
 use crate::views::waveform::SeenBounds;
@@ -81,7 +85,27 @@ pub(crate) struct EuphoriaApp {
     folder_path_widths: views::track_table::FolderPathWidths,
     /// Which columns the table shows and how wide its Folder column is,
     /// worked out each frame from the room the table has.
-    pub(crate) table_layout: views::track_table::TableLayout,
+    pub(crate) table_layout: TableLayout,
+    /// The widths the user gave columns, by dragging or fitting them.
+    pub(crate) column_widths: ColumnWidths,
+    /// The column whose header edge is being dragged.
+    pub(crate) column_resize: Option<ColumnResize>,
+    /// Where the column headers were last drawn.
+    pub(crate) table_header_bounds: SeenBounds,
+    /// Library indexes of the tracks selected in the table besides the one
+    /// the inspector shows. Empty when only that one is selected.
+    pub(crate) marked: HashSet<usize>,
+    /// How tags are written.
+    pub(crate) tag_settings: TagSettings,
+    /// The steps of a tag write or undo, while one is on screen.
+    pub(crate) tag_panel: Option<TagPanel>,
+    /// True while the settings panel is open.
+    pub(crate) settings_open: bool,
+    /// Where the backups of tag writes are kept, shared with the command
+    /// line so that either can undo the other's write.
+    pub(crate) write_log_directory: Option<PathBuf>,
+    /// Counts tag tasks, so a result for a panel already closed is dropped.
+    pub(crate) tag_task_generation: u64,
     pub(crate) folder_scroll: UniformListScrollHandle,
     pub(crate) tree_focus: FocusHandle,
     pub(crate) sort_order: Option<SortOrder>,
@@ -190,7 +214,20 @@ impl EuphoriaApp {
             expanded_folders,
             folder_column: FolderColumn::default(),
             folder_path_widths: views::track_table::FolderPathWidths::default(),
-            table_layout: views::track_table::TableLayout::default(),
+            table_layout: TableLayout::default(),
+            column_widths: settings.column_widths.clone(),
+            column_resize: None,
+            table_header_bounds: Rc::new(Cell::new(None)),
+            marked: HashSet::new(),
+            tag_settings: settings.tags,
+            tag_panel: None,
+            settings_open: false,
+            write_log_directory: if cfg!(test) {
+                None
+            } else {
+                euphoria_core::tags::default_write_log_directory().ok()
+            },
+            tag_task_generation: 0,
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
             sort_order: theme.opens_sorted_by_key.then_some(SortOrder {
@@ -333,7 +370,9 @@ impl EuphoriaApp {
         if problems.is_empty() && found.files.is_empty() {
             problems.push("No audio files found there.".to_string());
         }
+        let found_files = found.files.clone();
         self.session.add(found);
+        self.read_track_names(found_files, cx);
         self.refresh_visible();
         if self.scans_in_progress == 0 {
             self.forget_folder_if_gone();
@@ -440,6 +479,8 @@ impl EuphoriaApp {
             self.sort_order,
             &self.folder_column,
         );
+        let visible: HashSet<usize> = self.visible.iter().copied().collect();
+        self.marked.retain(|index| visible.contains(index));
         self.folder_path_widths.set_paths(
             self.visible
                 .iter()
@@ -466,7 +507,301 @@ impl EuphoriaApp {
                 .width
                 / px(1.0)
         });
-        self.table_layout = views::track_table::TableLayout::for_width(table_width, longest_path);
+        self.table_layout = TableLayout::new(table_width, &self.column_widths, longest_path);
+    }
+
+    /// Reads the title and artist of `paths` from their tags, a batch at a
+    /// time off the main thread, and shows them as they come. A file whose
+    /// tags cannot be read keeps its file name as its title.
+    pub(crate) fn read_track_names(&mut self, paths: Vec<PathBuf>, cx: &mut Context<'_, Self>) {
+        if paths.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            for batch in paths.chunks(NAME_BATCH) {
+                let batch = batch.to_vec();
+                let names = cx
+                    .background_executor()
+                    .spawn(async move {
+                        batch
+                            .into_iter()
+                            .filter_map(|path| {
+                                let name = euphoria_core::read_track_name(&path).ok()?;
+                                Some((path, name))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .await;
+                let applied = this.update(cx, |this, cx| {
+                    this.session.set_track_names(names);
+                    this.refresh_visible();
+                    cx.notify();
+                });
+                if applied.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// True when the track at `index` is selected in the table.
+    pub(crate) fn is_marked(&self, index: usize) -> bool {
+        if self.marked.is_empty() {
+            self.selected == Some(index)
+        } else {
+            self.marked.contains(&index)
+        }
+    }
+
+    /// A click on the row of the track at `index`: on its own it selects
+    /// that track; with Command (Control elsewhere) it adds the track to the
+    /// selection or takes it out; with Shift it selects every row from the
+    /// selected one to it.
+    pub(crate) fn click_track(
+        &mut self,
+        index: usize,
+        modifiers: Modifiers,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if modifiers.shift
+            && let Some(anchor) = self.selected
+            && let (Some(from), Some(to)) = (
+                self.visible.iter().position(|row| *row == anchor),
+                self.visible.iter().position(|row| *row == index),
+            )
+        {
+            let (first, last) = (from.min(to), from.max(to));
+            self.marked = self.visible[first..=last].iter().copied().collect();
+            cx.notify();
+            return;
+        }
+        if modifiers.secondary(cx) {
+            let mut marked = if self.marked.is_empty() {
+                self.selected.into_iter().collect()
+            } else {
+                std::mem::take(&mut self.marked)
+            };
+            let was_marked = !marked.insert(index);
+            if was_marked && marked.len() > 1 {
+                marked.remove(&index);
+                let next = self
+                    .visible
+                    .iter()
+                    .copied()
+                    .find(|row| marked.contains(row));
+                if let Some(next) = next.filter(|_| self.selected == Some(index)) {
+                    self.select(next, cx);
+                }
+            } else {
+                self.select(index, cx);
+            }
+            self.marked = marked;
+            cx.notify();
+            return;
+        }
+        self.select(index, cx);
+    }
+
+    /// Selects every track the table shows.
+    pub(crate) fn select_all_shown(&mut self, cx: &mut Context<'_, Self>) {
+        self.marked = self.visible.iter().copied().collect();
+        if self
+            .selected
+            .is_none_or(|selected| !self.marked.contains(&selected))
+            && let Some(first) = self.visible.first().copied()
+        {
+            let marked = std::mem::take(&mut self.marked);
+            self.select(first, cx);
+            self.marked = marked;
+        }
+        cx.notify();
+    }
+
+    /// A press on the edge after `column` starts resizing it. The columns
+    /// before it keep their widths while it moves, as in a macOS table.
+    pub(crate) fn start_column_resize(
+        &mut self,
+        column: ColumnId,
+        pointer_x: Pixels,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let (Some(left), Some(width), Some(header)) = (
+            self.table_layout.left_of(column),
+            self.table_layout
+                .columns()
+                .iter()
+                .find(|(shown, _)| *shown == column)
+                .map(|(_, width)| *width),
+            self.table_header_bounds.get(),
+        ) else {
+            return;
+        };
+        let grabbed_at = (pointer_x - header.left()) / px(1.0) - left - width;
+        for (before, width) in self.table_layout.columns().to_vec() {
+            if before == column {
+                break;
+            }
+            if self.column_widths.get(before).is_none() {
+                self.column_widths.set(before, width);
+            }
+        }
+        self.column_resize = Some(ColumnResize {
+            column,
+            left: left + grabbed_at,
+        });
+        cx.stop_propagation();
+    }
+
+    /// The pointer moved to `pointer_x` while a column edge is held.
+    fn resize_column_to(&mut self, pointer_x: Pixels, cx: &mut Context<'_, Self>) {
+        let (Some(resize), Some(header)) = (self.column_resize, self.table_header_bounds.get())
+        else {
+            return;
+        };
+        let width = (pointer_x - header.left()) / px(1.0) - resize.left;
+        self.column_widths.set(resize.column, width);
+        cx.notify();
+    }
+
+    /// A double click on the edge after `column` fits it to its widest
+    /// contents among the rows shown, measured as they are drawn.
+    pub(crate) fn fit_column(
+        &mut self,
+        column: ColumnId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.column_resize = None;
+        let contents = self.column_texts(column);
+        let content_width =
+            widest_text(contents, |text| text_width(window, text, views::TEXT_SIZE)) + FIT_SLACK;
+        let header_width =
+            text_width(window, column.label(), views::LABEL_TEXT_SIZE) + SORT_ARROW_WIDTH;
+        self.column_widths
+            .set(column, fitted_width(column, content_width, header_width));
+        self.remember_column_widths(cx);
+    }
+
+    /// The distinct texts `column` shows among the rows on show. Every one
+    /// is kept, since in a proportional font a text with fewer characters
+    /// can be the wider, but a text is copied only the first time it is
+    /// met, and the row number only for the last row, which has the most
+    /// digits.
+    pub(crate) fn column_texts(&self, column: ColumnId) -> HashSet<String> {
+        let library = self.session.library();
+        let mut texts: HashSet<String> = HashSet::new();
+        for (row, index) in self.visible.iter().enumerate() {
+            let Some(track) = library.track(*index) else {
+                continue;
+            };
+            let text: Option<Cow<'_, str>> = match column {
+                ColumnId::Number => (row + 1 == self.visible.len())
+                    .then(|| Cow::Owned(crate::format::count(row + 1))),
+                ColumnId::Title => Some(Cow::Borrowed(track.title())),
+                ColumnId::Artist => track.artist.as_deref().map(Cow::Borrowed),
+                ColumnId::Key => track.key().map(|key| Cow::Owned(key.camelot())),
+                ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
+                ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
+                ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Quality => track
+                    .quality()
+                    .map(|report| Cow::Borrowed(crate::format::quality_verdict(report.verdict))),
+                ColumnId::Time => track
+                    .duration_seconds()
+                    .map(|seconds| Cow::Owned(crate::format::duration(seconds))),
+                ColumnId::Format => Some(Cow::Borrowed(track.format.as_str())),
+                ColumnId::Folder => self
+                    .folder_column
+                    .label(*index)
+                    .map(|label| Cow::Borrowed(label.text.as_str())),
+            };
+            if let Some(text) = text
+                && !texts.contains(text.as_ref())
+            {
+                texts.insert(text.into_owned());
+            }
+        }
+        texts
+    }
+
+    /// Reset column widths: every column back to its usual width.
+    pub(crate) fn reset_column_widths(&mut self, cx: &mut Context<'_, Self>) {
+        self.column_widths.reset();
+        self.remember_column_widths(cx);
+    }
+
+    fn remember_column_widths(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
+        cx.notify();
+    }
+
+    /// Escape: closes the settings or the tag panel, unless files are being
+    /// changed. Returns true when a panel was open.
+    pub(crate) fn close_panels(&mut self, cx: &mut Context<'_, Self>) -> bool {
+        if self.settings_open {
+            self.close_settings(cx);
+            return true;
+        }
+        if self.tag_panel.is_some() {
+            self.close_tag_panel(cx);
+            return true;
+        }
+        false
+    }
+
+    /// Opens the settings panel.
+    pub(crate) fn open_settings(&mut self, cx: &mut Context<'_, Self>) {
+        if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
+            return;
+        }
+        self.tag_task_generation += 1;
+        self.tag_panel = None;
+        self.settings_open = true;
+        cx.notify();
+    }
+
+    /// Closes the settings panel.
+    pub(crate) fn close_settings(&mut self, cx: &mut Context<'_, Self>) {
+        self.settings_open = false;
+        cx.notify();
+    }
+
+    /// Chooses the DJ program tags are written for.
+    pub(crate) fn set_tag_program(&mut self, program: ProgramChoice, cx: &mut Context<'_, Self>) {
+        self.tag_settings.choose_program(program);
+        self.remember_tag_settings(cx);
+    }
+
+    /// Chooses how keys are spelled in tags.
+    pub(crate) fn set_key_notation(
+        &mut self,
+        notation: NotationChoice,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.tag_settings.key_notation = notation;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Chooses where the key and energy label goes.
+    pub(crate) fn set_label_place(&mut self, label: LabelChoice, cx: &mut Context<'_, Self>) {
+        self.tag_settings.label = label;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Ticks or unticks writing the tempo.
+    pub(crate) fn toggle_write_tempo(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.write_tempo = !self.tag_settings.write_tempo;
+        self.remember_tag_settings(cx);
+    }
+
+    fn remember_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
+        cx.notify();
     }
 
     /// The counts beside All tracks and Needs review. All tracks always
@@ -611,6 +946,10 @@ impl EuphoriaApp {
 
     /// Selects the track at `index` in the library.
     pub(crate) fn select(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        if !self.marked.is_empty() {
+            self.marked.clear();
+            cx.notify();
+        }
         if self.selected == Some(index) {
             return;
         }
@@ -883,6 +1222,10 @@ impl EuphoriaApp {
         window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
+        if self.column_resize.is_some() {
+            self.resize_column_to(position.x, cx);
+            return;
+        }
         match self.resizing {
             None => return,
             Some(PanelEdge::InspectorLeft) => {
@@ -909,6 +1252,9 @@ impl EuphoriaApp {
     fn finish_resizing(&mut self, cx: &mut Context<'_, Self>) {
         if self.resizing.take().is_some() {
             self.remember_panels(cx);
+        }
+        if self.column_resize.take().is_some() {
+            self.remember_column_widths(cx);
         }
     }
 
@@ -961,6 +1307,8 @@ impl EuphoriaApp {
                 expanded: Some(expanded),
                 selected: self.folder.clone(),
             },
+            column_widths: self.column_widths.clone(),
+            tags: self.tag_settings,
         };
         settings
             .save(settings_path)
@@ -1076,7 +1424,10 @@ impl Render for EuphoriaApp {
             .id("euphoria")
             .track_focus(&self.window_focus)
             .key_context(views::LIBRARY_KEY_CONTEXT)
-            .on_key_down(cx.listener(|this, event, window, cx| {
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" && this.close_panels(cx) {
+                    return;
+                }
                 // With the keyboard on the window itself, the arrow keys
                 // move through the table as they do when the table has it.
                 if this.window_focus.is_focused(window) {
@@ -1111,5 +1462,48 @@ impl Render for EuphoriaApp {
                 window.child(views::player::bar(self, cx))
             })
             .children(views::notice::render(self, cx))
+            .children(views::tag_panel::render(self, cx))
+            .when(self.settings_open, |window| {
+                window.child(views::settings_panel::render(self, cx))
+            })
     }
+}
+
+/// How many files have their names read in one go.
+const NAME_BATCH: usize = 256;
+
+/// Room added to measured contents when a column is fitted, for the
+/// rounding of text layout.
+const FIT_SLACK: f32 = 4.0;
+
+/// Text as wide as an energy rating and its bar, which the Energy column is
+/// fitted to.
+const WIDEST_ENERGY_TEXT: &str = "10 10 10 10 ";
+
+/// Room for the sort arrow beside a column's header.
+const SORT_ARROW_WIDTH: f32 = 16.0;
+
+/// The column whose header edge is held, and where it starts from the
+/// table's left edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ColumnResize {
+    /// The column being resized.
+    pub(crate) column: ColumnId,
+    /// Where it starts, from the left edge of the table, moved by how far
+    /// right of its edge it was grabbed, so it keeps its width until the
+    /// pointer moves.
+    pub(crate) left: f32,
+}
+
+/// How wide `text` is drawn at `size` in the window's font.
+pub(crate) fn text_width(window: &Window, text: &str, size: Pixels) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let run = window.text_style().to_run(text.len());
+    window
+        .text_system()
+        .shape_line(text.to_string().into(), size, &[run], None)
+        .width
+        / px(1.0)
 }
