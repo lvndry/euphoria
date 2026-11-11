@@ -65,13 +65,16 @@ rm -r squashfs-root
 The command line tool is in `euphoria-<version>-x86_64-unknown-linux-gnu.tar.gz` on the same page:
 
 ```
-curl -LO https://github.com/lvndry/euphoria/releases/download/v<version>/SHA256SUMS
-curl -LO https://github.com/lvndry/euphoria/releases/download/v<version>/euphoria-<version>-x86_64-unknown-linux-gnu.tar.gz
+version=$(curl -sSfL -o /dev/null -w '%{url_effective}' https://github.com/lvndry/euphoria/releases/latest | sed 's|.*/tag/v||')
+curl -LO "https://github.com/lvndry/euphoria/releases/download/v$version/SHA256SUMS"
+curl -LO "https://github.com/lvndry/euphoria/releases/download/v$version/euphoria-$version-x86_64-unknown-linux-gnu.tar.gz"
 sha256sum --check --ignore-missing SHA256SUMS
-tar -xzf euphoria-*-x86_64-unknown-linux-gnu.tar.gz
-cd euphoria-*-x86_64-unknown-linux-gnu
+tar -xzf "euphoria-$version-x86_64-unknown-linux-gnu.tar.gz"
+cd "euphoria-$version-x86_64-unknown-linux-gnu"
 ./bin/euphoria --version
 ```
+
+The first line reads the newest version from the releases page; set `version` yourself, such as `version=2026.12.0`, for another one.
 
 `sha256sum` must print `OK` for the tarball before you unpack it, and the same check works for the AppImage. Keep `bin` and `lib` together, and add the `bin` folder to your `PATH` to run `euphoria` from anywhere.
 
