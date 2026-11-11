@@ -3155,6 +3155,35 @@ fn a_playlist_exports_in_its_order_to_rekordbox_and_m3u8(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn a_playlist_export_uses_the_key_and_tempo_corrected_by_the_user(cx: &mut TestAppContext) {
+    let (window, view) = open_set(cx);
+    let id = make_playlist(window, &view, "Corrected set", &["peak"], cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let index = app
+                .session
+                .library()
+                .index_of(Path::new("/Demo/set/peak.mp3"))
+                .unwrap();
+            app.select(index, cx);
+            app.accept_key(euphoria_core::Key::new(4, euphoria_core::Mode::Minor), cx);
+            app.accept_bpm(87.0, cx);
+        })
+    });
+    let scratch = ScratchFolder::new("ui-playlist-correction");
+    let destination = scratch.0.join("set.xml");
+    let job = cx.update(|cx| {
+        view.read(cx)
+            .playlist_export_job(id, crate::playlist_flow::PlaylistFormat::Rekordbox)
+            .unwrap()
+    });
+    job.write(&destination).unwrap();
+    let xml = std::fs::read_to_string(destination).unwrap();
+    assert!(xml.contains("Tonality=\"9A\""), "{xml}");
+    assert!(xml.contains("AverageBpm=\"87.00\""), "{xml}");
+}
+
+#[gpui::test]
 fn deleting_the_playlist_on_show_goes_back_to_all_tracks(cx: &mut TestAppContext) {
     let (window, view) = open_set(cx);
     let id = make_playlist(window, &view, "Set", &["peak"], cx);

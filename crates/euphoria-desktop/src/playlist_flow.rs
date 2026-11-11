@@ -404,7 +404,9 @@ impl EuphoriaApp {
             .map(|track| ExportedTrack {
                 path: track.path.clone(),
                 content: playlists.content_of(&track.path),
-                analysis: track.analysis().cloned(),
+                analysis: track
+                    .analysis()
+                    .map(|analysis| track.correction.apply(analysis.clone())),
                 display_name: match &track.artist {
                     Some(artist) => format!("{artist} - {}", track.title()),
                     None => track.title().to_string(),
