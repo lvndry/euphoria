@@ -73,6 +73,25 @@ impl PitchShifter {
         })
     }
 
+    /// Shifts the next stretch of interleaved audio for playing: the output
+    /// is exactly as long as the input and follows it by
+    /// [`PitchShifter::live_latency_frames`], so sound comes out at once.
+    /// Use either this or [`PitchShifter::process`] on one shifter, not
+    /// both.
+    pub fn process_live(&mut self, interleaved: &[f32]) -> Result<Vec<f32>, String> {
+        let channels = deinterleave(interleaved, self.channels);
+        let length = channels.first().map_or(0, Vec::len);
+        let mut output = vec![vec![0.0; length]; self.channels];
+        self.stretch.process(&channels, &mut output)?;
+        Ok(interleave(&output))
+    }
+
+    /// How many samples per channel the output of
+    /// [`PitchShifter::process_live`] trails its input by.
+    pub fn live_latency_frames(&self) -> usize {
+        self.input_latency + self.output_latency
+    }
+
     /// Shifts the next stretch of interleaved audio and returns the shifted
     /// audio that is ready, interleaved.
     pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>, String> {
@@ -650,6 +669,27 @@ mod tests {
         );
         assert!(refused.is_err(), "the original was overwritten");
         std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn live_shifting_keeps_every_chunk_and_moves_the_pitch() {
+        let input = tone(440.0, 2.0);
+        let mut shifter = PitchShifter::new(1, SAMPLE_RATE, 2).unwrap();
+        let mut output = Vec::new();
+        for chunk in input.chunks(1_152) {
+            let shifted = shifter.process_live(chunk).unwrap();
+            assert_eq!(shifted.len(), chunk.len());
+            output.extend(shifted);
+        }
+        assert!(shifter.live_latency_frames() < SAMPLE_RATE as usize / 4);
+        let expected = 440.0 * 2_f64.powf(2.0 / 12.0);
+        let found = strongest_frequency(
+            &output[44_100..66_150],
+            expected - 30.0,
+            expected + 30.0,
+            0.5,
+        );
+        assert!((found - expected).abs() < 2.0, "{found}");
     }
 
     #[test]

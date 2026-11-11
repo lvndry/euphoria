@@ -19,6 +19,7 @@ mod dock_icon;
 mod folder_tree;
 mod format;
 mod key_by_ear;
+mod key_shift;
 mod library;
 mod mixes;
 mod panels;

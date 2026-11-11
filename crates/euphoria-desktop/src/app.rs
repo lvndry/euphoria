@@ -135,8 +135,12 @@ pub(crate) struct EuphoriaApp {
     pub(crate) visible: Vec<usize>,
     /// Index into the library of the selected track.
     pub(crate) selected: Option<usize>,
-    /// Tracks that mix with the selected one, smoothest first.
+    /// Tracks that mix with the selected one, smoothest first, in its key
+    /// shifted by `key_shift`.
     pub(crate) mixes: Vec<MixSuggestion>,
+    /// Semitones the selected track is heard and suggested in, away from its
+    /// own key. Back to 0 when another track is selected.
+    pub(crate) key_shift: i8,
     pub(crate) table_scroll: UniformListScrollHandle,
     pub(crate) table_focus: FocusHandle,
     /// A problem to tell the user about, shown until dismissed.
@@ -309,6 +313,7 @@ impl EuphoriaApp {
             visible: Vec::new(),
             selected: None,
             mixes: Vec::new(),
+            key_shift: 0,
             table_scroll: UniformListScrollHandle::new(),
             table_focus: cx.focus_handle(),
             notice,
@@ -1164,6 +1169,7 @@ impl EuphoriaApp {
         self.by_ear.is_editing = false;
         self.by_ear.bpm_problem = None;
         self.selected = Some(index);
+        self.key_shift = 0;
         self.refresh_mixes();
         self.load_selected_waveform(cx);
         self.point_player_at_selection(cx);
@@ -1222,11 +1228,14 @@ impl EuphoriaApp {
                 attempt,
             }) => {
                 self.voice = None;
+                let semitones = self.key_shift;
                 self.start_task = Some(cx.spawn(async move |this, cx| {
-                    let opened = cx
-                        .background_executor()
-                        .spawn(async move { TrackSource::open(&path, from_seconds) })
-                        .await;
+                    let opened =
+                        cx.background_executor()
+                            .spawn(async move {
+                                TrackSource::open_shifted(&path, from_seconds, semitones)
+                            })
+                            .await;
                     this.update(cx, |this, cx| this.finish_starting(attempt, opened, cx))
                         .ok();
                 }));
@@ -1336,12 +1345,22 @@ impl EuphoriaApp {
         self.select(index, cx);
     }
 
-    /// Asks the core which tracks mix with the selected one.
+    /// Asks the core which tracks mix with the selected one, in its key
+    /// shifted by `key_shift`.
     pub(crate) fn refresh_mixes(&mut self) {
         self.mixes = self
             .selected
-            .map(|selected| suggestions(self.session.library(), selected, MIX_LIMIT))
+            .map(|selected| {
+                suggestions(self.session.library(), selected, self.key_shift, MIX_LIMIT)
+            })
             .unwrap_or_default();
+    }
+
+    /// Gives the playing track the key shift chosen for it.
+    pub(crate) fn apply_key_shift_to_playback(&self) {
+        if let Some(active) = &self.voice {
+            active.state.set_shift(self.key_shift);
+        }
     }
 
     /// Moves the selection up or down the visible rows.
