@@ -21,7 +21,7 @@ use super::{Cache, cache_error, seconds_since_epoch};
 use crate::analysis::TrackAnalysis;
 use crate::correction::Correction;
 use crate::error::EuphoriaError;
-use crate::track_cues::{Cue, HotCue, TrackCues, check_cues};
+use crate::track_cues::{Cue, HotCue, TrackCues, check_cues, check_cues_within};
 
 /// One cue as the table stores it, in a JSON array.
 #[derive(Serialize, Deserialize)]
@@ -104,7 +104,8 @@ impl Cache {
     /// # Errors
     ///
     /// [`EuphoriaError::InvalidCues`] when [`check_cues`] refuses `cues`,
-    /// [`EuphoriaError::Scan`] when the file cannot be read, and
+    /// or a cue lies past the end of the track as the cache recorded its
+    /// length, [`EuphoriaError::Scan`] when the file cannot be read, and
     /// [`EuphoriaError::Cache`] when the database cannot be written.
     pub fn set_edited_cues(
         &mut self,
@@ -115,6 +116,11 @@ impl Cache {
             check_cues(cues)?;
         }
         let content_hash = self.content_at(path)?;
+        if let Some(cues) = cues
+            && let Some(duration_seconds) = self.recorded_duration(&content_hash)?
+        {
+            check_cues_within(cues, duration_seconds)?;
+        }
         let result = match cues {
             None => self.connection.execute(
                 "DELETE FROM edited_cues WHERE content_hash = ?1",
@@ -146,6 +152,18 @@ impl Cache {
         analysis: &TrackAnalysis,
     ) -> Result<TrackCues, EuphoriaError> {
         Ok(TrackCues::of(analysis, self.edited_cues_for(path)?))
+    }
+
+    /// The length an analysis of any version recorded for `content_hash`.
+    fn recorded_duration(&self, content_hash: &ContentHash) -> Result<Option<f64>, EuphoriaError> {
+        self.connection
+            .query_row(
+                "SELECT duration_seconds FROM analyses WHERE content_hash = ?1",
+                params![content_hash.as_bytes()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(cache_error(&self.path))
     }
 
     fn has_edited_cues(&self) -> Result<bool, EuphoriaError> {
@@ -321,6 +339,25 @@ mod tests {
             Err(EuphoriaError::InvalidCues { .. })
         ));
         assert_eq!(cache.edited_cues_for(&track).unwrap(), None);
+    }
+
+    #[test]
+    fn a_cue_past_the_recorded_end_of_the_track_is_refused_and_nothing_is_kept() {
+        let folder = TemporaryFolder::new();
+        let track = track_in(&folder);
+        let mut cache = open(&folder);
+        cache.record_retagged_file(&track, &analysis()).unwrap();
+        let past_the_end = [Cue {
+            seconds: 999.0,
+            name: "Lost".to_string(),
+            hot_cue: None,
+        }];
+        assert!(matches!(
+            cache.set_edited_cues(&track, Some(&past_the_end)),
+            Err(EuphoriaError::InvalidCues { .. })
+        ));
+        assert_eq!(cache.edited_cues_for(&track).unwrap(), None);
+        cache.set_edited_cues(&track, Some(&edited())).unwrap();
     }
 
     #[test]

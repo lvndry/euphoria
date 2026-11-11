@@ -127,9 +127,20 @@ impl TrackCues {
     /// Pass the analysis with any [`Correction`](crate::Correction) applied:
     /// a corrected tempo drops the cues analysis placed, which sit on the
     /// grid of the detected tempo, but never the user's.
+    ///
+    /// A cue of the user's past the end of the track, kept from before the
+    /// file was cut shorter or stored by another program, is left out: it
+    /// marks no audio.
     pub fn of(analysis: &TrackAnalysis, edited: Option<Vec<Cue>>) -> Self {
         match edited {
-            Some(cues) => Self::edited(cues),
+            Some(cues) => {
+                let end = f64::from(analysis.duration_seconds);
+                Self::edited(
+                    cues.into_iter()
+                        .filter(|cue| !(end > 0.0) || cue.seconds <= end)
+                        .collect(),
+                )
+            }
             None => Self::automatic(&analysis.cues),
         }
     }
@@ -164,6 +175,22 @@ pub fn check_cues(cues: &[Cue]) -> Result<(), EuphoriaError> {
             });
         }
         taken[pad] = true;
+    }
+    Ok(())
+}
+
+/// Checks that `cues` can be kept for a track `duration_seconds` long: as
+/// [`check_cues`] does, and with every cue within the track.
+///
+/// # Errors
+///
+/// [`EuphoriaError::InvalidCues`] saying what is wrong.
+pub fn check_cues_within(cues: &[Cue], duration_seconds: f64) -> Result<(), EuphoriaError> {
+    check_cues(cues)?;
+    if cues.iter().any(|cue| cue.seconds > duration_seconds) {
+        return Err(EuphoriaError::InvalidCues {
+            reason: "a cue must be within the track",
+        });
     }
     Ok(())
 }
@@ -266,5 +293,20 @@ mod tests {
             ));
         }
         check_cues(&[cue(0.0, "", None), cue(0.0, "Same time", Some('B'))]).unwrap();
+    }
+
+    #[test]
+    fn cues_past_the_end_of_the_track_are_refused_and_never_listed() {
+        let past_the_end = vec![cue(12.0, "Intro", Some('A')), cue(999.0, "Lost", Some('B'))];
+        assert!(matches!(
+            check_cues_within(&past_the_end, 300.0),
+            Err(EuphoriaError::InvalidCues { .. })
+        ));
+        check_cues_within(&past_the_end[..1], 300.0).unwrap();
+        check_cues_within(&[cue(300.0, "At the end", None)], 300.0).unwrap();
+        assert_eq!(
+            TrackCues::of(&analysis_with_cues(), Some(past_the_end)).cues,
+            vec![cue(12.0, "Intro", Some('A'))]
+        );
     }
 }
