@@ -519,7 +519,7 @@ A write that was interrupted can be undone as well. Files it had not changed yet
 
 ## euphoria corrections export
 
-Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per track. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
+Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
 
 ```
 euphoria corrections export [--output <FILE>] [--force] [--include-paths]
@@ -533,7 +533,7 @@ Exported 42 corrections to /Users/you/corrections.jsonl
 | Option | Effect |
 | --- | --- |
 | `-o`, `--output <FILE>` | The file to write. Without it the lines go to standard output and the summary to standard error. |
-| `--force` | Replace the output file if it exists. |
+| `--force` | Replace the output file if it exists. The source cache and its SQLite companion files cannot be outputs, even with this option. |
 | `--include-paths` | Add the path each file was last seen at. |
 
 Nothing is analyzed and no audio file is read: the lines come from the [cache](#the-analysis-cache), oldest correction first. With no cache, or a cache without corrections, nothing is written to standard output, an output file is empty, and a note says so. A cache that cannot be read is an error, and the command exits with status 1. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
@@ -559,7 +559,7 @@ By default a line names its track only by the hash of the file's content: no pat
 | `analyzed_at` | When that analysis was stored, in seconds since 1 January 1970 UTC, or `null`. |
 | `path` | Only with `--include-paths`: the absolute path the file was last seen at, or `null` when the cache never recorded one. The file may have moved since. |
 
-A correction follows its file through tag writes, so `content_hash` is the hash of the file as it is after Euphoria last wrote its tags. A file whose tags another program changed since has a different hash, and a program matching the export by hash will not find it.
+A correction follows its file through tag writes. The export includes both its new content hash and older entries retained so a tag write can be undone. One audio track can therefore have several lines for different versions of its tags, and an older hash need not match a file that still exists. A file whose tags another program changed since also has a different hash, and a program matching the export by hash will not find it.
 
 ## The analysis cache
 
