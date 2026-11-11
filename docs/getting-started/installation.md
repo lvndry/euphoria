@@ -40,7 +40,7 @@ It writes `target/release/bundle/Euphoria.app` and `target/release/bundle/Euphor
 cp -R target/release/bundle/Euphoria.app /Applications/
 ```
 
-The app carries its own copy of libkeyfinder and FFTW, so it keeps working if you uninstall them from Homebrew, and you can copy it to another Mac. It needs the macOS version the script prints when it finishes, which is the version of the Mac that built it, because Homebrew builds its libraries for that version.
+The app carries its own copy of libkeyfinder and FFTW, so it keeps working if you uninstall them from Homebrew, and you can copy it to another Mac. It needs the macOS version the script prints when it finishes: the newest minimum macOS of any binary in the bundle, which is also written into the app as `LSMinimumSystemVersion`. The libraries copied from Homebrew usually set it, because Homebrew builds them for the macOS it is installed on, so a bundle built on a newer Mac can need a newer macOS.
 
 ### Opening the app for the first time on another Mac
 
