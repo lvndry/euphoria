@@ -151,7 +151,12 @@ pub(crate) struct EuphoriaApp {
     /// Holds the keyboard when no field or table has it, so that the space
     /// bar still reaches the player.
     pub(crate) window_focus: FocusHandle,
-    output: Box<dyn AudioOutput>,
+    /// Where tracks and reference sounds are played.
+    pub(crate) output: Box<dyn AudioOutput>,
+    /// The reference sounds and the correction editor of the track detail.
+    pub(crate) by_ear: crate::key_by_ear::ByEar,
+    /// The tempo the user types to correct the selected track's.
+    pub(crate) bpm_input: Entity<InputState>,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -220,6 +225,12 @@ impl EuphoriaApp {
                 this.apply_typed_tempo_range(cx);
             }
         };
+        let bpm_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
+        let bpm_entered = cx.subscribe(&bpm_input, |this: &mut Self, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.accept_typed_bpm(cx);
+            }
+        });
         let tempo_from_changed = cx.subscribe(&tempo_from_input, range_typed);
         let tempo_to_changed = cx.subscribe(&tempo_to_input, range_typed);
         let mut session = session;
@@ -286,6 +297,8 @@ impl EuphoriaApp {
             progress_line_bounds: Rc::new(Cell::new(None)),
             window_focus,
             output,
+            by_ear: crate::key_by_ear::ByEar::default(),
+            bpm_input,
             voice: None,
             start_task: None,
             is_following_playhead: false,
@@ -298,6 +311,7 @@ impl EuphoriaApp {
             folder_tree_revisions: None,
             folder_column_basis: None,
             _subscriptions: vec![
+                bpm_entered,
                 search_changed,
                 quitting,
                 tempo_from_changed,
@@ -1098,6 +1112,7 @@ impl EuphoriaApp {
     /// Gives the player the selected track. While a track is playing, the
     /// newly selected one plays in its place.
     fn point_player_at_selection(&mut self, cx: &mut Context<'_, Self>) {
+        self.stop_drone_of_other_tracks();
         let selected = self
             .selected_track()
             .map(|track| (track.path.clone(), track.duration_seconds()));
@@ -1261,7 +1276,7 @@ impl EuphoriaApp {
     }
 
     /// Asks the core which tracks mix with the selected one.
-    fn refresh_mixes(&mut self) {
+    pub(crate) fn refresh_mixes(&mut self) {
         self.mixes = self
             .selected
             .map(|selected| suggestions(self.session.library(), selected, MIX_LIMIT))

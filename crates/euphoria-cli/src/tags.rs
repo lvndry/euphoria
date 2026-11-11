@@ -15,7 +15,7 @@ use euphoria_core::tags::{
     default_write_log_directory, plan_write, undo_last_write,
 };
 use euphoria_core::{
-    CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
+    CachedBatch, Correction, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -158,11 +158,19 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         eprintln!("No audio files found.");
         return Ok(ExitCode::SUCCESS);
     }
+    // Before the analysis, which can take hours, and before anything is
+    // written.
+    batch::require_readable_corrections(&arguments.analysis)?;
     let CachedBatch {
         results,
         store_error,
         ..
     } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let corrections = batch::corrections(
+        &results,
+        &arguments.analysis,
+        batch::CorrectionCheck::ReadFile,
+    )?;
 
     // Planning only reads the files.
     let options = arguments.options();
@@ -171,8 +179,25 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     let mut failures: Vec<Failure> = Vec::new();
     let mut unchanged_count = 0;
     for result in results {
+        // The tags get the values the user set; the cache keeps the
+        // analysis as detected, so a correction can still be reset.
+        let correction = match corrections.get(&result.path) {
+            Some(Ok(correction)) => *correction,
+            Some(Err(reason)) => {
+                failures.push(Failure {
+                    error: EuphoriaError::CorrectionUnchecked {
+                        path: result.path.clone(),
+                        source: reason.clone().into(),
+                    },
+                    path: result.path,
+                });
+                continue;
+            }
+            None => Correction::default(),
+        };
         let planned = result.outcome.and_then(|analysis| {
-            plan_write(&result.path, &analysis, &options).map(|plan| (plan, analysis))
+            plan_write(&result.path, &correction.apply(analysis.clone()), &options)
+                .map(|plan| (plan, analysis))
         });
         match planned {
             Ok((plan, _)) if plan.is_empty() => unchanged_count += 1,
