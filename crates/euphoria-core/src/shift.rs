@@ -8,11 +8,10 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
-use ssstretch::Stretch;
-
 use crate::audio_stream::AudioStream;
 use crate::error::EuphoriaError;
 use crate::key::Key;
+use crate::signalsmith::Stretch;
 use crate::tags::{TagValues, TagWriteOptions, apply_plan, plan_write};
 
 /// The furthest a track can be shifted, in semitones either way. Six
@@ -58,15 +57,10 @@ impl PitchShifter {
                 "a shift of {semitones} semitones is more than {MAXIMUM_SHIFT_SEMITONES} either way"
             ));
         }
-        let channel_count = i32::try_from(channels)
-            .ok()
-            .filter(|count| *count > 0)
-            .ok_or_else(|| format!("cannot shift audio with {channels} channels"))?;
-        let mut stretch = Stretch::new();
-        stretch.preset_default(channel_count, sample_rate as f32);
-        stretch.set_transpose_semitones(f32::from(semitones), None);
-        let input_latency = usize::try_from(stretch.input_latency()).unwrap_or(0);
-        let output_latency = usize::try_from(stretch.output_latency()).unwrap_or(0);
+        let mut stretch = Stretch::new(channels, sample_rate)?;
+        stretch.set_transpose_semitones(f32::from(semitones))?;
+        let input_latency = stretch.input_latency();
+        let output_latency = stretch.output_latency();
         Ok(Self {
             stretch,
             channels,
@@ -81,7 +75,7 @@ impl PitchShifter {
 
     /// Shifts the next stretch of interleaved audio and returns the shifted
     /// audio that is ready, interleaved.
-    pub fn process(&mut self, interleaved: &[f32]) -> Vec<f32> {
+    pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>, String> {
         let mut channels = deinterleave(interleaved, self.channels);
         self.input_length += channels[0].len();
         if !self.started {
@@ -91,10 +85,9 @@ impl PitchShifter {
                 preroll.extend(channel.drain(..taken));
             }
             if self.preroll[0].len() < self.input_latency {
-                return Vec::new();
+                return Ok(Vec::new());
             }
-            self.stretch
-                .seek_vec(&self.preroll, self.input_latency as i32, 1.0);
+            self.stretch.seek(&self.preroll, 1.0)?;
             self.started = true;
         }
         self.shift(&channels)
@@ -102,49 +95,47 @@ impl PitchShifter {
 
     /// Shifts what is left and returns the rest of the output, so that the
     /// whole output is as long as the whole input.
-    pub fn finish(mut self) -> Vec<f32> {
+    pub fn finish(mut self) -> Result<Vec<f32>, String> {
         if !self.started {
             // Fewer samples than the shifter needs to start: the start of
             // the track is all there is, so it is used as the pre-roll and
             // shifted from zeros on.
             let length = self.preroll[0].len();
-            self.stretch.seek_vec(&self.preroll, length as i32, 1.0);
+            self.stretch.seek(&self.preroll, 1.0)?;
             self.started = true;
             let silence = vec![vec![0.0; length]; self.channels];
-            let mut output = self.shift(&silence);
-            output.extend(self.flushed());
+            let mut output = self.shift(&silence)?;
+            output.extend(self.flushed()?);
             output.truncate(self.input_length * self.channels);
-            return output;
+            return Ok(output);
         }
         // The pre-roll is still owed to the shifter as input: zeros stand in
         // for what would follow the end of the track.
         let silence = vec![vec![0.0; self.input_latency]; self.channels];
-        let mut output = self.shift(&silence);
-        output.extend(self.flushed());
-        output
+        let mut output = self.shift(&silence)?;
+        output.extend(self.flushed()?);
+        Ok(output)
     }
 
-    fn shift(&mut self, channels: &[Vec<f32>]) -> Vec<f32> {
+    fn shift(&mut self, channels: &[Vec<f32>]) -> Result<Vec<f32>, String> {
         let length = channels.first().map_or(0, Vec::len);
         if length == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        let mut output = vec![Vec::new(); self.channels];
-        self.stretch
-            .process_vec(channels, length as i32, &mut output, length as i32);
+        let mut output = vec![vec![0.0; length]; self.channels];
+        self.stretch.process(channels, &mut output)?;
         let dropped = self.to_drop.min(length);
         self.to_drop -= dropped;
         for channel in &mut output {
             channel.drain(..dropped);
         }
-        interleave(&output)
+        Ok(interleave(&output))
     }
 
-    fn flushed(&mut self) -> Vec<f32> {
-        let mut output = vec![Vec::new(); self.channels];
-        self.stretch
-            .flush_vec(&mut output, self.output_latency as i32);
-        interleave(&output)
+    fn flushed(&mut self) -> Result<Vec<f32>, String> {
+        let mut output = vec![vec![0.0; self.output_latency]; self.channels];
+        self.stretch.flush(&mut output)?;
+        Ok(interleave(&output))
     }
 }
 
@@ -259,9 +250,9 @@ pub fn write_shifted_copy(
         let mut writer = ShiftedWriter::create(&temporary, format, channels, sample_rate)?;
         let mut chunk = Vec::new();
         while stream.read_chunk(&mut chunk)? {
-            writer.write(&shifter.process(&chunk))?;
+            writer.write(&shifter.process(&chunk).map_err(&failure)?)?;
         }
-        writer.write(&shifter.finish())?;
+        writer.write(&shifter.finish().map_err(&failure)?)?;
         writer.finish()
     })();
     let frames = match written {
@@ -490,9 +481,9 @@ mod tests {
         let mut shifter = PitchShifter::new(channels, SAMPLE_RATE, semitones).unwrap();
         let mut output = Vec::new();
         for piece in input.chunks(chunk * channels) {
-            output.extend(shifter.process(piece));
+            output.extend(shifter.process(piece).unwrap());
         }
-        output.extend(shifter.finish());
+        output.extend(shifter.finish().unwrap());
         output
     }
 

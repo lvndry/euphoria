@@ -38,6 +38,8 @@ pub mod quality;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
+#[cfg(feature = "pitch-shift")]
+mod signalsmith;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;

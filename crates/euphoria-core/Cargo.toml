@@ -21,7 +21,6 @@ rayon.workspace = true
 rusqlite.workspace = true
 rustfft.workspace = true
 serde.workspace = true
-ssstretch = { workspace = true, optional = true }
 serde_json.workspace = true
 stratum-dsp.workspace = true
 symphonia = { workspace = true, features = [
@@ -47,10 +46,10 @@ roxmltree.workspace = true
 default = ["libkeyfinder", "pitch-shift"]
 # Key detection through libkeyfinder, a C++ library found with pkg-config.
 libkeyfinder = ["dep:cc", "dep:pkg-config"]
-# Changing the key of a track with the Signalsmith Stretch pitch shifter, a
-# C++ library compiled with the crate, which needs a C++ compiler but not
+# Changing the key of a track with Signalsmith Stretch, a C++ library vendored
+# in vendor/ and compiled with the crate: it needs a C++ compiler but not
 # libclang.
-pitch-shift = ["dep:ssstretch"]
+pitch-shift = ["dep:cc"]
 
 [build-dependencies]
 cc = { workspace = true, optional = true }
