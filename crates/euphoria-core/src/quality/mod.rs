@@ -14,7 +14,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use symphonia::core::codecs::audio::well_known::{
     CODEC_ID_ADPCM_G722, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MONKEYS_AUDIO, CODEC_ID_PCM_S32LE,
-    CODEC_ID_TTA, CODEC_ID_WAVPACK,
+    CODEC_ID_TTA, CODEC_ID_VORBIS, CODEC_ID_WAVPACK,
 };
 use symphonia::core::codecs::audio::{AudioCodecId, AudioCodecParameters};
 
@@ -40,6 +40,16 @@ pub const GOOD_BITRATE_KBPS: u32 = 200;
 /// [`GOOD_BITRATE_KBPS`], is acceptable. Encoders set to 128 kbit/s measured
 /// at most 129, and set to 192 kbit/s at least 155.
 pub const ACCEPTABLE_BITRATE_KBPS: u32 = 144;
+/// A Vorbis file at or above this average bit rate, in kbit/s, with the
+/// spectrum its bit rate keeps, is good for any system. Vorbis is encoded
+/// at a quality level and averages well below the level's nominal rate:
+/// the reference encoder at quality 8, nominally 256 kbit/s, averaged 148
+/// to 221 kbit/s on music, and at quality 6, nominally 192, 116 to 162.
+pub const VORBIS_GOOD_BITRATE_KBPS: u32 = 145;
+/// A Vorbis file at or above this average bit rate, in kbit/s, and below
+/// [`VORBIS_GOOD_BITRATE_KBPS`], is acceptable. Quality 6 measured at least
+/// 116 kbit/s, quality 4, nominally 128, at most 104.
+pub const VORBIS_ACCEPTABLE_BITRATE_KBPS: u32 = 110;
 /// A file with at least this share of its samples clipped gets a note in
 /// its reason. Lossy encoding hides most clipping, so this is a lower bound.
 pub const NOTICEABLE_CLIPPED_SHARE: f32 = 0.001;
@@ -191,6 +201,38 @@ fn typical_bitrate_for_cutoff(cutoff_hz: f32) -> u32 {
     }
 }
 
+/// The lowest cutoff, in Hz, that a Vorbis file of `bitrate_kbps` has when
+/// it was encoded from a full band source. The reference encoder stopped no
+/// lower than 18.9 kHz at quality 6 and 19.6 kHz at quality 8, and mostly
+/// kept the whole spectrum; see `bench/results/quality.md`.
+pub fn expected_vorbis_cutoff_hz(bitrate_kbps: u32) -> f32 {
+    if bitrate_kbps >= VORBIS_GOOD_BITRATE_KBPS {
+        18_500.0
+    } else {
+        18_000.0
+    }
+}
+
+/// The verdict for a Vorbis file with these properties. Vorbis gets lines of
+/// its own because its bit rates run lower than those of MP3 and AAC for the
+/// same quality.
+pub fn vorbis_verdict(bitrate_kbps: Option<u32>, cutoff_hz: Option<f32>) -> QualityVerdict {
+    let Some(bitrate) = bitrate_kbps else {
+        return QualityVerdict::Acceptable;
+    };
+    if bitrate < VORBIS_ACCEPTABLE_BITRATE_KBPS {
+        return QualityVerdict::WeakOnABigSystem;
+    }
+    if cutoff_hz.is_some_and(|hz| hz < expected_vorbis_cutoff_hz(bitrate)) {
+        return QualityVerdict::LikelyReencoded;
+    }
+    if bitrate >= VORBIS_GOOD_BITRATE_KBPS {
+        QualityVerdict::Good
+    } else {
+        QualityVerdict::Acceptable
+    }
+}
+
 /// The verdict for a file with these properties.
 pub fn verdict(
     lossless: bool,
@@ -290,6 +332,7 @@ impl PendingQuality {
 #[derive(Default)]
 struct QualityProbe {
     codec: String,
+    is_vorbis: bool,
     lossless: bool,
     bit_depth: Option<u32>,
     channels: Option<u32>,
@@ -309,6 +352,7 @@ impl DecodeObserver for QualityProbe {
                 |decoder| decoder.codec.info.short_name.to_string(),
             );
         self.lossless = is_lossless(id);
+        self.is_vorbis = id == CODEC_ID_VORBIS;
         let bit_depth = match parameters.bits_per_sample {
             None if id == CODEC_ID_ALAC => alac_bit_depth(parameters.extra_data.as_deref()),
             known => known,
@@ -338,7 +382,11 @@ impl QualityProbe {
             .then(|| (self.payload_bytes as f64 * 8.0 / duration / 1000.0).round() as u32);
         let cutoff_hz = self.cutoff.finish();
         QualityReport {
-            verdict: verdict(self.lossless, bitrate_kbps, cutoff_hz),
+            verdict: if self.is_vorbis {
+                vorbis_verdict(bitrate_kbps, cutoff_hz)
+            } else {
+                verdict(self.lossless, bitrate_kbps, cutoff_hz)
+            },
             codec: self.codec,
             lossless: self.lossless,
             bitrate_kbps,
@@ -426,6 +474,29 @@ impl ClippingCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vorbis_files_are_judged_by_their_own_bit_rates() {
+        // Medians and extremes the reference encoder reached on music; see
+        // bench/results/quality.md.
+        for (bitrate, cutoff, expected) in [
+            (104, Some(18_271.0), QualityVerdict::WeakOnABigSystem),
+            (116, Some(18_895.0), QualityVerdict::Acceptable),
+            (131, None, QualityVerdict::Acceptable),
+            (148, Some(19_628.0), QualityVerdict::Good),
+            (201, Some(20_844.0), QualityVerdict::Good),
+            // A 128 kbit/s MP3 encoded again as Vorbis at quality 9.
+            (228, Some(17_743.0), QualityVerdict::LikelyReencoded),
+            (130, Some(16_000.0), QualityVerdict::LikelyReencoded),
+        ] {
+            assert_eq!(
+                vorbis_verdict(Some(bitrate), cutoff),
+                expected,
+                "{bitrate} kbit/s, cutoff {cutoff:?}"
+            );
+        }
+        assert_eq!(vorbis_verdict(None, None), QualityVerdict::Acceptable);
+    }
 
     #[test]
     fn alac_bit_depth_is_read_from_the_magic_cookie() {
