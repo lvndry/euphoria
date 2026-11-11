@@ -50,6 +50,20 @@ const MINIMUM_BEAT_HITS: usize = 4;
 /// that a few hits in a long silence or ambience cannot make it confident.
 const RECURRING_BEAT_HITS: usize = 16;
 const RECURRING_BEAT_SHARE: f64 = 0.25;
+/// The comb score is nearly flat within a few thousandths of a frame of
+/// the best period, which over a long track still lets the last beats drift
+/// by tens of milliseconds. So the period and phase are then fitted to where
+/// the beats of each stretch of the track fall, a line through their
+/// offsets from the grid, this many times.
+const LINE_FIT_ROUNDS: usize = 2;
+/// A line fit is kept when the comb score of the whole track stays at least
+/// this share of the best found by the search, so that a stretch whose
+/// strongest onsets are off the beat cannot pull a good grid away.
+const LINE_FIT_SCORE_SHARE: f32 = 0.97;
+/// Stretches whose beats sit further from the grid than this share of a
+/// beat are left out of the line fit: they lock onto another onset of the
+/// bar, not onto the beat.
+const LINE_FIT_OFFSET_SHARE: f64 = 0.15;
 /// Beats in a bar of 4/4, the metre of nearly all dance music.
 pub(crate) const BEATS_PER_BAR: usize = 4;
 
@@ -271,6 +285,18 @@ pub(crate) fn fit_beats(envelope: &OnsetEnvelope, estimate_bpm: f64) -> Option<B
             }
         }
     }
+    for _ in 0..LINE_FIT_ROUNDS {
+        let Some((period, phase)) =
+            fitted_to_stretches(&values, envelope.frame_rate, best_period, best_phase)
+        else {
+            break;
+        };
+        let score = comb(&values, period, phase, 0.0, last);
+        if score < best_score * LINE_FIT_SCORE_SHARE {
+            break;
+        }
+        (best_score, best_period, best_phase) = (score.max(best_score), period, phase);
+    }
     let phase_count = best_period.ceil() as usize;
     let mean_over_phases = (0..phase_count)
         .map(|phase| comb(&values, best_period, phase as f64, 0.0, last))
@@ -329,8 +355,28 @@ fn beat_hits(values: &[f32], period: f64, phase: f64) -> (usize, usize) {
 /// when fewer than two have them.
 pub(crate) fn drift_seconds(envelope: &OnsetEnvelope, fit: BeatFit) -> Option<f64> {
     let values = peaks_only(&envelope.full, envelope.frame_rate);
-    let segment = DRIFT_SEGMENT_SECONDS * envelope.frame_rate;
-    let hop = DRIFT_SEGMENT_HOP_SECONDS * envelope.frame_rate;
+    let mut offsets: Vec<f64> = stretch_offsets(
+        &values,
+        envelope.frame_rate,
+        fit.period_frames,
+        fit.phase_frames,
+    )
+    .into_iter()
+    .map(|(_, offset)| offset.abs() / envelope.frame_rate)
+    .collect();
+    if offsets.len() < 2 {
+        return None;
+    }
+    offsets.sort_by(f64::total_cmp);
+    Some(offsets[((offsets.len() - 1) as f64 * 0.9).round() as usize])
+}
+
+/// Where the beats of each stretch of the track with clear beats fall
+/// against the grid of `period` and `phase`: the middle frame of the
+/// stretch and the offset, in frames, that lines the grid up with them best.
+fn stretch_offsets(values: &[f32], frame_rate: f64, period: f64, phase: f64) -> Vec<(f64, f64)> {
+    let segment = DRIFT_SEGMENT_SECONDS * frame_rate;
+    let hop = DRIFT_SEGMENT_HOP_SECONDS * frame_rate;
     let mut offsets = Vec::new();
     let mut start = 0.0;
     while start + segment <= values.len() as f64 {
@@ -338,15 +384,9 @@ pub(crate) fn drift_seconds(envelope: &OnsetEnvelope, fit: BeatFit) -> Option<f6
         let mut best = (0.0_f32, 0.0_f64);
         let mut total = 0.0_f32;
         let mut count = 0_u32;
-        let mut offset = -fit.period_frames / 2.0;
-        while offset < fit.period_frames / 2.0 {
-            let score = comb(
-                &values,
-                fit.period_frames,
-                fit.phase_frames + offset,
-                start,
-                last,
-            );
+        let mut offset = -period / 2.0;
+        while offset < period / 2.0 {
+            let score = comb(values, period, phase + offset, start, last);
             total += score;
             count += 1;
             if score > best.0 {
@@ -356,15 +396,54 @@ pub(crate) fn drift_seconds(envelope: &OnsetEnvelope, fit: BeatFit) -> Option<f6
         }
         let mean = total / count.max(1) as f32;
         if mean > 0.0 && best.0 / mean >= SALIENT_SEGMENT {
-            offsets.push(best.1.abs() / envelope.frame_rate);
+            offsets.push((start + segment / 2.0, best.1));
         }
         start += hop;
     }
-    if offsets.len() < 2 {
+    offsets
+}
+
+/// The period and phase of a line through the offsets of the stretches
+/// from the grid of `period` and `phase`, or `None` when fewer than three
+/// stretches line up with the grid.
+fn fitted_to_stretches(
+    values: &[f32],
+    frame_rate: f64,
+    period: f64,
+    phase: f64,
+) -> Option<(f64, f64)> {
+    let points: Vec<(f64, f64)> = stretch_offsets(values, frame_rate, period, phase)
+        .into_iter()
+        .filter(|(_, offset)| offset.abs() <= LINE_FIT_OFFSET_SHARE * period)
+        .collect();
+    if points.len() < 3 {
         return None;
     }
-    offsets.sort_by(f64::total_cmp);
-    Some(offsets[((offsets.len() - 1) as f64 * 0.9).round() as usize])
+    let count = points.len() as f64;
+    let mean_frame = points.iter().map(|(frame, _)| frame).sum::<f64>() / count;
+    let mean_offset = points.iter().map(|(_, offset)| offset).sum::<f64>() / count;
+    let spread = points
+        .iter()
+        .map(|(frame, _)| (frame - mean_frame).powi(2))
+        .sum::<f64>();
+    if spread <= 0.0 {
+        return None;
+    }
+    let slope = points
+        .iter()
+        .map(|(frame, offset)| (frame - mean_frame) * (offset - mean_offset))
+        .sum::<f64>()
+        / spread;
+    let offset_at_start = mean_offset - slope * mean_frame;
+    // Beat k of the grid, at frame phase + k * period, is off by the change
+    // of phase plus k times the change of period, so the offsets rise with
+    // the frame by the change of period over the period.
+    let corrected_period = period * (1.0 + slope);
+    let corrected_phase = phase + offset_at_start + phase * slope;
+    (corrected_period.is_finite() && corrected_period > 0.0).then_some((
+        corrected_period,
+        corrected_phase.rem_euclid(corrected_period),
+    ))
 }
 
 /// What each of the four beats of a bar would make of the beats if it were
@@ -808,6 +887,28 @@ mod tests {
         assert_eq!(detect_beat_grid(&silence, 128.0), None);
         let short = dance_loop(128.0, 1.5, 0.1);
         assert_eq!(detect_beat_grid(&short, 128.0), None);
+    }
+
+    #[test]
+    fn a_long_track_gets_a_tempo_precise_enough_to_keep_its_last_beats_on_the_grid() {
+        let tempo = 127.537;
+        let seconds = 240.0;
+        let mut samples = vec![0.0_f32; (seconds * f64::from(SAMPLE_RATE)) as usize];
+        let mut beat = 0.2;
+        while beat < seconds - 1.0 {
+            add_hit(&mut samples, beat, 60.0, 0.05, 0.8);
+            beat += 60.0 / tempo;
+        }
+        let audio = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+
+        let grid = detect_beat_grid(&audio, 128.0).expect("clicks have a grid");
+
+        let last_beat_error = (grid.bpm - tempo).abs() / tempo * seconds;
+        assert!(
+            last_beat_error < 0.005,
+            "{} BPM puts the last beat {last_beat_error} s off",
+            grid.bpm
+        );
     }
 
     #[test]
