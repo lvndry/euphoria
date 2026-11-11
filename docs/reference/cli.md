@@ -152,6 +152,83 @@ The command also exits with status 1, and writes no file, when:
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
+## euphoria tags write
+
+Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.
+
+```
+euphoria tags write [OPTIONS] <PATHS>...
+```
+
+Paths are searched as in [`euphoria analyze`](#euphoria-analyze), and results come from the [cache](#the-analysis-cache) when the tracks were analyzed before.
+
+```
+$ euphoria tags write ~/Music/DJ
+/Users/you/Music/DJ/low tide.flac
+  INITIALKEY: (none) -> 8A
+  KEY: (none) -> 8A
+  BPM: (none) -> 124.04
+  COMMENT: https://example.com/track/42 -> 8A - Energy 7 - https://example.com/track/42
+340 files to change, 2 already up to date.
+Write these changes to 340 files? [y/N] y
+Wrote the tags of 340 files.
+To put the old tags back: euphoria tags undo
+```
+
+### Options
+
+| Option | Effect |
+| --- | --- |
+| `--dry-run` | Show the preview and write nothing. Cannot be combined with `--yes`. |
+| `-y`, `--yes` | Write without asking for confirmation. |
+| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. Applies to the key field and to the label. |
+| `--no-tempo` | Leave the tempo field alone. |
+| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start` (the default), `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. |
+| `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor` or `engine-dj`. |
+| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
+| `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `-h`, `--help` | Show help. |
+
+### Preview and confirmation
+
+The preview goes to standard output: the path of each file that would change, then one line per field with the value it has and the value it would get. `(none)` stands for a field the file does not have. Files that already hold the values are not listed and are never touched. Producing the preview only reads the files.
+
+Standard error then gets one line with the number of files to change, the number already up to date and the number left out because of errors, and the question. Only `y` or `yes` writes. With `--dry-run` there is no question. When there is nothing to change there is no question either.
+
+When standard input is not a terminal and `--yes` was not given, nobody can answer the question. The command then writes nothing, says so, and exits with status 1. An answer sent through a pipe is not read.
+
+### What is written and how
+
+Each file is written as described in [Tags](tags.md#how-a-file-is-rewritten): only the fields in the preview change, every other byte of the file is carried over, and the new file is checked against the original before it takes its place. The backup of each file is saved in the `tag-writes` folder of the [data folder](#where-the-cache-is-stored) before the file is changed.
+
+### Exit status
+
+Paths, tag values and error messages come from the files, so before they are shown, characters that could act on the terminal, such as a carriage return, an escape sequence or a text direction override, are replaced by visible escapes such as `\r` and `\u{1b}`. A file cannot erase or disguise the preview you are asked to confirm. The same holds for the table of `euphoria analyze` and the messages of `euphoria export`. What is written into the tags is the real text. JSON output carries the real text with JSON's own escapes.
+
+A file that fails does not stop the others. A file that cannot be analyzed, or whose tags cannot be read or written, is listed on standard error as `error: <path>: <reason>` and left unchanged. That includes the files the tag writer refuses, such as a file with more than one hard link or a file another program changed during the write.
+
+If a file was changed but the log of the write could not note it, for example because the disk filled up, the file is listed as `warning: <path>: the file was changed, but the record of it could not be saved`. Its backup was saved before the change, so `euphoria tags undo` still restores it.
+
+The command exits with status 0 when every file was written or was already up to date, and also when you answered no. It exits with status 1 when any file failed, when a change could not be recorded, when it could not ask for confirmation, and, after writing, when saving analysis results to the cache failed partway.
+
+## euphoria tags undo
+
+Puts back the tags that the last `euphoria tags write` replaced.
+
+```
+$ euphoria tags undo
+/Users/you/Music/DJ/low tide.flac
+...
+Restored the tags of 340 files.
+```
+
+Each restored file is listed on standard output and is byte for byte what it was before the write. Running the command again undoes the write before that one. When there is nothing to undo it says so and exits with status 0.
+
+A file whose tags changed after the write is not restored, so that the later change is not lost. It is listed on standard error with the reason, the other files are restored, and the command exits with status 1. The backup of such a file is kept, and running the command again tries it again. An earlier write cannot be undone while such a file remains.
+
+A write that was interrupted can be undone as well. Files it had not changed yet are counted in the summary as not changed by the write.
+
 ## The analysis cache
 
 `euphoria analyze` and `euphoria export` remember every result in a SQLite database on your computer, so a track is analyzed once. A later run uses the remembered result instead of analyzing the file again.

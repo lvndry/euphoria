@@ -22,15 +22,18 @@ const DATABASE_FILE_NAME: &str = "analysis-cache.sqlite3";
 /// Windows, and elsewhere `$XDG_DATA_HOME/euphoria`, or
 /// `~/.local/share/euphoria` when `XDG_DATA_HOME` is unset or not absolute.
 pub fn default_cache_path() -> Result<PathBuf, EuphoriaError> {
+    Ok(default_data_directory()?.join(DATABASE_FILE_NAME))
+}
+
+/// The folder that holds Euphoria's data, as an absolute path. See
+/// [`default_cache_path`] for how it is chosen.
+pub(crate) fn default_data_directory() -> Result<PathBuf, EuphoriaError> {
     let directory =
         data_directory(|name| std::env::var_os(name)).ok_or(EuphoriaError::NoDataDirectory)?;
-    match std::path::absolute(&directory) {
-        Ok(absolute_directory) => Ok(absolute_directory.join(DATABASE_FILE_NAME)),
-        Err(source) => Err(EuphoriaError::Scan {
-            path: directory,
-            source,
-        }),
-    }
+    std::path::absolute(&directory).map_err(|source| EuphoriaError::Scan {
+        path: directory,
+        source,
+    })
 }
 
 fn data_directory(variable: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
