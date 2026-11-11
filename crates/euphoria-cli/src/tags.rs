@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::tags::{
-    DjSoftware, KeyNotation, LabelPlacement, TagWriteOptions, WriteLog, WritePlan,
+    DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, TagWriteOptions, WriteLog, WritePlan,
     default_write_log_directory, plan_write, undo_last_write,
 };
 use euphoria_core::{CachedBatch, EuphoriaError, find_audio_files};
@@ -120,7 +120,7 @@ pub fn run(command: TagsCommand) -> Result<ExitCode> {
     }
 }
 
-/// A file that takes no part in the write, and why.
+/// A file something went wrong with, and what.
 pub struct Failure {
     pub path: PathBuf,
     pub error: EuphoriaError,
@@ -206,21 +206,23 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
             let log_directory = default_write_log_directory().map_err(with_causes)?;
             let mut log = WriteLog::new(&log_directory);
             let mut write_failures = Vec::new();
+            let mut unrecorded = Vec::new();
             for plan in &plans {
-                if let Err(error) = log.apply(plan) {
-                    write_failures.push(Failure {
-                        path: plan.path().to_path_buf(),
-                        error,
-                    });
+                let path = plan.path().to_path_buf();
+                match log.apply(plan) {
+                    Ok(LoggedWrite::Recorded) => {}
+                    Ok(LoggedWrite::NotRecorded(error)) => unrecorded.push(Failure { path, error }),
+                    Err(error) => write_failures.push(Failure { path, error }),
                 }
             }
             output::write_tag_failures(&mut standard_error, &write_failures)?;
+            output::write_unrecorded_tag_writes(&mut standard_error, &unrecorded)?;
             output::write_tag_write_summary(
                 &mut standard_error,
                 plans.len() - write_failures.len(),
                 write_failures.len(),
             )?;
-            failed |= !write_failures.is_empty();
+            failed |= !write_failures.is_empty() || !unrecorded.is_empty();
         }
     }
 

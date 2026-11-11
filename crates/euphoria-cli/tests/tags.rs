@@ -504,3 +504,76 @@ fn yes_and_dry_run_cannot_be_combined() {
     assert!(!output.status.success());
     assert!(standard_error(&output).contains("cannot be used with"));
 }
+
+/// No carriage return, escape character or other control character apart
+/// from the line ends the program itself writes.
+fn assert_cannot_act_on_a_terminal(text: &str) {
+    for line in text.lines() {
+        assert!(
+            !line.chars().any(char::is_control),
+            "a control character reaches the terminal in {line:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn text_from_files_cannot_act_on_the_terminal() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    // A name and a comment that try to erase the preview line and replace
+    // it with something harmless looking.
+    let track = folder.path().join("track\r\u{1b}[2Kinnocent.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track).unwrap();
+    add_comment_to_wav(&track, "note\r\u{1b}[1A\u{1b}[2Knothing to see\u{7}");
+    let not_audio = folder.path().join("broken\r\u{1b}[2K.mp3");
+    std::fs::write(&not_audio, "This is a text file, not audio.\n".repeat(64)).unwrap();
+
+    let outputs = [
+        run(
+            &euphoria,
+            &["tags", "write", "--dry-run", text(folder.path())],
+        ),
+        run(&euphoria, &["tags", "write", text(folder.path())]),
+        run(&euphoria, &["tags", "write", "--yes", text(folder.path())]),
+        run(&euphoria, &["tags", "undo"]),
+        run(&euphoria, &["analyze", text(folder.path())]),
+        run(
+            &euphoria,
+            &[
+                "analyze",
+                text(&folder.path().join("missing\r\u{1b}[2K.mp3")),
+            ],
+        ),
+    ];
+    for output in &outputs {
+        assert_cannot_act_on_a_terminal(&standard_output(output));
+        assert_cannot_act_on_a_terminal(&standard_error(output));
+    }
+    let preview = standard_output(&outputs[0]);
+    assert!(
+        preview.contains("track\\r\\u{1b}[2Kinnocent.wav"),
+        "{preview}"
+    );
+    assert!(
+        preview.contains("note\\r\\u{1b}[1A\\u{1b}[2Knothing to see\\u{7}"),
+        "{preview}"
+    );
+    let report = standard_error(&outputs[0]);
+    assert!(report.contains("error: "), "{report}");
+    assert!(report.contains("broken\\r\\u{1b}[2K.mp3"), "{report}");
+    assert!(standard_output(&outputs[3]).contains("track\\r\\u{1b}[2Kinnocent.wav"));
+
+    // What is written to the file is the real text, not the escaped form.
+    let written = run(&euphoria, &["tags", "write", "--yes", text(folder.path())]);
+    assert_cannot_act_on_a_terminal(&standard_output(&written));
+    let comment = read_tags(&track).unwrap().comment.unwrap();
+    assert!(
+        comment.ends_with(" - note\r\u{1b}[1A\u{1b}[2Knothing to see\u{7}"),
+        "{comment:?}"
+    );
+
+    // JSON keeps the real path, escaped the JSON way.
+    let json = run(&euphoria, &["analyze", "--json", text(&track)]);
+    assert!(standard_output(&json).contains("track\\r\\u001b[2Kinnocent.wav"));
+}

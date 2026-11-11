@@ -7,6 +7,7 @@ mod batch;
 mod export;
 mod output;
 mod tags;
+mod terminal;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -76,7 +77,7 @@ fn main() -> ExitCode {
         Ok(exit_code) => exit_code,
         Err(error) if is_broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error:#}");
+            eprintln!("error: {}", terminal::Printable(format!("{error:#}")));
             ExitCode::FAILURE
         }
     }

@@ -24,7 +24,9 @@ use crate::analysis::TrackAnalysis;
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
 use crate::key::Key;
-pub use history::{UndoneWrite, WriteLog, default_write_log_directory, undo_last_write};
+pub use history::{
+    LoggedWrite, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+};
 use id3v2::COMMENT as ID3_COMMENT;
 pub use label::LabelPlacement;
 use mp4::TEMPO as MP4_TEMPO;

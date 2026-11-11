@@ -7,7 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use euphoria_core::tags::{
-    TagValues, TagWriteOptions, WriteLog, plan_write, read_tags, undo_last_write,
+    LoggedWrite, TagValues, TagWriteOptions, WriteLog, apply_plan, plan_write, read_tags,
+    undo_last_write,
 };
 use euphoria_core::{EuphoriaError, Key, Mode};
 
@@ -78,7 +79,8 @@ impl Scratch {
         for track in self.tracks() {
             let plan = plan_write(&track, values, &TagWriteOptions::default())
                 .expect("the write is planned");
-            log.apply(&plan).expect("the write is applied");
+            let outcome = log.apply(&plan).expect("the write is applied");
+            assert!(matches!(outcome, LoggedWrite::Recorded), "{outcome:?}");
         }
     }
 
@@ -157,7 +159,7 @@ fn file_edited_after_the_write_is_reported_and_kept_for_a_later_undo() {
     let written = std::fs::read(edited).unwrap();
     // Another program changes the key of one file.
     let other_plan = plan_write(edited, values(0, 7), &TagWriteOptions::default()).unwrap();
-    euphoria_core::tags::apply_plan(&other_plan).unwrap();
+    apply_plan(&other_plan).unwrap();
 
     let undone = undo_last_write(&scratch.logs()).unwrap().unwrap();
     assert_eq!(undone.restored.len(), FIXTURES.len() - 1);
@@ -175,6 +177,93 @@ fn file_edited_after_the_write_is_reported_and_kept_for_a_later_undo() {
     std::fs::write(edited, written).unwrap();
     let undone = undo_last_write(&scratch.logs()).unwrap().unwrap();
     assert_eq!(undone.restored, std::slice::from_ref(edited));
+    assert!(scratch.contents() == original);
+    assert!(scratch.log_files().is_empty());
+}
+
+#[test]
+fn write_given_up_after_planning_does_not_stand_in_the_way_of_undo() {
+    let scratch = Scratch::new("stale-plan");
+    let original = scratch.contents();
+    scratch.write(values(9, 7));
+    let after_first = scratch.contents();
+    assert_eq!(scratch.log_files().len(), 1);
+
+    // A second write is planned for every file. Before it is applied,
+    // another program changes two of them, so their plans no longer hold.
+    let options = TagWriteOptions::default();
+    let plans: Vec<_> = scratch
+        .tracks()
+        .iter()
+        .map(|track| plan_write(track, values(4, 3), &options).unwrap())
+        .collect();
+    let changed_meanwhile = [scratch.tracks()[1].clone(), scratch.tracks()[3].clone()];
+    for track in &changed_meanwhile {
+        apply_plan(&plan_write(track, values(0, 5), &options).unwrap()).unwrap();
+    }
+    let mut log = WriteLog::new(&scratch.logs());
+    let mut conflicts = Vec::new();
+    for plan in &plans {
+        match log.apply(plan) {
+            Ok(outcome) => assert!(matches!(outcome, LoggedWrite::Recorded), "{outcome:?}"),
+            Err(error) => {
+                assert!(
+                    matches!(error, EuphoriaError::TagConflict { .. }),
+                    "{error:?}"
+                );
+                conflicts.push(plan.path().to_path_buf());
+            }
+        }
+    }
+    assert_eq!(conflicts, changed_meanwhile);
+    assert_eq!(scratch.log_files().len(), 2);
+
+    // Undoing the second write restores the three files it changed and
+    // has nothing to say about the two it never touched.
+    let undone = undo_last_write(&scratch.logs()).unwrap().unwrap();
+    assert_eq!(undone.restored.len(), FIXTURES.len() - 2);
+    assert!(undone.failed.is_empty() && undone.untouched.is_empty());
+    assert_eq!(scratch.log_files().len(), 1);
+    for track in &changed_meanwhile {
+        assert_eq!(read_tags(track).unwrap().key.as_deref(), Some("5A"));
+    }
+
+    // The first write is reachable. The two files the other program
+    // changed are reported, the rest go back to the original.
+    let undone = undo_last_write(&scratch.logs()).unwrap().unwrap();
+    assert_eq!(undone.restored.len(), FIXTURES.len() - 2);
+    assert_eq!(undone.failed.len(), 2);
+    for (index, track) in scratch.tracks().iter().enumerate() {
+        if changed_meanwhile.contains(track) {
+            std::fs::write(track, &after_first[index]).unwrap();
+        } else {
+            assert!(std::fs::read(track).unwrap() == original[index]);
+        }
+    }
+    undo_last_write(&scratch.logs()).unwrap().unwrap();
+    assert!(scratch.contents() == original);
+    assert!(undo_last_write(&scratch.logs()).unwrap().is_none());
+}
+
+#[test]
+fn write_in_which_every_file_was_given_up_is_skipped_by_undo() {
+    let scratch = Scratch::new("all-stale");
+    let original = scratch.contents();
+    scratch.write(values(9, 7));
+    let after_first = scratch.contents();
+
+    let options = TagWriteOptions::default();
+    let track = scratch.tracks().remove(0);
+    let stale_plan = plan_write(&track, values(4, 3), &options).unwrap();
+    apply_plan(&plan_write(&track, values(0, 5), &options).unwrap()).unwrap();
+    let mut log = WriteLog::new(&scratch.logs());
+    log.apply(&stale_plan).unwrap_err();
+    assert_eq!(scratch.log_files().len(), 2);
+    std::fs::write(&track, &after_first[0]).unwrap();
+
+    // The newest log changed no file, so undo goes on to the write before.
+    let undone = undo_last_write(&scratch.logs()).unwrap().unwrap();
+    assert_eq!(undone.restored, scratch.tracks());
     assert!(scratch.contents() == original);
     assert!(scratch.log_files().is_empty());
 }

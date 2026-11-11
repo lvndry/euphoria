@@ -204,9 +204,13 @@ Each file is written as described in [Tags](tags.md#how-a-file-is-rewritten): on
 
 ### Exit status
 
+Paths, tag values and error messages come from the files, so before they are shown, characters that could act on the terminal, such as a carriage return, an escape sequence or a text direction override, are replaced by visible escapes such as `\r` and `\u{1b}`. A file cannot erase or disguise the preview you are asked to confirm. The same holds for the table of `euphoria analyze` and the messages of `euphoria export`. What is written into the tags is the real text. JSON output carries the real text with JSON's own escapes.
+
 A file that fails does not stop the others. A file that cannot be analyzed, or whose tags cannot be read or written, is listed on standard error as `error: <path>: <reason>` and left unchanged. That includes the files the tag writer refuses, such as a file with more than one hard link or a file another program changed during the write.
 
-The command exits with status 0 when every file was written or was already up to date, and also when you answered no. It exits with status 1 when any file failed, when it could not ask for confirmation, and, after writing, when saving analysis results to the cache failed partway.
+If a file was changed but the log of the write could not note it, for example because the disk filled up, the file is listed as `warning: <path>: the file was changed, but the record of it could not be saved`. Its backup was saved before the change, so `euphoria tags undo` still restores it.
+
+The command exits with status 0 when every file was written or was already up to date, and also when you answered no. It exits with status 1 when any file failed, when a change could not be recorded, when it could not ask for confirmation, and, after writing, when saving analysis results to the cache failed partway.
 
 ## euphoria tags undo
 

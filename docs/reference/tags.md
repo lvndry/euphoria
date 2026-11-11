@@ -46,6 +46,10 @@ If any check fails, the write is refused, the new file is deleted, and the origi
 
 The backups of a write can be kept in a log on disk, one log per write, so that a later run of the program can undo it. The backup of a file is in the log, flushed to disk, before the file is changed, which means a write cut short by a crash or a power loss can still be undone: a file whose backup was saved but which was not changed yet is recognised by its fields still holding their original values.
 
+A write that fails or is refused leaves its file unchanged, and the log notes that, so the backup of that file plays no part in a later undo. If the file was changed but noting it in the log failed, for example on a full disk, the write is reported as a change whose record could not be saved, and the backup saved beforehand still undoes it.
+
+A log holds at most 2 GiB, one million lines (two per file, so half a million files) and 4 MiB per line. The backup of a file is normally one or two kilobytes, so a write of fifty thousand files makes a log of about a hundred megabytes. A write that reaches a limit stops taking further files, which are reported and can be written in another run, and a log beyond a limit is refused when undoing. Undo reads a log one entry at a time.
+
 Undoing the last write restores its files one by one. A file that cannot be restored, for example because its tags were edited since, is reported and stays in the log, so the undo can be repeated for it. A log whose files are all restored is deleted. `euphoria tags write` keeps its logs in the `tag-writes` folder of Euphoria's data folder.
 
 ### Undo
