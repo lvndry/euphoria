@@ -47,6 +47,7 @@ impl Euphoria {
         }
     }
 
+    #[allow(dead_code)]
     pub fn run(&self, arguments: &[&str]) -> Output {
         self.command(arguments)
             .output()

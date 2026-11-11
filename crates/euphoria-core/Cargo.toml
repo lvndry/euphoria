@@ -18,6 +18,8 @@ ebur128.workspace = true
 rayon.workspace = true
 rusqlite.workspace = true
 rustfft.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 stratum-dsp.workspace = true
 symphonia = { workspace = true, features = [
   "mp3",

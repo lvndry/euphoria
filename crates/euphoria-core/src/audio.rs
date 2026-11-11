@@ -204,7 +204,7 @@ pub(crate) fn open_format(path: &Path) -> Result<Box<dyn FormatReader>, Euphoria
         .map_err(|error| decode_error(path, error))
 }
 
-fn decode_error(path: &Path, error: SymphoniaError) -> EuphoriaError {
+pub(crate) fn decode_error(path: &Path, error: SymphoniaError) -> EuphoriaError {
     EuphoriaError::Decode {
         path: path.to_path_buf(),
         failure: classify(&error),

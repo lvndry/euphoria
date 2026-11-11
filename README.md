@@ -18,10 +18,11 @@ Available now:
 - Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
+- `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, and `euphoria tags undo`, which puts the old tags back byte for byte
 - MP3, M4A (AAC), FLAC, WAV and AIFF
 - An early desktop app, run from source on macOS: see the [desktop app guide](docs/guides/desktop-app.md)
 
-In development: tag writing, and exports for Serato, Traktor and Engine DJ.
+In development: exports for Serato, Traktor and Engine DJ.
 
 ## Install
 

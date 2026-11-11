@@ -124,6 +124,15 @@ pub enum EuphoriaError {
         /// The tag writer's own error.
         source: ErrorSource,
     },
+    /// The log that keeps the backups of tag writes could not be read or
+    /// written. A file whose backup could not be saved was not changed.
+    #[error("cannot use the log of tag writes at {path}")]
+    TagWriteLog {
+        /// The log file, or the folder the logs are kept in.
+        path: PathBuf,
+        /// What went wrong with it.
+        source: ErrorSource,
+    },
     /// A tag field does not hold the value a write plan or a backup expects,
     /// so nothing was written.
     #[error("{field} of {path} does not hold the expected value")]
