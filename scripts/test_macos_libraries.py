@@ -269,6 +269,50 @@ class SyntheticLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(macos_libraries.LibraryError, "more than 1 steps"):
             macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
 
+    def test_universal_files_with_32_and_64_bit_offsets_are_mach_o(self):
+        arm = compile_library(self.outside, "armpart")
+        intel = self.outside / "libintelpart.dylib"
+        run(
+            "clang",
+            "-dynamiclib",
+            "-arch",
+            "x86_64",
+            "-mmacosx-version-min=10.13",
+            "-o",
+            intel,
+            self.outside / "armpart.c",
+        )
+        universal = self.outside / "universal.dylib"
+        universal_64 = self.outside / "universal64.dylib"
+        run("lipo", "-create", arm, intel, "-output", universal)
+        run("lipo", "-create", "-fat64", arm, intel, "-output", universal_64)
+        self.assertEqual(universal.read_bytes()[:4], bytes.fromhex("cafebabe"))
+        self.assertEqual(universal_64.read_bytes()[:4], bytes.fromhex("cafebabf"))
+        for path in (arm, intel, universal, universal_64):
+            self.assertTrue(macos_libraries.is_mach_o(path), path.name)
+        self.assertEqual(
+            sorted(
+                macos_libraries.macos_versions(universal_64),
+                key=macos_libraries.version_key,
+            ),
+            ["10.13", "13.0"],
+        )
+
+        # The byte swapped forms, and files that are not Mach-O.
+        swapped = self.outside / "swapped"
+        swapped.write_bytes(bytes.fromhex("bfbafeca") + bytes(28))
+        self.assertTrue(macos_libraries.is_mach_o(swapped))
+        for name, start in [("text", b"#!/b"), ("empty", b""), ("short", b"\xca\xfe")]:
+            other = self.outside / name
+            other.write_bytes(start)
+            self.assertFalse(macos_libraries.is_mach_o(other), name)
+
+        # A 64 bit universal library in the bundle is found and scanned.
+        nested = self.frameworks / "Universal64.framework"
+        nested.mkdir(parents=True)
+        shutil.copyfile(universal_64, nested / "Universal64")
+        self.assertIn(nested / "Universal64", macos_libraries.mach_o_files(self.app))
+
     def test_the_minimum_macos_is_the_newest_of_every_slice_of_every_file(self):
         compile_executable(self.executable, self.outside, [])
         nested = self.frameworks / "Nested.framework" / "Versions" / "A"

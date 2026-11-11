@@ -54,8 +54,12 @@ MACH_O_MAGICS = {
     bytes.fromhex("cefaedfe"),
     bytes.fromhex("feedfacf"),
     bytes.fromhex("feedface"),
+    # Universal files, with 32 bit offsets (FAT_MAGIC) and 64 bit ones
+    # (FAT_MAGIC_64), in both byte orders.
     bytes.fromhex("cafebabe"),
     bytes.fromhex("bebafeca"),
+    bytes.fromhex("cafebabf"),
+    bytes.fromhex("bfbafeca"),
 }
 VALUE = re.compile(r"^\s*(?:name|path) (?P<value>.+?) \(offset \d+\)$")
 # A guard against a walk that never ends, which only a damaged or hostile
