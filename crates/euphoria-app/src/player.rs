@@ -34,6 +34,8 @@ pub(crate) enum PlayerRequest {
         path: PathBuf,
         /// Where to start, in seconds from the beginning.
         from_seconds: f32,
+        /// Which attempt this is. The output hands it back with its answer.
+        attempt: StartAttempt,
     },
     /// Hold the sound at the current position.
     Pause,
@@ -45,6 +47,13 @@ pub(crate) enum PlayerRequest {
     Stop,
 }
 
+/// One request to start playing. Opening a file takes a moment, and the
+/// player may have stopped, retried or moved on by the time the answer
+/// comes, even to the same file. Each start has its own number, so only the
+/// answer to the latest one counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StartAttempt(u64);
+
 /// The player: one track, a position in it, and whether it is sounding.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Player {
@@ -52,6 +61,7 @@ pub(crate) struct Player {
     status: PlayerStatus,
     position_seconds: f32,
     duration_seconds: Option<f32>,
+    starts_asked_for: u64,
 }
 
 impl Default for Player {
@@ -61,6 +71,7 @@ impl Default for Player {
             status: PlayerStatus::Stopped,
             position_seconds: 0.0,
             duration_seconds: None,
+            starts_asked_for: 0,
         }
     }
 }
@@ -143,13 +154,7 @@ impl Player {
         self.position_seconds = 0.0;
         self.duration_seconds = duration_seconds;
         match path {
-            Some(path) if was_sounding => {
-                self.status = PlayerStatus::Starting;
-                Some(PlayerRequest::Start {
-                    path: path.to_path_buf(),
-                    from_seconds: 0.0,
-                })
-            }
+            Some(path) if was_sounding => Some(self.start(path.to_path_buf())),
             _ => {
                 self.status = PlayerStatus::Stopped;
                 held_a_voice.then_some(PlayerRequest::Stop)
@@ -177,13 +182,24 @@ impl Player {
                 if self.is_at_the_end() {
                     self.position_seconds = 0.0;
                 }
-                self.status = PlayerStatus::Starting;
-                Some(PlayerRequest::Start {
-                    path,
-                    from_seconds: self.position_seconds,
-                })
+                Some(self.start(path))
             }
         }
+    }
+
+    /// Begins a new attempt to play `path` from the current position.
+    fn start(&mut self, path: PathBuf) -> PlayerRequest {
+        self.starts_asked_for += 1;
+        self.status = PlayerStatus::Starting;
+        PlayerRequest::Start {
+            path,
+            from_seconds: self.position_seconds,
+            attempt: StartAttempt(self.starts_asked_for),
+        }
+    }
+
+    fn is_waiting_for(&self, attempt: StartAttempt) -> bool {
+        self.status == PlayerStatus::Starting && attempt.0 == self.starts_asked_for
     }
 
     /// A click or drag on the waveform, `fraction` of the way along it.
@@ -201,11 +217,12 @@ impl Player {
         }
     }
 
-    /// The output opened `path` and sound is starting. Returns false when
-    /// the player has moved on since it asked, in which case the output
-    /// should let go of the sound.
-    pub(crate) fn started(&mut self, path: &Path, duration_seconds: Option<f32>) -> bool {
-        if self.status != PlayerStatus::Starting || self.track.as_deref() != Some(path) {
+    /// The output opened the file of `attempt` and sound is starting.
+    /// Returns false when that is not the attempt the player is waiting
+    /// for: it stopped, retried or moved on since. The output should then
+    /// let go of the sound.
+    pub(crate) fn started(&mut self, attempt: StartAttempt, duration_seconds: Option<f32>) -> bool {
+        if !self.is_waiting_for(attempt) {
             return false;
         }
         self.status = PlayerStatus::Playing;
@@ -215,10 +232,17 @@ impl Player {
         true
     }
 
-    /// The output could not play `path`. Ignored when the player has moved
-    /// on to another track since it asked.
-    pub(crate) fn failed(&mut self, path: &Path, reason: String) {
-        if self.track.as_deref() == Some(path) {
+    /// The output could not open the file of `attempt`. Ignored when that
+    /// is not the attempt the player is waiting for.
+    pub(crate) fn failed_to_start(&mut self, attempt: StartAttempt, reason: String) {
+        if self.is_waiting_for(attempt) {
+            self.status = PlayerStatus::Failed(reason);
+        }
+    }
+
+    /// The sound that was playing stopped on a problem.
+    pub(crate) fn interrupted(&mut self, reason: String) {
+        if self.status == PlayerStatus::Playing {
             self.status = PlayerStatus::Failed(reason);
         }
     }
@@ -274,19 +298,29 @@ mod tests {
         Path::new("/music/second.flac")
     }
 
-    fn start(path: &Path, from_seconds: f32) -> Option<PlayerRequest> {
-        Some(PlayerRequest::Start {
-            path: path.to_path_buf(),
-            from_seconds,
-        })
+    /// Checks that `request` starts `path` at `from_seconds` and returns
+    /// which attempt it is.
+    fn starts(request: Option<PlayerRequest>, path: &Path, from_seconds: f32) -> StartAttempt {
+        match request {
+            Some(PlayerRequest::Start {
+                path: started_path,
+                from_seconds: started_from,
+                attempt,
+            }) => {
+                assert_eq!(started_path, path);
+                assert_eq!(started_from, from_seconds);
+                attempt
+            }
+            other => panic!("expected a start of {}, got {other:?}", path.display()),
+        }
     }
 
     /// A player holding the first track, seven minutes long, and playing it.
     fn playing() -> Player {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
-        assert_eq!(player.toggle(), start(first(), 0.0));
-        assert!(player.started(first(), Some(420.0)));
+        let attempt = starts(player.toggle(), first(), 0.0);
+        assert!(player.started(attempt, Some(420.0)));
         player
     }
 
@@ -314,12 +348,12 @@ mod tests {
     fn play_starts_the_selected_track_and_sounds_once_the_output_has_it() {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
-        assert_eq!(player.toggle(), start(first(), 0.0));
+        let attempt = starts(player.toggle(), first(), 0.0);
         assert_eq!(player.status(), &PlayerStatus::Starting);
         assert!(player.offers_pause());
         assert!(!player.is_playing());
 
-        assert!(player.started(first(), Some(420.0)));
+        assert!(player.started(attempt, Some(420.0)));
         assert!(player.is_playing());
     }
 
@@ -342,10 +376,7 @@ mod tests {
     fn selecting_another_track_while_playing_switches_to_it() {
         let mut player = playing();
         player.advance_to(60.0);
-        assert_eq!(
-            player.select(Some(second()), Some(300.0)),
-            start(second(), 0.0)
-        );
+        starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
         assert_eq!(player.track(), Some(second()));
         assert_eq!(player.status(), &PlayerStatus::Starting);
         assert_eq!(player.position_seconds(), 0.0);
@@ -385,36 +416,67 @@ mod tests {
     fn a_late_answer_for_a_track_the_player_left_is_turned_away() {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
-        player.toggle();
-        player.select(Some(second()), Some(300.0));
-        assert!(!player.started(first(), Some(420.0)));
+        let first_attempt = starts(player.toggle(), first(), 0.0);
+        let second_attempt = starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+        assert!(!player.started(first_attempt, Some(420.0)));
         assert_eq!(player.status(), &PlayerStatus::Starting);
 
-        player.failed(first(), "File not found".to_string());
+        player.failed_to_start(first_attempt, "File not found".to_string());
         assert_eq!(player.failure(), None);
-        assert!(player.started(second(), Some(300.0)));
+        assert!(player.started(second_attempt, Some(300.0)));
     }
 
     #[test]
     fn stopping_while_the_file_is_still_opening_cancels_the_start() {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
-        player.toggle();
+        let attempt = starts(player.toggle(), first(), 0.0);
         assert_eq!(player.toggle(), Some(PlayerRequest::Stop));
         assert_eq!(player.status(), &PlayerStatus::Stopped);
-        assert!(!player.started(first(), Some(420.0)));
+        assert!(!player.started(attempt, Some(420.0)));
+    }
+
+    #[test]
+    fn a_stale_failure_does_not_fail_a_retry_of_the_same_track() {
+        let mut player = Player::default();
+        player.select(Some(first()), Some(420.0));
+        let abandoned = starts(player.toggle(), first(), 0.0);
+        assert_eq!(player.toggle(), Some(PlayerRequest::Stop));
+        let retry = starts(player.toggle(), first(), 0.0);
+        assert_ne!(abandoned, retry);
+
+        player.failed_to_start(abandoned, "This file is no longer there".to_string());
+        assert_eq!(player.status(), &PlayerStatus::Starting);
+        assert_eq!(player.failure(), None);
+
+        assert!(player.started(retry, Some(420.0)));
+        assert!(player.is_playing());
+    }
+
+    #[test]
+    fn a_stale_success_does_not_start_a_retry_of_the_same_track() {
+        let mut player = Player::default();
+        player.select(Some(first()), Some(420.0));
+        let abandoned = starts(player.toggle(), first(), 0.0);
+        player.toggle();
+        let retry = starts(player.toggle(), first(), 0.0);
+
+        assert!(!player.started(abandoned, Some(420.0)));
+        assert_eq!(player.status(), &PlayerStatus::Starting);
+        player.failed_to_start(retry, "Could not open this file".to_string());
+        assert_eq!(player.failure(), Some("Could not open this file"));
     }
 
     #[test]
     fn a_failure_is_kept_as_a_short_message_and_play_tries_again() {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
-        player.toggle();
-        player.failed(first(), "File not found".to_string());
+        let attempt = starts(player.toggle(), first(), 0.0);
+        player.failed_to_start(attempt, "File not found".to_string());
         assert_eq!(player.failure(), Some("File not found"));
         assert!(!player.offers_pause());
 
-        assert_eq!(player.toggle(), start(first(), 0.0));
+        starts(player.toggle(), first(), 0.0);
         assert_eq!(player.failure(), None);
     }
 
@@ -422,10 +484,23 @@ mod tests {
     fn a_failure_is_forgotten_when_another_track_is_selected() {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
-        player.toggle();
-        player.failed(first(), "No audio output".to_string());
+        let attempt = starts(player.toggle(), first(), 0.0);
+        player.failed_to_start(attempt, "No audio output".to_string());
         assert_eq!(player.select(Some(second()), None), None);
         assert_eq!(player.failure(), None);
+    }
+
+    #[test]
+    fn a_problem_while_playing_stops_the_sound_with_a_message() {
+        let mut player = playing();
+        player.advance_to(30.0);
+        player.interrupted("Could not play this file".to_string());
+        assert_eq!(player.failure(), Some("Could not play this file"));
+
+        let mut stopped = Player::default();
+        stopped.select(Some(first()), Some(420.0));
+        stopped.interrupted("Could not play this file".to_string());
+        assert_eq!(stopped.failure(), None);
     }
 
     #[test]
@@ -456,7 +531,7 @@ mod tests {
         player.select(Some(first()), Some(420.0));
         assert_eq!(player.seek_to_fraction(0.5), None);
         assert_eq!(player.position_seconds(), 210.0);
-        assert_eq!(player.toggle(), start(first(), 210.0));
+        starts(player.toggle(), first(), 210.0);
     }
 
     #[test]
@@ -481,8 +556,8 @@ mod tests {
     fn the_length_is_learned_from_the_output_when_analysis_did_not_give_one() {
         let mut player = Player::default();
         player.select(Some(first()), None);
-        player.toggle();
-        assert!(player.started(first(), Some(200.0)));
+        let attempt = starts(player.toggle(), first(), 0.0);
+        assert!(player.started(attempt, Some(200.0)));
         assert_eq!(player.duration_seconds(), Some(200.0));
         player.advance_to(100.0);
         assert_eq!(player.progress(), Some(0.5));
@@ -503,7 +578,7 @@ mod tests {
         player.finished();
         assert_eq!(player.status(), &PlayerStatus::Stopped);
         assert_eq!(player.time_label(), "7:00 / 7:00");
-        assert_eq!(player.toggle(), start(first(), 0.0));
+        starts(player.toggle(), first(), 0.0);
     }
 
     #[test]

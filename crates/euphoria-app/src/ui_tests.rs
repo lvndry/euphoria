@@ -18,7 +18,7 @@ use crate::demo::{self, DemoTrack};
 use crate::library::{SortColumn, SortOrder};
 use crate::playback::testing::{NoOutput, SilentOutput};
 use crate::playback::{AudioOutput, PlaybackProblem};
-use crate::player::PlayerStatus;
+use crate::player::{PlayerRequest, PlayerStatus};
 use crate::settings::Settings;
 use crate::state::Session;
 use crate::theme::{AppTheme, Layout, ThemeName};
@@ -462,6 +462,108 @@ fn a_click_on_the_waveform_seeks_to_that_point(cx: &mut TestAppContext) {
         assert!((position - 0.75).abs() < 0.02, "{position}");
         assert_eq!(app.player.status(), &PlayerStatus::Playing);
     });
+}
+
+/// The point `fraction` of the way along the element called `id`, at half
+/// its height, in window coordinates.
+fn point_along(window: &gpui::Window, id: &'static str, fraction: f32) -> Point<gpui::Pixels> {
+    let bounds = window.find(id).bounds();
+    gpui::point(
+        bounds.left() + bounds.size.width * fraction,
+        bounds.top() + bounds.size.height * 0.5,
+    )
+}
+
+#[gpui::test]
+fn dragging_along_the_waveform_moves_playing_to_where_the_drag_ends(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("play-button", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let pressed_at = point_along(window, "waveform", 0.25);
+        let released_at = point_along(window, "waveform", 0.8);
+        window.drag(pressed_at, released_at, cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let position = app.player.position_seconds();
+        assert!((position - 0.8).abs() < 0.02, "{position}");
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+    });
+}
+
+#[gpui::test]
+fn dragging_back_along_the_waveform_while_paused_stays_paused(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("play-button", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        window.click("play-button", cx);
+        window.render_frame(cx);
+        let pressed_at = point_along(window, "waveform", 0.9);
+        let released_at = point_along(window, "waveform", 0.1);
+        window.drag(pressed_at, released_at, cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let position = app.player.position_seconds();
+        assert!((position - 0.1).abs() < 0.02, "{position}");
+        assert_eq!(app.player.status(), &PlayerStatus::Paused);
+    });
+}
+
+#[gpui::test]
+fn dragging_along_the_progress_line_seeks_too(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let pressed_at = point_along(window, "progress-line", 0.2);
+        let released_at = point_along(window, "progress-line", 0.6);
+        window.drag(pressed_at, released_at, cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let position = view.read(cx).player.position_seconds();
+        assert!((position - 0.6).abs() < 0.02, "{position}");
+    });
+}
+
+#[gpui::test]
+fn an_answer_to_an_abandoned_start_does_not_touch_a_retry(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    let attempt_of = |request| match request {
+        Some(PlayerRequest::Start { attempt, .. }) => attempt,
+        other => panic!("expected a start, got {other:?}"),
+    };
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let abandoned = attempt_of(app.player.toggle());
+            app.player.toggle();
+            let retry = attempt_of(app.player.toggle());
+
+            app.finish_starting(abandoned, Err(PlaybackProblem::FileMissing), cx);
+            assert_eq!(app.player.status(), &PlayerStatus::Starting);
+
+            let fixture = app.selected_track().unwrap().path.clone();
+            let source = crate::playback::TrackSource::open(&fixture, 0.0);
+            app.finish_starting(retry, source, cx);
+            assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        });
+    });
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
 }
 
 #[gpui::test]

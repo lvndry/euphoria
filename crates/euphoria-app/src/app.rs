@@ -21,7 +21,7 @@ use crate::library::{LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
 use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
-use crate::player::{Player, PlayerRequest, fraction_along};
+use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
 use crate::settings::Settings;
 use crate::state::{Scan, Session, scan};
 use crate::theme::{AppTheme, Layout, ThemeName};
@@ -400,15 +400,18 @@ impl EuphoriaApp {
     fn carry_out(&mut self, request: Option<PlayerRequest>, cx: &mut Context<'_, Self>) {
         match request {
             None => {}
-            Some(PlayerRequest::Start { path, from_seconds }) => {
+            Some(PlayerRequest::Start {
+                path,
+                from_seconds,
+                attempt,
+            }) => {
                 self.voice = None;
                 self.start_task = Some(cx.spawn(async move |this, cx| {
-                    let path_to_open = path.clone();
                     let opened = cx
                         .background_executor()
-                        .spawn(async move { TrackSource::open(&path_to_open, from_seconds) })
+                        .spawn(async move { TrackSource::open(&path, from_seconds) })
                         .await;
-                    this.update(cx, |this, cx| this.finish_starting(&path, opened, cx))
+                    this.update(cx, |this, cx| this.finish_starting(attempt, opened, cx))
                         .ok();
                 }));
             }
@@ -436,27 +439,29 @@ impl EuphoriaApp {
     }
 
     /// The file of the track to play is open, or could not be opened.
-    fn finish_starting(
+    pub(crate) fn finish_starting(
         &mut self,
-        path: &std::path::Path,
+        attempt: StartAttempt,
         opened: Result<TrackSource, PlaybackProblem>,
         cx: &mut Context<'_, Self>,
     ) {
-        let started = opened.and_then(|source| {
-            let state = source.state();
-            if !self.player.started(path, source.duration_seconds()) {
-                return Ok(None);
+        match opened {
+            Err(problem) => {
+                self.player
+                    .failed_to_start(attempt, problem.message().to_string());
             }
-            let voice = self.output.play(source)?;
-            Ok(Some(ActiveVoice { voice, state }))
-        });
-        match started {
-            Ok(Some(active)) => {
-                self.voice = Some(active);
-                self.follow_playhead(cx);
+            Ok(source) => {
+                let state = source.state();
+                if self.player.started(attempt, source.duration_seconds()) {
+                    match self.output.play(source) {
+                        Ok(voice) => {
+                            self.voice = Some(ActiveVoice { voice, state });
+                            self.follow_playhead(cx);
+                        }
+                        Err(problem) => self.player.interrupted(problem.message().to_string()),
+                    }
+                }
             }
-            Ok(None) => {}
-            Err(problem) => self.player.failed(path, problem.message().to_string()),
         }
         cx.notify();
     }
@@ -494,9 +499,7 @@ impl EuphoriaApp {
             return;
         };
         if let Some(problem) = active.state.problem() {
-            if let Some(path) = self.player.track().map(std::path::Path::to_path_buf) {
-                self.player.failed(&path, problem.message().to_string());
-            }
+            self.player.interrupted(problem.message().to_string());
             self.voice = None;
         } else if active.state.is_finished() {
             self.player.finished();

@@ -16,9 +16,18 @@ const LOW_BAND_LIMIT_HERTZ: f32 = 200.0;
 /// Above this frequency a sound counts as treble: hi hats, cymbals and air.
 const HIGH_BAND_LIMIT_HERTZ: f32 = 2_500.0;
 
+/// The lowest rate the bass and the middle are measured at, in samples per
+/// second. It is more than four times the top of the middle band, so every
+/// frequency of both bands is represented with room to spare.
+const LOWEST_REDUCED_RATE: u32 = 11_025;
+
 /// How many samples are averaged into one before the bass and the middle are
-/// measured.
-const REDUCTION: usize = 4;
+/// measured: as many as keep the rate at or above [`LOWEST_REDUCED_RATE`].
+/// That is 4 at 44.1 kHz, 34 at 384 kHz, and 1 (no reduction) at the rates
+/// below 22.05 kHz, down to the 8 kHz the decoder accepts.
+fn reduction_for(sample_rate: u32) -> usize {
+    (sample_rate / LOWEST_REDUCED_RATE).max(1) as usize
+}
 
 /// How loud each band is in one column of the waveform, each from 0.0 to
 /// 1.0 on a scale shared by the whole track.
@@ -112,11 +121,12 @@ pub(crate) fn compute_band_peaks(
         return Vec::new();
     }
     // Only the treble needs every sample. The bass and the middle are found
-    // from what is left once the treble is taken out, averaged four samples
-    // at a time, which costs a quarter as much and loses nothing below
+    // from what is left once the treble is taken out, averaged a few samples
+    // at a time, which costs a fraction as much and loses nothing below
     // 2.5 kHz.
+    let reduction = reduction_for(sample_rate);
     let full_rate = sample_rate as f32;
-    let reduced_rate = full_rate / REDUCTION as f32;
+    let reduced_rate = full_rate / reduction as f32;
     let mut treble = Filter::new(Pass::Above, HIGH_BAND_LIMIT_HERTZ, full_rate);
     let mut bass = Filter::new(Pass::Below, LOW_BAND_LIMIT_HERTZ, reduced_rate);
     let mut above_bass = Filter::new(Pass::Above, LOW_BAND_LIMIT_HERTZ, reduced_rate);
@@ -136,8 +146,8 @@ pub(crate) fn compute_band_peaks(
 
             without_treble_sum += sample - high;
             samples_in_sum += 1;
-            if samples_in_sum == REDUCTION {
-                let without_treble = without_treble_sum / REDUCTION as f32;
+            if samples_in_sum == reduction {
+                let without_treble = without_treble_sum / reduction as f32;
                 without_treble_sum = 0.0;
                 samples_in_sum = 0;
                 let low = bass.filter(without_treble);
@@ -249,6 +259,57 @@ mod tests {
         assert!(settled.high > 0.8, "{settled:?}");
         assert!(settled.mid < settled.high / 2.0, "{settled:?}");
         assert!(settled.low < 0.05, "{settled:?}");
+    }
+
+    /// One second of a tone at `sample_rate`, and the column in the middle of
+    /// it once the filters have settled.
+    fn settled_bands_of_tone(frequency_hertz: f32, sample_rate: u32) -> BandPeaks {
+        let samples: Vec<f32> = (0..sample_rate)
+            .map(|index| 0.8 * (TAU * frequency_hertz * index as f32 / sample_rate as f32).sin())
+            .collect();
+        compute_band_peaks(&samples, sample_rate, 8)[4]
+    }
+
+    #[test]
+    fn the_bands_hold_at_every_sample_rate_the_decoder_accepts() {
+        for sample_rate in [
+            8_000, 11_025, 16_000, 22_050, 32_000, 44_100, 48_000, 96_000, 192_000, 384_000,
+        ] {
+            let bass = settled_bands_of_tone(60.0, sample_rate);
+            assert!(bass.low > bass.mid * 2.0, "{sample_rate} Hz: {bass:?}");
+            assert!(bass.low > bass.high * 10.0, "{sample_rate} Hz: {bass:?}");
+
+            for middle_tone in [500.0, 1_500.0] {
+                let middle = settled_bands_of_tone(middle_tone, sample_rate);
+                assert!(
+                    middle.mid > middle.low * 2.0 && middle.mid > middle.high * 1.5,
+                    "{middle_tone} Hz at {sample_rate} Hz: {middle:?}"
+                );
+            }
+
+            let treble = settled_bands_of_tone(3_500.0, sample_rate);
+            assert!(
+                treble.high > treble.mid * 1.5 && treble.high > treble.low * 10.0,
+                "{sample_rate} Hz: {treble:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reduction_keeps_the_middle_band_representable() {
+        assert_eq!(reduction_for(8_000), 1);
+        assert_eq!(reduction_for(22_049), 1);
+        assert_eq!(reduction_for(22_050), 2);
+        assert_eq!(reduction_for(44_100), 4);
+        assert_eq!(reduction_for(48_000), 4);
+        assert_eq!(reduction_for(384_000), 34);
+        for sample_rate in (8_000..=384_000).step_by(1_000) {
+            let reduced_rate = sample_rate as f32 / reduction_for(sample_rate) as f32;
+            assert!(
+                reduced_rate / 2.0 > HIGH_BAND_LIMIT_HERTZ * 1.5,
+                "{sample_rate} Hz is reduced to {reduced_rate} Hz"
+            );
+        }
     }
 
     #[test]

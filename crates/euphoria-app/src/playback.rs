@@ -4,14 +4,29 @@
 //! Making sound: a track is decoded by the core a packet at a time and fed
 //! to the system's audio output, so playing starts as soon as the file is
 //! open and never waits for the whole track.
+//!
+//! Decoding happens on a thread of its own, about a second ahead of what is
+//! heard. The audio output only ever takes samples that are already decoded,
+//! so a slow disk or a busy processor does not make it wait: at worst it
+//! plays a moment of silence until the decoder catches up.
 
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use euphoria_core::{AudioStream, EuphoriaError};
+
+/// How many decoded chunks wait between the decoder and the audio output. A
+/// chunk is one packet of the file, from about 25 milliseconds of an MP3 to
+/// about 90 of a FLAC, so this is one to four seconds of sound.
+const READ_AHEAD_CHUNKS: usize = 48;
+
+/// How long the decoder sleeps when it has nothing to do: the read ahead is
+/// full, or the track has been decoded to its end.
+const DECODER_PAUSE: Duration = Duration::from_millis(4);
 
 /// Why a track cannot be played, in words short enough for the player.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,48 +67,66 @@ impl PlaybackProblem {
     }
 }
 
-/// What the sound of one track is doing, shared between the audio thread
-/// that produces it and the window that shows it.
+/// A seek that has been asked for.
+#[derive(Debug, Default)]
+struct SeekRequests {
+    /// Where the decoder should go next, until it has taken the request.
+    for_decoder: Option<f32>,
+    /// Where the window should show the position, until sound from there is
+    /// playing.
+    shown: Option<f32>,
+}
+
+/// What the sound of one track is doing, shared between the decoder, the
+/// audio thread that plays it and the window that shows it.
 #[derive(Debug)]
 pub(crate) struct VoiceState {
     sample_rate: NonZeroU32,
     frames_played: AtomicU64,
-    requested_position: Mutex<Option<f32>>,
-    /// True while `requested_position` holds a seek the audio thread has not
-    /// taken yet, so that thread can check with one load per sample.
-    has_request: AtomicBool,
+    /// Counts seeks. Decoded audio carries the count it was decoded under,
+    /// and audio from before the latest seek is thrown away unplayed.
+    seek_count: AtomicU64,
+    seek_requests: Mutex<SeekRequests>,
+    /// Frames of silence played because the decoder had nothing ready.
+    silent_frames: AtomicU64,
     is_finished: AtomicBool,
+    is_abandoned: AtomicBool,
     problem: Mutex<Option<PlaybackProblem>>,
 }
 
 impl VoiceState {
-    fn new(sample_rate: NonZeroU32, from_seconds: f32) -> Self {
-        let state = Self {
+    fn new(sample_rate: NonZeroU32) -> Self {
+        Self {
             sample_rate,
             frames_played: AtomicU64::new(0),
-            requested_position: Mutex::new(None),
-            has_request: AtomicBool::new(false),
+            seek_count: AtomicU64::new(0),
+            seek_requests: Mutex::new(SeekRequests::default()),
+            silent_frames: AtomicU64::new(0),
             is_finished: AtomicBool::new(false),
+            is_abandoned: AtomicBool::new(false),
             problem: Mutex::new(None),
-        };
-        state.set_position(from_seconds);
-        state
+        }
     }
 
     /// How far the sound has got, in seconds from the beginning. Right after
-    /// a seek this is where the seek asked for, before the audio thread has
-    /// caught up.
+    /// a seek this is where the seek asked for, before sound from there has
+    /// started.
     pub(crate) fn position_seconds(&self) -> f32 {
-        if let Some(requested) = *self.lock_requested_position() {
-            return requested;
+        if let Some(shown) = self.lock_seek_requests().shown {
+            return shown;
         }
         self.frames_played.load(Ordering::Relaxed) as f32 / self.sample_rate.get() as f32
     }
 
-    /// Asks the audio thread to jump to `seconds` from the beginning.
+    /// Jumps to `seconds` from the beginning. What was decoded ahead is
+    /// dropped at once, and sound resumes from the new place as soon as the
+    /// decoder has a first chunk from there.
     pub(crate) fn seek_to(&self, seconds: f32) {
-        *self.lock_requested_position() = Some(seconds.max(0.0));
-        self.has_request.store(true, Ordering::Release);
+        let seconds = seconds.max(0.0);
+        let mut requests = self.lock_seek_requests();
+        requests.for_decoder = Some(seconds);
+        requests.shown = Some(seconds);
+        self.seek_count.fetch_add(1, Ordering::Release);
     }
 
     /// True once the track has played to its end or stopped on a problem.
@@ -109,42 +142,224 @@ impl VoiceState {
             .clone()
     }
 
-    fn set_position(&self, seconds: f32) {
-        let frames = (f64::from(seconds.max(0.0)) * f64::from(self.sample_rate.get())).round();
-        self.frames_played.store(frames as u64, Ordering::Relaxed);
+    /// Frames of silence played while waiting for the decoder.
+    #[cfg(test)]
+    pub(crate) fn silent_frames(&self) -> u64 {
+        self.silent_frames.load(Ordering::Relaxed)
     }
 
-    fn lock_requested_position(&self) -> std::sync::MutexGuard<'_, Option<f32>> {
-        self.requested_position
+    fn frames_at(&self, seconds: f32) -> u64 {
+        (f64::from(seconds.max(0.0)) * f64::from(self.sample_rate.get())).round() as u64
+    }
+
+    fn stop_on(&self, problem: PlaybackProblem) {
+        *self.problem.lock().unwrap_or_else(PoisonError::into_inner) = Some(problem);
+        self.is_finished.store(true, Ordering::Relaxed);
+    }
+
+    fn lock_seek_requests(&self) -> MutexGuard<'_, SeekRequests> {
+        self.seek_requests
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-/// The samples of one track, produced as the audio output asks for them.
-pub(crate) struct TrackSource {
+/// What the decoder hands to the audio thread.
+enum Decoded {
+    /// A stretch of interleaved samples.
+    Chunk {
+        /// The seek count the chunk was decoded under.
+        seek_count: u64,
+        /// The frame of the track the chunk starts at.
+        start_frame: u64,
+        samples: Vec<f32>,
+    },
+    /// The track has no more audio after this point.
+    End { seek_count: u64, end_frame: u64 },
+    /// Decoding failed and stops here.
+    Problem(PlaybackProblem),
+}
+
+/// Decodes a track ahead of the sound, on its own thread, until the track
+/// source that started it is dropped.
+struct Decoder {
     stream: AudioStream,
     state: Arc<VoiceState>,
+    decoded: SyncSender<Decoded>,
+    seek_count: u64,
+    next_frame: u64,
+    is_at_end: bool,
+}
+
+impl Decoder {
+    fn run(mut self) {
+        while !self.state.is_abandoned.load(Ordering::Relaxed) {
+            if !self.follow_seeks() {
+                return;
+            }
+            if self.is_at_end {
+                std::thread::sleep(DECODER_PAUSE);
+                continue;
+            }
+            let message = self.decode_next();
+            let stops_here = matches!(message, Decoded::Problem(_));
+            if !self.hand_over(message) || stops_here {
+                return;
+            }
+        }
+    }
+
+    /// Moves the stream to where the latest seek asked for. Returns false
+    /// when the seek failed, which ends the sound.
+    fn follow_seeks(&mut self) -> bool {
+        let latest = self.state.seek_count.load(Ordering::Acquire);
+        if latest == self.seek_count {
+            return true;
+        }
+        self.seek_count = latest;
+        let request = self.state.lock_seek_requests().for_decoder.take();
+        let Some(seconds) = request else {
+            return true;
+        };
+        match self.stream.seek(seconds) {
+            Ok(reached) => {
+                self.next_frame = self.state.frames_at(reached);
+                self.is_at_end = false;
+                true
+            }
+            Err(error) => {
+                let _ = self
+                    .decoded
+                    .try_send(Decoded::Problem(PlaybackProblem::from_core(&error)));
+                self.state.stop_on(PlaybackProblem::from_core(&error));
+                false
+            }
+        }
+    }
+
+    fn decode_next(&mut self) -> Decoded {
+        let mut samples = Vec::new();
+        match self.stream.read_chunk(&mut samples) {
+            Ok(true) => {
+                let start_frame = self.next_frame;
+                let channel_count = usize::from(self.stream.channel_count().get());
+                self.next_frame += (samples.len() / channel_count) as u64;
+                Decoded::Chunk {
+                    seek_count: self.seek_count,
+                    start_frame,
+                    samples,
+                }
+            }
+            Ok(false) => {
+                self.is_at_end = true;
+                Decoded::End {
+                    seek_count: self.seek_count,
+                    end_frame: self.next_frame,
+                }
+            }
+            Err(error) => Decoded::Problem(PlaybackProblem::from_core(&error)),
+        }
+    }
+
+    /// Waits for room in the read ahead and puts `message` there. Gives the
+    /// message up when a seek makes it stale. Returns false when the sound
+    /// is over and decoding should stop.
+    fn hand_over(&mut self, mut message: Decoded) -> bool {
+        loop {
+            match self.decoded.try_send(message) {
+                Ok(()) => return true,
+                Err(TrySendError::Disconnected(_)) => return false,
+                Err(TrySendError::Full(unsent)) => {
+                    if self.state.is_abandoned.load(Ordering::Relaxed) {
+                        return false;
+                    }
+                    let is_stale = !matches!(unsent, Decoded::Problem(_))
+                        && self.state.seek_count.load(Ordering::Acquire) != self.seek_count;
+                    if is_stale {
+                        return true;
+                    }
+                    message = unsent;
+                    std::thread::sleep(DECODER_PAUSE);
+                }
+            }
+        }
+    }
+}
+
+/// What the audio thread found when it looked for the next chunk.
+enum NextChunk {
+    Ready,
+    NotDecodedYet,
+    NothingMore,
+}
+
+/// The samples of one track, handed to the audio output as it asks for them.
+/// It never decodes and never waits: it plays what the decoder has ready.
+pub(crate) struct TrackSource {
+    state: Arc<VoiceState>,
+    decoded: Receiver<Decoded>,
+    sample_rate: NonZeroU32,
+    channel_count: NonZeroU16,
+    duration_seconds: Option<f32>,
     chunk: Vec<f32>,
+    /// The seek count the current chunk was decoded under.
+    chunk_seek_count: u64,
     next_sample: usize,
+    /// Samples of silence still owed to complete a silent frame.
+    silence_owed: usize,
 }
 
 impl TrackSource {
-    /// Opens the file at `path` positioned `from_seconds` in. This reads the
-    /// start of the file, so call it off the main thread.
+    /// Opens the file at `path` positioned `from_seconds` in, decodes its
+    /// first chunk and starts the decoder thread. This reads the start of
+    /// the file, so call it off the main thread.
     pub(crate) fn open(path: &Path, from_seconds: f32) -> Result<Self, PlaybackProblem> {
         let problem = |error: EuphoriaError| PlaybackProblem::from_core(&error);
         let mut stream = AudioStream::open(path).map_err(problem)?;
-        if from_seconds > 0.0 {
-            stream.seek(from_seconds).map_err(problem)?;
+        let reached_seconds = if from_seconds > 0.0 {
+            stream.seek(from_seconds).map_err(problem)?
+        } else {
+            0.0
+        };
+        let state = Arc::new(VoiceState::new(stream.sample_rate()));
+        let channel_count = stream.channel_count();
+        let start_frame = state.frames_at(reached_seconds);
+        state.frames_played.store(start_frame, Ordering::Relaxed);
+
+        // The first chunk is decoded here so that sound starts with the very
+        // first sample the output asks for.
+        let mut first_chunk = Vec::new();
+        let has_audio = stream.read_chunk(&mut first_chunk).map_err(problem)?;
+        if !has_audio {
+            state.is_finished.store(true, Ordering::Relaxed);
         }
-        let state = Arc::new(VoiceState::new(stream.sample_rate(), from_seconds));
-        Ok(Self {
+        let frames_in_first_chunk = (first_chunk.len() / usize::from(channel_count.get())) as u64;
+
+        let (decoded_sender, decoded) = sync_channel(READ_AHEAD_CHUNKS);
+        let source = Self {
+            state: Arc::clone(&state),
+            decoded,
+            sample_rate: stream.sample_rate(),
+            channel_count,
+            duration_seconds: stream.duration_seconds(),
+            chunk: first_chunk,
+            chunk_seek_count: 0,
+            next_sample: 0,
+            silence_owed: 0,
+        };
+        let decoder = Decoder {
             stream,
             state,
-            chunk: Vec::new(),
-            next_sample: 0,
-        })
+            decoded: decoded_sender,
+            seek_count: 0,
+            next_frame: start_frame + frames_in_first_chunk,
+            is_at_end: !has_audio,
+        };
+        std::thread::Builder::new()
+            .name("euphoria-playback-decoder".to_string())
+            .spawn(move || decoder.run())
+            .map_err(|_| PlaybackProblem::NotDecodable)?;
+        Ok(source)
     }
 
     /// The state the window reads while this source plays.
@@ -154,53 +369,53 @@ impl TrackSource {
 
     /// The length the file declares, in seconds, when it declares one.
     pub(crate) fn duration_seconds(&self) -> Option<f32> {
-        self.stream.duration_seconds()
+        self.duration_seconds
     }
 
-    /// Decodes the next chunk, first jumping to wherever a seek asked for.
-    /// Returns false when there is nothing more to play.
-    fn refill(&mut self) -> bool {
-        let frames_handed_out = self.next_sample / usize::from(self.channel_count().get());
-        self.state
-            .frames_played
-            .fetch_add(frames_handed_out as u64, Ordering::Relaxed);
-        self.chunk.clear();
-        self.next_sample = 0;
-
-        let requested = if self.state.has_request.swap(false, Ordering::AcqRel) {
-            self.state.lock_requested_position().take()
-        } else {
-            None
-        };
-        if let Some(seconds) = requested {
-            match self.stream.seek(seconds) {
-                Ok(reached) => self.state.set_position(reached),
-                Err(error) => return self.stop_on(&error),
+    /// Takes the next chunk the decoder has ready, passing over anything
+    /// decoded before the latest seek.
+    fn take_next_chunk(&mut self, latest_seek_count: u64) -> NextChunk {
+        loop {
+            match self.decoded.try_recv() {
+                Ok(Decoded::Chunk { seek_count, .. }) | Ok(Decoded::End { seek_count, .. })
+                    if seek_count != latest_seek_count => {}
+                Ok(Decoded::Chunk {
+                    seek_count,
+                    start_frame,
+                    samples,
+                }) => {
+                    self.chunk = samples;
+                    self.chunk_seek_count = seek_count;
+                    self.next_sample = 0;
+                    self.state
+                        .frames_played
+                        .store(start_frame, Ordering::Relaxed);
+                    self.state.lock_seek_requests().shown = None;
+                    return NextChunk::Ready;
+                }
+                Ok(Decoded::End { end_frame, .. }) => {
+                    self.state.frames_played.store(end_frame, Ordering::Relaxed);
+                    self.state.lock_seek_requests().shown = None;
+                    self.state.is_finished.store(true, Ordering::Relaxed);
+                    return NextChunk::NothingMore;
+                }
+                Ok(Decoded::Problem(problem)) => {
+                    self.state.stop_on(problem);
+                    return NextChunk::NothingMore;
+                }
+                Err(TryRecvError::Empty) => return NextChunk::NotDecodedYet,
+                Err(TryRecvError::Disconnected) => {
+                    self.state.is_finished.store(true, Ordering::Relaxed);
+                    return NextChunk::NothingMore;
+                }
             }
         }
-        match self.stream.read_chunk(&mut self.chunk) {
-            Ok(true) => true,
-            Ok(false) => {
-                self.state.is_finished.store(true, Ordering::Relaxed);
-                false
-            }
-            Err(error) => self.stop_on(&error),
-        }
     }
+}
 
-    fn stop_on(&mut self, error: &EuphoriaError) -> bool {
-        *self
-            .state
-            .problem
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(PlaybackProblem::from_core(error));
-        self.state.is_finished.store(true, Ordering::Relaxed);
-        self.chunk.clear();
-        false
-    }
-
-    fn channel_count(&self) -> NonZeroU16 {
-        self.stream.channel_count()
+impl Drop for TrackSource {
+    fn drop(&mut self) {
+        self.state.is_abandoned.store(true, Ordering::Relaxed);
     }
 }
 
@@ -208,10 +423,30 @@ impl Iterator for TrackSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        if self.silence_owed > 0 {
+            self.silence_owed -= 1;
+            return Some(0.0);
+        }
+        let latest_seek_count = self.state.seek_count.load(Ordering::Acquire);
         let needs_chunk =
-            self.next_sample >= self.chunk.len() || self.state.has_request.load(Ordering::Acquire);
-        if needs_chunk && (self.state.is_finished() || !self.refill()) {
-            return None;
+            self.next_sample >= self.chunk.len() || self.chunk_seek_count != latest_seek_count;
+        if needs_chunk {
+            if self.state.is_finished() {
+                return None;
+            }
+            match self.take_next_chunk(latest_seek_count) {
+                NextChunk::Ready => {}
+                NextChunk::NothingMore => return None,
+                NextChunk::NotDecodedYet => {
+                    // One whole frame of silence, so the channels stay in
+                    // step, then look again.
+                    self.chunk.clear();
+                    self.next_sample = 0;
+                    self.silence_owed = usize::from(self.channel_count.get()) - 1;
+                    self.state.silent_frames.fetch_add(1, Ordering::Relaxed);
+                    return Some(0.0);
+                }
+            }
         }
         let sample = self.chunk[self.next_sample];
         self.next_sample += 1;
@@ -225,15 +460,15 @@ impl rodio::Source for TrackSource {
     }
 
     fn channels(&self) -> NonZeroU16 {
-        self.channel_count()
+        self.channel_count
     }
 
     fn sample_rate(&self) -> NonZeroU32 {
-        self.stream.sample_rate()
+        self.sample_rate
     }
 
     fn total_duration(&self) -> Option<Duration> {
-        self.stream.duration_seconds().map(Duration::from_secs_f32)
+        self.duration_seconds.map(Duration::from_secs_f32)
     }
 }
 
@@ -324,6 +559,7 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::time::Instant;
 
     use super::*;
 
@@ -335,6 +571,34 @@ mod tests {
 
     fn open(name: &str, from_seconds: f32) -> TrackSource {
         TrackSource::open(&fixture(name), from_seconds).unwrap()
+    }
+
+    /// Pulls samples as an audio output would, far faster than real time,
+    /// until `enough` says to stop or the source ends. Returns how many
+    /// samples of the track came out, not counting the silence played while
+    /// the decoder was catching up.
+    fn pull_until(source: &mut TrackSource, enough: impl Fn(usize) -> bool) -> usize {
+        let state = source.state();
+        let channel_count = usize::from(source.channel_count.get());
+        let silence_before = state.silent_frames() as usize * channel_count;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut pulled = 0_usize;
+        loop {
+            let silence = state.silent_frames() as usize * channel_count - silence_before;
+            if enough(pulled.saturating_sub(silence)) {
+                return pulled.saturating_sub(silence);
+            }
+            assert!(Instant::now() < deadline, "the source never finished");
+            if source.next().is_none() {
+                let silence = state.silent_frames() as usize * channel_count - silence_before;
+                return pulled.saturating_sub(silence);
+            }
+            pulled += 1;
+        }
+    }
+
+    fn pull_everything(source: &mut TrackSource) -> usize {
+        pull_until(source, |_| false)
     }
 
     #[test]
@@ -349,11 +613,13 @@ mod tests {
     }
 
     #[test]
-    fn the_first_samples_come_without_decoding_the_whole_file() {
+    fn the_first_sample_is_ready_without_waiting_for_the_decoder() {
         let mut source = open("sine-440hz-mono.mp3", 0.0);
-        assert!(source.next().is_some());
+        let state = source.state();
         assert!(source.chunk.len() < 44_100 / 4);
-        assert!(!source.state().is_finished());
+        assert!(source.next().is_some());
+        assert_eq!(state.silent_frames(), 0);
+        assert!(!state.is_finished());
     }
 
     #[test]
@@ -362,21 +628,44 @@ mod tests {
         let state = source.state();
         assert_eq!(state.position_seconds(), 0.0);
         let half_a_second = 44_100 / 2;
-        assert_eq!(source.by_ref().take(half_a_second).count(), half_a_second);
+        pull_until(&mut source, |samples| samples >= half_a_second);
         let position = state.position_seconds();
         assert!((0.4..=0.5).contains(&position), "{position}");
     }
 
     #[test]
     fn playing_to_the_end_finishes_without_a_problem() {
-        let mut source = open("sine-440hz-mono.flac", 0.0);
+        for name in [
+            "sine-440hz-mono.flac",
+            "sine-440hz-mono.mp3",
+            "sine-440hz-mono.m4a",
+        ] {
+            let mut source = open(name, 0.0);
+            let state = source.state();
+            let whole = euphoria_core::decode_mono(&fixture(name)).unwrap();
+            assert_eq!(
+                pull_everything(&mut source),
+                whole.samples().len(),
+                "{name}"
+            );
+            assert!(state.is_finished(), "{name}");
+            assert_eq!(state.problem(), None, "{name}");
+            let end = whole.duration_seconds();
+            assert!((state.position_seconds() - end).abs() < 0.01, "{name}");
+            assert_eq!(source.next(), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn stereo_frames_stay_whole_through_silence() {
+        let mut source = open("sine-440hz-stereo.wav", 0.0);
         let state = source.state();
-        let sample_count = source.by_ref().count();
-        assert_eq!(sample_count, 44_100);
-        assert!(state.is_finished());
-        assert_eq!(state.problem(), None);
-        assert!((state.position_seconds() - 1.0).abs() < 0.01);
-        assert_eq!(source.next(), None);
+        let mut pulled = 0_usize;
+        while source.next().is_some() {
+            pulled += 1;
+        }
+        assert_eq!(pulled % 2, 0);
+        assert_eq!(pulled - state.silent_frames() as usize * 2, 2 * 44_100);
     }
 
     #[test]
@@ -384,33 +673,104 @@ mod tests {
         let mut source = open("sine-440hz-mono.wav", 0.75);
         let state = source.state();
         assert!((state.position_seconds() - 0.75).abs() < 1.0e-3);
-        let remaining = source.by_ref().count();
+        let remaining = pull_everything(&mut source);
         assert!(remaining.abs_diff(44_100 / 4) <= 64, "{remaining}");
     }
 
     #[test]
-    fn a_seek_moves_the_position_at_once_and_the_sound_at_the_next_chunk() {
+    fn a_seek_shows_at_once_and_drops_what_was_decoded_ahead() {
         let mut source = open("sine-440hz-mono.wav", 0.0);
         let state = source.state();
-        source.by_ref().take(1_000).for_each(drop);
+        pull_until(&mut source, |samples| samples >= 1_000);
 
         state.seek_to(0.5);
         assert_eq!(state.position_seconds(), 0.5);
-        let remaining = source.by_ref().count();
+        let remaining = pull_everything(&mut source);
         assert!(
-            (44_100 / 2..44_100 / 2 + 8_192).contains(&remaining),
+            remaining.abs_diff(44_100 / 2) <= 64,
             "{remaining} samples played after the seek"
         );
         assert!(state.is_finished());
+        assert!((state.position_seconds() - 1.0).abs() < 0.01);
     }
 
     #[test]
-    fn seeking_back_after_the_end_does_not_revive_a_finished_source() {
+    fn a_seek_backwards_plays_the_earlier_part_again() {
+        let mut source = open("sine-440hz-mono.flac", 0.0);
+        let state = source.state();
+        pull_until(&mut source, |samples| samples >= 30_000);
+        state.seek_to(0.25);
+        let remaining = pull_everything(&mut source);
+        assert!(remaining.abs_diff(44_100 * 3 / 4) <= 64, "{remaining}");
+    }
+
+    #[test]
+    fn several_seeks_in_a_row_end_at_the_last_one() {
         let mut source = open("sine-440hz-mono.wav", 0.0);
         let state = source.state();
-        source.by_ref().for_each(drop);
+        pull_until(&mut source, |samples| samples >= 500);
+        for seconds in [0.1, 0.9, 0.3, 0.6] {
+            state.seek_to(seconds);
+        }
+        assert_eq!(state.position_seconds(), 0.6);
+        let remaining = pull_everything(&mut source);
+        assert!(remaining.abs_diff(44_100 * 4 / 10) <= 64, "{remaining}");
+    }
+
+    #[test]
+    fn sound_resumes_within_a_moment_of_a_seek() {
+        let mut source = open("sine-440hz-mono.mp3", 0.0);
+        let state = source.state();
+        pull_until(&mut source, |samples| samples >= 2_000);
+
+        state.seek_to(0.5);
+        let asked_at = Instant::now();
+        let silence_before = state.silent_frames();
+        let mut sounded = false;
+        while asked_at.elapsed() < Duration::from_secs(5) {
+            let before = state.silent_frames();
+            if source.next().is_none() {
+                break;
+            }
+            if state.silent_frames() == before {
+                sounded = true;
+                break;
+            }
+        }
+        assert!(sounded, "no sound came back after the seek");
+        assert!(
+            asked_at.elapsed() < Duration::from_millis(250),
+            "sound took {:?} to come back",
+            asked_at.elapsed()
+        );
+        assert!(state.silent_frames() >= silence_before);
+        let position = state.position_seconds();
+        assert!((0.45..=0.6).contains(&position), "{position}");
+    }
+
+    #[test]
+    fn seeking_after_the_end_does_not_revive_a_finished_source() {
+        let mut source = open("sine-440hz-mono.wav", 0.0);
+        let state = source.state();
+        pull_everything(&mut source);
         state.seek_to(0.0);
         assert_eq!(source.next(), None);
+    }
+
+    #[test]
+    fn the_decoder_stops_reading_ahead_when_the_buffer_is_full_and_ends_with_the_source() {
+        let source = open("sine-440hz-mono.mp3", 0.0);
+        let state = source.state();
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!state.is_finished());
+        assert_eq!(Arc::strong_count(&state), 3);
+
+        drop(source);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&state) > 1 {
+            assert!(Instant::now() < deadline, "the decoder thread kept running");
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]
@@ -437,7 +797,18 @@ mod tests {
     }
 
     #[test]
-    fn a_file_that_vanishes_while_playing_stops_with_a_problem_or_plays_out() {
+    fn a_decoding_problem_reaches_the_window_and_ends_the_sound() {
+        let mut source = open("sine-440hz-mono.wav", 0.0);
+        let state = source.state();
+        state.stop_on(PlaybackProblem::NotDecodable);
+        source.next_sample = source.chunk.len();
+        assert_eq!(source.next(), None);
+        assert_eq!(state.problem(), Some(PlaybackProblem::NotDecodable));
+        assert!(state.is_finished());
+    }
+
+    #[test]
+    fn a_file_that_vanishes_while_playing_ends_one_way_or_the_other() {
         let copy = std::env::temp_dir().join(format!(
             "euphoria-playback-vanishing-{}.wav",
             std::process::id()
@@ -448,7 +819,7 @@ mod tests {
         assert!(source.next().is_some());
         std::fs::remove_file(&copy).unwrap();
 
-        source.by_ref().for_each(drop);
+        pull_everything(&mut source);
         assert!(state.is_finished());
     }
 
