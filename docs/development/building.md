@@ -90,6 +90,17 @@ uv run bench/rekordbox_test_kit.py --clips bench/data/key/audio --output /tmp/eu
 
 The script writes only into the new output folder. It never opens a rekordbox library or its settings; the checklist asks whoever runs it to back up the library first and says how to remove the test tracks afterwards.
 
+## Audio quality benchmark
+
+The thresholds of the [audio quality](../concepts/audio-quality.md) verdict come from encoding lossless music at several bit rates and measuring the result. Download the lossless sources (about 170 MB of WAV files under Creative Commons BY-SA, into `bench/data/quality`) and run the benchmark. It needs [uv](https://docs.astral.sh/uv/) and ffmpeg, and uses Apple's AAC encoder through `afconvert` on macOS:
+
+```
+./bench/download_quality_sources.sh
+uv run bench/quality_benchmark.py bench/data/quality
+```
+
+It prints the table in [bench/results/quality.md](https://github.com/lvndry/euphoria/blob/main/bench/results/quality.md). `euphoria-bench quality LIST_FILE` measures any list of files on its own: each line is a label, a tab and a path, and the output is one tab separated line per file with the label and never the path, so a private library can be measured too.
+
 ## Energy benchmark
 
 `euphoria-bench energy` scores the [energy rating](../concepts/energy.md) against reference ratings. It reads a labels file with one track per line: the path of an audio file, relative to the labels file, then a tab and a number where higher means more energy.

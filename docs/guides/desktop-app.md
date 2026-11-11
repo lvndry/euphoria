@@ -38,6 +38,7 @@ Your files are only read. The app does not write tags or change files.
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
+| Quality | The [audio quality](../concepts/audio-quality.md) verdict: Lossless, Good, Acceptable, Weak, or Re-encoded? for a file likely made from a lower quality one. Weak and Re-encoded? stand out; the others are quieter. |
 | Time | The length |
 | Format | The file type |
 | Folder | The folder holding the file |
@@ -52,6 +53,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 
 - **All tracks** shows the whole library.
 - **Needs review** shows the tracks that could not be analyzed.
+- **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy.
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** lists the folders you added. Click one to show only its tracks.
 
@@ -63,7 +65,7 @@ To give the table more room, fold the sidebar away. Any of these folds it, and t
 
 ## The inspector
 
-The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track.
+The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track. Below them, **Sound quality** gives the quality verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak.
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 

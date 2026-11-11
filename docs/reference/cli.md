@@ -19,14 +19,17 @@ A symbolic link to an audio file is analyzed. A symbolic link to a folder is not
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key             BPM  Energy  Time  File
-8A   A minor  124.0       6  6:48  /Users/you/Music/DJ/Low Tide.flac
--                 -       -  1:00  /Users/you/Music/DJ/Intro.wav
+Key             BPM  Energy  Quality   Time  File
+8A   A minor  124.0       6  Lossless  6:48  /Users/you/Music/DJ/Low Tide.flac
+-                 -       -  Weak      1:00  /Users/you/Music/DJ/Intro.m4a
+Quality: 1 lossless, 1 weak on a big system.
 ```
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
 
 The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
+
+The Quality column is the [audio quality](../concepts/audio-quality.md) verdict for DJ use: `Lossless`, `Good`, `Acceptable`, `Weak` (weak on a big system) or `Re-encoded?` (likely made from a lower quality file). A line after the table counts the tracks with each verdict. It goes to standard error, like the line about the cache, so piped output holds only the table.
 
 The table holds what you act on while mixing. The tuning of a track and its key over time are in the [JSON output](#json-output) only: most tracks are at concert pitch and stay in one key, so a column for either would be empty or zero nearly everywhere.
 
@@ -68,6 +71,20 @@ One object per file, in path order, including files that failed:
         "key": { "camelot": "9A", "name": "E minor" }
       }
     ],
+    "quality": {
+      "codec": "flac",
+      "lossless": true,
+      "bitrate_kbps": 912,
+      "sample_rate": 44100,
+      "bit_depth": 16,
+      "channels": 2,
+      "cutoff_hz": null,
+      "clipped_share": 0.0,
+      "integrated_loudness_lufs": -8.4,
+      "true_peak_dbtp": -0.3,
+      "verdict": "lossless",
+      "reason": "Lossless FLAC with a full spectrum."
+    },
     "error": null
   },
   {
@@ -78,6 +95,7 @@ One object per file, in path order, including files that failed:
     "energy": null,
     "tuning_cents": null,
     "key_timeline": [],
+    "quality": null,
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
   }
 ]
@@ -90,6 +108,21 @@ One object per file, in path order, including files that failed:
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. When there are several sections, each carries the key that fits that stretch best, while `key` stays the key that fits the whole track, so `key` is usually but not always one of them. Section boundaries are accurate to a few seconds.
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them.
+
+`quality` is the [audio quality](../concepts/audio-quality.md) report, or `null` for a file that could not be analyzed:
+
+| Field | Meaning |
+| --- | --- |
+| `codec` | The audio codec, such as `mp3`, `aac`, `flac`, `alac` or `pcm_s16le`. |
+| `lossless` | Whether the codec keeps every bit. |
+| `bitrate_kbps` | The average bit rate of the audio data in kbit/s, measured from the audio packets. |
+| `sample_rate`, `bit_depth`, `channels` | As the file declares them. `bit_depth` is `null` for lossy files. |
+| `cutoff_hz` | The frequency where the content stops, or `null` when it reaches the top of the spectrum. |
+| `clipped_share` | The share of samples in runs of three or more at full scale, from 0 to 1. |
+| `integrated_loudness_lufs` | Integrated loudness, as EBU R128 describes, on the mono mixdown. `null` for silence. |
+| `true_peak_dbtp` | The highest true peak in any channel, in dB relative to full scale. |
+| `verdict` | `lossless`, `good`, `acceptable`, `weak-on-a-big-system` or `likely-reencoded`. |
+| `reason` | One or two sentences that explain the verdict. |
 
 ### Progress and exit status
 
