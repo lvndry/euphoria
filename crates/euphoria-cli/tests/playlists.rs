@@ -24,7 +24,8 @@ fn assert_success(output: &Output) {
 /// time" holding them in the order third, first, second, kept where the app
 /// keeps it.
 fn playlist_of_three(euphoria: &Euphoria, folder: &TemporaryFolder) -> Vec<PathBuf> {
-    let fixture = std::fs::read(fixtures_directory().join("sine-440hz-mono.wav")).unwrap();
+    let fixture = std::fs::read(fixtures_directory().join("sine-440hz-mono.wav"))
+        .expect("the test can read and write its own files");
     let tracks: Vec<PathBuf> = ["first", "second", "third"]
         .iter()
         .enumerate()
@@ -32,15 +33,18 @@ fn playlist_of_three(euphoria: &Euphoria, folder: &TemporaryFolder) -> Vec<PathB
             let path = folder.path().join(format!("{name}.wav"));
             let mut content = fixture.clone();
             content.extend(std::iter::repeat_n(0, index));
-            std::fs::write(&path, content).unwrap();
+            std::fs::write(&path, content).expect("the test can read and write its own files");
             path
         })
         .collect();
     let entries = [2, 0, 1]
-        .map(|index| PlaylistEntry::for_file(&tracks[index], None).unwrap())
+        .map(|index| {
+            PlaylistEntry::for_file(&tracks[index], None)
+                .expect("the test can read and write its own files")
+        })
         .to_vec();
-    let mut store =
-        PlaylistStore::open(&euphoria.data_directory().join("playlists.sqlite3")).unwrap();
+    let mut store = PlaylistStore::open(&euphoria.data_directory().join("playlists.sqlite3"))
+        .expect("the test can read and write its own files");
     store
         .save(&[
             StoredPlaylist {
@@ -54,7 +58,7 @@ fn playlist_of_three(euphoria: &Euphoria, folder: &TemporaryFolder) -> Vec<PathB
                 entries: Vec::new(),
             },
         ])
-        .unwrap();
+        .expect("the test can read and write its own files");
     tracks
 }
 
@@ -91,20 +95,33 @@ fn a_playlist_goes_to_rekordbox_in_its_own_order() {
         text(&exported),
     ]);
     assert_success(&export);
-    let xml = std::fs::read_to_string(&exported).unwrap();
+    let xml =
+        std::fs::read_to_string(&exported).expect("the test can read and write its own files");
     assert!(xml.contains("Type=\"1\" Name=\"Peak time\""), "{xml}");
     let track_id = |name: &str| {
         let line = xml
             .lines()
             .find(|line| line.contains("TrackID") && line.contains(&format!("/{name}.wav")))
-            .unwrap();
-        let start = line.find("TrackID=\"").unwrap() + "TrackID=\"".len();
-        line[start..].split('"').next().unwrap().to_string()
+            .expect("the test can read and write its own files");
+        let start = line
+            .find("TrackID=\"")
+            .expect("the test can read and write its own files")
+            + "TrackID=\"".len();
+        line[start..]
+            .split('"')
+            .next()
+            .expect("the test can read and write its own files")
+            .to_string()
     };
     let playlist_order: Vec<String> = xml
         .lines()
         .filter_map(|line| line.trim().strip_prefix("<TRACK Key=\""))
-        .map(|rest| rest.split('"').next().unwrap().to_string())
+        .map(|rest| {
+            rest.split('"')
+                .next()
+                .expect("the test can read and write its own files")
+                .to_string()
+        })
         .collect();
     assert_eq!(
         playlist_order,
@@ -121,7 +138,7 @@ fn a_playlist_goes_to_m3u8_and_a_moved_file_is_found() {
     let tracks = playlist_of_three(&euphoria, &folder);
     assert_success(&euphoria.run(&["analyze", text(folder.path())]));
     let moved = folder.path().join("renamed.wav");
-    std::fs::rename(&tracks[0], &moved).unwrap();
+    std::fs::rename(&tracks[0], &moved).expect("the test can read and write its own files");
     assert_success(&euphoria.run(&["analyze", text(folder.path())]));
 
     let exported = folder.path().join("set.m3u8");
@@ -134,7 +151,8 @@ fn a_playlist_goes_to_m3u8_and_a_moved_file_is_found() {
         text(&exported),
     ]);
     assert_success(&export);
-    let playlist = std::fs::read_to_string(&exported).unwrap();
+    let playlist =
+        std::fs::read_to_string(&exported).expect("the test can read and write its own files");
     let lines: Vec<&str> = playlist.lines().collect();
     assert_eq!(lines[0], "#EXTM3U");
     assert_eq!(lines[1], "#PLAYLIST:Peak time");
