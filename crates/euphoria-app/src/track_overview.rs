@@ -5,7 +5,31 @@
 //! track from its start (0) to its end (1), so that they line up with the
 //! waveform and the playhead drawn above them.
 
-use euphoria_core::{EnergyCurvePoint, Key, KeySection};
+use std::sync::Arc;
+
+use euphoria_core::{EnergyCurvePoint, EuphoriaError, Key, KeySection};
+
+/// The energy curve of a track, once worked out.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum EnergyCurve {
+    /// The steps of the curve, empty when the track has no window to rate.
+    Steps(Arc<[EnergyStep]>),
+    /// The core could not rate the audio; the text says why.
+    Unavailable(String),
+}
+
+/// The energy curve from what the core returned for audio
+/// `duration_seconds` long. A failure is kept as one, so that it is not
+/// mistaken for a track without rated windows.
+pub(crate) fn energy_curve_from(
+    points: Result<Vec<EnergyCurvePoint>, EuphoriaError>,
+    duration_seconds: f32,
+) -> EnergyCurve {
+    match points {
+        Ok(points) => EnergyCurve::Steps(energy_steps(&points, duration_seconds).into()),
+        Err(error) => EnergyCurve::Unavailable(error.chain()),
+    }
+}
 
 /// A stretch of the energy curve.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -164,6 +188,37 @@ mod tests {
                     rating: Some(10)
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_failed_curve_is_unavailable_with_its_reason_and_not_an_empty_curve() {
+        let failed = energy_curve_from(
+            Err(EuphoriaError::UnsupportedSampleRate {
+                sample_rate: 4000,
+                minimum: 8000,
+                maximum: 384_000,
+            }),
+            10.0,
+        );
+        match failed {
+            EnergyCurve::Unavailable(reason) => assert!(reason.contains("4000"), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            energy_curve_from(Ok(Vec::new()), 10.0),
+            EnergyCurve::Steps(Vec::new().into())
+        );
+        assert_eq!(
+            energy_curve_from(Ok(vec![point(0.0, 10.0, Some(4))]), 10.0),
+            EnergyCurve::Steps(
+                vec![EnergyStep {
+                    start: 0.0,
+                    end: 1.0,
+                    rating: Some(4)
+                }]
+                .into()
+            )
         );
     }
 

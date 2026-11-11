@@ -19,7 +19,7 @@ use crate::format;
 use crate::library::{Track, TrackStatus};
 use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
-use crate::track_overview::{key_stretches, shows_key_timeline};
+use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::key_chip::key_chip;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::track_overview;
@@ -329,8 +329,11 @@ fn waveform_section(
 
     let progress = app.player.progress();
     let energy = match state {
-        Some(Waveform::Ready(_, Some(steps))) if !steps.is_empty() => {
+        Some(Waveform::Ready(_, Some(EnergyCurve::Steps(steps)))) if !steps.is_empty() => {
             Some(track_overview::energy_curve(steps, progress, &palette))
+        }
+        Some(Waveform::Ready(_, Some(EnergyCurve::Unavailable(reason)))) => {
+            Some(track_overview::energy_unavailable(reason, &palette))
         }
         _ => None,
     };

@@ -29,7 +29,7 @@ use crate::tag_settings::{ProgramChoice, TagSettings};
 use crate::tag_writing;
 use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
 use crate::theme::{AppTheme, Layout, ThemeName};
-use crate::track_overview::EnergyStep;
+use crate::track_overview::{EnergyCurve, EnergyStep};
 use crate::views::sidebar::{disclosure_id, folder_row_id};
 use crate::views::tag_panel::ProblemList;
 use crate::views::track_table::{edge_id, header_id};
@@ -2423,7 +2423,7 @@ fn waveform_with_energy() -> Waveform {
             rating: Some(10),
         },
     ];
-    Waveform::Ready(columns.into(), Some(steps.into()))
+    Waveform::Ready(columns.into(), Some(EnergyCurve::Steps(steps.into())))
 }
 
 fn open_track_changing_key(
@@ -2509,6 +2509,54 @@ fn a_track_in_one_key_has_no_timeline_and_no_curve_shows_before_it_is_worked_out
         assert!(window.try_find("waveform").is_some());
         assert!(window.try_find("energy-curve").is_none());
         assert!(window.try_find("key-timeline").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn a_curve_the_core_could_not_work_out_says_so_quietly_and_an_empty_one_shows_nothing(
+    cx: &mut TestAppContext,
+) {
+    let columns = || -> std::sync::Arc<[crate::peaks::BandPeaks]> {
+        vec![crate::peaks::BandPeaks {
+            low: 0.5,
+            mid: 0.5,
+            high: 0.5,
+        }]
+        .into()
+    };
+    let (window, view) = open_fixture_library(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(Waveform::Ready(
+                columns(),
+                Some(EnergyCurve::Unavailable(
+                    "a sample rate of 4000 Hz is not supported".to_string(),
+                )),
+            ));
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        let unavailable = window.find("energy-unavailable").bounds();
+        assert!(unavailable.top() >= waveform.bottom());
+        assert!(window.try_find("energy-curve").is_none());
+    })
+    .unwrap();
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(Waveform::Ready(
+                columns(),
+                Some(EnergyCurve::Steps(Vec::new().into())),
+            ));
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("energy-unavailable").is_none());
+        assert!(window.try_find("energy-curve").is_none());
     })
     .unwrap();
 }

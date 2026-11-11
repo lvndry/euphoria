@@ -33,7 +33,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
-use crate::track_overview::energy_steps;
+use crate::track_overview::energy_curve_from;
 use crate::views;
 use crate::views::waveform::SeenBounds;
 use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
@@ -1377,17 +1377,16 @@ impl EuphoriaApp {
             let Some(audio) = audio.filter(|_| shown.is_ok()) else {
                 return;
             };
-            let steps = cx
+            let curve = cx
                 .background_executor()
                 .spawn(async move {
                     let duration_seconds =
                         audio.samples().len() as f32 / audio.sample_rate().get() as f32;
-                    let points = euphoria_core::energy_curve(&audio, tempo).unwrap_or_default();
-                    energy_steps(&points, duration_seconds)
+                    energy_curve_from(euphoria_core::energy_curve(&audio, tempo), duration_seconds)
                 })
                 .await;
             this.update(cx, |this, cx| {
-                this.waveforms.set_energy(&path, steps.into());
+                this.waveforms.set_energy(&path, curve);
                 this.waveform_task_path = None;
                 cx.notify();
             })

@@ -60,6 +60,25 @@ pub(crate) fn energy_curve(
         .into_any_element()
 }
 
+/// The curve's row when the core could not rate the audio: a quiet line
+/// saying so, with the reason in a tooltip.
+pub(crate) fn energy_unavailable(reason: &str, palette: &Palette) -> AnyElement {
+    let reason: SharedString = reason.to_string().into();
+    div()
+        .id("energy-unavailable")
+        .flex()
+        .items_center()
+        .w_full()
+        .h(px(ENERGY_HEIGHT))
+        .flex_shrink_0()
+        .text_size(px(11.0))
+        .text_color(palette.text_secondary)
+        .child("Energy over time not available")
+        .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
+        .test_support()
+        .into_any_element()
+}
+
 /// The key timeline: a stretch for each section in its key's colour, with
 /// its Camelot code where there is room, and gaps where the track is
 /// silent.

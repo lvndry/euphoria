@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::peaks::BandPeaks;
-use crate::track_overview::EnergyStep;
+use crate::track_overview::EnergyCurve;
 
 /// How many waveforms are kept. Each is a few kilobytes; the limit keeps a
 /// long session from growing without bound.
@@ -21,9 +21,9 @@ pub(crate) const WAVEFORM_CAPACITY: usize = 32;
 pub(crate) enum Waveform {
     /// The audio is being decoded.
     Reading,
-    /// Columns from the start of the track to its end, and the steps of its
-    /// energy curve, `None` until worked out from the same audio.
-    Ready(Arc<[BandPeaks]>, Option<Arc<[EnergyStep]>>),
+    /// Columns from the start of the track to its end, and its energy
+    /// curve, `None` until worked out from the same audio.
+    Ready(Arc<[BandPeaks]>, Option<EnergyCurve>),
     /// The audio could not be decoded; the text says why.
     Unreadable(String),
 }
@@ -82,13 +82,13 @@ impl WaveformCache {
 
     /// Adds the energy curve to the waveform kept for the file at `path`,
     /// when one is kept and ready.
-    pub(crate) fn set_energy(&mut self, path: &Path, steps: Arc<[EnergyStep]>) {
+    pub(crate) fn set_energy(&mut self, path: &Path, curve: EnergyCurve) {
         let kept = self
             .entries
             .iter_mut()
             .find(|(kept_path, _)| kept_path == path);
         if let Some((_, Waveform::Ready(_, energy))) = kept {
-            *energy = Some(steps);
+            *energy = Some(curve);
         }
     }
 
@@ -167,12 +167,14 @@ mod tests {
     #[test]
     fn the_energy_curve_joins_a_kept_waveform_and_nothing_else() {
         let mut cache = WaveformCache::new(2);
-        let steps: Arc<[EnergyStep]> = vec![EnergyStep {
-            start: 0.0,
-            end: 1.0,
-            rating: Some(7),
-        }]
-        .into();
+        let steps = EnergyCurve::Steps(
+            vec![crate::track_overview::EnergyStep {
+                start: 0.0,
+                end: 1.0,
+                rating: Some(7),
+            }]
+            .into(),
+        );
         cache.insert(path(1), ready(0.5));
         cache.insert(path(2), Waveform::Reading);
         cache.set_energy(&path(1), steps.clone());
