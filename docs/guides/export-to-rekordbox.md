@@ -13,9 +13,9 @@ euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
 
 rekordbox reads that file as a second library sitting next to your own, and you choose which tracks and playlists to bring into your collection. Your audio files are never modified.
 
-This is the route Pioneer documents for handing rekordbox a key, a tempo with two decimals and a comment, whatever the format of the file. Whether rekordbox reads the key from the tags of FLAC and WAV files, and the tempo from any file's tags, is unconfirmed: the names of those fields are stored inside rekordbox 7, Mixed In Key's guide says the tags are read, and a reply on Pioneer's forum says the tempo tag is not. [Use Euphoria with your DJ program](dj-programs.md#rekordbox) has the details and a test kit to check your version.
+This is the route Pioneer documents for handing rekordbox a key, a tempo with two decimals and a comment, whatever the format of the file. It is also the only way to give rekordbox Euphoria's tempo: tested in rekordbox 7, it reads the key and comment from a file's tags when the track is added, but not the tempo, and its own analysis sets a tempo of its own. [Use Euphoria with your DJ program](dj-programs.md#rekordbox) has the details and a test kit to check your version.
 
-The import steps below were written from Pioneer DJ's published description of the XML format and from rekordbox 6 and 7 documentation. They have not been run against a rekordbox installation. Steps marked **(not verified)** are the ones most likely to differ on your version.
+The import steps below were written from Pioneer DJ's published description of the XML format and from rekordbox 6 and 7 documentation, and checked in rekordbox 7 with a test file. Steps marked **(not verified)** were not part of that check.
 
 ## Export your library
 
@@ -76,7 +76,7 @@ A track with no key or no tempo has no key or tempo in the file. Euphoria never 
 
 The file also holds the playlists and folders described above. Playlist folders can be nested up to 32 levels deep.
 
-The comment of a track holds only the energy rating. If you keep your own notes in the comments of tracks that are already in your collection, check what rekordbox does with them on a few tracks before importing the rest: replacing a track's information may replace its comment. **(not verified)**
+The comment of a track holds only the energy rating. If you keep your own notes in the comments of tracks that are already in your collection, know that **Import To Collection** replaces the comment of a track that is already there with the one in the file (tested in rekordbox 7), along with its key and tempo. Import only the tracks whose comments you do not mind losing, or keep your notes in another column.
 
 Not in the file: beat grids, cue points, album, genre, rating, the comments in your files' tags, colours, play counts, loops and waveforms.
 
@@ -84,7 +84,7 @@ The Euphoria library, in `euphoria_core::export::rekordbox`, can also write a be
 
 ### Key notation
 
-rekordbox shows the key text exactly as the file gives it, so the notation is chosen when the file is exported, with `--key-notation`:
+rekordbox recognises both notations and shows keys in the format chosen in **Preferences > View** (tested in rekordbox 7). With **Display key information on the database** it shows the text exactly as the file gives it, so the notation still matters there. Choose it when the file is exported, with `--key-notation`:
 
 | Notation | Option | A minor | F sharp minor | D flat major |
 | --- | --- | --- | --- | --- |
@@ -115,22 +115,25 @@ The file is written under a temporary name and moved into place once it is compl
 
 ## Import into rekordbox
 
-1. Open rekordbox and go to **Preferences > View > Layout**. Under the tree view options, tick **rekordbox xml**. **(not verified)**
-2. Go to **Preferences > Advanced > Database**. Under **rekordbox xml**, next to **Imported Library**, click **Browse** and choose the file Euphoria exported. **(not verified)**
-3. Close the preferences. In the tree on the left of the browser, a **rekordbox xml** entry appears. Click the refresh arrows next to it so rekordbox reads the file. Do this again each time you export a new file. **(not verified)**
+1. Open rekordbox and go to **Preferences > View > Layout**. Under the tree view options, tick **rekordbox xml**.
+2. Go to **Preferences > Advanced > Database**. Under **rekordbox xml**, next to **Imported Library**, click **Browse** and choose the file Euphoria exported.
+3. Close the preferences. In the tree on the left of the browser, a **rekordbox xml** entry appears. Click the refresh arrows next to it so rekordbox reads the file. Do this again each time you export a new file.
 4. Open the **rekordbox xml** entry. **All Tracks** lists every track in the file, and **Playlists** holds the playlists and folders.
-5. Select the tracks you want, right click and choose **Import To Collection**. To bring in a whole playlist with its tracks, right click the playlist and choose **Import Playlist**. **(not verified)**
+5. Select the tracks you want, right click and choose **Import To Collection**. To bring in a whole playlist with its tracks, right click the playlist and choose **Import Playlist**.
 
-   For tracks that are already in your collection, select the tracks themselves, under **All Tracks** or inside the playlist, and choose **Import To Collection**. Importing only the playlist does not update tracks that already exist, according to another tool vendor's documentation for rekordbox 5, 6 and 7. **(not verified)**
+   For tracks that are already in your collection, select the tracks themselves, under **All Tracks** or inside the playlist, and choose **Import To Collection**. Importing only the playlist does not update tracks that already exist (tested in rekordbox 7).
 6. Check the result in your collection: the **Key** and **BPM** columns should show Euphoria's values.
 
 ## What happens to tracks you already have
 
-When a track from the file is already in your collection, rekordbox asks whether to replace its information with what the file says. **(not verified)**
+**Import To Collection** on a track that is already in your collection replaces its key, tempo and comment with what the file says (tested in rekordbox 7). Importing only a playlist leaves them as they were.
 
-Replacing can affect more than key and tempo. A beat grid or cue points you set by hand in rekordbox may be replaced by the ones in the file, or removed when the file has none. Try the import on a few tracks first and look at their grids and cues before importing a whole library. **(not verified)**
+Replacing may affect more than that. A beat grid or cue points you set by hand in rekordbox may be replaced by the ones in the file, or removed when the file has none. The test did not check grids or cues, so try the import on a few tracks first and look at them before importing a whole library. **(not verified)**
 
-rekordbox may also analyze newly imported tracks and write its own key and tempo over the imported ones. To prevent it, untick **KEY** in **Preferences > Analysis > Track Analysis > Track Analysis Setting**, or turn **Auto Analysis** off, before importing. The settings are in the manual; whether analysis replaces imported values is **(not verified)**.
+rekordbox's own analysis replaces imported values (tested in rekordbox 7: analyzing a track with **KEY** ticked replaced both its key and its tempo). Choose before importing, in **Preferences > Analysis > Track Analysis**:
+
+- **Keep Euphoria's key and tempo:** turn **Auto Analysis** off. rekordbox then draws no beat grid of its own until you analyze a track.
+- **Keep Euphoria's key, and let rekordbox draw the beat grid:** leave Auto Analysis on and untick **KEY** in **Track Analysis Setting**, keeping **BPM / Grid** ticked. rekordbox's analysis then sets the tempo to its own value. This is the setup Mixed In Key recommends.
 
 ## If something looks wrong
 
@@ -138,5 +141,5 @@ rekordbox may also analyze newly imported tracks and write its own key and tempo
 | --- | --- |
 | The **rekordbox xml** entry is empty | The file was not chosen in the preferences, or the list was not refreshed. |
 | Tracks show as missing | The audio files moved after the export. Export again from their current location, with `--force`. |
-| The key column shows `8A` and you wanted `Am`, or the reverse | The notation is fixed when the file is exported. Export again with the other `--key-notation`. |
+| The key column shows `8A` and you wanted `Am`, or the reverse | rekordbox shows keys in the format chosen in **Preferences > View**; change it there. With **Display key information on the database** it shows the exported text, so export again with the other `--key-notation`. |
 | A track is named after its file | The file has no title in its tags, or it is a WAV file tagged only with an ID3 chunk. |
