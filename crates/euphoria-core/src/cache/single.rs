@@ -149,6 +149,10 @@ mod tests {
                 bpm: Some(120.5),
                 energy: Some((content.len() % 10) as u8 + 1),
                 tuning_cents: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
                 key_timeline: Vec::new(),
                 quality: None,
             })

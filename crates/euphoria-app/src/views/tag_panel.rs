@@ -201,7 +201,7 @@ fn preview_contents(
             .gap(px(12.0))
             .child(title(&format!(
                 "Write tags for {}",
-                preview.settings.program.label()
+                preview.settings.program.label_in_sentence()
             )))
             .child(
                 secondary_button("Change settings", palette)

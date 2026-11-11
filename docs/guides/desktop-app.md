@@ -139,6 +139,14 @@ The three are drawn on top of one another, bass at the back, each as tall as tha
 
 The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
 
+### Energy over time
+
+Under the waveform, across the same width, a row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of about 4 seconds, as tall as the rating. Breakdowns show as low bars and drops as a jump back to full height, right under the part of the waveform they belong to. Silent stretches have no bar. The playhead runs through the curve too, and the part already played is fainter. The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
+
+### Key changes
+
+When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it.
+
 ## Write tags
 
 The app can write the key, tempo and energy it found into the files themselves, with the same safety as [`euphoria tags write`](write-tags.md): you see every change before anything is written, and one step puts the old tags back.
@@ -178,7 +186,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Paper | Light with a blue accent. |
 | Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
-| Key first | Slate colours with solid key chips, a Camelot wheel in the inspector that highlights the keys that mix with the selected track, and the table sorted by key. |
+| Key first | Slate colours with solid key chips, a Camelot wheel in the inspector, and the table sorted by key. The wheel has the minor keys (A) on its inner ring and the major keys (B) on its outer ring; the selected track's key is filled in the accent colour and the keys that mix with it, its neighbours and its relative major or minor, in a lighter tint. |
 
 ## What the app remembers
 

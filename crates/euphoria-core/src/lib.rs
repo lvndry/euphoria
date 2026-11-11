@@ -13,6 +13,8 @@ pub mod audio;
 pub mod audio_stream;
 /// Remembering analyses between runs.
 pub mod cache;
+/// How far to trust a detected key or tempo.
+pub mod confidence;
 /// Key and tempo detectors.
 pub mod detect;
 /// Energy rating from 1 to 10 and the features behind it.
@@ -32,6 +34,8 @@ pub mod quality;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;
+/// The range of tempos a track is reported at.
+pub mod tempo_range;
 /// Reading the title and artist stored in audio files.
 pub mod track_name;
 
@@ -44,6 +48,7 @@ pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
     DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
+pub use confidence::Confidence;
 pub use detect::KeySection;
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
@@ -61,4 +66,5 @@ pub use harmony::{
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
+pub use tempo_range::TempoRange;
 pub use track_name::{TrackName, read_track_name};

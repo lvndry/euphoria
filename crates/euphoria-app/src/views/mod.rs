@@ -15,6 +15,7 @@ pub(crate) mod settings_panel;
 pub(crate) mod sidebar;
 pub(crate) mod tag_panel;
 pub(crate) mod toolbar;
+pub(crate) mod track_overview;
 pub(crate) mod track_table;
 pub(crate) mod waveform;
 pub(crate) mod wheel;

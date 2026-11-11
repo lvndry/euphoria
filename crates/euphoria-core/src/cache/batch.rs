@@ -209,6 +209,10 @@ mod tests {
                 bpm: Some(60.0 + (checksum % 120) as f32 + 0.37),
                 energy: Some((checksum % 10) as u8 + 1),
                 tuning_cents: Some((checksum % 100) as f32 - 49.63),
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
                 key_timeline: vec![
                     crate::KeySection {
                         start_seconds: 0.0,

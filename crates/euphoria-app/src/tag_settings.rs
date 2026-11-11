@@ -56,6 +56,14 @@ impl ProgramChoice {
         }
     }
 
+    /// The program's name inside a sentence, such as "for any program".
+    pub(crate) fn label_in_sentence(self) -> &'static str {
+        match self {
+            ProgramChoice::Generic => "any program",
+            program => program.label(),
+        }
+    }
+
     /// The core's preset for this program.
     pub(crate) fn dj_software(self) -> DjSoftware {
         match self {

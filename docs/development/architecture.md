@@ -34,6 +34,8 @@ bench/              dataset download script, Essentia reference script, results
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
 | `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations, the tuning measurement and the key over time. |
+| `confidence` | The `Confidence` levels of a key or tempo and the margins they are set from. |
+| `tempo_range` | `TempoRange`, the range tempos are reported in, and the half or double tempo offered as an alternative. |
 | `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `track_name` | Reads the title and artist stored in an audio file. |
 | `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |

@@ -52,28 +52,80 @@ const FIFTH_WEIGHT: f64 = 0.5;
 const RELATIVE_WEIGHT: f64 = 0.3;
 const PARALLEL_WEIGHT: f64 = 0.2;
 
+/// How an estimated key relates to a reference key, in the categories of the
+/// standard key evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyRelation {
+    Exact,
+    Fifth,
+    Relative,
+    Parallel,
+    Other,
+}
+
+impl KeyRelation {
+    /// Every relation, in the order reports list them.
+    pub const ALL: [Self; 5] = [
+        Self::Exact,
+        Self::Fifth,
+        Self::Relative,
+        Self::Parallel,
+        Self::Other,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Exact => "same key",
+            Self::Fifth => "a fifth away",
+            Self::Relative => "relative key",
+            Self::Parallel => "parallel key",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// How `estimate` relates to `reference`.
+pub fn key_relation(reference: Key, estimate: Key) -> KeyRelation {
+    let interval = (i32::from(estimate.tonic()) - i32::from(reference.tonic())).rem_euclid(12);
+    let same_mode = estimate.mode() == reference.mode();
+    let reference_is_major = matches!(reference.mode(), euphoria_core::Mode::Major);
+    let relative_interval = if reference_is_major { 9 } else { 3 };
+    if same_mode && interval == 0 {
+        KeyRelation::Exact
+    } else if same_mode && (interval == 7 || interval == 5) {
+        KeyRelation::Fifth
+    } else if !same_mode && interval == relative_interval {
+        KeyRelation::Relative
+    } else if !same_mode && interval == 0 {
+        KeyRelation::Parallel
+    } else {
+        KeyRelation::Other
+    }
+}
+
 impl KeyTally {
     pub fn record(&mut self, reference: Key, estimate: Key) {
-        let interval = (i32::from(estimate.tonic()) - i32::from(reference.tonic())).rem_euclid(12);
-        let same_mode = estimate.mode() == reference.mode();
-        let reference_is_major = matches!(reference.mode(), euphoria_core::Mode::Major);
-        let relative_interval = if reference_is_major { 9 } else { 3 };
-
-        let track_score = if same_mode && interval == 0 {
-            self.exact += 1;
-            1.0
-        } else if same_mode && (interval == 7 || interval == 5) {
-            self.fifth += 1;
-            FIFTH_WEIGHT
-        } else if !same_mode && interval == relative_interval {
-            self.relative += 1;
-            RELATIVE_WEIGHT
-        } else if !same_mode && interval == 0 {
-            self.parallel += 1;
-            PARALLEL_WEIGHT
-        } else {
-            self.other += 1;
-            0.0
+        let track_score = match key_relation(reference, estimate) {
+            KeyRelation::Exact => {
+                self.exact += 1;
+                1.0
+            }
+            KeyRelation::Fifth => {
+                self.fifth += 1;
+                FIFTH_WEIGHT
+            }
+            KeyRelation::Relative => {
+                self.relative += 1;
+                RELATIVE_WEIGHT
+            }
+            KeyRelation::Parallel => {
+                self.parallel += 1;
+                PARALLEL_WEIGHT
+            }
+            KeyRelation::Other => {
+                self.other += 1;
+                0.0
+            }
         };
         self.track_scores.push(track_score);
     }
@@ -135,7 +187,8 @@ const TOLERANCE: f32 = 0.04;
 /// Triple and third tempo count as correct along with double and half.
 const ACCURACY_2_FACTORS: [f32; 5] = [1.0, 2.0, 0.5, 3.0, 1.0 / 3.0];
 
-fn within_tolerance(reference: f32, estimate: f32) -> bool {
+/// Whether a tempo estimate counts as the reference tempo: within 4% of it.
+pub fn within_tolerance(reference: f32, estimate: f32) -> bool {
     (estimate - reference).abs() <= TOLERANCE * reference
 }
 

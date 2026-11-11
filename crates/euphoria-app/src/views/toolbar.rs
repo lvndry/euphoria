@@ -155,7 +155,10 @@ fn write_tags(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphori
                 .cursor_pointer()
                 .hover(move |style| style.text_color(hover_colour))
                 .on_click(cx.listener(|this, _, _, cx| this.open_settings(cx)))
-                .child(format!("for {}", app.tag_settings.program.label()))
+                .child(format!(
+                    "for {}",
+                    app.tag_settings.program.label_in_sentence()
+                ))
                 .test_support(),
         )
 }

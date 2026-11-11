@@ -33,6 +33,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
+use crate::track_overview::energy_curve_from;
 use crate::views;
 use crate::views::waveform::SeenBounds;
 use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
@@ -284,6 +285,14 @@ impl EuphoriaApp {
     pub(crate) fn selected_waveform(&self) -> Option<&Waveform> {
         self.selected_track()
             .and_then(|track| self.waveforms.get(&track.path))
+    }
+
+    /// Keeps `waveform` for the selected track, as if it had been decoded.
+    #[cfg(test)]
+    pub(crate) fn show_waveform(&mut self, waveform: Waveform) {
+        if let Some(path) = self.selected_track().map(|track| track.path.clone()) {
+            self.waveforms.insert(path, waveform);
+        }
     }
 
     /// True when there is nothing to show yet and nothing on its way.
@@ -1320,19 +1329,24 @@ impl EuphoriaApp {
     /// unless they are already kept or already being decoded. Tracks without
     /// an analysis are not decoded.
     fn load_selected_waveform(&mut self, cx: &mut Context<'_, Self>) {
-        let path = self
+        let selected = self
             .selected_track()
             .filter(|track| track.analysis().is_some())
-            .map(|track| track.path.clone());
-        let Some(path) = path else {
+            .map(|track| (track.path.clone(), track.bpm()));
+        let Some((path, tempo)) = selected else {
             self.waveform_task = None;
             return;
         };
         if self.waveform_task_path.as_ref() == Some(&path) && self.waveform_task.is_some() {
             return;
         }
+        // A waveform whose energy curve was never finished, because another
+        // track was selected first, is decoded again to finish it.
         let is_decoded = self.waveforms.touch(&path)
-            && !matches!(self.waveforms.get(&path), Some(Waveform::Reading));
+            && matches!(
+                self.waveforms.get(&path),
+                Some(Waveform::Ready(_, Some(_))) | Some(Waveform::Unreadable(_))
+            );
         if is_decoded {
             self.waveform_task = None;
             return;
@@ -1341,31 +1355,53 @@ impl EuphoriaApp {
         self.waveform_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(WAVEFORM_DELAY).await;
             let marked = this.update(cx, |this, cx| {
-                this.waveforms.insert(path.clone(), Waveform::Reading);
+                if !matches!(this.waveforms.get(&path), Some(Waveform::Ready(..))) {
+                    this.waveforms.insert(path.clone(), Waveform::Reading);
+                }
                 cx.notify();
             });
             if marked.is_err() {
                 return;
             }
             let decoded_path = path.clone();
-            let waveform = cx
+            let (waveform, audio) = cx
                 .background_executor()
                 .spawn(async move {
                     match euphoria_core::decode_mono(&decoded_path) {
-                        Ok(audio) => Waveform::Ready(
-                            compute_band_peaks(
+                        Ok(audio) => {
+                            let columns = compute_band_peaks(
                                 audio.samples(),
                                 audio.sample_rate().get(),
                                 PEAK_COUNT,
-                            )
-                            .into(),
-                        ),
-                        Err(error) => Waveform::Unreadable(error.chain()),
+                            );
+                            (Waveform::Ready(columns.into(), None), Some(audio))
+                        }
+                        Err(error) => (Waveform::Unreadable(error.chain()), None),
                     }
                 })
                 .await;
+            let shown = this.update(cx, |this, cx| {
+                this.waveforms.insert(path.clone(), waveform);
+                if audio.is_none() {
+                    this.waveform_task_path = None;
+                }
+                cx.notify();
+            });
+            // The waveform shows first; the energy curve, from the same
+            // decoded audio, joins it when ready.
+            let Some(audio) = audio.filter(|_| shown.is_ok()) else {
+                return;
+            };
+            let curve = cx
+                .background_executor()
+                .spawn(async move {
+                    let duration_seconds =
+                        audio.samples().len() as f32 / audio.sample_rate().get() as f32;
+                    energy_curve_from(euphoria_core::energy_curve(&audio, tempo), duration_seconds)
+                })
+                .await;
             this.update(cx, |this, cx| {
-                this.waveforms.insert(path, waveform);
+                this.waveforms.set_energy(&path, curve);
                 this.waveform_task_path = None;
                 cx.notify();
             })
@@ -1506,4 +1542,51 @@ pub(crate) fn text_width(window: &Window, text: &str, size: Pixels) -> f32 {
         .shape_line(text.to_string().into(), size, &[run], None)
         .width
         / px(1.0)
+}
+
+#[cfg(test)]
+mod waveform_task_tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[gpui::test]
+    fn refreshing_after_the_waveform_arrives_keeps_the_pending_energy_task(
+        cx: &mut TestAppContext,
+    ) {
+        let (_, view) = crate::ui_tests::open_fixture_library(cx);
+        let refreshed = Rc::new(Cell::new(false));
+        let observed = refreshed.clone();
+        let _subscription = cx.update(|cx| {
+            cx.observe(&view, move |view, cx| {
+                view.update(cx, |app, cx| {
+                    if matches!(app.selected_waveform(), Some(Waveform::Ready(_, None)))
+                        && !observed.replace(true)
+                    {
+                        let task_path = app.waveform_task_path.clone();
+                        app.load_selected_waveform(cx);
+                        assert!(task_path.is_some(), "the pending curve still owns its path");
+                        assert_eq!(app.waveform_task_path, task_path);
+                    }
+                });
+            })
+        });
+        for _ in 0..20 {
+            cx.executor().advance_clock(Duration::from_millis(200));
+            cx.run_until_parked();
+        }
+        assert!(
+            refreshed.get(),
+            "refreshed between waveform and curve completion"
+        );
+        cx.update(|cx| {
+            assert!(matches!(
+                view.read(cx).selected_waveform(),
+                Some(Waveform::Ready(_, Some(_)))
+            ));
+        });
+    }
 }
