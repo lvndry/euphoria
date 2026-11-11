@@ -10,6 +10,7 @@ mod help;
 mod output;
 mod playlists;
 mod rewrites;
+mod shift;
 mod stages;
 mod style;
 mod tag_edit;
@@ -86,6 +87,14 @@ enum Command {
         #[command(subcommand)]
         target: ExportTarget,
     },
+    /// Write a copy of a track in another key, with the same tempo.
+    #[command(
+        long_about = "Write a copy of a track in another key, with the same tempo.
+
+                      The pitch moves by up to 6 semitones either way while every beat                       stays where it was. The copy is a 24 bit WAV or FLAC file tagged                       with the new key; the original is never changed.",
+        after_help = help::shift_examples(),
+    )]
+    Shift(shift::ShiftArguments),
     /// Show where the saved analyses are, or forget them.
     #[command(after_help = help::cache_examples())]
     Cache {
@@ -205,6 +214,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
+        Command::Shift(arguments) => shift::run(&arguments),
         Command::Cache { command } => manage_cache(command),
     }
 }

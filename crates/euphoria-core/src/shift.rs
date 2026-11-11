@@ -538,7 +538,9 @@ mod tests {
                 .unwrap_or(0)
         };
         for number in 1..6 {
-            let from = number * beat;
+            // Each click starts half a beat after the beat count, in the
+            // middle of the window searched.
+            let from = number * beat + beat / 4;
             let original = onset(&input, from);
             let moved = onset(&output, from);
             let offset_ms = (moved as f64 - original as f64) * 1_000.0 / f64::from(SAMPLE_RATE);
