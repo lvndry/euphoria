@@ -2,8 +2,9 @@
 # Copyright 2026 The Euphoria contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Tests scripts/macos_libraries.py on real binaries. Needs macOS, the
-Xcode command line tools and a release build of the desktop app:
+"""Tests scripts/macos_libraries.py on real binaries and on small libraries
+built with clang. Needs macOS, the Xcode command line tools and, for the
+tests on the real app, a release build of the desktop app:
 
     cargo build --release -p euphoria
     python3 -m unittest scripts/test_macos_libraries.py
@@ -156,6 +157,167 @@ class BundleTests(unittest.TestCase):
         )
         self.assertTrue(
             any("/opt/homebrew/lib" in problem for problem in self.problems())
+        )
+
+
+def compile_library(folder, name, links=(), architecture="arm64", minimum="13.0"):
+    """Builds lib<name>.dylib in `folder` with the install name
+    @rpath/lib<name>.dylib, linked to the libraries named in `links`."""
+    source = folder / f"{name}.c"
+    source.write_text(f"int {name}_value(void) {{ return 1; }}\n")
+    run(
+        "clang",
+        "-dynamiclib",
+        "-arch",
+        architecture,
+        f"-mmacosx-version-min={minimum}",
+        "-install_name",
+        f"@rpath/lib{name}.dylib",
+        "-o",
+        folder / f"lib{name}.dylib",
+        source,
+        "-L",
+        folder,
+        *[f"-l{link}" for link in links],
+    )
+    return folder / f"lib{name}.dylib"
+
+
+def compile_executable(path, folder, links):
+    source = folder / "main.c"
+    source.write_text("int main(void) { return 0; }\n")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        "clang",
+        "-arch",
+        "arm64",
+        "-mmacosx-version-min=13.0",
+        "-o",
+        path,
+        source,
+        "-L",
+        folder,
+        *[f"-l{link}" for link in links],
+        "-Wl,-rpath," + str(folder),
+    )
+
+
+@unittest.skipUnless(
+    platform.system() == "Darwin" and shutil.which("clang"), "needs macOS and clang"
+)
+class SyntheticLibraryTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = pathlib.Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.folder)
+        self.outside = self.folder / "outside"
+        self.outside.mkdir()
+        self.app = self.folder / "Test.app"
+        self.executable = self.app / "Contents" / "MacOS" / "Test"
+        self.frameworks = self.app / "Contents" / "Frameworks"
+
+    def bundle_and_verify(self):
+        macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
+        return macos_libraries.verify(self.app, self.executable)
+
+    def test_a_cycle_between_libraries_is_bundled_and_the_walk_ends(self):
+        # first needs second and second needs first. A first build of
+        # first lets second link against it.
+        compile_library(self.outside, "first")
+        compile_library(self.outside, "second", links=["first"])
+        compile_library(self.outside, "first", links=["second"])
+        compile_executable(self.executable, self.outside, ["first"])
+        self.assertEqual(self.bundle_and_verify(), [])
+        self.assertEqual(
+            sorted(path.name for path in self.frameworks.iterdir()),
+            ["libfirst.dylib", "libsecond.dylib"],
+        )
+
+    def test_a_chain_longer_than_the_old_limit_is_followed_to_its_end(self):
+        length = 80
+        for index in reversed(range(length)):
+            links = [f"link{index + 1}"] if index + 1 < length else []
+            compile_library(self.outside, f"link{index}", links=links)
+        compile_executable(self.executable, self.outside, ["link0"])
+        self.assertEqual(self.bundle_and_verify(), [])
+        self.assertEqual(len(list(self.frameworks.iterdir())), length)
+
+        # The end of the chain going missing is found, however deep it is.
+        (self.frameworks / f"liblink{length - 1}.dylib").unlink()
+        problems = macos_libraries.verify(self.app, self.executable)
+        self.assertTrue(
+            any(f"liblink{length - 1}.dylib" in problem for problem in problems),
+            problems,
+        )
+
+    def test_a_walk_that_would_not_end_is_an_error(self):
+        compile_library(self.outside, "first")
+        compile_executable(self.executable, self.outside, ["first"])
+        limit = macos_libraries.MOST_WALK_STEPS
+        macos_libraries.MOST_WALK_STEPS = 1
+        self.addCleanup(setattr, macos_libraries, "MOST_WALK_STEPS", limit)
+        with self.assertRaisesRegex(macos_libraries.LibraryError, "more than 1 steps"):
+            macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
+
+    def test_the_minimum_macos_is_the_newest_of_every_slice_of_every_file(self):
+        compile_executable(self.executable, self.outside, [])
+        nested = self.frameworks / "Nested.framework" / "Versions" / "A"
+        nested.mkdir(parents=True)
+        # One file holds an arm64 slice for macOS 14.2, with LC_BUILD_VERSION,
+        # and an x86_64 slice for 10.13, which older tools mark with
+        # LC_VERSION_MIN_MACOSX.
+        arm = compile_library(self.outside, "armslice", minimum="14.2")
+        intel = self.outside / "libintelslice.dylib"
+        run(
+            "clang",
+            "-dynamiclib",
+            "-arch",
+            "x86_64",
+            "-mmacosx-version-min=10.13",
+            "-install_name",
+            "@rpath/libarmslice.dylib",
+            "-o",
+            intel,
+            self.outside / "armslice.c",
+        )
+        run("lipo", "-create", arm, intel, "-output", nested / "Nested")
+        versions = macos_libraries.macos_versions(nested / "Nested")
+        self.assertEqual(
+            sorted(versions, key=macos_libraries.version_key), ["10.13", "14.2"]
+        )
+        self.assertEqual(macos_libraries.minimum_macos(self.app, "11.0"), "14.2")
+        self.assertEqual(macos_libraries.minimum_macos(self.app, "15.0"), "15.0")
+
+
+@unittest.skipUnless(
+    platform.system() == "Darwin" and BINARY.exists(), "needs macOS and a release build"
+)
+class RealBundleVersionTests(unittest.TestCase):
+    def test_the_real_bundle_needs_the_newest_macos_of_its_files(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        app = folder / "Test.app"
+        executable = app / "Contents" / "MacOS" / "Test"
+        executable.parent.mkdir(parents=True)
+        shutil.copyfile(BINARY, executable)
+        executable.chmod(0o755)
+        macos_libraries.bundle(
+            app, executable, app / "Contents" / "Frameworks", RUN_PATH
+        )
+        found = macos_libraries.minimum_macos(app, "11.0")
+        for path in macos_libraries.mach_o_files(app):
+            for version in macos_libraries.macos_versions(path):
+                self.assertGreaterEqual(
+                    macos_libraries.version_key(found),
+                    macos_libraries.version_key(version),
+                    path.name,
+                )
+        self.assertIn(
+            found,
+            [
+                version
+                for path in macos_libraries.mach_o_files(app)
+                for version in macos_libraries.macos_versions(path)
+            ],
         )
 
 

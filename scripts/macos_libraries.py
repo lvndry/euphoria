@@ -21,6 +21,9 @@ reference to it is changed to match. A reference that does not resolve to an
 existing file is an error. Afterwards, run paths that lead outside `--root`
 are removed and the executable gets `--run-path`.
 
+`minimum-macos` prints the newest minimum macOS of any architecture of any
+Mach-O file under `--root`, for LSMinimumSystemVersion.
+
 `verify` checks the result without trusting how it was made: every Mach-O
 file under `--root` is loaded the way dyld would load it, starting from the
 executable, and each of its libraries must be a system library or a file
@@ -55,10 +58,31 @@ MACH_O_MAGICS = {
     bytes.fromhex("bebafeca"),
 }
 VALUE = re.compile(r"^\s*(?:name|path) (?P<value>.+?) \(offset \d+\)$")
+# A guard against a walk that never ends, which only a damaged or hostile
+# file could cause: the walk stops at each library already loaded higher up
+# the chain, so real libraries need a few dozen steps.
+MOST_WALK_STEPS = 100_000
+MACOS_PLATFORM = "1"
 
 
 class LibraryError(Exception):
     """A library that cannot be found or bundled."""
+
+
+def count_step(steps):
+    steps[0] += 1
+    if steps[0] > MOST_WALK_STEPS:
+        raise LibraryError(
+            f"following the libraries took more than {MOST_WALK_STEPS} steps; "
+            "a library file is probably damaged"
+        )
+
+
+def is_loaded_higher_up(target, chain):
+    """Whether `target` is already in the chain that leads to the current
+    binary. dyld loads each file once, so a reference back to it closes a
+    cycle and leads nowhere new."""
+    return any(pathlib.Path(path).resolve() == target for path, _ in chain)
 
 
 def is_system(path):
@@ -164,12 +188,14 @@ def bundle(root, executable, libraries, run_path):
     # install names are resolved from, and the chain that loaded it.
     pending = [(executable, executable, [])]
     visited = set()
+    steps = [0]
     while pending:
         editable, original, chain = pending.pop()
         key = (str(editable), tuple(str(path) for path, _ in chain))
-        if key in visited or len(chain) > 64:
+        if key in visited:
             continue
         visited.add(key)
+        count_step(steps)
         binary = MachO(original)
         here = [*chain, (original, binary.run_paths)]
         for install_name, is_weak in binary.dependencies:
@@ -182,7 +208,7 @@ def bundle(root, executable, libraries, run_path):
                 raise LibraryError(
                     f"{original} needs {install_name}, which does not resolve to a file"
                 )
-            if is_system(str(target)):
+            if is_system(str(target)) or is_loaded_higher_up(target, here):
                 continue
             if inside(target, root):
                 pending.append((target, target, here))
@@ -232,15 +258,17 @@ def verify(root, executable):
     problems = []
     reached = set()
     seen = set()
+    steps = [0]
 
     def walk(start, chain):
         pending = [(start, chain)]
         while pending:
             path, loaders = pending.pop()
             key = (str(path), tuple(str(loader) for loader, _ in loaders))
-            if key in seen or len(loaders) > 64:
+            if key in seen:
                 continue
             seen.add(key)
+            count_step(steps)
             reached.add(path)
             binary = MachO(path)
             for run_path in binary.run_paths:
@@ -260,7 +288,7 @@ def verify(root, executable):
                             f"{path} needs {install_name}, which does not resolve"
                         )
                     continue
-                if is_system(str(target)):
+                if is_system(str(target)) or is_loaded_higher_up(target, here):
                     continue
                 if not inside(target, root):
                     problems.append(f"{path} loads {target} from outside {root}")
@@ -276,9 +304,61 @@ def verify(root, executable):
     return list(dict.fromkeys(problems))
 
 
+def macos_versions(path):
+    """The minimum macOS of each architecture slice of a Mach-O file, from
+    its LC_BUILD_VERSION load commands for macOS and its older
+    LC_VERSION_MIN_MACOSX ones."""
+    listing = subprocess.run(
+        ["otool", "-arch", "all", "-l", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    versions = []
+    command = None
+    platform = None
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        if fields[0] == "cmd":
+            command = fields[1]
+            platform = None
+        elif command == "LC_BUILD_VERSION" and fields[0] == "platform":
+            platform = fields[1]
+        else:
+            is_build_version = (
+                command == "LC_BUILD_VERSION"
+                and fields[0] == "minos"
+                and platform == MACOS_PLATFORM
+            )
+            is_old_minimum = (
+                command == "LC_VERSION_MIN_MACOSX" and fields[0] == "version"
+            )
+            if is_build_version or is_old_minimum:
+                versions.append(fields[1])
+    return versions
+
+
+def version_key(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def minimum_macos(root, floor):
+    """The newest of the minimum macOS versions found in any slice of any
+    Mach-O file under `root`, and at least `floor`."""
+    versions = [floor]
+    for path in mach_o_files(pathlib.Path(root).resolve()):
+        versions.extend(macos_versions(path))
+    return max(versions, key=version_key)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
+    minimum = commands.add_parser("minimum-macos")
+    minimum.add_argument("--root", required=True, type=pathlib.Path)
+    minimum.add_argument("--floor", default="11.0")
     for name in ("bundle", "verify"):
         command = commands.add_parser(name)
         command.add_argument("--root", required=True, type=pathlib.Path)
@@ -287,6 +367,9 @@ def main():
             command.add_argument("--libraries", required=True, type=pathlib.Path)
             command.add_argument("--run-path", required=True)
     arguments = parser.parse_args()
+    if arguments.command == "minimum-macos":
+        print(minimum_macos(arguments.root, arguments.floor))
+        return 0
     try:
         if arguments.command == "bundle":
             bundle(
