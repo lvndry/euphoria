@@ -118,10 +118,11 @@ pub struct TempoConfidenceReport {
 struct TempoLevel {
     tracks: usize,
     accurate: usize,
-    right_up_to_an_octave: usize,
+    right_modulo_octaves: usize,
 }
 
-/// Factors that leave a tempo in the same octave class.
+/// Factors that leave a tempo in the same octave class, allowing up to two
+/// doublings or halvings. This rates the beat period, not its reported octave.
 const OCTAVE_FACTORS: [f32; 5] = [0.25, 0.5, 1.0, 2.0, 4.0];
 
 impl TempoConfidenceReport {
@@ -132,7 +133,7 @@ impl TempoConfidenceReport {
         level.tracks += 1;
         let accurate = within_tolerance(reference, reported);
         level.accurate += usize::from(accurate);
-        level.right_up_to_an_octave += usize::from(
+        level.right_modulo_octaves += usize::from(
             OCTAVE_FACTORS
                 .iter()
                 .any(|factor| within_tolerance(reference, reported * factor)),
@@ -238,7 +239,7 @@ impl Display for TempoConfidenceReport {
         )?;
         writeln!(
             formatter,
-            "| Confidence | Tracks | Accuracy 1 | Right up to an octave |"
+            "| Confidence | Tracks | Accuracy 1 | Right modulo octaves |"
         )?;
         writeln!(formatter, "| --- | --- | --- | --- |")?;
         let rated = self.rated();
@@ -249,7 +250,7 @@ impl Display for TempoConfidenceReport {
                 level.tracks,
                 percent(level.tracks, rated),
                 percent(level.accurate, level.tracks),
-                percent(level.right_up_to_an_octave, level.tracks),
+                percent(level.right_modulo_octaves, level.tracks),
             )?;
         }
         writeln!(
@@ -341,6 +342,21 @@ mod tests {
     }
 
     #[test]
+    fn tempo_confidence_accuracy_accepts_two_octaves_but_not_a_triple() {
+        let mut report = TempoConfidenceReport::default();
+        // The reported tempo is always 120; its octave is the range's choice.
+        for reference in [30.0, 60.0, 120.0, 240.0, 480.0, 360.0] {
+            report.record(reference, tempo_reading(120.0, 0.6));
+        }
+
+        let high = report.levels[0];
+        assert_eq!(high.tracks, 6);
+        assert_eq!(high.accurate, 1);
+        assert_eq!(high.right_modulo_octaves, 5);
+        assert!(report.to_string().contains("Right modulo octaves"));
+    }
+
+    #[test]
     fn tempo_tracks_are_tallied_by_level_with_their_alternative() {
         let mut report = TempoConfidenceReport::default();
         report.record(128.0, tempo_reading(64.0, 0.6));
@@ -350,10 +366,10 @@ mod tests {
 
         let high = report.levels[0];
         assert_eq!(
-            (high.tracks, high.accurate, high.right_up_to_an_octave),
+            (high.tracks, high.accurate, high.right_modulo_octaves),
             (2, 1, 2)
         );
-        assert_eq!(report.levels[1].right_up_to_an_octave, 0);
+        assert_eq!(report.levels[1].right_modulo_octaves, 0);
         assert_eq!(report.levels[2].accurate, 1);
         assert_eq!(
             (report.octave_errors, report.resolved_by_alternative),
