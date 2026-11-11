@@ -28,6 +28,8 @@ A `-` means nothing was detected, for example in silence or a track shorter than
 
 The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
+The table holds what you act on while mixing. The tuning of a track and its key over time are in the [JSON output](#json-output) only: most tracks are at concert pitch and stay in one key, so a column for either would be empty or zero nearly everywhere.
+
 ### Options
 
 | Option | Effect |
@@ -53,6 +55,19 @@ One object per file, in path order, including files that failed:
     "key": { "camelot": "8A", "name": "A minor" },
     "bpm": 124.0,
     "energy": 6,
+    "tuning_cents": -31.3,
+    "key_timeline": [
+      {
+        "start_seconds": 0.0,
+        "end_seconds": 250.0,
+        "key": { "camelot": "8A", "name": "A minor" }
+      },
+      {
+        "start_seconds": 250.0,
+        "end_seconds": 408.4,
+        "key": { "camelot": "9A", "name": "E minor" }
+      }
+    ],
     "error": null
   },
   {
@@ -61,12 +76,20 @@ One object per file, in path order, including files that failed:
     "key": null,
     "bpm": null,
     "energy": null,
+    "tuning_cents": null,
+    "key_timeline": [],
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
   }
 ]
 ```
 
 `key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
+
+`tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
+
+`key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. When there are several sections, each carries the key that fits that stretch best, while `key` stays the key that fits the whole track, so `key` is usually but not always one of them. Section boundaries are accurate to a few seconds.
+
+[Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them.
 
 ### Progress and exit status
 
@@ -238,7 +261,7 @@ A track is recognised by its content, not by its name or folder:
 - A file that was renamed or moved is still recognised, and is not analyzed again.
 - A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
-- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, and results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some. The first run after such an update analyzes every track once more.
+- Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some, and results stored before the tuning and the key over time were measured. The first run after such an update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.

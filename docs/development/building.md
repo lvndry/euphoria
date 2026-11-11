@@ -10,6 +10,7 @@ description: Build, test and benchmark Euphoria from a source checkout.
 - Rust 1.89 or newer
 - CMake and pkg-config
 - libkeyfinder
+- FFTW, with its threads library, which the commands below install
 
 macOS:
 
@@ -61,6 +62,14 @@ cargo run --release -p euphoria-bench
 ```
 cargo run --release -p euphoria-bench -- bench/data --only tempo
 ```
+
+`--tracks development` and `--tracks held-out` each score half of a dataset: every other track in name order, starting with the first and with the second. Choose a setting on the development half and check it on the held out half, so that it is not fitted to the tracks it is judged on:
+
+```
+cargo run --release -p euphoria-bench -- bench/data --only key --tracks held-out
+```
+
+The key benchmark compares every other key detector with the first, track by track, next to the percentages.
 
 An optional reference run scores Essentia on the same tracks. It needs [uv](https://docs.astral.sh/uv/):
 

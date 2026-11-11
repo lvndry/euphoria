@@ -208,6 +208,19 @@ mod tests {
                 key: Some(crate::Key::new((checksum % 12) as u8, crate::Mode::Minor)),
                 bpm: Some(60.0 + (checksum % 120) as f32 + 0.37),
                 energy: Some((checksum % 10) as u8 + 1),
+                tuning_cents: Some((checksum % 100) as f32 - 49.63),
+                key_timeline: vec![
+                    crate::KeySection {
+                        start_seconds: 0.0,
+                        end_seconds: content.len() as f32 / 3.0,
+                        key: crate::Key::new((checksum % 12) as u8, crate::Mode::Minor),
+                    },
+                    crate::KeySection {
+                        start_seconds: content.len() as f32 / 3.0,
+                        end_seconds: content.len() as f32,
+                        key: crate::Key::new((checksum % 12) as u8, crate::Mode::Major),
+                    },
+                ],
             })
         }
 

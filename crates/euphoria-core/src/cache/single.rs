@@ -127,6 +127,8 @@ mod tests {
                 key: Some(crate::Key::new(content.len() as u8, crate::Mode::Minor)),
                 bpm: Some(120.5),
                 energy: Some((content.len() % 10) as u8 + 1),
+                tuning_cents: None,
+                key_timeline: Vec::new(),
             })
         }
 

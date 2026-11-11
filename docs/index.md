@@ -14,6 +14,7 @@ It is an open alternative to paid harmonic mixing tools such as Mixed In Key.
 - Detects the key of a track, shown in Camelot notation (8A) and as a musical key (A minor).
 - Detects the tempo in beats per minute.
 - Rates the energy of a track from 1 to 10.
+- Measures how far a track is tuned from A = 440 Hz and follows its key over time, both in the JSON output.
 - Analyzes whole folders from the command line, as a table or as JSON.
 - Exports keys, tempos, energy ratings and a playlist per folder to rekordbox, with `euphoria export rekordbox`.
 - Writes key, tempo and energy into the tags of your files, with `euphoria tags write`. Every change is shown first, nothing else in the file changes, and `euphoria tags undo` puts the old tags back.
