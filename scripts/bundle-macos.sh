@@ -85,16 +85,10 @@ python3 "$repository/scripts/macos_libraries.py" bundle \
   --run-path "@executable_path/../Frameworks"
 
 # Every binary in the bundle needs at least the macOS version it was built
-# for. Homebrew builds its libraries for the macOS it runs on, so the app
-# can need a newer macOS than Rust's own default.
-minimum_system=11.0
-for file in "$executable" "$frameworks"/*.dylib; do
-  [ -e "$file" ] || continue
-  needed=$(otool -l "$file" | awk '/LC_BUILD_VERSION/ { found = 1 } found && $1 == "minos" { print $2; exit }')
-  if [ -n "$needed" ] && [ "$(printf '%s\n%s\n' "$minimum_system" "$needed" | sort -V | tail -n 1)" = "$needed" ]; then
-    minimum_system=$needed
-  fi
-done
+# for, in every architecture it holds. Homebrew builds its libraries for the
+# macOS it runs on, so the app can need a newer macOS than Rust's own
+# default, 11.0.
+minimum_system=$(python3 "$repository/scripts/macos_libraries.py" minimum-macos --root "$bundle" --floor 11.0)
 
 iconset=$(mktemp -d)/AppIcon.iconset
 mkdir -p "$iconset"
