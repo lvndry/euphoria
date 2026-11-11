@@ -63,6 +63,7 @@ use rusqlite::{Connection, ErrorCode, Row, TransactionBehavior, params};
 
 pub use batch::{CachePolicy, CachedBatch, analyze_files_cached};
 pub use identity::ContentHash;
+pub(crate) use location::default_data_directory;
 pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
 pub use single::{CachedAnalysis, CachedAnalyzer};
 

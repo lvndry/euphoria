@@ -18,6 +18,8 @@ mod format;
 mod library;
 mod mixes;
 mod peaks;
+mod playback;
+mod player;
 mod progress;
 mod settings;
 mod state;
@@ -37,15 +39,20 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddFolder, FocusSearch, Quit, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
-    UseSlateTheme,
+    AddFolder, FocusSearch, Quit, TogglePlayback, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme,
+    UsePaperTheme, UseSlateTheme,
 };
 use crate::app::EuphoriaApp;
+use crate::playback::SystemOutput;
 use crate::settings::Settings;
 use crate::state::Session;
 use crate::theme::ThemeName;
 
 const WINDOW_TITLE: &str = "Euphoria";
+
+/// Where the space bar belongs to the player: anywhere in the window but a
+/// text field.
+pub(crate) const SPACE_BAR_CONTEXT: &str = "Library && !Input";
 
 /// Opens the analysis cache the command line tool also uses and reads what
 /// it holds.
@@ -115,7 +122,10 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
     };
     let theme = settings.theme;
     let (window, view) = gpui::open_window(options, cx, |window, cx| {
-        cx.new(|cx| EuphoriaApp::new(session, settings, settings_path, notice, window, cx))
+        cx.new(|cx| {
+            let output = Box::new(SystemOutput::default());
+            EuphoriaApp::new(session, settings, settings_path, notice, output, window, cx)
+        })
     })
     .map_err(|error| format!("cannot open the window: {error:#}"))?;
 
@@ -127,12 +137,14 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
 
 /// Connects menu items and keyboard shortcuts to the root view. The commands
 /// are registered on the app, so they work wherever the keyboard focus is.
-fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaApp>, cx: &mut App) {
+pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaApp>, cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-o", AddFolder, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
         KeyBinding::new("cmd-k", FocusSearch, None),
+        // Space plays and pauses, except in a text field, where it types.
+        KeyBinding::new("space", TogglePlayback, Some(SPACE_BAR_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
@@ -142,6 +154,13 @@ fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaApp>, cx: &m
     ]);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
+
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &TogglePlayback, cx| {
+        weak_view
+            .update(cx, |view, cx| view.toggle_playback(cx))
+            .ok();
+    });
 
     let weak_view = view.downgrade();
     cx.on_action(move |_: &AddFolder, cx| {
@@ -201,5 +220,6 @@ pub(crate) fn install_menus(current_theme: ThemeName, cx: &mut App) {
             MenuItem::separator(),
             MenuItem::submenu(Menu::new("Theme").items(theme_items)),
         ]),
+        Menu::new("Playback").items([MenuItem::action("Play or Pause", TogglePlayback)]),
     ]);
 }

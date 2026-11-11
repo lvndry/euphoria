@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use euphoria_core::decode_mono;
 use euphoria_core::detect::Analysis;
 use euphoria_core::tags::{
-    DjSoftware, KeyNotation, Label, LabelTarget, TagWriteOptions, apply_plan, plan_write,
-    read_tags, undo,
+    DjSoftware, KeyNotation, LabelPlacement, TagWriteOptions, apply_plan, plan_write, read_tags,
+    undo,
 };
 use euphoria_core::{Key, Mode};
 
@@ -49,10 +49,7 @@ fn full_options() -> TagWriteOptions {
     TagWriteOptions {
         key_notation: KeyNotation::Camelot,
         write_bpm: true,
-        label: Some(Label {
-            text: "8A".to_string(),
-            target: LabelTarget::Comment,
-        }),
+        label: LabelPlacement::CommentStart,
         preset: DjSoftware::Generic,
     }
 }
@@ -310,7 +307,7 @@ fn assert_m4a_write_is_exact(name: &str, original: &[u8]) -> Vec<u8> {
     let tags = read_tags(&path).expect(WORKS);
     assert_eq!(tags.key.as_deref(), Some("8A"));
     assert_eq!(tags.bpm.as_deref(), Some("127.5"));
-    assert_eq!(tags.comment.as_deref(), Some("{8A} warm up"));
+    assert_eq!(tags.comment.as_deref(), Some("8A - warm up"));
     assert!(samples(&path) == original_samples, "the audio changed");
     // The freeform item keeps the spelling of its name.
     assert!(
@@ -518,7 +515,7 @@ fn assert_id3_frames_are_exact(before: &[Vec<u8>], after: &[Vec<u8>]) {
     // The comment keeps its language and its Latin-1 encoding.
     assert_eq!(
         after[PLAIN_COMMENT_INDEX],
-        frame("COMM", b"\x00fra\x00{8A} warm up")
+        frame("COMM", b"\x00fra\x008A - warm up")
     );
     // The key keeps its UTF-16 encoding.
     assert_eq!(
@@ -803,7 +800,7 @@ fn flac_comments_and_blocks_outside_the_plan_keep_their_bytes() {
                 "ARTIST=One",
                 "ARTIST=Two",
                 "initialkey=8A",
-                "Comment={8A} warm up",
+                "Comment=8A - warm up",
                 "EMPTY=",
                 "Bpm=127.5",
                 "no equals sign",

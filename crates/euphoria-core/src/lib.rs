@@ -9,6 +9,8 @@
 pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
+/// Decoding audio files a little at a time, for playback.
+pub mod audio_stream;
 /// Remembering analyses between runs.
 pub mod cache;
 /// Key and tempo detectors.
@@ -35,6 +37,7 @@ pub use analysis::{
     ANALYZER_VERSION, FileResult, Progress, TrackAnalysis, analyze_file, analyze_files,
 };
 pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
+pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
     DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,

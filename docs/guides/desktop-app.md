@@ -61,6 +61,32 @@ The inspector shows the selected track: its name, format and length, its key, te
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
+## Listen to a track
+
+Select a track and press Space, or click the round play button, to hear it. Press Space again to pause. Playing starts at once, however long the track is, and carries on while other tracks are being analyzed. Space types a space as usual while you are in the search field.
+
+- Selecting another track while one is playing switches to it. While paused or stopped, selecting a track only gets it ready.
+- The position and the length are shown as "2:23 / 6:48".
+- When a track reaches its end it stops there. Play starts it again from the beginning.
+
+In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, a thin progress line and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
+
+If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
+
+## The waveform
+
+The waveform shows the whole track from left to right, and its colours show what is sounding:
+
+| Colour | Band | Typical sounds |
+| --- | --- | --- |
+| Blue | Bass, below 200 Hz | Kick drums and bass lines |
+| Amber | Middle, 200 Hz to 2.5 kHz | Vocals, chords and snares |
+| White, or near black in the Paper theme | Treble, above 2.5 kHz | Hi hats and cymbals |
+
+The three are drawn on top of one another, bass at the back, each as tall as that band is loud. A stretch with a kick is tall and blue, a breakdown without drums loses its blue and shrinks to amber, and hi hats show as light tips.
+
+The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
+
 ## When a file fails
 
 A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on.
@@ -73,7 +99,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | --- | --- |
 | Slate | Dark grey with a blue accent. The default. |
 | Paper | Light with a blue accent. |
-| Deck | Slate colours, with the track detail in a strip under the table and a wide waveform. |
+| Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
 | Key first | Slate colours with solid key chips, a Camelot wheel in the inspector that highlights the keys that mix with the selected track, and the table sorted by key. |
 
@@ -124,7 +150,7 @@ EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
 
 ## Not there yet
 
-- Playback and cue points.
+- Cue points, and the reference tone for checking a key by ear.
 - Writing tags and exporting to DJ software.
 - Artist and title from file tags: the table shows file names.
 - Filters for key and tempo ranges.

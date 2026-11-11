@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Formats analysis results as a table, as JSON, and as a failure summary,
-//! and reports what an export wrote.
+//! and reports what an export or a tag write did.
 
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use euphoria_core::tags::WritePlan;
 use euphoria_core::{EuphoriaError, FileResult, Key, KeySection, SkippedTrack, UnreadTags};
 use serde::Serialize;
+
+use crate::tags::Failure;
+use crate::terminal::Printable;
 
 #[derive(Serialize)]
 struct JsonTrack<'result> {
@@ -112,7 +116,7 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
                     .map(|energy| energy.to_string())
                     .unwrap_or_else(|| "-".to_string()),
                 format_duration(analysis.duration_seconds),
-                result.path.display().to_string(),
+                Printable(result.path.display()).to_string(),
             ])
         })
         .collect();
@@ -149,7 +153,12 @@ pub fn write_failures(writer: &mut impl Write, results: &[FileResult]) -> io::Re
     let noun = if failures.len() == 1 { "file" } else { "files" };
     writeln!(writer, "\nCould not analyze {} {noun}:", failures.len())?;
     for (path, error) in failures {
-        writeln!(writer, "  {}: {}", path.display(), error.chain())?;
+        writeln!(
+            writer,
+            "  {}: {}",
+            Printable(path.display()),
+            Printable(error.chain())
+        )?;
     }
     Ok(())
 }
@@ -173,7 +182,7 @@ pub fn write_cache_warning(writer: &mut impl Write, error: &EuphoriaError) -> io
     writeln!(
         writer,
         "warning: analyzing without the cache: {}",
-        error.chain()
+        Printable(error.chain())
     )?;
     writeln!(
         writer,
@@ -211,7 +220,7 @@ pub fn write_export_summary(
             counted(playlist_count, "playlist", "playlists")
         )?;
     }
-    write!(writer, " to {}", summary.output_file.display())?;
+    write!(writer, " to {}", Printable(summary.output_file.display()))?;
     if summary.cached_count > 0 {
         write!(writer, " ({} from the cache)", summary.cached_count)?;
     }
@@ -242,8 +251,8 @@ pub fn write_skipped_tracks(writer: &mut impl Write, skipped: &[SkippedTrack]) -
         writeln!(
             writer,
             "  {}: {}",
-            skipped_track.path.display(),
-            skipped_track.reason.chain()
+            Printable(skipped_track.path.display()),
+            Printable(skipped_track.reason.chain())
         )?;
     }
     Ok(())
@@ -268,11 +277,138 @@ pub fn write_unread_tags(writer: &mut impl Write, unread_tags: &[UnreadTags]) ->
         writeln!(
             writer,
             "  {}: {}",
-            track.path.display(),
-            track.reason.chain()
+            Printable(track.path.display()),
+            Printable(track.reason.chain())
         )?;
     }
     Ok(())
+}
+
+/// Shown where a tag field does not exist.
+const ABSENT_FIELD: &str = "(none)";
+
+/// Writes, for each file a tag write would change, its path and one line
+/// per field with the value it has and the value it would get.
+pub fn write_tag_preview(writer: &mut impl Write, plans: &[WritePlan]) -> io::Result<()> {
+    for plan in plans {
+        writeln!(writer, "{}", Printable(plan.path().display()))?;
+        for change in plan.changes() {
+            writeln!(
+                writer,
+                "  {}: {} -> {}",
+                change.field,
+                Printable(change.current.as_deref().unwrap_or(ABSENT_FIELD)),
+                Printable(change.new.as_deref().unwrap_or(ABSENT_FIELD))
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes one line per file that was left out of a tag write or an undo,
+/// with the reason.
+pub fn write_tag_failures(writer: &mut impl Write, failures: &[Failure]) -> io::Result<()> {
+    for failure in failures {
+        writeln!(
+            writer,
+            "error: {}: {}",
+            Printable(failure.path.display()),
+            Printable(failure.error.chain())
+        )?;
+    }
+    Ok(())
+}
+
+/// Writes one line per file that was changed without the log of the write
+/// being able to note it.
+pub fn write_unrecorded_tag_writes(
+    writer: &mut impl Write,
+    unrecorded: &[Failure],
+) -> io::Result<()> {
+    for failure in unrecorded {
+        writeln!(
+            writer,
+            "warning: {}: the file was changed, but the record of it could not be saved: {}. \
+             Its backup was saved before the change, so `euphoria tags undo` still restores it.",
+            Printable(failure.path.display()),
+            Printable(failure.error.chain())
+        )?;
+    }
+    Ok(())
+}
+
+/// Writes how many files a tag write would change, how many already hold
+/// the values, and how many cannot be written.
+pub fn write_tag_plan_summary(
+    writer: &mut impl Write,
+    change_count: usize,
+    unchanged_count: usize,
+    failure_count: usize,
+) -> io::Result<()> {
+    write!(writer, "{} to change", counted_files(change_count))?;
+    if unchanged_count > 0 {
+        write!(writer, ", {unchanged_count} already up to date")?;
+    }
+    if failure_count > 0 {
+        write!(writer, ", {failure_count} left out because of errors")?;
+    }
+    writeln!(writer, ".")
+}
+
+/// Writes how a tag write went and how to take it back.
+pub fn write_tag_write_summary(
+    writer: &mut impl Write,
+    written_count: usize,
+    failure_count: usize,
+) -> io::Result<()> {
+    write!(writer, "Wrote the tags of {}", counted_files(written_count))?;
+    if failure_count > 0 {
+        write!(writer, ", {failure_count} failed and were not changed")?;
+    }
+    writeln!(writer, ".")?;
+    if written_count > 0 {
+        writeln!(writer, "To put the old tags back: euphoria tags undo")?;
+    }
+    Ok(())
+}
+
+/// Writes the path of each file an undo restored.
+pub fn write_restored_files(writer: &mut impl Write, restored: &[PathBuf]) -> io::Result<()> {
+    for path in restored {
+        writeln!(writer, "{}", Printable(path.display()))?;
+    }
+    Ok(())
+}
+
+/// Writes how an undo went.
+pub fn write_tag_undo_summary(
+    writer: &mut impl Write,
+    restored_count: usize,
+    untouched_count: usize,
+    failure_count: usize,
+) -> io::Result<()> {
+    write!(
+        writer,
+        "Restored the tags of {}",
+        counted_files(restored_count)
+    )?;
+    if untouched_count > 0 {
+        write!(
+            writer,
+            ", {untouched_count} had not been changed by the write"
+        )?;
+    }
+    if failure_count > 0 {
+        write!(
+            writer,
+            ", {failure_count} could not be restored and can be tried again with the same command"
+        )?;
+    }
+    writeln!(writer, ".")
+}
+
+pub fn counted_files(count: usize) -> String {
+    counted(count, "file", "files")
 }
 
 fn counted(count: usize, singular: &str, plural: &str) -> String {

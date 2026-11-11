@@ -17,7 +17,8 @@ use crate::library::{Track, TrackStatus};
 use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::views::key_chip::key_chip;
-use crate::views::waveform::waveform;
+use crate::views::player::{self, seek_on_press_and_drag};
+use crate::views::waveform::{WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
@@ -85,10 +86,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
     container
         .child(sized(summary(track, &palette), Some(220.0)))
         .child(sized(statistics(track, &palette), Some(264.0)))
-        .child(sized(
-            waveform_section(track, app.selected_waveform(), &palette),
-            None,
-        ))
+        .child(sized(waveform_section(track, app, cx), None))
         .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
         .children(mixes(app, cx).map(|section| sized(divided(section), Some(300.0))))
@@ -231,10 +229,16 @@ fn statistic(
         )
 }
 
-fn waveform_section(track: &Track, state: Option<&Waveform>, palette: &Palette) -> Div {
-    let (peaks, note): (_, SharedString) = match (state, &track.status) {
-        (Some(Waveform::Ready(peaks)), _) => (
-            Some(peaks.clone()),
+/// The waveform, which is also where to seek: a press or a drag on it moves
+/// playing to that point. In the strip under the table the play button and
+/// the position sit beside it, since that layout has no player bar.
+fn waveform_section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let palette = app.theme.palette;
+    let state = app.selected_waveform();
+    let is_in_strip = app.theme.layout == Layout::DeckBelow;
+    let (columns, note): (_, SharedString) = match (state, &track.status) {
+        (Some(Waveform::Ready(columns)), _) => (
+            Some(columns.clone()),
             track
                 .duration_seconds()
                 .map(format::duration)
@@ -249,7 +253,25 @@ fn waveform_section(track: &Track, state: Option<&Waveform>, palette: &Palette) 
             (None, "Reading audio".into())
         }
     };
-    div()
+    let note = match app.player.failure() {
+        Some(problem) if is_in_strip => div().text_color(palette.danger).child(problem.to_string()),
+        _ if is_in_strip => div().child(app.player.time_label()),
+        _ => div().child(note),
+    };
+
+    let scrubber = seek_on_press_and_drag(
+        div().id("waveform").child(waveform(
+            columns,
+            WaveformColours::of(&palette),
+            app.player.progress(),
+            app.waveform_bounds.clone(),
+        )),
+        &app.waveform_bounds,
+        cx,
+    )
+    .test_support();
+
+    let section = div()
         .flex()
         .flex_col()
         .gap(px(6.0))
@@ -262,7 +284,7 @@ fn waveform_section(track: &Track, state: Option<&Waveform>, palette: &Palette) 
                 .child("Waveform")
                 .child(note),
         )
-        .child(waveform(peaks, palette.waveform))
+        .child(scrubber)
         .children(match state {
             Some(Waveform::Unreadable(reason)) => Some(
                 div()
@@ -271,7 +293,17 @@ fn waveform_section(track: &Track, state: Option<&Waveform>, palette: &Palette) 
                     .child(reason.clone()),
             ),
             _ => None,
-        })
+        });
+    if is_in_strip {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(14.0))
+            .child(player::play_button(app, cx))
+            .child(section.flex_1().min_w_0())
+    } else {
+        section
+    }
 }
 
 /// The tracks in the library that mix with the selected one.
