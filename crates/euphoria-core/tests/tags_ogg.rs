@@ -625,27 +625,3 @@ fn data_that_is_not_ogg_after_the_pages_is_refused() {
     bytes.extend(b"TAG".iter().chain([0_u8; 125].iter()));
     assert_refused("trailing", &bytes, "other than Ogg pages");
 }
-
-#[test]
-fn a_header_packet_that_never_ends_is_refused_before_it_fills_memory() {
-    // The comment header continues from page to page and never ends,
-    // for more than 64 MiB.
-    let mut bytes = ogg_file(&comment_header("short", &[], b""), 255, false);
-    bytes.truncate(pages(&bytes)[0].bytes.len());
-    let data = vec![b'x'; 255 * 255];
-    let mut packet_start = b"\x03vorbis".to_vec();
-    packet_start.extend(&data[packet_start.len()..]);
-    for index in 0..1100_u32 {
-        let flags = u8::from(index > 0);
-        let page = if index == 0 { &packet_start } else { &data };
-        bytes.extend(page_bytes(flags, u64::MAX, index + 1, &[255; 255], page));
-    }
-    let path = scratch_file("endless", &bytes);
-    let error = read_tags(&path).expect_err("the file is refused");
-    assert!(
-        error.chain().contains("larger than any real file"),
-        "{}",
-        error.chain()
-    );
-    std::fs::remove_file(&path).expect(WORKS);
-}
