@@ -32,7 +32,7 @@ bench/              dataset download script, Essentia reference script, results
 | `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
-| `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations. |
+| `detect` | The `KeyDetector` and `TempoDetector` traits and their implementations, the tuning measurement and the key over time. |
 | `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `track_name` | Reads the title and artist stored in an audio file. |
 | `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |
@@ -42,10 +42,12 @@ bench/              dataset download script, Essentia reference script, results
 
 Key and tempo detection sit behind traits so implementations can be compared and replaced without touching callers.
 
-- `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config.
+- `KeyFinderDetector` calls libkeyfinder, a C++ library, through a small C wrapper in `src/detect/keyfinder_wrapper.cpp`. `build.rs` compiles the wrapper and finds libkeyfinder with pkg-config. The wrapper returns the chromagram libkeyfinder computes, one row of note strengths per analysis frame, and scores chroma vectors against the 24 keys. The key of a track is the best score of the mean of all rows, which is what libkeyfinder itself reports. `read_key` also scores windows of about 7 seconds and follows the key through them for the key over time.
+- `KeyFinderVariant` holds the ways of deciding the key that were measured and are not used: tuning correction and a vote between sections. They stay in the code so the benchmark keeps comparing them with what ships.
+- `measure_tuning` is pure Rust and measures how far a track is tuned from A = 440 Hz. It runs in every build.
 - `StratumDetector` uses the pure Rust `stratum-dsp` crate for both key and tempo. Its tempo detection runs only the tempogram estimate, on at most the middle ten minutes of a track, reports the result between 90 and 180 BPM, and costs a fraction of its key detection.
 
-`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature.
+`analysis` uses libkeyfinder for key when the `libkeyfinder` feature is on, and the tempo detection of `stratum-dsp`, so the `stratum-dsp` key analysis runs only in builds without the feature. Those builds report the tuning and no key over time.
 
 ## euphoria-cli
 
