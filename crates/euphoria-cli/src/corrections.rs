@@ -116,7 +116,10 @@ fn export(arguments: &ExportArguments) -> Result<ExitCode> {
 /// missing cache is not created.
 fn stored_corrections() -> Result<Vec<StoredCorrection>> {
     let cache_path = default_cache_path().map_err(with_causes)?;
-    if !cache_path.exists() {
+    let cache_exists = cache_path
+        .try_exists()
+        .with_context(|| format!("cannot look for the cache at {}", cache_path.display()))?;
+    if !cache_exists {
         return Ok(Vec::new());
     }
     Cache::open(&cache_path)

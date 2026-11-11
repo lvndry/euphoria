@@ -369,3 +369,48 @@ fn corrections_export_without_a_cache_writes_nothing_and_creates_no_cache() {
     );
     assert!(!euphoria.cache_path().exists());
 }
+
+#[test]
+fn corrections_export_reports_a_cache_it_cannot_read() {
+    let euphoria = Euphoria::new();
+    std::fs::write(euphoria.cache_path(), b"not a database").expect("written");
+    let exported = euphoria.run(&["corrections", "export"]);
+    assert!(!exported.status.success());
+    assert!(exported.stdout.is_empty());
+    assert!(
+        standard_error(&exported).starts_with("error:"),
+        "{}",
+        standard_error(&exported)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn corrections_export_reports_a_cache_folder_it_cannot_look_into() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let data_directory = folder.path().join("locked");
+    std::fs::create_dir(&data_directory).expect("created");
+    std::fs::set_permissions(&data_directory, std::fs::Permissions::from_mode(0o000))
+        .expect("locked");
+    let looked_into = std::fs::metadata(data_directory.join("analysis-cache.sqlite3"));
+    if looked_into.is_ok() {
+        // Permissions do not hold back the superuser, so there is nothing to test.
+        return;
+    }
+    let exported = euphoria
+        .command(&["corrections", "export"])
+        .env("EUPHORIA_DATA_DIR", &data_directory)
+        .output()
+        .expect("the euphoria binary runs");
+    std::fs::set_permissions(&data_directory, std::fs::Permissions::from_mode(0o755))
+        .expect("unlocked");
+    assert!(!exported.status.success());
+    assert!(
+        standard_error(&exported).contains("cannot look for the cache"),
+        "{}",
+        standard_error(&exported)
+    );
+}

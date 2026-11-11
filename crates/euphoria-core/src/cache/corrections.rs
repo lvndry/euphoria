@@ -11,7 +11,7 @@
 //! undo changes a file's bytes, the correction follows it to the new
 //! content.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{OptionalExtension, Row, params};
 
@@ -50,9 +50,10 @@ pub struct DetectedValues {
     pub analyzer_version: String,
     /// When the analysis was stored, in seconds since the Unix epoch.
     pub analyzed_at_seconds: i64,
-    /// Where the file was last seen, absolute. The file may have moved
-    /// since.
-    pub last_known_path: Option<PathBuf>,
+    /// Where the file was last seen, absolute, as the cache records it:
+    /// only paths that are valid Unicode are recorded. The file may have
+    /// moved since.
+    pub last_known_path: Option<String>,
 }
 
 impl Cache {
@@ -257,7 +258,7 @@ fn stored_correction_in_row(row: &Row<'_>) -> rusqlite::Result<StoredCorrection>
             bpm: tempo_in_column(row, 6)?,
             analyzer_version,
             analyzed_at_seconds: row.get(7)?,
-            last_known_path: row.get::<_, Option<String>>(8)?.map(PathBuf::from),
+            last_known_path: row.get(8)?,
         }),
         None => None,
     };
@@ -557,7 +558,7 @@ mod tests {
         assert_eq!(detected.analyzer_version, crate::ANALYZER_VERSION);
         assert_eq!(
             detected.last_known_path.as_deref(),
-            Some(std::path::absolute(&analyzed).unwrap().as_path())
+            std::path::absolute(&analyzed).unwrap().to_str()
         );
     }
 

@@ -89,11 +89,8 @@ pub fn render_corrections_jsonl(
             detected_bpm: detected.and_then(|values| values.bpm),
             analyzer_version: detected.map(|values| values.analyzer_version.as_str()),
             analyzed_at: detected.map(|values| values.analyzed_at_seconds),
-            path: (paths == PathInclusion::Include).then(|| {
-                detected
-                    .and_then(|values| values.last_known_path.as_deref())
-                    .and_then(Path::to_str)
-            }),
+            path: (paths == PathInclusion::Include)
+                .then(|| detected.and_then(|values| values.last_known_path.as_deref())),
         };
         document.push_str(&serde_json::to_string(&line)?);
         document.push('\n');
@@ -126,8 +123,6 @@ pub fn write_corrections_file(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use crate::cache::{ContentHash, DetectedValues};
     use crate::correction::Correction;
@@ -148,7 +143,7 @@ mod tests {
                 bpm: Some(175.0),
                 analyzer_version: "12+libkeyfinder".to_string(),
                 analyzed_at_seconds: 1_799_999_000,
-                last_known_path: Some(PathBuf::from("/music/track.flac")),
+                last_known_path: Some("/music/track.flac".to_string()),
             }),
         }
     }

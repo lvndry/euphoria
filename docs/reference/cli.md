@@ -540,7 +540,7 @@ Nothing is analyzed and no audio file is read: the lines come from the [cache](#
 
 ### What each line holds
 
-By default a line names its track only by the hash of the file's content, so the export can be kept or shared without saying where your music is or what it is called. A program that has the same files finds each one by hashing it the same way.
+By default a line names its track only by the hash of the file's content: no path and no file name. A program that has the same files finds each one by hashing it the same way. The hash does not hide which track a line is about from someone who has the same file, since they can hash it and look for the result, so treat an export as a list of the tracks you own.
 
 ```json
 {"schema_version":1,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
