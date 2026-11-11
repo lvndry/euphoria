@@ -82,6 +82,7 @@ fn environment(name: &str) -> Option<String> {
 /// How text written to one stream is styled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
+    terminal: bool,
     colour: bool,
     true_colour: bool,
 }
@@ -90,6 +91,7 @@ impl Theme {
     /// No colour and no style at all, for tests.
     #[cfg(test)]
     pub const PLAIN: Theme = Theme {
+        terminal: false,
         colour: false,
         true_colour: false,
     };
@@ -97,6 +99,7 @@ impl Theme {
     /// Colour with 24 bit key hues, for tests.
     #[cfg(test)]
     pub const COLOURED: Theme = Theme {
+        terminal: false,
         colour: true,
         true_colour: true,
     };
@@ -107,6 +110,7 @@ impl Theme {
         let true_colour = environment("COLORTERM")
             .is_some_and(|value| matches!(value.as_str(), "truecolor" | "24bit"));
         Self {
+            terminal: is_terminal,
             colour,
             true_colour: colour && true_colour,
         }
@@ -120,6 +124,11 @@ impl Theme {
     /// The theme for standard error.
     pub fn stderr() -> Self {
         Self::for_stream(std::io::stderr().is_terminal())
+    }
+
+    /// Whether the stream is a terminal, independently of its colour policy.
+    pub fn is_terminal(&self) -> bool {
+        self.terminal
     }
 
     fn paint(&self, codes: &str, text: impl Display) -> String {
