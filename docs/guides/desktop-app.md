@@ -149,6 +149,8 @@ When a track changes key, a strip under the energy curve shows each stretch in i
 
 The app can write the key, tempo and energy it found into the files themselves, with the same safety as [`euphoria tags write`](write-tags.md): you see every change before anything is written, and one step puts the old tags back.
 
+![The Write tags preview over the window, for rekordbox. It says keys are written in Camelot, the energy label at the start of the comment and the tempo, and that nothing is written until you confirm. Buttons choose between the 11 selected tracks and all 11 shown. A list gives each file with its changes, such as TKEY from none to 8A, TBPM from none to 125, and the comment from "Purchased at Beatport.com" to "8A - Energy 5 - Purchased at Beatport.com". Cancel and Write 11 files buttons close it.](../images/desktop-app/write-tags-preview.png)
+
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The DJ program the tags are written for is shown beside the button.
 3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
@@ -185,6 +187,10 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
 | Key first | Slate colours with solid key chips, a Camelot wheel in the inspector, and the table sorted by key. The wheel has the minor keys (A) on its inner ring and the major keys (B) on its outer ring; the selected track's key is filled in the accent colour and the keys that mix with it, its neighbours and its relative major or minor, in a lighter tint. |
+
+![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
+
+![The Key first theme: the table sorted by key from 1A to 12A, with solid key chips. The inspector shows the selected track in 5A with a Camelot wheel under its waveform, where 5A is filled in the accent colour and 4A, 6A and 5B, the keys that mix with it, are tinted.](../images/desktop-app/key-first.png)
 
 ## What the app remembers
 
@@ -230,6 +236,10 @@ To see how the interface behaves with a large library, start the app with made u
 ```
 EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
 ```
+
+## About the screenshots
+
+The screenshots on this page and in the README show a demo library of GiantSteps Key previews, the clips the benchmarks use, never anyone's own music. [`make_screenshots.py`](https://github.com/lvndry/euphoria/blob/main/docs/images/desktop-app/make_screenshots.py) builds that library, runs the app on it and captures the window again when the app changes.
 
 ## Not there yet
 
