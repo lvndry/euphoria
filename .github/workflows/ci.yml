@@ -48,7 +48,7 @@ jobs:
           rust=false
           while IFS= read -r -d '' path; do
             case "$path" in
-              crates/*|assets/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/workflows/ci.yml|.editorconfig)
+              crates/*|assets/*|bench/*.sh|bench/*.py|scripts/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/workflows/ci.yml|.editorconfig)
                 rust=true
                 break
                 ;;
