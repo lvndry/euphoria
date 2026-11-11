@@ -12,6 +12,7 @@ pub(crate) mod logo;
 pub(crate) mod notice;
 pub(crate) mod panel_edge;
 pub(crate) mod player;
+pub(crate) mod playlists;
 pub(crate) mod settings_panel;
 pub(crate) mod sidebar;
 pub(crate) mod tag_panel;

@@ -8,6 +8,7 @@ mod collection;
 mod export;
 mod help;
 mod output;
+mod playlists;
 mod stages;
 mod style;
 mod tags;
@@ -69,6 +70,8 @@ enum Command {
         after_help = help::analyze_examples(),
     )]
     Analyze(AnalyzeArguments),
+    /// List the playlists built in the desktop app.
+    Playlists,
     /// Write the analysis into the tags of your files, or undo the last write.
     #[command(after_help = help::tags_examples())]
     Tags {
@@ -199,6 +202,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Analyze(arguments) => analyze(&arguments),
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
+        Command::Playlists => playlists::list(),
         Command::Cache { command } => manage_cache(command),
     }
 }

@@ -1,9 +1,10 @@
 # Jazz: AI pull-request review and assistance through the `jazz-ai` CLI.
 #
 # Jobs:
-#   resolve      checks who triggered the run and resolves the PR number and SHAs
-#   code-review  inline line-level review          (agent: ci-reviewer)
-#   assistant    conversational PR and codebase Q&A (agent: pr-assistant)
+#   resolve        checks who triggered the run and resolves the PR number and SHAs
+#   chatgpt-token  renews the shared ChatGPT sign-in when needed and hands its access token on
+#   code-review    inline line-level review          (agent: ci-reviewer)
+#   assistant      conversational PR and codebase Q&A (agent: pr-assistant)
 #
 # Triggers, all limited to the repository owner and to branches of this repository:
 #   PR opened or marked ready  -> code-review
@@ -16,10 +17,17 @@
 # The newest commit wins: a review whose pull request head has moved on is skipped
 # before it starts, and stopped while it runs, so only the latest head is reviewed.
 #
+# One ChatGPT sign-in serves every run. Its refresh token is single use and rotates on every
+# refresh, so only chatgpt-token touches it, one job at a time across the repository, and only
+# for seconds. The access token it hands on lasts days and can serve many runs at once, so the
+# reviews and answers themselves run in parallel and never refresh.
+#
 # Configuration lives in .github/jazz/ (agent configs and workflow prompts).
-# Secrets: GITHUB_TOKEN (automatic), JAZZ_CHATGPT_CREDENTIAL, and JAZZ_GITHUB_APP_ID with
-#          JAZZ_GITHUB_APP_PRIVATE_KEY for a GitHub App used only to save the rotated
-#          ChatGPT credential back into JAZZ_CHATGPT_CREDENTIAL.
+# Secrets: GITHUB_TOKEN (automatic); JAZZ_CHATGPT_CREDENTIAL, the ChatGPT sign-in bundle;
+#          JAZZ_CHATGPT_ACCESS_TOKEN_KEY, 32 random bytes in base64 that seal the access token
+#          on its way from chatgpt-token to the jobs that use it; and JAZZ_GITHUB_APP_ID with
+#          JAZZ_GITHUB_APP_PRIVATE_KEY for a GitHub App used only to save the rotated ChatGPT
+#          credential back into JAZZ_CHATGPT_CREDENTIAL and to read when that secret changed.
 
 name: Jazz
 
@@ -73,6 +81,12 @@ env:
   JAZZ_PUSH_SETTLE_SECONDS: "60"
   # How often a running review checks whether the pull request head has moved on.
   JAZZ_HEAD_POLL_SECONDS: "30"
+  # chatgpt-token refreshes the sign-in once its access token would expire within this
+  # many minutes (a day), well before any run could find it expired.
+  JAZZ_CHATGPT_REFRESH_MARGIN_MINUTES: "1440"
+  # The shortest remaining validity chatgpt-token hands on: more than the 60 minutes the
+  # longest job that borrows the token may run.
+  JAZZ_CHATGPT_MIN_VALID_MINUTES: "120"
 
 jobs:
   resolve:
@@ -283,24 +297,187 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && steps.resolve.outputs.authorized == 'true'
         run: sleep "$JAZZ_PUSH_SETTLE_SECONDS"
 
-  code-review:
+  chatgpt-token:
     needs: resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     concurrency:
-      # ChatGPT refresh tokens rotate and are single use, and every model run shares one
-      # credential, so only one run in this repository may hold it at a time: from
-      # restoring it to saving the rotated one. Never cancel a run in progress here; a
-      # run cancelled after the token rotated but before it was saved invalidates the
-      # credential for every pull request.
+      # The ChatGPT refresh token rotates on every refresh and is single use, so only one job
+      # in this repository may hold it at a time: from reading it to saving the rotated one.
+      # Never cancel a job in progress here; one cancelled after the token rotated but before
+      # it was saved invalidates the credential for every pull request. The job takes seconds.
       group: jazz-chatgpt-oauth-${{ github.repository }}
       queue: max
       cancel-in-progress: false
     permissions:
+      actions: read
+    if: |
+      github.repository == 'lvndry/euphoria' &&
+      github.triggering_actor == github.repository_owner &&
+      needs.resolve.outputs.authorized == 'true' &&
+      (needs.resolve.outputs.command == 'review' || needs.resolve.outputs.command == 'assist')
+    outputs:
+      sealed_access_token: ${{ steps.publish.outputs.sealed_access_token }}
+    steps:
+      - name: Check the ChatGPT secrets
+        env:
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+          JAZZ_CHATGPT_ACCESS_TOKEN_KEY: ${{ secrets.JAZZ_CHATGPT_ACCESS_TOKEN_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
+            echo "::error::Add a ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret."
+            exit 1
+          fi
+          if [ -z "${JAZZ_CHATGPT_ACCESS_TOKEN_KEY:-}" ]; then
+            echo "::error::Add 32 random bytes in base64 as the JAZZ_CHATGPT_ACCESS_TOKEN_KEY Actions secret: openssl rand -base64 32 | gh secret set JAZZ_CHATGPT_ACCESS_TOKEN_KEY --repo $GITHUB_REPOSITORY"
+            exit 1
+          fi
+
+      - name: Create ChatGPT secret updater token
+        id: chatgpt-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-secrets: write
+
+      - name: Check this run holds the current credential
+        # GitHub may hand a run its secrets as they stood when the run was queued, so a run
+        # queued before another one saved a rotated credential can hold a refresh token that is
+        # already used. Refreshing with it would fail and could make OpenAI revoke the sign-in,
+        # so such a run only borrows the access token of its copy, without refreshing.
+        id: freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
+        run: |
+          set -uo pipefail
+          secret_updated_at="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/secrets/JAZZ_CHATGPT_CREDENTIAL" --jq .updated_at)"
+          run_started_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .run_started_at)"
+          if [ -n "$secret_updated_at" ] && [ -n "$run_started_at" ] && [[ "$secret_updated_at" < "$run_started_at" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::JAZZ_CHATGPT_CREDENTIAL changed at ${secret_updated_at:-an unknown time}, not before this run started at ${run_started_at:-an unknown time}, so this run's copy may hold a used refresh token. It borrows that copy's access token without refreshing."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.freshness.outputs.current == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Jazz
+        if: steps.freshness.outputs.current == 'true'
+        # --trust lets the package's postinstall script run; that script installs the binary.
+        run: bun install -g jazz-ai@latest --trust
+
+      - name: Refresh the ChatGPT sign-in when it nears expiry
+        # Jazz refreshes under its credential lock only when the access token would expire
+        # within the margin, then proves the token works with one authenticated request (a
+        # refused token is refreshed once). A rotated credential lands in
+        # JAZZ_CHATGPT_CREDENTIAL_OUTPUT. Jazz prints no token, and holds SIGINT and SIGTERM
+        # until a refresh in flight is written out.
+        id: refresh
+        if: steps.freshness.outputs.current == 'true'
+        env:
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+          CI: "true"
+          JAZZ_DISABLE_CATCH_UP: "1"
+          JAZZ_DISABLE_UPDATE_CHECK: "1"
+        run: |
+          set +e -uo pipefail
+          jazz config refresh-chatgpt --min-valid-minutes "$JAZZ_CHATGPT_REFRESH_MARGIN_MINUTES"
+          jazz_exit_code=$?
+          if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
+            echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$jazz_exit_code"
+
+      - name: Save rotated ChatGPT credential
+        # The used refresh token is dead from here on, so the save is retried before giving up.
+        if: always() && steps.refresh.outputs.credential_rotated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3 4 5; do
+            if gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "::error::Could not save the rotated ChatGPT credential, so the refresh token in JAZZ_CHATGPT_CREDENTIAL is used up. Runs keep borrowing its access token until it expires; before then, sign in to ChatGPT in Jazz, copy the credential bundle and set it as JAZZ_CHATGPT_CREDENTIAL."
+          exit 1
+
+      - name: Publish the access token for this run
+        # Hands on the newest access token, sealed with AES-256-GCM under
+        # JAZZ_CHATGPT_ACCESS_TOKEN_KEY because job outputs are not secret. It is published even
+        # when the refresh failed, as long as the copy this run holds stays valid long enough.
+        id: publish
+        if: always() && steps.freshness.outcome == 'success'
+        env:
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+          JAZZ_CHATGPT_ACCESS_TOKEN_KEY: ${{ secrets.JAZZ_CHATGPT_ACCESS_TOKEN_KEY }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const fail = (message) => {
+            console.log(`::error::${message}`);
+            process.exit(1);
+          };
+          const rotatedPath = process.env.JAZZ_CHATGPT_CREDENTIAL_OUTPUT;
+          const rotated = fs.existsSync(rotatedPath) && fs.statSync(rotatedPath).size > 0;
+          let bundle;
+          try {
+            bundle = JSON.parse(rotated ? fs.readFileSync(rotatedPath, 'utf8') : process.env.JAZZ_CHATGPT_CREDENTIAL);
+          } catch {
+            fail('The ChatGPT credential bundle is not valid JSON.');
+          }
+          if (typeof bundle?.access !== 'string' || bundle.access === '' || typeof bundle.expires !== 'number') {
+            fail('The ChatGPT credential bundle has no access token or expiry.');
+          }
+          console.log(`::add-mask::${bundle.access}`);
+          if (typeof bundle.refresh === 'string' && bundle.refresh !== '') {
+            console.log(`::add-mask::${bundle.refresh}`);
+          }
+          const expiresAt = new Date(bundle.expires).toISOString();
+          const remainingMinutes = Math.floor((bundle.expires - Date.now()) / 60_000);
+          const minimumMinutes = Number(process.env.JAZZ_CHATGPT_MIN_VALID_MINUTES);
+          if (remainingMinutes < minimumMinutes) {
+            fail(`The ChatGPT access token expires at ${expiresAt}, in ${remainingMinutes} minutes, under the ${minimumMinutes} a run needs.`);
+          }
+          const key = Buffer.from(process.env.JAZZ_CHATGPT_ACCESS_TOKEN_KEY, 'base64');
+          if (key.length !== 32) {
+            fail('JAZZ_CHATGPT_ACCESS_TOKEN_KEY must be 32 random bytes in base64.');
+          }
+          const nonce = crypto.randomBytes(12);
+          const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+          cipher.setAAD(Buffer.from(`${process.env.GITHUB_REPOSITORY}/${process.env.GITHUB_RUN_ID}`));
+          const sealed = Buffer.concat([nonce, cipher.update(bundle.access, 'utf8'), cipher.final(), cipher.getAuthTag()]);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `sealed_access_token=${sealed.toString('base64')}\n`);
+          console.log(`Published ${rotated ? 'the refreshed' : 'the stored'} access token, valid until ${expiresAt} (${remainingMinutes} minutes).`);
+          NODE
+
+  code-review:
+    needs: [resolve, chatgpt-token]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
       contents: read
       pull-requests: write
       issues: write
+    # Runs when chatgpt-token failed too, so the pull request hears why there is no review.
     if: |
+      !cancelled() && needs.resolve.result == 'success' &&
       github.repository == 'lvndry/euphoria' &&
       github.triggering_actor == github.repository_owner &&
       needs.resolve.outputs.authorized == 'true' &&
@@ -328,8 +505,8 @@ jobs:
       )
     steps:
       - name: Skip a review whose commit is no longer the head
-        # Runs once this job holds the credential and before anything restores it. A
-        # newer commit has its own review queued, so an older one stops here for free.
+        # Runs first, before this job receives the ChatGPT access token. A newer commit has
+        # its own review queued, so an older one stops here for free.
         id: head
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -440,54 +617,69 @@ jobs:
             echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$CONTEXT_FILE"
           fi
 
+      - name: Receive the ChatGPT access token
+        # Opens the token chatgpt-token sealed for this run and leaves it in a private file for
+        # the next step, which reads and deletes it before Jazz starts. The key never reaches a
+        # step the agent runs in. The token is masked before anything could print it.
+        if: steps.head.outputs.superseded != 'true'
+        env:
+          SEALED_ACCESS_TOKEN: ${{ needs.chatgpt-token.outputs.sealed_access_token }}
+          JAZZ_CHATGPT_ACCESS_TOKEN_KEY: ${{ secrets.JAZZ_CHATGPT_ACCESS_TOKEN_KEY }}
+          ACCESS_TOKEN_FILE: ${{ runner.temp }}/jazz-chatgpt-access-token
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const fail = (message) => {
+            fs.writeFileSync('/tmp/jazz-error.txt', `${message}\n`);
+            console.log(`::error::${message}`);
+            process.exit(1);
+          };
+          const sealed = Buffer.from(process.env.SEALED_ACCESS_TOKEN || '', 'base64');
+          if (sealed.length <= 28) {
+            fail('No ChatGPT access token: the chatgpt-token job did not publish one. Its log in this workflow run says why.');
+          }
+          let accessToken;
+          try {
+            const key = Buffer.from(process.env.JAZZ_CHATGPT_ACCESS_TOKEN_KEY || '', 'base64');
+            const decipher = crypto.createDecipheriv('aes-256-gcm', key, sealed.subarray(0, 12));
+            decipher.setAAD(Buffer.from(`${process.env.GITHUB_REPOSITORY}/${process.env.GITHUB_RUN_ID}`));
+            decipher.setAuthTag(sealed.subarray(sealed.length - 16));
+            accessToken = Buffer.concat([decipher.update(sealed.subarray(12, sealed.length - 16)), decipher.final()]).toString('utf8');
+          } catch {
+            fail('Could not open the ChatGPT access token chatgpt-token published: it was sealed for another run or under another JAZZ_CHATGPT_ACCESS_TOKEN_KEY.');
+          }
+          console.log(`::add-mask::${accessToken}`);
+          fs.writeFileSync(process.env.ACCESS_TOKEN_FILE, accessToken, { mode: 0o600 });
+          NODE
+
       - name: Run code review
         id: run-code-review
         if: steps.head.outputs.superseded != 'true'
         env:
-          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
-          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+          ACCESS_TOKEN_FILE: ${{ runner.temp }}/jazz-chatgpt-access-token
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
           set +e -uo pipefail
-          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
-            echo "::error::Add a ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret."
-            echo "No ChatGPT credential is configured: the JAZZ_CHATGPT_CREDENTIAL secret is missing." > /tmp/jazz-error.txt
-            : > /tmp/jazz-review.txt
-            echo 1 > /tmp/jazz-review-exit
-            exit 0
-          fi
+          # The borrowed access token lives only in this unexported variable, which reaches
+          # Jazz alone. Jazz drops it from the environment of every process it starts, never
+          # refreshes it, and fails with an authentication error if it expires or is refused.
+          access_token="$(cat "$ACCESS_TOKEN_FILE")"
+          rm -f "$ACCESS_TOKEN_FILE"
 
           # The newest commit wins. While Jazz runs, a watcher polls the pull request head
           # through anonymous git, because the agent can read this step's environment and
-          # must find no GitHub token in it. When the head moves, the watcher first takes
-          # Jazz's credential lock, under which every token refresh runs from the request
-          # to writing the rotated credential out, and only then stops Jazz. With that lock
-          # held no refresh is in flight and none can start, so stopping Jazz, even by
-          # force, cannot lose a rotated token. GitHub itself never cancels this job.
-          credential_lock="${JAZZ_HOME:-$HOME/.jazz}/.chatgpt-credential.lock"
+          # must find no GitHub token in it. When the head moves, the watcher stops Jazz.
+          # Jazz holds only an access token here and never refreshes it, so stopping it,
+          # even by force, cannot lose a credential. GitHub itself never cancels this job.
           superseded_marker=/tmp/jazz-review-superseded
 
           pull_request_head() {
             timeout 30 git -C "$GITHUB_WORKSPACE" ls-remote origin "refs/pull/$PR_NUMBER/head" 2>/dev/null | cut -f1
-          }
-
-          # Jazz's lock protocol: a directory created exclusively, stamped with a live
-          # holder on this host. The holder is this shell, which outlives Jazz, so Jazz
-          # never reclaims the lock as stale while it shuts down.
-          take_credential_lock() {
-            local deadline=$((SECONDS + 120))
-            until mkdir "$credential_lock" 2>/dev/null; do
-              [ "$SECONDS" -lt "$deadline" ] || return 1
-              sleep 1 > /dev/null 2>&1
-            done
-            if ! node -e 'process.stdout.write(JSON.stringify({ pid: Number(process.argv[1]), host: require("os").hostname(), token: process.argv[2] }))' \
-                 "$$" "ci-head-watcher-$GITHUB_RUN_ID" > "$credential_lock/owner.json"; then
-              rm -rf "$credential_lock"
-              return 1
-            fi
           }
 
           stop_when_superseded() {
@@ -495,7 +687,7 @@ jobs:
             while kill -0 "$jazz_pid" 2>/dev/null; do
               sleep "$JAZZ_HEAD_POLL_SECONDS" > /dev/null 2>&1
               newest_head="$(pull_request_head)"
-              if [ -n "$newest_head" ] && [ "$newest_head" != "$PR_HEAD_SHA" ] && take_credential_lock; then
+              if [ -n "$newest_head" ] && [ "$newest_head" != "$PR_HEAD_SHA" ]; then
                 echo "$newest_head" > "$superseded_marker"
                 echo "::notice::The head moved to ${newest_head:0:7}, so the review of ${PR_HEAD_SHA:0:7} stops here."
                 # A first signal asks Jazz to stop gracefully, a second one exits at once.
@@ -513,7 +705,7 @@ jobs:
           # Runs the review once. The event stream goes to the job log, and only the
           # final {"ok":...} envelope is kept in /tmp/jazz-review.txt for the posting step.
           run_review() {
-            jazz workflow run code-review --auto-approve --agent ci-reviewer \
+            JAZZ_CHATGPT_ACCESS_TOKEN="$access_token" jazz workflow run code-review --auto-approve --agent ci-reviewer \
               --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
               --json --events tools > /tmp/jazz-review-events.txt &
             local jazz_pid=$!
@@ -525,8 +717,6 @@ jobs:
             echo "$?" > /tmp/jazz-review-exit
             kill "$watcher_pid" 2>/dev/null
             wait "$watcher_pid" "$tail_pid" 2>/dev/null
-            # Jazz has exited, so nothing else uses the lock, whoever left it behind.
-            rm -rf "$credential_lock"
             jq -cR 'fromjson? | select(type == "object" and has("ok"))' /tmp/jazz-review-events.txt \
               | tail -n 1 > /tmp/jazz-review.txt
           }
@@ -556,30 +746,7 @@ jobs:
               printf '### Jazz Code Review\n\nSkipped: %s\n' "$failure_cause" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
-          if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
-            echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
-          fi
 
-      - name: Create ChatGPT secret updater token
-        id: chatgpt-app-token
-        if: always() && steps.run-code-review.outputs.credential_rotated == 'true'
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
-          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-secrets: write
-
-      - name: Save rotated ChatGPT credential
-        if: always() && steps.run-code-review.outputs.credential_rotated == 'true'
-        env:
-          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
-          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
-        run: |
-          set -euo pipefail
-          gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
-          rm -f "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
       - name: Mark the status comment cancelled
         if: cancelled() && steps.status.outputs.comment_id != ''
         env:
@@ -936,23 +1103,16 @@ jobs:
             }
 
   assistant:
-    needs: resolve
+    needs: [resolve, chatgpt-token]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    concurrency:
-      # ChatGPT refresh tokens rotate and are single use, and every model run shares one
-      # credential, so only one run in this repository may hold it at a time: from
-      # restoring it to saving the rotated one. Never cancel a run in progress here; a
-      # run cancelled after the token rotated but before it was saved invalidates the
-      # credential for every pull request.
-      group: jazz-chatgpt-oauth-${{ github.repository }}
-      queue: max
-      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
       issues: write
+    # Runs when chatgpt-token failed too, so the pull request hears why there is no answer.
     if: |
+      !cancelled() && needs.resolve.result == 'success' &&
       github.repository == 'lvndry/euphoria' &&
       github.triggering_actor == github.repository_owner &&
       needs.resolve.outputs.authorized == 'true' &&
@@ -1067,21 +1227,55 @@ jobs:
               core.setOutput('comment_id', '');
             }
 
+      - name: Receive the ChatGPT access token
+        # Opens the token chatgpt-token sealed for this run and leaves it in a private file for
+        # the next step, which reads and deletes it before Jazz starts. The key never reaches a
+        # step the agent runs in. The token is masked before anything could print it.
+        env:
+          SEALED_ACCESS_TOKEN: ${{ needs.chatgpt-token.outputs.sealed_access_token }}
+          JAZZ_CHATGPT_ACCESS_TOKEN_KEY: ${{ secrets.JAZZ_CHATGPT_ACCESS_TOKEN_KEY }}
+          ACCESS_TOKEN_FILE: ${{ runner.temp }}/jazz-chatgpt-access-token
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const fail = (message) => {
+            fs.writeFileSync('/tmp/jazz-error.txt', `${message}\n`);
+            console.log(`::error::${message}`);
+            process.exit(1);
+          };
+          const sealed = Buffer.from(process.env.SEALED_ACCESS_TOKEN || '', 'base64');
+          if (sealed.length <= 28) {
+            fail('No ChatGPT access token: the chatgpt-token job did not publish one. Its log in this workflow run says why.');
+          }
+          let accessToken;
+          try {
+            const key = Buffer.from(process.env.JAZZ_CHATGPT_ACCESS_TOKEN_KEY || '', 'base64');
+            const decipher = crypto.createDecipheriv('aes-256-gcm', key, sealed.subarray(0, 12));
+            decipher.setAAD(Buffer.from(`${process.env.GITHUB_REPOSITORY}/${process.env.GITHUB_RUN_ID}`));
+            decipher.setAuthTag(sealed.subarray(sealed.length - 16));
+            accessToken = Buffer.concat([decipher.update(sealed.subarray(12, sealed.length - 16)), decipher.final()]).toString('utf8');
+          } catch {
+            fail('Could not open the ChatGPT access token chatgpt-token published: it was sealed for another run or under another JAZZ_CHATGPT_ACCESS_TOKEN_KEY.');
+          }
+          console.log(`::add-mask::${accessToken}`);
+          fs.writeFileSync(process.env.ACCESS_TOKEN_FILE, accessToken, { mode: 0o600 });
+          NODE
+
       - name: Run Jazz assistant
         id: run-assistant
         env:
-          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
-          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+          ACCESS_TOKEN_FILE: ${{ runner.temp }}/jazz-chatgpt-access-token
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -uo pipefail
-          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
-            echo "::error::Add a ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret."
-            echo "No ChatGPT credential is configured: the JAZZ_CHATGPT_CREDENTIAL secret is missing." > /tmp/jazz-error.txt
-            exit 1
-          fi
-          jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
+          # Same borrowed access token as the code review, read into an unexported variable
+          # that reaches Jazz alone.
+          access_token="$(cat "$ACCESS_TOKEN_FILE")"
+          rm -f "$ACCESS_TOKEN_FILE"
+          JAZZ_CHATGPT_ACCESS_TOKEN="$access_token" jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
             --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
             --json --events tools | tee /tmp/jazz-pr-assistant.txt
           jazz_exit_code="${PIPESTATUS[0]}"
@@ -1093,31 +1287,7 @@ jobs:
             printf '%s\n' "$failure_cause" > /tmp/jazz-error.txt
             printf '### Jazz PR Assistant\n\nSkipped: %s\n' "$failure_cause" >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
-            echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
-          fi
           exit "$jazz_exit_code"
-
-      - name: Create ChatGPT secret updater token
-        id: chatgpt-app-token
-        if: always() && steps.run-assistant.outputs.credential_rotated == 'true'
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
-          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-secrets: write
-
-      - name: Save rotated ChatGPT credential
-        if: always() && steps.run-assistant.outputs.credential_rotated == 'true'
-        env:
-          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
-          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
-        run: |
-          set -euo pipefail
-          gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
-          rm -f "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
 
       - name: Post PR comment
         if: always() && !cancelled()

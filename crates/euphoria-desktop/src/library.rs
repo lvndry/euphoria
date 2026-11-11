@@ -530,6 +530,33 @@ impl Library {
     }
 }
 
+impl Library {
+    /// The rows of a playlist holding `paths` in order: the tracks of the
+    /// library among them that match the search, in the playlist's order or
+    /// sorted by `sort_order`. Files the library does not hold are left out.
+    pub(crate) fn playlist_rows(
+        &self,
+        paths: &[PathBuf],
+        query: &str,
+        sort_order: Option<SortOrder>,
+        folder_column: &FolderColumn,
+    ) -> Vec<usize> {
+        let query_lowercase = query.trim().to_lowercase();
+        let mut rows: Vec<usize> = paths
+            .iter()
+            .filter_map(|path| self.index_of(path))
+            .filter(|index| self.tracks[*index].matches(&query_lowercase))
+            .collect();
+        if let Some(sort_order) = sort_order {
+            rows.sort_by(|first, second| match sort_order.column {
+                SortColumn::Folder => directed(folder_column.compare(*first, *second), sort_order),
+                _ => compare_tracks(&self.tracks[*first], &self.tracks[*second], sort_order),
+            });
+        }
+        rows
+    }
+}
+
 fn compare_tracks(first: &Track, second: &Track, sort_order: SortOrder) -> Ordering {
     match sort_order.column {
         SortColumn::Title => directed(
