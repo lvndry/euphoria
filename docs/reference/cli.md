@@ -306,9 +306,63 @@ If a file was changed but the log of the write could not note it, for example be
 
 The command exits with status 0 when every file was written or was already up to date, and also when you answered no. It exits with status 1 when any file failed, when a change could not be recorded, when it could not ask for confirmation, and, after writing, when saving analysis results to the cache failed partway.
 
+## euphoria tags set
+
+Edits tag fields by hand across many files at once: give a field a value, remove it, find and replace in it, or add or remove a prefix or a suffix. It shows the same preview and asks the same question as [`euphoria tags write`](#euphoria-tags-write), writes the same safe way, and [`euphoria tags undo`](#euphoria-tags-undo) puts the old tags back.
+
+```
+euphoria tags set [OPTIONS] <PATHS>...
+```
+
+```
+$ euphoria tags set --field "genre=Deep House" --field year=2024 ~/Music/DJ/new
+/Users/you/Music/DJ/new/low tide.flac
+  GENRE: House -> Deep House
+  DATE: (none) -> 2024
+...
+14 files to change, 0 already up to date, 0 left out.
+Write these changes to 14 files? [y/N]
+```
+
+Nothing is analyzed. The fields are the same in every format:
+
+| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A) | Vorbis (FLAC) |
+| --- | --- | --- | --- |
+| `title` | `TIT2` | `©nam` | `TITLE` |
+| `artist` | `TPE1` | `©ART` | `ARTIST` |
+| `album` | `TALB` | `©alb` | `ALBUM` |
+| `genre` | `TCON` | `©gen` | `GENRE` |
+| `year` | `TYER`, or `TDRC` in an ID3v2.4 tag | `©day` | `DATE` |
+| `track` | `TRCK` | `trkn` | `TRACKNUMBER` |
+| `comment` | `COMM` | `©cmt` | `COMMENT` |
+| `grouping` | `TIT1` | `©grp` | `GROUPING` |
+| `key` | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
+| `bpm` | `TBPM` | `----:com.apple.iTunes:BPM` | `BPM` |
+
+`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
+
+A comment or a grouping keeps the key and energy label that `tags write` put there, such as `8A - Energy 7`: the edit changes your own text next to it. `--field "comment=Peak opener"` turns `8A - Energy 7 - Purchased` into `8A - Energy 7 - Peak opener`, `--clear comment` leaves `8A - Energy 7`, and a value typed with its label, such as `8A - Energy 7 - Opener`, replaces the label rather than adding a second one. Only a label with an energy rating is recognised, so text of yours that starts with a key is kept as it is.
+
+### Options
+
+| Option | Effect |
+| --- | --- |
+| `--field <FIELD=VALUE>` | Give a field a value. An empty value, such as `album=`, removes the field. May be given more than once. |
+| `--clear <FIELD>` | Remove a field. May be given more than once. |
+| `--replace <FIELD>` with `--find <TEXT>` and `--with <TEXT>` | Replace every occurrence of the text in the field. Letters match in either case unless `--match-case` is given. `--with ""` deletes the text. |
+| `--add-prefix <FIELD=TEXT>`, `--add-suffix <FIELD=TEXT>` | Put text in front of or after a field, unless it is already there. |
+| `--remove-prefix <FIELD=TEXT>`, `--remove-suffix <FIELD=TEXT>` | Take text off the front or the end of a field, where it is there. |
+| `-y`, `--yes` | Write without asking. |
+| `--dry-run` | Show the preview and write nothing. |
+| `-h`, `--help` | Show help. |
+
+Several edits of the same field apply in the order of this table. A value that leaves nothing removes the field. A tempo must be a positive number, and a track number a number such as `7` or `7/12`; a file whose value would not be one is listed as an error and left unchanged.
+
+The preview, the question, what is written and the exit status are as for [`euphoria tags write`](#preview-and-confirmation). A file the [cache](#the-analysis-cache) knew stays known after its tags change, so it is not analyzed again.
+
 ## euphoria tags undo
 
-Puts back the tags that the last `euphoria tags write` replaced.
+Puts back the tags that the last `euphoria tags write` or `euphoria tags set` replaced, or the last write or edit made in the desktop app.
 
 ```
 $ euphoria tags undo
