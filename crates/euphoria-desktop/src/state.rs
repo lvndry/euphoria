@@ -6,14 +6,19 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::sync::mpsc::Receiver;
 
-use euphoria_core::{CachedAnalyzer, TrackAnalysis};
+use euphoria_core::{
+    CachedAnalyzer, EuphoriaError, PlaylistStore, StoredPlaylist, TrackAnalysis,
+    locate_moved_files,
+};
 
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
 use crate::demo::DemoTrack;
 use crate::library::Library;
+use crate::playlists::Playlists;
 use crate::progress::AnalysisProgress;
 
 /// What was found under the files and folders the user added.
@@ -66,6 +71,35 @@ pub(crate) struct Session {
     cache: Option<Arc<CachedAnalyzer>>,
     cached_count: usize,
     cache_problem: Option<String>,
+    playlists: Playlists,
+    playlist_saver: Option<PlaylistSaver>,
+}
+
+/// The playlists database, shared with the tasks that save to it.
+#[derive(Clone)]
+pub(crate) struct PlaylistSaver {
+    store: Arc<Mutex<PlaylistStore>>,
+    /// The revision of the playlists last written, so a slow save of older
+    /// playlists never overwrites a newer one.
+    saved_revision: Arc<AtomicU64>,
+}
+
+impl PlaylistSaver {
+    /// Keeps `playlists`, made at `revision`, unless newer ones were kept
+    /// already.
+    pub(crate) fn save(
+        &self,
+        playlists: &[StoredPlaylist],
+        revision: u64,
+    ) -> Result<(), EuphoriaError> {
+        let mut store = self.store.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.saved_revision.load(Ordering::Relaxed) >= revision {
+            return Ok(());
+        }
+        store.save(playlists)?;
+        self.saved_revision.store(revision, Ordering::Relaxed);
+        Ok(())
+    }
 }
 
 impl Session {
@@ -84,7 +118,45 @@ impl Session {
             cache,
             cached_count: 0,
             cache_problem: None,
+            playlists: Playlists::default(),
+            playlist_saver: None,
         })
+    }
+
+    /// Keeps playlists in `store`, starting from those it holds. Files that
+    /// moved are looked for where the cache last saw them.
+    pub(crate) fn use_playlist_store(&mut self, store: PlaylistStore) -> Result<(), EuphoriaError> {
+        let mut stored = store.load()?;
+        let moved = self
+            .cache
+            .as_deref()
+            .is_some_and(|cache| locate_moved_files(&mut stored, cache));
+        self.playlists = Playlists::from_stored(stored);
+        let saver = PlaylistSaver {
+            store: Arc::new(Mutex::new(store)),
+            saved_revision: Arc::new(AtomicU64::new(0)),
+        };
+        if moved {
+            let stored = self.playlists.to_stored(|_| None);
+            saver.save(&stored, 1)?;
+        }
+        self.playlist_saver = Some(saver);
+        Ok(())
+    }
+
+    /// The playlists.
+    pub(crate) fn playlists(&self) -> &Playlists {
+        &self.playlists
+    }
+
+    /// The playlists, to change. The caller saves them afterwards.
+    pub(crate) fn playlists_mut(&mut self) -> &mut Playlists {
+        &mut self.playlists
+    }
+
+    /// Where playlists are kept, when they are.
+    pub(crate) fn playlist_saver(&self) -> Option<PlaylistSaver> {
+        self.playlist_saver.clone()
     }
 
     /// The tracks added so far.
