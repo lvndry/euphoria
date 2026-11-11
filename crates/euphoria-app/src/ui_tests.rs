@@ -52,7 +52,9 @@ fn open_library(
 
 /// A library of the one second audio files the core is tested with, each
 /// already analyzed, with an audio output that makes no sound.
-fn open_fixture_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+pub(crate) fn open_fixture_library(
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
     open_window_on(fixture_tracks(), Box::new(SilentOutput), cx)
 }
 

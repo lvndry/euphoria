@@ -91,7 +91,12 @@ pub(crate) struct KeyStretch {
 /// track stays in one key, since the key of the whole track already says
 /// that. Silent stretches between sections stay gaps.
 pub(crate) fn key_stretches(sections: &[KeySection], duration_seconds: f32) -> Vec<KeyStretch> {
-    if sections.len() < 2 || duration_seconds <= 0.0 || !duration_seconds.is_finite() {
+    if duration_seconds <= 0.0
+        || !duration_seconds.is_finite()
+        || sections
+            .first()
+            .is_none_or(|first| sections.iter().all(|section| section.key == first.key))
+    {
         return Vec::new();
     }
     let fraction = |seconds: f32| (seconds / duration_seconds).clamp(0.0, 1.0);
@@ -235,6 +240,9 @@ mod tests {
     #[test]
     fn one_key_draws_no_timeline_and_several_keep_their_silent_gaps() {
         assert!(key_stretches(&[section(0.0, 200.0, 9)], 200.0).is_empty());
+        assert!(
+            key_stretches(&[section(0.0, 80.0, 9), section(100.0, 200.0, 9)], 200.0).is_empty()
+        );
         let stretches = key_stretches(
             &[
                 section(0.0, 80.0, 9),
