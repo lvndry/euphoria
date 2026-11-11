@@ -106,9 +106,7 @@ jobs:
       - name: Install system libraries on Linux
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libfftw3-dev pkg-config
-          ./.github/scripts/install-libkeyfinder.sh
+          ./.github/scripts/install-linux-dependencies.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -143,9 +141,7 @@ jobs:
       - name: Install system libraries on Linux
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libfftw3-dev pkg-config
-          ./.github/scripts/install-libkeyfinder.sh
+          ./.github/scripts/install-linux-dependencies.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Unit tests
