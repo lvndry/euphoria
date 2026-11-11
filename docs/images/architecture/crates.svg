@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="628" viewBox="0 0 800 628" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">The crates of the workspace</title>
-<desc id="chart-desc">Three crates, euphoria-cli, euphoria-desktop, euphoria-bench, each point down to euphoria-core, and none to another. euphoria-core holds all product logic in its modules. Find and decode: library, audio, audio_stream, track_name; Analyze: analysis, detect, key, confidence, tempo_range, energy, quality; Keep and share: cache, correction, playlists, harmony, tags, export. It builds on libkeyfinder, stratum-dsp, Symphonia, lofty, rusqlite, ebur128, rustfft; libkeyfinder, a C++ library, is drawn dashed because it is behind the optional libkeyfinder feature, on by default.</desc>
+<desc id="chart-desc">Three crates, euphoria-cli, euphoria-desktop, euphoria-bench, each point down to euphoria-core, and none to another. euphoria-core holds all product logic in its modules. Find and decode: library, audio, audio_stream, track_name; Analyze: analysis, detect, key, confidence, tempo_range, energy, quality; Keep and share: cache, correction, playlists, harmony, tags, export. Its main libraries are libkeyfinder, stratum-dsp, Symphonia, blake3, rusqlite, ebur128, rustfft; libkeyfinder, a C++ library, is drawn dashed because it is behind the optional libkeyfinder feature, on by default.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -70,7 +70,7 @@
 <text x="520" y="354" class="module" text-anchor="start">tags</text>
 <text x="520" y="374" class="module" text-anchor="start">export</text>
 <rect x="24" y="452" width="752" height="152" rx="8" class="box"/>
-<text x="40" y="474" class="label" text-anchor="start">Libraries euphoria-core builds on</text>
+<text x="40" y="474" class="label" text-anchor="start">The main libraries euphoria-core builds on</text>
 <line x1="400" y1="412" x2="400" y2="443" class="arrow"/>
 <path d="M395,443 L405,443 L400,450 Z" class="arrow-head"/>
 <rect x="36" y="480" width="237.33" height="52" rx="8" class="box box-optional"/>
@@ -83,8 +83,8 @@
 <text x="538.67" y="502" class="group" text-anchor="start">Symphonia</text>
 <text x="538.67" y="520" class="small" text-anchor="start">decoding</text>
 <rect x="36" y="540" width="237.33" height="52" rx="8" class="box"/>
-<text x="48" y="562" class="group" text-anchor="start">lofty</text>
-<text x="48" y="580" class="small" text-anchor="start">tags</text>
+<text x="48" y="562" class="group" text-anchor="start">blake3</text>
+<text x="48" y="580" class="small" text-anchor="start">content hashes for the cache</text>
 <rect x="281.33" y="540" width="237.33" height="52" rx="8" class="box"/>
 <text x="293.33" y="562" class="group" text-anchor="start">rusqlite</text>
 <text x="293.33" y="580" class="small" text-anchor="start">the cache, SQLite</text>

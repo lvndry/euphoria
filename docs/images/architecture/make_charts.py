@@ -34,13 +34,14 @@ CORE_MODULE_GROUPS = [
     ("Keep and share", ["cache", "correction", "playlists", "harmony", "tags", "export"]),
 ]
 
-# The libraries euphoria-core builds on, from crates/euphoria-core/Cargo.toml
-# and build.rs, with a second line saying what for.
+# The libraries euphoria-core builds on, from the [dependencies] of
+# crates/euphoria-core/Cargo.toml and its build.rs, with a second line saying
+# what for. Tags are read and written by the crate's own code.
 CORE_LIBRARIES = [
     ("libkeyfinder", "key, C++, optional"),
     ("stratum-dsp", "tempo"),
     ("Symphonia", "decoding"),
-    ("lofty", "tags"),
+    ("blake3", "content hashes for the cache"),
     ("rusqlite", "the cache, SQLite"),
     ("ebur128, rustfft", "loudness, spectra"),
 ]
@@ -164,7 +165,7 @@ def crates_diagram():
     container_heading = 28
     container_height = container_heading + rows * library_height + (rows - 1) * library_gap + container_padding
     body.append(box(margin, container_top, core_width, container_height))
-    body.append(text(margin + 16, container_top + 22, "Libraries euphoria-core builds on", "label"))
+    body.append(text(margin + 16, container_top + 22, "The main libraries euphoria-core builds on", "label"))
     body.append(arrow_down(width / 2, core_top + core_height, container_top - 2))
     library_width = (core_width - 2 * container_padding - library_gap * (columns - 1)) / columns
     for index, (name, purpose) in enumerate(CORE_LIBRARIES):
@@ -183,7 +184,7 @@ def crates_diagram():
     description = (
         f"Three crates, {front_end_names}, each point down to euphoria-core, and none to another. "
         f"euphoria-core holds all product logic in its modules. {module_lines}. "
-        f"It builds on {library_names}; libkeyfinder, a C++ library, is drawn dashed because "
+        f"Its main libraries are {library_names}; libkeyfinder, a C++ library, is drawn dashed because "
         "it is behind the optional libkeyfinder feature, on by default."
     )
     return document(width, height, title, description, body)
