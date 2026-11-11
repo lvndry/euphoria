@@ -221,6 +221,43 @@ It cannot show how the grid does on dance music, on full length tracks with beat
 
 The grid adds 11 to 12% to the analysis of a track, 0.1 CPU seconds for a two minute preview and 0.5 for an eight minute track, and about 25 MB of memory for the eight minute track.
 
+## Cue points
+
+Euphoria marks where the sections of a track start, the places a DJ sets cues at to mix in and out:
+
+| Cue | Where |
+| --- | --- |
+| Start | The first bar with sound. |
+| Main | The first bar of the first section at full energy, when the track does not start at full energy. |
+| Breakdown | The first bar of a section without the kick, after a section at full energy. |
+| Drop | The first bar at full energy after a breakdown. |
+| Outro | The first bar after the last section at full energy, when at least 8 bars follow it. |
+
+A track gets at most 8 cues, one per hot cue pad from A to H. When there would be more, the start, the main section and the outro are kept, and then the earliest breakdowns and drops. `euphoria analyze --json` reports the cues, and `euphoria export rekordbox --beat-grid --cues` writes them; see [the command reference](../reference/cli.md#cue-points).
+
+![The energy rating of a two minute preview, with the cues Euphoria sets on it: Start at 0.2 seconds where the rating is 2 to 3, Main at 15.7 seconds where it rises to 7 and 8, Breakdown at 77.7 seconds where it falls to 1, and Drop at 93.1 seconds where it comes back to 7 and 8.](../images/beat-grid/cues.svg)
+
+### How they are found
+
+Every bar of the [beat grid](#beat-grid) is measured three ways: how loud it is, how loud it is below 150 Hz, where the kick and the bass are, and how much louder that band is just after each beat than halfway between beats. A kick on the beat makes that last difference large. A sustained bass line or pad sounds as loud between the beats and does not, so a breakdown that keeps its bass is still a breakdown. A bar has a kick when the band is at least 3 dB louder on the beats, and plays at full energy when it also has its usual low end, within 6 dB, and its usual loudness, within 4 dB. The usual level is the level that 90% of the track's bars with sound stay below or reach.
+
+Runs of bars at one level shorter than 8 bars, such as a one bar break before a drop, belong to the section around them. Each section start is then placed on a phrase: a multiple of 8 bars from the first bar with sound, or of 4 bars when the change is more than 2 bars from the nearest multiple of 8, since sections sometimes start half a phrase off the count. The cues use the grid in the default tempo range, so they do not move with `--tempo-range`.
+
+### What has been checked
+
+No dataset with both audio and labelled sections of dance music was found, so the cues are not scored against labels. What was checked:
+
+- **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none.
+- **The 604 GiantSteps Key previews.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
+
+It cannot show how often the cues fall where a DJ would put them on full length tracks.
+
+The cues sit on the bars of the grid, so they share its weaknesses. When the [downbeat](#the-downbeat) is wrong, which on the benchmark is about half the time, the bars start one to three beats away from where the music's do. Every cue is then that many beats away from the start of its section. When the grid is rated low, the cues are not exported.
+
+### Cost
+
+Finding the cues adds no measurable time to an analysis: they use the onset envelope the grid computes and one pass over the audio at a quarter of its sample rate.
+
 ## Energy
 
 The energy rating has no labelled dance music to be scored on, so it is measured against how listeners rated the arousal of 1802 songs of many genres. The method, the results and what they do not show are on the [energy rating](energy.md#how-well-it-works) page.

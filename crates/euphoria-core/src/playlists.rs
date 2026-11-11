@@ -460,6 +460,7 @@ mod tests {
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
+            cues: Vec::new(),
         };
         cache.record_retagged_file(&original, &analysis).unwrap();
         let mut playlists = vec![StoredPlaylist {
@@ -572,6 +573,7 @@ mod tests {
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
+            cues: Vec::new(),
         }
     }
 
