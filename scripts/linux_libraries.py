@@ -21,7 +21,8 @@ come from the system (BASE_SYSTEM_LIBRARIES), is left out. Every other
 library outside `--root` is copied into `--libraries` and given the run path
 `$ORIGIN`, and the executable gets `--run-path`, so each copy is found next
 to the binary that needs it wherever the folder is unpacked. A library that
-cannot be found is an error.
+cannot be found is an error. The executable must be under `--root`, and
+packaged files to be edited must be separate copies, not hard links.
 
 `verify` checks the result without trusting how it was made: every ELF file
 under `--root` is loaded the way the dynamic loader would load it, starting
@@ -331,8 +332,14 @@ def is_loaded_higher_up(target, chain):
     return any(pathlib.Path(path).resolve() == target for path, _ in chain)
 
 
+def require_private_inode(path):
+    if path.stat().st_nlink > 1:
+        raise LibraryError(f"{path} is hard-linked; make a separate copy before bundling")
+
+
 def set_run_path(path, run_path):
     """Gives `path` the DT_RUNPATH `run_path`, in place of any DT_RPATH."""
+    require_private_inode(path)
     subprocess.run(
         ["patchelf", "--remove-rpath", str(path)], check=True, capture_output=True
     )
@@ -348,6 +355,7 @@ def bundle(root, executable, libraries, run_path):
     executable = executable.resolve()
     if not inside(executable, root):
         raise LibraryError(f"{executable} is not under {root}")
+    require_private_inode(executable)
     libraries.mkdir(parents=True, exist_ok=True)
     libraries = libraries.resolve()
     if not inside(libraries, root):
@@ -398,6 +406,8 @@ def bundle(root, executable, libraries, run_path):
             # the libraries it needs, which the copy finds once they are
             # copied beside it.
             pending.append((target, here))
+    for path in packaged:
+        require_private_inode(path)
     # Path-valued DT_NEEDED ignores run paths. Change only packaged files;
     # the originals above must retain their paths while their graph is read.
     for path in sorted(packaged):

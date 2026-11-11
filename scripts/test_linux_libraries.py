@@ -170,6 +170,29 @@ class SyntheticLibraryTests(unittest.TestCase):
         self.assertEqual(unrelated.read_bytes(), b"keep this file")
         self.assertEqual(linux_libraries.verify(self.root, executable), [])
 
+    def test_a_hard_linked_executable_is_refused_without_modifying_its_source(self):
+        executable = self.build_chain()
+        original = self.outside / "main"
+        executable.unlink()
+        os.link(original, executable)
+        before = original.read_bytes()
+        with self.assertRaisesRegex(linux_libraries.LibraryError, "hard.link"):
+            self.bundle(executable)
+        self.assertEqual(original.read_bytes(), before)
+
+    def test_a_packaged_hard_link_is_refused_before_needed_paths_are_changed(self):
+        executable = self.build_chain()
+        libraries = self.root / "lib"
+        libraries.mkdir()
+        original = self.outside / "libouter.so"
+        subprocess.run(["patchelf", "--replace-needed", "libinner.so", str(self.outside / "libinner.so"), str(original)], check=True)
+        before = original.read_bytes()
+        os.link(original, libraries / "libouter.so")
+        linux_libraries.set_run_path(executable, str(libraries))
+        with self.assertRaisesRegex(linux_libraries.LibraryError, "hard.link"):
+            self.bundle(executable)
+        self.assertEqual(original.read_bytes(), before)
+
     def test_an_executable_outside_the_package_is_not_modified(self):
         program = compile_program(self.outside, "int main(void) { return 0; }\n")
         original = program.read_bytes()
