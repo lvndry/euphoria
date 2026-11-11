@@ -66,7 +66,24 @@ VALUE = re.compile(r"^\s*(?:name|path) (?P<value>.+?) \(offset \d+\)$")
 # file could cause: the walk stops at each library already loaded higher up
 # the chain, so real libraries need a few dozen steps.
 MOST_WALK_STEPS = 100_000
-MACOS_PLATFORM = "1"
+# The platforms of LC_BUILD_VERSION, by number and by the name newer otool
+# versions print instead of the number. Only macOS sets the minimum macOS;
+# the others, such as Mac Catalyst, count their minimum in another
+# system's versions.
+MACOS_PLATFORMS = {"1", "MACOS"}
+OTHER_PLATFORMS = {
+    "2", "IOS",
+    "3", "TVOS",
+    "4", "WATCHOS",
+    "5", "BRIDGEOS",
+    "6", "MACCATALYST",
+    "7", "IOSSIMULATOR",
+    "8", "TVOSSIMULATOR",
+    "9", "WATCHOSSIMULATOR",
+    "10", "DRIVERKIT",
+    "11", "VISIONOS",
+    "12", "VISIONOSSIMULATOR",
+}  # fmt: skip
 
 
 class LibraryError(Exception):
@@ -318,6 +335,13 @@ def macos_versions(path):
         text=True,
         check=True,
     ).stdout
+    return parse_macos_versions(listing, path)
+
+
+def parse_macos_versions(listing, path):
+    """The minimum macOS versions in `otool -l` output. A platform that is
+    neither macOS nor a known other system is an error: skipping it could
+    leave out the minimum of a slice that does run on macOS."""
     versions = []
     command = None
     platform = None
@@ -329,18 +353,18 @@ def macos_versions(path):
             command = fields[1]
             platform = None
         elif command == "LC_BUILD_VERSION" and fields[0] == "platform":
-            platform = fields[1]
-        else:
-            is_build_version = (
-                command == "LC_BUILD_VERSION"
-                and fields[0] == "minos"
-                and platform == MACOS_PLATFORM
-            )
-            is_old_minimum = (
-                command == "LC_VERSION_MIN_MACOSX" and fields[0] == "version"
-            )
-            if is_build_version or is_old_minimum:
+            platform = fields[1].upper()
+            if platform not in MACOS_PLATFORMS | OTHER_PLATFORMS:
+                raise LibraryError(
+                    f"{path} is built for the unknown platform {fields[1]}"
+                )
+        elif command == "LC_BUILD_VERSION" and fields[0] == "minos":
+            if platform is None:
+                raise LibraryError(f"{path} gives a minimum before its platform")
+            if platform in MACOS_PLATFORMS:
                 versions.append(fields[1])
+        elif command == "LC_VERSION_MIN_MACOSX" and fields[0] == "version":
+            versions.append(fields[1])
     return versions
 
 
@@ -372,7 +396,11 @@ def main():
             command.add_argument("--run-path", required=True)
     arguments = parser.parse_args()
     if arguments.command == "minimum-macos":
-        print(minimum_macos(arguments.root, arguments.floor))
+        try:
+            print(minimum_macos(arguments.root, arguments.floor))
+        except LibraryError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
         return 0
     try:
         if arguments.command == "bundle":
