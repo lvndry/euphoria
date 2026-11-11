@@ -7,10 +7,14 @@
 #
 # Triggers, all limited to the repository owner and to branches of this repository:
 #   PR opened or marked ready  -> code-review
+#   push to a PR branch        -> code-review of the new head
 #   comment "/jazz-review"     -> code-review
 #   comment "/jazz <request>"  -> assistant
 #   Actions tab dispatch       -> either job
-#   jazz.yml changed on a branch with an open PR -> code-review
+#   jazz.yml changed on a branch whose open PR no push review covers -> code-review
+#
+# The newest commit wins: a review whose pull request head has moved on is skipped
+# before it starts, and stopped while it runs, so only the latest head is reviewed.
 #
 # Configuration lives in .github/jazz/ (agent configs and workflow prompts).
 # Secrets: GITHUB_TOKEN (automatic), JAZZ_CHATGPT_CREDENTIAL, and JAZZ_GITHUB_APP_ID with
@@ -27,7 +31,7 @@ run-name: >-
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    types: [opened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
   push:
@@ -64,6 +68,11 @@ env:
   # The agent's time budget per attempt: 25 minutes. The code review may run two
   # attempts, so its job allows 60 minutes; the assistant job allows 30.
   JAZZ_MAX_DURATION_MS: "1500000"
+  # Agents often push several commits in a row, so a push review waits this long
+  # before queueing for the credential; only the last push of a burst is reviewed.
+  JAZZ_PUSH_SETTLE_SECONDS: "60"
+  # How often a running review checks whether the pull request head has moved on.
+  JAZZ_HEAD_POLL_SECONDS: "30"
 
 jobs:
   resolve:
@@ -77,7 +86,7 @@ jobs:
       github.triggering_actor == github.repository_owner && (
         (
           github.event_name == 'pull_request' &&
-          (github.event.action == 'opened' || github.event.action == 'ready_for_review') &&
+          contains(fromJSON('["opened", "ready_for_review", "synchronize"]'), github.event.action) &&
           github.event.pull_request.user.login == github.repository_owner &&
           github.event.pull_request.draft == false &&
           github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
@@ -151,7 +160,7 @@ jobs:
 
             if (context.eventName === 'pull_request') {
               const eventPullRequest = context.payload.pull_request;
-              if (!['opened', 'ready_for_review'].includes(context.payload.action)) {
+              if (!['opened', 'ready_for_review', 'synchronize'].includes(context.payload.action)) {
                 return deny(`pull_request action "${context.payload.action}" is not reviewed automatically.`);
               }
               if (!isOwner(eventPullRequest.user?.login)) {
@@ -216,6 +225,15 @@ jobs:
                 return deny(`branch ${branch} has no open pull request.`);
               }
               pullRequest = openPullRequests[0];
+              // The same push fires pull_request synchronize, whose run reviews it
+              // whenever that event qualifies, so this run covers only the rest.
+              if (
+                isOwner(pullRequest.user?.login) &&
+                !pullRequest.draft &&
+                isHomeRepository(pullRequest.head.repo?.full_name)
+              ) {
+                return deny(`the push review of #${pullRequest.number} covers this commit.`);
+              }
               command = 'review';
               headShaOverride = context.payload.after ?? '';
             } else {
@@ -259,6 +277,12 @@ jobs:
               core.warning(`Could not react with eyes: ${error.message}`);
             }
 
+      - name: Let a burst of pushes settle
+        # Runs before the review queues for the credential, so waiting here holds up no
+        # other pull request. A review whose head moved meanwhile is skipped when it starts.
+        if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && steps.resolve.outputs.authorized == 'true'
+        run: sleep "$JAZZ_PUSH_SETTLE_SECONDS"
+
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
@@ -285,7 +309,7 @@ jobs:
       needs.resolve.outputs.pr_head_repo_full_name == github.repository && (
         (
           github.event_name == 'pull_request' &&
-          (github.event.action == 'opened' || github.event.action == 'ready_for_review') &&
+          contains(fromJSON('["opened", "ready_for_review", "synchronize"]'), github.event.action) &&
           github.event.pull_request.user.login == github.repository_owner &&
           github.event.pull_request.draft == false &&
           github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
@@ -303,8 +327,36 @@ jobs:
         )
       )
     steps:
+      - name: Skip a review whose commit is no longer the head
+        # Runs once this job holds the credential and before anything restores it. A
+        # newer commit has its own review queued, so an older one stops here for free.
+        id: head
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+        uses: actions/github-script@v9
+        with:
+          script: |
+            let pullRequest;
+            try {
+              ({ data: pullRequest } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: parseInt(process.env.PR_NUMBER, 10),
+              }));
+            } catch (error) {
+              // Not knowing the head is no reason to drop the review.
+              core.warning(`Could not read the PR head, so the review runs: ${error.message}`);
+              return;
+            }
+            if (pullRequest.head.sha !== process.env.PR_HEAD_SHA) {
+              core.notice(`Skipped: the head moved from ${process.env.PR_HEAD_SHA.slice(0, 7)} to ${pullRequest.head.sha.slice(0, 7)}, whose review takes over.`);
+              core.setOutput('superseded', 'true');
+            }
+
       - name: Post status comment
         id: status
+        if: steps.head.outputs.superseded != 'true'
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
@@ -325,6 +377,7 @@ jobs:
             }
 
       - name: Checkout PR head
+        if: steps.head.outputs.superseded != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
@@ -332,15 +385,18 @@ jobs:
           persist-credentials: false
 
       - name: Setup Bun
+        if: steps.head.outputs.superseded != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install Jazz
+        if: steps.head.outputs.superseded != 'true'
         # --trust lets the package's postinstall script run; that script installs the binary.
         run: bun install -g jazz-ai@latest --trust
 
       - name: Setup Jazz agent and workflow
+        if: steps.head.outputs.superseded != 'true'
         env:
           PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
@@ -353,6 +409,7 @@ jobs:
             .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
 
       - name: Snapshot PR context
+        if: steps.head.outputs.superseded != 'true'
         # The agent never holds a GitHub token, so the PR title, body and labels are
         # fetched here into a file it reads. Anyone can comment on a public PR, so only
         # comments and reviews written by the repository owner or by this workflow's
@@ -385,11 +442,14 @@ jobs:
 
       - name: Run code review
         id: run-code-review
+        if: steps.head.outputs.superseded != 'true'
         env:
           JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
           JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
           set +e -uo pipefail
           if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
@@ -399,13 +459,74 @@ jobs:
             echo 1 > /tmp/jazz-review-exit
             exit 0
           fi
+
+          # The newest commit wins. While Jazz runs, a watcher polls the pull request head
+          # through anonymous git, because the agent can read this step's environment and
+          # must find no GitHub token in it. When the head moves, the watcher first takes
+          # Jazz's credential lock, under which every token refresh runs from the request
+          # to writing the rotated credential out, and only then stops Jazz. With that lock
+          # held no refresh is in flight and none can start, so stopping Jazz, even by
+          # force, cannot lose a rotated token. GitHub itself never cancels this job.
+          credential_lock="${JAZZ_HOME:-$HOME/.jazz}/.chatgpt-credential.lock"
+          superseded_marker=/tmp/jazz-review-superseded
+
+          pull_request_head() {
+            timeout 30 git -C "$GITHUB_WORKSPACE" ls-remote origin "refs/pull/$PR_NUMBER/head" 2>/dev/null | cut -f1
+          }
+
+          # Jazz's lock protocol: a directory created exclusively, stamped with a live
+          # holder on this host. The holder is this shell, which outlives Jazz, so Jazz
+          # never reclaims the lock as stale while it shuts down.
+          take_credential_lock() {
+            local deadline=$((SECONDS + 120))
+            until mkdir "$credential_lock" 2>/dev/null; do
+              [ "$SECONDS" -lt "$deadline" ] || return 1
+              sleep 1 > /dev/null 2>&1
+            done
+            if ! node -e 'process.stdout.write(JSON.stringify({ pid: Number(process.argv[1]), host: require("os").hostname(), token: process.argv[2] }))' \
+                 "$$" "ci-head-watcher-$GITHUB_RUN_ID" > "$credential_lock/owner.json"; then
+              rm -rf "$credential_lock"
+              return 1
+            fi
+          }
+
+          stop_when_superseded() {
+            local jazz_pid="$1" newest_head
+            while kill -0 "$jazz_pid" 2>/dev/null; do
+              sleep "$JAZZ_HEAD_POLL_SECONDS" > /dev/null 2>&1
+              newest_head="$(pull_request_head)"
+              if [ -n "$newest_head" ] && [ "$newest_head" != "$PR_HEAD_SHA" ] && take_credential_lock; then
+                echo "$newest_head" > "$superseded_marker"
+                echo "::notice::The head moved to ${newest_head:0:7}, so the review of ${PR_HEAD_SHA:0:7} stops here."
+                # A first signal asks Jazz to stop gracefully, a second one exits at once.
+                kill -TERM "$jazz_pid" 2>/dev/null
+                for _ in $(seq 60); do
+                  kill -0 "$jazz_pid" 2>/dev/null || return 0
+                  sleep 1 > /dev/null 2>&1
+                done
+                kill -TERM "$jazz_pid" 2>/dev/null
+                return 0
+              fi
+            done
+          }
+
           # Runs the review once. The event stream goes to the job log, and only the
           # final {"ok":...} envelope is kept in /tmp/jazz-review.txt for the posting step.
           run_review() {
             jazz workflow run code-review --auto-approve --agent ci-reviewer \
               --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
-              --json --events tools | tee /tmp/jazz-review-events.txt
-            echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
+              --json --events tools > /tmp/jazz-review-events.txt &
+            local jazz_pid=$!
+            tail -n +1 -f --pid="$jazz_pid" /tmp/jazz-review-events.txt &
+            local tail_pid=$!
+            stop_when_superseded "$jazz_pid" &
+            local watcher_pid=$!
+            wait "$jazz_pid"
+            echo "$?" > /tmp/jazz-review-exit
+            kill "$watcher_pid" 2>/dev/null
+            wait "$watcher_pid" "$tail_pid" 2>/dev/null
+            # Jazz has exited, so nothing else uses the lock, whoever left it behind.
+            rm -rf "$credential_lock"
             jq -cR 'fromjson? | select(type == "object" and has("ok"))' /tmp/jazz-review-events.txt \
               | tail -n 1 > /tmp/jazz-review.txt
           }
@@ -418,18 +539,22 @@ jobs:
           }
 
           run_review
-          if [ "$(cat /tmp/jazz-review-exit)" = "0" ] && ! has_verdict; then
+          if [ ! -e "$superseded_marker" ] && [ "$(cat /tmp/jazz-review-exit)" = "0" ] && ! has_verdict; then
             echo "::warning::The review returned no verdict block. Retrying once."
             printf '### Jazz Code Review\n\nFirst attempt returned no verdict, retried once.\n' >> "$GITHUB_STEP_SUMMARY"
             run_review
           fi
-          # A failed run prints {"ok":false,"error":...}. Its cause, with keys redacted,
-          # goes to the PR comment and the job summary.
-          failure_cause="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-review.txt 2>/dev/null \
-            | sed -E 's/(sk|rk|pk)-[A-Za-z0-9_*-]{6,}/[redacted key]/g')"
-          if [ -n "$failure_cause" ]; then
-            printf '%s\n' "$failure_cause" > /tmp/jazz-error.txt
-            printf '### Jazz Code Review\n\nSkipped: %s\n' "$failure_cause" >> "$GITHUB_STEP_SUMMARY"
+          if [ -e "$superseded_marker" ]; then
+            printf '### Jazz Code Review\n\nStopped: the head moved to %s.\n' "$(head -c 7 "$superseded_marker")" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # A failed run prints {"ok":false,"error":...}. Its cause, with keys redacted,
+            # goes to the PR comment and the job summary.
+            failure_cause="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-review.txt 2>/dev/null \
+              | sed -E 's/(sk|rk|pk)-[A-Za-z0-9_*-]{6,}/[redacted key]/g')"
+            if [ -n "$failure_cause" ]; then
+              printf '%s\n' "$failure_cause" > /tmp/jazz-error.txt
+              printf '### Jazz Code Review\n\nSkipped: %s\n' "$failure_cause" >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
           if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
             echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
@@ -475,7 +600,7 @@ jobs:
             }
 
       - name: Post review comments
-        if: always() && !cancelled()
+        if: always() && !cancelled() && steps.head.outputs.superseded != 'true'
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
@@ -505,20 +630,7 @@ jobs:
               answer = envelope.answer ?? rawOutput;
             } catch {}
 
-            // Name the reviewed commit, and say so when the PR moved while the review ran.
-            let provenance = `\n\n*Reviewed commit \`${headSha.slice(0, 7)}\`*`;
-            try {
-              const { data: currentPullRequest } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-              });
-              if (currentPullRequest.head.sha !== headSha) {
-                provenance += `\n\n> The PR head moved to \`${currentPullRequest.head.sha.slice(0, 7)}\` while this ran, so this review covers an older commit. Comment \`/jazz-review\` to review the new head.`;
-              }
-            } catch (error) {
-              core.warning(`Could not re-read the PR head: ${error.message}`);
-            }
+            const provenance = `\n\n*Reviewed commit \`${headSha.slice(0, 7)}\`*`;
 
             const postOrUpdate = async (bodyWithoutProvenance) => {
               const body = bodyWithoutProvenance + provenance;
@@ -538,6 +650,38 @@ jobs:
                 });
               }
             };
+
+            // The newest commit wins: a review stopped because the head moved, or one that
+            // finished after it moved, gives way to the review of the new head.
+            let newerHead = '';
+            try {
+              newerHead = fs.readFileSync('/tmp/jazz-review-superseded', 'utf8').trim();
+            } catch {}
+            if (!newerHead) {
+              try {
+                const { data: currentPullRequest } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                });
+                if (currentPullRequest.head.sha !== headSha) newerHead = currentPullRequest.head.sha;
+              } catch (error) {
+                core.warning(`Could not re-read the PR head: ${error.message}`);
+              }
+            }
+            if (newerHead) {
+              const note = `## Jazz Code Review\n\nReview of \`${headSha.slice(0, 7)}\` dropped: the head moved to \`${newerHead.slice(0, 7)}\`, whose review takes over (comment \`/jazz-review\` if none starts). [Workflow run](${runUrl}).`;
+              if (statusCommentId > 0) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: statusCommentId,
+                  body: note,
+                });
+              }
+              core.notice(`Review of ${headSha.slice(0, 7)} dropped in favour of ${newerHead.slice(0, 7)}.`);
+              return;
+            }
 
             // The run step records the exit code without failing, so this step decides
             // whether a failure is worth a red job. No exit-code file and no output
