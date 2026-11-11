@@ -22,12 +22,13 @@ Euphoria does not read a tag into a model and write the model back, because that
 | ID3v2 | A frame, header included |
 | MP4 | A child of the `ilst` atom, with all its `data` atoms |
 | Vorbis comments | One `NAME=value` comment |
+| RIFF INFO list of a WAV file | One value, such as `ICMT`, with its header |
 
 What stays byte for byte the same:
 
 - Every item the plan does not name, in its place: artwork (`APIC` frames, `covr`, FLAC picture blocks), ratings, sort names, gapless and volume data, the private data of other programs, and items Euphoria does not know.
 - An item the plan does name keeps what it can: an ID3v2 frame keeps its flags and its text encoding when the new text fits in it, a comment frame keeps its language, a Vorbis comment and a freeform MP4 item keep the spelling of their name.
-- Tags of other kinds in the same file: ID3v1 and APE tags in MP3, RIFF INFO in WAV, text chunks in AIFF, and an ID3v2 tag in front of a FLAC stream.
+- Tags of other kinds in the same file: ID3v1 and APE tags in MP3, the RIFF INFO values of a WAV file other than its comment, text chunks in AIFF, and an ID3v2 tag in front of a FLAC stream.
 - Everything else in the container, such as other MP4 atoms and FLAC metadata blocks, and the audio.
 
 What may change besides the planned items is padding, the empty space formats keep for tags to grow into. When there is enough, it takes up the difference and nothing else in the file moves. When there is not, the tag area grows and the audio moves back. In an MP4 file whose `moov` atom comes before the audio, the chunk offsets (`stco`, `co64`) are then moved by the same distance.
@@ -103,10 +104,10 @@ When several fields are listed, the first one present is used.
 | Artist | `TPE1` | `©ART` | `ARTIST` |
 | Key | `TKEY` | `----:com.apple.iTunes:initialkey`, `----:com.apple.iTunes:KEY` | `INITIALKEY`, `KEY` |
 | Tempo | `TBPM` | `----:com.apple.iTunes:BPM`, `tmpo` | `BPM`, `TEMPO` |
-| Comment | `COMM` with an empty description | `©cmt` | `COMMENT`, `DESCRIPTION` |
+| Comment | `COMM` with an empty description, then in WAV the RIFF INFO `ICMT` | `©cmt` | `COMMENT`, `DESCRIPTION` |
 | Grouping | `TIT1`, `GRP1` | `©grp` | `GROUPING` |
 
-Freeform MP4 names are matched in any letter case. WAV and AIFF files are read through their ID3v2 tag only, not through RIFF INFO or AIFF text chunks.
+Freeform MP4 names are matched in any letter case. WAV and AIFF files are read through their ID3v2 tag, apart from the comment of a WAV file that has none there, which is read from RIFF INFO. AIFF text chunks are not read.
 
 ## Fields written
 
@@ -160,10 +161,24 @@ A label is never moved between the comment and the grouping: only the field of t
 
 | Target | ID3v2 | MP4 | Vorbis comments |
 | --- | --- | --- | --- |
-| Comment | `COMM` with an empty description | `©cmt` | `COMMENT` |
+| Comment | `COMM` with an empty description, and in WAV also the RIFF INFO `ICMT` | `©cmt` | `COMMENT` |
 | Grouping | `TIT1` | `©grp` | `GROUPING` |
 
 An existing ID3v2 comment keeps its language. Comments with a description belong to other programs and are not touched.
+
+### The comment of a WAV file
+
+A WAV file has two places for a comment: the ID3 chunk, which most tag editors and DJ programs read, and the `ICMT` value of its RIFF INFO list, the tag WAV defines for itself. rekordbox reads a WAV file's comment from RIFF INFO only (tested in rekordbox 7.2.19). So when the label goes into the comment, at its start or its end, Euphoria writes it into both, with every preset:
+
+- Each comment keeps its own text. The label goes in front of, or after, whatever that comment holds, and a label written earlier is recognised and replaced in each, as described above. The two comments end up with the same label, even when the text after it differs.
+- The preview shows the RIFF comment on a line of its own, as `INFO ICMT`.
+- The other values of the RIFF INFO list, such as the title `INAM` and the artist `IART`, keep their bytes and their order.
+- A file without a RIFF INFO list gets one, holding only the comment, in front of the `data` chunk, where ffmpeg puts it and where a reader that stops at the audio still finds it. Undo takes it out again.
+- The format names no text encoding. A RIFF comment that is valid UTF-8 is read and written as UTF-8. One that is not is read as Latin-1 and written back as Latin-1, so that its own text keeps its exact bytes next to the label.
+- Undo puts the RIFF comment back byte for byte, with the same checks as every other field. The one case where the file does not return to the exact bytes it had is a RIFF INFO list that was empty before the write: it is taken out when its last value goes.
+- A RIFF INFO list that cannot be taken apart into values, or a second one in the same file, is a reason to refuse the write, like a damaged ID3 chunk.
+
+RIFF INFO has no field for the key or the tempo, so those stay in the ID3 chunk only. For rekordbox, the [rekordbox XML export](../guides/export-to-rekordbox.md) carries them for WAV files.
 
 ## How well each field is confirmed
 
@@ -172,7 +187,7 @@ DJ software vendors do not publish the exact fields their programs read. [Use Eu
 | Program | Strongest evidence |
 | --- | --- |
 | Mixxx | Every field above, confirmed in its source code. |
-| rekordbox | Tested in rekordbox 7: the key is read from `TKEY`, M4A `KEY` (not `initialkey`) and FLAC `INITIALKEY`; the comment from every format; WAV title and comment from RIFF INFO only; no tempo from any tag. |
+| rekordbox | Tested in rekordbox 7: the key is read from `TKEY`, M4A `KEY` (not `initialkey`) and FLAC `INITIALKEY`; the comment from every format; WAV title and comment from RIFF INFO only, so Euphoria writes the label into the RIFF INFO comment as well; no tempo from any tag. |
 | Serato | Serato's own statements for the key in MP3 and the analysis settings. M4A and FLAC field names are unconfirmed. |
 | Traktor | Mixed In Key's guide and user reports for the Key Text column. M4A and FLAC field names are unconfirmed. |
 | Engine DJ | The Engine DJ user guide for when tags are read. Field names are unconfirmed. |

@@ -596,6 +596,31 @@ fn version_4_tag_with_a_footer_keeps_its_frames() {
     assert!(written.ends_with(&mp3_audio()));
 }
 
+/// A WAV file without its RIFF INFO list, which a write with a label also
+/// changes, so that what a test compares is the rest of the file. Other
+/// files come back as they are.
+fn without_info_list(bytes: &[u8]) -> Vec<u8> {
+    if !bytes.starts_with(b"RIFF") {
+        return bytes.to_vec();
+    }
+    let mut kept = bytes[..12].to_vec();
+    let mut offset = 12;
+    while offset + 8 <= bytes.len() {
+        let size_bytes: [u8; 4] = bytes[offset + 4..offset + 8].try_into().expect(WORKS);
+        let size = u32::from_le_bytes(size_bytes) as usize;
+        let end = (offset + 8 + size + size % 2).min(bytes.len());
+        let is_info = &bytes[offset..offset + 4] == b"LIST"
+            && bytes.get(offset + 8..offset + 12) == Some(b"INFO");
+        if !is_info {
+            kept.extend(&bytes[offset..end]);
+        }
+        offset = end;
+    }
+    let container_size = (kept.len() - 8) as u32;
+    kept[4..8].copy_from_slice(&container_size.to_le_bytes());
+    kept
+}
+
 #[test]
 fn wav_and_aiff_chunks_outside_the_tag_keep_their_bytes() {
     // An odd tag length makes the chunk need a padding byte.
@@ -616,14 +641,16 @@ fn wav_and_aiff_chunks_outside_the_tag_keep_their_bytes() {
             original.extend(tag_length.to_be_bytes());
             original[4..8].copy_from_slice(&container_size.to_be_bytes());
         }
-        let chunk_start = original.len() - 8;
         original.extend(&tag);
         let path = scratch_file(&format!("odd-frames-{fixture}"), &original);
         let original_samples = samples(&path);
 
         let plan = plan_write(&path, &a_minor(), &full_options()).expect(WORKS);
         let backup = apply_plan(&plan).expect(WORKS);
-        let written = std::fs::read(&path).expect(WORKS);
+        let written = without_info_list(&std::fs::read(&path).expect(WORKS));
+        let original_bytes = original.clone();
+        let original = without_info_list(&original);
+        let chunk_start = original.len() - 8 - tag.len();
         assert_eq!(written.len(), original.len(), "{fixture}");
         assert!(
             written[..chunk_start] == original[..chunk_start],
@@ -635,7 +662,10 @@ fn wav_and_aiff_chunks_outside_the_tag_keep_their_bytes() {
         assert!(samples(&path) == original_samples, "{fixture}");
 
         undo(&backup).expect(WORKS);
-        assert!(std::fs::read(&path).expect(WORKS) == original, "{fixture}");
+        assert!(
+            std::fs::read(&path).expect(WORKS) == original_bytes,
+            "{fixture}"
+        );
     }
 }
 
@@ -834,7 +864,9 @@ fn wav_whose_last_chunk_lacks_its_padding_byte_is_still_written() {
 
     let plan = plan_write(&path, &a_minor(), &full_options()).expect(WORKS);
     let backup = apply_plan(&plan).expect(WORKS);
-    let written = std::fs::read(&path).expect(WORKS);
+    let written = without_info_list(&std::fs::read(&path).expect(WORKS));
+    let original_bytes = original.clone();
+    let original = without_info_list(&original);
     assert!(written[8..original.len()] == original[8..]);
     assert_eq!(written[original.len()], 0, "the missing padding byte");
     assert_eq!(&written[original.len() + 1..original.len() + 5], b"ID3 ");
@@ -843,7 +875,7 @@ fn wav_whose_last_chunk_lacks_its_padding_byte_is_still_written() {
 
     undo(&backup).expect(WORKS);
     let restored = std::fs::read(&path).expect(WORKS);
-    assert!(restored[8..original.len()] == original[8..]);
+    assert!(restored[8..original_bytes.len()] == original_bytes[8..]);
     assert_eq!(read_tags(&path).expect(WORKS).key, None);
     assert!(samples(&path) == original_samples);
 }
