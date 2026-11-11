@@ -242,6 +242,8 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, analysis)?;
+    let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
+    let results = batch::corrected(results, &corrections);
     let analyzed_count = results.len();
 
     let verdicts: Vec<QualityVerdict> = arguments
@@ -332,13 +334,17 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &mut standard_output,
             &listed_results,
             analysis.tempo_range(),
+            &corrections,
         )?,
-        Layout::PlainTable => output::write_plain_table(&mut standard_output, &listed_results)?,
+        Layout::PlainTable => {
+            output::write_plain_table(&mut standard_output, &listed_results, &corrections)?
+        }
         Layout::Table => view::write_table(
             &mut standard_output,
             &standard_output_theme,
             &listed_results,
             &view_options,
+            &corrections,
         )?,
         Layout::Detail => {
             let mut first = true;
@@ -354,6 +360,9 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                         &result.path,
                         track,
                         &view_options,
+                        corrections
+                            .get(&result.path)
+                            .and_then(|looked_up| looked_up.as_ref().ok()),
                     )?;
                 }
             }

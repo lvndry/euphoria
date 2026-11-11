@@ -11,8 +11,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::export::rekordbox::{ExistingFile, ExportOptions, KeyNotation, write_xml_file};
 use euphoria_core::{
-    AssembledLibrary, CachedBatch, PlaylistLayout, assemble_library, find_audio_files,
-    is_supported_audio_file, playlist_count,
+    AssembledLibrary, CachedBatch, ExportContents, PlaylistLayout, assemble_library_with,
+    find_audio_files, is_supported_audio_file, playlist_count,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -48,6 +48,10 @@ pub struct RekordboxArguments {
     /// Export the tracks only, without a playlist per folder.
     #[arg(long)]
     no_playlists: bool,
+    /// Write each track's beat grid, except grids rated low confidence,
+    /// which rekordbox then makes itself.
+    #[arg(long)]
+    beat_grid: bool,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -95,11 +99,20 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         bail!("no audio files found, so nothing was exported");
     }
 
+    // Before the analysis, which can take hours, and before anything is
+    // written.
+    batch::require_readable_corrections(&arguments.analysis)?;
     let CachedBatch {
         results,
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let corrections = batch::corrections(
+        &results,
+        &arguments.analysis,
+        batch::CorrectionCheck::ReadFile,
+    )?;
+    let results = batch::corrected(results, &corrections);
 
     let loose_playlist_name = output_file
         .file_stem()
@@ -117,7 +130,13 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         library,
         skipped,
         unread_tags,
-    } = assemble_library(results, layout);
+    } = assemble_library_with(
+        results,
+        layout,
+        ExportContents {
+            beat_grid: arguments.beat_grid,
+        },
+    );
 
     // The file is written before anything is reported, so that a reader of
     // standard error that goes away cannot stop the export.
@@ -147,6 +166,14 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             output_file: &output_file,
         },
     )?;
+    if arguments.beat_grid {
+        let with_grid = library
+            .tracks
+            .iter()
+            .filter(|track| track.first_beat.is_some())
+            .count();
+        output::write_beat_grid_summary(&mut standard_error, with_grid, library.tracks.len())?;
+    }
     if !skipped.is_empty() {
         output::write_skipped_summary(&mut standard_error, skipped.len())?;
     }

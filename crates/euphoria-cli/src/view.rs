@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::{Confidence, FileResult, Key, TempoRange, TrackAnalysis};
+use euphoria_core::{Confidence, Correction, FileResult, Key, TempoRange, TrackAnalysis};
 
+use crate::batch::Corrections;
 use crate::style::Theme;
 use crate::terminal::Printable;
 
@@ -271,6 +272,7 @@ struct Row {
 fn row(
     theme: &Theme,
     analysis: &TrackAnalysis,
+    correction: Option<&Correction>,
     options: &ViewOptions,
     folder: String,
     name: String,
@@ -294,6 +296,8 @@ fn row(
         || theme.dim("-"),
         |quality| quality_coloured(theme, quality.verdict, quality_word(quality.verdict)),
     );
+    let key_set = correction.is_some_and(|correction| correction.key.is_some());
+    let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
     let cells = Column::ALL
         .iter()
         .map(|column| {
@@ -303,8 +307,10 @@ fn row(
                     .key
                     .map(|key| theme.dim(options.notation.companion(key)))
                     .unwrap_or_default(),
+                Column::KeyConfidence if key_set => theme.user("you"),
                 Column::KeyConfidence => confidence_meter(theme, analysis.key_confidence()),
                 Column::Bpm => bpm.clone(),
+                Column::BpmConfidence if bpm_set => theme.user("you"),
                 Column::BpmConfidence => confidence_meter(theme, analysis.tempo_confidence()),
                 Column::Energy => analysis
                     .energy
@@ -444,6 +450,7 @@ pub fn write_table(
     theme: &Theme,
     results: &[FileResult],
     options: &ViewOptions,
+    corrections: &Corrections,
 ) -> io::Result<()> {
     let analyzed: Vec<(&Path, &TrackAnalysis)> = results
         .iter()
@@ -458,7 +465,10 @@ pub fn write_table(
         .iter()
         .map(|(path, analysis)| {
             let (folder, name) = folder_and_name(path, &common);
-            row(theme, analysis, options, folder, name)
+            let correction = corrections
+                .get(*path)
+                .and_then(|looked_up| looked_up.as_ref().ok());
+            row(theme, analysis, correction, options, folder, name)
         })
         .collect();
 
@@ -644,7 +654,10 @@ pub fn write_detail(
     path: &Path,
     analysis: &TrackAnalysis,
     options: &ViewOptions,
+    correction: Option<&Correction>,
 ) -> io::Result<()> {
+    let key_set = correction.is_some_and(|correction| correction.key.is_some());
+    let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -672,6 +685,9 @@ pub fn write_detail(
                     options.notation.companion(key)
                 ),
             )?;
+            if key_set {
+                write_line(writer, theme, "", &theme.user("set by you"))?;
+            }
             if let Some(confidence) = analysis.key_confidence() {
                 write_line(writer, theme, "", &confidence_words(theme, confidence))?;
             }
@@ -699,6 +715,9 @@ pub fn write_detail(
                 "Tempo",
                 &format!("{} BPM", theme.bold(format!("{bpm:.1}"))),
             )?;
+            if bpm_set {
+                write_line(writer, theme, "", &theme.user("set by you"))?;
+            }
             if let Some(confidence) = analysis.tempo_confidence() {
                 write_line(writer, theme, "", &confidence_words(theme, confidence))?;
             }
@@ -745,6 +764,24 @@ pub fn write_detail(
             }
             write_line(writer, theme, "Loudness", &text)?;
         }
+    }
+
+    if let Some(grid) = analysis.beat_grid {
+        write_line(
+            writer,
+            theme,
+            "Beat grid",
+            &format!(
+                "first downbeat at {:.3} s, {:.2} BPM",
+                grid.first_downbeat_seconds, grid.bpm
+            ),
+        )?;
+        write_line(
+            writer,
+            theme,
+            "",
+            &confidence_words(theme, grid.confidence()),
+        )?;
     }
 
     if let Some(cents) = analysis.tuning_cents {
@@ -813,6 +850,7 @@ mod tests {
             key_score_margin: Some(key_margin),
             tempo_estimate: Some(124.9),
             tempo_score_margin: Some(tempo_margin),
+            beat_grid: None,
             key_timeline: vec![
                 KeySection {
                     start_seconds: 0.0,
@@ -858,7 +896,14 @@ mod tests {
 
     fn table(width: usize) -> String {
         let mut buffer = Vec::new();
-        write_table(&mut buffer, &Theme::PLAIN, &results(), &options(width)).unwrap();
+        write_table(
+            &mut buffer,
+            &Theme::PLAIN,
+            &results(),
+            &options(width),
+            &Corrections::new(),
+        )
+        .unwrap();
         String::from_utf8(buffer).unwrap()
     }
 
@@ -902,7 +947,14 @@ Key                  BPM       Energy              Quality  Time  File
         let mut buffer = Vec::new();
         let mut musical = options(200);
         musical.notation = KeyNotationChoice::Musical;
-        write_table(&mut buffer, &Theme::PLAIN, &results(), &musical).unwrap();
+        write_table(
+            &mut buffer,
+            &Theme::PLAIN,
+            &results(),
+            &musical,
+            &Corrections::new(),
+        )
+        .unwrap();
         let shown = String::from_utf8(buffer).unwrap();
         assert!(shown.contains("Am  8A"), "{shown}");
     }
@@ -910,7 +962,14 @@ Key                  BPM       Energy              Quality  Time  File
     #[test]
     fn colour_never_changes_the_layout() {
         let mut buffer = Vec::new();
-        write_table(&mut buffer, &Theme::COLOURED, &results(), &options(200)).unwrap();
+        write_table(
+            &mut buffer,
+            &Theme::COLOURED,
+            &results(),
+            &options(200),
+            &Corrections::new(),
+        )
+        .unwrap();
         let coloured = String::from_utf8(buffer).unwrap();
         assert!(coloured.contains('\u{1b}'));
         let stripped: Vec<String> = coloured
@@ -950,7 +1009,14 @@ Key                  BPM       Energy              Quality  Time  File
             outcome: Ok(analysis(0.02, 0.5)),
         }];
         let mut buffer = Vec::new();
-        write_table(&mut buffer, &Theme::PLAIN, &results, &options(200)).unwrap();
+        write_table(
+            &mut buffer,
+            &Theme::PLAIN,
+            &results,
+            &options(200),
+            &Corrections::new(),
+        )
+        .unwrap();
         let shown = String::from_utf8(buffer).unwrap();
         assert!(shown.contains("evil\\r\\u{1b}[2K.mp3"), "{shown:?}");
     }
@@ -965,6 +1031,7 @@ Key                  BPM       Energy              Quality  Time  File
             Path::new("music/low tide.flac"),
             &track,
             &options(100),
+            None,
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -991,6 +1058,83 @@ music
     }
 
     #[test]
+    fn values_the_user_set_are_marked_and_the_beat_grid_is_shown() {
+        let path = PathBuf::from("music/low tide.flac");
+        let correction = Correction::of_bpm(126.0).unwrap();
+        let track = correction.apply(TrackAnalysis {
+            beat_grid: Some(euphoria_core::BeatGrid {
+                first_downbeat_seconds: 0.4126,
+                bpm: 124.9,
+                salience: 100.0,
+                drift_seconds: None,
+            }),
+            ..analysis(0.02, 0.5)
+        });
+        let mut corrections = Corrections::new();
+        corrections.insert(path.clone(), Ok(correction));
+        let results = vec![FileResult {
+            path: path.clone(),
+            outcome: Ok(track.clone()),
+        }];
+        let mut buffer = Vec::new();
+        write_table(
+            &mut buffer,
+            &Theme::PLAIN,
+            &results,
+            &options(200),
+            &corrections,
+        )
+        .unwrap();
+        let table = String::from_utf8(buffer).unwrap();
+        assert!(table.contains("126.0  you"), "{table}");
+
+        let mut buffer = Vec::new();
+        write_detail(
+            &mut buffer,
+            &Theme::PLAIN,
+            &path,
+            &track,
+            &options(100),
+            Some(&correction),
+        )
+        .unwrap();
+        let detail = String::from_utf8(buffer).unwrap();
+        assert!(
+            detail.contains("  Tempo          126.0 BPM\n                 set by you\n"),
+            "{detail}"
+        );
+        assert!(
+            !detail.contains("Beat grid"),
+            "a set tempo drops the grid: {detail}"
+        );
+
+        let mut buffer = Vec::new();
+        let with_grid = TrackAnalysis {
+            beat_grid: Some(euphoria_core::BeatGrid {
+                first_downbeat_seconds: 0.4126,
+                bpm: 124.9,
+                salience: 100.0,
+                drift_seconds: None,
+            }),
+            ..analysis(0.02, 0.5)
+        };
+        write_detail(
+            &mut buffer,
+            &Theme::PLAIN,
+            &path,
+            &with_grid,
+            &options(100),
+            None,
+        )
+        .unwrap();
+        let detail = String::from_utf8(buffer).unwrap();
+        assert!(
+            detail.contains("  Beat grid      first downbeat at 0.413 s, 124.90 BPM\n"),
+            "{detail}"
+        );
+    }
+
+    #[test]
     fn the_detail_offers_the_half_or_double_tempo() {
         let mut buffer = Vec::new();
         let mut track = analysis(0.02, 0.5);
@@ -1002,6 +1146,7 @@ music
             Path::new("dnb.flac"),
             &track,
             &options(100),
+            None,
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();

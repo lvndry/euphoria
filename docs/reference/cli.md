@@ -42,7 +42,7 @@ hint: --needs-review lists only the tracks to check by ear.
 hint: --quality weak lists the tracks worth replacing, and --detail says why.
 ```
 
-The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those.
+The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those. A key or tempo you set yourself in the desktop app shows `you` in place of the dots: see [Corrections](#corrections).
 
 Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
@@ -76,7 +76,7 @@ Intro.m4a
   Length         2:00
 ```
 
-One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the tuning, and the key changes when the key changes during the track.
+One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
 
 ### The plain table
 
@@ -89,7 +89,7 @@ Key             BPM  Energy  Conf  Quality   Time  File
 10B  D major  149.8       6  L/H   Weak      2:00  /Users/you/Music/DJ/Intro.m4a
 ```
 
-The Conf column rates the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low. The summary still goes to standard error, so piped output holds only the table.
+The Conf column rates the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low, or `U` for a value you set yourself. The summary still goes to standard error, so piped output holds only the table.
 
 The tuning of a track and its key over time are in the detailed view and the [JSON output](#json-output).
 
@@ -142,7 +142,9 @@ One object per file, in path order, including files that failed:
         "key": { "camelot": "9A", "name": "E minor", "open_key": "2m" }
       }
     ],
+    "beat_grid": { "first_downbeat_seconds": 0.372, "bpm": 170.004, "confidence": "high" },
     "needs_review": false,
+    "set_by_user": [],
     "quality": {
       "codec": "flac",
       "lossless": true,
@@ -170,7 +172,9 @@ One object per file, in path order, including files that failed:
     "energy": null,
     "tuning_cents": null,
     "key_timeline": [],
+    "beat_grid": null,
     "needs_review": null,
+    "set_by_user": [],
     "quality": null,
     "error": "cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found"
   }
@@ -183,11 +187,15 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
 
-`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed.
+`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
+
+`set_by_user` lists the values you [corrected](#corrections), `"key"`, `"bpm"` or both, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown.
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only when that key is clearly stronger over at least three windows with evidence, about 22 seconds of audio. Silent gaps remain empty, but windows in the same key on either side count together toward this minimum. Entering and leaving another key each carry a cost, so a brief change in the middle needs stronger or longer evidence than one at the end. On dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
+
+`beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
@@ -208,7 +216,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 ### Progress and exit status
 
-When standard error is a terminal, each file being analyzed has a line with a spinner and the stage it is in: decoding, with how much is decoded, then finding the tempo, finding the key, rating the energy and checking the quality. After five seconds the line also shows how long the file has taken, so a long track never looks stuck. With more than one file, a bar above the lines counts the finished files and estimates the time left. Files served from the cache get no line. Nothing of this is written when standard error is not a terminal.
+When standard error is a terminal, each file being analyzed has a line with a spinner and the stage it is in: decoding, with how much is decoded, then finding the tempo, finding the key, rating the energy, finding the beat grid and checking the quality. After five seconds the line also shows how long the file has taken, so a long track never looks stuck. With more than one file, a bar above the lines counts the finished files and estimates the time left. Files served from the cache get no line. Nothing of this is written when standard error is not a terminal.
 
 A debug build analyzes many times slower than a release build. When a run of a debug build has taken ten seconds, it says so once on standard error. Release builds never do.
 
@@ -244,6 +252,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
+| `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -263,11 +272,21 @@ Playlists mirror the folders:
 - When one named folder is inside another, each gets its own entry.
 - An entry that would have the same name as an earlier entry beside it gets ` (2)`, ` (3)` and so on after its name.
 
+### Beat grids
+
+With `--beat-grid`, a track whose beat grid is rated medium or high gets it in the file, as its first downbeat and its tempo with two decimals; that tempo is then the track's tempo in the file too. Rounding to two decimals changes the tempo by at most 0.005 BPM, which moves a beat T seconds into the track by at most T × 0.005 / BPM seconds. At the end of a seven minute track, T = 420, that is 2.1 / BPM seconds: 23 ms at 90 BPM, 16 ms at 128 BPM and 12 ms at 180 BPM, or 30 ms at 70 BPM with `--tempo-range 70-140`. A track whose grid is rated low, or that has none, is written without one, and rekordbox draws its own grid when it analyzes the track. A line on standard error says how many tracks got a grid:
+
+```
+Beat grids for 312 of 340 tracks; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them.
+```
+
+**Import To Collection** of a track that is already in your collection replaces its key, tempo and comment with the ones in the file (tested in rekordbox 7.2.19). Expect it to replace a grid you adjusted by hand in rekordbox too; that was not tested. Read [export to rekordbox](../guides/export-to-rekordbox.md#import-into-rekordbox) before importing tracks you have already prepared.
+
 The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written. Without `--force` it only takes a name that is free: a file that another program creates at the output path while the export runs is kept, and the export fails.
 
 ### Output and exit status
 
-Nothing is written to standard output. Standard error gets the progress when it is a terminal, one line saying how many tracks and playlists were exported and where, and the steps to import the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
+Nothing is written to standard output. Standard error gets the progress when it is a terminal, one line saying how many tracks and playlists were exported and where, with `--beat-grid` one line saying how many got a grid, and the steps to import the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
 
 Only a file that could not be analyzed is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
 
@@ -388,6 +407,12 @@ A track is recognised by its content, not by its name or folder:
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.
 
+### Corrections
+
+When you correct a key or a tempo in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
+
+Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction.
+
 ### Where the cache is stored
 
 | System | Location |
@@ -407,7 +432,7 @@ Several `euphoria analyze` and `euphoria export` commands can run at the same ti
 
 ### When the cache cannot be used
 
-The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` and `euphoria export` print a warning on standard error and analyze every file without the cache:
+The cache only saves time, so a problem with it never stops an analysis. If the database cannot be opened or read, for example because the file is damaged, its folder is read only, or it was written by a newer version of Euphoria, `euphoria analyze` prints a warning on standard error and analyzes every file without the cache:
 
 ```
 warning: analyzing without the cache: cannot use the analysis cache at /Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3: file is not a database
@@ -415,6 +440,8 @@ hint: Run `euphoria cache clear` to reset the cache, or pass --no-cache to skip 
 ```
 
 The results and the exit status are the same as with `--no-cache`. Nothing is read from or saved to the cache in that run.
+
+`euphoria tags write` and `euphoria export rekordbox` stop instead, before analyzing anything, and write nothing: the cache may hold keys and tempos you [corrected](#corrections), and the detected values must not replace them without your knowing. Pass `--no-cache` to go on with the detected values, or run `euphoria cache clear` to reset a damaged cache.
 
 ## euphoria cache
 
@@ -427,7 +454,7 @@ euphoria cache <COMMAND>
 | Command | Effect |
 | --- | --- |
 | `path` | Print the location of the cache database. |
-| `clear` | Forget every cached result. Every track is analyzed again on the next run. |
+| `clear` | Forget every cached result. Every track is analyzed again on the next run. [Corrections](#corrections) are kept. |
 
 `clear` empties the database and keeps the file, so it is safe while an analysis is running: that analysis carries on, and the results it saves after the clear are kept. A database that cannot be opened, such as a damaged file, is deleted instead, and the next run creates a new one. Unlike `euphoria analyze` and `euphoria export`, both commands report a problem as an error and exit with status 1.
 

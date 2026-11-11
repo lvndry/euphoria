@@ -53,11 +53,12 @@ impl Recorder {
     }
 }
 
-const ORDER: [AnalysisStage; 5] = [
+const ORDER: [AnalysisStage; 6] = [
     AnalysisStage::Decoding,
     AnalysisStage::Tempo,
     AnalysisStage::Key,
     AnalysisStage::Energy,
+    AnalysisStage::BeatGrid,
     AnalysisStage::Quality,
 ];
 

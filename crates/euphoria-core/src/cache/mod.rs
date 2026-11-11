@@ -52,6 +52,7 @@
 //! each number.
 
 mod batch;
+mod corrections;
 mod identity;
 mod location;
 mod rewritten;
@@ -72,7 +73,7 @@ pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
 pub use single::{CachedAnalysis, CachedAnalyzer};
 
 use crate::analysis::{ANALYZER_VERSION, TrackAnalysis};
-use crate::detect::KeySection;
+use crate::detect::{BeatGrid, KeySection};
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
@@ -82,7 +83,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 5] = [
+const MIGRATIONS: [&str; 7] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -113,6 +114,20 @@ const MIGRATIONS: [&str; 5] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN quality TEXT;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN grid_first_downbeat REAL;
+    ALTER TABLE analyses ADD COLUMN grid_bpm REAL;
+    ALTER TABLE analyses ADD COLUMN grid_salience REAL;
+    ALTER TABLE analyses ADD COLUMN grid_drift REAL;
+",
+    "
+    CREATE TABLE corrections (
+        content_hash BLOB    NOT NULL PRIMARY KEY,
+        key          TEXT,
+        bpm          REAL,
+        corrected_at INTEGER NOT NULL
+    ) WITHOUT ROWID;
 ",
 ];
 
@@ -261,7 +276,8 @@ impl Cache {
             "SELECT content_hash, duration_seconds, key, bpm,
                     last_known_path, file_size, modified_at, energy,
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
-                    tempo_estimate, tempo_score_margin, quality
+                    tempo_estimate, tempo_score_margin, quality,
+                    grid_first_downbeat, grid_bpm, grid_salience, grid_drift
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -284,6 +300,7 @@ impl Cache {
                     tempo_estimate: tempo_in_column(row, 12)?,
                     tempo_score_margin: row.get(13)?,
                     quality: quality_in_column(row, 14)?,
+                    beat_grid: beat_grid_in_columns(row, 15)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -309,6 +326,16 @@ impl Cache {
     }
 
     fn apply_write(&mut self, write: &CacheWrite) -> rusqlite::Result<()> {
+        self.apply_write_then(write, |_| Ok(()))
+    }
+
+    /// Applies `write` and then `then`, in one transaction: both are kept
+    /// or neither is.
+    fn apply_write_then(
+        &mut self,
+        write: &CacheWrite,
+        then: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+    ) -> rusqlite::Result<()> {
         let (content_hash, location) = match write {
             CacheWrite::Store {
                 content_hash,
@@ -337,9 +364,10 @@ impl Cache {
                      content_hash, duration_seconds, key, bpm, analyzer_version,
                      analyzed_at, last_known_path, file_size, modified_at,
                      energy, energy_model_version, tuning_cents, key_timeline,
-                     key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality
+                     key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality,
+                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17, ?18)",
+                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -359,6 +387,10 @@ impl Cache {
                     analysis.tempo_estimate,
                     analysis.tempo_score_margin,
                     quality_text(analysis.quality.as_ref()),
+                    analysis.beat_grid.map(|grid| grid.first_downbeat_seconds),
+                    analysis.beat_grid.map(|grid| grid.bpm),
+                    analysis.beat_grid.map(|grid| grid.salience),
+                    analysis.beat_grid.and_then(|grid| grid.drift_seconds),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -373,6 +405,7 @@ impl Cache {
                 ],
             )?,
         };
+        then(&transaction)?;
         transaction.commit()
     }
 
@@ -511,6 +544,60 @@ fn tempo_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<f32>
         Type::Real,
         format!("tempo estimate {stored} is not a positive number").into(),
     ))
+}
+
+/// A stored beat grid, from four columns starting at `first_column`: the
+/// first downbeat, the tempo, the salience and the drift. `None` when the
+/// tempo is null, as for a track without a grid.
+/// The beat grid stored in four columns from `first_column`: the first
+/// downbeat, the tempo, the salience and the drift. All four are null for a
+/// track without a grid. A grid has the first three; the drift is null when
+/// the track had too few stretches with clear beats to measure it. Any other
+/// mix of null columns is a damaged row.
+fn beat_grid_in_columns(row: &Row<'_>, first_column: usize) -> rusqlite::Result<Option<BeatGrid>> {
+    let first_downbeat_seconds: Option<f64> = row.get(first_column)?;
+    let bpm: Option<f64> = row.get(first_column + 1)?;
+    let salience: Option<f32> = row.get(first_column + 2)?;
+    let drift_seconds: Option<f32> = row.get(first_column + 3)?;
+    let damaged = |problem: String| {
+        rusqlite::Error::FromSqlConversionFailure(first_column, Type::Real, problem.into())
+    };
+    let (Some(first_downbeat_seconds), Some(bpm), Some(salience)) =
+        (first_downbeat_seconds, bpm, salience)
+    else {
+        if first_downbeat_seconds.is_none()
+            && bpm.is_none()
+            && salience.is_none()
+            && drift_seconds.is_none()
+        {
+            return Ok(None);
+        }
+        return Err(damaged(format!(
+            "beat grid with first downbeat {first_downbeat_seconds:?}, tempo {bpm:?}, \
+             salience {salience:?} and drift {drift_seconds:?} is only partly stored"
+        )));
+    };
+    let grid = BeatGrid {
+        first_downbeat_seconds,
+        bpm,
+        salience,
+        drift_seconds,
+    };
+    let usable = grid.bpm.is_finite()
+        && grid.bpm > 0.0
+        && grid.first_downbeat_seconds.is_finite()
+        && grid.first_downbeat_seconds >= 0.0
+        && grid.salience.is_finite()
+        && grid
+            .drift_seconds
+            .is_none_or(|drift| drift.is_finite() && drift >= 0.0);
+    if usable {
+        Ok(Some(grid))
+    } else {
+        Err(damaged(format!(
+            "beat grid at {first_downbeat_seconds} seconds and {bpm} BPM is not a usable grid"
+        )))
+    }
 }
 
 fn energy_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
@@ -804,6 +891,12 @@ mod tests {
             key_score_margin: Some(0.012_5),
             tempo_estimate: Some(63.99),
             tempo_score_margin: Some(0.47),
+            beat_grid: Some(BeatGrid {
+                first_downbeat_seconds: 0.371_25,
+                bpm: 127.993_75,
+                salience: 11.5,
+                drift_seconds: Some(0.012_5),
+            }),
             key_timeline: vec![
                 KeySection {
                     start_seconds: 0.0,
@@ -880,7 +973,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -899,7 +992,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1104,7 +1197,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1127,7 +1220,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1153,7 +1246,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1165,6 +1258,135 @@ mod tests {
     }
 
     #[test]
+    fn a_damaged_beat_grid_is_an_error_and_not_a_panic() {
+        for (first_downbeat, bpm, salience, drift) in [
+            ("0.2", "0.0", "10.0", "NULL"),
+            ("0.2", "-128.0", "10.0", "NULL"),
+            ("-0.5", "128.0", "10.0", "NULL"),
+            ("0.2", "128.0", "10.0", "-0.01"),
+            ("NULL", "128.0", "10.0", "NULL"),
+            ("0.2", "NULL", "10.0", "0.01"),
+            ("0.2", "128.0", "NULL", "NULL"),
+            ("NULL", "NULL", "NULL", "0.01"),
+        ] {
+            let folder = TemporaryFolder::new();
+            let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache
+                .connection
+                .execute(
+                    &format!(
+                        "INSERT INTO analyses
+                         VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                                 NULL, NULL, NULL, NULL, NULL,
+                                 {first_downbeat}, {bpm}, {salience}, {drift})"
+                    ),
+                    params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+                )
+                .unwrap();
+
+            let description = cache.snapshot().unwrap_err().chain();
+
+            assert!(
+                description.contains("is not a usable grid")
+                    || description.contains("is only partly stored"),
+                "{bpm} BPM from {first_downbeat}: {description}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_track_without_a_grid_reads_back_without_one() {
+        let folder = TemporaryFolder::new();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+
+        let snapshot = cache.snapshot().unwrap();
+
+        let stored = snapshot.analyses.values().next().unwrap();
+        assert_eq!(stored.beat_grid, None);
+    }
+
+    #[test]
+    fn a_version_6_database_gains_corrections_and_keeps_its_analyses_current() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..6] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 6).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, 124.0, 0.5, NULL, NULL, NULL, NULL, NULL)",
+                params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+        drop(connection);
+
+        let cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 7);
+        let snapshot = cache.snapshot().unwrap();
+        assert_eq!(
+            snapshot.analyses.len(),
+            1,
+            "corrections need no new analysis: the analyzer version is unchanged"
+        );
+        let corrections: i64 = cache
+            .connection
+            .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(corrections, 0);
+    }
+
+    #[test]
+    fn a_version_5_database_upgrades_in_place_and_its_rows_are_analyzed_again() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..5] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 5).unwrap();
+        let version_5_analyzer = "7+libkeyfinder";
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, 62.0, 0.5, NULL)",
+                params![[7u8; 32], version_5_analyzer, ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(cache.entry_count().unwrap(), 1);
+        assert_ne!(ANALYZER_VERSION, version_5_analyzer);
+        assert!(
+            cache.snapshot().unwrap().analyses.is_empty(),
+            "an analysis from before the beat grid must not be served"
+        );
+        cache.analyzer_version = version_5_analyzer.to_string();
+        let snapshot = cache.snapshot().unwrap();
+        let stored = snapshot.analyses.values().next().unwrap();
+        assert_eq!(stored.key, Some("A minor".parse().unwrap()));
+        assert_eq!(stored.beat_grid, None);
+    }
+
+    #[test]
     fn a_damaged_quality_report_is_an_error_and_not_a_panic() {
         let folder = TemporaryFolder::new();
         let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
@@ -1172,7 +1394,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}')",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], ANALYZER_VERSION, ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1294,6 +1516,7 @@ mod tests {
                     key_score_margin: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    beat_grid: None,
                     key_timeline: Vec::new(),
                     quality: None,
                 },

@@ -186,6 +186,114 @@ fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
     batch
 }
 
+/// The corrections users set, by file, for the files of `results` that
+/// have one. Nothing is read without a cache, with `--no-cache`, or when no
+/// file was ever corrected; a cache that cannot be read gives none.
+///
+/// With [`CorrectionCheck::Quick`] a correction that cannot be looked up is
+/// left out, so the detected values are shown. With
+/// [`CorrectionCheck::ReadFile`] the file is marked as unchecked instead,
+/// and [`corrected`] turns it into a failure so it is not written or
+/// exported with values the user may have replaced. A cache that cannot be
+/// opened at all gives none, as with `--no-cache`: the analysis already
+/// warned that it runs without the cache.
+pub fn corrections(
+    results: &[euphoria_core::FileResult],
+    options: &AnalysisOptions,
+    check: CorrectionCheck,
+) -> Result<Corrections> {
+    if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
+        return Ok(Corrections::new());
+    }
+    let analyzed = results.iter().filter(|result| result.outcome.is_ok());
+    let cache = match (open_cache(), check) {
+        (Ok(cache), _) => cache,
+        // Showing goes on with the detected values; the analysis already
+        // warned that it ran without the cache.
+        (Err(_), CorrectionCheck::Quick) => return Ok(Corrections::new()),
+        (Err(error), CorrectionCheck::ReadFile) => return Err(corrections_unreadable(&error)),
+    };
+    Ok(analyzed
+        .filter_map(|result| {
+            let looked_up = match check {
+                CorrectionCheck::Quick => cache.correction_for(&result.path),
+                CorrectionCheck::ReadFile => cache.verified_correction_for(&result.path),
+            };
+            match (looked_up, check) {
+                (Ok(correction), _) => {
+                    correction.map(|correction| (result.path.clone(), Ok(correction)))
+                }
+                (Err(_), CorrectionCheck::Quick) => None,
+                (Err(error), CorrectionCheck::ReadFile) => {
+                    Some((result.path.clone(), Err(error.chain())))
+                }
+            }
+        })
+        .collect())
+}
+
+/// Stops a tag write or an export before it starts when the cache exists
+/// but cannot be opened: it may hold keys and tempos the user set, and the
+/// detected values must not be written over them unknowingly.
+pub fn require_readable_corrections(options: &AnalysisOptions) -> Result<()> {
+    if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
+        return Ok(());
+    }
+    open_cache()
+        .map(|_| ())
+        .map_err(|error| corrections_unreadable(&error))
+}
+
+fn corrections_unreadable(error: &EuphoriaError) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{}, so the keys and tempos set in the desktop app cannot be read. Nothing was written. \
+         Pass --no-cache to go on with the detected values instead.",
+        error.chain()
+    )
+}
+
+/// How sure to be that a correction belongs to the file it is applied to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorrectionCheck {
+    /// Trust a file at its recorded path with its recorded size and
+    /// modification time, as the analysis cache does: enough for showing.
+    Quick,
+    /// Read the file to be sure, before values go into tags or another
+    /// program's library.
+    ReadFile,
+}
+
+/// The corrections of a batch, by file, or why a file's could not be
+/// checked.
+pub type Corrections =
+    std::collections::HashMap<PathBuf, Result<euphoria_core::Correction, String>>;
+
+/// The results of a batch with every correction in place of the detected
+/// key and tempo.
+pub fn corrected(
+    results: Vec<euphoria_core::FileResult>,
+    corrections: &Corrections,
+) -> Vec<euphoria_core::FileResult> {
+    results
+        .into_iter()
+        .map(|mut result| {
+            match (&mut result.outcome, corrections.get(&result.path)) {
+                (Ok(analysis), Some(Ok(correction))) => {
+                    *analysis = correction.apply(analysis.clone());
+                }
+                (Ok(_), Some(Err(reason))) => {
+                    result.outcome = Err(EuphoriaError::CorrectionUnchecked {
+                        path: result.path.clone(),
+                        source: reason.clone().into(),
+                    });
+                }
+                _ => {}
+            }
+            result
+        })
+        .collect()
+}
+
 /// Opens the analysis cache in the data folder.
 pub fn open_cache() -> Result<Cache, EuphoriaError> {
     Cache::open(&default_cache_path()?)

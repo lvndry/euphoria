@@ -38,8 +38,9 @@ pub(crate) struct FinishedFile {
 pub(crate) enum AnalysisEvent {
     /// A worker took the file out of the queue and is analyzing it.
     Started(PathBuf),
-    /// The file's analysis ended, with a result or a failure.
-    Finished(FinishedFile),
+    /// The file's analysis ended, with a result or a failure. Boxed, as an
+    /// analysis is far larger than a path.
+    Finished(Box<FinishedFile>),
 }
 
 /// Tells the workers to stop and reports when they have.
@@ -138,7 +139,7 @@ impl AnalysisWorkers {
                 // nobody is left to show the progress or the result to.
                 let _ = event_sender.send(AnalysisEvent::Started(path.clone()));
                 let finished_file = analyze(path, cache.as_deref());
-                let _ = event_sender.send(AnalysisEvent::Finished(finished_file));
+                let _ = event_sender.send(AnalysisEvent::Finished(Box::new(finished_file)));
                 stop_signal.finish_file();
             });
         }

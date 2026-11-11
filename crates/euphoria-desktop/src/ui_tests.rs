@@ -19,7 +19,7 @@ use crate::columns::ColumnId;
 use crate::demo::{self, DemoTrack};
 use crate::library::{SortColumn, SortOrder};
 use crate::panels::Panels;
-use crate::playback::testing::{NoOutput, SilentOutput};
+use crate::playback::testing::{ListeningOutput, NoOutput, SilentOutput};
 use crate::playback::{AudioOutput, PlaybackProblem};
 use crate::player::{PlayerRequest, PlayerStatus};
 use crate::settings::{FolderTreeMemory, Settings};
@@ -78,6 +78,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
             key_timeline: Vec::new(),
             quality: None,
         }),
@@ -1136,6 +1137,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_score_margin: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                beat_grid: None,
                 key_timeline: Vec::new(),
                 quality: None,
             })
@@ -1817,6 +1819,7 @@ fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
         .map(|path| tag_writing::WriteTarget {
             path: path.clone(),
             analysis: Some(tag_testing::analysis()),
+            correction: euphoria_core::Correction::default(),
         })
         .collect();
     let planned = tag_writing::plan_writes(&targets, &TagSettings::default().write_options());
@@ -2396,6 +2399,7 @@ fn track_changing_key() -> DemoTrack {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
             key_timeline: vec![
                 euphoria_core::KeySection {
                     start_seconds: 0.0,
@@ -2669,6 +2673,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_score_margin: Some(key_margin),
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
+        beat_grid: None,
     }
 }
 
@@ -2884,4 +2889,280 @@ fn custom_starts_from_the_preset_in_use_so_editing_one_field_keeps_the_other(
 
     click(window, ("tempo-preset", 2_usize), cx);
     assert_eq!(typed(&view, cx), ("120".to_string(), "200".to_string()));
+}
+
+/// The tracks to review, with an output that notes every reference sound.
+fn open_tracks_to_check_by_ear(
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>, ListeningOutput) {
+    let output = ListeningOutput::default();
+    let (window, view) = open_window_with(
+        tracks_to_review(),
+        Box::new(output.clone()),
+        Settings::default(),
+        None,
+        USUAL_WINDOW,
+        cx,
+    );
+    (window, view, output)
+}
+
+fn selected_key_and_bpm(
+    view: &Entity<EuphoriaApp>,
+    cx: &mut TestAppContext,
+) -> (Option<String>, Option<f32>) {
+    cx.update(|cx| {
+        let track = view.read(cx).selected_track().unwrap();
+        (track.key().map(|key| key.camelot()), track.bpm())
+    })
+}
+
+fn is_shown(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) -> bool {
+    let id = id.into();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.try_find(id).is_some()
+    })
+    .unwrap()
+}
+
+#[gpui::test]
+fn a_click_takes_the_runner_up_key_and_another_resets_it(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
+
+    click(window, "runner-up-key", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("9A"));
+    assert!(is_shown(window, "key-set-by-you", cx));
+    assert!(!is_shown(window, "key-confidence", cx));
+    assert!(
+        !is_shown(window, "runner-up-key", cx),
+        "the runner up is the key now"
+    );
+    cx.update(|cx| {
+        let correction = view.read(cx).selected_track().unwrap().correction;
+        assert_eq!(
+            correction.key.map(|key| key.camelot()).as_deref(),
+            Some("9A")
+        );
+        assert_eq!(correction.bpm, None);
+    });
+
+    click(window, "key-reset", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
+    assert!(is_shown(window, "runner-up-key", cx));
+    assert!(is_shown(window, "key-confidence", cx));
+}
+
+#[gpui::test]
+fn a_click_takes_the_other_tempo_and_the_track_leaves_needs_review(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    let needs_review =
+        |cx: &mut TestAppContext| cx.update(|cx| view.read(cx).sidebar_counts().needs_review);
+    assert_eq!(needs_review(cx), 2);
+    click(window, track(2), cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(174.0));
+
+    click(window, "tempo-alternative", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(87.0));
+    assert_eq!(needs_review(cx), 1);
+    assert!(is_shown(window, "tempo-set-by-you", cx));
+    assert!(!is_shown(window, "tempo-alternative", cx));
+
+    click(window, "needs-review", cx);
+    assert_eq!(shown_titles(&view, cx), ["broken.mp3"]);
+    click(window, "all-tracks", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.select(2, cx)));
+
+    click(window, "tempo-reset", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(174.0));
+    assert_eq!(needs_review(cx), 2);
+}
+
+#[gpui::test]
+fn the_key_is_picked_and_the_tempo_typed_by_hand(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    assert!(!is_shown(window, ("pick-key", 0_usize), cx));
+    click(window, "edit-values", cx);
+    let typed = cx.update(|cx| view.read(cx).bpm_input.read(cx).value().to_string());
+    assert_eq!(typed, "124.0", "the field starts from the tempo on show");
+
+    click(window, ("pick-key", 13_usize), cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("2B"));
+
+    retype(window, "bpm-field", "128,5", cx);
+    cx.update_window(window, |_, window, cx| window.press("enter", cx))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(128.5));
+
+    retype(window, "bpm-field", "fast", cx);
+    click(window, "set-bpm", cx);
+    assert!(is_shown(window, "bpm-problem", cx));
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(128.5));
+
+    click(window, "edit-values", cx);
+    assert!(!is_shown(window, ("pick-key", 0_usize), cx));
+    assert!(is_shown(window, "tempo-set-by-you", cx));
+}
+
+#[gpui::test]
+fn a_correction_wins_in_the_mixes_and_the_tags_to_write(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    let mixed_keys = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            app.mixes
+                .iter()
+                .map(|mix| {
+                    let track = app.session.library().track(mix.track_index).unwrap();
+                    track.key().map(|key| key.camelot())
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    assert!(!mixed_keys(cx).contains(&Some("9A".to_string())));
+    click(window, track(1), cx);
+    click(window, "runner-up-key", cx);
+    click(window, track(0), cx);
+    let after = mixed_keys(cx);
+    assert!(after.contains(&Some("9A".to_string())), "{after:?}");
+
+    let target = cx.update(|cx| {
+        let track = view.read(cx).session.library().track(1).unwrap();
+        tag_writing::WriteTarget {
+            path: track.path.clone(),
+            analysis: track.analysis().cloned(),
+            correction: track.correction,
+        }
+    });
+    let written = target.correction.apply(target.analysis.clone().unwrap());
+    assert_eq!(written.key.map(|key| key.camelot()).as_deref(), Some("9A"));
+    assert_eq!(
+        target
+            .analysis
+            .unwrap()
+            .key
+            .map(|key| key.camelot())
+            .as_deref(),
+        Some("8A"),
+        "the cache keeps what was detected"
+    );
+}
+
+#[gpui::test]
+fn the_tones_play_over_the_track_one_at_a_time_and_stop(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    let sounding = output.sounding();
+    assert_eq!(sounding.len(), 1);
+    assert!(sounding[0].is_drone);
+    assert!((sounding[0].frequencies[1] - 220.0).abs() < 0.01, "A minor");
+
+    click(window, ("tone", 1_usize), cx);
+    let sounding = output.sounding();
+    assert_eq!(sounding.len(), 1, "one tone at a time");
+    assert!(
+        (sounding[0].frequencies[1] - 164.81).abs() < 0.01,
+        "the runner up, E minor"
+    );
+
+    click(window, ("tone", 1_usize), cx);
+    assert!(output.sounding().is_empty(), "a second click stops it");
+
+    click(window, ("tone", 0_usize), cx);
+    assert_eq!(output.sounding().len(), 1);
+    click(window, track(2), cx);
+    assert!(
+        output.sounding().is_empty(),
+        "another track has its own key"
+    );
+}
+
+#[gpui::test]
+fn taking_another_key_stops_the_drone_of_the_old_one(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    assert_eq!(output.sounding().len(), 1);
+    click(window, "runner-up-key", cx);
+    assert!(output.sounding().is_empty(), "the drone was of the old key");
+
+    click(window, ("tone", 0_usize), cx);
+    let sounding = output.sounding();
+    assert_eq!(sounding.len(), 1, "the tone button plays the new key");
+    assert!(
+        (sounding[0].frequencies[1] - 164.81).abs() < 0.01,
+        "E minor"
+    );
+    click(window, "key-reset", cx);
+    assert!(output.sounding().is_empty());
+}
+
+#[gpui::test]
+fn the_piano_plays_its_notes_and_the_volume_has_steps(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, ("piano-key", 9_usize), cx);
+    click(window, ("piano-key", 1_usize), cx);
+    let heard = output.heard();
+    assert_eq!(heard.len(), 2);
+    assert!(heard.iter().all(|sound| !sound.is_drone));
+    assert!((heard[0].frequencies[0] - 440.0).abs() < 0.01);
+    assert!((heard[1].frequencies[0] - 277.18).abs() < 0.01);
+
+    click(window, ("reference-level", 1_usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).by_ear.level_step(), 1));
+    click(window, ("reference-level", 5_usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).by_ear.level_step(), 5));
+}
+
+#[gpui::test]
+fn a_tone_without_an_audio_output_says_so(cx: &mut TestAppContext) {
+    let (window, view) = open_window_with(
+        tracks_to_review(),
+        Box::new(NoOutput),
+        Settings::default(),
+        None,
+        USUAL_WINDOW,
+        cx,
+    );
+    click(window, ("tone", 0_usize), cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.by_ear.drone_key(), None);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some(PlaybackProblem::NoOutput.message())
+        );
+    });
+}
+
+#[gpui::test]
+fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut TestAppContext) {
+    let (window, view) =
+        open_track_changing_key(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    assert!(is_shown(window, "key-timeline", cx));
+    let detected = cx.update(|cx| {
+        view.read(cx)
+            .selected_track()
+            .unwrap()
+            .detected_key()
+            .unwrap()
+    });
+    let other = euphoria_core::Key::new((detected.tonic() + 1) % 12, detected.mode());
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_key(other, cx)));
+    assert!(!is_shown(window, "key-timeline", cx));
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_key(detected, cx)));
+    assert!(
+        !is_shown(window, "key-timeline", cx),
+        "a correction to the detected key is still the user's"
+    );
+    cx.update(|cx| view.update(cx, |app, cx| app.reset_key(cx)));
+    assert!(is_shown(window, "key-timeline", cx));
 }

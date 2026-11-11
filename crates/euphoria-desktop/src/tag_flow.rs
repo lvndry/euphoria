@@ -20,6 +20,51 @@ use crate::tag_writing::{
     undo_last, write_plans,
 };
 
+/// The targets with their corrections checked against the whole file, since
+/// the values are about to go into the file's tags: a file replaced by other
+/// audio of the same size and modification time loses a correction that was
+/// never meant for it, and one corrected since the library was read gets
+/// its correction. A correction made in this session and still on its way
+/// to the cache is the user's own and is kept. A file whose correction
+/// cannot be checked is left out, with the reason, rather than written with
+/// values the user may have replaced. The cache reads no file while no
+/// track was ever corrected.
+fn verified_corrections(
+    targets: Vec<WriteTarget>,
+    cache: Option<&euphoria_core::CachedAnalyzer>,
+    writer: &crate::key_by_ear::CorrectionWriter,
+) -> (Vec<WriteTarget>, Vec<LeftOut>) {
+    let Some(cache) = cache else {
+        return (targets, Vec::new());
+    };
+    let mut checked = Vec::with_capacity(targets.len());
+    let mut left_out = Vec::new();
+    for mut target in targets {
+        if let Some(latest) = writer.pending(&target.path) {
+            // Made after the target was taken, perhaps, and not kept yet:
+            // the user's latest word on this file.
+            target.correction = latest;
+        } else if target.analysis.is_some() {
+            match cache.verified_correction_for(&target.path) {
+                Ok(correction) => target.correction = correction.unwrap_or_default(),
+                Err(error) => {
+                    left_out.push(LeftOut {
+                        reason: euphoria_core::EuphoriaError::CorrectionUnchecked {
+                            path: target.path.clone(),
+                            source: error.chain().into(),
+                        }
+                        .chain(),
+                        path: target.path,
+                    });
+                    continue;
+                }
+            }
+        }
+        checked.push(target);
+    }
+    (checked, left_out)
+}
+
 /// How often the progress of a write is shown.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -133,6 +178,7 @@ impl EuphoriaApp {
             .map(|track| WriteTarget {
                 path: track.path.clone(),
                 analysis: track.analysis().cloned(),
+                correction: track.correction,
             })
             .collect();
         let settings = self.tag_settings;
@@ -140,10 +186,18 @@ impl EuphoriaApp {
         let generation = self.tag_task_generation;
         self.tag_panel = Some(TagPanel::Planning(scope));
         cx.notify();
+        let cache = self.session.cache();
+        let writer = self.by_ear.correction_writer.clone();
         cx.spawn(async move |this, cx| {
             let planned = cx
                 .background_executor()
-                .spawn(async move { plan_writes(&targets, &settings.write_options()) })
+                .spawn(async move {
+                    let (targets, unchecked) =
+                        verified_corrections(targets, cache.as_deref(), &writer);
+                    let mut planned = plan_writes(&targets, &settings.write_options());
+                    planned.failures.extend(unchecked);
+                    planned
+                })
                 .await;
             this.update(cx, |this, cx| {
                 if this.tag_task_generation != generation {
@@ -316,5 +370,102 @@ impl EuphoriaApp {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use euphoria_core::{Cache, CachedAnalyzer, Correction, Key, Mode};
+
+    use super::*;
+    use crate::key_by_ear::CorrectionWriter;
+    use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
+
+    #[test]
+    fn a_correction_goes_into_tags_only_for_the_file_it_was_made_for() {
+        let scratch = ScratchFolder::new("verified-corrections");
+        let track = scratch.0.join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = Cache::open(&scratch.0.join("cache.sqlite3")).unwrap();
+        cache
+            .record_retagged_file(&track, &tag_testing::analysis())
+            .unwrap();
+        let correction = Correction::of_key(Key::new(4, Mode::Minor));
+        cache.set_correction(&track, &correction).unwrap();
+        let cache = CachedAnalyzer::new(cache).unwrap();
+        let target = || {
+            vec![WriteTarget {
+                path: track.clone(),
+                analysis: Some(tag_testing::analysis()),
+                correction,
+            }]
+        };
+        let writer = CorrectionWriter::default();
+        assert_eq!(
+            verified_corrections(target(), Some(&cache), &writer).0[0].correction,
+            correction
+        );
+
+        let modified = std::fs::metadata(&track).unwrap().modified().unwrap();
+        std::fs::write(&track, b"other").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&track)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert!(
+            verified_corrections(target(), Some(&cache), &writer).0[0]
+                .correction
+                .is_empty(),
+            "other audio of the same size and time is not the corrected file"
+        );
+
+        writer.queue(&track, correction);
+        assert_eq!(
+            verified_corrections(target(), Some(&cache), &writer).0[0].correction,
+            correction,
+            "a correction just made for the file as it is now is kept"
+        );
+        let newer = Correction::of_key(Key::new(9, Mode::Minor));
+        writer.queue(&track, newer);
+        assert_eq!(
+            verified_corrections(target(), Some(&cache), &writer).0[0].correction,
+            newer,
+            "an edit made after the target was taken wins over the one it holds"
+        );
+
+        let empty = || {
+            vec![WriteTarget {
+                path: track.clone(),
+                analysis: Some(tag_testing::analysis()),
+                correction: Correction::default(),
+            }]
+        };
+        std::fs::write(&track, b"audio").unwrap();
+        let fresh_writer = CorrectionWriter::default();
+        assert_eq!(
+            verified_corrections(empty(), Some(&cache), &fresh_writer).0[0].correction,
+            correction,
+            "a correction the library had not loaded is found by content"
+        );
+
+        let mut unreadable = std::fs::metadata(&track).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut unreadable, 0o000);
+        std::fs::set_permissions(&track, unreadable).unwrap();
+        let (checked, left_out) = verified_corrections(empty(), Some(&cache), &fresh_writer);
+        let mut readable = std::fs::metadata(&track).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut readable, 0o644);
+        std::fs::set_permissions(&track, readable).unwrap();
+        assert!(
+            checked.is_empty(),
+            "nothing is written with the detected values"
+        );
+        assert_eq!(left_out.len(), 1);
+        assert!(
+            left_out[0].reason.contains("was corrected"),
+            "{}",
+            left_out[0].reason
+        );
     }
 }

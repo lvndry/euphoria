@@ -13,11 +13,12 @@ use std::path::{Path, PathBuf};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
-    Confidence, EuphoriaError, FileResult, Key, KeySection, SUPPORTED_EXTENSIONS, SkippedTrack,
-    TempoRange, UnreadTags,
+    BeatGrid, Confidence, Correction, EuphoriaError, FileResult, Key, KeySection,
+    SUPPORTED_EXTENSIONS, SkippedTrack, TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
+use crate::batch::Corrections;
 use crate::style::Theme;
 use crate::tags::Failure;
 use crate::terminal::Printable;
@@ -94,9 +95,30 @@ struct JsonTrack<'result> {
     energy: Option<u8>,
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
+    beat_grid: Option<JsonBeatGrid>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
+    /// The values the user set by hand, which replace the detected ones:
+    /// "key", "bpm" or both.
+    set_by_user: Vec<&'static str>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonBeatGrid {
+    first_downbeat_seconds: f64,
+    bpm: f64,
+    confidence: &'static str,
+}
+
+impl From<BeatGrid> for JsonBeatGrid {
+    fn from(grid: BeatGrid) -> Self {
+        Self {
+            first_downbeat_seconds: round_to_thousandths(grid.first_downbeat_seconds),
+            bpm: round_to_thousandths(grid.bpm),
+            confidence: grid.confidence().as_str(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -168,6 +190,7 @@ pub fn write_json(
     writer: &mut impl Write,
     results: &[FileResult],
     range: TempoRange,
+    corrections: &Corrections,
 ) -> io::Result<()> {
     let tracks: Vec<JsonTrack<'_>> = results
         .iter()
@@ -192,8 +215,14 @@ pub fn write_json(
                     .iter()
                     .map(JsonKeySection::from)
                     .collect(),
+                beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
                 quality: analysis.quality.as_ref().map(JsonQuality::from),
                 needs_review: Some(analysis.needs_review()),
+                set_by_user: set_by_user(
+                    corrections
+                        .get(&result.path)
+                        .and_then(|looked_up| looked_up.as_ref().ok()),
+                ),
                 error: None,
             },
             Err(error) => JsonTrack {
@@ -207,8 +236,10 @@ pub fn write_json(
                 energy: None,
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                beat_grid: None,
                 quality: None,
                 needs_review: None,
+                set_by_user: Vec::new(),
                 error: Some(error.chain()),
             },
         })
@@ -217,11 +248,31 @@ pub fn write_json(
     writeln!(writer)
 }
 
+/// The values of `correction` the user set, as JSON names them.
+fn set_by_user(correction: Option<&Correction>) -> Vec<&'static str> {
+    let Some(correction) = correction else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    if correction.key.is_some() {
+        names.push("key");
+    }
+    if correction.bpm.is_some() {
+        names.push("bpm");
+    }
+    names
+}
+
 /// Writes the table that goes into pipes and files, with the same columns
 /// whatever the width, so that scripts can read it. The Conf column holds
 /// the confidence of the key and of the tempo, each as H, M or L for high,
-/// medium or low. A terminal gets the table of [`crate::view`] instead.
-pub fn write_plain_table(writer: &mut impl Write, results: &[FileResult]) -> io::Result<()> {
+/// medium or low, or U for a value the user set. A terminal gets the table
+/// of [`crate::view`] instead.
+pub fn write_plain_table(
+    writer: &mut impl Write,
+    results: &[FileResult],
+    corrections: &Corrections,
+) -> io::Result<()> {
     let header = [
         "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
     ];
@@ -229,6 +280,17 @@ pub fn write_plain_table(writer: &mut impl Write, results: &[FileResult]) -> io:
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
+            let correction = corrections
+                .get(&result.path)
+                .and_then(|looked_up| looked_up.as_ref().ok());
+            let key_letter = match correction.and_then(|correction| correction.key) {
+                Some(_) => "U",
+                None => confidence_letter(analysis.key_confidence()),
+            };
+            let tempo_letter = match correction.and_then(|correction| correction.bpm) {
+                Some(_) => "U",
+                None => confidence_letter(analysis.tempo_confidence()),
+            };
             Some([
                 analysis
                     .key
@@ -243,11 +305,7 @@ pub fn write_plain_table(writer: &mut impl Write, results: &[FileResult]) -> io:
                     .energy
                     .map(|energy| energy.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                format!(
-                    "{}/{}",
-                    confidence_letter(analysis.key_confidence()),
-                    confidence_letter(analysis.tempo_confidence())
-                ),
+                format!("{key_letter}/{tempo_letter}"),
                 analysis
                     .quality
                     .as_ref()
@@ -575,6 +633,27 @@ pub fn write_export_summary(
     writeln!(writer)
 }
 
+/// Writes how many exported tracks got a beat grid, and why the others did
+/// not.
+pub fn write_beat_grid_summary(
+    writer: &mut impl Write,
+    with_grid: usize,
+    track_count: usize,
+) -> io::Result<()> {
+    write!(
+        writer,
+        "Beat grids for {with_grid} of {}",
+        counted(track_count, "track", "tracks")
+    )?;
+    if with_grid < track_count {
+        write!(
+            writer,
+            "; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them"
+        )?;
+    }
+    writeln!(writer, ".")
+}
+
 /// The steps to bring an exported file into rekordbox.
 pub const REKORDBOX_IMPORT_STEPS: [&str; 3] = [
     "Preferences > View > Layout: tick rekordbox xml.",
@@ -795,6 +874,16 @@ fn counted(count: usize, singular: &str, plural: &str) -> String {
     format!("{count} {noun}")
 }
 
+/// A time or tempo to a thousandth, which is a millisecond for times.
+fn round_to_thousandths(value: f64) -> f64 {
+    let scaled = value * 1_000.0;
+    if scaled.is_finite() {
+        scaled.round() / 1_000.0
+    } else {
+        value
+    }
+}
+
 fn round_to_tenths(value: f32) -> f32 {
     let scaled = value * 10.0;
     if scaled.is_finite() {
@@ -844,6 +933,7 @@ mod tests {
                     key_score_margin: Some(0.02),
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
+                    beat_grid: None,
                     key_timeline: vec![
                         KeySection {
                             start_seconds: 0.0,
@@ -871,6 +961,7 @@ mod tests {
                     key_score_margin: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    beat_grid: None,
                     key_timeline: Vec::new(),
                     quality: None,
                 }),
@@ -889,7 +980,7 @@ mod tests {
     }
 
     fn write_json_in_default_range(writer: &mut Vec<u8>, results: &[FileResult]) -> io::Result<()> {
-        write_json(writer, results, TempoRange::DEFAULT)
+        write_json(writer, results, TempoRange::DEFAULT, &Corrections::new())
     }
 
     fn summary(results: &[FileResult], narrowing: &Narrowing) -> String {
@@ -914,7 +1005,30 @@ Key             BPM  Energy  Conf  Quality  Time  File
 8A   A minor  170.0       7  H/L   Weak     6:48  music/low tide.flac
 -                 -       -  -/-   -        1:00  music/intro.wav
 ";
-        assert_eq!(render(write_plain_table), expected);
+        assert_eq!(
+            render(|writer, results| write_plain_table(writer, results, &Corrections::new())),
+            expected
+        );
+    }
+
+    #[test]
+    fn values_the_user_set_are_marked_in_the_table_and_the_json() {
+        let results = sample_results();
+        let mut corrections = Corrections::new();
+        corrections.insert(
+            results[0].path.clone(),
+            Ok(Correction::of_bpm(85.0).unwrap()),
+        );
+        let mut table = Vec::new();
+        write_plain_table(&mut table, &results, &corrections).unwrap();
+        let table = String::from_utf8(table).unwrap();
+        assert!(table.contains("H/U"), "{table}");
+
+        let mut json = Vec::new();
+        write_json(&mut json, &results, TempoRange::DEFAULT, &corrections).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(json[0]["set_by_user"], serde_json::json!(["bpm"]));
+        assert_eq!(json[1]["set_by_user"], serde_json::json!([]));
     }
 
     #[test]

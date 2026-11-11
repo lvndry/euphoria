@@ -34,6 +34,29 @@ cargo build --release
 ./target/release/euphoria analyze ~/Music
 ```
 
+## The macOS app and disk image
+
+`scripts/bundle-macos.sh` builds the desktop app in release mode and packages it:
+
+```
+./scripts/bundle-macos.sh               # Euphoria.app and Euphoria-<version>.dmg
+./scripts/bundle-macos.sh --no-dmg      # the app only
+./scripts/bundle-macos.sh --skip-build  # package the binary already in target/release
+```
+
+What it does, in order:
+
+1. Copies the `euphoria-desktop` binary to `Euphoria.app/Contents/MacOS/Euphoria`.
+2. Copies every library the binary needs from outside macOS, libkeyfinder and FFTW from Homebrew, into `Contents/Frameworks`, and the libraries those need in turn, with `scripts/macos_libraries.py`. It finds each library the way dyld does: `@executable_path` from the app's executable, `@loader_path` from the binary that refers to it, and `@rpath` through the run paths of that binary and of every binary that loaded it. Each copy gets the install name `@rpath/<file>`, each reference to it is changed to match, run paths that lead outside the bundle are removed, and the binary gets the run path `@executable_path/../Frameworks`. A reference that does not resolve to a file stops the script.
+3. Proves the result with the same script, without trusting how it was made: every Mach-O file in the bundle is followed the way dyld would load it, and each of its libraries must be part of macOS (`/usr/lib`, `/System`) or a file in the bundle, and each of its run paths must lead into the bundle. `python3 -m unittest scripts/test_macos_libraries.py` tests this on the release build, with bundles broken on purpose.
+4. Sets `LSMinimumSystemVersion` to the newest minimum macOS of any architecture of any Mach-O file in the bundle, read from `LC_BUILD_VERSION` and the older `LC_VERSION_MIN_MACOSX`, and at least 11.0, Rust's own minimum. Homebrew builds its libraries for the macOS it runs on, so a bundle built on macOS 27 needs macOS 27. Building libkeyfinder and FFTW from source with `MACOSX_DEPLOYMENT_TARGET` set lowers it.
+5. Makes `AppIcon.icns` with `sips` and `iconutil` from `assets/logo/app-icon.svg`, and from `favicon.svg` for the 16 and 32 pixel sizes, where the thin line of the full icon disappears.
+6. Writes `Info.plist`: the bundle identifier `io.github.lvndry.euphoria`, the version from `crates/euphoria-desktop/Cargo.toml`, the music app category and high resolution support.
+7. Signs the libraries and then the bundle with an ad hoc signature (`codesign --sign -`), and verifies it. That is enough to run the app on the Mac that built it. A Developer ID signature and notarization, which let it open on any Mac without a warning, need a paid Apple Developer account and are not done.
+8. Builds `Euphoria-<version>.dmg` with the app on the left and a link to Applications on the right. The window layout is written by [dmgbuild](https://github.com/dmgbuild/dmgbuild), run through uv at a pinned version, because laying it out with only the tools macOS ships needs Finder scripting, which needs a logged in session and an automation permission. The layout is in `scripts/dmg-settings.py`.
+
+The bundle is ignored by Git under `target/`. `scripts/release/package-cli.sh` uses `scripts/macos_libraries.py` the same way to package the command line tool for a release; [Releasing](releasing.md) describes it.
+
 ## Tests
 
 ```
@@ -117,6 +140,18 @@ uv run bench/quality_benchmark.py bench/data/quality
 ```
 
 It prints the table in [bench/results/quality.md](https://github.com/lvndry/euphoria/blob/main/bench/results/quality.md). `euphoria-bench quality LIST_FILE` measures any list of files on its own: each line is a label, a tab and a path, and the output is one tab separated line per file with the label and never the path, so a private library can be measured too.
+
+## Beat grid benchmark
+
+The [beat grid](../concepts/accuracy.md#beat-grid) is measured on the disco and hip hop excerpts of GTZAN with the beat and downbeat annotations of beat_this. The annotations are under the MIT licence; the GTZAN audio has no stated licence, so the script downloads it for local measurement only, and it must never be committed or redistributed. Download them (about 1.2 GB for the GTZAN archive, of which about 260 MB of WAV files is kept in `bench/data/beats`) and run the benchmark:
+
+```
+./bench/download_beat_dataset.sh
+cargo run --release -p euphoria-bench -- beats --tracks development
+cargo run --release -p euphoria-bench -- beats --tracks held-out
+```
+
+It prints the tables in [bench/results/beats.md](https://github.com/lvndry/euphoria/blob/main/bench/results/beats.md): the beat F-measure and how often the grid and the downbeat are right, with the tempo as reported and with its octave taken from the annotation, and how often each confidence level is right. Settings are chosen on the development half and checked on the held out half.
 
 ## Energy benchmark
 

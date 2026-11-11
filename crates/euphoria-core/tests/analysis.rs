@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use euphoria_core::{Confidence, Key, TempoRange, TrackAnalysis, analyze_file};
+use euphoria_core::{BeatGrid, Confidence, Key, TempoRange, TrackAnalysis, analyze_file};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -91,6 +91,7 @@ fn rated(key_score_margin: f32, tempo_estimate: f32, tempo_score_margin: f32) ->
         key_score_margin: Some(key_score_margin),
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_score_margin),
+        beat_grid: None,
     }
 }
 
@@ -111,6 +112,46 @@ fn another_range_moves_the_tempo_without_a_new_analysis() {
     assert_eq!(moved.energy, analysis.energy);
     assert_eq!(moved.tempo_alternative_in(hip_hop), Some(174.0));
     assert_eq!(moved.with_tempo_range(TempoRange::DEFAULT), analysis);
+}
+
+#[test]
+fn another_range_moves_the_beat_grid_by_whole_octaves_and_keeps_its_downbeat_in_the_first_bar() {
+    let grid = BeatGrid {
+        first_downbeat_seconds: 1.8,
+        bpm: 100.0,
+        salience: 12.0,
+        drift_seconds: None,
+    };
+    let analysis = TrackAnalysis {
+        beat_grid: Some(grid),
+        ..rated(0.02, 100.0, 0.5)
+    };
+
+    let doubled = analysis
+        .clone()
+        .with_tempo_range("120-220".parse().unwrap())
+        .beat_grid
+        .expect("a grid");
+    assert!((doubled.bpm - 200.0).abs() < 1e-9);
+    assert!((doubled.first_downbeat_seconds - 0.6).abs() < 1e-9);
+    assert!(doubled.first_downbeat_seconds < doubled.bar_seconds());
+
+    let fast = TrackAnalysis {
+        beat_grid: Some(BeatGrid {
+            bpm: 170.0,
+            first_downbeat_seconds: 1.2,
+            ..grid
+        }),
+        ..rated(0.02, 170.0, 0.5)
+    };
+    let halved = fast
+        .clone()
+        .with_tempo_range("70-140".parse().unwrap())
+        .beat_grid
+        .expect("a grid");
+    assert!((halved.bpm - 85.0).abs() < 1e-9);
+    assert!((halved.first_downbeat_seconds - 1.2).abs() < 1e-9);
+    assert_eq!(fast.clone().with_tempo_range(TempoRange::DEFAULT), fast);
 }
 
 #[test]
@@ -139,6 +180,7 @@ fn a_track_needs_review_when_its_key_or_its_tempo_is_rated_low() {
 
     let fallback_tempo = TrackAnalysis {
         tempo_score_margin: None,
+        beat_grid: None,
         ..confident
     };
     assert_eq!(fallback_tempo.tempo_confidence(), Some(Confidence::Low));

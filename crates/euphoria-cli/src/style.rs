@@ -147,6 +147,11 @@ impl Theme {
         self.paint("32", text)
     }
 
+    /// A value the user set by hand.
+    pub fn user(&self, text: impl Display) -> String {
+        self.paint("36", text)
+    }
+
     /// The `error:` label.
     pub fn error_label(&self) -> String {
         self.paint("1;31", "error:")
