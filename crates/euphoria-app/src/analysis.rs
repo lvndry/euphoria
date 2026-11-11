@@ -13,11 +13,11 @@ use std::time::{Duration, Instant};
 
 use euphoria_core::{CachedAnalyzer, TrackAnalysis};
 
-/// A worker peaks near 0.6 GB on a seven minute track, and 8 workers on full
-/// length tracks peaked between 4.8 and 6.2 GB in total, so the app analyzes
-/// at most this many files at once, as the command line tool does by
-/// default.
-const MAXIMUM_WORKERS: usize = 8;
+/// The app has no setting for the number of workers and also holds
+/// waveforms, so it stays below the command line tool's default: 4 workers
+/// on full length tracks peaked near 2 GB in total, where 8 peaked between
+/// 4.8 and 6.2 GB.
+const MAXIMUM_WORKERS: usize = 4;
 
 /// The result of analyzing one file: the analysis, or why it failed.
 #[derive(Debug)]
