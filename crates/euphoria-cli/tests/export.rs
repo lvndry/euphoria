@@ -951,3 +951,113 @@ fn paths_that_cannot_be_used_are_errors() {
     assert_eq!(no_output.status.code(), Some(2));
     assert!(standard_error(&no_output).contains("--output <FILE>"));
 }
+
+/// Writes 30 seconds of a 16 bit mono WAV file holding a decaying low tone
+/// on every beat at `tempo`, starting `first_beat` seconds in.
+fn write_kick_track(path: &Path, tempo: f64, first_beat: f64) {
+    const SAMPLE_RATE: u32 = 44_100;
+    let sample_count = 30 * SAMPLE_RATE as usize;
+    let mut samples = vec![0.0_f64; sample_count];
+    let beat_seconds = 60.0 / tempo;
+    let mut beat_start = first_beat;
+    while beat_start < 30.0 {
+        let first_sample = (beat_start * f64::from(SAMPLE_RATE)) as usize;
+        for (offset, sample) in samples
+            .iter_mut()
+            .skip(first_sample)
+            .take(8_000)
+            .enumerate()
+        {
+            let time = offset as f64 / f64::from(SAMPLE_RATE);
+            *sample += (std::f64::consts::TAU * 60.0 * time).sin() * (-time / 0.04).exp();
+        }
+        beat_start += beat_seconds;
+    }
+    let data_length = (sample_count * 2) as u32;
+    let mut bytes = Vec::with_capacity(44 + sample_count * 2);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data_length).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    bytes.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes());
+    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data_length.to_le_bytes());
+    for sample in samples {
+        let scaled = (sample.clamp(-1.0, 1.0) * 0.8 * f64::from(i16::MAX)) as i16;
+        bytes.extend_from_slice(&scaled.to_le_bytes());
+    }
+    std::fs::write(path, bytes).expect("the track is written");
+}
+
+#[test]
+fn beat_grid_writes_the_grid_of_a_track_with_a_clear_beat() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let with_grid = resolved(output_folder.path()).join("with-grid.xml");
+    let without_grid = resolved(output_folder.path()).join("without-grid.xml");
+
+    let exported = euphoria.run(&[
+        "export",
+        "rekordbox",
+        "--beat-grid",
+        text(&track),
+        "-o",
+        text(&with_grid),
+    ]);
+    let plain = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&without_grid),
+    ]);
+
+    assert_success(&exported);
+    assert_eq!(
+        standard_error(&exported).lines().nth(1),
+        Some("Beat grids for 1 of 1 track.")
+    );
+    let document = std::fs::read_to_string(&with_grid).expect("the export is read");
+    let xml = roxmltree::Document::parse(&document).expect("the export is well formed XML");
+    let tempo = xml
+        .descendants()
+        .find(|node| node.has_tag_name("TEMPO"))
+        .expect("the track has a beat grid");
+    let start: f64 = tempo
+        .attribute("Inizio")
+        .expect("a start")
+        .parse()
+        .expect("a number");
+    let bpm: f64 = tempo
+        .attribute("Bpm")
+        .expect("a tempo")
+        .parse()
+        .expect("a number");
+    assert!((bpm - 120.0).abs() < 0.05, "{bpm}");
+    let beat_offset = (start - 0.25).rem_euclid(0.5);
+    assert!(
+        beat_offset.min(0.5 - beat_offset) < 0.03,
+        "first downbeat at {start}"
+    );
+    assert_eq!(
+        ExportedLibrary::read(&with_grid).tracks[0].tempo.as_deref(),
+        tempo.attribute("Bpm")
+    );
+
+    assert_success(&plain);
+    let document = std::fs::read_to_string(&without_grid).expect("the export is read");
+    assert!(!document.contains("<TEMPO"));
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    let grid = &analyzed[0]["beat_grid"];
+    assert!((grid["bpm"].as_f64().expect("a tempo") - 120.0).abs() < 0.05);
+    assert!(grid["first_downbeat_seconds"].is_f64());
+    assert!(grid["confidence"].is_string());
+}
