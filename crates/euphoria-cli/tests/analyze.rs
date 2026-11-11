@@ -251,3 +251,37 @@ fn a_reader_that_stops_early_is_not_an_error() {
     assert!(status.success(), "{errors}");
     assert!(!errors.contains("Broken pipe"), "{errors}");
 }
+
+#[test]
+fn piped_output_has_no_progress_lines() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let folder = fixtures_directory();
+    let euphoria = Euphoria::new();
+    for arguments in [
+        vec!["analyze", fixture.to_str().expect("UTF-8 path")],
+        vec!["analyze", "--json", fixture.to_str().expect("UTF-8 path")],
+        vec!["analyze", folder.to_str().expect("UTF-8 path")],
+    ] {
+        let output = euphoria.run(&arguments);
+        assert!(output.status.success(), "{arguments:?}");
+        let standard_error = String::from_utf8_lossy(&output.stderr);
+        // No stage, spinner, bar or debug build note when standard error is
+        // not a terminal.
+        for unwanted in [
+            "decoding",
+            "finding the",
+            "Analyzing",
+            "debug build",
+            "\r",
+            "\u{1b}",
+        ] {
+            assert!(
+                !standard_error.contains(unwanted),
+                "{arguments:?} wrote {unwanted:?} to standard error: {standard_error:?}"
+            );
+        }
+        let standard_output = String::from_utf8_lossy(&output.stdout);
+        assert!(!standard_output.contains("decoding"), "{standard_output}");
+        assert!(!standard_output.contains('\u{1b}'), "{standard_output:?}");
+    }
+}

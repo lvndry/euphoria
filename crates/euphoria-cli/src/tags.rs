@@ -157,7 +157,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         results,
         store_error,
         ..
-    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    } = batch::analyze(&audio_files, &arguments.analysis, batch::Display::Stages)?;
 
     // Planning only reads the files.
     let options = arguments.options();

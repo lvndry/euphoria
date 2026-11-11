@@ -6,6 +6,7 @@
 mod batch;
 mod export;
 mod output;
+mod stages;
 mod tags;
 mod terminal;
 
@@ -143,7 +144,15 @@ fn analyze(
         results,
         cached_count,
         store_error,
-    } = batch::analyze(&audio_files, analysis)?;
+    } = batch::analyze(
+        &audio_files,
+        analysis,
+        if json {
+            batch::Display::CountOnly
+        } else {
+            batch::Display::Stages
+        },
+    )?;
     let analyzed_count = results.len();
     let results: Vec<FileResult> = if needs_review {
         results
