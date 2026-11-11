@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -155,6 +155,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) output: Box<dyn AudioOutput>,
     /// The reference sounds and the correction editor of the track detail.
     pub(crate) by_ear: crate::key_by_ear::ByEar,
+    /// The two decks, their mixer and the tracks to play next.
+    pub(crate) decks: crate::decks::Decks,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
     voice: Option<ActiveVoice>,
@@ -298,6 +300,7 @@ impl EuphoriaApp {
             window_focus,
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
+            decks: crate::decks::Decks::default(),
             bpm_input,
             voice: None,
             start_task: None,
@@ -1123,6 +1126,13 @@ impl EuphoriaApp {
         self.carry_out(request, cx);
     }
 
+    /// Pauses the player when it plays, as when the decks take the sound.
+    pub(crate) fn stop_player(&mut self, cx: &mut Context<'_, Self>) {
+        if self.player.offers_pause() {
+            self.toggle_playback(cx);
+        }
+    }
+
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
         let request = self.player.toggle();
@@ -1494,7 +1504,41 @@ impl EuphoriaApp {
             return;
         }
         self.waveform_task_path = Some(path.clone());
-        self.waveform_task = Some(cx.spawn(async move |this, cx| {
+        self.waveform_task = Some(self.decode_waveform(path, tempo, cx));
+    }
+
+    /// The waveform of the track at `path`, when it was read.
+    pub(crate) fn waveform_of(&self, path: &Path) -> Option<&Waveform> {
+        self.waveforms.get(path)
+    }
+
+    /// Loads the waveform of the track on a deck, when it is not loaded
+    /// already.
+    pub(crate) fn load_deck_waveform(
+        &mut self,
+        path: &Path,
+        tempo: Option<f32>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let is_decoded = self.waveforms.touch(path)
+            && matches!(
+                self.waveforms.get(path),
+                Some(Waveform::Ready(_, Some(_))) | Some(Waveform::Unreadable(_))
+            );
+        if !is_decoded {
+            self.decode_waveform(path.to_path_buf(), tempo, cx).detach();
+        }
+    }
+
+    /// Decodes the waveform and the energy curve of the track at `path`
+    /// off the main thread, and keeps them.
+    fn decode_waveform(
+        &mut self,
+        path: PathBuf,
+        tempo: Option<f32>,
+        cx: &mut Context<'_, Self>,
+    ) -> Task<()> {
+        cx.spawn(async move |this, cx| {
             cx.background_executor().timer(WAVEFORM_DELAY).await;
             let marked = this.update(cx, |this, cx| {
                 if !matches!(this.waveforms.get(&path), Some(Waveform::Ready(..))) {
@@ -1548,7 +1592,7 @@ impl EuphoriaApp {
                 cx.notify();
             })
             .ok();
-        }));
+        })
     }
 }
 
@@ -1583,7 +1627,18 @@ impl Render for EuphoriaApp {
                     .absolute()
                     .size_full(),
                 )
-                .child(views::track_table::render(self, cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .min_h_0()
+                        .child(views::track_table::render(self, cx))
+                        .when(self.decks.is_open, |column| {
+                            column.child(views::decks::render(self, cx))
+                        }),
+                )
                 .child(views::inspector::render(self, window, cx))
                 .child(views::panel_edge::render(self, window, cx));
             div()
