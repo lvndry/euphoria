@@ -24,6 +24,8 @@ actions!(
         WriteTags,
         /// Puts back the tags the last write replaced.
         UndoTagWrite,
+        /// Opens the tag editor for the selected tracks.
+        EditTags,
         /// Opens the settings.
         OpenSettings,
         /// Selects every track the table shows.

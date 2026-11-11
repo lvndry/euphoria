@@ -221,6 +221,17 @@ Tracks not analyzed yet are left out of a rekordbox export, and the app says how
 
 Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [data folder](#what-the-app-remembers). Each track is kept by the content of its file, like a remembered result, together with its path. A file moved or renamed is found again once the app or `euphoria analyze` has seen it in its new place, and only when the file there holds the same content. Playlists live in their own file so that clearing or deleting the cache never touches them. The command line lists them with [`euphoria playlists`](../reference/cli.md#euphoria-playlists) and exports one by name.
 
+## Edit tags
+
+Select one track or thousands and click **Edit tags** in the toolbar, or choose **Tags > Edit Tags…** (Command I), to edit their title, artist, album, genre, year, track number, comment, grouping, key and BPM fields.
+
+- Each field shows the value the selected tracks share. When they differ, it is empty, shows **mixed** and is marked **differs**; leave it empty to keep each track's own value, or type to give them all one.
+- Type in a field to change it. Emptying a field that has a value removes it, and **Remove** beside a field removes it from every track; click **Keep** to take that back.
+- **Change text in one field** works on one field at a time: **Find and replace** (with **Match case** for capital letters), **Add prefix**, **Add suffix**, **Remove prefix** and **Remove suffix**. Choose the field under the tool and type the text.
+- **Preview changes** shows the same preview as [writing tags](#write-tags): each file with each field's value now and the value it would get. Click **Write** to write them, or **Cancel**.
+
+The edit is written with the same safety as a tag write and shares its backups, so **Undo this write**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. The titles and artists in the table follow the edit. A comment or a grouping keeps the key and energy label a tag write put there, as [`euphoria tags set`](../reference/cli.md#euphoria-tags-set) explains, and the comment field shows only your own text. The key and BPM fields are the tags in the files; the key and tempo Euphoria detected stay as they were.
+
 ## Settings
 
 Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.

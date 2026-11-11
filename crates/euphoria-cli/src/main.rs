@@ -8,6 +8,7 @@ mod collection;
 mod export;
 mod output;
 mod playlists;
+mod tag_edit;
 mod tags;
 mod terminal;
 
