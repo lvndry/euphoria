@@ -4,6 +4,7 @@
 //! The `export` command: analyzes files and writes the results in the format
 //! of other DJ software.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -16,7 +17,7 @@ use euphoria_core::{
 };
 
 use crate::batch::{self, AnalysisOptions};
-use crate::{output, with_causes};
+use crate::{collection, output, with_causes};
 
 /// Used for the playlist of files named directly when the output file has no
 /// name to borrow.
@@ -49,6 +50,16 @@ pub struct RekordboxArguments {
     /// which rekordbox then makes itself.
     #[arg(long)]
     beat_grid: bool,
+    /// Write cues where each track's sections start, as memory cues and hot
+    /// cues A to H, on tracks whose beat grid is written. Needs
+    /// --beat-grid, and --collection so that no track loses its own cues.
+    #[arg(long, requires_all = ["beat_grid", "collection"])]
+    cues: bool,
+    /// Your rekordbox collection exported as XML (File > Export Collection
+    /// in xml format). Tracks that already have cues or loops there get no
+    /// cues from Euphoria.
+    #[arg(long, value_name = "FILE", requires = "cues")]
+    collection: Option<PathBuf>,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -87,6 +98,10 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     };
     // Checked before the analysis, which can take hours on a large library.
     check_output_file(&output_file, existing)?;
+    let already_cued = match &arguments.collection {
+        Some(collection) => collection::tracks_with_cues(collection)?,
+        None => HashSet::new(),
+    };
 
     let paths = resolve(&arguments.paths)?;
     let folders: Vec<PathBuf> = paths.iter().filter(|path| path.is_dir()).cloned().collect();
@@ -115,7 +130,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         }
     };
     let AssembledLibrary {
-        library,
+        mut library,
         skipped,
         unread_tags,
     } = assemble_library_with(
@@ -123,8 +138,16 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         layout,
         ExportContents {
             beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
         },
     );
+    let mut already_cued_count = 0;
+    for track in &mut library.tracks {
+        if already_cued.contains(&track.path) {
+            already_cued_count += 1;
+            track.cue_points.clear();
+        }
+    }
 
     // The file is written before anything is reported, so that a reader of
     // standard error that goes away cannot stop the export.
@@ -163,6 +186,19 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             .filter(|track| track.first_beat.is_some())
             .count();
         output::write_beat_grid_summary(&mut standard_error, with_grid, library.tracks.len())?;
+    }
+    if arguments.cues {
+        let with_cues = library
+            .tracks
+            .iter()
+            .filter(|track| !track.cue_points.is_empty())
+            .count();
+        output::write_cue_summary(
+            &mut standard_error,
+            with_cues,
+            already_cued_count,
+            library.tracks.len(),
+        )?;
     }
     output::write_rekordbox_import_steps(&mut standard_error)?;
 

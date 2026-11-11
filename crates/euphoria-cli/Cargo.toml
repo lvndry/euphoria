@@ -22,11 +22,11 @@ clap.workspace = true
 euphoria-core.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
+roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-roxmltree.workspace = true
 rusqlite.workspace = true
 
 [lints]

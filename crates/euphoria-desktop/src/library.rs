@@ -580,6 +580,7 @@ mod tests {
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
+            cues: Vec::new(),
             key_timeline: Vec::new(),
             quality: None,
         }
@@ -1089,6 +1090,7 @@ mod tests {
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: Vec::new(),
                     quality: None,
                     ..analysis(None, None, 300.0)
@@ -1134,6 +1136,7 @@ mod tests {
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
+                cues: Vec::new(),
                 key_timeline: Vec::new(),
                 quality: None,
                 ..analysis(Some("A minor"), Some(124.0), 408.0)
@@ -1276,6 +1279,7 @@ mod tests {
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: Vec::new(),
                     quality: None,
                 }),

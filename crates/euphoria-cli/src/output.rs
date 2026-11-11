@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
-    BeatGrid, Confidence, EuphoriaError, FileResult, Key, KeySection, SkippedTrack, TempoRange,
-    UnreadTags,
+    BeatGrid, Confidence, EuphoriaError, FileResult, Key, KeySection, SectionCue, SkippedTrack,
+    TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
@@ -31,9 +31,25 @@ struct JsonTrack<'result> {
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
+    cues: Vec<JsonCue>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonCue {
+    seconds: f64,
+    name: &'static str,
+}
+
+impl From<SectionCue> for JsonCue {
+    fn from(cue: SectionCue) -> Self {
+        Self {
+            seconds: round_to_thousandths(cue.seconds),
+            name: cue.section.name(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -147,6 +163,7 @@ pub fn write_json(
                     .map(JsonKeySection::from)
                     .collect(),
                 beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
+                cues: analysis.cues.iter().copied().map(JsonCue::from).collect(),
                 quality: analysis.quality.as_ref().map(JsonQuality::from),
                 needs_review: Some(analysis.needs_review()),
                 error: None,
@@ -163,6 +180,7 @@ pub fn write_json(
                 tuning_cents: None,
                 key_timeline: Vec::new(),
                 beat_grid: None,
+                cues: Vec::new(),
                 quality: None,
                 needs_review: None,
                 error: Some(error.chain()),
@@ -413,6 +431,42 @@ pub fn write_beat_grid_summary(
             writer,
             "; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them"
         )?;
+    }
+    writeln!(writer, ".")
+}
+
+/// Writes how many exported tracks got cues, how many got none because they
+/// have cues in rekordbox already, and why the others got none.
+pub fn write_cue_summary(
+    writer: &mut impl Write,
+    with_cues: usize,
+    already_cued_count: usize,
+    track_count: usize,
+) -> io::Result<()> {
+    write!(
+        writer,
+        "Cues for {with_cues} of {}",
+        counted(track_count, "track", "tracks")
+    )?;
+    if already_cued_count > 0 {
+        write!(
+            writer,
+            "; {} already {} cues in your rekordbox collection and {} none from Euphoria",
+            already_cued_count,
+            if already_cued_count == 1 {
+                "has"
+            } else {
+                "have"
+            },
+            if already_cued_count == 1 {
+                "gets"
+            } else {
+                "get"
+            },
+        )?;
+    }
+    if with_cues + already_cued_count < track_count {
+        write!(writer, "; tracks without a beat grid in the file get none")?;
     }
     writeln!(writer, ".")
 }
@@ -671,6 +725,7 @@ mod tests {
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: vec![
                         KeySection {
                             start_seconds: 0.0,
@@ -699,6 +754,7 @@ mod tests {
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
+                    cues: Vec::new(),
                     key_timeline: Vec::new(),
                     quality: None,
                 }),

@@ -275,6 +275,7 @@ pub(crate) mod testing {
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
+            cues: Vec::new(),
             key_timeline: Vec::new(),
             quality: None,
         }

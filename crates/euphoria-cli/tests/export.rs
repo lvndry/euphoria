@@ -1061,3 +1061,110 @@ fn beat_grid_writes_the_grid_of_a_track_with_a_clear_beat() {
     assert!(grid["first_downbeat_seconds"].is_f64());
     assert!(grid["confidence"].is_string());
 }
+
+/// The cue points of the only track in an exported file, as (name, number).
+fn exported_cues(file: &Path) -> Vec<(String, String)> {
+    let document = std::fs::read_to_string(file).expect("the export is read");
+    let xml = roxmltree::Document::parse(&document).expect("the export is well formed XML");
+    xml.descendants()
+        .filter(|node| node.has_tag_name("POSITION_MARK"))
+        .map(|node| {
+            (
+                attribute(node, "Name").expect("a name"),
+                attribute(node, "Num").expect("a number"),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let empty_collection = output.join("empty-collection.xml");
+    std::fs::write(
+        &empty_collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let cued_collection = output.join("cued-collection.xml");
+    std::fs::write(
+        &cued_collection,
+        format!(
+            "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"1\">\
+             <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
+             <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
+             </TRACK></COLLECTION></DJ_PLAYLISTS>",
+            text(&track)
+        ),
+    )
+    .expect("the collection is written");
+    let export = |name: &str, extra: &[&str]| {
+        let file = output.join(name);
+        let mut arguments = vec!["export", "rekordbox", text(&track), "-o", text(&file)];
+        arguments.extend_from_slice(extra);
+        (euphoria.run(&arguments), file)
+    };
+
+    let (without_collection, _) = export("refused.xml", &["--beat-grid", "--cues"]);
+    let (without_grid, _) = export(
+        "refused-too.xml",
+        &["--cues", "--collection", text(&empty_collection)],
+    );
+    let (new_track, new_track_file) = export(
+        "new.xml",
+        &[
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&empty_collection),
+        ],
+    );
+    let (cued_track, cued_track_file) = export(
+        "cued.xml",
+        &[
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&cued_collection),
+        ],
+    );
+
+    assert_eq!(without_collection.status.code(), Some(2));
+    assert!(standard_error(&without_collection).contains("--collection"));
+    assert_eq!(without_grid.status.code(), Some(2));
+    assert!(standard_error(&without_grid).contains("--beat-grid"));
+
+    assert_success(&new_track);
+    assert_eq!(
+        standard_error(&new_track).lines().nth(2),
+        Some("Cues for 1 of 1 track.")
+    );
+    let cues = exported_cues(&new_track_file);
+    assert_eq!(
+        cues[..2],
+        [
+            ("Start".to_string(), "-1".to_string()),
+            ("Start".to_string(), "0".to_string())
+        ]
+    );
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    assert_eq!(analyzed[0]["cues"][0]["name"], "Start");
+    assert_eq!(
+        analyzed[0]["cues"].as_array().expect("cues").len() * 2,
+        cues.len()
+    );
+
+    assert_success(&cued_track);
+    assert_eq!(
+        standard_error(&cued_track).lines().nth(2),
+        Some(
+            "Cues for 0 of 1 track; 1 already has cues in your rekordbox collection and gets none from Euphoria."
+        )
+    );
+    assert_eq!(exported_cues(&cued_track_file), vec![]);
+}

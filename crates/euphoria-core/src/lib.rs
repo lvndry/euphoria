@@ -49,7 +49,7 @@ pub use cache::{
     DATA_DIRECTORY_VARIABLE, analyze_files_cached, clear_cache, default_cache_path,
 };
 pub use confidence::Confidence;
-pub use detect::{BeatGrid, KeySection};
+pub use detect::{BeatGrid, CueSection, KeySection, MAXIMUM_CUES, SectionCue};
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,

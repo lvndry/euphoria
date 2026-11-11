@@ -49,7 +49,7 @@ impl Cache {
         };
         self.apply_write(&CacheWrite::Store {
             content_hash,
-            analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
+            analysis: Box::new(analysis.clone().with_tempo_range(TempoRange::DEFAULT)),
             location,
         })
         .map_err(cache_error(&self.path))
@@ -136,6 +136,7 @@ mod tests {
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
+            cues: Vec::new(),
             key_timeline: Vec::new(),
             quality: None,
         }

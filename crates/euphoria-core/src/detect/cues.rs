@@ -7,12 +7,15 @@
 //! beat grid, at a phrase boundary.
 
 use crate::audio::AudioBuffer;
-use crate::detect::beat_grid::{BeatGrid, OnsetEnvelope, grid_of_envelope};
+use crate::detect::beat_grid::{BEATS_PER_BAR, BeatGrid, OnsetEnvelope, grid_of_envelope};
 
 /// Bars are measured from this long before each downbeat.
 const BAR_LEAD_SECONDS: f64 = 0.05;
 /// The band of the kick and the bass ends about here.
 const KICK_BAND_HZ: f32 = 150.0;
+/// The kick is measured over this long from just before each beat, and the
+/// band between beats over as long halfway to the next beat.
+const KICK_WINDOW_SECONDS: f64 = 0.1;
 
 /// The most cues a track gets, one for each hot cue pad from A to H.
 pub const MAXIMUM_CUES: usize = 8;
@@ -31,14 +34,14 @@ const PHRASE_SNAP_BARS: usize = 2;
 const MINIMUM_SECTION_BARS: usize = 8;
 /// A bar is silent when it is this far below the loudest bar of the track.
 const SILENT_BELOW_LOUDEST_DB: f32 = 40.0;
-/// A bar plays at full energy when its kick and bass are no more than
-/// [`FULL_KICK_DROP_DB`] below their usual level and the whole bar no more
-/// than [`FULL_LOUDNESS_DROP_DB`] below its usual loudness.
-const FULL_KICK_DROP_DB: f32 = 6.0;
+/// A bar has a kick when the band below 150 Hz is at least this much louder
+/// just after its beats than between them.
+const KICK_PRESENT_DB: f32 = 3.0;
+/// A bar with a kick plays at full energy when its band below 150 Hz is no
+/// more than [`FULL_LOW_DROP_DB`] below its usual level and the whole bar no
+/// more than [`FULL_LOUDNESS_DROP_DB`] below its usual loudness.
+const FULL_LOW_DROP_DB: f32 = 6.0;
 const FULL_LOUDNESS_DROP_DB: f32 = 4.0;
-/// A bar has no kick when its kick and bass are this far below their usual
-/// level: the breakdown of a dance track.
-const NO_KICK_DROP_DB: f32 = 12.0;
 /// The usual level of a track is the level this share of its bars with
 /// sound reach.
 const USUAL_LEVEL_PERCENTILE: f32 = 0.9;
@@ -126,22 +129,39 @@ enum BarLevel {
     NoKick,
 }
 
-/// The loudness and the loudness below about 150 Hz, where the kick and the
-/// bass are, of every bar of the grid that fits in the track, in decibels.
+/// How one bar sounds, in decibels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BarMeasure {
+    /// The loudness of the whole bar.
+    loudness: f32,
+    /// The loudness below about 150 Hz, where the kick and the bass are.
+    low: f32,
+    /// How much louder the band below 150 Hz is just after each beat than
+    /// halfway between beats. A kick on the beat raises it; a sustained
+    /// bass line or pad sounds as loud between the beats and does not.
+    kick: f32,
+}
+
+/// The [`BarMeasure`] of every bar of the grid that fits in the track.
 ///
 /// Bars are measured from slightly before each downbeat, since the onset of
 /// a beat comes before the moment the grid places it, and a bar measured
 /// from the downbeat would end with the onset of the next.
-fn bar_measures(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<(f32, f32)> {
+fn bar_measures(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<BarMeasure> {
     let sample_rate = f64::from(envelope.sample_rate);
     let low_passed = low_passed(&envelope.samples, envelope.sample_rate);
-    let decibels = |samples: &[f32]| {
-        let power =
-            samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len().max(1) as f32;
-        10.0 * (power + 1e-12).log10()
+    let power = |samples: &[f32]| {
+        samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len().max(1) as f32
+    };
+    let decibels = |power: f32| 10.0 * (power + 1e-12).log10();
+    let window = |start: f64, length: f64| {
+        let first = ((start.max(0.0)) * sample_rate) as usize;
+        let last = (((start + length).max(0.0) * sample_rate) as usize).min(low_passed.len());
+        &low_passed[first.min(last)..last]
     };
     let duration = envelope.samples.len() as f64 / sample_rate;
     let bar_seconds = grid.bar_seconds();
+    let beat_seconds = grid.beat_seconds();
     let mut measures = Vec::new();
     let mut downbeat = grid.first_downbeat_seconds;
     while downbeat + bar_seconds <= duration {
@@ -149,10 +169,17 @@ fn bar_measures(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<(f32, f32)> {
         let last = (((downbeat + bar_seconds - BAR_LEAD_SECONDS) * sample_rate) as usize)
             .min(envelope.samples.len());
         let range = first.min(last)..last;
-        measures.push((
-            decibels(&envelope.samples[range.clone()]),
-            decibels(&low_passed[range]),
-        ));
+        let (mut on_beat, mut between_beats) = (0.0_f32, 0.0_f32);
+        for beat in 0..BEATS_PER_BAR {
+            let beat_time = downbeat + beat as f64 * beat_seconds - BAR_LEAD_SECONDS;
+            on_beat += power(window(beat_time, KICK_WINDOW_SECONDS));
+            between_beats += power(window(beat_time + beat_seconds / 2.0, KICK_WINDOW_SECONDS));
+        }
+        measures.push(BarMeasure {
+            loudness: decibels(power(&envelope.samples[range.clone()])),
+            low: decibels(power(&low_passed[range])),
+            kick: decibels(on_beat) - decibels(between_beats),
+        });
         downbeat += bar_seconds;
     }
     measures
@@ -183,33 +210,32 @@ fn percentile(values: &[f32], share: f32) -> f32 {
 }
 
 /// The level of every bar, and the index of the first bar with sound.
-fn bar_levels(measures: &[(f32, f32)]) -> Option<(Vec<BarLevel>, usize)> {
+fn bar_levels(measures: &[BarMeasure]) -> Option<(Vec<BarLevel>, usize)> {
     let loudest = measures
         .iter()
-        .map(|(loudness, _)| *loudness)
+        .map(|measure| measure.loudness)
         .fold(f32::NEG_INFINITY, f32::max);
-    let silent = |loudness: f32| loudness < loudest - SILENT_BELOW_LOUDEST_DB;
-    let first_with_sound = measures.iter().position(|(loudness, _)| !silent(*loudness))?;
-    let sounding: Vec<(f32, f32)> = measures
-        .iter()
-        .copied()
-        .filter(|(loudness, _)| !silent(*loudness))
-        .collect();
-    let usual_loudness = percentile(
-        &sounding.iter().map(|(loudness, _)| *loudness).collect::<Vec<_>>(),
-        USUAL_LEVEL_PERCENTILE,
-    );
-    let usual_kick = percentile(
-        &sounding.iter().map(|(_, kick)| *kick).collect::<Vec<_>>(),
-        USUAL_LEVEL_PERCENTILE,
-    );
+    let silent = |measure: &BarMeasure| measure.loudness < loudest - SILENT_BELOW_LOUDEST_DB;
+    let first_with_sound = measures.iter().position(|measure| !silent(measure))?;
+    let sounding: Vec<&BarMeasure> = measures.iter().filter(|measure| !silent(measure)).collect();
+    let usual = |value: fn(&BarMeasure) -> f32| {
+        percentile(
+            &sounding
+                .iter()
+                .map(|measure| value(measure))
+                .collect::<Vec<_>>(),
+            USUAL_LEVEL_PERCENTILE,
+        )
+    };
+    let usual_loudness = usual(|measure| measure.loudness);
+    let usual_low = usual(|measure| measure.low);
     let levels = measures
         .iter()
-        .map(|(loudness, kick)| {
-            if silent(*loudness) || *kick < usual_kick - NO_KICK_DROP_DB {
+        .map(|measure| {
+            if silent(measure) || measure.kick < KICK_PRESENT_DB {
                 BarLevel::NoKick
-            } else if *kick >= usual_kick - FULL_KICK_DROP_DB
-                && *loudness >= usual_loudness - FULL_LOUDNESS_DROP_DB
+            } else if measure.low >= usual_low - FULL_LOW_DROP_DB
+                && measure.loudness >= usual_loudness - FULL_LOUDNESS_DROP_DB
             {
                 BarLevel::Full
             } else {
@@ -291,9 +317,11 @@ fn cue_bars(levels: &[BarLevel], first: usize) -> Vec<(usize, CueSection)> {
     let last_full_end = runs
         .iter()
         .enumerate()
-        .filter(|(_, (_, level))| *level == BarLevel::Full)
-        .next_back()
-        .map(|(index, _)| runs.get(index + 1).map_or(levels.len(), |(start, _)| *start));
+        .rfind(|(_, (_, level))| *level == BarLevel::Full)
+        .map(|(index, _)| {
+            runs.get(index + 1)
+                .map_or(levels.len(), |(start, _)| *start)
+        });
     if let Some(end) = last_full_end
         && end + PHRASE_BARS <= levels.len()
     {
@@ -384,7 +412,11 @@ mod tests {
         let mut noise_state = 0x2545_f491_4f6c_dd1d_u64;
         for &(bar_count, parts) in stretches {
             for _ in 0..bar_count {
-                let bass_frequency = if bar_index % 2 == 0 { 110.0 } else { 82.4 };
+                let bass_frequency = if bar_index.is_multiple_of(2) {
+                    110.0
+                } else {
+                    82.4
+                };
                 bar_index += 1;
                 for beat in 0..4 {
                     let beat_start = bar_start + f64::from(beat) * 60.0 / TEMPO;
@@ -505,6 +537,27 @@ mod tests {
     }
 
     #[test]
+    fn a_breakdown_that_keeps_a_steady_bass_line_is_still_a_breakdown() {
+        let bass_without_kick = Parts {
+            kick: false,
+            bass: true,
+            pad: true,
+        };
+        let audio = arrangement(0.0, &[(16, FULL), (16, bass_without_kick), (16, FULL)]);
+
+        let cues = cues_of(&audio);
+
+        assert_cues(
+            &cues,
+            &[
+                (0.0, CueSection::Start),
+                (32.0, CueSection::Breakdown),
+                (64.0, CueSection::Drop),
+            ],
+        );
+    }
+
+    #[test]
     fn a_short_break_before_a_drop_is_not_a_breakdown() {
         let audio = arrangement(0.0, &[(16, INTRO), (30, FULL), (2, BREAKDOWN), (16, FULL)]);
 
@@ -539,7 +592,10 @@ mod tests {
         assert_eq!(kept.len(), MAXIMUM_CUES);
         assert_eq!(kept[0], (0, CueSection::Start));
         assert_eq!(kept[1], (8, CueSection::Main));
-        assert_eq!(kept[2..7].iter().map(|(bar, _)| *bar).collect::<Vec<_>>(), [16, 24, 32, 40, 48]);
+        assert_eq!(
+            kept[2..7].iter().map(|(bar, _)| *bar).collect::<Vec<_>>(),
+            [16, 24, 32, 40, 48]
+        );
         assert_eq!(kept[7], (200, CueSection::Outro));
     }
 
@@ -559,18 +615,10 @@ mod tests {
             vec![0.0; 20 * SAMPLE_RATE as usize],
             NonZeroU32::new(SAMPLE_RATE).unwrap(),
         );
-        assert_eq!(detect_beat_grid_and_cues(&silence, TEMPO), (None, Vec::new()));
-    }
-
-    #[test]
-    fn debug_measures() {
-        let audio = arrangement(0.5, &[(16, INTRO), (32, FULL), (16, BREAKDOWN), (32, FULL), (16, INTRO)]);
-        let envelope = OnsetEnvelope::of_audio(&audio).unwrap();
-        let grid = grid_of_envelope(&envelope, TEMPO).unwrap();
-        for (index, measure) in bar_measures(&envelope, &grid).iter().enumerate() {
-            eprintln!("{index} {:.1} {:.3}", measure.0, measure.1);
-        }
-        panic!();
+        assert_eq!(
+            detect_beat_grid_and_cues(&silence, TEMPO),
+            (None, Vec::new())
+        );
     }
 
     #[test]
