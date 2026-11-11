@@ -135,6 +135,7 @@ mod tests {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
             key_timeline: Vec::new(),
             quality: None,
         }
