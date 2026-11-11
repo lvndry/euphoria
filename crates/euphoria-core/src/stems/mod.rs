@@ -253,8 +253,14 @@ impl StemSeparator {
         right: &[f32],
         observer: &dyn SeparationObserver,
     ) -> Result<Stems, EuphoriaError> {
+        if left.len() != right.len() {
+            return Err(EuphoriaError::Separation {
+                reason: "the left and right channels must have the same number of samples".into(),
+                source: None,
+            });
+        }
         observer.stage(SeparationStage::Separating);
-        let frames = left.len().min(right.len());
+        let frames = left.len();
         if frames == 0 {
             return Err(EuphoriaError::Separation {
                 reason: "there is no audio to separate".into(),
@@ -446,6 +452,29 @@ fn runtime_error(reason: &'static str) -> impl Fn(ort::Error) -> EuphoriaError {
 mod tests {
     use super::*;
 
+    fn synthetic_separator() -> StemSeparator {
+        let environment = environment().unwrap();
+        let session = Session::builder(&environment)
+            .unwrap()
+            .with_auto_device(ort::session::builder::AutoDevicePolicy::PreferCPU)
+            .unwrap()
+            .commit_from_memory(include_bytes!("fixtures/zero_stems.onnx"))
+            .unwrap();
+        StemSeparator {
+            session,
+            _environment: environment,
+            transforms: SpectrogramTransforms::new(),
+        }
+    }
+
+    #[test]
+    fn mismatched_stereo_channels_are_rejected_instead_of_truncated() {
+        let mut separator = synthetic_separator();
+        for (left, right) in [(&[0.0, 0.5][..], &[0.0][..]), (&[0.0][..], &[0.0, 0.5][..])] {
+            assert!(separator.separate(left, right, &Unobserved).is_err());
+        }
+    }
+
     #[test]
     fn stems_are_named_in_the_order_the_model_returns_them() {
         let names: Vec<&str> = Stem::ALL.iter().map(|stem| stem.name()).collect();
@@ -465,8 +494,6 @@ mod tests {
 
     #[test]
     fn source_replaced_during_separation_is_not_cached_under_its_old_hash() {
-        use ort::session::builder::AutoDevicePolicy;
-
         struct ReplaceSource {
             stage: SeparationStage,
             path: PathBuf,
@@ -484,22 +511,11 @@ mod tests {
             let path = directory.join("track.wav");
             wav::write_wav(&path, &[0.0; 1024], 2, STEMS_SAMPLE_RATE).unwrap();
             let hash = ContentHash::of_file(&path).unwrap();
-            let environment = environment().unwrap();
-            let session = Session::builder(&environment)
-                .unwrap()
-                .with_auto_device(AutoDevicePolicy::PreferCPU)
-                .unwrap()
-                .commit_from_memory(include_bytes!("fixtures/zero_stems.onnx"))
-                .unwrap();
             let mut separator = CachedSeparator::new(
                 StemCache::new(directory.join("cache"), DEFAULT_STEM_CACHE_LIMIT_BYTES),
                 directory.join("unused-weights"),
             );
-            separator.separator = Some(StemSeparator {
-                session,
-                _environment: environment,
-                transforms: SpectrogramTransforms::new(),
-            });
+            separator.separator = Some(synthetic_separator());
             let result = separator.stems(
                 &path,
                 &ReplaceSource {
