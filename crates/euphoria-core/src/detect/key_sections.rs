@@ -36,6 +36,70 @@ pub(crate) fn steadiest_keys<const KEY_COUNT: usize>(
         .collect()
 }
 
+/// What it takes for the key over time to leave the key of the track.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ChangeRules {
+    /// How much another key must beat the key of the track by in every
+    /// window, on average over a section, for the section to be in it.
+    pub(crate) per_window_margin: f64,
+    /// What each change of key costs on top of that.
+    pub(crate) change_penalty: f64,
+    /// The fewest windows with evidence a section in another key can last.
+    pub(crate) minimum_windows: usize,
+}
+
+/// The key of every window, as an index into its scores, held to
+/// `track_key` unless another key is clearly and lastingly stronger.
+///
+/// Each window scores the track key at zero and every other key at how far
+/// it beats the track key, less [`ChangeRules::per_window_margin`], and
+/// [`steadiest_keys`] follows those scores with
+/// [`ChangeRules::change_penalty`] for every change. A section in another
+/// key shorter than [`ChangeRules::minimum_windows`] goes back to the track
+/// key. A window without evidence gets no key, as in [`steadiest_keys`].
+pub(crate) fn keys_against_track_key<const KEY_COUNT: usize>(
+    window_scores: &[Option<[f64; KEY_COUNT]>],
+    track_key: usize,
+    rules: ChangeRules,
+) -> Vec<Option<usize>> {
+    let advantages: Vec<Option<[f64; KEY_COUNT]>> = window_scores
+        .iter()
+        .map(|scores| {
+            scores.map(|scores| {
+                let mut advantage = [0.0; KEY_COUNT];
+                for (key, value) in advantage.iter_mut().enumerate() {
+                    if key != track_key {
+                        *value = scores[key] - scores[track_key] - rules.per_window_margin;
+                    }
+                }
+                advantage
+            })
+        })
+        .collect();
+    let mut keys = steadiest_keys(&advantages, rules.change_penalty);
+
+    let with_evidence: Vec<usize> = keys
+        .iter()
+        .enumerate()
+        .filter_map(|(window, key)| key.map(|_| window))
+        .collect();
+    let mut run_start = 0;
+    while run_start < with_evidence.len() {
+        let run_key = keys[with_evidence[run_start]];
+        let mut run_end = run_start;
+        while run_end < with_evidence.len() && keys[with_evidence[run_end]] == run_key {
+            run_end += 1;
+        }
+        if run_key != Some(track_key) && run_end - run_start < rules.minimum_windows {
+            for window in &with_evidence[run_start..run_end] {
+                keys[*window] = Some(track_key);
+            }
+        }
+        run_start = run_end;
+    }
+    keys
+}
+
 /// [`steadiest_keys`] for windows that all hold evidence.
 fn steadiest_path<const KEY_COUNT: usize>(
     window_scores: &[[f64; KEY_COUNT]],
@@ -203,6 +267,76 @@ mod tests {
         assert!(
             keys.iter().flatten().all(|key| *key == 0),
             "one window in another key after a gap is not worth a change: {keys:?}"
+        );
+    }
+
+    const RULES: ChangeRules = ChangeRules {
+        per_window_margin: 0.025,
+        change_penalty: 0.05,
+        minimum_windows: 3,
+    };
+
+    /// Scores in which `stronger` beats key 0, the track key, by `margin`.
+    fn ahead_of_the_track_key(stronger: usize, margin: f64) -> Option<[f64; 3]> {
+        let mut scores = [0.7, 0.6, 0.6];
+        scores[stronger] = 0.7 + margin;
+        Some(scores)
+    }
+
+    #[test]
+    fn a_key_only_slightly_ahead_of_the_track_key_does_not_take_over() {
+        let mut scores = vec![ahead_of_the_track_key(0, 0.0); 4];
+        scores.extend(vec![ahead_of_the_track_key(1, 0.02); 10]);
+        assert_eq!(
+            keys_against_track_key(&scores, 0, RULES),
+            [Some(0); 14],
+            "ten windows 0.02 ahead are within what real music does without changing key"
+        );
+    }
+
+    #[test]
+    fn a_key_clearly_ahead_for_long_enough_takes_over() {
+        let mut scores = vec![ahead_of_the_track_key(0, 0.0); 6];
+        scores.extend(vec![ahead_of_the_track_key(2, 0.045); 3]);
+        let keys = keys_against_track_key(&scores, 0, RULES);
+        assert_eq!(
+            runs(&keys),
+            [(0..6, Some(0)), (6..9, Some(2))],
+            "three windows of a modulation a fifth away are kept"
+        );
+    }
+
+    #[test]
+    fn a_short_stretch_in_another_key_goes_back_to_the_track_key() {
+        let mut scores = vec![ahead_of_the_track_key(0, 0.0); 5];
+        scores.extend(vec![ahead_of_the_track_key(1, 0.2); 2]);
+        scores.extend(vec![ahead_of_the_track_key(0, 0.0); 5]);
+        assert_eq!(keys_against_track_key(&scores, 0, RULES), [Some(0); 12]);
+    }
+
+    #[test]
+    fn the_minimum_counts_windows_with_evidence_and_keeps_gaps_without_it() {
+        let scores = [
+            ahead_of_the_track_key(0, 0.0),
+            ahead_of_the_track_key(1, 0.2),
+            None,
+            ahead_of_the_track_key(1, 0.2),
+            ahead_of_the_track_key(1, 0.2),
+            None,
+        ];
+        assert_eq!(
+            keys_against_track_key(&scores, 0, RULES),
+            [Some(0), Some(1), None, Some(1), Some(1), None]
+        );
+        let shorter = [
+            ahead_of_the_track_key(0, 0.0),
+            ahead_of_the_track_key(1, 0.2),
+            None,
+            ahead_of_the_track_key(1, 0.2),
+        ];
+        assert_eq!(
+            keys_against_track_key(&shorter, 0, RULES),
+            [Some(0), Some(0), None, Some(0)]
         );
     }
 
