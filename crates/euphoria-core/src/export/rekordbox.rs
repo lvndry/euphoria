@@ -544,7 +544,7 @@ fn push_playlist_node(
     Ok(())
 }
 
-fn export_error(path: &Path, problem: ExportProblem) -> EuphoriaError {
+pub(crate) fn export_error(path: &Path, problem: ExportProblem) -> EuphoriaError {
     EuphoriaError::Export {
         path: path.to_path_buf(),
         problem,
@@ -610,7 +610,7 @@ fn location_url(path: &Path) -> Option<String> {
     Some(url)
 }
 
-fn push_attribute(document: &mut String, name: &str, value: &str) {
+pub(crate) fn push_attribute(document: &mut String, name: &str, value: &str) {
     document.push(' ');
     document.push_str(name);
     document.push_str("=\"");

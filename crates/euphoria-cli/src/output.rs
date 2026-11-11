@@ -19,6 +19,7 @@ use euphoria_core::{
 use serde::Serialize;
 
 use crate::batch::Corrections;
+use crate::export::Program;
 use crate::style::Theme;
 use crate::tags::Failure;
 use crate::terminal::Printable;
@@ -684,6 +685,7 @@ pub fn write_beat_grid_summary(
     writer: &mut impl Write,
     with_grid: usize,
     track_count: usize,
+    program: Program,
 ) -> io::Result<()> {
     write!(
         writer,
@@ -693,7 +695,8 @@ pub fn write_beat_grid_summary(
     if with_grid < track_count {
         write!(
             writer,
-            "; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them"
+            "; the others have no clear beat or a grid rated low confidence, so {} analyzes them",
+            program.name()
         )?;
     }
     writeln!(writer, ".")
@@ -721,11 +724,13 @@ pub fn write_cue_summary(
 pub fn write_unmatched_cued_tracks(
     writer: &mut impl Write,
     unmatched: &[String],
+    program: Program,
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "Not protected, as --allow-unmatched-cued-tracks asked: {} with cues in your rekordbox collection {} no file on this computer:",
+        "Not protected, as --allow-unmatched-cued-tracks asked: {} with cues in your {} collection {} no file on this computer:",
         counted(unmatched.len(), "track", "tracks"),
+        program.name(),
         if unmatched.len() == 1 {
             "matches"
         } else {
@@ -740,12 +745,17 @@ pub fn write_unmatched_cued_tracks(
 
 /// Writes how many tracks were left out of the export because they have
 /// cues in rekordbox, and how to update them.
-pub fn write_left_out_for_cues(writer: &mut impl Write, left_out: usize) -> io::Result<()> {
+pub fn write_left_out_for_cues(
+    writer: &mut impl Write,
+    left_out: usize,
+    program: Program,
+) -> io::Result<()> {
     writeln!(
         writer,
-        "Left out {} that already {} cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update {} key and tempo.",
+        "Left out {} that already {} cues in your {} collection, so importing this file cannot change them. Export again without --cues to update {} key and tempo.",
         counted(left_out, "track", "tracks"),
         if left_out == 1 { "has" } else { "have" },
+        program.name(),
         if left_out == 1 { "its" } else { "their" },
     )
 }
@@ -757,19 +767,34 @@ pub const REKORDBOX_IMPORT_STEPS: [&str; 3] = [
     "Refresh rekordbox xml in the tree, then import its tracks or playlists.",
 ];
 
-/// Writes how to bring an exported file into rekordbox, and where the full
-/// guide is.
-pub fn write_rekordbox_import_steps(writer: &mut impl Write, theme: &Theme) -> io::Result<()> {
-    writeln!(writer, "To import it in rekordbox:")?;
-    for (number, step) in REKORDBOX_IMPORT_STEPS.iter().enumerate() {
+/// The steps to bring an exported file into Traktor.
+pub const TRAKTOR_IMPORT_STEPS: [&str; 3] = [
+    "Back up collection.nml in Documents/Native Instruments/Traktor <version>.",
+    "In the browser tree, right click Track Collection > Import Another Collection.",
+    "Choose this file. Lock the beat grid or untick BPM before analyzing these tracks.",
+];
+
+/// Writes how to bring an exported file into the program, and where the
+/// full guide is.
+pub fn write_import_steps(
+    writer: &mut impl Write,
+    theme: &Theme,
+    program: Program,
+) -> io::Result<()> {
+    let (steps, guide): (&[&str], &str) = match program {
+        Program::Rekordbox => (&REKORDBOX_IMPORT_STEPS, "export-to-rekordbox.md"),
+        Program::Traktor => (&TRAKTOR_IMPORT_STEPS, "export-to-traktor.md"),
+    };
+    writeln!(writer, "To import it in {}:", program.name())?;
+    for (number, step) in steps.iter().enumerate() {
         writeln!(writer, "  {}. {step}", number + 1)?;
     }
     writeln!(
         writer,
         "{}",
-        theme.dim(
-            "Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-rekordbox.md"
-        )
+        theme.dim(format!(
+            "Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/{guide}"
+        ))
     )
 }
 
@@ -1371,7 +1396,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
     #[test]
     fn import_steps_are_numbered_and_end_with_the_guide() {
         let mut buffer = Vec::new();
-        write_rekordbox_import_steps(&mut buffer, &Theme::PLAIN).unwrap();
+        write_import_steps(&mut buffer, &Theme::PLAIN, Program::Rekordbox).unwrap();
         let steps = String::from_utf8(buffer).unwrap();
         let lines: Vec<&str> = steps.lines().collect();
         assert_eq!(lines.len(), 5);

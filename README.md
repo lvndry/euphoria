@@ -62,7 +62,8 @@ The full documentation is in [docs](docs/index.md):
 
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
-- [Export to rekordbox](docs/guides/export-to-rekordbox.md)
+- [Export to rekordbox](docs/guides/export-to-rekordbox.md) and [to Traktor](docs/guides/export-to-traktor.md)
+- [DJ program support](docs/reference/dj-program-support.md)
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
 - [Accuracy](docs/concepts/accuracy.md)

@@ -348,6 +348,27 @@ The command also exits with status 1, and writes no file, when:
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
+## euphoria export traktor
+
+Analyzes audio files and writes the results as a Traktor collection file (NML), which Traktor Pro imports with **Import Another Collection**. [Export to Traktor](../guides/export-to-traktor.md) walks through the import. **Not tested in Traktor.**
+
+```
+euphoria export traktor [OPTIONS] --output <FILE> <PATHS>...
+euphoria export traktor [OPTIONS] --output <FILE> --playlist <NAME>
+```
+
+It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the same paths, cache, playlists per folder, `--playlist`, refusals, exit status and temporary file. The differences:
+
+| Option | Effect |
+| --- | --- |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the Key Text column. The Key column is filled from the key itself. |
+| `--beat-grid` | A grid marker at each track's first downbeat, with the grid's tempo in six decimals, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. |
+| `--collection <FILE>` | Your Traktor `collection.nml`, only read. Tracks with a cue, hot cue or loop of their own there are left out of the file. Grid markers and Traktor's `AutoGrid` hot cue on a grid marker do not count. It is never replaced, even with `--force`. |
+| `--startup-volume <NAME>` | The name of the Mac disk the system is on, which Traktor writes as the volume of every path outside `/Volumes`. Found from `/Volumes` when not given. |
+
+Each track has its location as volume, folders and file, its title and artist from its tags, its duration, its key in `INFO KEY` and `MUSICAL_KEY`, its tempo, and its energy rating as the comment `Energy 7`. A path that is not valid Unicode cannot be written in the file and is an error. Two paths that name the same file to Traktor, such as `/a.mp3` and `/Volumes/Macintosh HD/a.mp3`, are an error too.
+
 ## euphoria export m3u8
 
 Writes a playlist built in the desktop app as an M3U8 file, the playlist format nearly every DJ and music program opens: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx and music players.

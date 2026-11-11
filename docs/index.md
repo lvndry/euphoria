@@ -28,6 +28,8 @@ Exports for other DJ software are in development.
 - New here: [install Euphoria](getting-started/installation.md), then follow the [quick start](getting-started/quick-start.md).
 - Preparing a set: [analyze your library](guides/analyze-your-library.md).
 - Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
+- Using Traktor: [export to Traktor](guides/export-to-traktor.md).
+- Which DJ program gets what: [DJ program support](reference/dj-program-support.md).
 - Want the key and energy inside the files, for any DJ software: [write tags into your files](guides/write-tags.md), then [set up your DJ program](guides/dj-programs.md).
 - Prefer a window to a terminal: [desktop app](guides/desktop-app.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).

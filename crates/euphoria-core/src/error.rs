@@ -46,6 +46,9 @@ pub enum ExportProblem {
     InvalidTempo,
     /// A hot cue is on a pad the track does not have.
     InvalidHotCue,
+    /// The path is not valid Unicode, which a format that stores paths as
+    /// text cannot hold.
+    PathNotUnicode,
 }
 
 impl fmt::Display for ExportProblem {
@@ -56,6 +59,7 @@ impl fmt::Display for ExportProblem {
             ExportProblem::NotInCollection => "in a playlist but not in the collection",
             ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
             ExportProblem::InvalidHotCue => "hot cue pad is out of range",
+            ExportProblem::PathNotUnicode => "path is not valid Unicode",
         })
     }
 }
