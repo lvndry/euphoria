@@ -58,23 +58,215 @@ pub(crate) fn fractions(cues: &[Cue], duration_seconds: f32) -> Vec<f32> {
         .collect()
 }
 
-/// The row of markers above the waveform, as wide as it: a press on a
-/// marker plays from its cue, and a drag moves it.
+/// Room each character of a marker's label takes, a little more than the
+/// average at the label size so that labels are not cut short.
+const LABEL_CHARACTER_WIDTH: f32 = 6.5;
+
+/// Room around a marker's label: its padding and its line.
+const LABEL_PADDING: f32 = 10.0;
+
+/// The widest a marker's label is drawn.
+const WIDEST_LABEL: f32 = 140.0;
+
+/// How wide a marker is with only its letter.
+const LETTER_LABEL: f32 = 16.0;
+
+/// How wide a marker is with no label at all.
+const TICK_WIDTH: f32 = 4.0;
+
+/// Space kept between two markers on one row.
+const MARKER_GAP: f32 = 2.0;
+
+/// How many rows of markers the lane has at most.
+const LANE_ROWS: usize = 2;
+
+/// What a marker shows, from most to least room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MarkerLabel {
+    /// The hot cue letter and the name, cut short when the next marker on
+    /// its row is close.
+    Full,
+    /// The hot cue letter, or a dot for a memory cue.
+    Letter,
+    /// Nothing: no row had room even for a letter. The marker can still be
+    /// clicked and dragged, and hovering names its cue.
+    Tick,
+}
+
+/// Where one marker is drawn in the lane.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MarkerPlace {
+    /// The row, from 0 at the top.
+    pub(crate) row: usize,
+    /// What it shows.
+    pub(crate) label: MarkerLabel,
+    /// How wide it is drawn.
+    pub(crate) width: f32,
+}
+
+/// The text of a marker showing `label`.
+fn marker_text(cue: &Cue, label: MarkerLabel) -> String {
+    match (label, cue.hot_cue) {
+        (MarkerLabel::Tick, _) => String::new(),
+        (MarkerLabel::Full, Some(hot_cue)) => {
+            format!("{hot_cue} {}", cue.name).trim_end().to_string()
+        }
+        (MarkerLabel::Full, None) if !cue.name.is_empty() => cue.name.clone(),
+        (MarkerLabel::Letter, Some(hot_cue)) => hot_cue.to_string(),
+        (MarkerLabel::Full | MarkerLabel::Letter, None) => "\u{2022}".to_string(),
+    }
+}
+
+/// How wide a marker showing `text` in full is drawn.
+fn text_width(text: &str) -> f32 {
+    let width = LABEL_PADDING + text.chars().count() as f32 * LABEL_CHARACTER_WIDTH;
+    width.clamp(LETTER_LABEL, WIDEST_LABEL)
+}
+
+/// Places the markers of `cues`, at `fractions` along a lane `lane_width`
+/// wide, so that their labels never overlap.
+///
+/// Each marker takes the first row where the labels before it, in full,
+/// leave room for its own in full, or else the row with room for its
+/// letter whose last marker ends earliest. A label then runs as far as its
+/// full text needs, up to the next marker on its row: cut short, or down
+/// to its letter. A marker with no row free even for a letter, a cue a few
+/// pixels from others, is drawn as a bare tick on the last row. A label past
+/// [`LABEL_FLIP_FRACTION`] runs left of its line. Without a known width
+/// every marker gets its full label on the first row.
+pub(crate) fn marker_places(
+    cues: &[Cue],
+    fractions: &[f32],
+    lane_width: Option<f32>,
+) -> Vec<MarkerPlace> {
+    let full_widths: Vec<f32> = cues
+        .iter()
+        .map(|cue| text_width(&marker_text(cue, MarkerLabel::Full)))
+        .collect();
+    let Some(lane_width) = lane_width else {
+        return full_widths
+            .into_iter()
+            .map(|width| MarkerPlace {
+                row: 0,
+                label: MarkerLabel::Full,
+                width,
+            })
+            .collect();
+    };
+    let lines: Vec<f32> = fractions
+        .iter()
+        .map(|fraction| fraction * lane_width)
+        .collect();
+    let is_flipped = |index: usize| fractions[index] > LABEL_FLIP_FRACTION;
+    // Where each marker's letter would start and end.
+    let letter_span = |index: usize| {
+        if is_flipped(index) {
+            (lines[index] - LETTER_LABEL, lines[index])
+        } else {
+            (lines[index], lines[index] + LETTER_LABEL)
+        }
+    };
+
+    let full_span = |index: usize| {
+        if is_flipped(index) {
+            (lines[index] - full_widths[index], lines[index])
+        } else {
+            (lines[index], lines[index] + full_widths[index])
+        }
+    };
+
+    // Where the markers placed so far on each row end, with their letters
+    // and with their full labels.
+    let mut letter_ends = [f32::NEG_INFINITY; LANE_ROWS];
+    let mut full_ends = [f32::NEG_INFINITY; LANE_ROWS];
+    let mut rows: Vec<Option<usize>> = Vec::with_capacity(cues.len());
+    for index in 0..cues.len() {
+        let (letter_start, letter_end) = letter_span(index);
+        let (full_start, full_end) = full_span(index);
+        let row_for_full_label =
+            (0..LANE_ROWS).find(|row| full_ends[*row] + MARKER_GAP <= full_start);
+        let row = row_for_full_label.or_else(|| {
+            (0..LANE_ROWS)
+                .filter(|row| letter_ends[*row] + MARKER_GAP <= letter_start)
+                .min_by(|first, second| letter_ends[*first].total_cmp(&letter_ends[*second]))
+        });
+        if let Some(row) = row {
+            letter_ends[row] = letter_end;
+            full_ends[row] = full_end;
+        }
+        rows.push(row);
+    }
+
+    let mut places: Vec<MarkerPlace> = Vec::with_capacity(cues.len());
+    for index in 0..cues.len() {
+        let Some(row) = rows[index] else {
+            places.push(MarkerPlace {
+                row: LANE_ROWS - 1,
+                label: MarkerLabel::Tick,
+                width: TICK_WIDTH,
+            });
+            continue;
+        };
+        let room = if is_flipped(index) {
+            let previous_end = (0..index)
+                .rev()
+                .find(|other| rows[*other] == Some(row))
+                .map(|other| {
+                    let place = places[other];
+                    if is_flipped(other) {
+                        lines[other]
+                    } else {
+                        lines[other] + place.width
+                    }
+                })
+                .unwrap_or(0.0);
+            lines[index] - previous_end - MARKER_GAP
+        } else {
+            let next_start = (index + 1..cues.len())
+                .find(|other| rows[*other] == Some(row))
+                .map(|other| letter_span(other).0)
+                .unwrap_or(lane_width);
+            next_start - lines[index] - MARKER_GAP
+        };
+        let width = full_widths[index].min(room).max(LETTER_LABEL);
+        let label = if width >= LETTER_LABEL + 2.0 * LABEL_CHARACTER_WIDTH {
+            MarkerLabel::Full
+        } else {
+            MarkerLabel::Letter
+        };
+        let width = match label {
+            MarkerLabel::Letter => LETTER_LABEL,
+            MarkerLabel::Full | MarkerLabel::Tick => width,
+        };
+        places.push(MarkerPlace { row, label, width });
+    }
+    places
+}
+
+/// How tall the lane is for `places`: one row, or two when a marker needed
+/// the second.
+pub(crate) fn lane_height(places: &[MarkerPlace]) -> f32 {
+    let rows = places.iter().map(|place| place.row + 1).max().unwrap_or(1);
+    rows as f32 * CUE_LANE_HEIGHT
+}
+
+/// The markers above the waveform, as wide as it, on as many rows as
+/// `places` asks: a press on a marker plays from its cue, and a drag moves
+/// it. Every marker names its cue on hover, whatever its label shows.
 pub(crate) fn lane(
     cues: &[Cue],
     duration_seconds: f32,
+    places: &[MarkerPlace],
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
     let markers = cues
         .iter()
         .zip(fractions(cues, duration_seconds))
+        .zip(places)
         .enumerate()
-        .map(|(index, (cue, fraction))| {
-            let label = match cue.hot_cue {
-                Some(hot_cue) => format!("{hot_cue} {}", cue.name),
-                None => cue.name.clone(),
-            };
+        .map(|(index, ((cue, fraction), place))| {
+            let text = marker_text(cue, place.label);
             let explanation: SharedString = format!(
                 "{} at {}. Click to play from here, drag to move it: it lands on a beat, or on a bar with Shift held.",
                 cue_title(cue),
@@ -84,20 +276,22 @@ pub(crate) fn lane(
             let marker = div()
                 .id(marker_id(index))
                 .absolute()
-                .top_0()
+                .top(px(place.row as f32 * CUE_LANE_HEIGHT))
                 .h(px(CUE_LANE_HEIGHT))
+                .w(px(place.width))
                 .flex()
                 .items_center()
-                .px(px(4.0))
-                .max_w(px(140.0))
-                .bg(palette.raised)
+                .map(|marker| match place.label {
+                    MarkerLabel::Full => marker.px(px(4.0)).bg(palette.raised),
+                    MarkerLabel::Letter => marker.justify_center().bg(palette.raised),
+                    MarkerLabel::Tick => marker.bg(palette.accent.opacity(0.5)),
+                })
                 .text_size(LABEL_TEXT_SIZE)
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(palette.text)
-                .whitespace_nowrap()
                 .overflow_hidden()
                 .cursor_pointer()
-                .child(label)
+                .child(div().min_w_0().truncate().child(text))
                 .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
                 .on_mouse_down(
                     MouseButton::Left,
@@ -123,7 +317,7 @@ pub(crate) fn lane(
         .id("cue-lane")
         .relative()
         .w_full()
-        .h(px(CUE_LANE_HEIGHT))
+        .h(px(lane_height(places)))
         .overflow_hidden()
         .children(markers)
         .test_support()
@@ -438,4 +632,158 @@ fn hot_cue_choice(
             .test_support(),
         )
         .test_support()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cue(seconds: f64, name: &str, letter: Option<char>) -> Cue {
+        Cue {
+            seconds,
+            name: name.to_string(),
+            hot_cue: letter.and_then(HotCue::from_letter),
+        }
+    }
+
+    const LANE: f32 = 300.0;
+
+    /// Eight hot cues named Breakdown, `step` of the lane apart from its
+    /// start, and their places.
+    fn crowded(step: f32) -> (Vec<f32>, Vec<MarkerPlace>) {
+        let cues: Vec<Cue> = HotCue::ALL
+            .iter()
+            .map(|pad| cue(f64::from(pad.pad()), "Breakdown", Some(pad.letter())))
+            .collect();
+        let fractions: Vec<f32> = (0..cues.len()).map(|index| index as f32 * step).collect();
+        let places = marker_places(&cues, &fractions, Some(LANE));
+        (fractions, places)
+    }
+
+    /// Fails when two labelled markers overlap or touch.
+    fn assert_no_labels_overlap(fractions: &[f32], places: &[MarkerPlace]) {
+        let spans: Vec<(usize, f32, f32)> = places
+            .iter()
+            .zip(fractions)
+            .filter(|(place, _)| place.label != MarkerLabel::Tick)
+            .map(|(place, fraction)| {
+                let line = fraction * LANE;
+                if *fraction > LABEL_FLIP_FRACTION {
+                    (place.row, line - place.width, line)
+                } else {
+                    (place.row, line, line + place.width)
+                }
+            })
+            .collect();
+        for (index, first) in spans.iter().enumerate() {
+            for second in &spans[index + 1..] {
+                let overlaps = first.0 == second.0 && first.1 < second.2 && second.1 < first.2;
+                assert!(!overlaps, "{first:?} and {second:?} overlap: {places:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn markers_with_room_keep_their_full_label_on_one_row() {
+        let cues = [cue(0.0, "Start", Some('A')), cue(150.0, "Drop", Some('B'))];
+        let places = marker_places(&cues, &[0.0, 0.5], Some(LANE));
+        assert_eq!(
+            places,
+            vec![
+                MarkerPlace {
+                    row: 0,
+                    label: MarkerLabel::Full,
+                    width: text_width("A Start"),
+                },
+                MarkerPlace {
+                    row: 0,
+                    label: MarkerLabel::Full,
+                    width: text_width("B Drop"),
+                },
+            ]
+        );
+        assert_eq!(lane_height(&places), CUE_LANE_HEIGHT);
+    }
+
+    #[test]
+    fn close_markers_alternate_rows_and_cut_their_labels_short() {
+        let (fractions, places) = crowded(0.06);
+        let rows: Vec<usize> = places.iter().map(|place| place.row).collect();
+        assert_eq!(rows, [0, 1, 0, 1, 0, 1, 0, 1]);
+        assert!(
+            places[..6]
+                .iter()
+                .all(|place| place.label == MarkerLabel::Full && place.width < 40.0),
+            "{places:?}"
+        );
+        assert_eq!(places[7].width, text_width("H Breakdown"));
+        assert_eq!(lane_height(&places), 2.0 * CUE_LANE_HEIGHT);
+        assert_no_labels_overlap(&fractions, &places);
+    }
+
+    #[test]
+    fn closer_markers_shrink_to_their_letter_and_the_closest_to_a_tick() {
+        let (fractions, places) = crowded(0.04);
+        assert!(
+            places[..6]
+                .iter()
+                .all(|place| place.label == MarkerLabel::Letter),
+            "{places:?}"
+        );
+        assert_no_labels_overlap(&fractions, &places);
+
+        let (fractions, places) = crowded(0.01);
+        assert_eq!(places[0].label, MarkerLabel::Letter);
+        assert_eq!(places[1].label, MarkerLabel::Letter);
+        assert_eq!(places[2].label, MarkerLabel::Tick);
+        assert_no_labels_overlap(&fractions, &places);
+    }
+
+    #[test]
+    fn markers_near_the_end_run_left_and_stay_apart() {
+        let cues = [
+            cue(0.0, "Breakdown", Some('A')),
+            cue(1.0, "Breakdown", Some('B')),
+            cue(2.0, "Breakdown", Some('C')),
+        ];
+        let fractions = [0.9, 0.95, 1.0];
+        let places = marker_places(&cues, &fractions, Some(LANE));
+        assert_no_labels_overlap(&fractions, &places);
+        assert!(places.iter().all(|place| place.label != MarkerLabel::Tick));
+    }
+
+    #[test]
+    fn a_marker_shows_its_letter_or_a_dot_for_a_memory_cue() {
+        assert_eq!(
+            marker_text(&cue(1.0, "Drop", Some('C')), MarkerLabel::Letter),
+            "C"
+        );
+        assert_eq!(
+            marker_text(&cue(1.0, "Drop", None), MarkerLabel::Letter),
+            "\u{2022}"
+        );
+        assert_eq!(
+            marker_text(&cue(1.0, "", None), MarkerLabel::Full),
+            "\u{2022}"
+        );
+        assert_eq!(
+            marker_text(&cue(1.0, "", Some('D')), MarkerLabel::Full),
+            "D"
+        );
+        assert_eq!(
+            marker_text(&cue(1.0, "Drop", Some('D')), MarkerLabel::Tick),
+            ""
+        );
+    }
+
+    #[test]
+    fn without_a_width_every_marker_is_full_on_the_first_row() {
+        let cues = [cue(0.0, "Start", Some('A')), cue(0.1, "Main", Some('B'))];
+        let places = marker_places(&cues, &[0.0, 0.001], None);
+        assert!(
+            places
+                .iter()
+                .all(|place| place.row == 0 && place.label == MarkerLabel::Full)
+        );
+    }
 }

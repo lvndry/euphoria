@@ -612,8 +612,15 @@ fn waveform_section(
     });
     let shown_cues = cues::shown_cues(track, app);
     let duration_seconds = track.duration_seconds().unwrap_or(0.0);
-    let cue_lane =
-        (!shown_cues.is_empty()).then(|| cues::lane(&shown_cues, duration_seconds, &palette, cx));
+    let cue_fractions = cues::fractions(&shown_cues, duration_seconds);
+    // The waveform's width as last drawn; the lane is as wide.
+    let lane_width = app
+        .waveform_bounds
+        .get()
+        .map(|bounds| bounds.size.width / px(1.0));
+    let marker_places = cues::marker_places(&shown_cues, &cue_fractions, lane_width);
+    let cue_lane = (!shown_cues.is_empty())
+        .then(|| cues::lane(&shown_cues, duration_seconds, &marker_places, &palette, cx));
     // The rows other than the waveform, which takes the height left.
     let others = energy
         .as_ref()
@@ -621,9 +628,9 @@ fn waveform_section(
         + key_timeline.as_ref().map_or(0.0, |_| {
             track_overview::KEY_TIMELINE_HEIGHT + WAVEFORM_ROW_GAP
         })
-        + cue_lane
-            .as_ref()
-            .map_or(0.0, |_| cues::CUE_LANE_HEIGHT + WAVEFORM_ROW_GAP);
+        + cue_lane.as_ref().map_or(0.0, |_| {
+            cues::lane_height(&marker_places) + WAVEFORM_ROW_GAP
+        });
 
     let scrubber = seek_on_press_and_drag(
         div().id("waveform").child(
@@ -640,7 +647,7 @@ fn waveform_section(
                     columns,
                     WaveformColours::of(&palette),
                     progress,
-                    cues::fractions(&shown_cues, duration_seconds),
+                    cue_fractions,
                     app.waveform_bounds.clone(),
                     room.waveform_height(others),
                 )),

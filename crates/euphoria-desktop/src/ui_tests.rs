@@ -4713,6 +4713,62 @@ fn the_cues_show_as_markers_lined_up_with_the_waveform_with_their_hot_cue_letter
 }
 
 #[gpui::test]
+fn markers_of_cues_close_together_never_overlap_and_stay_above_the_waveform(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_cued_library(cx);
+    let crowded: Vec<euphoria_core::Cue> = euphoria_core::HotCue::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, pad)| euphoria_core::Cue {
+            seconds: 1.0 + index as f64 * 0.5,
+            name: "Breakdown".to_string(),
+            hot_cue: Some(*pad),
+        })
+        .chain(std::iter::once(euphoria_core::Cue {
+            seconds: 31.5,
+            name: "Last".to_string(),
+            hot_cue: None,
+        }))
+        .collect();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.session.set_edited_cues(&path, Some(crowded.clone()));
+        })
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        let lane = window.find("cue-lane").bounds();
+        let markers: Vec<Bounds<gpui::Pixels>> = (0..crowded.len())
+            .map(|index| window.find(crate::views::cues::marker_id(index)).bounds())
+            .collect();
+        // Cues a few pixels apart get a bare tick, which carries no label.
+        let labelled: Vec<&Bounds<gpui::Pixels>> = markers
+            .iter()
+            .filter(|marker| marker.size.width > px(4.0))
+            .collect();
+        assert!(labelled.len() >= 3, "{markers:?}");
+        for (index, marker) in markers.iter().enumerate() {
+            assert!(marker.bottom() <= waveform.top(), "{index}: {marker:?}");
+            assert!(lane.left() <= marker.left() && marker.right() <= lane.right());
+        }
+        for (index, marker) in labelled.iter().enumerate() {
+            for other in &labelled[index + 1..] {
+                assert!(!marker.intersects(other), "{marker:?} overlaps {other:?}");
+            }
+        }
+        assert!(
+            markers.iter().any(|marker| marker.top() > lane.top()),
+            "crowded markers use a second row"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui::test]
 fn a_click_on_a_marker_plays_from_its_cue(cx: &mut TestAppContext) {
     let (window, view) = open_cued_library(cx);
     click(window, crate::views::cues::marker_id(0), cx);
