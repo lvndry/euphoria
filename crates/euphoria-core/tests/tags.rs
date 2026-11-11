@@ -471,10 +471,13 @@ fn labelled(path: &Path, placement: LabelPlacement, label: &str) -> (Option<Stri
 }
 
 /// The changes of a plan apart from those to the key fields.
+/// The changes of a plan apart from those to the key fields and to the
+/// comment of a WAV file's RIFF INFO list, which `tags_riff.rs` covers.
 fn label_changes(plan: &WritePlan) -> Vec<&FieldChange> {
     plan.changes()
         .iter()
         .filter(|change| !change.field.to_ascii_uppercase().contains("KEY"))
+        .filter(|change| change.field != "INFO ICMT")
         .collect()
 }
 
