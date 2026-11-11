@@ -1,8 +1,8 @@
 # Copyright 2026 The Euphoria contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Writes the charts of the beat grid section of docs/concepts/accuracy.md as
-SVG files next to this script.
+"""Writes the charts of the beat grid and cue point sections of
+docs/concepts/accuracy.md as SVG files next to this script.
 
 Run it with any Python 3 from the repository root:
 
@@ -22,6 +22,18 @@ OUTPUT_DIRECTORY = Path(__file__).resolve().parent
 # octave of the tempo taken from the annotation.
 HELD_OUT_BY_CONFIDENCE = [("High", 36, 97.2), ("Medium", 22, 100.0), ("Low", 42, 64.3)]
 HELD_OUT_GRID_RIGHT = 84.0
+
+# "Cue points", the chart: the energy curve of GiantSteps Key preview
+# 3533956 at its detected tempo of 123.9 BPM, as (window centre in seconds,
+# rating), and the cues Euphoria sets on it, as (seconds, name).
+CURVE_POINTS = [
+    (4, 3), (8, 2), (12, 3), (16, 7), (20, 8), (24, 8), (28, 8), (32, 8),
+    (36, 8), (40, 8), (44, 8), (48, 8), (52, 8), (56, 8), (60, 8), (64, 8),
+    (68, 8), (72, 8), (76, 4), (80, 1), (84, 1), (88, 1), (92, 4), (96, 7),
+    (100, 7), (104, 7), (108, 7), (112, 8), (116, 8),
+]
+CURVE_STEP_SECONDS = 4
+CUES = [(0.24, "Start"), (15.72, "Main"), (77.66, "Breakdown"), (93.15, "Drop")]
 
 STYLE = """
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
@@ -160,8 +172,56 @@ def confidence_chart():
     return document(width, height, "How often the beat grid is right at each confidence", description, body)
 
 
+def minutes_and_seconds(seconds):
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def cues_chart():
+    width = 800
+    height = 380
+    plot_top = 116
+    plot_bottom = 316
+    plot_right = 740
+    to_x = scale(0, 120, 64, plot_right)
+    to_y = scale(1, 10, plot_bottom, plot_top)
+    body = [
+        text(24, 36, "Cues on a two minute preview", "title"),
+        text(24, 58, "Where Euphoria sets cues, over the energy rating of the preview every 4 seconds.", "subtitle"),
+    ]
+    for rating_tick in (1, 4, 7, 10):
+        body.append(line(to_x(0), to_y(rating_tick), to_x(120), to_y(rating_tick), "grid"))
+        body.append(text(to_x(0) - 10, to_y(rating_tick) + 4, str(rating_tick), "tick", "end"))
+    body.append(line(to_x(0), plot_bottom, to_x(120), plot_bottom, "axis"))
+    for second_tick in range(0, 121, 20):
+        body.append(text(to_x(second_tick), plot_bottom + 20, minutes_and_seconds(second_tick), "tick", "middle"))
+    body.append(text(to_x(60), plot_bottom + 44, "Time in the preview", "label", "middle"))
+
+    half_step = CURVE_STEP_SECONDS / 2
+    steps = []
+    for centre, rating in CURVE_POINTS:
+        steps.append((to_x(centre - half_step), to_y(rating)))
+        steps.append((to_x(centre + half_step), to_y(rating)))
+    wash = [(steps[0][0], plot_bottom), *steps, (steps[-1][0], plot_bottom)]
+    wash_points = " ".join(f"{number(x)},{number(y)}" for x, y in wash)
+    body.append(f'<polygon points="{wash_points}" class="series-wash"/>')
+    body.append(polyline(steps, "series-line"))
+    for seconds, name in CUES:
+        body.append(line(to_x(seconds), plot_top - 22, to_x(seconds), plot_bottom, "reference"))
+        body.append(text(to_x(seconds) + 6, plot_top - 26, name, "value"))
+
+    description = (
+        "Step chart of the energy rating of a two minute GiantSteps preview at 123.9 BPM, "
+        "with vertical lines at the four cues Euphoria sets. Start is at 0.2 seconds, where "
+        "the rating is 2 to 3. Main is at 15.7 seconds, where the rating rises to 7 and then 8. "
+        "Breakdown is at 77.7 seconds, where it falls to 4 and then 1. Drop is at 93.1 seconds, "
+        "where it comes back to 7 and then 8."
+    )
+    return document(width, height, "Cues on a two minute preview", description, body)
+
+
 CHARTS = {
     "confidence.svg": confidence_chart,
+    "cues.svg": cues_chart,
 }
 
 
