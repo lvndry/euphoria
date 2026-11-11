@@ -175,6 +175,7 @@ impl OggVorbisFile {
         let mut offset = 0;
         let mut first_page_end = 0;
         let mut serial_number = None;
+        let mut expected_sequence = 0;
         let mut comment_segments = 0;
         while packets.len() < HEADER_PACKETS {
             let read = read_page(file, offset)?;
@@ -185,6 +186,10 @@ impl OggVorbisFile {
             if is_first && read.page.flags & FIRST_PAGE == 0 {
                 return Err("the Ogg stream does not start where the file does".into());
             }
+            if read.page.sequence_number != expected_sequence {
+                problem = Some("its Ogg pages are out of order");
+            }
+            expected_sequence = read.page.sequence_number.wrapping_add(1);
             if !read.is_intact {
                 problem = Some("an Ogg page does not match its checksum");
             }
@@ -242,11 +247,6 @@ impl OggVorbisFile {
         let comment_end = comment_body[length..].to_vec();
         if comment_end.first().is_none_or(|framing| framing & 1 == 0) {
             problem = Some("its Vorbis comment header is damaged");
-        }
-        for (previous, next) in pages.iter().zip(pages.iter().skip(1)) {
-            if previous.sequence_number.wrapping_add(1) != next.sequence_number {
-                problem = Some("its Ogg pages are out of order");
-            }
         }
         Ok(Self {
             identification: identification.clone(),

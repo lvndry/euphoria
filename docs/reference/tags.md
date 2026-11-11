@@ -73,7 +73,7 @@ The error names the file and the reason, and the file is not touched. `read_tags
 - The `meta` atom of an MP4 file lacks its version field, as some QuickTime style files have it.
 - A fragmented MP4 file would need its audio moved, because padding cannot take up the change in length.
 - The size in an ID3v2 tag header is damaged, so the end of the tag cannot be known. `read_tags` fails on such a file too.
-- An Ogg file holds another stream next to its Vorbis stream, or a stream other than Vorbis, such as Opus. `read_tags` fails on such a file too.
+- An Ogg file starts with a stream other than Vorbis, such as Opus, or another stream is interleaved with its three Vorbis header packets. `read_tags` fails on such a file too. Pages after those headers are kept byte for byte without checking for additional streams.
 - A page of an Ogg Vorbis file's headers does not match its checksum, the headers end on the same page as the first audio, or the new comments do not fit the page the old ones ended on, as described above.
 - The file has more than one hard link. See below.
 - Another program changed the file between the moment its tags were read and the moment the new file was ready. Make a new plan and apply that.

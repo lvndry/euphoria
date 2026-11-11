@@ -433,6 +433,37 @@ fn header_page_that_does_not_match_its_checksum_is_read_but_not_rewritten() {
 }
 
 #[test]
+fn header_sequence_starts_at_zero_and_includes_the_first_transition() {
+    let comment = comment_header("sequence", &[b"TITLE=Sequence"], b"");
+    let file = ogg_file(&comment, 255, false);
+    let control = scratch_file("sequence-control", &file);
+    plan_write(&control, &a_minor(), &full_options()).expect(WORKS);
+    for changed_page in [0, 1] {
+        let mut bytes = Vec::new();
+        for (index, page) in pages(&file).iter().enumerate() {
+            bytes.extend(page_bytes(
+                page.flags,
+                page.granule_position,
+                if index == changed_page {
+                    7
+                } else {
+                    page.sequence_number
+                },
+                &page.lacing,
+                &page.data,
+            ));
+        }
+        let name = format!("bad-sequence-{changed_page}");
+        let path = scratch_file(&name, &bytes);
+        assert_eq!(
+            read_tags(&path).expect(WORKS).title.as_deref(),
+            Some("Sequence")
+        );
+        assert_refused(&name, &bytes, "out of order");
+    }
+}
+
+#[test]
 fn comments_that_would_need_more_pages_are_refused() {
     // The comments end on a full page with the setup header after them, so
     // there is no room for another lacing value without renumbering the
