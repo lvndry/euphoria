@@ -75,6 +75,15 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
                 &report.not_noted,
                 &palette,
             ));
+            if let Some(problem) = &report.cache_problem {
+                contents.push(quiet(
+                    &format!(
+                        "The analysis cache could not be updated, so these files will be \
+                         analyzed again the next time they are added: {problem}"
+                    ),
+                    &palette,
+                ));
+            }
             contents.push(buttons(vec![
                 secondary_button("Undo this write", &palette)
                     .id("undo-tag-write")

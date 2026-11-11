@@ -2170,3 +2170,79 @@ fn the_shortcuts_open_the_panels_and_escape_closes_them(cx: &mut TestAppContext)
     cx.update(|cx| assert!(view.read(cx).tag_panel.is_none()));
     assert_eq!(tag_testing::contents(&files), before);
 }
+
+#[gpui::test]
+fn files_written_from_the_window_are_served_from_the_cache_on_the_next_launch(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-cache");
+    let files = scratch.copy_fixtures();
+    let cache_path = scratch.0.join("analysis-cache.sqlite3");
+    let launch = || {
+        euphoria_core::CachedAnalyzer::new(euphoria_core::Cache::open(&cache_path).unwrap())
+            .unwrap()
+    };
+    let first_launch = std::sync::Arc::new(launch());
+    let tracks: Vec<DemoTrack> = files
+        .iter()
+        .map(|path| DemoTrack {
+            path: path.clone(),
+            outcome: Ok(first_launch.analyze_file(path).unwrap().analysis),
+        })
+        .collect();
+    let analyses: Vec<TrackAnalysis> = tracks
+        .iter()
+        .map(|track| track.outcome.clone().unwrap())
+        .collect();
+
+    let log_directory = scratch.log_directory();
+    let (window, view) = cx.update(|cx| {
+        gpui::init(cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: Point::default(),
+                size: USUAL_WINDOW,
+            })),
+            ..Default::default()
+        };
+        let (window, view) = gpui::open_window(options, cx, |window, cx| {
+            cx.new(|cx| {
+                let mut session = Session::start(Some(first_launch.clone())).unwrap();
+                session.add_demo_tracks(tracks);
+                let mut app = EuphoriaApp::new(
+                    session,
+                    Settings::default(),
+                    None,
+                    None,
+                    Box::new(SilentOutput),
+                    window,
+                    cx,
+                );
+                app.write_log_directory = Some(log_directory);
+                app
+            })
+        })
+        .unwrap();
+        crate::register_commands(window, &view, cx);
+        (window, view)
+    });
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    click(window, "confirm-tag-write", cx);
+    assert_eq!(
+        cx.update(|cx| view.read(cx).written_files()),
+        Some(files.clone())
+    );
+    let after_write = launch();
+    for (path, analysis) in files.iter().zip(&analyses) {
+        assert_eq!(after_write.stored_analysis(path).as_ref(), Some(analysis));
+    }
+
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    let after_undo = launch();
+    for (path, analysis) in files.iter().zip(&analyses) {
+        assert_eq!(after_undo.stored_analysis(path).as_ref(), Some(analysis));
+    }
+}

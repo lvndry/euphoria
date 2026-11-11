@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use euphoria_core::TrackAnalysis;
 use euphoria_core::tags::WritePlan;
 use gpui::Context;
 
@@ -41,6 +42,8 @@ pub(crate) struct Preview {
     pub(crate) settings: TagSettings,
     /// The files that would change.
     pub(crate) plans: Arc<Vec<WritePlan>>,
+    /// The analysis written into each file, in the order of `plans`.
+    pub(crate) analyses: Arc<Vec<TrackAnalysis>>,
     /// The preview, a file at a time.
     pub(crate) rows: Vec<PreviewRow>,
     /// How many files already hold the values.
@@ -151,6 +154,7 @@ impl EuphoriaApp {
                     settings,
                     rows: preview_rows(&planned.plans),
                     plans: Arc::new(planned.plans),
+                    analyses: Arc::new(planned.analyses),
                     up_to_date: planned.up_to_date,
                     not_analyzed: planned.not_analyzed,
                     failures: planned.failures,
@@ -179,6 +183,8 @@ impl EuphoriaApp {
             return;
         };
         let plans = preview.plans.clone();
+        let analyses = preview.analyses.clone();
+        let cache = self.session.cache();
         let done = Arc::new(AtomicUsize::new(0));
         self.tag_panel = Some(TagPanel::Writing {
             done: done.clone(),
@@ -190,7 +196,9 @@ impl EuphoriaApp {
         cx.spawn(async move |this, cx| {
             let report = cx
                 .background_executor()
-                .spawn(async move { write_plans(&plans, &log_directory, &done) })
+                .spawn(async move {
+                    write_plans(&plans, &analyses, &log_directory, cache.as_deref(), &done)
+                })
                 .await;
             this.update(cx, |this, cx| {
                 this.tag_panel = Some(TagPanel::Written(report));
@@ -244,11 +252,12 @@ impl EuphoriaApp {
             return;
         };
         self.tag_panel = Some(TagPanel::Undoing);
+        let cache = self.session.cache();
         cx.notify();
         cx.spawn(async move |this, cx| {
             let undone = cx
                 .background_executor()
-                .spawn(async move { undo_last(&log_directory) })
+                .spawn(async move { undo_last(&log_directory, cache.as_deref()) })
                 .await;
             this.update(cx, |this, cx| {
                 this.tag_panel = Some(TagPanel::Undone(undone));

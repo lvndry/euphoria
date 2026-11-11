@@ -7,16 +7,19 @@
 //! from that same log. The app and `euphoria tags undo` share the log, so
 //! either can undo a write made by the other.
 //!
+//! A file written or put back is recorded in the analysis cache, so its
+//! new bytes are not taken for a new track and analyzed again.
+//!
 //! Everything here reads or writes files, so it runs off the main thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use euphoria_core::TrackAnalysis;
 use euphoria_core::tags::{
     FieldChange, LoggedWrite, TagWriteOptions, WriteLog, WritePlan, plan_write, undo_last_write,
 };
+use euphoria_core::{CachedAnalyzer, TrackAnalysis};
 
 /// A file and what it should say about itself, or `None` when it has no
 /// analysis to write.
@@ -42,6 +45,8 @@ pub(crate) struct LeftOut {
 pub(crate) struct PlannedWrite {
     /// The files that would change, each with its changes.
     pub(crate) plans: Vec<WritePlan>,
+    /// The analysis written into each of those files, in the same order.
+    pub(crate) analyses: Vec<TrackAnalysis>,
     /// How many files already hold the values.
     pub(crate) up_to_date: usize,
     /// Files without an analysis, which there is nothing to write for.
@@ -63,7 +68,10 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], options: &TagWriteOptions) ->
         };
         match plan_write(&target.path, analysis, options) {
             Ok(plan) if plan.is_empty() => planned.up_to_date += 1,
-            Ok(plan) => planned.plans.push(plan),
+            Ok(plan) => {
+                planned.plans.push(plan);
+                planned.analyses.push(analysis.clone());
+            }
             Err(error) => planned.failures.push(LeftOut {
                 path: target.path.clone(),
                 reason: error.chain(),
@@ -110,21 +118,35 @@ pub(crate) struct WriteReport {
     /// Files written whose note in the log could not be saved. Their backup
     /// was saved first, so undo still restores them.
     pub(crate) not_noted: Vec<LeftOut>,
+    /// Why the cache could not be told about the files written, which are
+    /// then analyzed again the next time they are added.
+    pub(crate) cache_problem: Option<String>,
 }
 
 /// Writes `plans` through a new write log in `log_directory`, counting each
-/// file done in `done` as it goes. A file that fails does not stop the
-/// others.
+/// file done in `done` as it goes, and records `analyses`, in the same
+/// order, in `cache` for each file written. A file that fails does not stop
+/// the others.
 pub(crate) fn write_plans(
     plans: &[WritePlan],
+    analyses: &[TrackAnalysis],
     log_directory: &Path,
+    cache: Option<&CachedAnalyzer>,
     done: &Arc<AtomicUsize>,
 ) -> WriteReport {
     let mut log = WriteLog::new(log_directory);
     let mut report = WriteReport::default();
-    for plan in plans {
+    for (plan, analysis) in plans.iter().zip(analyses) {
         let path = plan.path().to_path_buf();
-        match log.apply(plan) {
+        let written = log.apply(plan);
+        if written.is_ok()
+            && report.cache_problem.is_none()
+            && let Some(cache) = cache
+            && let Err(error) = cache.record_retagged_file(&path, analysis)
+        {
+            report.cache_problem = Some(error.chain());
+        }
+        match written {
             Ok(LoggedWrite::Recorded) => report.written.push(path),
             Ok(LoggedWrite::NotRecorded(error)) => {
                 report.written.push(path.clone());
@@ -156,9 +178,20 @@ pub(crate) struct UndoReport {
 }
 
 /// Undoes the last write logged in `log_directory`, by the app or by the
-/// command line. `Ok(None)` when there is no write to undo.
-pub(crate) fn undo_last(log_directory: &Path) -> Result<Option<UndoReport>, String> {
+/// command line, and tells `cache` where the restored files are, since it
+/// usually knows their old bytes. `Ok(None)` when there is no write to undo.
+pub(crate) fn undo_last(
+    log_directory: &Path,
+    cache: Option<&CachedAnalyzer>,
+) -> Result<Option<UndoReport>, String> {
     let undone = undo_last_write(log_directory).map_err(|error| error.chain())?;
+    if let (Some(cache), Some(undone)) = (cache, &undone) {
+        for path in &undone.restored {
+            if cache.recognise_file(path).is_err() {
+                break;
+            }
+        }
+    }
     Ok(undone.map(|undone| UndoReport {
         restored: undone.restored,
         untouched: undone.untouched.len(),
@@ -346,7 +379,13 @@ mod tests {
         let planned = plan_writes(&targets(&files), &settings.write_options());
 
         let done = Arc::new(AtomicUsize::new(0));
-        let report = write_plans(&planned.plans, &scratch.log_directory(), &done);
+        let report = write_plans(
+            &planned.plans,
+            &planned.analyses,
+            &scratch.log_directory(),
+            None,
+            &done,
+        );
         assert_eq!(report.written, files);
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(done.load(Ordering::Relaxed), files.len());
@@ -354,11 +393,11 @@ mod tests {
         let replanned = plan_writes(&targets(&files), &settings.write_options());
         assert_eq!(replanned.up_to_date, files.len());
 
-        let undone = undo_last(&scratch.log_directory()).unwrap().unwrap();
+        let undone = undo_last(&scratch.log_directory(), None).unwrap().unwrap();
         assert_eq!(undone.restored.len(), files.len());
         assert!(undone.failures.is_empty(), "{:?}", undone.failures);
         assert_eq!(contents(&files), before);
-        assert!(undo_last(&scratch.log_directory()).unwrap().is_none());
+        assert!(undo_last(&scratch.log_directory(), None).unwrap().is_none());
     }
 
     #[test]
@@ -374,15 +413,74 @@ mod tests {
         euphoria_core::tags::apply_plan(&meanwhile.plans[0]).unwrap();
 
         let done = Arc::new(AtomicUsize::new(0));
-        let report = write_plans(&planned.plans, &scratch.log_directory(), &done);
+        let report = write_plans(
+            &planned.plans,
+            &planned.analyses,
+            &scratch.log_directory(),
+            None,
+            &done,
+        );
         assert_eq!(report.failures.len(), 1);
         assert_eq!(report.failures[0].path, files[0]);
         assert_eq!(report.written, files[1..]);
     }
 
+    /// The analyzer over a cache in the scratch folder, as a new launch of
+    /// the app opens it.
+    fn launch_cache(scratch: &ScratchFolder) -> CachedAnalyzer {
+        let cache = euphoria_core::Cache::open(&scratch.0.join("analysis-cache.sqlite3")).unwrap();
+        CachedAnalyzer::new(cache).unwrap()
+    }
+
+    #[test]
+    fn written_and_restored_files_are_served_from_the_cache_on_the_next_launch() {
+        let scratch = ScratchFolder::new("cache");
+        let files = scratch.copy_fixtures();
+        let first_launch = launch_cache(&scratch);
+        let targets: Vec<WriteTarget> = files
+            .iter()
+            .map(|path| WriteTarget {
+                path: path.clone(),
+                analysis: Some(first_launch.analyze_file(path).unwrap().analysis),
+            })
+            .collect();
+        let planned = plan_writes(&targets, &TagSettings::default().write_options());
+        let done = Arc::new(AtomicUsize::new(0));
+        let report = write_plans(
+            &planned.plans,
+            &planned.analyses,
+            &scratch.log_directory(),
+            Some(&first_launch),
+            &done,
+        );
+        assert_eq!(report.written, files);
+        assert_eq!(report.cache_problem, None);
+
+        let after_write = launch_cache(&scratch);
+        for target in &targets {
+            assert_eq!(
+                after_write.stored_analysis(&target.path),
+                target.analysis,
+                "{}",
+                target.path.display()
+            );
+            assert!(after_write.analyze_file(&target.path).unwrap().from_cache);
+        }
+
+        let undone = undo_last(&scratch.log_directory(), Some(&after_write))
+            .unwrap()
+            .unwrap();
+        assert_eq!(undone.restored.len(), files.len());
+        let after_undo = launch_cache(&scratch);
+        for target in &targets {
+            assert_eq!(after_undo.stored_analysis(&target.path), target.analysis);
+            assert!(after_undo.analyze_file(&target.path).unwrap().from_cache);
+        }
+    }
+
     #[test]
     fn with_nothing_written_there_is_nothing_to_undo() {
         let scratch = ScratchFolder::new("nothing");
-        assert!(undo_last(&scratch.log_directory()).unwrap().is_none());
+        assert!(undo_last(&scratch.log_directory(), None).unwrap().is_none());
     }
 }

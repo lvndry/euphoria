@@ -149,7 +149,7 @@ The app can write the key, tempo and energy it found into the files themselves, 
 
 **Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
 
-A file whose tags change is a different file to the [analysis cache](../reference/cli.md#the-analysis-cache), so it is analyzed once more the next time the app starts.
+Each file written, and each file put back by an undo, is recorded in the [analysis cache](../reference/cli.md#the-analysis-cache) as it is, so it is not analyzed again the next time the app starts.
 
 ## Settings
 
