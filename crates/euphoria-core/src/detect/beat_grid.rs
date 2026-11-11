@@ -553,13 +553,19 @@ impl BeatGrid {
 
     /// The same grid with its tempo in `range`. Halving the tempo keeps
     /// every other beat and doubling it adds one between each two, and the
-    /// first downbeat stays a beat either way.
+    /// first downbeat stays a downbeat either way. Doubling shortens the
+    /// bar, so the first downbeat moves back by whole new bars to stay
+    /// within the first bar.
     pub fn in_tempo_range(&self, range: TempoRange) -> Self {
         let bpm = f64::from(range.fold(self.bpm as f32));
         let octaves = (bpm / self.bpm).log2().round();
-        Self {
+        let moved = Self {
             bpm: self.bpm * 2.0_f64.powf(octaves),
             ..*self
+        };
+        Self {
+            first_downbeat_seconds: self.first_downbeat_seconds.rem_euclid(moved.bar_seconds()),
+            ..moved
         }
     }
 }
@@ -760,6 +766,20 @@ mod tests {
         assert_close(moved.bpm, 85.01, 1e-9, "tempo");
         assert_eq!(moved.first_downbeat_seconds, grid.first_downbeat_seconds);
         assert_eq!(grid.in_tempo_range(TempoRange::DEFAULT), grid);
+
+        let slow = BeatGrid {
+            first_downbeat_seconds: 2.5,
+            bpm: 85.0,
+            ..grid
+        };
+        let doubled = slow.in_tempo_range(TempoRange::DEFAULT);
+        assert_close(doubled.bpm, 170.0, 1e-9, "tempo");
+        assert_close(
+            doubled.first_downbeat_seconds,
+            2.5 - doubled.bar_seconds(),
+            1e-9,
+            "downbeat",
+        );
     }
 
     #[test]
