@@ -27,6 +27,7 @@ mod player;
 mod progress;
 mod settings;
 mod state;
+mod tag_editor;
 mod tag_flow;
 mod tag_settings;
 mod tag_writing;
@@ -48,9 +49,9 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddFolder, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks, TogglePlayback,
-    ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
-    UseSlateTheme, WriteTags,
+    AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks,
+    TogglePlayback, ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme,
+    UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -165,12 +166,15 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
+        KeyBinding::new("cmd-i", EditTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-,", OpenSettings, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-t", WriteTags, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-i", EditTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
@@ -215,6 +219,18 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .update(cx, |_, window, cx| {
                 weak_view
                     .update(cx, |view, cx| view.focus_search(window, cx))
+                    .ok();
+            })
+            .ok();
+    });
+
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &EditTags, cx| {
+        let weak_view = weak_view.clone();
+        window
+            .update(cx, |_, window, cx| {
+                weak_view
+                    .update(cx, |view, cx| view.open_tag_editor(window, cx))
                     .ok();
             })
             .ok();
@@ -289,6 +305,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::submenu(Menu::new("Theme").items(theme_items)),
         ]),
         Menu::new("Tags").items([
+            MenuItem::action("Edit Tags\u{2026}", EditTags),
             MenuItem::action("Write Tags\u{2026}", WriteTags),
             MenuItem::action("Undo Last Tag Write\u{2026}", UndoTagWrite),
         ]),

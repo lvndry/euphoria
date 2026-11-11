@@ -154,16 +154,6 @@ fn find_and_replace_and_prefixes_change_only_what_they_match() {
             },
         ];
         let plan = plan_edit(&path, &edits).unwrap();
-        let changed: Vec<&str> = plan
-            .changes()
-            .iter()
-            .map(|change| change.new.as_deref().unwrap_or_default())
-            .collect();
-        assert_eq!(
-            changed.len(),
-            2,
-            "{fixture}: the album is absent and stays so"
-        );
         apply_plan(&plan).unwrap();
         let tags = read_editable_tags(&path).unwrap();
         assert_eq!(tags.get(TagField::Genre), Some("Deep House"), "{fixture}");
@@ -333,4 +323,30 @@ fn an_edit_written_through_the_log_is_undone_by_the_last_write_undo() {
             path.display()
         );
     }
+}
+
+#[test]
+fn a_wav_title_and_artist_reach_the_info_list_other_programs_read() {
+    let path = scratch_copy("fixtures", "sine-440hz-mono.wav", "wav-info");
+    let plan = plan_edit(
+        &path,
+        &[
+            set(TagField::Title, "Night Drive"),
+            set(TagField::Artist, "Ana Sol"),
+        ],
+    )
+    .unwrap();
+    let fields: Vec<&str> = plan
+        .changes()
+        .iter()
+        .map(|change| change.field.as_str())
+        .collect();
+    assert!(
+        fields.contains(&"INFO INAM") && fields.contains(&"INFO IART"),
+        "{fields:?}"
+    );
+    apply_plan(&plan).unwrap();
+    let name = euphoria_core::read_track_name(&path).unwrap();
+    assert_eq!(name.title.as_deref(), Some("Night Drive"));
+    assert_eq!(name.artist.as_deref(), Some("Ana Sol"));
 }

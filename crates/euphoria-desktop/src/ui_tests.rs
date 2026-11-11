@@ -2885,3 +2885,231 @@ fn custom_starts_from_the_preset_in_use_so_editing_one_field_keeps_the_other(
     click(window, ("tempo-preset", 2_usize), cx);
     assert_eq!(typed(&view, cx), ("120".to_string(), "200".to_string()));
 }
+
+/// Types `text` into the field `id`, replacing what it holds.
+fn type_into(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    text: &str,
+    cx: &mut TestAppContext,
+) {
+    let id = id.into();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click(id, cx);
+        window.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        window.input(text, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+/// Scratch copies of the test files, each given a title, an artist and a
+/// genre with the core's own editing, opened with every track selected and
+/// the tag editor open on them.
+fn open_editor_on_tagged_files(
+    name: &str,
+    cx: &mut TestAppContext,
+) -> (
+    ScratchFolder,
+    Vec<PathBuf>,
+    Vec<Vec<u8>>,
+    AnyWindowHandle,
+    Entity<EuphoriaApp>,
+) {
+    use euphoria_core::tags::{FieldEdit, TagField, TextChange, apply_plan, plan_edit};
+    let scratch = ScratchFolder::new(name);
+    let files = scratch.copy_fixtures();
+    for (number, path) in files.iter().enumerate() {
+        let set = |field, text: String| FieldEdit {
+            field,
+            change: TextChange::Set(text),
+        };
+        let plan = plan_edit(
+            path,
+            &[
+                set(TagField::Title, format!("Song {number}")),
+                set(TagField::Artist, "Ana Sol".to_string()),
+                set(TagField::Genre, "deep house".to_string()),
+            ],
+        )
+        .unwrap();
+        apply_plan(&plan).unwrap();
+    }
+    let originals: Vec<Vec<u8>> = files
+        .iter()
+        .map(|path| std::fs::read(path).unwrap())
+        .collect();
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.select_all_shown(cx)));
+    click(window, "edit-tags", cx);
+    (scratch, files, originals, window, view)
+}
+
+fn editor_value(
+    view: &Entity<EuphoriaApp>,
+    field: euphoria_core::tags::TagField,
+    cx: &mut TestAppContext,
+) -> Option<crate::tag_editor::FieldValue> {
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Editing(editor)) => editor.shown.as_ref().and_then(|shown| {
+            shown
+                .iter()
+                .find(|(candidate, _)| *candidate == field)
+                .map(|(_, value)| value.clone())
+        }),
+        _ => None,
+    })
+}
+
+#[gpui::test]
+fn the_editor_shows_shared_values_and_writes_a_field_to_every_selected_track(
+    cx: &mut TestAppContext,
+) {
+    use crate::tag_editor::FieldValue;
+    use euphoria_core::tags::{TagField, read_editable_tags};
+    let (_scratch, files, originals, window, view) =
+        open_editor_on_tagged_files("ui-tag-editor", cx);
+
+    assert_eq!(
+        editor_value(&view, TagField::Genre, cx),
+        Some(FieldValue::Same(Some("deep house".to_string())))
+    );
+    assert_eq!(
+        editor_value(&view, TagField::Title, cx),
+        Some(FieldValue::Mixed)
+    );
+    assert_eq!(
+        editor_value(&view, TagField::Album, cx),
+        Some(FieldValue::Same(None))
+    );
+
+    type_into(
+        window,
+        crate::views::tag_editor::field_input_id(TagField::Genre),
+        "Deep House",
+        cx,
+    );
+    click(window, "preview-tag-edits", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => {
+            assert_eq!(preview.plans.len(), files.len());
+            assert!(matches!(
+                preview.kind,
+                crate::tag_flow::PreviewKind::Edit { .. }
+            ));
+        }
+        other => panic!("{other:?}"),
+    });
+    assert!(is_shown(window, "edit-summary", cx));
+    click(window, "confirm-tag-write", cx);
+    cx.update(|cx| {
+        assert!(matches!(
+            view.read(cx).tag_panel,
+            Some(TagPanel::Written(_))
+        ))
+    });
+    for path in &files {
+        let tags = read_editable_tags(path).unwrap();
+        assert_eq!(tags.get(TagField::Genre), Some("Deep House"));
+        assert_eq!(tags.get(TagField::Artist), Some("Ana Sol"), "untouched");
+    }
+
+    click(window, "undo-tag-write", cx);
+    click(window, "confirm-tag-undo", cx);
+    for (path, original) in files.iter().zip(&originals) {
+        assert_eq!(
+            &std::fs::read(path).unwrap(),
+            original,
+            "{} is byte identical",
+            path.display()
+        );
+    }
+}
+
+#[gpui::test]
+fn the_text_tool_and_remove_change_every_track_and_the_table_follows(cx: &mut TestAppContext) {
+    use crate::tag_editor::TextTool;
+    use euphoria_core::tags::{TagField, read_editable_tags};
+    let (_scratch, files, _, window, view) = open_editor_on_tagged_files("ui-tag-tool", cx);
+
+    let suffix = TextTool::ALL
+        .iter()
+        .position(|tool| *tool == TextTool::AddSuffix)
+        .unwrap();
+    click(window, ("text-tool", suffix), cx);
+    click(window, ("tool-field", 0_usize), cx);
+    type_into(window, "tool-text", " (Edit)", cx);
+    click(
+        window,
+        crate::views::tag_editor::clear_button_id(TagField::Artist),
+        cx,
+    );
+    click(window, "preview-tag-edits", cx);
+    click(window, "confirm-tag-write", cx);
+
+    for (number, path) in files.iter().enumerate() {
+        let tags = read_editable_tags(path).unwrap();
+        assert_eq!(
+            tags.get(TagField::Title).map(str::to_string),
+            Some(format!("Song {number} (Edit)"))
+        );
+        assert_eq!(tags.get(TagField::Artist), None);
+    }
+    let titles = cx.update(|cx| {
+        let app = view.read(cx);
+        app.session
+            .library()
+            .tracks()
+            .iter()
+            .map(|track| track.title().to_string())
+            .collect::<Vec<_>>()
+    });
+    assert!(
+        titles.iter().all(|title| title.ends_with(" (Edit)")),
+        "{titles:?}"
+    );
+}
+
+#[gpui::test]
+fn the_editor_asks_for_a_change_and_for_a_selection(cx: &mut TestAppContext) {
+    let (_scratch, _files, _, window, view) = open_editor_on_tagged_files("ui-tag-nothing", cx);
+    click(window, "preview-tag-edits", cx);
+    assert!(is_shown(window, "edit-problem", cx));
+    click(window, "cancel-tag-edit", cx);
+    cx.update(|cx| assert!(view.read(cx).tag_panel.is_none()));
+
+    let (window, view) = open_tracks_to_review(None, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.selected = None;
+            app.marked.clear();
+        })
+    });
+    click(window, "edit-tags", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.tag_panel.is_none());
+        assert!(app.notice.is_some());
+    });
+}
+
+fn is_shown(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) -> bool {
+    let id = id.into();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.try_find(id).is_some()
+    })
+    .unwrap()
+}

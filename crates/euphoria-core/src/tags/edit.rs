@@ -19,6 +19,7 @@ use std::path::Path;
 use super::label::{join_labels, split_labels};
 use super::mp4::{TEMPO as MP4_TEMPO, TRACK_NUMBER as MP4_TRACK_NUMBER};
 use super::native::{Purpose, TagFile};
+use super::riff_info;
 use super::{FieldChange, TagFormat, WritePlan, format_bpm, preset, same_bpm};
 use crate::error::EuphoriaError;
 
@@ -115,19 +116,23 @@ impl TagField {
     /// first. The others are kept in agreement when the file has them.
     fn native_fields(self, format: TagFormat, id3_version: Option<u8>) -> Vec<&'static str> {
         match (self, format) {
+            (TagField::Title, TagFormat::Id3v2) => vec!["TIT2", riff_info::TITLE],
             (TagField::Title, _) => format.title_fields().to_vec(),
+            (TagField::Artist, TagFormat::Id3v2) => vec!["TPE1", riff_info::ARTIST],
             (TagField::Artist, _) => format.artist_fields().to_vec(),
-            (TagField::Album, TagFormat::Id3v2) => vec!["TALB"],
+            (TagField::Album, TagFormat::Id3v2) => vec!["TALB", riff_info::ALBUM],
             (TagField::Album, TagFormat::Mp4) => vec!["©alb"],
             (TagField::Album, TagFormat::VorbisComments) => vec!["ALBUM"],
-            (TagField::Genre, TagFormat::Id3v2) => vec!["TCON"],
+            (TagField::Genre, TagFormat::Id3v2) => vec!["TCON", riff_info::GENRE],
             (TagField::Genre, TagFormat::Mp4) => vec!["©gen"],
             (TagField::Genre, TagFormat::VorbisComments) => vec!["GENRE"],
-            (TagField::Year, TagFormat::Id3v2) if id3_version == Some(4) => vec!["TDRC"],
-            (TagField::Year, TagFormat::Id3v2) => vec!["TYER"],
+            (TagField::Year, TagFormat::Id3v2) if id3_version == Some(4) => {
+                vec!["TDRC", riff_info::DATE]
+            }
+            (TagField::Year, TagFormat::Id3v2) => vec!["TYER", riff_info::DATE],
             (TagField::Year, TagFormat::Mp4) => vec!["©day"],
             (TagField::Year, TagFormat::VorbisComments) => vec!["DATE"],
-            (TagField::TrackNumber, TagFormat::Id3v2) => vec!["TRCK"],
+            (TagField::TrackNumber, TagFormat::Id3v2) => vec!["TRCK", riff_info::TRACK_NUMBER],
             (TagField::TrackNumber, TagFormat::Mp4) => vec![MP4_TRACK_NUMBER],
             (TagField::TrackNumber, TagFormat::VorbisComments) => vec!["TRACKNUMBER"],
             (TagField::Comment, _) => format.comment_fields().to_vec(),
@@ -275,6 +280,16 @@ pub struct EditableTags {
 }
 
 impl EditableTags {
+    /// Tags holding these values; the other fields are absent.
+    pub fn from_values(values: Vec<(TagField, String)>) -> Self {
+        Self {
+            values: values
+                .into_iter()
+                .map(|(field, text)| (field, (!text.is_empty()).then_some(text)))
+                .collect(),
+        }
+    }
+
     /// The text of `field`, `None` when the file does not have it.
     pub fn get(&self, field: TagField) -> Option<&str> {
         self.values
@@ -345,7 +360,16 @@ pub fn plan_edit(path: &Path, edits: &[FieldEdit]) -> Result<WritePlan, Euphoria
             .enumerate()
         {
             let current = file.get(native)?;
-            if position > 0 && current.is_none() {
+            // A WAV file's INFO list is where rekordbox and others read its
+            // title and comment, so it gets the value whether it had it or
+            // not; any other second field only when the file has it.
+            let is_info_value = riff_info::value_id(native).is_some();
+            let writes_absent = if is_info_value {
+                file.has_info_list()
+            } else {
+                position == 0
+            };
+            if current.is_none() && !writes_absent {
                 continue;
             }
             let new = edited_text(field, current.as_deref(), &field_edits);

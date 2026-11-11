@@ -33,17 +33,34 @@ pub(crate) enum WriteScope {
     Shown,
 }
 
+/// What a preview is for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PreviewKind {
+    /// Writing the analysis into the tracks `scope` covers.
+    Analysis {
+        /// The tracks the write covers.
+        scope: WriteScope,
+    },
+    /// Hand edits of the selected tracks' fields.
+    Edit {
+        /// The edits, in a sentence.
+        summary: String,
+    },
+}
+
 /// What a write would change, shown before anything is written.
 #[derive(Debug)]
 pub(crate) struct Preview {
-    /// The tracks the write covers.
-    pub(crate) scope: WriteScope,
+    /// What the write is.
+    pub(crate) kind: PreviewKind,
     /// The settings the changes were worked out with.
     pub(crate) settings: TagSettings,
     /// The files that would change.
     pub(crate) plans: Arc<Vec<WritePlan>>,
-    /// The analysis written into each file, in the order of `plans`.
-    pub(crate) analyses: Arc<Vec<TrackAnalysis>>,
+    /// The analysis of each file, in the order of `plans`, recorded in the
+    /// cache for the file written so it is not analyzed again. A hand edit
+    /// of a track not analyzed yet has none.
+    pub(crate) analyses: Arc<Vec<Option<TrackAnalysis>>>,
     /// The preview, a file at a time.
     pub(crate) rows: Vec<PreviewRow>,
     /// How many files already hold the values.
@@ -61,6 +78,8 @@ pub(crate) enum TagPanel {
     Planning(WriteScope),
     /// Showing the changes and waiting for a confirmation.
     Preview(Preview),
+    /// The editor of the selected tracks' fields.
+    Editing(Box<crate::tag_editor::TagEditor>),
     /// Writing; the count of files done so far.
     Writing {
         /// Files done, written or failed.
@@ -150,11 +169,11 @@ impl EuphoriaApp {
                     return;
                 }
                 this.tag_panel = Some(TagPanel::Preview(Preview {
-                    scope,
+                    kind: PreviewKind::Analysis { scope },
                     settings,
                     rows: preview_rows(&planned.plans),
                     plans: Arc::new(planned.plans),
-                    analyses: Arc::new(planned.analyses),
+                    analyses: Arc::new(planned.analyses.into_iter().map(Some).collect()),
                     up_to_date: planned.up_to_date,
                     not_analyzed: planned.not_analyzed,
                     failures: planned.failures,
@@ -184,6 +203,7 @@ impl EuphoriaApp {
         };
         let plans = preview.plans.clone();
         let analyses = preview.analyses.clone();
+        let is_edit = matches!(preview.kind, PreviewKind::Edit { .. });
         let cache = self.session.cache();
         let done = Arc::new(AtomicUsize::new(0));
         self.tag_panel = Some(TagPanel::Writing {
@@ -201,6 +221,10 @@ impl EuphoriaApp {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                if is_edit {
+                    // A title or an artist may have changed.
+                    this.read_track_names(report.written.clone(), cx);
+                }
                 this.tag_panel = Some(TagPanel::Written(report));
                 cx.notify();
             })
