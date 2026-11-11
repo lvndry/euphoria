@@ -19,7 +19,8 @@ use euphoria_core::{
 };
 
 use crate::batch::{self, AnalysisOptions};
-use crate::{collection, output, with_causes};
+use crate::collection::{self, CuedTracks};
+use crate::{output, with_causes};
 
 /// Used for the playlist of files named directly when the output file has no
 /// name to borrow.
@@ -62,6 +63,10 @@ pub struct RekordboxArguments {
     /// left out of the file, so that importing it cannot change them.
     #[arg(long, value_name = "FILE", requires = "cues")]
     collection: Option<PathBuf>,
+    /// Export even though some tracks with cues in the collection match no
+    /// file on this computer, so they cannot be recognised and protected.
+    #[arg(long, requires = "collection")]
+    allow_unmatched_cued_tracks: bool,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -100,10 +105,21 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     };
     // Checked before the analysis, which can take hours on a large library.
     check_output_file(&output_file, existing)?;
-    let already_cued = match &arguments.collection {
-        Some(collection) => collection::tracks_with_cues(collection)?,
-        None => HashSet::new(),
+    let cued_tracks = match &arguments.collection {
+        Some(collection) => {
+            check_output_is_not_the_collection(&output_file, collection)?;
+            let cued_tracks = collection::tracks_with_cues(collection)?;
+            if !cued_tracks.unmatched.is_empty() && !arguments.allow_unmatched_cued_tracks {
+                bail!(
+                    "{}",
+                    unmatched_cued_tracks_message(&cued_tracks.unmatched, collection)
+                );
+            }
+            cued_tracks
+        }
+        None => CuedTracks::default(),
     };
+    let already_cued = &cued_tracks.paths;
 
     let paths = resolve(&arguments.paths)?;
     let folders: Vec<PathBuf> = paths.iter().filter(|path| path.is_dir()).cloned().collect();
@@ -154,7 +170,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     );
     // A track that has cues of its own is left out of the file, so that no
     // import of the file can change them.
-    let left_out = leave_out(&mut library, &already_cued);
+    let left_out = leave_out(&mut library, already_cued);
 
     // The file is written before anything is reported, so that a reader of
     // standard error that goes away cannot stop the export.
@@ -209,6 +225,9 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
         if left_out > 0 {
             output::write_left_out_for_cues(&mut standard_error, left_out)?;
         }
+        if !cued_tracks.unmatched.is_empty() {
+            output::write_unmatched_cued_tracks(&mut standard_error, &cued_tracks.unmatched)?;
+        }
     }
     output::write_rekordbox_import_steps(&mut standard_error)?;
 
@@ -220,6 +239,61 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// How many cued tracks of the collection at `collection` match no file
+/// here, which ones, and what to do about them.
+fn unmatched_cued_tracks_message(unmatched: &[String], collection: &Path) -> String {
+    const LISTED: usize = 10;
+    let mut message = format!(
+        "{} with cues in {} match no file on this computer, so Euphoria cannot tell whether \
+         they are among the tracks to export and cannot protect their cues:",
+        output::counted(unmatched.len(), "track", "tracks"),
+        collection.display()
+    );
+    for description in unmatched.iter().take(LISTED) {
+        message.push_str("\n  ");
+        message.push_str(description);
+    }
+    if unmatched.len() > LISTED {
+        message.push_str(&format!("\n  and {} more", unmatched.len() - LISTED));
+    }
+    message.push_str(
+        "\nNothing was written. Export the collection from rekordbox on this computer, or \
+         relocate or remove those tracks in rekordbox. If none of them is a track you are \
+         exporting, run again with --allow-unmatched-cued-tracks.",
+    );
+    message
+}
+
+/// Fails when `output_file` is the collection file, whatever the spelling
+/// of either path, so that not even `--force` replaces the user's
+/// collection with the export.
+fn check_output_is_not_the_collection(output_file: &Path, collection: &Path) -> Result<()> {
+    let collection = std::fs::canonicalize(collection).with_context(|| {
+        format!(
+            "cannot read the rekordbox collection {}",
+            collection.display()
+        )
+    })?;
+    let output = match std::fs::canonicalize(output_file) {
+        Ok(output) => output,
+        Err(_) => {
+            let folder = output_file.parent().unwrap_or(Path::new("."));
+            let name = output_file.file_name().unwrap_or_default();
+            std::fs::canonicalize(folder)
+                .map(|folder| folder.join(name))
+                .unwrap_or_else(|_| output_file.to_path_buf())
+        }
+    };
+    if output == collection {
+        bail!(
+            "the output {} is the rekordbox collection given with --collection; choose \
+             another output file. --force does not change this",
+            output_file.display()
+        );
+    }
+    Ok(())
 }
 
 /// Removes the tracks at `paths` from the collection and from every
