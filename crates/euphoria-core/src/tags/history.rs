@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::native::{Purpose, TagFile};
-use super::{BackupField, TagBackup, WritePlan, apply_plan, undo};
+use super::{BackupField, TagBackup, WritePlan};
 use crate::cache::default_data_directory;
 use crate::error::{ErrorSource, EuphoriaError};
 
@@ -77,6 +77,17 @@ pub enum LoggedWrite {
     NotRecorded(EuphoriaError),
 }
 
+/// A boundary of a successful metadata rewrite. Observers may keep other
+/// explicit user stores in step with the file without affecting tag backups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RewriteStage {
+    /// Immediately before attempting the rewrite, while old bytes remain.
+    Before,
+    /// The new bytes are in place. A later directory sync or log write may
+    /// still report an error, so this event can precede a failed result.
+    After,
+}
+
 struct OpenLog {
     path: PathBuf,
     file: File,
@@ -116,17 +127,30 @@ impl WriteLog {
     /// Applies `plan` like [`apply_plan`], with its backup saved in the
     /// log first. An empty plan does nothing.
     ///
-    /// An error means the file was not changed: its backup could not be
-    /// saved, or the write itself failed or was refused. `Ok` means the
-    /// file was changed, and says whether the log could note that.
+    /// A refused write or a backup failure leaves the file unchanged. A
+    /// directory synchronization error can be reported after replacement;
+    /// its backup remains available for undo. `Ok` means the file was
+    /// changed, and says whether the log could note that.
     pub fn apply(&mut self, plan: &WritePlan) -> Result<LoggedWrite, EuphoriaError> {
+        self.apply_with_observer(plan, |_, _| {})
+    }
+
+    /// Like [`Self::apply`], observing the file before and after a successful
+    /// rewrite. No events are sent for empty plans. A refused write sends
+    /// only `Before`; observers must retain and report their own errors.
+    pub fn apply_with_observer(
+        &mut self,
+        plan: &WritePlan,
+        mut observer: impl FnMut(&Path, RewriteStage),
+    ) -> Result<LoggedWrite, EuphoriaError> {
         if plan.is_empty() {
             return Ok(LoggedWrite::Recorded);
         }
         let backup = plan.backup();
         let path = backup.path.clone();
         self.record(&Entry::Planned(backup), OUTCOME_RESERVE)?;
-        match apply_plan(plan) {
+        observer(&path, RewriteStage::Before);
+        match super::apply_plan_observing(plan, || observer(&path, RewriteStage::After)) {
             Ok(_) => Ok(match self.record(&Entry::Applied(path), 0) {
                 Ok(()) => LoggedWrite::Recorded,
                 Err(error) => LoggedWrite::NotRecorded(error),
@@ -383,6 +407,16 @@ fn is_untouched(backup: &TagBackup) -> Result<bool, EuphoriaError> {
 /// longer than 4 MiB is refused with [`EuphoriaError::TagWriteLog`].
 /// [`WriteLog`] never writes one.
 pub fn undo_last_write(directory: &Path) -> Result<Option<UndoneWrite>, EuphoriaError> {
+    undo_last_write_with_observer(directory, |_, _| {})
+}
+
+/// Like [`undo_last_write`], observing each attempted restoration. `After`
+/// is sent only for files actually restored, not untouched or refused files.
+/// The observer performs any extra I/O and reports its own errors.
+pub fn undo_last_write_with_observer(
+    directory: &Path,
+    mut observer: impl FnMut(&Path, RewriteStage),
+) -> Result<Option<UndoneWrite>, EuphoriaError> {
     loop {
         let Some(log_path) = last_log(directory)? else {
             return Ok(None);
@@ -392,11 +426,15 @@ pub fn undo_last_write(directory: &Path) -> Result<Option<UndoneWrite>, Euphoria
             std::fs::remove_file(&log_path).map_err(|error| log_error(&log_path, error))?;
             continue;
         }
-        return undo_log(&log_path, &planned).map(Some);
+        return undo_log(&log_path, &planned, &mut observer).map(Some);
     }
 }
 
-fn undo_log(log_path: &Path, planned: &[PlannedWrite]) -> Result<UndoneWrite, EuphoriaError> {
+fn undo_log(
+    log_path: &Path,
+    planned: &[PlannedWrite],
+    observer: &mut impl FnMut(&Path, RewriteStage),
+) -> Result<UndoneWrite, EuphoriaError> {
     let mut log = File::open(log_path).map_err(|error| log_error(log_path, error))?;
     let mut undone = UndoneWrite::default();
     let mut remaining = Vec::new();
@@ -404,18 +442,21 @@ fn undo_log(log_path: &Path, planned: &[PlannedWrite]) -> Result<UndoneWrite, Eu
     // through its states in order. One backup is in memory at a time.
     for write in planned.iter().rev() {
         let backup = read_backup(&mut log, log_path, write.offset)?;
+        let mut restore = || {
+            observer(&backup.path, RewriteStage::Before);
+            super::undo_observing(&backup, || observer(&backup.path, RewriteStage::After))
+                .map(|()| true)
+        };
         let restored = if write.is_applied {
-            undo(&backup).map(|()| true)
+            restore()
         } else {
             // The write of this file was interrupted. It either never
             // started, or it finished without being recorded.
-            is_untouched(&backup).and_then(|is_untouched| {
-                if is_untouched {
-                    Ok(false)
-                } else {
-                    undo(&backup).map(|()| true)
-                }
-            })
+            is_untouched(&backup).and_then(
+                |is_untouched| {
+                    if is_untouched { Ok(false) } else { restore() }
+                },
+            )
         };
         match restored {
             Ok(true) => undone.restored.push(backup.path),

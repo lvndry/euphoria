@@ -681,11 +681,18 @@ impl TagFile {
     /// refused write leaves the file as it was. A symbolic link is
     /// followed: the file it points to is rewritten and the link stays a
     /// link.
+    #[cfg(test)]
     pub(super) fn save(&self) -> Result<(), EuphoriaError> {
         self.save_checked()
             .map_err(|source| self.write_error(source))
     }
 
+    pub(super) fn save_with_observer(&self, mut after: impl FnMut()) -> Result<(), EuphoriaError> {
+        self.save_after_observing(|_| Ok(()), &mut after)
+            .map_err(|source| self.write_error(source))
+    }
+
+    #[cfg(test)]
     fn save_checked(&self) -> Result<(), ErrorSource> {
         self.save_after(|_| Ok(()))
     }
@@ -694,9 +701,18 @@ impl TagFile {
     /// it in place. `before_checks` does nothing outside tests, where it
     /// stands in for whatever could damage the new file or change the
     /// original while a write is under way.
+    #[cfg(test)]
     fn save_after(
         &self,
         before_checks: impl FnOnce(&mut File) -> std::io::Result<()>,
+    ) -> Result<(), ErrorSource> {
+        self.save_after_observing(before_checks, &mut || {})
+    }
+
+    fn save_after_observing(
+        &self,
+        before_checks: impl FnOnce(&mut File) -> std::io::Result<()>,
+        after: &mut impl FnMut(),
     ) -> Result<(), ErrorSource> {
         let target = std::fs::canonicalize(&self.path)?;
         let mut original = File::open(&target)?;
@@ -708,7 +724,7 @@ impl TagFile {
             .and_then(|()| self.check(&mut original, &splices, replacement.file()))
             .and_then(|()| self.check_source_is_unchanged(&target));
         match written {
-            Ok(()) => replacement.commit(),
+            Ok(()) => replacement.commit_with_observer(after),
             Err(error) => {
                 // The write error is the one reported.
                 let _ = replacement.discard();

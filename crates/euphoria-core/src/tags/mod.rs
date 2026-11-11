@@ -28,7 +28,8 @@ use crate::error::EuphoriaError;
 use crate::key::Key;
 pub use edit::{EditableTags, FieldEdit, TagField, TextChange, plan_edit, read_editable_tags};
 pub use history::{
-    LoggedWrite, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+    LoggedWrite, RewriteStage, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+    undo_last_write_with_observer,
 };
 use id3v2::COMMENT as ID3_COMMENT;
 pub use label::LabelPlacement;
@@ -453,6 +454,13 @@ pub fn plan_write(
 /// Fails with [`EuphoriaError::TagConflict`], writing nothing, when a field
 /// no longer holds what the plan was made from.
 pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
+    apply_plan_observing(plan, || {})
+}
+
+pub(super) fn apply_plan_observing(
+    plan: &WritePlan,
+    after: impl FnMut(),
+) -> Result<TagBackup, EuphoriaError> {
     let backup = plan.backup();
     if plan.is_empty() {
         return Ok(backup);
@@ -471,7 +479,7 @@ pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
             None => file.remove(&change.field)?,
         }
     }
-    file.save()?;
+    file.save_with_observer(after)?;
     Ok(backup)
 }
 
@@ -482,6 +490,10 @@ pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
 /// no longer holds the value the write left, so that a later edit is not
 /// overwritten.
 pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
+    undo_observing(backup, || {})
+}
+
+pub(super) fn undo_observing(backup: &TagBackup, after: impl FnMut()) -> Result<(), EuphoriaError> {
     if backup.fields.is_empty() {
         return Ok(());
     }
@@ -499,7 +511,7 @@ pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
             (None, None) => file.restore(&field.field, None)?,
         }
     }
-    file.save()
+    file.save_with_observer(after)
 }
 
 fn conflict(path: &Path, field: &str) -> EuphoriaError {
