@@ -29,13 +29,13 @@ The verdict is about the file, not the music. A great track in a weak file is st
 | Loudness | Integrated loudness in LUFS, measured as EBU R128 describes, on the mono mixdown. |
 | True peak | The highest peak between samples in any channel, in dB relative to full scale, estimated by interpolating four times between samples near the loudest ones. |
 
-Everything is measured while the file is decoded for the key, tempo and energy, so the quality report adds about 8% to the analysis time of a track.
+Everything is measured during the existing decode for key, tempo and energy, with its loudness measurement reused. The cutoff processes each channel separately. [Benchmark results](https://github.com/lvndry/euphoria/blob/main/bench/results/quality.md) record the measured CPU cost.
 
 ### The cutoff
 
 Lossy encoders save space by removing the highest frequencies, above a cutoff that depends on the bit rate: around 16 kHz for 128 kbit/s MP3, around 20 kHz for 320 kbit/s. Above the cutoff the spectrum falls by 30 to 60 dB within a few hundred hertz. Music on its own never falls that steeply, even when it is dark: a muffled track loses its highs gradually.
 
-Euphoria averages the spectrum of the whole track and looks for the steepest fall above 8 kHz between two bands 1 kHz wide. A fall of at least 20 dB is the cutoff; anything less means the content runs to the top of the spectrum.
+Euphoria measures each channel separately and combines their spectral energy across the whole track. This keeps opposite-phase stereo content from cancelling as it would in a mono mixdown. It looks for the steepest fall above 8 kHz between two bands 1 kHz wide. A fall of at least 20 dB is the cutoff; anything less means the content runs to the top of the spectrum.
 
 Re-encoding cannot bring back what was removed. A 128 kbit/s file turned into 320 kbit/s keeps its cutoff at 16 kHz, which is how it gives itself away.
 
@@ -66,7 +66,7 @@ The thresholds that follow:
 - **Good** from an average of 200 kbit/s. Apple's encoder set to 256 kbit/s averaged 208 on the quietest track, so the line sits below the nominal rate.
 - **Acceptable** from 144 kbit/s. Encoders set to 128 kbit/s measured at most 129, and set to 192 kbit/s at least 155.
 - **Weak on a big system** below that.
-- **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. Of the 42 transcodes of music measured, 39 were caught. The 3 that were missed show no clear fall in their spectrum after re-encoding: twice because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
+- **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. In the initial calibration run, 39 of 42 music transcodes were caught. The 3 that were missed show no clear fall in their spectrum after re-encoding: twice because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
 - Clipping never changes the verdict. When at least 0.1% of the samples are clipped, the reason adds that the master is clipped in places.
 
 ![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, the lowest cutoff of each encoding made once from a lossless source sits above the step line; the lowest cutoff of each transcode to a higher bit rate sits below it, in the likely re-encoded zone. Some transcoded files have no cutoff and cannot be identified.](../images/audio-quality/verdicts.svg)

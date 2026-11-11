@@ -21,7 +21,7 @@ use symphonia::core::codecs::audio::{AudioCodecId, AudioCodecParameters};
 use crate::audio::{AudioBuffer, DecodeObserver, decode_mono_observed};
 use crate::energy::measure_loudness;
 use crate::error::EuphoriaError;
-pub(crate) use cutoff::spectral_cutoff;
+use cutoff::SpectralCutoffMeter;
 use peak::TruePeakMeter;
 
 /// A sample at least this close to full scale counts towards clipping.
@@ -99,7 +99,8 @@ pub struct QualityReport {
     pub channels: Option<u32>,
     /// The frequency in Hz where the content stops, or `None` when it runs
     /// to the top of the spectrum. A lossy encoder removes everything above
-    /// a frequency that depends on its bit rate.
+    /// a frequency that depends on its bit rate. Channel powers are combined
+    /// before any mono mixdown, so opposite phases cannot cancel content.
     pub cutoff_hz: Option<f32>,
     /// The share of all samples, over every channel, that lie in runs of at
     /// least three consecutive samples at full scale.
@@ -267,6 +268,7 @@ struct QualityProbe {
     payload_bytes: u64,
     clipping: ClippingCounter,
     true_peak: TruePeakMeter,
+    cutoff: SpectralCutoffMeter,
 }
 
 impl DecodeObserver for QualityProbe {
@@ -290,7 +292,8 @@ impl DecodeObserver for QualityProbe {
         self.payload_bytes += bytes as u64;
     }
 
-    fn samples(&mut self, interleaved: &[f32], channel_count: usize, _: u32) {
+    fn samples(&mut self, interleaved: &[f32], channel_count: usize, sample_rate: u32) {
+        self.cutoff.add(interleaved, channel_count, sample_rate);
         self.clipping.add(interleaved, channel_count);
         self.true_peak.add(interleaved, channel_count);
     }
@@ -301,7 +304,7 @@ impl QualityProbe {
         let duration = f64::from(audio.duration_seconds());
         let bitrate_kbps = (duration > 0.0 && self.payload_bytes > 0)
             .then(|| (self.payload_bytes as f64 * 8.0 / duration / 1000.0).round() as u32);
-        let cutoff_hz = spectral_cutoff(audio.samples(), audio.sample_rate());
+        let cutoff_hz = self.cutoff.finish();
         QualityReport {
             verdict: verdict(self.lossless, bitrate_kbps, cutoff_hz),
             codec: self.codec,
@@ -374,6 +377,93 @@ impl ClippingCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A full-band source and its 14 kHz lowpass, split with one transform.
+    fn split_noise() -> (Vec<f32>, Vec<f32>) {
+        use rustfft::{FftPlanner, num_complex::Complex};
+        let mut state = 0x2545_f491_u32;
+        let noise: Vec<f32> = (0..1 << 17)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state as f32 / u32::MAX as f32 * 2.0 - 1.0) * 0.25
+            })
+            .collect();
+        let length = noise.len();
+        let mut spectrum: Vec<_> = noise
+            .iter()
+            .map(|sample| Complex::new(*sample, 0.0))
+            .collect();
+        let mut planner = FftPlanner::<f32>::new();
+        planner.plan_fft_forward(length).process(&mut spectrum);
+        for (bin, value) in spectrum.iter_mut().enumerate() {
+            if bin.min(length - bin) as f32 * 44_100.0 / length as f32 > 14_000.0 {
+                *value = Complex::default();
+            }
+        }
+        planner.plan_fft_inverse(length).process(&mut spectrum);
+        let low = spectrum
+            .into_iter()
+            .map(|value| value.re / length as f32)
+            .collect();
+        (noise, low)
+    }
+
+    fn write_wav(path: &Path, channels: &[&[f32]]) {
+        let channel_count = channels.len() as u16;
+        let data_bytes = (channels[0].len() * channels.len() * 2) as u32;
+        let mut bytes = b"RIFF".to_vec();
+        bytes.extend((36 + data_bytes).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(channel_count.to_le_bytes());
+        bytes.extend(44_100_u32.to_le_bytes());
+        bytes.extend((44_100 * u32::from(channel_count) * 2).to_le_bytes());
+        bytes.extend((channel_count * 2).to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(data_bytes.to_le_bytes());
+        for index in 0..channels[0].len() {
+            for channel in channels {
+                bytes.extend(((channel[index] * 32_767.0) as i16).to_le_bytes());
+            }
+        }
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn opposite_phase_highs_do_not_make_a_full_band_file_look_re_encoded() {
+        let folder = crate::cache::test_support::TemporaryFolder::new();
+        let (full, low) = split_noise();
+        let opposite: Vec<f32> = low
+            .iter()
+            .zip(&full)
+            .map(|(low, full)| 2.0 * low - full)
+            .collect();
+        let lowpass = folder.path().join("lowpass.wav");
+        write_wav(&lowpass, &[&low]);
+        let report = analyze_quality(&lowpass).unwrap();
+        assert_eq!(report.verdict, QualityVerdict::LikelyReencoded);
+        assert!((report.cutoff_hz.unwrap() - 14_000.0).abs() < 300.0);
+        for (name, channels) in [
+            ("full.wav", vec![full.as_slice()]),
+            ("same-phase.wav", vec![full.as_slice(), full.as_slice()]),
+            (
+                "opposed-highs.wav",
+                vec![full.as_slice(), opposite.as_slice()],
+            ),
+        ] {
+            let path = folder.path().join(name);
+            write_wav(&path, &channels);
+            let report = analyze_quality(&path).unwrap();
+            assert_eq!(report.cutoff_hz, None, "{name}: {report:?}");
+            assert_eq!(report.verdict, QualityVerdict::Lossless, "{name}");
+        }
+        let analysis = crate::analyze_file(&folder.path().join("opposed-highs.wav")).unwrap();
+        assert_eq!(analysis.quality.unwrap().verdict, QualityVerdict::Lossless);
+    }
 
     #[test]
     fn lossless_files_are_lossless_unless_their_sound_stops_early() {

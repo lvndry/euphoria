@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::f32::consts::TAU;
-use std::num::NonZeroU32;
+use std::sync::Arc;
 
-use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
+use rustfft::{Fft, FftPlanner};
 
 /// Frames are the power of two number of samples closest to this length,
 /// about 11 Hz per frequency bin at 44.1 kHz.
@@ -26,14 +26,37 @@ const LOWEST_CUTOFF_HZ: f32 = 8_000.0;
 /// dark falls far more gradually.
 pub(crate) const MINIMUM_FALL_DB: f64 = 20.0;
 
-/// The frequency where the content of `samples` stops, found as the
-/// steepest fall in their long term spectrum above 8 kHz. Returns `None`
-/// when the spectrum has no fall of at least [`MINIMUM_FALL_DB`] before the
-/// top 1 kHz below half the sample rate, which is what full band audio
-/// looks like, and when the audio is too short or too quiet to tell.
-pub(crate) fn spectral_cutoff(samples: &[f32], sample_rate: NonZeroU32) -> Option<f32> {
-    let rate = sample_rate.get() as f32;
-    let level = long_term_spectrum(samples, rate)?;
+/// Accumulates channel powers before any mixdown, keeping at most one
+/// FFT frame of interleaved samples. Channel phase cannot cancel energy.
+#[derive(Default)]
+pub(crate) struct SpectralCutoffMeter {
+    spectrum: Option<Spectrum>,
+}
+
+impl SpectralCutoffMeter {
+    pub(crate) fn add(&mut self, samples: &[f32], channels: usize, sample_rate: u32) {
+        let channels = channels.max(1);
+        if self.spectrum.as_ref().is_none_or(|spectrum| {
+            spectrum.channels != channels || spectrum.sample_rate != sample_rate
+        }) {
+            self.spectrum = Some(Spectrum::new(sample_rate, channels));
+        }
+        if let Some(spectrum) = &mut self.spectrum {
+            spectrum.add(samples);
+        }
+    }
+
+    /// The steepest fall above 8 kHz, or no cutoff for full-band, short or
+    /// quiet audio. The top 1 kHz below Nyquist is excluded.
+    pub(crate) fn finish(self) -> Option<f32> {
+        let spectrum = self.spectrum?;
+        let rate = spectrum.sample_rate as f32;
+        let level = spectrum.levels()?;
+        cutoff_from_levels(&level, rate)
+    }
+}
+
+fn cutoff_from_levels(level: &[f64], rate: f32) -> Option<f32> {
     let bin_width = rate / (2 * (level.len() - 1)) as f32;
     let side = ((SIDE_BAND_HZ / bin_width).round() as usize).max(1);
     let lowest = ((LOWEST_CUTOFF_HZ / bin_width).ceil() as usize).max(side);
@@ -43,7 +66,7 @@ pub(crate) fn spectral_cutoff(samples: &[f32], sample_rate: NonZeroU32) -> Optio
     // Prefix sums give the mean level of any band in constant time.
     let mut prefix = Vec::with_capacity(level.len() + 1);
     prefix.push(0.0);
-    for value in &level {
+    for value in level {
         prefix.push(prefix[prefix.len() - 1] + value);
     }
     let mean = |start: usize, end: usize| (prefix[end] - prefix[start]) / (end - start) as f64;
@@ -58,50 +81,91 @@ pub(crate) fn spectral_cutoff(samples: &[f32], sample_rate: NonZeroU32) -> Optio
     (fall >= MINIMUM_FALL_DB).then_some(bin as f32 * bin_width)
 }
 
-/// The mean power of each frequency bin over the frames that are not quiet,
-/// in dB. `None` when no frame is loud enough.
-fn long_term_spectrum(samples: &[f32], rate: f32) -> Option<Vec<f64>> {
-    let frame_length = frame_length(rate);
-    if samples.len() < frame_length {
-        return None;
-    }
-    let transform = FftPlanner::<f32>::new().plan_fft_forward(frame_length);
-    let mut scratch = vec![Complex::default(); transform.get_inplace_scratch_len()];
-    let mut frame = vec![Complex::default(); frame_length];
-    let window: Vec<f32> = (0..frame_length)
-        .map(|index| 0.5 - 0.5 * (TAU * index as f32 / frame_length as f32).cos())
-        .collect();
-    let bin_count = frame_length / 2 + 1;
-    let mut power = vec![0.0_f64; bin_count];
-    let mut loud_frames = 0_usize;
-    let quiet_mean_square = 10.0_f64.powf(QUIET_FRAME_DB / 10.0);
-    for chunk in samples.chunks_exact(frame_length) {
-        let mean_square = chunk
-            .iter()
-            .map(|sample| f64::from(*sample) * f64::from(*sample))
-            .sum::<f64>()
-            / frame_length as f64;
-        if mean_square < quiet_mean_square || !mean_square.is_finite() {
-            continue;
+struct Spectrum {
+    sample_rate: u32,
+    channels: usize,
+    transform: Arc<dyn Fft<f32>>,
+    scratch: Vec<Complex<f32>>,
+    frame: Vec<Complex<f32>>,
+    window: Vec<f32>,
+    pending: Vec<f32>,
+    power: Vec<f64>,
+    loud_frames: usize,
+}
+
+impl Spectrum {
+    fn new(sample_rate: u32, channels: usize) -> Self {
+        let frame_length = frame_length(sample_rate as f32);
+        let transform = FftPlanner::<f32>::new().plan_fft_forward(frame_length);
+        let scratch = vec![Complex::default(); transform.get_inplace_scratch_len()];
+        Self {
+            sample_rate,
+            channels,
+            transform,
+            scratch,
+            frame: vec![Complex::default(); frame_length],
+            window: (0..frame_length)
+                .map(|index| 0.5 - 0.5 * (TAU * index as f32 / frame_length as f32).cos())
+                .collect(),
+            pending: Vec::with_capacity(frame_length * channels),
+            power: vec![0.0; frame_length / 2 + 1],
+            loud_frames: 0,
         }
-        for ((slot, sample), weight) in frame.iter_mut().zip(chunk).zip(&window) {
-            *slot = Complex::new(sample * weight, 0.0);
-        }
-        transform.process_with_scratch(&mut frame, &mut scratch);
-        for (total, value) in power.iter_mut().zip(&frame) {
-            *total += f64::from(value.norm_sqr());
-        }
-        loud_frames += 1;
     }
-    if loud_frames == 0 {
-        return None;
+
+    fn add(&mut self, mut samples: &[f32]) {
+        let frame_samples = self.frame.len() * self.channels;
+        while !samples.is_empty() {
+            let taken = samples.len().min(frame_samples - self.pending.len());
+            self.pending.extend_from_slice(&samples[..taken]);
+            samples = &samples[taken..];
+            if self.pending.len() == frame_samples {
+                self.measure_frame();
+                self.pending.clear();
+            }
+        }
     }
-    Some(
-        power
-            .into_iter()
-            .map(|total| 10.0 * (total / loud_frames as f64 + 1.0e-30).log10())
-            .collect(),
-    )
+
+    fn measure_frame(&mut self) {
+        let quiet_mean_square = 10.0_f64.powf(QUIET_FRAME_DB / 10.0);
+        for channel in 0..self.channels {
+            let mean_square = self
+                .pending
+                .chunks_exact(self.channels)
+                .map(|frame| f64::from(frame[channel]).powi(2))
+                .sum::<f64>()
+                / self.frame.len() as f64;
+            if mean_square < quiet_mean_square || !mean_square.is_finite() {
+                continue;
+            }
+            for ((slot, samples), weight) in self
+                .frame
+                .iter_mut()
+                .zip(self.pending.chunks_exact(self.channels))
+                .zip(&self.window)
+            {
+                *slot = Complex::new(samples[channel] * weight, 0.0);
+            }
+            self.transform
+                .process_with_scratch(&mut self.frame, &mut self.scratch);
+            for (total, value) in self.power.iter_mut().zip(&self.frame) {
+                *total += f64::from(value.norm_sqr());
+            }
+            self.loud_frames += 1;
+        }
+    }
+
+    fn levels(self) -> Option<Vec<f64>> {
+        if self.loud_frames == 0 {
+            return None;
+        }
+        Some(
+            self.power
+                .into_iter()
+                .map(|total| 10.0 * (total / self.loud_frames as f64 + 1.0e-30).log10())
+                .collect(),
+        )
+    }
 }
 
 fn frame_length(rate: f32) -> usize {
@@ -119,6 +183,13 @@ fn frame_length(rate: f32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU32;
+
+    fn spectral_cutoff(samples: &[f32], sample_rate: NonZeroU32) -> Option<f32> {
+        let mut meter = SpectralCutoffMeter::default();
+        meter.add(samples, 1, sample_rate.get());
+        meter.finish()
+    }
 
     const RATE: u32 = 44_100;
 
@@ -211,6 +282,24 @@ mod tests {
             spectral_cutoff(&filtered, rate()),
             spectral_cutoff(&quieter, rate())
         );
+    }
+
+    #[test]
+    fn channel_power_and_cutoff_do_not_depend_on_decoder_packet_boundaries() {
+        let mono = brickwall(&noise(1.0), 16_500.0);
+        let expected = spectral_cutoff(&mono, rate()).unwrap();
+        // Phase-opposed channels cancel completely in a mono mixdown.
+        let interleaved: Vec<f32> = mono
+            .iter()
+            .flat_map(|sample| [*sample, -*sample, 0.0, *sample * 0.5])
+            .collect();
+        for packet_frames in [1, 17, 1_152, 4_096, 5_000] {
+            let mut meter = SpectralCutoffMeter::default();
+            for packet in interleaved.chunks(packet_frames * 4) {
+                meter.add(packet, 4, RATE);
+            }
+            assert_eq!(meter.finish(), Some(expected), "{packet_frames}");
+        }
     }
 
     #[test]
