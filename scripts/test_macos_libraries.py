@@ -40,6 +40,73 @@ def run(*command):
     subprocess.run([str(part) for part in command], check=True, capture_output=True)
 
 
+def otool_listing(*platform_lines):
+    """otool -l output with one LC_BUILD_VERSION per `platform` line given as
+    (platform, minimum), as two slices of a universal file print it."""
+    parts = []
+    for architecture, (platform_value, minimum) in zip(
+        ["x86_64", "arm64", "arm64e"], platform_lines, strict=False
+    ):
+        parts.append(
+            f"""lib.dylib (architecture {architecture}):
+Load command 9
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform {platform_value}
+    minos {minimum}
+      sdk 27.0
+   ntools 1
+     tool LD
+  version 1167.4
+Load command 10
+          cmd LC_LOAD_DYLIB
+      cmdsize 56
+         name /usr/lib/libSystem.B.dylib (offset 24)
+"""
+        )
+    return "".join(parts)
+
+
+class OtoolOutputTests(unittest.TestCase):
+    def test_the_platform_is_read_as_a_number_or_a_name(self):
+        for macos in ["1", "MACOS", "macos"]:
+            listing = otool_listing((macos, "14.2"), (macos, "27.0"))
+            self.assertEqual(
+                macos_libraries.parse_macos_versions(listing, "lib.dylib"),
+                ["14.2", "27.0"],
+                macos,
+            )
+
+    def test_other_platforms_do_not_set_the_minimum_macos(self):
+        for other in ["6", "MACCATALYST", "2", "IOS"]:
+            listing = otool_listing(("MACOS", "13.0"), (other, "18.0"))
+            self.assertEqual(
+                macos_libraries.parse_macos_versions(listing, "lib.dylib"),
+                ["13.0"],
+                other,
+            )
+
+    def test_an_unknown_platform_is_an_error(self):
+        for unknown in ["99", "NEWOS"]:
+            listing = otool_listing(("1", "13.0"), (unknown, "30.0"))
+            with self.assertRaisesRegex(
+                macos_libraries.LibraryError, f"unknown platform {unknown}"
+            ):
+                macos_libraries.parse_macos_versions(listing, "lib.dylib")
+
+    def test_older_minimum_commands_are_read_too(self):
+        listing = """lib.dylib:
+Load command 8
+      cmd LC_VERSION_MIN_MACOSX
+  cmdsize 16
+  version 10.13
+      sdk 10.14
+"""
+        self.assertEqual(
+            macos_libraries.parse_macos_versions(listing, "lib.dylib"), ["10.13"]
+        )
+
+
 @unittest.skipUnless(
     platform.system() == "Darwin" and BINARY.exists(),
     "needs macOS and a build that links libkeyfinder",
