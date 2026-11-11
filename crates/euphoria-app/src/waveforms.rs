@@ -1,14 +1,16 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The waveforms of the tracks looked at most recently, kept in memory so
-//! that going back to a track does not decode it again.
+//! The waveforms of the tracks looked at most recently, with their energy
+//! curves, kept in memory so that going back to a track does not decode it
+//! again.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::peaks::BandPeaks;
+use crate::track_overview::EnergyStep;
 
 /// How many waveforms are kept. Each is a few kilobytes; the limit keeps a
 /// long session from growing without bound.
@@ -19,8 +21,9 @@ pub(crate) const WAVEFORM_CAPACITY: usize = 32;
 pub(crate) enum Waveform {
     /// The audio is being decoded.
     Reading,
-    /// Columns from the start of the track to its end.
-    Ready(Arc<[BandPeaks]>),
+    /// Columns from the start of the track to its end, and the steps of its
+    /// energy curve, `None` until worked out from the same audio.
+    Ready(Arc<[BandPeaks]>, Option<Arc<[EnergyStep]>>),
     /// The audio could not be decoded; the text says why.
     Unreadable(String),
 }
@@ -77,6 +80,18 @@ impl WaveformCache {
         }
     }
 
+    /// Adds the energy curve to the waveform kept for the file at `path`,
+    /// when one is kept and ready.
+    pub(crate) fn set_energy(&mut self, path: &Path, steps: Arc<[EnergyStep]>) {
+        let kept = self
+            .entries
+            .iter_mut()
+            .find(|(kept_path, _)| kept_path == path);
+        if let Some((_, Waveform::Ready(_, energy))) = kept {
+            *energy = Some(steps);
+        }
+    }
+
     /// How many waveforms are kept.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
@@ -100,6 +115,7 @@ mod tests {
                 high: 0.0,
             }]
             .into(),
+            None,
         )
     }
 
@@ -146,6 +162,28 @@ mod tests {
         cache.insert(path(1), ready(0.4));
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.get(&path(1)), Some(&ready(0.4)));
+    }
+
+    #[test]
+    fn the_energy_curve_joins_a_kept_waveform_and_nothing_else() {
+        let mut cache = WaveformCache::new(2);
+        let steps: Arc<[EnergyStep]> = vec![EnergyStep {
+            start: 0.0,
+            end: 1.0,
+            rating: Some(7),
+        }]
+        .into();
+        cache.insert(path(1), ready(0.5));
+        cache.insert(path(2), Waveform::Reading);
+        cache.set_energy(&path(1), steps.clone());
+        cache.set_energy(&path(2), steps.clone());
+        cache.set_energy(&path(3), steps.clone());
+        match cache.get(&path(1)) {
+            Some(Waveform::Ready(_, energy)) => assert_eq!(energy, &Some(steps)),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(cache.get(&path(2)), Some(&Waveform::Reading));
+        assert_eq!(cache.get(&path(3)), None);
     }
 
     #[test]

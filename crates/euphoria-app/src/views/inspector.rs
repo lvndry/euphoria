@@ -19,8 +19,10 @@ use crate::format;
 use crate::library::{Track, TrackStatus};
 use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
+use crate::track_overview::key_stretches;
 use crate::views::key_chip::key_chip;
 use crate::views::player::{self, seek_on_press_and_drag};
+use crate::views::track_overview;
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
@@ -32,6 +34,13 @@ const PADDING: f32 = 16.0;
 /// Height of the line above the waveform and above the mixes list, with the
 /// gap under it.
 const HEADING_HEIGHT: f32 = 26.0;
+
+/// The shortest the waveform is drawn in the strip, with the energy curve
+/// and the key timeline under it in the shortest strip.
+const SMALLEST_STRIP_WAVEFORM: f32 = 20.0;
+
+/// Space between the rows of the waveform section.
+const WAVEFORM_ROW_GAP: f32 = 6.0;
 
 /// Height of one row of the mixes list, with the gap under it.
 const MIX_ROW_HEIGHT: f32 = 32.0;
@@ -45,13 +54,14 @@ enum Room {
 }
 
 impl Room {
-    /// How tall to draw the waveform: the usual height in the column, and
-    /// as tall as the strip allows under its heading.
-    fn waveform_height(self) -> Pixels {
+    /// How tall to draw the waveform when `below` is taken under it by the
+    /// energy curve and the key timeline: the usual height in the column,
+    /// and as tall as the strip allows under its heading.
+    fn waveform_height(self, below: f32) -> Pixels {
         match self {
             Room::Column => px(WAVEFORM_HEIGHT),
             Room::Strip { inner_height } => {
-                px((inner_height - HEADING_HEIGHT).max(WAVEFORM_HEIGHT))
+                px((inner_height - HEADING_HEIGHT - below).max(SMALLEST_STRIP_WAVEFORM))
             }
         }
     }
@@ -295,7 +305,7 @@ fn waveform_section(
     let state = app.selected_waveform();
     let is_in_strip = app.theme.layout == Layout::DeckBelow;
     let (columns, note): (_, SharedString) = match (state, &track.status) {
-        (Some(Waveform::Ready(columns)), _) => (
+        (Some(Waveform::Ready(columns, _)), _) => (
             Some(columns.clone()),
             track
                 .duration_seconds()
@@ -317,13 +327,38 @@ fn waveform_section(
         _ => div().child(note),
     };
 
+    let progress = app.player.progress();
+    let energy = match state {
+        Some(Waveform::Ready(_, Some(steps))) if !steps.is_empty() => {
+            Some(track_overview::energy_curve(steps, progress, &palette))
+        }
+        _ => None,
+    };
+    let key_timeline = track.analysis().and_then(|analysis| {
+        let stretches = key_stretches(&analysis.key_timeline, analysis.duration_seconds);
+        (!stretches.is_empty()).then(|| {
+            track_overview::key_timeline(
+                &stretches,
+                analysis.duration_seconds,
+                progress,
+                &app.theme,
+            )
+        })
+    });
+    let below = energy
+        .as_ref()
+        .map_or(0.0, |_| track_overview::ENERGY_HEIGHT + WAVEFORM_ROW_GAP)
+        + key_timeline.as_ref().map_or(0.0, |_| {
+            track_overview::KEY_TIMELINE_HEIGHT + WAVEFORM_ROW_GAP
+        });
+
     let scrubber = seek_on_press_and_drag(
         div().id("waveform").child(waveform(
             columns,
             WaveformColours::of(&palette),
-            app.player.progress(),
+            progress,
             app.waveform_bounds.clone(),
-            room.waveform_height(),
+            room.waveform_height(below),
         )),
         &app.waveform_bounds,
         cx,
@@ -333,7 +368,7 @@ fn waveform_section(
     let section = div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(px(WAVEFORM_ROW_GAP))
         .child(
             div()
                 .flex()
@@ -344,6 +379,8 @@ fn waveform_section(
                 .child(note),
         )
         .child(scrubber)
+        .children(energy)
+        .children(key_timeline)
         .children(match state {
             Some(Waveform::Unreadable(reason)) => Some(
                 div()
