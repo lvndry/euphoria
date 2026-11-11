@@ -4,6 +4,7 @@
 //! Tests that open the real root view in a headless window and use it with
 //! clicks and keys, as a person would.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::TrackAnalysis;
@@ -29,6 +30,7 @@ use crate::tag_writing;
 use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
 use crate::theme::{AppTheme, Layout, ThemeName};
 use crate::views::sidebar::{disclosure_id, folder_row_id};
+use crate::views::tag_panel::ProblemList;
 use crate::views::track_table::{edge_id, header_id};
 
 /// Index of the BPM column among the table's column headers.
@@ -2291,4 +2293,74 @@ fn files_written_from_the_window_are_served_from_the_cache_on_the_next_launch(
     for (path, analysis) in files.iter().zip(&analyses) {
         assert_eq!(after_undo.stored_analysis(path).as_ref(), Some(analysis));
     }
+}
+
+#[gpui::test]
+fn a_long_list_of_files_left_out_builds_only_the_lines_in_view_and_scrolls_to_every_one(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-many-failures");
+    let files: Vec<PathBuf> = (0..300)
+        .map(|number| scratch.0.join(format!("music/gone {number:03}.mp3")))
+        .collect();
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(panel) => assert_eq!(ProblemList::CannotBeWritten.files(panel).len(), 300),
+        None => panic!("no preview"),
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find(("cannot-be-written", 0_usize)).is_some());
+        assert!(window.try_find(("cannot-be-written", 299_usize)).is_none());
+        window.scroll(
+            "cannot-be-written-section",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-100_000.0))),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(window.try_find(("cannot-be-written", 299_usize)).is_some());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn opening_undo_discards_a_tag_preview_still_being_planned(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-undo-during-plan");
+    let files = scratch.copy_fixtures();
+    let (_, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.plan_tag_write(crate::tag_flow::WriteScope::Shown, cx);
+            app.open_tag_undo(cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert!(matches!(
+            view.read(cx).tag_panel,
+            Some(TagPanel::ConfirmUndo)
+        ));
+    });
+}
+
+#[gpui::test]
+fn fitting_a_column_measures_each_distinct_text_once(cx: &mut TestAppContext) {
+    let (_, view) = open_library(500, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let numbers = app.column_texts(ColumnId::Number);
+        assert_eq!(numbers.len(), 1);
+        assert!(numbers.contains("500"));
+        let formats = app.column_texts(ColumnId::Format);
+        assert!(formats.len() <= 4, "{formats:?}");
+        let titles = app.column_texts(ColumnId::Title);
+        let distinct_titles: HashSet<&str> = app
+            .visible
+            .iter()
+            .map(|index| app.session.library().tracks()[*index].title())
+            .collect();
+        assert_eq!(titles.len(), distinct_titles.len());
+    });
 }

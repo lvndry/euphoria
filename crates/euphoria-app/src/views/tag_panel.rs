@@ -67,13 +67,17 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
             ];
             contents.extend(problems(
                 "Not written, left as they were",
-                &report.failures,
+                ProblemList::NotWritten,
+                report.failures.len(),
                 &palette,
+                cx,
             ));
             contents.extend(problems(
                 "Written, but the log could not note it; undo still restores them",
-                &report.not_noted,
+                ProblemList::NotNoted,
+                report.not_noted.len(),
                 &palette,
+                cx,
             ));
             if let Some(problem) = &report.cache_problem {
                 contents.push(quiet(
@@ -134,8 +138,10 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
                     }
                     contents.extend(problems(
                         "Not restored; undo again to try them again",
-                        &report.failures,
+                        ProblemList::NotRestored,
+                        report.failures.len(),
                         &palette,
+                        cx,
                     ));
                     contents
                 }
@@ -217,8 +223,20 @@ fn preview_contents(
     if !preview.rows.is_empty() {
         contents.push(preview_list(preview, palette, cx));
     }
-    contents.extend(problems("Cannot be written", &preview.failures, palette));
-    contents.extend(problems("Not analyzed yet", &preview.not_analyzed, palette));
+    contents.extend(problems(
+        "Cannot be written",
+        ProblemList::CannotBeWritten,
+        preview.failures.len(),
+        palette,
+        cx,
+    ));
+    contents.extend(problems(
+        "Not analyzed yet",
+        ProblemList::NotAnalyzed,
+        preview.not_analyzed.len(),
+        palette,
+        cx,
+    ));
     contents.push(buttons(vec![
         cancel_button("cancel-tag-write", palette, cx),
         primary_button(
@@ -445,49 +463,130 @@ fn shown_value(value: Option<&str>) -> String {
     value.map_or_else(|| "(none)".to_string(), str::to_string)
 }
 
-/// A heading and a line per file for files a write left out or could not
-/// handle, or nothing when there are none.
-fn problems(heading: &str, files: &[LeftOut], palette: &Palette) -> Option<AnyElement> {
-    if files.is_empty() {
+/// Height of one line of a list of files left out or failed.
+const PROBLEM_ROW_HEIGHT: f32 = 22.0;
+
+/// A list of files the panel can show as left out or failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProblemList {
+    /// Files the preview found could not be written safely.
+    CannotBeWritten,
+    /// Tracks the preview left out because they have no analysis.
+    NotAnalyzed,
+    /// Files a write could not change.
+    NotWritten,
+    /// Files written whose note in the log could not be saved.
+    NotNoted,
+    /// Files an undo could not restore.
+    NotRestored,
+}
+
+impl ProblemList {
+    /// The files of this list in `panel`, empty when the panel does not
+    /// have it.
+    pub(crate) fn files(self, panel: &TagPanel) -> &[LeftOut] {
+        match (self, panel) {
+            (ProblemList::CannotBeWritten, TagPanel::Preview(preview)) => &preview.failures,
+            (ProblemList::NotAnalyzed, TagPanel::Preview(preview)) => &preview.not_analyzed,
+            (ProblemList::NotWritten, TagPanel::Written(report)) => &report.failures,
+            (ProblemList::NotNoted, TagPanel::Written(report)) => &report.not_noted,
+            (ProblemList::NotRestored, TagPanel::Undone(Ok(Some(report)))) => &report.failures,
+            _ => &[],
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            ProblemList::CannotBeWritten => "cannot-be-written",
+            ProblemList::NotAnalyzed => "not-analyzed",
+            ProblemList::NotWritten => "not-written",
+            ProblemList::NotNoted => "not-noted",
+            ProblemList::NotRestored => "not-restored",
+        }
+    }
+}
+
+/// A heading and the `count` files of `list`, a line each with its reason,
+/// in a list that builds only the lines in view; or nothing when there are
+/// none. A line too long for the panel shows in full in a tooltip.
+fn problems(
+    heading: &str,
+    list: ProblemList,
+    count: usize,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<AnyElement> {
+    if count == 0 {
         return None;
     }
-    let lines = files.iter().map(|file| {
-        let name = file
-            .path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| file.path.to_string_lossy().into_owned());
-        div()
-            .flex()
-            .gap(px(10.0))
-            .child(div().w(px(220.0)).flex_shrink_0().truncate().child(name))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_color(palette.text_secondary)
-                    .child(file.reason.clone()),
-            )
-    });
+    let height = (count as f32 * PROBLEM_ROW_HEIGHT).min(160.0);
     Some(
         div()
-            .id(SharedString::from(format!("problems-{heading}")))
+            .id(SharedString::from(format!("{}-section", list.id())))
             .flex()
             .flex_col()
             .flex_shrink_0()
-            .max_h(px(160.0))
-            .overflow_y_scroll()
             .gap(px(4.0))
             .text_size(SMALL_TEXT_SIZE)
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(palette.danger)
-                    .child(format!("{heading} ({})", format::count(files.len()))),
+                    .child(format!("{heading} ({})", format::count(count))),
             )
-            .children(lines)
+            .child(
+                div().h(px(height)).child(
+                    uniform_list(
+                        list.id(),
+                        count,
+                        cx.processor(
+                            move |this: &mut EuphoriaApp, range: std::ops::Range<usize>, _, _| {
+                                let Some(panel) = &this.tag_panel else {
+                                    return Vec::new();
+                                };
+                                let palette = this.theme.palette;
+                                let files = list.files(panel);
+                                range
+                                    .filter_map(|index| files.get(index).map(|file| (index, file)))
+                                    .map(|(index, file)| problem_row(list, index, file, &palette))
+                                    .collect::<Vec<_>>()
+                            },
+                        ),
+                    )
+                    .size_full(),
+                ),
+            )
+            .test_support()
             .into_any_element(),
     )
+}
+
+fn problem_row(list: ProblemList, index: usize, file: &LeftOut, palette: &Palette) -> AnyElement {
+    let name = file
+        .path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file.path.to_string_lossy().into_owned());
+    let in_full: SharedString = format!("{}\n{}", file.path.to_string_lossy(), file.reason).into();
+    div()
+        .id((list.id(), index))
+        .flex()
+        .w_full()
+        .items_center()
+        .gap(px(10.0))
+        .h(px(PROBLEM_ROW_HEIGHT))
+        .tooltip(move |window, cx| Tooltip::new(in_full.clone()).build(window, cx))
+        .child(div().w(px(220.0)).flex_shrink_0().truncate().child(name))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(palette.text_secondary)
+                .child(file.reason.clone()),
+        )
+        .test_support()
+        .into_any_element()
 }
 
 fn progress_bar(done: usize, total: usize, palette: &Palette) -> AnyElement {
