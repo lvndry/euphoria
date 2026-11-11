@@ -39,6 +39,8 @@ Euphoria averages the spectrum of the whole track and looks for the steepest fal
 
 Re-encoding cannot bring back what was removed. A 128 kbit/s file turned into 320 kbit/s keeps its cutoff at 16 kHz, which is how it gives itself away.
 
+![Range bars of where the content stops for each encoder and bit rate. Encoded once from a lossless source, every file stops at or above what its bit rate keeps, from about 15 kHz at 96 kbit/s to 20 kHz at 320 kbit/s MP3. Transcoded to a higher bit rate or to FLAC, the files still stop where their low bit rate source did, between 16 and 19 kHz, below what their new bit rate keeps.](../images/audio-quality/cutoffs.svg)
+
 ## Where the thresholds come from
 
 The thresholds were set by measurement, not from received wisdom about bit rates. `bench/quality_benchmark.py` took six lossless tracks of electronic music published under Creative Commons (from the album *Lithium Toolbox*, Argali Records, CC BY-SA 3.0) and three synthesized ones (a wideband dance loop, a dark version of it through a gentle 3 kHz lowpass, and a heavily clipped version). It encoded each at 96, 128, 192, 256 and 320 kbit/s with LAME (MP3), FFmpeg's AAC encoder and Apple's AAC encoder, made transcodes from low bit rates up to high ones, and measured each file. The full table is in [bench/results/quality.md](https://github.com/lvndry/euphoria/blob/main/bench/results/quality.md). What it showed:
@@ -57,6 +59,8 @@ The thresholds were set by measurement, not from received wisdom about bit rates
 
 The encoding error is the difference between the decoded file and the original below 15 kHz, below every cutoff, relative to the music. It is a plain measure of how much the encoder changed, not a measure of what you hear, but it shows where the big step is: from 192 to 256 kbit/s for MP3, and from 128 to 192 kbit/s for AAC.
 
+![Line chart of the encoding error below 15 kHz against the bit rate the encoder was set to. MP3 stays between -24 and -30 dB up to 192 kbit/s, then drops to -47 dB at 256 and -52 dB at 320. The two AAC encoders fall more evenly, to about -43 dB at 320 kbit/s.](../images/audio-quality/encoding-error.svg)
+
 The thresholds that follow:
 
 - **Good** from an average of 200 kbit/s. Apple's encoder set to 256 kbit/s averaged 208 on the quietest track, so the line sits below the nominal rate.
@@ -64,6 +68,8 @@ The thresholds that follow:
 - **Weak on a big system** below that.
 - **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. Of the 42 transcodes of music measured, 39 were caught. The 3 that were missed show no clear fall in their spectrum after re-encoding: twice because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
 - Clipping never changes the verdict. When at least 0.1% of the samples are clipped, the reason adds that the master is clipped in places.
+
+![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Every file encoded once from a lossless source sits above the step line of expected cutoffs; every transcode to a higher bit rate sits below it, in the likely re-encoded zone.](../images/audio-quality/verdicts.svg)
 
 ## Limits
 
