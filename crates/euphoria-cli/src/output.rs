@@ -879,13 +879,22 @@ pub fn write_tag_write_summary(
     written_count: usize,
     failure_count: usize,
 ) -> io::Result<()> {
+    let completed = if failure_count == 0 {
+        "Wrote the tags of"
+    } else {
+        "Completed tag writes for"
+    };
     write!(
         writer,
-        "Wrote the tags of {}",
+        "{completed} {}",
         theme.bold(counted_files(written_count))
     )?;
     if failure_count > 0 {
-        write!(writer, ", {failure_count} failed and were not changed")?;
+        write!(
+            writer,
+            "; {} reported errors and their tags may have changed",
+            counted_files(failure_count)
+        )?;
     }
     writeln!(writer, ".")?;
     if written_count > 0 {
@@ -1058,6 +1067,18 @@ mod tests {
         let mut buffer = Vec::new();
         write_analysis_summary(&mut buffer, &Theme::PLAIN, results, narrowing).unwrap();
         String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn tag_write_errors_do_not_promise_that_the_files_are_unchanged() {
+        let mut output = Vec::new();
+        write_tag_write_summary(&mut output, &Theme::PLAIN, 0, 1).unwrap();
+        let report = String::from_utf8(output).unwrap();
+        assert_eq!(
+            report,
+            "Completed tag writes for 0 files; 1 file reported errors and their tags may have changed.\n"
+        );
+        assert!(!report.contains("were not changed"));
     }
 
     #[test]
