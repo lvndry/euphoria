@@ -10,7 +10,7 @@
 //! left out, in a fixed order, so the title, key, tempo and energy always
 //! stay readable.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -225,6 +225,20 @@ pub(crate) fn fitted_width(column: ColumnId, content_width: f32, header_width: f
         .clamp(column.minimum(), WIDEST_COLUMN)
 }
 
+/// The widest distinct text, measured on demand when a column is fitted.
+/// Character count cannot rule out shorter text in a proportional font.
+pub(crate) fn widest_text(
+    texts: impl IntoIterator<Item = String>,
+    mut measure: impl FnMut(&str) -> f32,
+) -> f32 {
+    texts
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .iter()
+        .map(|text| measure(text))
+        .fold(0.0, f32::max)
+}
+
 /// Which columns the table shows, left to right, and how wide each is.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct TableLayout {
@@ -389,6 +403,37 @@ mod tests {
     /// The table in a 1440 wide window beside the sidebar and an inspector
     /// of the usual width.
     const USUAL_TABLE: f32 = 1440.0 - 220.0 - 320.0;
+
+    #[test]
+    fn fitting_keeps_a_shorter_wider_text_beyond_forty_long_names() {
+        let mut texts: Vec<String> = (0..41)
+            .map(|index| format!("{} {index}", "i".repeat(80)))
+            .collect();
+        let wide = "W".repeat(30);
+        texts.push(wide.clone());
+        // The headless text renderer has uniform glyph widths, so supply
+        // proportional widths to check that every candidate is measured.
+        let content_width = widest_text(texts, |text| if text == wide { 375.0 } else { 260.0 });
+        assert_eq!(content_width, 375.0);
+        assert_eq!(fitted_width(ColumnId::Title, content_width, 50.0), 375.0);
+    }
+
+    #[test]
+    fn fitting_measures_repeated_text_once_and_handles_no_text() {
+        let mut measured = Vec::new();
+        assert_eq!(
+            widest_text(["house".to_string(), "house".to_string()], |text| {
+                measured.push(text.to_string());
+                45.0
+            }),
+            45.0
+        );
+        assert_eq!(measured, ["house"]);
+        assert_eq!(
+            widest_text(Vec::new(), |_| panic!("no text to measure")),
+            0.0
+        );
+    }
 
     fn shown(layout: &TableLayout) -> Vec<ColumnId> {
         layout.columns().iter().map(|(column, _)| *column).collect()

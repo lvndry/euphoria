@@ -2062,6 +2062,26 @@ fn a_double_click_on_a_header_edge_fits_the_column_to_its_longest_text(cx: &mut 
     .unwrap();
 }
 
+#[gpui::test]
+fn fitting_a_column_keeps_shorter_titles_after_many_long_names(cx: &mut TestAppContext) {
+    let mut tracks = demo::tracks(42);
+    for (index, track) in tracks.iter_mut().enumerate() {
+        track.path = PathBuf::from(format!("/Demo/{}-{index}.mp3", "i".repeat(80)));
+    }
+    let wide_title = format!("{}.mp3", "W".repeat(30));
+    tracks[41].path = Path::new("/Demo").join(&wide_title);
+    let (_, view) = open_window_on(tracks, Box::new(SilentOutput), cx);
+
+    cx.update(|cx| {
+        let candidates = view.read(cx).column_texts(ColumnId::Title);
+        assert_eq!(candidates.len(), 42);
+        assert!(
+            candidates.contains(&wide_title),
+            "a shorter title can be wider in the table's proportional font"
+        );
+    });
+}
+
 /// The same check as the scratch fixture test, on copies of real two minute
 /// benchmark clips. They are not in the repository, so this runs only by
 /// hand: `cargo test -p euphoria-app -- --ignored bench_clips`, with
