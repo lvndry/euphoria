@@ -7,7 +7,7 @@ description: Every command, option, output format and exit status of the euphori
 
 ## euphoria analyze
 
-Detects the key, tempo and energy of audio files.
+Shows the key, tempo, energy and sound quality of audio files.
 
 ```
 euphoria analyze [OPTIONS] <PATHS>...
@@ -17,30 +17,92 @@ Each path is a file or a folder. Folders are searched recursively for [supported
 
 A symbolic link to an audio file is analyzed. A symbolic link to a folder is not entered, so a scan stays inside the folders you named; to include a linked folder, name it on the command line.
 
-```
-$ euphoria analyze ~/Music/DJ
-Key             BPM  Energy  Conf  Quality   Time  File
-8A   A minor  124.0       6  H/M   Lossless  6:48  /Users/you/Music/DJ/Low Tide.flac
--                 -       -  -/-   Weak      1:00  /Users/you/Music/DJ/Intro.m4a
-Quality: 1 lossless, 1 weak on a big system.
-```
+How the results are shown depends on where they go:
+
+| Output | Shown as |
+| --- | --- |
+| A terminal, several files | A [table that fits the window](#the-table-on-a-terminal), then a summary. |
+| A terminal, one file, or any output with `--detail` | A [detailed view](#the-detailed-view) of each track. |
+| A pipe or a file | The [plain table](#the-plain-table), with the same columns every time, for scripts. |
+| Any output with `--json` | [JSON](#json-output). |
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
 
-The Conf column rates how far to trust the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low. `H/M` is a key rated high and a tempo rated medium. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with an `L` are worth checking by ear, and `--needs-review` lists only those.
+### The table on a terminal
 
-The Energy column is the [energy rating](../concepts/energy.md) from 1 to 10. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
+```
+$ euphoria analyze ~/Music/DJ
+Key                  BPM       Energy              Quality   Time  File
+ 8A  A minor  ●●●  124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
+10B  D major  ●○○  149.8  ●●●       6  ━━━━━━────  weak      2:00  edits/Intro.m4a
 
-The Quality column is the [audio quality](../concepts/audio-quality.md) verdict for DJ use: `Lossless`, `Good`, `Acceptable`, `Weak` (weak on a big system) or `Re-encoded?` (likely made from a lower quality file). A line after the table counts the tracks with each verdict. It goes to standard error, like the line about the cache, so piped output holds only the table.
+Key and tempo: 1 of 2 tracks rated low confidence (●○○), worth checking by ear.
+Sound quality: 1 track lossless, 1 weak on a big system.
+hint: --needs-review lists only the tracks to check by ear.
+hint: --quality weak lists the tracks worth replacing, and --detail says why.
+```
 
-The table holds what you act on while mixing. The tuning of a track and its key over time are in the [JSON output](#json-output) only: most tracks are at concert pitch and stay in one key, so a column for either would be empty or zero nearly everywhere.
+The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those.
+
+Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
+
+Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use in a word: `lossless`, `good`, `acceptable`, `weak` (weak on a big system) or `re-encoded?` (likely made from a lower quality file). The detailed view gives the reason.
+
+The folder that holds every file is left out of the File column, so a folder shows its file names and the subfolders below it. A name too long for the window is shortened in the middle, keeping its end and extension.
+
+In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the confidence dots, the quality, then the energy. With the dots left out, a key or tempo rated low is marked with a `?`. The key, the tempo and the file always stay.
+
+After the table, standard error gets a summary in plain sentences: how many tracks have a key or tempo rated low, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
+
+### The detailed view
+
+```
+$ euphoria analyze ~/Music/DJ/Intro.m4a
+Intro.m4a
+/Users/you/Music/DJ
+
+  Key            10B  D major
+                 ●○○ low confidence, worth checking by ear
+                 runner up 9A  E minor
+  Tempo          149.8 BPM
+                 ●●● high confidence
+  Energy         6 of 10  ━━━━━━────
+  Sound quality  Weak on a big system
+                 96 kbit/s. Fine for practice and small rooms; on a club system the top end and
+                 detail suffer.
+                 aac, 96 kbit/s, 44.1 kHz, stereo, sound stops at 15.4 kHz
+  Loudness       -12.4 LUFS, true peak +1.0 dBTP
+  Tuning         at concert pitch, A = 440 Hz
+  Length         2:00
+```
+
+One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the tuning, and the key changes when the key changes during the track.
+
+### The plain table
+
+Into a pipe or a file, the table has the same columns as before the terminal table existed, with no colour, so scripts that read it keep working:
+
+```
+$ euphoria analyze ~/Music/DJ | cat
+Key             BPM  Energy  Conf  Quality   Time  File
+8A   A minor  124.0       6  H/M   Lossless  6:48  /Users/you/Music/DJ/Low Tide.flac
+10B  D major  149.8       6  L/H   Weak      2:00  /Users/you/Music/DJ/Intro.m4a
+```
+
+The Conf column rates the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low. The summary still goes to standard error, so piped output holds only the table.
+
+The tuning of a track and its key over time are in the detailed view and the [JSON output](#json-output).
 
 ### Options
 
 | Option | Effect |
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
+| `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
 | `--needs-review` | List only the tracks whose key or tempo is rated low confidence, and the files that could not be analyzed. |
+| `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
+| `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table and JSON are unchanged. |
+| `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
 | `--tempo-range <SLOWEST-FASTEST>` | Report tempos from SLOWEST up to, not including, FASTEST beats per minute, such as `70-140` for hip hop or `120-200` for drum and bass. The default is `90-180`. FASTEST can be at most twice SLOWEST. See [choosing the range](../concepts/accuracy.md#choosing-the-range). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -146,11 +208,13 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 ### Progress and exit status
 
-A progress bar is shown when the output goes to a terminal, and hidden when it is piped to another program.
+When standard error is a terminal, each file being analyzed has a line with a spinner and the stage it is in: decoding, with how much is decoded, then finding the tempo, finding the key, rating the energy and checking the quality. After five seconds the line also shows how long the file has taken, so a long track never looks stuck. With more than one file, a bar above the lines counts the finished files and estimates the time left. Files served from the cache get no line. Nothing of this is written when standard error is not a terminal.
+
+A debug build analyzes many times slower than a release build. When a run of a debug build has taken ten seconds, it says so once on standard error. Release builds never do.
 
 When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
 
-The command exits with status 0 when every file was analyzed. If any file failed, the table is followed by a list of the failed files and the reason, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
+The command exits with status 0 when every file was analyzed. If any file failed, each one is listed on standard error as `error: <path>: <reason>` after the table, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
 
 ## euphoria export rekordbox
 
@@ -165,7 +229,10 @@ Paths are searched as in [`euphoria analyze`](#euphoria-analyze), and results co
 ```
 $ euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
 Exported 340 tracks in 12 playlists to /Users/you/Music/euphoria.xml (336 from the cache)
-In rekordbox: 1. Preferences > View > Layout: tick rekordbox xml. 2. Preferences > Advanced > Database: choose this file. 3. Refresh rekordbox xml in the tree, then import its tracks or playlists.
+To import it in rekordbox:
+  1. Preferences > View > Layout: tick rekordbox xml.
+  2. Preferences > Advanced > Database: choose this file.
+  3. Refresh rekordbox xml in the tree, then import its tracks or playlists.
 Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-rekordbox.md
 ```
 
@@ -200,25 +267,24 @@ The file is written under a temporary name in the folder of the output file and 
 
 ### Output and exit status
 
-Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
+Nothing is written to standard output. Standard error gets the progress when it is a terminal, one line saying how many tracks and playlists were exported and where, and the steps to import the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
 
 Only a file that could not be analyzed is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
 
 ```
-Left 1 file out of the export:
-  /Users/you/Music/DJ/notes.txt: cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found
+error: /Users/you/Music/DJ/notes.txt: cannot decode /Users/you/Music/DJ/notes.txt: unsupported format: unsupported feature: core (probe): no suitable format reader found
 Exported 339 tracks in 12 playlists to /Users/you/Music/euphoria.xml
+Left 1 file out of the export; the errors above say why.
 ```
 
-A track whose key and tempo are known but whose tags cannot be read is still exported, under its file name and without an artist. This happens when the result came from the cache and the file can no longer be opened, for example after its permissions changed. Such tracks are listed in a note before the summary, and the note alone does not change the exit status:
+A track whose key and tempo are known but whose tags cannot be read is still exported, under its file name and without an artist. This happens when the result came from the cache and the file can no longer be opened, for example after its permissions changed. Such tracks are listed as warnings before the summary, and a warning alone does not change the exit status:
 
 ```
-Could not read the title of 1 file, used its file name:
-  /Users/you/Music/DJ/Low Tide.flac: cannot open /Users/you/Music/DJ/Low Tide.flac: Permission denied (os error 13)
+warning: /Users/you/Music/DJ/Low Tide.flac: named after its file, as its title could not be read: cannot open /Users/you/Music/DJ/Low Tide.flac: Permission denied (os error 13)
 Exported 340 tracks in 12 playlists to /Users/you/Music/euphoria.xml (340 from the cache)
 ```
 
-A damaged tag does not cause the note. Either the file still opens and is exported under its file name, or the damage stops the file from being decoded and it is listed as left out.
+A damaged tag does not cause the warning. Either the file still opens and is exported under its file name, or the damage stops the file from being decoded and it is listed as left out.
 
 The command also exits with status 1, and writes no file, when:
 
@@ -249,7 +315,7 @@ $ euphoria tags write ~/Music/DJ
 340 files to change, 2 already up to date.
 Write these changes to 340 files? [y/N] y
 Wrote the tags of 340 files.
-To put the old tags back: euphoria tags undo
+hint: To put the old tags back, run `euphoria tags undo`.
 ```
 
 ### Options
@@ -275,7 +341,7 @@ The preview goes to standard output: the path of each file that would change, th
 
 Standard error then gets one line with the number of files to change, the number already up to date and the number left out because of errors, and the question. Only `y` or `yes` writes. With `--dry-run` there is no question. When there is nothing to change there is no question either.
 
-When standard input is not a terminal and `--yes` was not given, nobody can answer the question. The command then writes nothing, says so, and exits with status 1. An answer sent through a pipe is not read.
+When standard input is not a terminal and `--yes` was not given, nobody can answer the question. The command then writes nothing, says so with `error: nothing was written` and a hint, and exits with status 1. An answer sent through a pipe is not read.
 
 ### What is written and how
 
@@ -345,7 +411,7 @@ The cache only saves time, so a problem with it never stops an analysis. If the 
 
 ```
 warning: analyzing without the cache: cannot use the analysis cache at /Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3: file is not a database
-  Run `euphoria cache clear` to reset the cache, or pass --no-cache to skip it.
+hint: Run `euphoria cache clear` to reset the cache, or pass --no-cache to skip it.
 ```
 
 The results and the exit status are the same as with `--no-cache`. Nothing is read from or saved to the cache in that run.
@@ -369,3 +435,28 @@ euphoria cache <COMMAND>
 $ euphoria cache path
 /Users/you/Library/Application Support/euphoria/analysis-cache.sqlite3
 ```
+
+## Messages
+
+Every command writes its results to standard output and everything else to standard error, in one shape:
+
+| Starts with | Means |
+| --- | --- |
+| `error:` | Something failed: the file, if there is one, then the reason. The exit status is 1. |
+| `warning:` | Something went wrong that did not stop the command, such as a cache that could not be used. |
+| `hint:` | What to do next. |
+| `note:` | Something worth knowing that needs no action. |
+
+`euphoria --help` and the help of every command end with examples.
+
+## Colour
+
+Colour is used only for text that goes to a terminal: the key in the hue of its Camelot number, red for errors, yellow for warnings and for ratings worth a look, green for what is fine, bold for what matters and dim for what is secondary. JSON and the plain table never hold colour unless asked.
+
+| Setting | Effect |
+| --- | --- |
+| `--color auto` | The default. Colour a terminal, unless `NO_COLOR` is set to any value or `CLICOLOR` is `0`, or colour everything when `CLICOLOR_FORCE` is set to anything but `0`. `NO_COLOR` wins over `CLICOLOR_FORCE`. |
+| `--color always` | Colour everything, even into a pipe. |
+| `--color never` | Never colour. |
+
+`--color` can be given before or after the command, and applies to the help as well. Keys use 24 bit colour when `COLORTERM` is `truecolor` or `24bit`, and the nearest of 256 colours otherwise.
