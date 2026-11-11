@@ -5,7 +5,9 @@ use std::ops::Range;
 
 use crate::audio::AudioBuffer;
 use crate::detect::chromagram::{Chromagram, DETECTOR_NAME, KEY_COUNT, key_scores};
-use crate::detect::key_sections::{highest_total, runs, steadiest_keys, window_hops};
+use crate::detect::key_sections::{
+    ChangeRules, highest_total, keys_against_track_key, runs, window_hops,
+};
 use crate::detect::tuning::{Tuning, measure_tuning};
 use crate::detect::{KeyDetector, KeyReading, KeySection};
 use crate::error::EuphoriaError;
@@ -32,16 +34,29 @@ const SILENT_WINDOW_LEVEL: f64 = 1.0e-3;
 /// seconds: long enough to hold a bar or two of every chord of a loop.
 const HOPS_PER_WINDOW: usize = 8;
 
-/// What a change of key costs against the key scores of the windows, which
-/// run from 0 to 1. See [`steadiest_keys`].
+/// When the key over time leaves the key of the track. See
+/// [`keys_against_track_key`].
 ///
-/// Chosen without the key labels of any dataset. On synthesized chord
-/// progressions that move to another key for 30 seconds, 0.1 is the highest
-/// of the values tried that still shows a move between two minor keys a
-/// fifth apart, and four seconds in a distant key do not show. On two minute
-/// previews of dance music, which seldom changes key, 95% come out as one
-/// section, against 83% at half the value.
-const KEY_CHANGE_PENALTY: f64 = 0.1;
+/// Key scores run from 0 to 1. In real music the best key of a seven second
+/// window changes often and by little: on a GiantSteps preview whose key
+/// does not change, other keys beat the key of the track by up to 0.02 per
+/// window for half a minute. On synthesized chord progressions that move to
+/// another key, the new key wins by 0.04 to 0.05 per window when it is a
+/// fifth away and 0.2 when it is distant. The margin of 0.025 is the
+/// largest step of 0.005 with which a move a fifth away lasting three
+/// windows at the end of a track still shows. A section in the middle pays
+/// for entering and leaving, so the same lead needs more windows. Checked
+/// on the GiantSteps previews
+/// against the earlier rule, which followed the best key from window to
+/// window with a penalty of 0.1: previews with more than one section fell
+/// from 4.3% to 1.0% on the half the setting was chosen on and from 5.3% to
+/// 1.0% on the other half, and none lost the key of the track, which 1.0%
+/// did before.
+const CHANGE_RULES: ChangeRules = ChangeRules {
+    per_window_margin: 0.025,
+    change_penalty: 0.05,
+    minimum_windows: 3,
+};
 
 /// The smallest tuning offset the tuning correction acts on, in cents.
 /// libkeyfinder listens for each note through a window 80 cents wide that
@@ -224,7 +239,11 @@ impl ChromaAnalysis {
     /// section from start to end.
     fn timeline(&self, track_key: Key, duration: f32) -> Result<Vec<KeySection>, EuphoriaError> {
         let windows = window_hops(self.chromagram.hop_count(), HOPS_PER_WINDOW);
-        let keys = steadiest_keys(&self.window_scores()?, KEY_CHANGE_PENALTY);
+        let keys = keys_against_track_key(
+            &self.window_scores()?,
+            code_from_key(track_key),
+            CHANGE_RULES,
+        );
         let keyed_runs: Vec<(Range<usize>, usize)> = runs(&keys)
             .into_iter()
             .filter_map(|(run_windows, code)| Some((run_windows, code?)))
@@ -307,6 +326,13 @@ fn key_from_code(code: usize) -> Key {
     Key::new(tonic, mode)
 }
 
+/// The libkeyfinder code of a key, the inverse of [`key_from_code`].
+fn code_from_key(key: Key) -> usize {
+    let semitones_above_a = (usize::from(key.tonic()) + 12 - A_PITCH_CLASS) % 12;
+    let minor = usize::from(key.mode() == Mode::Minor);
+    semitones_above_a * 2 + minor
+}
+
 #[cfg(test)]
 mod tests {
     use std::f32::consts::TAU;
@@ -316,6 +342,15 @@ mod tests {
 
     fn key(text: &str) -> Key {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn codes_and_keys_map_both_ways() {
+        for code in 0..KEY_COUNT {
+            assert_eq!(code_from_key(key_from_code(code)), code);
+        }
+        assert_eq!(code_from_key(key("A major")), 0);
+        assert_eq!(code_from_key(key("Ab minor")), 23);
     }
 
     #[test]
