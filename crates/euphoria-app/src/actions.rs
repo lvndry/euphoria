@@ -14,6 +14,8 @@ actions!(
         Quit,
         /// Opens the folder picker.
         AddFolder,
+        /// Plays the selected track, or pauses it.
+        TogglePlayback,
         /// Moves the keyboard to the search field.
         FocusSearch,
         /// Switches to the Slate theme.

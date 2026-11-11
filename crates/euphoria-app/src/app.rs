@@ -4,23 +4,29 @@
 //! The window's root view: it owns the library session and what the user has
 //! chosen to see, and lays the screen out from the views.
 
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::component::input::{InputEvent, InputState};
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, ExternalPaths, FocusHandle, KeyDownEvent, PathPromptOptions, ScrollStrategy,
-    Subscription, Task, UniformListScrollHandle, Window, div, relative,
+    Context, Entity, ExternalPaths, FocusHandle, KeyDownEvent, PathPromptOptions, Pixels,
+    ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window, div, px, relative,
 };
 
 use crate::library::{LibraryFilter, SortColumn, SortOrder, Track};
 use crate::mixes::{MixSuggestion, suggestions};
-use crate::peaks::{PEAK_COUNT, compute_peaks};
+use crate::peaks::{PEAK_COUNT, compute_band_peaks};
+use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
+use crate::player::{Player, PlayerRequest, fraction_along};
 use crate::settings::Settings;
 use crate::state::{Scan, Session, scan};
 use crate::theme::{AppTheme, Layout, ThemeName};
 use crate::views;
+use crate::views::waveform::SeenBounds;
 use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
 
 /// How often finished files are moved from the workers into the table.
@@ -37,6 +43,17 @@ const QUIT_PATIENCE: Duration = Duration::from_millis(150);
 
 /// How many tracks the "Mixes well with" list shows.
 const MIX_LIMIT: usize = 8;
+
+/// How often the playhead and the position are brought up to date while a
+/// track plays.
+const PLAYHEAD_INTERVAL: Duration = Duration::from_millis(33);
+
+/// The sound of the track that is playing or paused.
+struct ActiveVoice {
+    /// Dropping this stops the sound.
+    voice: Box<dyn Voice>,
+    state: Arc<VoiceState>,
+}
 
 /// The root view of the window.
 pub(crate) struct EuphoriaApp {
@@ -59,6 +76,21 @@ pub(crate) struct EuphoriaApp {
     pub(crate) scans_in_progress: usize,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
+    /// What the player is doing with the selected track.
+    pub(crate) player: Player,
+    /// Where the waveform was last drawn, for turning a click into a
+    /// position in the track.
+    pub(crate) waveform_bounds: SeenBounds,
+    /// Where the progress line of the player bar was last drawn.
+    pub(crate) progress_line_bounds: SeenBounds,
+    /// Holds the keyboard when no field or table has it, so that the space
+    /// bar still reaches the player.
+    pub(crate) window_focus: FocusHandle,
+    output: Box<dyn AudioOutput>,
+    voice: Option<ActiveVoice>,
+    /// Opens the file of the track about to play.
+    start_task: Option<Task<()>>,
+    is_following_playhead: bool,
     query: String,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
@@ -77,9 +109,12 @@ impl EuphoriaApp {
         settings: Settings,
         settings_path: Option<PathBuf>,
         notice: Option<String>,
+        output: Box<dyn AudioOutput>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
+        let window_focus = cx.focus_handle();
+        window_focus.focus(window, cx);
         let search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search file name, key or BPM"));
         let search_changed = cx.subscribe(
@@ -119,6 +154,14 @@ impl EuphoriaApp {
             notice,
             scans_in_progress: 0,
             toolbar_drag_armed: false,
+            player: Player::default(),
+            waveform_bounds: Rc::new(Cell::new(None)),
+            progress_line_bounds: Rc::new(Cell::new(None)),
+            window_focus,
+            output,
+            voice: None,
+            start_task: None,
+            is_following_playhead: false,
             query: String::new(),
             settings_path,
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
@@ -256,6 +299,7 @@ impl EuphoriaApp {
                         this.refresh_visible();
                         this.refresh_mixes();
                         this.load_selected_waveform(cx);
+                        this.point_player_at_selection(cx);
                         if let Some(problem) = this.session.take_cache_problem() {
                             this.report(format!(
                                 "Results are not being saved to the cache: {problem}."
@@ -307,6 +351,159 @@ impl EuphoriaApp {
         self.selected = Some(index);
         self.refresh_mixes();
         self.load_selected_waveform(cx);
+        self.point_player_at_selection(cx);
+        cx.notify();
+    }
+
+    /// Gives the player the selected track. While a track is playing, the
+    /// newly selected one plays in its place.
+    fn point_player_at_selection(&mut self, cx: &mut Context<'_, Self>) {
+        let selected = self
+            .selected_track()
+            .map(|track| (track.path.clone(), track.duration_seconds()));
+        let request = match &selected {
+            Some((path, duration_seconds)) => self.player.select(Some(path), *duration_seconds),
+            None => self.player.select(None, None),
+        };
+        self.carry_out(request, cx);
+    }
+
+    /// The play and pause button, or the space bar.
+    pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
+        let request = self.player.toggle();
+        self.carry_out(request, cx);
+        cx.notify();
+    }
+
+    /// A press or a drag at `pointer_x` on a strip that stands for the whole
+    /// track, last drawn at `seen_bounds`: playing moves to that point.
+    pub(crate) fn seek_to_pointer(
+        &mut self,
+        pointer_x: Pixels,
+        seen_bounds: &SeenBounds,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(bounds) = seen_bounds.get() else {
+            return;
+        };
+        let fraction = fraction_along(
+            pointer_x / px(1.0),
+            bounds.left() / px(1.0),
+            bounds.size.width / px(1.0),
+        );
+        let request = self.player.seek_to_fraction(fraction);
+        self.carry_out(request, cx);
+        cx.notify();
+    }
+
+    /// Passes what the player asked for on to the audio output.
+    fn carry_out(&mut self, request: Option<PlayerRequest>, cx: &mut Context<'_, Self>) {
+        match request {
+            None => {}
+            Some(PlayerRequest::Start { path, from_seconds }) => {
+                self.voice = None;
+                self.start_task = Some(cx.spawn(async move |this, cx| {
+                    let path_to_open = path.clone();
+                    let opened = cx
+                        .background_executor()
+                        .spawn(async move { TrackSource::open(&path_to_open, from_seconds) })
+                        .await;
+                    this.update(cx, |this, cx| this.finish_starting(&path, opened, cx))
+                        .ok();
+                }));
+            }
+            Some(PlayerRequest::Pause) => {
+                if let Some(active) = &self.voice {
+                    active.voice.pause();
+                }
+            }
+            Some(PlayerRequest::Resume) => {
+                if let Some(active) = &self.voice {
+                    active.voice.resume();
+                }
+                self.follow_playhead(cx);
+            }
+            Some(PlayerRequest::SeekTo(seconds)) => {
+                if let Some(active) = &self.voice {
+                    active.state.seek_to(seconds);
+                }
+            }
+            Some(PlayerRequest::Stop) => {
+                self.start_task = None;
+                self.voice = None;
+            }
+        }
+    }
+
+    /// The file of the track to play is open, or could not be opened.
+    fn finish_starting(
+        &mut self,
+        path: &std::path::Path,
+        opened: Result<TrackSource, PlaybackProblem>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let started = opened.and_then(|source| {
+            let state = source.state();
+            if !self.player.started(path, source.duration_seconds()) {
+                return Ok(None);
+            }
+            let voice = self.output.play(source)?;
+            Ok(Some(ActiveVoice { voice, state }))
+        });
+        match started {
+            Ok(Some(active)) => {
+                self.voice = Some(active);
+                self.follow_playhead(cx);
+            }
+            Ok(None) => {}
+            Err(problem) => self.player.failed(path, problem.message().to_string()),
+        }
+        cx.notify();
+    }
+
+    /// Moves the playhead and the position along a few dozen times a second
+    /// for as long as a track is playing.
+    fn follow_playhead(&mut self, cx: &mut Context<'_, Self>) {
+        if self.is_following_playhead {
+            return;
+        }
+        self.is_following_playhead = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(PLAYHEAD_INTERVAL).await;
+                let still_playing = this.update(cx, |this, cx| {
+                    this.read_playhead(cx);
+                    this.is_following_playhead = this.player.is_playing();
+                    this.is_following_playhead
+                });
+                if !matches!(still_playing, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Brings the player up to date with what the sound has done: how far it
+    /// has got, whether it reached the end, or what stopped it.
+    pub(crate) fn read_playhead(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.player.is_playing() {
+            return;
+        }
+        let Some(active) = &self.voice else {
+            return;
+        };
+        if let Some(problem) = active.state.problem() {
+            if let Some(path) = self.player.track().map(std::path::Path::to_path_buf) {
+                self.player.failed(&path, problem.message().to_string());
+            }
+            self.voice = None;
+        } else if active.state.is_finished() {
+            self.player.finished();
+            self.voice = None;
+        } else {
+            self.player.advance_to(active.state.position_seconds());
+        }
         cx.notify();
     }
 
@@ -446,9 +643,14 @@ impl EuphoriaApp {
                 .background_executor()
                 .spawn(async move {
                     match euphoria_core::decode_mono(&decoded_path) {
-                        Ok(audio) => {
-                            Waveform::Ready(compute_peaks(audio.samples(), PEAK_COUNT).into())
-                        }
+                        Ok(audio) => Waveform::Ready(
+                            compute_band_peaks(
+                                audio.samples(),
+                                audio.sample_rate().get(),
+                                PEAK_COUNT,
+                            )
+                            .into(),
+                        ),
                         Err(error) => Waveform::Unreadable(error.chain()),
                     }
                 })
@@ -499,8 +701,19 @@ impl Render for EuphoriaApp {
                 .child(library_and_detail)
         };
 
+        let has_player_bar = !self.is_empty() && self.theme.layout == Layout::InspectorRight;
+
         div()
             .id("euphoria")
+            .track_focus(&self.window_focus)
+            .key_context(views::LIBRARY_KEY_CONTEXT)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                // With the keyboard on the window itself, the arrow keys
+                // move through the table as they do when the table has it.
+                if this.window_focus.is_focused(window) {
+                    this.table_key_down(event, cx);
+                }
+            }))
             .size_full()
             .flex()
             .flex_col()
@@ -514,6 +727,9 @@ impl Render for EuphoriaApp {
             }))
             .child(views::toolbar::render(self, cx))
             .child(body)
+            .when(has_player_bar, |window| {
+                window.child(views::player::bar(self, cx))
+            })
             .children(views::notice::render(self, cx))
     }
 }

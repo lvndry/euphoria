@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::peaks::BandPeaks;
+
 /// How many waveforms are kept. Each is a few kilobytes; the limit keeps a
 /// long session from growing without bound.
 pub(crate) const WAVEFORM_CAPACITY: usize = 32;
@@ -17,8 +19,8 @@ pub(crate) const WAVEFORM_CAPACITY: usize = 32;
 pub(crate) enum Waveform {
     /// The audio is being decoded.
     Reading,
-    /// Peaks from the start of the track to its end, each from 0.0 to 1.0.
-    Ready(Arc<[f32]>),
+    /// Columns from the start of the track to its end.
+    Ready(Arc<[BandPeaks]>),
     /// The audio could not be decoded; the text says why.
     Unreadable(String),
 }
@@ -91,7 +93,14 @@ mod tests {
     }
 
     fn ready(peak: f32) -> Waveform {
-        Waveform::Ready(vec![peak].into())
+        Waveform::Ready(
+            vec![BandPeaks {
+                low: peak,
+                mid: 0.0,
+                high: 0.0,
+            }]
+            .into(),
+        )
     }
 
     #[test]
