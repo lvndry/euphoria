@@ -169,7 +169,11 @@ impl InfoList {
     /// The text is stored in the encoding the comment has now: a comment
     /// that is not UTF-8 is read as Latin-1 and written back as Latin-1,
     /// so that the user's own text keeps its exact bytes after a label is
-    /// put next to it.
+    /// put next to it. Every byte reads as a Latin-1 character, so a label
+    /// put next to text read from the comment always fits. Text that does
+    /// not fit, which only a caller that makes up its own text can pass,
+    /// is refused rather than written in another encoding than the rest
+    /// of the comment.
     pub(super) fn set(&mut self, value: Option<&str>) -> Result<(), ErrorSource> {
         let position = self.position();
         let Some(value) = value else {
@@ -183,7 +187,13 @@ impl InfoList {
             .raw()
             .is_some_and(|raw| std::str::from_utf8(Self::text_bytes(raw)).is_err());
         let fits_latin1 = value.chars().all(|character| u32::from(character) <= 0xFF);
-        let mut text: Vec<u8> = if existing_is_latin1 && fits_latin1 {
+        if existing_is_latin1 && !fits_latin1 {
+            return Err(
+                "the RIFF comment is not UTF-8, and the new text has characters it cannot hold"
+                    .into(),
+            );
+        }
+        let mut text: Vec<u8> = if existing_is_latin1 {
             value.chars().map(|character| character as u8).collect()
         } else {
             value.as_bytes().to_vec()
@@ -374,6 +384,47 @@ mod tests {
     fn a_zero_byte_cannot_be_written() {
         let mut new = InfoList::absent(0);
         assert!(new.set(Some("a\0b")).is_err());
+    }
+
+    #[test]
+    fn windows_1252_bytes_keep_their_value_and_wider_text_is_refused() {
+        // 0x80 is the euro sign in Windows-1252, the encoding most Windows
+        // programs write. It is not UTF-8, so it is read as Latin-1, where
+        // it is U+0080, and written back as the same byte.
+        let original = value(b"ICMT", b"10 \x80 \x93live\x94\0");
+        let mut windows = list(std::slice::from_ref(&original));
+        let read = windows.get().unwrap();
+        assert_eq!(read, "10 \u{80} \u{93}live\u{94}");
+        windows
+            .set(Some(&format!("8A - Energy 7 - {read}")))
+            .unwrap();
+        let labelled = value(b"ICMT", b"8A - Energy 7 - 10 \x80 \x93live\x94\0");
+        assert_eq!(windows.values()[0], labelled);
+
+        let error = windows
+            .set(Some("8A - Energy 7 - 10 \u{20ac}"))
+            .unwrap_err();
+        assert!(error.to_string().contains("cannot hold"), "{error}");
+        assert_eq!(windows.values()[0], labelled);
+
+        // A comment that is UTF-8 takes any text.
+        let mut utf8 = list(&[value(b"ICMT", "10 \u{20ac}\0".as_bytes())]);
+        utf8.set(Some("8A - 10 \u{20ac}")).unwrap();
+        assert_eq!(
+            utf8.values()[0],
+            value(b"ICMT", "8A - 10 \u{20ac}\0".as_bytes())
+        );
+    }
+
+    #[test]
+    fn sizes_near_the_largest_u32_make_a_damaged_list() {
+        for size in [u32::MAX, u32::MAX - 1, u32::MAX - 8] {
+            let mut huge = b"ICMT".to_vec();
+            huge.extend(size.to_le_bytes());
+            huge.extend(b"short!");
+            let damaged = list(&[value(b"INAM", b"t\0"), huge]);
+            assert!(damaged.problem().is_some(), "{size}");
+        }
     }
 
     #[test]

@@ -174,7 +174,7 @@ A WAV file has two places for a comment: the ID3 chunk, which most tag editors a
 - The preview shows the RIFF comment on a line of its own, as `INFO ICMT`.
 - The other values of the RIFF INFO list, such as the title `INAM` and the artist `IART`, keep their bytes and their order.
 - A file without a RIFF INFO list gets one, holding only the comment, in front of the `data` chunk, where ffmpeg puts it and where a reader that stops at the audio still finds it. Undo takes it out again.
-- The format names no text encoding. A RIFF comment that is valid UTF-8 is read and written as UTF-8. One that is not is read as Latin-1 and written back as Latin-1, so that its own text keeps its exact bytes next to the label.
+- The format names no text encoding. A RIFF comment that is valid UTF-8 is read and written as UTF-8. One that is not, such as one written in Windows-1252 with a euro sign, is read byte for byte as Latin-1 and written back the same way, so that its own text keeps its exact bytes next to the label. The preview may show such characters differently from the program that wrote them; the bytes in the file do not change.
 - Undo puts the RIFF comment back byte for byte, with the same checks as every other field. The one case where the file does not return to the exact bytes it had is a RIFF INFO list that was empty before the write: it is taken out when its last value goes.
 - A RIFF INFO list that cannot be taken apart into values, a second list in the same file, or more than one `ICMT` comment is a reason to refuse the write, like a damaged ID3 chunk.
 

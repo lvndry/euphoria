@@ -342,6 +342,20 @@ fn latin1_riff_comment_keeps_its_bytes() {
 }
 
 #[test]
+fn windows_1252_comment_keeps_its_bytes_through_write_and_undo() {
+    // The euro sign and curly quotes as Windows programs write them.
+    let original = wav_with_info(&[info_value(b"ICMT", b"10 \x80 \x93live\x94\0")]);
+    let path = scratch_file("windows-1252.wav", &original);
+    let (written, backup) = write(&path, 7, &TagWriteOptions::default());
+    assert_eq!(
+        riff_comment(&written).unwrap(),
+        b"8A - Energy 7 - 10 \x80 \x93live\x94"
+    );
+    undo(&backup).unwrap();
+    assert!(std::fs::read(&path).unwrap() == original);
+}
+
+#[test]
 fn riff_comment_is_read_when_the_id3_chunk_has_none() {
     let original = wav_with_info(&[info_value(b"ICMT", b"only in RIFF\0")]);
     let path = scratch_file("read.wav", &original);
