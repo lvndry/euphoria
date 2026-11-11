@@ -216,7 +216,9 @@ impl OggVorbisFile {
                 problem = Some("its Ogg pages do not join up");
             }
             let mut position = 0;
+            let mut consumed_segments = 0;
             for value in &read.lacing {
+                consumed_segments += 1;
                 let end = position + usize::from(*value);
                 packet.extend(&read.data[position..end]);
                 position = end;
@@ -230,7 +232,7 @@ impl OggVorbisFile {
                     }
                 }
             }
-            if packets.len() == HEADER_PACKETS && position != read.data.len() {
+            if packets.len() == HEADER_PACKETS && consumed_segments != read.lacing.len() {
                 problem = Some("its first audio packet shares a page with its setup header");
             }
             if is_first {

@@ -11,7 +11,7 @@ description: Audio formats Euphoria can read.
 | AAC in MP4 | `.m4a`, `.mp4` | AAC-LC. HE-AAC files cannot be decoded yet. |
 | ALAC (Apple Lossless) in MP4 | `.m4a`, `.mp4` | |
 | FLAC | `.flac` | |
-| Ogg Vorbis | `.ogg` | Opus in Ogg cannot be decoded yet. Tags are read and written in Ogg files that hold one Vorbis stream. |
+| Ogg Vorbis | `.ogg` | Opus in Ogg cannot be decoded yet. Tags are written in Ogg files that hold one Vorbis stream; a file with a second stream, such as one chained after the first, is refused. |
 | WAV | `.wav` | |
 | AIFF | `.aif`, `.aiff` | |
 
