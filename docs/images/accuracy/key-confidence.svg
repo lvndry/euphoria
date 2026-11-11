@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="292" viewBox="0 0 800 292" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">How often the key is exact at each confidence</title>
+<desc id="chart-desc">Horizontal bars of how often the detected key is exact on the held out half of the GiantSteps Key previews, by confidence: 74.2% of the 40% rated high, 57.0% of the 40% rated medium and 41.0% of the 20% rated low, against 60.6% of all 604 previews.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.bracket { stroke: #52514e; stroke-width: 1.5; fill: none; }
+.connector { stroke: #c3c2b7; stroke-width: 2; fill: none; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis, .connector { stroke: #383835; }
+  .bracket { stroke: #c3c2b7; }
+  .series-fill, .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .ring, .halo { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="291" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">How often the key is exact at each confidence</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">The held out half of the GiantSteps Key previews. A key rated high is right about three times in four.</text>
+<line x1="190" y1="96" x2="190" y2="228" class="axis"/>
+<text x="190" y="248" class="tick" text-anchor="middle">0%</text>
+<line x1="317.5" y1="96" x2="317.5" y2="228" class="grid"/>
+<text x="317.5" y="248" class="tick" text-anchor="middle">25%</text>
+<line x1="445" y1="96" x2="445" y2="228" class="grid"/>
+<text x="445" y="248" class="tick" text-anchor="middle">50%</text>
+<line x1="572.5" y1="96" x2="572.5" y2="228" class="grid"/>
+<text x="572.5" y="248" class="tick" text-anchor="middle">75%</text>
+<line x1="700" y1="96" x2="700" y2="228" class="grid"/>
+<text x="700" y="248" class="tick" text-anchor="middle">100%</text>
+<line x1="499.06" y1="88" x2="499.06" y2="228" class="reference"/>
+<text x="499.06" y="82" class="tick halo" text-anchor="middle">All 604 previews 60.6%</text>
+<text x="445" y="272" class="label" text-anchor="middle">Share of previews whose key is exact</text>
+<text x="176" y="122.5" class="label" text-anchor="end">High, 40% of tracks</text>
+<path class="series-fill" d="M190,108 H564.42 Q568.42,108 568.42,112 V124 Q568.42,128 564.42,128 H190 Z"/>
+<text x="578.42" y="122.5" class="value halo" text-anchor="start">74.2%</text>
+<text x="176" y="166.5" class="label" text-anchor="end">Medium, 40% of tracks</text>
+<path class="series-fill" d="M190,152 H476.7 Q480.7,152 480.7,156 V168 Q480.7,172 476.7,172 H190 Z"/>
+<text x="490.7" y="166.5" class="value halo" text-anchor="start">57.0%</text>
+<text x="176" y="210.5" class="label" text-anchor="end">Low, 20% of tracks</text>
+<path class="series-fill" d="M190,196 H395.1 Q399.1,196 399.1,200 V212 Q399.1,216 395.1,216 H190 Z"/>
+<text x="409.1" y="210.5" class="value halo" text-anchor="start">41.0%</text>
+</svg>

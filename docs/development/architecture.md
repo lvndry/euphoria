@@ -16,6 +16,8 @@ crates/
 bench/              dataset download script, Essentia reference script, results
 ```
 
+![Three crates, euphoria-cli, euphoria-desktop and euphoria-bench, each depend on euphoria-core and none on another. euphoria-core holds every module of product logic, grouped as finding and decoding files, analyzing them, and keeping and sharing the results, and builds on libkeyfinder for key (optional, C++), stratum-dsp for tempo, Symphonia for decoding, lofty for tags, rusqlite for the cache, and ebur128 and rustfft for loudness and spectra.](../images/architecture/crates.svg)
+
 ## Rules between crates
 
 - `euphoria-core` depends on no front end. It contains no command line parsing, no user interface code, and prints nothing.
