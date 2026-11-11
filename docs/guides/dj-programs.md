@@ -19,7 +19,7 @@ No DJ software vendor publishes which tag fields its program reads. What this pa
 | **Tested** | Checked in the program itself with the test kit. |
 | **Unconfirmed** | Sources disagree, or nothing was found. |
 
-The rekordbox facts marked **Tested** were checked in rekordbox 7 with the test kit described [below](#check-it-yourself-in-rekordbox), with automatic analysis switched off. The other presets have not yet been tried in the program they are named after.
+The rekordbox facts marked **Tested** were checked in rekordbox 7.2.19 on macOS 27 on 11 November 2026, with the test kit described [below](#check-it-yourself-in-rekordbox) and automatic analysis switched off. Other versions may behave differently; the kit lets you check yours. The other presets have not yet been tried in the program they are named after.
 
 ## The same in every program
 

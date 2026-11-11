@@ -13,7 +13,7 @@ euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml
 
 rekordbox reads that file as a second library sitting next to your own, and you choose which tracks and playlists to bring into your collection. Your audio files are never modified.
 
-This is the route Pioneer documents for handing rekordbox a key, a tempo with two decimals and a comment, whatever the format of the file. It is also the only way to give rekordbox a tempo: tested in rekordbox 7, it reads the key and comment from a file's tags when the track is added, but not the tempo. [Use Euphoria with your DJ program](dj-programs.md#rekordbox) has the details and a test kit to check your version.
+This is the route Pioneer documents for handing rekordbox a key, a tempo with two decimals and a comment, whatever the format of the file. It is also the only way to give rekordbox Euphoria's tempo: tested in rekordbox 7, it reads the key and comment from a file's tags when the track is added, but not the tempo, and its own analysis sets a tempo of its own. [Use Euphoria with your DJ program](dj-programs.md#rekordbox) has the details and a test kit to check your version.
 
 The import steps below were written from Pioneer DJ's published description of the XML format and from rekordbox 6 and 7 documentation, and checked in rekordbox 7 with a test file. Steps marked **(not verified)** were not part of that check.
 
@@ -126,11 +126,14 @@ The file is written under a temporary name and moved into place once it is compl
 
 ## What happens to tracks you already have
 
-When a track from the file is already in your collection, rekordbox asks whether to replace its information with what the file says. **(not verified)**
+**Import To Collection** on a track that is already in your collection replaces its key, tempo and comment with what the file says (tested in rekordbox 7). Importing only a playlist leaves them as they were.
 
-Replacing can affect more than key and tempo. A beat grid or cue points you set by hand in rekordbox may be replaced by the ones in the file, or removed when the file has none. Try the import on a few tracks first and look at their grids and cues before importing a whole library. **(not verified)**
+Replacing may affect more than that. A beat grid or cue points you set by hand in rekordbox may be replaced by the ones in the file, or removed when the file has none. The test did not check grids or cues, so try the import on a few tracks first and look at them before importing a whole library. **(not verified)**
 
-rekordbox may also analyze newly imported tracks and write its own key and tempo over the imported ones. To prevent it, untick **KEY** in **Preferences > Analysis > Track Analysis > Track Analysis Setting**, or turn **Auto Analysis** off, before importing. The settings are in the manual; whether analysis replaces imported values is **(not verified)**.
+rekordbox's own analysis replaces imported values (tested in rekordbox 7: analyzing a track with **KEY** ticked replaced both its key and its tempo). Choose before importing, in **Preferences > Analysis > Track Analysis**:
+
+- **Keep Euphoria's key and tempo:** turn **Auto Analysis** off. rekordbox then draws no beat grid of its own until you analyze a track.
+- **Keep Euphoria's key, and let rekordbox draw the beat grid:** leave Auto Analysis on and untick **KEY** in **Track Analysis Setting**, keeping **BPM / Grid** ticked. rekordbox's analysis then sets the tempo to its own value. This is the setup Mixed In Key recommends.
 
 ## If something looks wrong
 
@@ -138,5 +141,5 @@ rekordbox may also analyze newly imported tracks and write its own key and tempo
 | --- | --- |
 | The **rekordbox xml** entry is empty | The file was not chosen in the preferences, or the list was not refreshed. |
 | Tracks show as missing | The audio files moved after the export. Export again from their current location, with `--force`. |
-| The key column shows `8A` and you wanted `Am`, or the reverse | The notation is fixed when the file is exported. Export again with the other `--key-notation`. |
+| The key column shows `8A` and you wanted `Am`, or the reverse | rekordbox shows keys in the format chosen in **Preferences > View**; change it there. With **Display key information on the database** it shows the exported text, so export again with the other `--key-notation`. |
 | A track is named after its file | The file has no title in its tags, or it is a WAV file tagged only with an ID3 chunk. |
