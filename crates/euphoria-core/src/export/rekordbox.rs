@@ -307,7 +307,7 @@ fn unpredictable_number() -> u64 {
 /// With [`ExistingFile::Replace`] it takes the place of whatever is there.
 /// With [`ExistingFile::Keep`] it only takes a name that is free, so a file
 /// that another program created at `destination` a moment before is kept.
-fn install(
+pub(crate) fn install(
     temporary_path: &Path,
     destination: &Path,
     existing: ExistingFile,
