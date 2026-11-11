@@ -260,7 +260,7 @@ A write that was interrupted can be undone as well. Files it had not changed yet
 A track is recognised by its content, not by its name or folder:
 
 - A file that was renamed or moved is still recognised, and is not analyzed again.
-- A file whose content changed is analyzed again. Editing tags changes the content, so a retagged file is analyzed once more.
+- A file whose content changed is analyzed again. Editing tags changes the content, so a file retagged by another program is analyzed once more. `euphoria tags write` and `euphoria tags undo`, and the app, record the files they change, so those are not analyzed again; with `--no-cache` the write records nothing.
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
 - Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some, and results stored before the tuning and the key over time were measured. The first run after such an update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
