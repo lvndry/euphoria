@@ -2672,6 +2672,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_score_margin: Some(key_margin),
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
+        beat_grid: None,
     }
 }
 
