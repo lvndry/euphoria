@@ -159,7 +159,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         results,
         store_error,
         ..
-    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    } = batch::analyze_in_default_range(&audio_files, &arguments.analysis)?;
     let corrections = batch::corrections(
         &results,
         &arguments.analysis,
@@ -190,8 +190,16 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
             None => Correction::default(),
         };
         let planned = result.outcome.and_then(|analysis| {
-            plan_write(&result.path, &correction.apply(analysis.clone()), &options)
-                .map(|plan| (plan, analysis))
+            plan_write(
+                &result.path,
+                &correction.apply(
+                    analysis
+                        .clone()
+                        .with_tempo_range(arguments.analysis.tempo_range()),
+                ),
+                &options,
+            )
+            .map(|plan| (plan, analysis))
         });
         match planned {
             Ok((plan, _)) if plan.is_empty() => unchanged_count += 1,
