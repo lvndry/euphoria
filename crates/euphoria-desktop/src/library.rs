@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::{Key, TempoRange, TrackAnalysis};
+use euphoria_core::{Confidence, Correction, Key, TempoRange, TrackAnalysis};
 
 use crate::camelot::CamelotPosition;
 use crate::folder_tree::FolderColumn;
@@ -47,6 +47,8 @@ pub(crate) struct Track {
     pub(crate) folder: String,
     /// Where the track is in its analysis.
     pub(crate) status: TrackStatus,
+    /// The key and tempo the user set, which win over the detected ones.
+    pub(crate) correction: Correction,
     file_name_lowercase: String,
     title_lowercase: String,
     artist_lowercase: Option<String>,
@@ -78,6 +80,7 @@ impl Track {
             format,
             folder,
             status: TrackStatus::Queued,
+            correction: Correction::default(),
         }
     }
 
@@ -107,13 +110,24 @@ impl Track {
         }
     }
 
-    /// The detected key, when the track has one.
+    /// The key of the track: the one the user set, or the detected one.
     pub(crate) fn key(&self) -> Option<Key> {
+        self.correction.key.or_else(|| self.detected_key())
+    }
+
+    /// The tempo of the track: the one the user set, or the detected one in
+    /// the tempo range on show.
+    pub(crate) fn bpm(&self) -> Option<f32> {
+        self.correction.bpm.or_else(|| self.detected_bpm())
+    }
+
+    /// The key analysis found, whatever the user set.
+    pub(crate) fn detected_key(&self) -> Option<Key> {
         self.analysis().and_then(|analysis| analysis.key)
     }
 
-    /// The detected tempo, when the track has one.
-    pub(crate) fn bpm(&self) -> Option<f32> {
+    /// The tempo analysis found, whatever the user set.
+    pub(crate) fn detected_bpm(&self) -> Option<f32> {
         self.analysis().and_then(|analysis| analysis.bpm)
     }
 
@@ -156,7 +170,13 @@ impl Track {
     pub(crate) fn needs_review(&self) -> bool {
         match &self.status {
             TrackStatus::Failed(_) => true,
-            TrackStatus::Analyzed(analysis) => analysis.needs_review(),
+            TrackStatus::Analyzed(analysis) => {
+                let doubtful_key = self.correction.key.is_none()
+                    && analysis.key_confidence() == Some(Confidence::Low);
+                let doubtful_tempo = self.correction.bpm.is_none()
+                    && analysis.tempo_confidence() == Some(Confidence::Low);
+                doubtful_key || doubtful_tempo
+            }
             TrackStatus::Queued | TrackStatus::Analyzing => false,
         }
     }
@@ -370,6 +390,28 @@ impl Library {
             Ok(analysis) => TrackStatus::Analyzed(analysis.with_tempo_range(self.tempo_range)),
             Err(reason) => TrackStatus::Failed(reason),
         };
+        if track.needs_review() {
+            self.review_count += 1;
+        }
+        self.revision += 1;
+        true
+    }
+
+    /// Sets the key and tempo the user chose for the track at `path`; an
+    /// empty correction goes back to the detected values. Returns false when
+    /// the file is not in the library.
+    pub(crate) fn set_correction(&mut self, path: &Path, correction: Correction) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        if track.needs_review() {
+            self.review_count -= 1;
+        }
+        track.correction = correction;
         if track.needs_review() {
             self.review_count += 1;
         }
@@ -755,6 +797,86 @@ mod tests {
             tempo_score_margin: Some(tempo_margin),
             ..analysis(Some("A minor"), Some(tempo_estimate), 300.0)
         }
+    }
+
+    #[test]
+    fn a_correction_wins_over_the_analysis_and_resets_to_it() {
+        let mut library = Library::default();
+        let path = Path::new("/music/track.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        let e_minor: Key = "E minor".parse().unwrap();
+        let revision = library.revision();
+
+        let correction = Correction::of_key(e_minor).with_bpm(Some(62.0)).unwrap();
+        assert!(library.set_correction(path, correction));
+        let track = &library.tracks()[0];
+        assert_eq!(track.key(), Some(e_minor));
+        assert_eq!(track.bpm(), Some(62.0));
+        assert_eq!(track.detected_key(), Some("A minor".parse().unwrap()));
+        assert_eq!(track.detected_bpm(), Some(124.0));
+        assert!(library.revision() > revision);
+        let folder_column = FolderColumn::new(library.tracks(), library.folders(), None);
+        let found =
+            library.visible_tracks(LibraryFilter::AllTracks, None, "9a", None, &folder_column);
+        assert_eq!(found.len(), 1, "search finds the key the user set");
+
+        library.set_tempo_range(TempoRange::new(70.0, 140.0).unwrap());
+        assert_eq!(
+            library.tracks()[0].bpm(),
+            Some(62.0),
+            "a tempo set by hand is not folded"
+        );
+
+        assert!(library.set_correction(path, Correction::default()));
+        let track = &library.tracks()[0];
+        assert_eq!(track.key(), Some("A minor".parse().unwrap()));
+        assert_eq!(track.bpm(), Some(124.0));
+        assert!(!library.set_correction(Path::new("/music/other.mp3"), correction));
+    }
+
+    #[test]
+    fn a_corrected_value_leaves_needs_review_and_the_other_value_still_counts() {
+        let mut library = Library::default();
+        let both = Path::new("/music/both doubtful.mp3");
+        let failed = Path::new("/music/broken.mp3");
+        library.add_files(vec![both.to_path_buf(), failed.to_path_buf()]);
+        library.record_outcome(both, Ok(rated(0.001, 124.0, 0.01)));
+        library.record_outcome(failed, Err("cannot decode".into()));
+        assert_eq!(library.counts().needs_review, 2);
+
+        let key_only = Correction::of_key("E minor".parse().unwrap());
+        library.set_correction(both, key_only);
+        assert_eq!(
+            library.counts().needs_review,
+            2,
+            "the tempo is still doubtful"
+        );
+        library.set_correction(both, key_only.with_bpm(Some(124.0)).unwrap());
+        assert_eq!(library.counts().needs_review, 1);
+        library.set_correction(failed, key_only);
+        assert_eq!(
+            library.counts().needs_review,
+            1,
+            "a failed file still needs a look"
+        );
+        library.set_correction(both, Correction::default());
+        assert_eq!(library.counts().needs_review, 2);
+    }
+
+    #[test]
+    fn a_correction_given_before_the_analysis_counts_once_it_arrives() {
+        let mut library = Library::default();
+        let path = Path::new("/music/early.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        let correction = Correction::of_key("E minor".parse().unwrap())
+            .with_bpm(Some(124.0))
+            .unwrap();
+        library.set_correction(path, correction);
+        assert_eq!(library.tracks()[0].key(), Some("E minor".parse().unwrap()));
+        library.record_outcome(path, Ok(rated(0.001, 124.0, 0.01)));
+        assert_eq!(library.counts().needs_review, 0);
+        assert_eq!(library.tracks()[0].key(), Some("E minor".parse().unwrap()));
     }
 
     #[test]

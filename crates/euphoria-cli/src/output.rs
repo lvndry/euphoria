@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
-    BeatGrid, Confidence, EuphoriaError, FileResult, Key, KeySection, SkippedTrack, TempoRange,
-    UnreadTags,
+    BeatGrid, Confidence, Correction, EuphoriaError, FileResult, Key, KeySection, SkippedTrack,
+    TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
+use crate::batch::Corrections;
 use crate::tags::Failure;
 use crate::terminal::Printable;
 
@@ -33,6 +34,9 @@ struct JsonTrack<'result> {
     beat_grid: Option<JsonBeatGrid>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
+    /// The values the user set by hand, which replace the detected ones:
+    /// "key", "bpm" or both.
+    set_by_user: Vec<&'static str>,
     error: Option<String>,
 }
 
@@ -122,6 +126,7 @@ pub fn write_json(
     writer: &mut impl Write,
     results: &[FileResult],
     range: TempoRange,
+    corrections: &Corrections,
 ) -> io::Result<()> {
     let tracks: Vec<JsonTrack<'_>> = results
         .iter()
@@ -149,6 +154,11 @@ pub fn write_json(
                 beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
                 quality: analysis.quality.as_ref().map(JsonQuality::from),
                 needs_review: Some(analysis.needs_review()),
+                set_by_user: set_by_user(
+                    corrections
+                        .get(&result.path)
+                        .and_then(|looked_up| looked_up.as_ref().ok()),
+                ),
                 error: None,
             },
             Err(error) => JsonTrack {
@@ -165,6 +175,7 @@ pub fn write_json(
                 beat_grid: None,
                 quality: None,
                 needs_review: None,
+                set_by_user: Vec::new(),
                 error: Some(error.chain()),
             },
         })
@@ -173,10 +184,29 @@ pub fn write_json(
     writeln!(writer)
 }
 
+/// The values of `correction` the user set, as JSON names them.
+fn set_by_user(correction: Option<&Correction>) -> Vec<&'static str> {
+    let Some(correction) = correction else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    if correction.key.is_some() {
+        names.push("key");
+    }
+    if correction.bpm.is_some() {
+        names.push("bpm");
+    }
+    names
+}
+
 /// Writes an aligned table of the files that were analyzed. The Conf column
 /// holds the confidence of the key and of the tempo, each as H, M or L for
-/// high, medium or low.
-pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Result<()> {
+/// high, medium or low, or U for a value the user set.
+pub fn write_table(
+    writer: &mut impl Write,
+    results: &[FileResult],
+    corrections: &Corrections,
+) -> io::Result<()> {
     let header = [
         "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
     ];
@@ -184,6 +214,17 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
+            let correction = corrections
+                .get(&result.path)
+                .and_then(|looked_up| looked_up.as_ref().ok());
+            let key_letter = match correction.and_then(|correction| correction.key) {
+                Some(_) => "U",
+                None => confidence_letter(analysis.key_confidence()),
+            };
+            let tempo_letter = match correction.and_then(|correction| correction.bpm) {
+                Some(_) => "U",
+                None => confidence_letter(analysis.tempo_confidence()),
+            };
             Some([
                 analysis
                     .key
@@ -198,11 +239,7 @@ pub fn write_table(writer: &mut impl Write, results: &[FileResult]) -> io::Resul
                     .energy
                     .map(|energy| energy.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                format!(
-                    "{}/{}",
-                    confidence_letter(analysis.key_confidence()),
-                    confidence_letter(analysis.tempo_confidence())
-                ),
+                format!("{key_letter}/{tempo_letter}"),
                 analysis
                     .quality
                     .as_ref()
@@ -717,7 +754,7 @@ mod tests {
     }
 
     fn write_json_in_default_range(writer: &mut Vec<u8>, results: &[FileResult]) -> io::Result<()> {
-        write_json(writer, results, TempoRange::DEFAULT)
+        write_json(writer, results, TempoRange::DEFAULT, &Corrections::new())
     }
 
     #[test]
@@ -736,7 +773,30 @@ Key             BPM  Energy  Conf  Quality  Time  File
 8A   A minor  170.0       7  H/L   Weak     6:48  music/low tide.flac
 -                 -       -  -/-   -        1:00  music/intro.wav
 ";
-        assert_eq!(render(write_table), expected);
+        assert_eq!(
+            render(|writer, results| write_table(writer, results, &Corrections::new())),
+            expected
+        );
+    }
+
+    #[test]
+    fn values_the_user_set_are_marked_in_the_table_and_the_json() {
+        let results = sample_results();
+        let mut corrections = Corrections::new();
+        corrections.insert(
+            results[0].path.clone(),
+            Ok(Correction::of_bpm(85.0).unwrap()),
+        );
+        let mut table = Vec::new();
+        write_table(&mut table, &results, &corrections).unwrap();
+        let table = String::from_utf8(table).unwrap();
+        assert!(table.contains("H/U"), "{table}");
+
+        let mut json = Vec::new();
+        write_json(&mut json, &results, TempoRange::DEFAULT, &corrections).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(json[0]["set_by_user"], serde_json::json!(["bpm"]));
+        assert_eq!(json[1]["set_by_user"], serde_json::json!([]));
     }
 
     #[test]

@@ -14,7 +14,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, cache_error};
@@ -44,14 +44,24 @@ impl Cache {
         path: &Path,
         analysis: &TrackAnalysis,
     ) -> Result<(), EuphoriaError> {
+        let previous = self.previous_content(path)?;
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(());
         };
-        self.apply_write(&CacheWrite::Store {
-            content_hash,
-            analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
-            location,
-        })
+        // The new content and the correction it carries over are kept
+        // together, so a failure never leaves the correction behind under
+        // the content the file no longer has.
+        self.apply_write_then(
+            &CacheWrite::Store {
+                content_hash,
+                analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
+                location,
+            },
+            |connection| match previous {
+                Some(previous) => carry_correction(connection, &previous, &content_hash),
+                None => Ok(()),
+            },
+        )
         .map_err(cache_error(&self.path))
     }
 
@@ -65,8 +75,13 @@ impl Cache {
     /// [`EuphoriaError::Scan`] when the file cannot be read, and
     /// [`EuphoriaError::Cache`] when the database cannot be read or written.
     pub fn recognise_file(&mut self, path: &Path) -> Result<bool, EuphoriaError> {
+        let previous = self.previous_content(path)?;
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(false);
+        };
+        let carry = |connection: &Connection| match previous {
+            Some(previous) => carry_correction(connection, &previous, &content_hash),
+            None => Ok(()),
         };
         let is_known = self
             .connection
@@ -85,46 +100,22 @@ impl Cache {
             .map_err(cache_error(&self.path))?
             .is_some();
         if is_known {
-            self.apply_write(&CacheWrite::Relocate {
-                content_hash,
-                location,
-            })
+            self.apply_write_then(
+                &CacheWrite::Relocate {
+                    content_hash,
+                    location,
+                },
+                carry,
+            )
             .map_err(cache_error(&self.path))?;
+        } else {
+            carry(&self.connection).map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
     }
 }
 
 impl Cache {
-    /// The content recorded for the file at `path` when it was last seen
-    /// there with its current size and modification time, by an analysis of
-    /// any version. Does not read the file.
-    ///
-    /// # Errors
-    ///
-    /// [`EuphoriaError::Cache`] when the database cannot be read.
-    pub fn recorded_content(&self, path: &Path) -> Result<Option<ContentHash>, EuphoriaError> {
-        let Ok(absolute_path) = std::path::absolute(path) else {
-            return Ok(None);
-        };
-        let (Some(text), Ok(stamp)) = (absolute_path.to_str(), FileStamp::of(path)) else {
-            return Ok(None);
-        };
-        let bytes: Option<Vec<u8>> = self
-            .connection
-            .query_row(
-                "SELECT content_hash FROM analyses
-                 WHERE last_known_path = ?1 AND file_size = ?2 AND modified_at = ?3",
-                params![text, stamp.size, stamp.modified_nanoseconds],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(cache_error(&self.path))?;
-        Ok(bytes
-            .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
-            .map(ContentHash::from_bytes))
-    }
-
     /// Where a file with `content` was last seen, by an analysis of any
     /// version, when the cache knows.
     ///
@@ -146,6 +137,25 @@ impl Cache {
             .map_err(cache_error(&self.path))?;
         Ok(path.flatten().map(PathBuf::from))
     }
+}
+
+/// Copies the correction of `from` to `to`, unless `to` has one, when a
+/// write or an undo turns one content into the other.
+fn carry_correction(
+    connection: &Connection,
+    from: &ContentHash,
+    to: &ContentHash,
+) -> rusqlite::Result<()> {
+    if from == to {
+        return Ok(());
+    }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
+             SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
+            params![from.as_bytes(), to.as_bytes()],
+        )
+        .map(|_| ())
 }
 
 /// The hash and location of the file at `path`, or `None` when its size or

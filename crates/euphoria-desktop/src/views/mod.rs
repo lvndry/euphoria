@@ -4,6 +4,7 @@
 //! The parts of the window. Each view reads the root view's state and turns
 //! it into elements, taking every colour from the theme.
 
+pub(crate) mod by_ear;
 pub(crate) mod empty_state;
 pub(crate) mod inspector;
 pub(crate) mod key_chip;

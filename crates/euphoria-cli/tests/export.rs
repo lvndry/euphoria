@@ -861,29 +861,36 @@ fn folders_nested_too_deeply_are_refused_and_nothing_is_written() {
 }
 
 #[test]
-fn a_cache_that_cannot_be_used_is_a_warning_and_the_export_is_written() {
+fn a_cache_that_cannot_be_used_stops_the_export_until_no_cache_is_passed() {
     let euphoria = Euphoria::new();
     std::fs::write(euphoria.cache_path(), "not a database ".repeat(500))
         .expect("the damaged cache is written");
     let output_folder = TemporaryFolder::new();
     let output_file = output_folder.path().join("library.xml");
     let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let export = |extra: &[&str]| {
+        let mut arguments = vec![
+            "export",
+            "rekordbox",
+            text(&fixture),
+            "-o",
+            text(&output_file),
+        ];
+        arguments.extend_from_slice(extra);
+        euphoria.run(&arguments)
+    };
 
-    let exported = euphoria.run(&[
-        "export",
-        "rekordbox",
-        text(&fixture),
-        "-o",
-        text(&output_file),
-    ]);
-
-    assert_success(&exported);
-    let errors = standard_error(&exported);
+    let refused = export(&[]);
+    assert!(!refused.status.success());
+    let errors = standard_error(&refused);
     assert!(
-        errors.starts_with("warning: analyzing without the cache: "),
+        errors.contains(text(&euphoria.cache_path())) && errors.contains("--no-cache"),
         "{errors}"
     );
-    assert!(errors.contains("Exported 1 track in 1 playlist to "));
+    assert!(!output_file.exists(), "nothing is written");
+
+    let exported = export(&["--no-cache"]);
+    assert_success(&exported);
     assert_eq!(ExportedLibrary::read(&output_file).tracks.len(), 1);
 }
 
