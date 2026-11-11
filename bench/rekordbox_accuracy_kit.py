@@ -137,7 +137,10 @@ uv run bench/rekordbox_accuracy_kit.py --data bench/data --verify {kit}
 
 
 def previews(data, dataset):
-    return sorted((data / dataset / "audio").glob("*.mp3"))
+    sources = sorted((data / dataset / "audio").glob("*.mp3"))
+    if not sources:
+        raise SystemExit(f"no previews in {data / dataset / 'audio'}; run bench/download_datasets.sh first")
+    return sources
 
 
 def clone_or_copy(sources, folder):
@@ -158,8 +161,6 @@ def build(data, output):
     cloned = True
     for dataset in DATASETS:
         sources = previews(data, dataset)
-        if not sources:
-            raise SystemExit(f"no previews in {data / dataset / 'audio'}; run bench/download_datasets.sh first")
         folder = output / dataset
         folder.mkdir()
         cloned = clone_or_copy(sources, folder) and cloned
