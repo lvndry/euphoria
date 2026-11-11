@@ -1838,6 +1838,32 @@ fn files_left_out_of_a_write_are_listed_with_the_reason(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn opening_settings_discards_a_tag_preview_still_being_planned(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-settings-during-plan");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (_, view) = open_taggable_files(&scratch, &files, None, cx);
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.plan_tag_write(crate::tag_flow::WriteScope::Shown, cx);
+            app.open_settings(cx);
+            assert!(app.settings_open);
+            assert!(app.tag_panel.is_none());
+        });
+    });
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.settings_open);
+        assert!(app.tag_panel.is_none(), "a dismissed preview reopened");
+    });
+    assert_eq!(tag_testing::contents(&files), before);
+    assert!(!scratch.log_directory().exists());
+}
+
+#[gpui::test]
 fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
     cx: &mut TestAppContext,
 ) {

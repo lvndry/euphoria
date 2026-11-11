@@ -752,6 +752,7 @@ impl EuphoriaApp {
         if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
             return;
         }
+        self.tag_task_generation += 1;
         self.tag_panel = None;
         self.settings_open = true;
         cx.notify();
