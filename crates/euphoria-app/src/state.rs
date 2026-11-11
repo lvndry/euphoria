@@ -141,6 +141,12 @@ impl Session {
         queued
     }
 
+    /// Adds a made up folder for made up tracks to be in, without looking
+    /// on disk.
+    pub(crate) fn add_demo_folder(&mut self, folder: PathBuf) {
+        self.library.add_folder(folder);
+    }
+
     /// Adds made up tracks with their invented results, without analyzing
     /// anything.
     pub(crate) fn add_demo_tracks(&mut self, tracks: Vec<DemoTrack>) {

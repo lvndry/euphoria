@@ -172,7 +172,7 @@ DJ software vendors do not publish the exact fields their programs read. [Use Eu
 | Program | Strongest evidence |
 | --- | --- |
 | Mixxx | Every field above, confirmed in its source code. |
-| rekordbox | The field names stored inside rekordbox 7, and Mixed In Key's guide. Whether rekordbox reads the key from M4A `initialkey`, from FLAC and from WAV, and the tempo from any tag, is unconfirmed. |
+| rekordbox | Tested in rekordbox 7: the key is read from `TKEY`, M4A `KEY` (not `initialkey`) and FLAC `INITIALKEY`; the comment from every format; WAV title and comment from RIFF INFO only; no tempo from any tag. |
 | Serato | Serato's own statements for the key in MP3 and the analysis settings. M4A and FLAC field names are unconfirmed. |
 | Traktor | Mixed In Key's guide and user reports for the Key Text column. M4A and FLAC field names are unconfirmed. |
 | Engine DJ | The Engine DJ user guide for when tags are read. Field names are unconfirmed. |

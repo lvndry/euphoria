@@ -1,8 +1,9 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! What the app remembers between launches: the folders the user added and
-//! the theme, in a JSON file in the platform data directory.
+//! What the app remembers between launches: the folders the user added, the
+//! theme and how the window is arranged, in a JSON file in the platform data
+//! directory.
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +45,19 @@ pub(crate) struct Settings {
     pub(crate) theme: ThemeName,
     /// Whether the sidebar is folded and how large the track detail is.
     pub(crate) panels: Panels,
+    /// Which folders of the sidebar tree are unfolded and which is shown.
+    pub(crate) folder_tree: FolderTreeMemory,
+}
+
+/// What the sidebar's folder tree looked like.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct FolderTreeMemory {
+    /// The unfolded folders. `None` until the tree was first saved, when
+    /// the added folders open unfolded.
+    pub(crate) expanded: Option<Vec<PathBuf>>,
+    /// The folder the table showed, if any.
+    pub(crate) selected: Option<PathBuf>,
 }
 
 impl Settings {
@@ -140,6 +154,10 @@ mod tests {
                 inspector_width: 412,
                 strip_height: 240,
             },
+            folder_tree: FolderTreeMemory {
+                expanded: Some(vec![PathBuf::from("/music/DJ tracks/afro_house")]),
+                selected: Some(PathBuf::from("/music/DJ tracks/afro_house/warmup")),
+            },
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -159,13 +177,15 @@ mod tests {
             folders: Vec::new(),
             theme: ThemeName::KeyFirst,
             panels: Panels::default(),
+            folder_tree: FolderTreeMemory::default(),
         })
         .unwrap();
         assert_eq!(
             text,
             concat!(
                 r#"{"folders":[],"theme":"key-first","#,
-                r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180}}"#
+                r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
+                r#""folder_tree":{"expanded":null,"selected":null}}"#
             )
         );
     }
@@ -204,6 +224,25 @@ mod tests {
         assert!(!settings.panels.sidebar_folded);
         assert_eq!(settings.panels.inspector_width, 320);
         assert_eq!(settings.panels.strip_height, 180);
+        assert_eq!(settings.folder_tree, FolderTreeMemory::default());
+    }
+
+    #[test]
+    fn a_remembered_tree_naming_folders_that_are_gone_still_loads() {
+        let folder = temporary_folder("gone-folders");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"folder_tree":{"expanded":["/not/here"],"selected":"/not/here/either"}}"#,
+        )
+        .unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let tree = loaded.unwrap().folder_tree;
+        assert_eq!(tree.expanded, Some(vec![PathBuf::from("/not/here")]));
+        assert_eq!(tree.selected, Some(PathBuf::from("/not/here/either")));
     }
 
     #[test]
