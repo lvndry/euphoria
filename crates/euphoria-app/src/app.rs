@@ -15,8 +15,8 @@ use gpui::component::input::{InputEvent, InputState};
 use gpui::prelude::*;
 use gpui::{
     Context, Div, Entity, ExternalPaths, FocusHandle, KeyDownEvent, MouseButton, MouseMoveEvent,
-    PathPromptOptions, Pixels, ScrollStrategy, SharedString, Subscription, Task,
-    UniformListScrollHandle, Window, canvas, div, px, relative,
+    PathPromptOptions, Pixels, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window,
+    canvas, div, px, relative,
 };
 
 use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
@@ -76,8 +76,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) expanded_folders: HashSet<PathBuf>,
     /// The Folder column of every track, relative to the folder on show.
     pub(crate) folder_column: FolderColumn,
-    /// The longest folder path among the rows shown.
-    pub(crate) longest_folder_path: SharedString,
+    /// The widest rendered folder path among the rows shown, cached until
+    /// those paths or their font change.
+    folder_path_widths: views::track_table::FolderPathWidths,
     /// Which columns the table shows and how wide its Folder column is,
     /// worked out each frame from the room the table has.
     pub(crate) table_layout: views::track_table::TableLayout,
@@ -188,7 +189,7 @@ impl EuphoriaApp {
             folder_rows: Vec::new(),
             expanded_folders,
             folder_column: FolderColumn::default(),
-            longest_folder_path: SharedString::default(),
+            folder_path_widths: views::track_table::FolderPathWidths::default(),
             table_layout: views::track_table::TableLayout::default(),
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
@@ -439,15 +440,12 @@ impl EuphoriaApp {
             self.sort_order,
             &self.folder_column,
         );
-        self.longest_folder_path = self
-            .visible
-            .iter()
-            .filter_map(|index| self.folder_column.label(*index))
-            .map(|label| &label.text)
-            .max_by_key(|text| text.chars().count())
-            .cloned()
-            .unwrap_or_default()
-            .into();
+        self.folder_path_widths.set_paths(
+            self.visible
+                .iter()
+                .filter_map(|index| self.folder_column.label(*index))
+                .map(|label| label.text.as_str()),
+        );
     }
 
     /// Works out which columns fit the table in the window as it is now,
@@ -458,17 +456,16 @@ impl EuphoriaApp {
         if self.theme.layout == Layout::InspectorRight {
             table_width -= self.inspector_width(window) / px(1.0);
         }
-        let text = self.longest_folder_path.clone();
-        let longest_path = if text.is_empty() {
-            0.0
-        } else {
-            let run = window.text_style().to_run(text.len());
+        let style = window.text_style();
+        let longest_path = self.folder_path_widths.widest(style.font(), |path| {
+            let text = path.to_string().into();
+            let run = style.to_run(path.len());
             window
                 .text_system()
                 .shape_line(text, views::TEXT_SIZE, &[run], None)
                 .width
                 / px(1.0)
-        };
+        });
         self.table_layout = views::track_table::TableLayout::for_width(table_width, longest_path);
     }
 

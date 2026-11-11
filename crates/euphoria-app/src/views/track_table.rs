@@ -5,12 +5,14 @@
 //! track. Only the rows in view are built, so the table stays quick however
 //! long the library is.
 
+use std::collections::HashSet;
+
 use gpui::component::scroll::Scrollbar;
 use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px, relative,
+    AnyElement, Context, Div, Font, FontWeight, SharedString, TestSupportExt, div, px, relative,
     uniform_list,
 };
 
@@ -34,8 +36,44 @@ enum ColumnWidth {
     /// A share of the space the fixed columns leave.
     Share(f32),
     /// As wide as the folder paths shown need, within limits; see
-    /// [`folder_column_width`].
+    /// [`TableLayout`].
     FolderPaths,
+}
+
+/// The widest visible folder label at [`super::TEXT_SIZE`]. Paths shared by
+/// several tracks are measured once, and playback frames reuse the result.
+#[derive(Default)]
+pub(crate) struct FolderPathWidths {
+    paths: HashSet<String>,
+    font: Option<Font>,
+    widest: Option<f32>,
+}
+
+impl FolderPathWidths {
+    /// Updates the labels after filtering or changing folders. Sorting and
+    /// analysis results that leave the same labels shown keep their width.
+    pub(crate) fn set_paths<'path>(&mut self, paths: impl Iterator<Item = &'path str>) {
+        let paths: HashSet<&str> = paths.filter(|path| !path.is_empty()).collect();
+        if paths.len() != self.paths.len() || paths.iter().any(|path| !self.paths.contains(*path)) {
+            self.paths = paths.into_iter().map(str::to_string).collect();
+            self.widest = None;
+        }
+    }
+
+    /// Measures every distinct path in the font actually used by the table.
+    /// Character count cannot order widths in a proportional font.
+    pub(crate) fn widest(&mut self, font: Font, mut measure: impl FnMut(&str) -> f32) -> f32 {
+        if self.font.as_ref() != Some(&font) {
+            self.font = Some(font);
+            self.widest = None;
+        }
+        *self.widest.get_or_insert_with(|| {
+            self.paths
+                .iter()
+                .map(|path| measure(path))
+                .fold(0.0, f32::max)
+        })
+    }
 }
 
 /// One column of the table.
@@ -561,6 +599,81 @@ mod tests {
 
     fn left_out(layout: &TableLayout) -> Vec<&'static str> {
         layout.left_out.clone()
+    }
+
+    #[test]
+    fn a_shorter_but_wider_path_decides_the_folder_width() {
+        let mut paths = FolderPathWidths::default();
+        paths.set_paths(["iiiiiiiiiiiiiiiiiiii", "WWWWWWWWWW"].into_iter());
+        // Proportional widths are injected because the headless renderer
+        // gives every character the same width.
+        let width = paths.widest(Font::default(), |path| match path {
+            "iiiiiiiiiiiiiiiiiiii" => 63.0,
+            "WWWWWWWWWW" => 125.0,
+            _ => unreachable!(),
+        });
+        assert_eq!(width, 125.0);
+        assert_eq!(
+            TableLayout::for_width(USUAL_TABLE, width).folder_width,
+            125.0
+        );
+    }
+
+    #[test]
+    fn repeated_paths_and_frames_only_measure_each_path_once() {
+        let mut paths = FolderPathWidths::default();
+        paths.set_paths(["deep", "house/warmup", "deep"].into_iter());
+        let mut measured = Vec::new();
+        let width = paths.widest(Font::default(), |path| {
+            measured.push(path.to_string());
+            path.len() as f32
+        });
+        measured.sort();
+        assert_eq!(measured, ["deep", "house/warmup"]);
+
+        paths.set_paths(["house/warmup", "deep", "house/warmup"].into_iter());
+        assert_eq!(
+            paths.widest(Font::default(), |_| panic!(
+                "unchanged paths were remeasured"
+            )),
+            width
+        );
+    }
+
+    #[test]
+    fn filtering_or_changing_folders_remeasures_the_paths_left_on_show() {
+        let mut paths = FolderPathWidths::default();
+        paths.set_paths(["deep", "house/warmup"].into_iter());
+        assert_eq!(
+            paths.widest(Font::default(), |path| path.len() as f32),
+            12.0
+        );
+
+        paths.set_paths(["deep"].into_iter());
+        assert_eq!(paths.widest(Font::default(), |path| path.len() as f32), 4.0);
+        paths.set_paths(["another/folder"].into_iter());
+        assert_eq!(
+            paths.widest(Font::default(), |path| path.len() as f32),
+            14.0
+        );
+
+        paths.set_paths([""].into_iter());
+        assert_eq!(
+            paths.widest(Font::default(), |_| panic!("an empty label was measured")),
+            0.0
+        );
+    }
+
+    #[test]
+    fn changing_the_table_font_remeasures_the_same_paths() {
+        let mut paths = FolderPathWidths::default();
+        paths.set_paths(["deep"].into_iter());
+        assert_eq!(paths.widest(Font::default(), |_| 28.0), 28.0);
+        let bold = Font {
+            weight: FontWeight::BOLD,
+            ..Font::default()
+        };
+        assert_eq!(paths.widest(bold, |_| 32.0), 32.0);
     }
 
     #[test]
