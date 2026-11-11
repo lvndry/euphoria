@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
-    Confidence, Correction, EuphoriaError, FileResult, Key, KeySection, SkippedTrack, TempoRange,
-    UnreadTags,
+    BeatGrid, Confidence, Correction, EuphoriaError, FileResult, Key, KeySection, SkippedTrack,
+    TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
@@ -31,12 +31,30 @@ struct JsonTrack<'result> {
     energy: Option<u8>,
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
+    beat_grid: Option<JsonBeatGrid>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
     /// The values the user set by hand, which replace the detected ones:
     /// "key", "bpm" or both.
     set_by_user: Vec<&'static str>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonBeatGrid {
+    first_downbeat_seconds: f64,
+    bpm: f64,
+    confidence: &'static str,
+}
+
+impl From<BeatGrid> for JsonBeatGrid {
+    fn from(grid: BeatGrid) -> Self {
+        Self {
+            first_downbeat_seconds: round_to_thousandths(grid.first_downbeat_seconds),
+            bpm: round_to_thousandths(grid.bpm),
+            confidence: grid.confidence().as_str(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -133,6 +151,7 @@ pub fn write_json(
                     .iter()
                     .map(JsonKeySection::from)
                     .collect(),
+                beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
                 quality: analysis.quality.as_ref().map(JsonQuality::from),
                 needs_review: Some(analysis.needs_review()),
                 set_by_user: set_by_user(
@@ -153,6 +172,7 @@ pub fn write_json(
                 energy: None,
                 tuning_cents: None,
                 key_timeline: Vec::new(),
+                beat_grid: None,
                 quality: None,
                 needs_review: None,
                 set_by_user: Vec::new(),
@@ -413,6 +433,27 @@ pub fn write_export_summary(
     writeln!(writer)
 }
 
+/// Writes how many exported tracks got a beat grid, and why the others did
+/// not.
+pub fn write_beat_grid_summary(
+    writer: &mut impl Write,
+    with_grid: usize,
+    track_count: usize,
+) -> io::Result<()> {
+    write!(
+        writer,
+        "Beat grids for {with_grid} of {}",
+        counted(track_count, "track", "tracks")
+    )?;
+    if with_grid < track_count {
+        write!(
+            writer,
+            "; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them"
+        )?;
+    }
+    writeln!(writer, ".")
+}
+
 /// Writes how to bring an exported file into rekordbox, and where the full
 /// guide is.
 pub fn write_rekordbox_import_steps(writer: &mut impl Write) -> io::Result<()> {
@@ -607,6 +648,16 @@ fn format_duration(seconds: f32) -> String {
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
 }
 
+/// A time or tempo to a thousandth, which is a millisecond for times.
+fn round_to_thousandths(value: f64) -> f64 {
+    let scaled = value * 1_000.0;
+    if scaled.is_finite() {
+        scaled.round() / 1_000.0
+    } else {
+        value
+    }
+}
+
 fn round_to_tenths(value: f32) -> f32 {
     let scaled = value * 10.0;
     if scaled.is_finite() {
@@ -656,6 +707,7 @@ mod tests {
                     key_score_margin: Some(0.02),
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
+                    beat_grid: None,
                     key_timeline: vec![
                         KeySection {
                             start_seconds: 0.0,
@@ -683,6 +735,7 @@ mod tests {
                     key_score_margin: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    beat_grid: None,
                     key_timeline: Vec::new(),
                     quality: None,
                 }),

@@ -205,6 +205,7 @@ mod tests {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
         }
     }
 

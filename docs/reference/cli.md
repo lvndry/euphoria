@@ -80,6 +80,7 @@ One object per file, in path order, including files that failed:
         "key": { "camelot": "9A", "name": "E minor", "open_key": "2m" }
       }
     ],
+    "beat_grid": { "first_downbeat_seconds": 0.372, "bpm": 170.004, "confidence": "high" },
     "needs_review": false,
     "set_by_user": [],
     "quality": {
@@ -109,6 +110,7 @@ One object per file, in path order, including files that failed:
     "energy": null,
     "tuning_cents": null,
     "key_timeline": [],
+    "beat_grid": null,
     "needs_review": null,
     "set_by_user": [],
     "quality": null,
@@ -130,6 +132,8 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only when that key is clearly stronger over at least three windows with evidence, about 22 seconds of audio. Silent gaps remain empty, but windows in the same key on either side count together toward this minimum. Entering and leaving another key each carry a cost, so a brief change in the middle needs stronger or longer evidence than one at the end. On dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
+
+`beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
@@ -181,6 +185,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
+| `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -200,11 +205,21 @@ Playlists mirror the folders:
 - When one named folder is inside another, each gets its own entry.
 - An entry that would have the same name as an earlier entry beside it gets ` (2)`, ` (3)` and so on after its name.
 
+### Beat grids
+
+With `--beat-grid`, a track whose beat grid is rated medium or high gets it in the file, as its first downbeat and its tempo with two decimals; that tempo is then the track's tempo in the file too. Rounding to two decimals changes the tempo by at most 0.005 BPM, which moves a beat T seconds into the track by at most T × 0.005 / BPM seconds. At the end of a seven minute track, T = 420, that is 2.1 / BPM seconds: 23 ms at 90 BPM, 16 ms at 128 BPM and 12 ms at 180 BPM, or 30 ms at 70 BPM with `--tempo-range 70-140`. A track whose grid is rated low, or that has none, is written without one, and rekordbox draws its own grid when it analyzes the track. A line on standard error says how many tracks got a grid:
+
+```
+Beat grids for 312 of 340 tracks; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them.
+```
+
+**Import To Collection** of a track that is already in your collection replaces its key, tempo and comment with the ones in the file (tested in rekordbox 7.2.19). Expect it to replace a grid you adjusted by hand in rekordbox too; that was not tested. Read [export to rekordbox](../guides/export-to-rekordbox.md#import-into-rekordbox) before importing tracks you have already prepared.
+
 The file is written under a temporary name in the folder of the output file and moved into place once it is complete, so the output file is never half written. Without `--force` it only takes a name that is free: a file that another program creates at the output path while the export runs is kept, and the export fails.
 
 ### Output and exit status
 
-Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
+Nothing is written to standard output. Standard error gets the progress bar when it is a terminal, one line saying how many tracks and playlists were exported and where, with `--beat-grid` one line saying how many got a grid, and two lines on importing the file into rekordbox. The summary ends with how many tracks came from the cache when some did.
 
 Only a file that could not be analyzed is left out of the export. Such files are listed on standard error with the reason, before the summary, and the command exits with status 1 after writing the file for the other tracks:
 

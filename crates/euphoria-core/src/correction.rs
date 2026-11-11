@@ -75,7 +75,8 @@ impl Correction {
     ///
     /// A corrected key has no runner up and no score margin, and a corrected
     /// tempo no estimate and no margin, so neither is rated for confidence:
-    /// the user decided it. Place the analysis in a tempo range before
+    /// the user decided it. A corrected tempo also drops the beat grid,
+    /// which was fitted to the detected tempo. Place the analysis in a tempo range before
     /// applying a correction, since a corrected tempo is not moved into a
     /// range.
     pub fn apply(&self, mut analysis: TrackAnalysis) -> TrackAnalysis {
@@ -88,6 +89,9 @@ impl Correction {
             analysis.bpm = Some(bpm);
             analysis.tempo_estimate = None;
             analysis.tempo_score_margin = None;
+            // A grid fitted to the detected tempo would put its beats where
+            // the corrected tempo has none; a DJ program builds its own.
+            analysis.beat_grid = None;
         }
         analysis
     }
@@ -112,7 +116,26 @@ mod tests {
             key_score_margin: Some(0.001),
             tempo_estimate: Some(87.0),
             tempo_score_margin: Some(0.01),
+            beat_grid: None,
         }
+    }
+
+    #[test]
+    fn a_corrected_tempo_drops_the_beat_grid_and_a_corrected_key_keeps_it() {
+        let grid = crate::detect::BeatGrid {
+            first_downbeat_seconds: 0.1,
+            bpm: 174.0,
+            salience: 2.0,
+            drift_seconds: Some(0.01),
+        };
+        let with_grid = TrackAnalysis {
+            beat_grid: Some(grid),
+            ..doubtful()
+        };
+        let key_only = Correction::of_key(Key::new(4, Mode::Minor)).apply(with_grid.clone());
+        assert_eq!(key_only.beat_grid, Some(grid));
+        let tempo = Correction::of_bpm(87.0).unwrap().apply(with_grid);
+        assert_eq!(tempo.beat_grid, None);
     }
 
     #[test]

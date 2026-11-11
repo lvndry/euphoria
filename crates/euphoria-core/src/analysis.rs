@@ -11,7 +11,7 @@ use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::detect::KeyDetector;
 #[cfg(feature = "libkeyfinder")]
 use crate::detect::KeyFinderDetector;
-use crate::detect::{KeyReading, KeySection, StratumDetector};
+use crate::detect::{BeatGrid, KeyReading, KeySection, StratumDetector, detect_beat_grid};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -31,9 +31,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "8+libkeyfinder"
+    "9+libkeyfinder"
 } else {
-    "8+stratum"
+    "9+stratum"
 };
 
 /// What Euphoria found in one track.
@@ -84,6 +84,9 @@ pub struct TrackAnalysis {
     /// not an octave of it, the basis of [`TrackAnalysis::tempo_confidence`].
     /// `None` for a tempo from the fallback estimate, which is rated low.
     pub tempo_score_margin: Option<f32>,
+    /// Where the beats and bars fall, with the tempo of [`TrackAnalysis::bpm`]
+    /// made precise, or `None` when the track has no tempo or no clear beat.
+    pub beat_grid: Option<BeatGrid>,
 }
 
 impl TrackAnalysis {
@@ -111,10 +114,14 @@ impl TrackAnalysis {
             .map(|tempo| range.fold(tempo))
     }
 
-    /// The same analysis with [`TrackAnalysis::bpm`] reported in `range`.
-    /// Nothing is analyzed again: the tempo comes from the stored estimate.
+    /// The same analysis with [`TrackAnalysis::bpm`] and the beat grid
+    /// reported in `range`. Nothing is analyzed again: the tempo comes from
+    /// the stored estimate. Call it on an analysis as stored, in the default
+    /// range: a grid that is doubled keeps its first downbeat within the
+    /// shorter bar, so halving it again may not bring back the same one.
     pub fn with_tempo_range(mut self, range: TempoRange) -> Self {
         self.bpm = self.tempo_in(range);
+        self.beat_grid = self.beat_grid.map(|grid| grid.in_tempo_range(range));
         self
     }
 
@@ -192,6 +199,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
     // that tempo whatever range the tempo is reported in.
     let tempo = tempo_reading.map(|reading| reading.tempo_in(TempoRange::DEFAULT));
     let energy_rating = rate_energy(&audio, tempo)?;
+    let beat_grid = tempo.and_then(|tempo| detect_beat_grid(&audio, f64::from(tempo)));
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
     let quality = pending_quality.finish(&audio, loudness);
@@ -208,6 +216,7 @@ pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
         key_score_margin: score_margin,
         tempo_estimate: tempo_reading.map(|reading| reading.estimate),
         tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
+        beat_grid,
     })
 }
 
