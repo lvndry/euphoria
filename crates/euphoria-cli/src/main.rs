@@ -10,6 +10,8 @@ mod help;
 mod output;
 mod playlists;
 mod rewrites;
+mod set;
+mod set_view;
 mod stages;
 mod style;
 mod tag_edit;
@@ -85,6 +87,12 @@ enum Command {
     Export {
         #[command(subcommand)]
         target: ExportTarget,
+    },
+    /// Order tracks into a set that follows an energy curve, every mix in key.
+    #[command(after_help = help::set_examples())]
+    Set {
+        #[command(subcommand)]
+        command: set::SetCommand,
     },
     /// Show where the saved analyses are, or forget them.
     #[command(after_help = help::cache_examples())]
@@ -205,6 +213,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
+        Command::Set { command } => set::run(command),
         Command::Cache { command } => manage_cache(command),
     }
 }

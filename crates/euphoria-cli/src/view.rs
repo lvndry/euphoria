@@ -77,7 +77,7 @@ pub enum KeyNotationChoice {
 
 impl KeyNotationChoice {
     /// The key in this notation, as short as it goes.
-    fn short(self, key: Key) -> String {
+    pub fn short(self, key: Key) -> String {
         match self {
             KeyNotationChoice::Camelot => key.camelot(),
             KeyNotationChoice::Musical => key.short_name(),
@@ -86,7 +86,7 @@ impl KeyNotationChoice {
     }
 
     /// The key in another notation, shown next to it in a quieter style.
-    fn companion(self, key: Key) -> String {
+    pub fn companion(self, key: Key) -> String {
         match self {
             KeyNotationChoice::Camelot | KeyNotationChoice::OpenKey => key.to_string(),
             KeyNotationChoice::Musical => key.camelot(),
@@ -163,7 +163,7 @@ pub fn format_duration(seconds: f32) -> String {
 }
 
 /// Width on the terminal of text that may hold styles.
-fn width_of(text: &str) -> usize {
+pub fn width_of(text: &str) -> usize {
     console::measure_text_width(text)
 }
 
