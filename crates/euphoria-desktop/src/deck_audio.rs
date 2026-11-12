@@ -650,14 +650,15 @@ impl LoadedTrack {
             return;
         }
         let frame = self.source.next_frame();
-        if let Some(deck_loop) = &mut self.deck_loop {
-            if deck_loop.phase == LoopPhase::Waiting && frame >= deck_loop.start_frame {
-                if frame == deck_loop.start_frame {
-                    deck_loop.phase = LoopPhase::Capturing;
-                } else {
-                    // The deck jumped past the loop's start.
-                    self.end_loop();
-                }
+        if let Some(deck_loop) = &mut self.deck_loop
+            && deck_loop.phase == LoopPhase::Waiting
+            && frame >= deck_loop.start_frame
+        {
+            if frame == deck_loop.start_frame {
+                deck_loop.phase = LoopPhase::Capturing;
+            } else {
+                // The deck jumped past the loop's start.
+                self.end_loop();
             }
         }
         let first = self.input.len();
@@ -1238,10 +1239,14 @@ mod tests {
         }
     }
 
+    /// The clicks heard, with whether each is a downbeat, then the meter's
+    /// loop and position while the loop ran.
+    type LoopRun = (Vec<(f64, bool)>, Option<(f64, f64)>, f64);
+
     /// Plays a click track at 120 BPM, loops `bars` bars from its next
     /// downbeat, then leaves the loop, and returns the clicks heard with the
     /// meter's loop and position while it ran.
-    fn loop_run(bars: u32) -> (Vec<(f64, bool)>, Option<(f64, f64)>, f64) {
+    fn loop_run(bars: u32) -> LoopRun {
         let scratch = ScratchFolder::new(&format!("loop-{bars}"));
         let path = scratch.0.join("a.wav");
         write_click_track(&path, 120.0, 0.5, 60.0);
@@ -1479,6 +1484,54 @@ mod tests {
             );
             assert!(current.playing, "Play follows the final load");
         }
+    }
+
+    #[test]
+    fn a_loop_keeps_its_samples_in_the_buffer_the_window_gave_and_hands_it_back() {
+        let scratch = ScratchFolder::new("loop-buffer");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.5, 8.0);
+        let grid = Some(GridTiming {
+            first_downbeat_seconds: 0.5,
+            bpm: 120.0,
+        });
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), grid),
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        mix.render_block();
+        link.set_loop(DeckId::A, Some(1), grid);
+        mix.render_block();
+        let given = {
+            let deck_loop = mix.decks[0].as_ref().unwrap().deck_loop.as_ref().unwrap();
+            (
+                deck_loop.frames.as_ptr() as usize,
+                deck_loop.frames.capacity(),
+            )
+        };
+        assert!(given.1 >= 88_200, "room for a bar at 44.1 kHz: {}", given.1);
+        pull(&mut mix, 4.0);
+        let deck_loop = mix.decks[0].as_ref().unwrap().deck_loop.as_ref().unwrap();
+        assert_eq!(deck_loop.phase, LoopPhase::Replaying);
+        assert_eq!(deck_loop.frames.len(), 88_200);
+        assert_eq!(
+            (
+                deck_loop.frames.as_ptr() as usize,
+                deck_loop.frames.capacity()
+            ),
+            given,
+            "captured without growing"
+        );
+        link.set_loop(DeckId::A, Some(2), grid);
+        mix.render_block();
+        let spent: Vec<Vec<f32>> = link.spent_loops.try_iter().collect();
+        assert_eq!(spent.len(), 1);
+        assert_eq!(spent[0].as_ptr() as usize, given.0);
     }
 
     #[test]
