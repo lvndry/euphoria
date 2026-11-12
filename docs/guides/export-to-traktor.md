@@ -87,7 +87,7 @@ euphoria export traktor ~/Music/DJ --output ~/Music/euphoria.nml --beat-grid --c
   --collection ~/Documents/"Native Instruments"/"Traktor 3.11.1"/collection.nml
 ```
 
-A track listed there with any cue, hot cue or loop of its own is left out of the file entirely, so importing the file cannot touch its cues. Grid markers, and the `AutoGrid` hot cue Traktor sets on a grid marker when it analyzes a track, do not count as cues of your own. A track with cues in the collection whose file is not on this computer stops the export, as for rekordbox; `--allow-unmatched-cued-tracks` lets it go ahead. The output file is never the collection, even with `--force`.
+A track listed there with any cue, hot cue or loop of its own is left out of the file entirely, so importing the file cannot touch its cues. Grid markers, and the `AutoGrid` hot cue Traktor sets on a grid marker when it analyzes a track, do not count as cues of your own. A track with cues in the collection whose file is not on this computer stops the export, as for rekordbox; `--allow-unmatched-cued-tracks` lets it go ahead. When `--collection` is supplied, Euphoria refuses to use that file as the output, even with `--force`. Without `--collection`, `--force` replaces the existing file at `--output`; use a separate file for the export.
 
 The cues are right only where the bars of the grid are. On about half of the benchmark excerpts the first downbeat is off by one to three beats, and every cue with it. Look at a few tracks first.
 

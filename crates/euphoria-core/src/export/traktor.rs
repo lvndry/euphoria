@@ -42,7 +42,8 @@ const NML_VERSION: &str = "19";
 const SECONDS_PER_DAY: u64 = 86_400;
 
 /// When the entries of an export were last changed, as Traktor stores it:
-/// a calendar date and the seconds since midnight, in UTC.
+/// a calendar date and the seconds since midnight, in UTC. The writer
+/// rejects invalid dates or times before writing an entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModifiedTime {
     /// Year, such as 2026.
@@ -56,6 +57,18 @@ pub struct ModifiedTime {
 }
 
 impl ModifiedTime {
+    fn is_valid(self) -> bool {
+        let leap_year = self.year % 4 == 0 && (self.year % 100 != 0 || self.year % 400 == 0);
+        let days = match self.month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 if leap_year => 29,
+            2 => 28,
+            _ => return false,
+        };
+        self.day > 0 && self.day <= days && u64::from(self.seconds_of_day) < SECONDS_PER_DAY
+    }
+
     /// The time `moment`, or the Unix epoch for a moment before it.
     pub fn at(moment: SystemTime) -> Self {
         let since_epoch = moment
@@ -188,7 +201,10 @@ pub fn nml_location(path: &Path, startup_volume: &str) -> Result<NmlLocation, Ex
         }
     };
     let (file, folders) = rest.split_last().ok_or(ExportProblem::NotAbsolutePath)?;
-    if folders.iter().any(|folder| matches!(*folder, "." | "..")) || matches!(*file, "." | "..") {
+    if matches!(volume.as_str(), "." | "..")
+        || folders.iter().any(|folder| matches!(*folder, "." | ".."))
+        || matches!(*file, "." | "..")
+    {
         return Err(ExportProblem::NotAbsolutePath);
     }
     let mut directory = String::from(SEPARATOR);
@@ -254,8 +270,8 @@ pub fn key_from_musical_key_value(value: u8) -> Option<Key> {
 /// local path, is not Unicode, contains characters XML cannot represent,
 /// or names the same file as another track; when a tempo is not a positive
 /// number at six-decimal precision; when a hot cue pad is not below
-/// [`HOT_CUE_PADS`]; or when a playlist names a path that is not in the
-/// collection. Returns [`EuphoriaError::ExportFolderDepth`] when folders are
+/// [`HOT_CUE_PADS`]; when the modification date or time is invalid; or
+/// when a playlist names a path that is not in the collection. Returns [`EuphoriaError::ExportFolderDepth`] when folders are
 /// nested deeper than [`MAX_FOLDER_DEPTH`]. Returns
 /// [`EuphoriaError::ExportWrite`] when `writer` fails.
 pub fn write_nml<W: std::io::Write>(
@@ -349,6 +365,12 @@ fn push_entry(
     }
 
     let modified = options.modified;
+    if !modified.is_valid() {
+        return Err(export_error(
+            &track.path,
+            ExportProblem::InvalidModifiedTime,
+        ));
+    }
     document.push_str("    <ENTRY");
     push_attribute(
         document,

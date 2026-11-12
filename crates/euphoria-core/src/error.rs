@@ -46,6 +46,8 @@ pub enum ExportProblem {
     InvalidTempo,
     /// A hot cue is on a pad the track does not have.
     InvalidHotCue,
+    /// The modification metadata has an invalid calendar date or time.
+    InvalidModifiedTime,
     /// The path is not valid Unicode, which a format that stores paths as
     /// text cannot hold.
     PathNotUnicode,
@@ -63,6 +65,7 @@ impl fmt::Display for ExportProblem {
                 "tempo is not a positive number at the export's precision"
             }
             ExportProblem::InvalidHotCue => "hot cue pad is out of range",
+            ExportProblem::InvalidModifiedTime => "invalid modification date or time",
             ExportProblem::PathNotUnicode => "path is not valid Unicode",
             ExportProblem::PathNotXml => "path contains characters XML cannot represent",
         })

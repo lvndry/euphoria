@@ -610,6 +610,96 @@ fn libraries_traktor_cannot_hold_are_refused() {
 }
 
 #[test]
+fn dot_volume_components_are_refused_instead_of_changing_the_location() {
+    for path in ["/Volumes/../etc/track.mp3", "/Volumes/./Music/track.mp3"] {
+        assert_eq!(
+            refusal(&one_track(Track::new(path, Duration::from_secs(1)))).1,
+            ExportProblem::NotAbsolutePath
+        );
+    }
+}
+
+#[test]
+fn invalid_modification_dates_and_times_leave_the_writer_untouched() {
+    let library = one_track(Track::new("/Music/track.mp3", Duration::from_secs(1)));
+    let valid = options().modified;
+    for modified in [
+        ModifiedTime { month: 13, ..valid },
+        ModifiedTime { month: 0, ..valid },
+        ModifiedTime { day: 0, ..valid },
+        ModifiedTime { day: 32, ..valid },
+        ModifiedTime {
+            month: 4,
+            day: 31,
+            ..valid
+        },
+        ModifiedTime {
+            year: 1900,
+            month: 2,
+            day: 29,
+            ..valid
+        },
+        ModifiedTime {
+            year: 2026,
+            month: 2,
+            day: 29,
+            ..valid
+        },
+        ModifiedTime {
+            seconds_of_day: 86_400,
+            ..valid
+        },
+    ] {
+        let mut output = Vec::new();
+        let result = write_nml(
+            &mut output,
+            &library,
+            &TraktorOptions {
+                modified,
+                ..options()
+            },
+        );
+        assert!(
+            matches!(
+                result,
+                Err(EuphoriaError::Export {
+                    problem: ExportProblem::InvalidModifiedTime,
+                    ..
+                })
+            ),
+            "{modified:?}: {result:?}"
+        );
+        assert!(output.is_empty());
+    }
+    for modified in [
+        ModifiedTime {
+            year: 2000,
+            month: 2,
+            day: 29,
+            ..valid
+        },
+        ModifiedTime {
+            year: 2024,
+            month: 2,
+            day: 29,
+            seconds_of_day: 86_399,
+        },
+    ] {
+        let text = export(
+            &library,
+            &TraktorOptions {
+                modified,
+                ..options()
+            },
+        );
+        assert!(text.contains(&format!(
+            "MODIFIED_DATE=\"{}/{}/{}\"",
+            modified.year, modified.month, modified.day
+        )));
+    }
+}
+
+#[test]
 fn a_tempo_that_writes_zero_at_six_decimals_is_refused() {
     for bpm in [
         0.0,
