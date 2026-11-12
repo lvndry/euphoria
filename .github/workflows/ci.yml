@@ -16,6 +16,11 @@ env:
   RUST_BACKTRACE: 1
   # Debug info bloats the cache without helping CI.
   CARGO_PROFILE_DEV_DEBUG: 0
+  # Link the ONNX Runtime the Linux jobs install into /usr/local/lib, which
+  # runs on 22.04's libstdc++, instead of the one ort downloads, which
+  # needs a newer C++ runtime (install-linux-dependencies.sh).
+  ORT_LIB_PATH: /usr/local/lib
+  ORT_PREFER_DYNAMIC_LINK: "1"
 
 jobs:
   changes:
