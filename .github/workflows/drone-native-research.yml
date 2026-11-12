@@ -79,4 +79,5 @@ jobs:
         working-directory: research/drone-native-cqt
         run: |
           python3 -m unittest discover -p 'test_*.py'
+          python3 -m unittest discover -s composed -p 'test_*.py'
           python3 evidence_io.py
