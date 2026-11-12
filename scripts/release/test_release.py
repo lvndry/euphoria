@@ -327,7 +327,7 @@ class SetVersionTests(unittest.TestCase):
         names = set_version.set_version(self.folder, "2026.11.0")
         self.assertEqual(
             sorted(names),
-            ["euphoria", "euphoria-bench", "euphoria-cli", "euphoria-core"],
+            ["euphoria-bench", "euphoria-cli", "euphoria-core", "euphoria-desktop"],
         )
         for name in self.files:
             changes = self.changed_lines(name)

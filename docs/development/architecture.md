@@ -59,9 +59,9 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a line per file with its stage under a bar that counts files on a terminal (`stages.rs`), and formats the results: the table that fits the terminal and the detailed view (`view.rs`), the plain table and JSON for pipes, and every message in one `error:`, `warning:`, `hint:` shape (`output.rs`). `style.rs` decides when to colour, from `--color`, `NO_COLOR`, `CLICOLOR_FORCE` and whether the stream is a terminal. `analyze` and `export` share that batch code in `batch.rs`. `export rekordbox` passes the results to `export::assemble_library` and `export::rekordbox::write_xml_file`. The crate contains no analysis or export logic.
 
-## euphoria (desktop)
+## euphoria-desktop
 
-The `euphoria` package lives in `crates/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
+The `euphoria-desktop` package lives in `crates/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
 
 The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, fills in the ones `cache::CachedAnalyzer` already knows, analyzes the rest through it on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. To play a track it reads an `AudioStream` from the core a packet at a time, on a thread that decodes about a second ahead, and hands the decoded samples to the system audio output through rodio. The first sound never waits for the whole file, and the audio output never waits for the disk or the decoder. State that needs no window (the library, sorting and searching, progress, the player, waveform bands, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
 

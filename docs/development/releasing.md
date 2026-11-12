@@ -39,7 +39,7 @@ The workflow works the number out itself from the date and the existing tags, wi
 1. **Check and choose the version** (Linux runner). Stops unless it was started by the owner on `main`, and unless CI passed on that commit. Works out the next version and the previous tag, and stops if the tag exists already.
 2. **Build for macOS** (`macos-15`, Apple Silicon). Sets the version in every crate's `Cargo.toml`, in the workspace's dependency on `euphoria-core` and in `Cargo.lock`, with `scripts/release/set_version.py`, and checks that `Cargo.lock` still matches. Then it builds:
    - `Euphoria-<version>.dmg`, with `scripts/bundle-macos.sh`.
-   - `euphoria-<version>-aarch64-apple-darwin.tar.gz`, with `scripts/release/package-cli.sh`: the command line tool in `bin/`, libkeyfinder and FFTW in `lib/`, the licence and the README. It runs from wherever it is unpacked, and a Homebrew formula can install `bin/` and `lib/` as they are.
+   - `euphoria-<version>-aarch64-apple-darwin.tar.gz`, with `scripts/release/package-cli.sh`: the command line tool in `bin/`, libkeyfinder and FFTW in `lib/`, the licence, the licences of the vendored Signalsmith libraries in `licenses/`, and the README. It runs from wherever it is unpacked, and a Homebrew formula can install `bin/` and `lib/` as they are.
    - `Euphoria.dmg`, the same disk image under a name without the version.
    - `SHA256SUMS`, the SHA-256 checksum of each file.
 3. **Build for Linux** (`ubuntu-22.04`, x86_64), at the same time as the macOS build. Sets the version the same way, installs libkeyfinder from source with `.github/scripts/install-linux-dependencies.sh`, and builds:

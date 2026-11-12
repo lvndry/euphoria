@@ -13,11 +13,12 @@
 use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use euphoria_core::shift::PitchShifter;
 use euphoria_core::stems::{Stem, StemFiles};
 use euphoria_core::{AudioStream, EuphoriaError};
 
@@ -97,6 +98,8 @@ pub(crate) struct VoiceState {
     is_finished: AtomicBool,
     is_abandoned: AtomicBool,
     problem: Mutex<Option<PlaybackProblem>>,
+    /// Semitones the sound is shifted by, changed while it plays.
+    semitones: AtomicI8,
 }
 
 impl VoiceState {
@@ -110,6 +113,7 @@ impl VoiceState {
             is_finished: AtomicBool::new(false),
             is_abandoned: AtomicBool::new(false),
             problem: Mutex::new(None),
+            semitones: AtomicI8::new(0),
         }
     }
 
@@ -150,6 +154,30 @@ impl VoiceState {
     /// Frames of silence played while waiting for the decoder.
     pub(crate) fn silent_frames(&self) -> u64 {
         self.silent_frames.load(Ordering::Relaxed)
+    }
+
+    /// Changes the key at the current playhead, discarding packets already
+    /// decoded in the old key, including while the voice is paused.
+    ///
+    /// The playhead is read while the seek's own lock is held, so the audio
+    /// callback cannot hand out more samples in the old key between reading
+    /// it and the seek dropping the decoded-ahead audio: those frames would
+    /// otherwise be played twice in the new key.
+    pub(crate) fn set_shift(&self, semitones: i8) {
+        if self.semitones.swap(semitones, Ordering::Relaxed) != semitones {
+            let mut requests = self.lock_seek_requests();
+            let seconds = (self.frames_played.load(Ordering::Relaxed) as f32
+                / self.sample_rate.get() as f32)
+                .max(0.0);
+            requests.for_decoder = Some(seconds);
+            requests.shown = Some(seconds);
+            self.seek_count.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shift_is(&self, semitones: i8) -> bool {
+        self.semitones.load(Ordering::Relaxed) == semitones
     }
 
     fn frames_at(&self, seconds: f32) -> u64 {
@@ -364,6 +392,67 @@ struct Decoder {
     seek_count: u64,
     next_frame: u64,
     is_at_end: bool,
+    shift: Shift,
+}
+
+/// The pitch shifter of a playing track, rebuilt when the shift changes or
+/// the track seeks, since what it holds belongs to the audio before.
+struct Shift {
+    semitones: i8,
+    shifter: Option<PitchShifter>,
+    channels: usize,
+    sample_rate: u32,
+}
+
+impl Shift {
+    fn new(channels: usize, sample_rate: u32, semitones: i8) -> Result<Self, PlaybackProblem> {
+        let mut shift = Self {
+            semitones,
+            shifter: None,
+            channels,
+            sample_rate,
+        };
+        shift.rebuild()?;
+        Ok(shift)
+    }
+
+    fn rebuild(&mut self) -> Result<(), PlaybackProblem> {
+        self.shifter = if self.semitones != 0 {
+            Some(
+                PitchShifter::new(self.channels, self.sample_rate, self.semitones)
+                    .map_err(|_| PlaybackProblem::NotDecodable)?,
+            )
+        } else {
+            None
+        };
+        Ok(())
+    }
+
+    /// `samples` shifted by `semitones`, which may have changed since the
+    /// last chunk. A DSP failure stops playback rather than substituting
+    /// audio in the original key or losing held samples.
+    fn apply(&mut self, samples: Vec<f32>, semitones: i8) -> Result<Vec<f32>, PlaybackProblem> {
+        if semitones != self.semitones {
+            self.semitones = semitones;
+            self.rebuild()?;
+        }
+        match &mut self.shifter {
+            Some(shifter) => shifter
+                .process(&samples)
+                .map_err(|_| PlaybackProblem::NotDecodable),
+            None => Ok(samples),
+        }
+    }
+
+    /// Drains the held audio before EOF. Unlike live output, the streaming
+    /// shifter removes its startup latency and restores exactly the input's
+    /// duration once this tail has been handed to the output.
+    fn finish(&mut self) -> Result<Vec<f32>, PlaybackProblem> {
+        match self.shifter.take() {
+            Some(shifter) => shifter.finish().map_err(|_| PlaybackProblem::NotDecodable),
+            None => Ok(Vec::new()),
+        }
+    }
 }
 
 impl Decoder {
@@ -400,6 +489,10 @@ impl Decoder {
             Ok(reached) => {
                 self.next_frame = self.state.frames_at(reached);
                 self.is_at_end = false;
+                if let Err(problem) = self.shift.rebuild() {
+                    self.state.stop_on(problem);
+                    return false;
+                }
                 true
             }
             Err(error) => {
@@ -413,27 +506,46 @@ impl Decoder {
     }
 
     fn decode_next(&mut self) -> Decoded {
-        let mut samples = Vec::new();
-        match self.stream.read_chunk(&mut samples) {
-            Ok(true) => {
-                let start_frame = self.next_frame;
-                let samples_per_frame =
-                    usize::from(self.stream.channel_count().get()) * self.stream.layer_count();
-                self.next_frame += (samples.len() / samples_per_frame) as u64;
-                Decoded::Chunk {
-                    seek_count: self.seek_count,
-                    start_frame,
-                    samples,
+        loop {
+            let mut samples = Vec::new();
+            let samples = match self.stream.read_chunk(&mut samples) {
+                Ok(true) => match self
+                    .shift
+                    .apply(samples, self.state.semitones.load(Ordering::Relaxed))
+                {
+                    Ok(samples) => samples,
+                    Err(problem) => return Decoded::Problem(problem),
+                },
+                Ok(false) => {
+                    let tail = match self.shift.finish() {
+                        Ok(tail) => tail,
+                        Err(problem) => return Decoded::Problem(problem),
+                    };
+                    if tail.is_empty() {
+                        self.is_at_end = true;
+                        return Decoded::End {
+                            seek_count: self.seek_count,
+                            end_frame: self.next_frame,
+                        };
+                    }
+                    tail
                 }
+                Err(error) => return Decoded::Problem(PlaybackProblem::from_core(&error)),
+            };
+            // Initial packets can be held until the shifter has its preroll.
+            // Never hand an empty chunk to the sample iterator.
+            if samples.is_empty() {
+                continue;
             }
-            Ok(false) => {
-                self.is_at_end = true;
-                Decoded::End {
-                    seek_count: self.seek_count,
-                    end_frame: self.next_frame,
-                }
-            }
-            Err(error) => Decoded::Problem(PlaybackProblem::from_core(&error)),
+            let start_frame = self.next_frame;
+            let samples_per_frame =
+                usize::from(self.stream.channel_count().get()) * self.stream.layer_count();
+            self.next_frame += (samples.len() / samples_per_frame) as u64;
+            return Decoded::Chunk {
+                seek_count: self.seek_count,
+                start_frame,
+                samples,
+            };
         }
     }
 
@@ -504,8 +616,19 @@ impl TrackSource {
     /// first chunk and starts the decoder thread. This reads the start of
     /// the file, so call it off the main thread.
     pub(crate) fn open(path: &Path, from_seconds: f32) -> Result<Self, PlaybackProblem> {
+        Self::open_shifted(path, from_seconds, 0)
+    }
+
+    /// Opens the file at `path` positioned `from_seconds` in, with its key
+    /// shifted by `semitones`. [`VoiceState::set_shift`] changes the shift
+    /// while it plays. Call this off the main thread.
+    pub(crate) fn open_shifted(
+        path: &Path,
+        from_seconds: f32,
+        semitones: i8,
+    ) -> Result<Self, PlaybackProblem> {
         let stream = AudioStream::open(path).map_err(|error| PlaybackProblem::from_core(&error))?;
-        Self::start(Reader::File(stream), None, from_seconds)
+        Self::start(Reader::File(stream), None, semitones, from_seconds)
     }
 
     /// Opens the four stems of a track, to be mixed as `mix` says while
@@ -516,12 +639,13 @@ impl TrackSource {
         from_seconds: f32,
     ) -> Result<Self, PlaybackProblem> {
         let reader = StemReader::open(files).map_err(|error| PlaybackProblem::from_core(&error))?;
-        Self::start(Reader::Stems(reader), Some(mix), from_seconds)
+        Self::start(Reader::Stems(reader), Some(mix), 0, from_seconds)
     }
 
     fn start(
         mut stream: Reader,
         mix: Option<Arc<StemMix>>,
+        semitones: i8,
         from_seconds: f32,
     ) -> Result<Self, PlaybackProblem> {
         let problem = |error: EuphoriaError| PlaybackProblem::from_core(&error);
@@ -531,15 +655,32 @@ impl TrackSource {
             0.0
         };
         let state = Arc::new(VoiceState::new(stream.sample_rate()));
+        state.semitones.store(semitones, Ordering::Relaxed);
         let channel_count = stream.channel_count();
         let layer_count = stream.layer_count();
+        let mut shift = Shift::new(
+            usize::from(channel_count.get()),
+            stream.sample_rate().get(),
+            semitones,
+        )?;
         let start_frame = state.frames_at(reached_seconds);
         state.frames_played.store(start_frame, Ordering::Relaxed);
 
-        // The first chunk is decoded here so that sound starts with the very
-        // first sample the output asks for.
-        let mut first_chunk = Vec::new();
-        let has_audio = stream.read_chunk(&mut first_chunk).map_err(problem)?;
+        // Decode enough preroll here for the first shifted sound to be
+        // ready before the audio callback asks. This runs off the UI thread.
+        let mut first_chunk;
+        let has_audio = loop {
+            let mut input = Vec::new();
+            let has_audio = stream.read_chunk(&mut input).map_err(problem)?;
+            first_chunk = if has_audio {
+                shift.apply(input, semitones)?
+            } else {
+                shift.finish()?
+            };
+            if !first_chunk.is_empty() || !has_audio {
+                break !first_chunk.is_empty();
+            }
+        };
         if !has_audio {
             state.is_finished.store(true, Ordering::Relaxed);
         }
@@ -574,6 +715,7 @@ impl TrackSource {
             seek_count: 0,
             next_frame: start_frame + frames_in_first_chunk,
             is_at_end: !has_audio,
+            shift,
         };
         std::thread::Builder::new()
             .name("euphoria-playback-decoder".to_string())
@@ -740,6 +882,17 @@ impl Iterator for TrackSource {
         }
         let sample = self.mixed_sample();
         self.next_sample += 1;
+        if self
+            .next_sample
+            .is_multiple_of(usize::from(self.channel_count.get()))
+        {
+            // A change of shift reads this counter while the same lock is
+            // held, so the frames handed out and the seek it asks for stay
+            // in one piece. The lock is taken only at a frame boundary
+            // (channel_count samples in), not per individual sample.
+            let _counting_the_frame = self.state.lock_seek_requests();
+            self.state.frames_played.fetch_add(1, Ordering::Relaxed);
+        }
         Some(sample)
     }
 }
@@ -1021,6 +1174,138 @@ mod tests {
 
     fn pull_everything(source: &mut TrackSource) -> usize {
         pull_until(source, |_| false)
+    }
+
+    /// The frequency of a steady tone in `samples` of one channel, from the
+    /// time between its rising zero crossings.
+    fn tone_frequency(samples: &[f32], sample_rate: f32) -> f32 {
+        let crossings: Vec<usize> = samples
+            .windows(2)
+            .enumerate()
+            .filter(|(_, pair)| pair[0] < 0.0 && pair[1] >= 0.0)
+            .map(|(index, _)| index)
+            .collect();
+        let span = (crossings[crossings.len() - 1] - crossings[0]) as f32;
+        (crossings.len() - 1) as f32 * sample_rate / span
+    }
+
+    /// The next `count` samples the output would get, waiting for the
+    /// decoder rather than counting silence.
+    fn next_sound(source: &mut TrackSource, count: usize) -> Vec<f32> {
+        let state = source.state();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut samples = Vec::with_capacity(count);
+        while samples.len() < count {
+            assert!(Instant::now() < deadline, "the decoder fell silent");
+            let silence_before = state.silent_frames();
+            let Some(sample) = source.next() else { break };
+            if state.silent_frames() == silence_before {
+                samples.push(sample);
+            }
+        }
+        samples
+    }
+
+    #[test]
+    fn shifted_playback_keeps_short_tracks_and_the_last_onset() {
+        for frames in [441_usize, 44_100] {
+            let path = std::env::temp_dir().join(format!(
+                "euphoria-shifted-tail-{}-{frames}.wav",
+                std::process::id()
+            ));
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"RIFF");
+            bytes.extend_from_slice(&(36 + frames as u32 * 2).to_le_bytes());
+            bytes.extend_from_slice(b"WAVEfmt ");
+            bytes.extend_from_slice(&16_u32.to_le_bytes());
+            bytes.extend_from_slice(&1_u16.to_le_bytes());
+            bytes.extend_from_slice(&1_u16.to_le_bytes());
+            bytes.extend_from_slice(&44_100_u32.to_le_bytes());
+            bytes.extend_from_slice(&88_200_u32.to_le_bytes());
+            bytes.extend_from_slice(&2_u16.to_le_bytes());
+            bytes.extend_from_slice(&16_u16.to_le_bytes());
+            bytes.extend_from_slice(b"data");
+            bytes.extend_from_slice(&(frames as u32 * 2).to_le_bytes());
+            for frame in 0..frames {
+                let sample = if frame >= frames - 441 {
+                    ((frame as f32 * 440.0 * std::f32::consts::TAU / 44_100.0).sin() * 16_000.0)
+                        as i16
+                } else {
+                    0
+                };
+                bytes.extend_from_slice(&sample.to_le_bytes());
+            }
+            std::fs::write(&path, bytes).unwrap();
+            let mut source = TrackSource::open_shifted(&path, 0.0, 2).unwrap();
+            let output = next_sound(&mut source, frames + 1);
+            std::fs::remove_file(path).unwrap();
+            assert_eq!(output.len(), frames);
+            let peak = output.iter().copied().map(f32::abs).fold(0.0_f32, f32::max);
+            assert!(
+                peak > 0.01,
+                "{frames}-frame track lost its last onset: {peak}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shifted_seek_keeps_the_remaining_duration_and_original_end_position() {
+        let mut source =
+            TrackSource::open_shifted(&fixture("sine-440hz-mono.wav"), 0.0, 2).unwrap();
+        next_sound(&mut source, 4_410);
+        let state = source.state();
+        state.seek_to(0.5);
+        let output = next_sound(&mut source, 22_051);
+        assert_eq!(output.len(), 22_050);
+        assert!((state.position_seconds() - 1.0).abs() < 0.0001);
+        let found = tone_frequency(&output[4_410..13_230], 44_100.0);
+        assert!(
+            (found - 440.0 * 2_f32.powf(2.0 / 12.0)).abs() < 3.0,
+            "{found}"
+        );
+    }
+
+    #[test]
+    fn changing_the_shift_discards_audio_already_decoded_in_the_old_key() {
+        let mut source =
+            TrackSource::open_shifted(&fixture("sine-440hz-mono.wav"), 0.0, 2).unwrap();
+        // Fill the read-ahead before the user changes the control, as with
+        // a track paused while its initial packets are decoded.
+        std::thread::sleep(Duration::from_millis(200));
+        source.state().set_shift(-3);
+        next_sound(&mut source, 8_820);
+        let found = tone_frequency(&next_sound(&mut source, 8_820), 44_100.0);
+        assert!(
+            (found - 440.0 * 2_f32.powf(-3.0 / 12.0)).abs() < 3.0,
+            "{found}"
+        );
+    }
+
+    #[test]
+    fn a_shifted_source_plays_in_the_new_key_and_follows_a_change_of_shift() {
+        let mut source =
+            TrackSource::open_shifted(&fixture("sine-440hz-mono.wav"), 0.0, 2).unwrap();
+        let state = source.state();
+        let rate = source.sample_rate.get() as f32;
+        // Past the shifter's latency, the tone is two semitones higher.
+        next_sound(&mut source, 8_820);
+        let up = tone_frequency(&next_sound(&mut source, 8_820), rate);
+        assert!((up - 440.0 * 2_f32.powf(2.0 / 12.0)).abs() < 3.0, "{up}");
+
+        state.set_shift(-3);
+        // The shift applies from the next chunk the decoder decodes, so the
+        // change lands a chunk or more after the call: discard what still
+        // plays in the old key until the tone settles on the new one.
+        let target = 440.0 * 2_f32.powf(-3.0 / 12.0);
+        let mut down = 0.0;
+        for _ in 0..48 {
+            next_sound(&mut source, 4_410);
+            down = tone_frequency(&next_sound(&mut source, 4_410), rate);
+            if (down - target).abs() < 3.0 {
+                break;
+            }
+        }
+        assert!((down - target).abs() < 3.0, "{down}");
     }
 
     #[test]

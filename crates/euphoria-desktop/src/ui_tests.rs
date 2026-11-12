@@ -600,6 +600,27 @@ fn dragging_along_the_progress_line_seeks_too(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_shift_changed_while_opening_is_applied_before_playback_starts(cx: &mut TestAppContext) {
+    let (_, view) = open_fixture_library(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let Some(PlayerRequest::Start { attempt, .. }) = app.player.toggle() else {
+                panic!("expected an opening track");
+            };
+            let fixture = app.selected_track().unwrap().path.clone();
+            let source = crate::playback::TrackSource::open_shifted(&fixture, 0.0, 0).unwrap();
+            let state = source.state();
+            app.set_key_shift(2, cx);
+            app.finish_starting(attempt, Ok(source), cx);
+            // A change must invalidate the already-decoded unshifted audio,
+            // just as a seek does, instead of retaining the opener's snapshot.
+            assert!(state.position_seconds() == 0.0);
+            assert!(state.shift_is(2));
+        });
+    });
+}
+
+#[gpui::test]
 fn an_answer_to_an_abandoned_start_does_not_touch_a_retry(cx: &mut TestAppContext) {
     let (window, view) = open_fixture_library(cx);
     let attempt_of = |request| match request {
@@ -2107,7 +2128,7 @@ fn fitting_a_column_keeps_shorter_titles_after_many_long_names(cx: &mut TestAppC
 
 /// The same check as the scratch fixture test, on copies of real two minute
 /// benchmark clips. They are not in the repository, so this runs only by
-/// hand: `cargo test -p euphoria -- --ignored bench_clips`, with
+/// hand: `cargo test -p euphoria-desktop -- --ignored bench_clips`, with
 /// `EUPHORIA_BENCH_CLIPS` naming the folder when it is elsewhere.
 #[gpui::test]
 #[ignore = "needs the benchmark clips in bench/data/key/audio"]

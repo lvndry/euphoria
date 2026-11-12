@@ -11,6 +11,7 @@ mod help;
 mod output;
 mod playlists;
 mod rewrites;
+mod shift;
 mod stages;
 #[cfg(feature = "stems")]
 mod stems;
@@ -98,6 +99,14 @@ enum Command {
         command: CorrectionsCommand,
     },
 
+    /// Write a copy of a track in another key, with the same tempo.
+    #[command(
+        long_about = "Write a copy of a track in another key, with the same tempo.
+
+                      The pitch moves by up to 6 semitones either way while every beat                       stays where it was. The copy is a 24 bit WAV or FLAC file tagged                       with the new key; the original is never changed.",
+        after_help = help::shift_examples(),
+    )]
+    Shift(shift::ShiftArguments),
     /// Separate a track into vocals, drums, bass and the rest.
     #[cfg(feature = "stems")]
     #[command(
@@ -229,6 +238,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
         Command::Corrections { command } => corrections::run(command),
+        Command::Shift(arguments) => shift::run(&arguments),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
         Command::Stems(arguments) => stems::run(&arguments),

@@ -25,6 +25,7 @@ use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::key_chip::key_chip;
+use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::stems;
 use crate::views::track_overview;
@@ -158,6 +159,9 @@ pub(crate) fn render(
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
+        )
+        .children(
+            key_shift::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
         )
         .child(sized(waveform_section(track, app, room, cx), None))
         .children(

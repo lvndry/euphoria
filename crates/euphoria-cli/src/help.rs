@@ -147,6 +147,23 @@ pub fn corrections_examples() -> StyledStr {
     )
 }
 
+pub fn shift_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria shift -s 2 track.flac -o 'track (+2).flac'",
+                "Two semitones up",
+            ),
+            (
+                "euphoria shift -s -1 track.mp3 -o 'track (-1).wav'",
+                "One semitone down, as WAV",
+            ),
+        ],
+        "The copy is tagged with the new key, and the tempo stays the same.",
+    )
+}
+
 pub fn traktor_export_examples() -> StyledStr {
     examples(
         "Examples",

@@ -14,8 +14,10 @@ The app is an early version. It runs from a source checkout on macOS; there is n
 Install the requirements in [building from source](../development/building.md). On macOS you also need Xcode, which provides the Metal shader compiler the interface is built with. Then:
 
 ```
-cargo run --release -p euphoria
+cargo run --release -p euphoria-desktop
 ```
+
+On macOS the command opens the app as **Euphoria**, with its name and icon in the Dock.
 
 Use `--release`: analysis is many times slower in a debug build.
 
@@ -332,7 +334,7 @@ You can quit while tracks are being analyzed. The app closes at once: tracks alr
 
 ## Build Euphoria.app
 
-A binary started with `cargo run` has no Dock icon of its own. To get an application with the Euphoria icon that you can keep in the Dock and put in Applications, build a bundle on macOS:
+To get an application you can keep in the Dock and put in Applications, build an installable bundle on macOS:
 
 ```
 ./scripts/bundle-macos.sh
@@ -346,7 +348,7 @@ The script builds the app in release mode, makes the icon from `assets/logo`, co
 To see how the interface behaves with a large library, start the app with made up tracks. Their keys and tempos are invented and nothing is analyzed:
 
 ```
-EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria
+EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-desktop
 ```
 
 ## About the screenshots

@@ -58,6 +58,9 @@ cp "$repository/target/release/euphoria" "$folder/bin/euphoria"
 chmod u+w "$folder/bin/euphoria"
 mkdir -p "$folder/licenses"
 cp "$repository/licenses/webpki-root-certs-CDLA-Permissive-2.0.txt" "$repository/licenses/demucs-NOTICE.txt" "$folder/licenses/"
+# The licences of the C++ libraries compiled into the executable.
+cp "$repository/crates/euphoria-core/vendor/signalsmith-stretch/LICENSE.txt" "$folder/licenses/signalsmith-stretch.txt"
+cp "$repository/crates/euphoria-core/vendor/signalsmith-linear/LICENSE.txt" "$folder/licenses/signalsmith-linear.txt"
 if [ "$system" = Linux ]; then
   python3 "$repository/scripts/linux_libraries.py" bundle \
     --root "$folder" \

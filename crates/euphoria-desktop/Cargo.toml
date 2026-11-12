@@ -1,5 +1,5 @@
 [package]
-name = "euphoria"
+name = "euphoria-desktop"
 version = "0.1.0"
 description = "The Euphoria desktop app: find the key and BPM of every track in your music collection"
 readme = "../../README.md"
