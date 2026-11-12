@@ -737,8 +737,8 @@ fn comment_edit(
             text: escaped,
         }));
     }
-    if element.ends_with("/>") {
-        let start_tag = element[..element.len() - 2].trim_end();
+    if let Some(start_tag) = element.strip_suffix("/>") {
+        let start_tag = start_tag.trim_end();
         return Ok(Some(Edit {
             range,
             text: format!("{start_tag}>{escaped}</Comment>"),

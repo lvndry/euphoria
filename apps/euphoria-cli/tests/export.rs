@@ -1894,3 +1894,162 @@ fn cues_saved_before_the_analysis_are_kept_within_the_track_on_every_surface() {
     assert!(xml.contains("In the track"), "{xml}");
     assert!(!xml.contains("Past the end"), "{xml}");
 }
+
+/// A VirtualDJ database in its own folder holding a song for `track`, at
+/// 120 BPM by VirtualDJ's scan, and a song for another file.
+fn virtualdj_database(track: &Path) -> (TemporaryFolder, PathBuf, String) {
+    let folder = TemporaryFolder::new();
+    let database = resolved(folder.path()).join("database.xml");
+    let text = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<VirtualDJ_Database Version=\"2026\">\r\n <Song FilePath=\"{}\" FileSize=\"1\">\r\n  <Tags Title=\"Kicks\" />\r\n  <Scan Version=\"801\" Bpm=\"0.500000\" Flag=\"32768\" />\r\n </Song>\r\n <Song FilePath=\"/elsewhere/other.mp3\" FileSize=\"2\">\r\n  <Tags Title=\"Other\" />\r\n </Song>\r\n</VirtualDJ_Database>\r\n",
+        track.display()
+    );
+    std::fs::write(&database, &text).expect("the database is written");
+    (folder, database, text)
+}
+
+fn backups_next_to(database: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(database.parent().expect("a folder"))
+        .expect("the folder is read")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| {
+            path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .starts_with("database.xml.euphoria-backup-")
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn virtualdj_updates_the_song_of_a_track_and_keeps_a_backup() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_database_folder, database, original) = virtualdj_database(&track);
+
+    let exported = euphoria.run(&[
+        "export",
+        "virtualdj",
+        "--database",
+        text(&database),
+        "--beat-grid",
+        text(&track),
+    ]);
+
+    assert_success(&exported);
+    let updated = std::fs::read_to_string(&database).expect("the database is read");
+    let document = roxmltree::Document::parse(&updated).expect("well-formed XML");
+    let song = document
+        .descendants()
+        .find(|node| node.attribute("FilePath") == Some(text(&track)))
+        .expect("the song");
+    let scan = song
+        .children()
+        .find(|node| node.has_tag_name("Scan"))
+        .expect("the scan");
+    assert!(scan.attribute("Phase").is_some(), "{updated}");
+    let seconds_per_beat: f64 = scan
+        .attribute("Bpm")
+        .expect("a tempo")
+        .parse()
+        .expect("a number");
+    assert!((60.0 / seconds_per_beat - 120.0).abs() < 0.05, "{updated}");
+    assert!(
+        song.children()
+            .any(|node| node.attribute("Type") == Some("beatgrid"))
+    );
+    let other_song = " <Song FilePath=\"/elsewhere/other.mp3\" FileSize=\"2\">\r\n  <Tags Title=\"Other\" />\r\n </Song>";
+    assert!(updated.contains(other_song));
+    let backups = backups_next_to(&database);
+    assert_eq!(backups.len(), 1, "{backups:?}");
+    assert_eq!(
+        std::fs::read_to_string(&backups[0]).expect("the backup is read"),
+        original
+    );
+    assert!(standard_error(&exported).contains("Updated 1 song in"));
+}
+
+#[test]
+fn virtualdj_dry_run_writes_nothing() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_database_folder, database, original) = virtualdj_database(&track);
+
+    let dry_run = euphoria.run(&[
+        "export",
+        "virtualdj",
+        "--database",
+        text(&database),
+        "--dry-run",
+        text(&track),
+    ]);
+
+    assert_success(&dry_run);
+    assert!(standard_error(&dry_run).contains("Dry run: 1 song"));
+    assert_eq!(
+        std::fs::read_to_string(&database).expect("the database is read"),
+        original
+    );
+    assert!(backups_next_to(&database).is_empty());
+}
+
+#[test]
+fn virtualdj_reports_tracks_that_are_not_in_the_database() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_database_folder, database, _) = virtualdj_database(Path::new("/elsewhere/a.mp3"));
+    let original = std::fs::read_to_string(&database).expect("the database is read");
+
+    let exported = euphoria.run(&[
+        "export",
+        "virtualdj",
+        "--database",
+        text(&database),
+        text(&track),
+    ]);
+
+    assert!(!exported.status.success());
+    let errors = standard_error(&exported);
+    assert!(errors.contains("No track is in"), "{errors}");
+    assert!(
+        errors.contains("1 track is not in this database"),
+        "{errors}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&database).expect("the database is read"),
+        original
+    );
+    assert!(backups_next_to(&database).is_empty());
+}
+
+#[test]
+fn virtualdj_refuses_a_file_that_is_not_a_virtualdj_database() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let database_folder = TemporaryFolder::new();
+    let database = resolved(database_folder.path()).join("database.xml");
+    std::fs::write(&database, "<rekordbox/>").expect("the file is written");
+
+    let exported = euphoria.run(&[
+        "export",
+        "virtualdj",
+        "--database",
+        text(&database),
+        text(&track),
+    ]);
+
+    assert!(!exported.status.success());
+    assert!(standard_error(&exported).contains("not <VirtualDJ_Database>"));
+    assert_eq!(
+        std::fs::read_to_string(&database).expect("the file is read"),
+        "<rekordbox/>"
+    );
+}

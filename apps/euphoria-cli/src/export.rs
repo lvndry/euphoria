@@ -297,8 +297,8 @@ impl Program {
         }
     }
 }
-/// What every library export is asked for, whatever the program.
 
+/// What every library export is asked for, whatever the program.
 struct ExportRequest<'arguments> {
     program: Program,
     paths: &'arguments [PathBuf],
@@ -569,13 +569,13 @@ fn default_virtualdj_database() -> Option<PathBuf> {
 /// Whether VirtualDJ is running on this computer, or `None` when it cannot
 /// be checked.
 fn virtualdj_is_running() -> Option<bool> {
-    let (program, arguments) = if cfg!(windows) {
-        ("tasklist", ["/FI", "IMAGENAME eq virtualdj.exe", "/NH"])
+    let (program, arguments): (&str, &[&str]) = if cfg!(windows) {
+        ("tasklist", &["/FI", "IMAGENAME eq virtualdj.exe", "/NH"])
     } else {
-        ("pgrep", ["-x", "VirtualDJ"])
+        ("pgrep", &["-x", "VirtualDJ"])
     };
     let output = std::process::Command::new(program)
-        .args(&arguments)
+        .args(arguments)
         .output()
         .ok()?;
     Some(if cfg!(windows) {
@@ -730,8 +730,8 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     if !merge.not_in_database.is_empty() {
         writeln!(
             standard_error,
-            "{} are not in this database, so they were not updated:",
-            output::counted(merge.not_in_database.len(), "track", "tracks")
+            "{} not in this database, so not updated:",
+            output::counted(merge.not_in_database.len(), "track is", "tracks are")
         )?;
         const LISTED: usize = 10;
         for path in merge.not_in_database.iter().take(LISTED) {
