@@ -26,14 +26,22 @@ def manifest(root, revision, path):
 
 def collect(root, base, head):
     merge_base = git(root, "merge-base", base, head).decode().strip()
-    changed = [name.decode() for name in git(
-        root, "diff", "--name-only", "-z", f"{base}...{head}"
-    ).split(b"\0") if name]
+    # Compare a moved manifest with its original path, not a nonexistent
+    # merge-base file at the destination. NUL records preserve Unicode and
+    # whitespace in both names.
+    records = iter(git(root, "diff", "--name-status", "--find-renames", "-z",
+                       f"{base}...{head}").split(b"\0")[:-1])
+    previous_paths = {}
+    for status in records:
+        before = next(records).decode()
+        after = next(records).decode() if status[:1] in {b"R", b"C"} else before
+        previous_paths[after] = before
+    changed = list(previous_paths)
     contracts = []
     for path in changed:
         if not path.endswith("Cargo.toml"):
             continue
-        before = manifest(root, merge_base, path)
+        before = manifest(root, merge_base, previous_paths[path])
         after = manifest(root, head, path)
         old = before.get("package", {}).get("name")
         new = after.get("package", {}).get("name")

@@ -56,6 +56,20 @@ class ReviewContextTests(unittest.TestCase):
         self.assertTrue(all(not item["changed"] for item in result["affected_callers"]))
         self.assertEqual(result["renamed_contracts"][0]["old"], "euphoria")
 
+    def test_a_moved_and_renamed_package_keeps_its_old_contract(self):
+        self.rename_package()
+        old = self.root / "crates/desktop/Cargo.toml"
+        new = self.root / "crates/new-desktop/Cargo.toml"
+        new.parent.mkdir(parents=True)
+        old.rename(new)
+        result = CONTEXT.collect(self.root, self.base, self.commit())
+        self.assertEqual(result["renamed_contracts"], [{
+            "kind": "package", "path": "crates/new-desktop/Cargo.toml",
+            "old": "euphoria", "new": "euphoria-desktop",
+        }])
+        self.assertEqual({item["path"] for item in result["affected_callers"]},
+                         {"screenshots.py", ".github/ci.yml"})
+
     def test_package_and_executable_names_remain_distinct(self):
         result = CONTEXT.collect(self.root, self.base, self.rename_package())
         packages = {package["name"]: package["explicit_binaries"] for package in result["head_packages"]}
