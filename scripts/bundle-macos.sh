@@ -66,7 +66,7 @@ if [ "$make_dmg" = yes ] && ! command -v uv > /dev/null; then
 fi
 
 if [ "$build" = yes ]; then
-  cargo build --release --locked -p euphoria --manifest-path "$repository/Cargo.toml"
+  cargo build --release --locked -p euphoria-desktop --manifest-path "$repository/Cargo.toml"
 fi
 
 rm -rf "$bundle"

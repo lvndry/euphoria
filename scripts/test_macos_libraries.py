@@ -6,7 +6,7 @@
 built with clang. Needs macOS, the Xcode command line tools and, for the
 tests on a real binary, a build that links libkeyfinder:
 
-    cargo build --release -p euphoria
+    cargo build --release -p euphoria-desktop
     python3 -m unittest scripts/test_macos_libraries.py
 
 The real binary is the release build of the desktop app, or the file named

@@ -1888,24 +1888,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "euphoria"
-version = "0.1.0"
-dependencies = [
- "euphoria-core",
- "gpui-kit",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "png 0.18.1",
- "rayon",
- "rodio",
- "rusqlite",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "euphoria-bench"
 version = "0.1.0"
 dependencies = [
@@ -1951,6 +1933,24 @@ dependencies = [
  "symphonia 0.6.1",
  "thiserror 2.0.21",
  "walkdir",
+]
+
+[[package]]
+name = "euphoria-desktop"
+version = "0.1.0"
+dependencies = [
+ "euphoria-core",
+ "gpui-kit",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "png 0.18.1",
+ "rayon",
+ "rodio",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

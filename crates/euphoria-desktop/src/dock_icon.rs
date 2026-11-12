@@ -3,9 +3,9 @@
 
 //! The icon shown in the Dock.
 //!
-//! A packaged app gets its icon from its bundle and keeps it. The binary
-//! started with `cargo run` has no bundle, so the icon is set while the app
-//! starts.
+//! A packaged app and the temporary `cargo run` bundle get their icons
+//! from their bundles. When the binary is started directly, its icon is set
+//! while the app starts.
 
 #[cfg(target_os = "macos")]
 use std::path::Path;

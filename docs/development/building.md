@@ -57,6 +57,8 @@ What it does, in order:
 
 The bundle is ignored by Git under `target/`. `scripts/release/package-cli.sh` uses `scripts/macos_libraries.py` the same way to package the command line tool for a release; [Releasing](releasing.md) describes it.
 
+On macOS, `cargo run -p euphoria-desktop` creates a temporary app bundle so the Dock and menu bar show Euphoria. The Cargo runner forwards CLI, test and benchmark executables directly; the development bundle is removed when the app exits.
+
 ## Tests
 
 ```
