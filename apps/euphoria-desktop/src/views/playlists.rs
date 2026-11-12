@@ -308,9 +308,16 @@ pub(crate) fn track_menu(
     app: &WeakEntity<EuphoriaApp>,
     playlists: &[(PlaylistId, String)],
     shown_playlist: Option<PlaylistId>,
+    is_starred: bool,
     window: &mut Window,
     cx: &mut Context<'_, PopupMenu>,
 ) -> PopupMenu {
+    let menu = menu
+        .item(
+            PopupMenuItem::new(if is_starred { "Remove star" } else { "Star" })
+                .on_click(on_app(app, |this, _, cx| this.toggle_star_on_selection(cx))),
+        )
+        .separator();
     let targets: Vec<(PlaylistId, String)> = playlists
         .iter()
         .filter(|(id, _)| Some(*id) != shown_playlist)

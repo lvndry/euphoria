@@ -43,7 +43,7 @@ const ENERGY_COLUMN: usize = 6;
 
 /// A library of made up tracks whose files do not exist, with an audio
 /// output that makes no sound.
-fn open_library(
+pub(crate) fn open_library(
     track_count: usize,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
@@ -88,7 +88,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
     .collect()
 }
 
-fn open_window_on(
+pub(crate) fn open_window_on(
     tracks: Vec<DemoTrack>,
     output: Box<dyn AudioOutput>,
     cx: &mut TestAppContext,
@@ -99,7 +99,7 @@ fn open_window_on(
 
 /// The fixture library in a window of `window_size`, opened with `settings`
 /// as if they had been remembered, and saving to `settings_path` when given.
-fn open_window_with(
+pub(crate) fn open_window_with(
     tracks: Vec<DemoTrack>,
     output: Box<dyn AudioOutput>,
     settings: Settings,
@@ -151,7 +151,7 @@ fn open_arranged(
     )
 }
 
-fn track(index: usize) -> (&'static str, usize) {
+pub(crate) fn track(index: usize) -> (&'static str, usize) {
     ("track", index)
 }
 
@@ -1756,7 +1756,11 @@ fn open_taggable_files(
     (window, view)
 }
 
-fn click(window: AnyWindowHandle, id: impl Into<gpui::ElementId>, cx: &mut TestAppContext) {
+pub(crate) fn click(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) {
     let id = id.into();
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
@@ -3224,7 +3228,7 @@ fn deleting_the_playlist_on_show_goes_back_to_all_tracks(cx: &mut TestAppContext
 
 /// Scratch copies of the test files in a window that keeps its playlists
 /// in a real store in the scratch folder.
-fn open_with_playlist_store(
+pub(crate) fn open_with_playlist_store(
     name: &str,
     cx: &mut TestAppContext,
 ) -> (
@@ -3684,7 +3688,7 @@ fn selected_key_and_bpm(
     })
 }
 
-fn is_shown(
+pub(crate) fn is_shown(
     window: AnyWindowHandle,
     id: impl Into<gpui::ElementId>,
     cx: &mut TestAppContext,
@@ -3996,7 +4000,7 @@ fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut Te
 
 /// The core's fixture files as three tracks with keys, tempos, energies,
 /// beat grids and cues: A minor at 120, E minor at 125 and C major at 118.
-fn deck_tracks() -> Vec<DemoTrack> {
+pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
     let fixtures =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
@@ -4058,7 +4062,11 @@ fn deck_tracks() -> Vec<DemoTrack> {
     .collect()
 }
 
-fn index_of_track(view: &Entity<EuphoriaApp>, name: &str, cx: &mut TestAppContext) -> usize {
+pub(crate) fn index_of_track(
+    view: &Entity<EuphoriaApp>,
+    name: &str,
+    cx: &mut TestAppContext,
+) -> usize {
     cx.update(|cx| {
         let library = view.read(cx).session.library();
         library
@@ -4137,6 +4145,81 @@ fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
             (0.6..0.8).contains(&position),
             "the cue seeks to 0.6s: {position}"
         );
+    });
+}
+
+#[gpui::test]
+fn a_loop_button_loops_the_deck_and_pressed_again_leaves_it(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::{deck_part, loop_id};
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(!is_shown(
+        window,
+        deck_part("deck-loop-region", DeckId::A),
+        cx
+    ));
+    click(window, deck_part("deck-play", DeckId::A), cx);
+    output.pull(0.05);
+    click(window, loop_id(DeckId::A, 1), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(decks.is_looping(DeckId::A, 1));
+        assert!(!decks.is_looping(DeckId::A, 2));
+        let (start, end) = decks.loop_seconds(DeckId::A).unwrap();
+        assert!(
+            (start - 0.2).abs() < 1e-3,
+            "from the next downbeat: {start}"
+        );
+        assert!((end - 2.2).abs() < 1e-3, "one bar at 120 BPM: {end}");
+    });
+    assert!(is_shown(
+        window,
+        deck_part("deck-loop-region", DeckId::A),
+        cx
+    ));
+    click(window, loop_id(DeckId::A, 1), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).loop_bars, None);
+        assert!(!decks.is_looping(DeckId::A, 1));
+    });
+}
+
+#[gpui::test]
+fn a_deck_without_a_beat_grid_does_not_loop(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::loop_id;
+    let mut tracks = deck_tracks();
+    for track in &mut tracks {
+        track.outcome.as_mut().unwrap().beat_grid = None;
+    }
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(tracks, Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    click(window, loop_id(DeckId::A, 4), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).loop_bars, None);
+        assert_eq!(decks.loop_seconds(DeckId::A), None);
     });
 }
 

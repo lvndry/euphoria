@@ -452,7 +452,7 @@ mod tests {
         let mut session = crate::state::Session::start(None).unwrap();
         session.use_playlist_store(store).unwrap();
         let saver = session.playlist_saver().unwrap();
-        saver.register(session.playlists());
+        saver.register(session.playlists(), session.favorites());
         rusqlite::Connection::open(&cache_path)
             .unwrap()
             .execute("DROP TABLE corrections", [])
