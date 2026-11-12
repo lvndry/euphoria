@@ -30,6 +30,7 @@ Exports for Serato and Engine DJ are in development.
 - Preparing a set: [analyze your library](guides/analyze-your-library.md).
 - Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
 - Using Traktor: [export to Traktor](guides/export-to-traktor.md).
+- Using Serato: [cue points and beat grids for Serato](guides/serato-cues.md).
 - Which DJ program gets what: [DJ program support](reference/dj-program-support.md).
 - Want the key and energy inside the files, for any DJ software: [write tags into your files](guides/write-tags.md), then [set up your DJ program](guides/dj-programs.md).
 - Prefer a window to a terminal: [desktop app](guides/desktop-app.md).
