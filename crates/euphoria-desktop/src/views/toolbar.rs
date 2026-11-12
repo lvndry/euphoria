@@ -17,6 +17,7 @@ use crate::actions;
 use crate::app::EuphoriaApp;
 use crate::theme::{Palette, ThemeName};
 use crate::views::logo::logo;
+use crate::views::tag_panel::choice_button;
 use crate::views::{CONTROL_HEIGHT, CONTROL_RADIUS, SMALL_TEXT_SIZE, secondary_button};
 
 /// Room left for the window's close, minimize and zoom buttons on macOS.
@@ -115,6 +116,14 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .gap(px(10.0))
                 .ml_auto()
                 .children(progress(app, &palette))
+                .when(has_tracks, |commands| {
+                    commands.child(
+                        choice_button("toggle-decks", "Decks", app.decks.is_open, &palette)
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_decks(cx)))
+                            .test_support(),
+                    )
+                })
                 .when(has_tracks, |commands| {
                     commands.child(write_tags(app, &palette, cx))
                 })

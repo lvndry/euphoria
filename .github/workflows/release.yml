@@ -1,6 +1,6 @@
 name: Release
 
-# Builds and publishes a release of Euphoria. Started by hand from the
+# Builds and publishes a release of Euphoria for macOS and Linux. Started by hand from the
 # Actions tab: choose "Run workflow" on main. There is nothing to fill in:
 # the version is the next calendar version, YEAR.MONTH.N, worked out from
 # the date and the existing tags (docs/development/releasing.md).
@@ -40,6 +40,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       previous_tag: ${{ steps.plan.outputs.previous_tag }}
       base: ${{ steps.base.outputs.base }}
+      linux: ${{ steps.linux.outputs.linux }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,6 +98,19 @@ jobs:
           }
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "Finishing $VERSION, tagged on $base."
+      - name: Check whether the commit to build packages Linux
+        id: linux
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          # A release tagged before the Linux packaging existed is finished
+          # with the macOS files only, the files it was made with.
+          if git cat-file -e "$BASE:scripts/bundle-linux.sh" 2> /dev/null; then
+            echo "linux=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "linux=false" >> "$GITHUB_OUTPUT"
+            echo "$BASE has no Linux packaging; this release has macOS files only."
+          fi
       - name: Check that CI passed on the commit to build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,9 +184,80 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-linux:
+    name: Build for Linux
+    needs: prepare
+    if: needs.prepare.outputs.linux == 'true'
+    # Built on the oldest Ubuntu LTS the runners offer, because a Linux
+    # program needs at least the glibc it was built against. The release
+    # notes give that version, read from the files themselves.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      tree: ${{ steps.version.outputs.tree }}
+      minimum_glibc: ${{ steps.minimum.outputs.minimum_glibc }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          persist-credentials: false
+      - name: Set the version
+        id: version
+        run: |
+          python3 scripts/release/set_version.py "$VERSION"
+          git add --all
+          echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
+      - name: Install system libraries and libkeyfinder
+        run: ./.github/scripts/install-linux-dependencies.sh
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check the version in Cargo.lock
+        run: cargo metadata --locked --format-version 1 --no-deps > /dev/null
+      - name: Build the app and the AppImage
+        run: ./scripts/bundle-linux.sh
+      - name: Build the command line tool
+        run: ./scripts/release/package-cli.sh dist
+      - name: Gather the files
+        run: |
+          cp "target/release/bundle/Euphoria-$VERSION-x86_64.AppImage" dist/
+          # The same AppImage under a name without the version, so that
+          # releases/latest/download/Euphoria-x86_64.AppImage always leads
+          # to the newest.
+          cp "target/release/bundle/Euphoria-$VERSION-x86_64.AppImage" dist/Euphoria-x86_64.AppImage
+      - name: Check that the files run on a clean system
+        run: ./scripts/release/check-linux-packages.sh dist
+      - name: Read the oldest glibc the files run on
+        id: minimum
+        run: |
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf dist/euphoria-*-x86_64-unknown-linux-gnu.tar.gz -C "$RUNNER_TEMP/unpacked"
+          minimum=$(python3 scripts/linux_libraries.py minimum-glibc \
+            --root target/release/bundle/Euphoria.AppDir --root "$RUNNER_TEMP/unpacked")
+          echo "minimum_glibc=$minimum" >> "$GITHUB_OUTPUT"
+          echo "The Linux files need glibc $minimum or later."
+      - name: Write the checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files-linux
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Tag and publish
-    needs: [prepare, build]
+    needs: [prepare, build, build-linux]
+    # The Linux build is skipped only for a release tagged before it existed.
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-linux.result == 'success' || needs.prepare.outputs.linux == 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -183,13 +268,20 @@ jobs:
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       BASE: ${{ needs.prepare.outputs.base }}
       BUILT_TREE: ${{ needs.build.outputs.tree }}
+      LINUX: ${{ needs.prepare.outputs.linux }}
+      LINUX_TREE: ${{ needs.build-linux.outputs.tree }}
       MINIMUM_MACOS: ${{ needs.build.outputs.minimum_macos }}
+      MINIMUM_GLIBC: ${{ needs.build-linux.outputs.minimum_glibc }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Make the release commit and tag, or check the existing tag
         run: |
+          if [ "$LINUX" = true ] && [ "$LINUX_TREE" != "$BUILT_TREE" ]; then
+            echo "::error::Linux and macOS were built from different files ($LINUX_TREE and $BUILT_TREE)."
+            exit 1
+          fi
           if [ "$MODE" = resume ]; then
             tree=$(git rev-parse "v$VERSION^{tree}")
             if [ "$tree" != "$BUILT_TREE" ]; then
@@ -217,17 +309,40 @@ jobs:
           if [ -n "$PREVIOUS_TAG" ]; then
             since=(--since "$PREVIOUS_TAG")
           fi
+          linux=()
+          if [ "$LINUX" = true ]; then
+            linux=(--minimum-glibc "$MINIMUM_GLIBC")
+          fi
           python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" \
             --until "$BASE" --repository "$GITHUB_REPOSITORY" \
-            --minimum-macos "$MINIMUM_MACOS" > "$RUNNER_TEMP/notes.md"
+            --minimum-macos "$MINIMUM_MACOS" "${linux[@]}" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-files
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: env.LINUX == 'true'
+        with:
+          name: release-files-linux
+          path: dist-linux
       - name: Check the files against their checksums
-        working-directory: dist
-        run: sha256sum --check SHA256SUMS
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          if [ "$LINUX" = true ]; then
+            (cd dist-linux && sha256sum --check SHA256SUMS)
+            # One SHA256SUMS lists the files of every system.
+            cat dist-linux/SHA256SUMS >> dist/SHA256SUMS
+            rm dist-linux/SHA256SUMS
+            for file in dist-linux/*; do
+              if [ -e "dist/$(basename "$file")" ]; then
+                echo "::error::$(basename "$file") was built for both macOS and Linux."
+                exit 1
+              fi
+              mv "$file" dist/
+            done
+            (cd dist && sha256sum --check SHA256SUMS)
+          fi
       - name: Push the tag
         if: env.MODE == 'new'
         run: git push origin "refs/tags/v$VERSION"

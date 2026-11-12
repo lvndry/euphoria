@@ -21,12 +21,13 @@ Available now:
 - [Audio quality](docs/concepts/audio-quality.md) for DJ use: codec, real bit rate, where the content stops, and files that were likely re-encoded from a lower quality source
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
+- `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos, beat grids, cues and playlists; importing it in Traktor has not yet been tested
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, `euphoria tags set`, which edits title, artist, genre and other fields across many files with find and replace, and `euphoria tags undo`, which puts the old tags back byte for byte
-- MP3, M4A (AAC), FLAC, WAV and AIFF
+- MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF
 - A desktop app for macOS, downloadable below: see the [desktop app guide](docs/guides/desktop-app.md)
 - Playlists built in the desktop app, with each set's key path, tempo range and energy flow at a glance, exported to rekordbox or as M3U8 for any other program
 
-In development: exports for Serato, Traktor and Engine DJ.
+In development: exports for Serato and Engine DJ.
 
 ## Install
 
@@ -36,7 +37,15 @@ On a Mac with Apple Silicon and macOS 15 or later:
 2. Open the disk image and drag Euphoria onto Applications.
 3. The first time, right click Euphoria in Applications and choose **Open**, because the app is not notarized by Apple yet. If macOS offers no **Open** button, choose **Done**, then **System Settings > Privacy & Security > Open Anyway**. After that it opens normally.
 
-Every release, with its notes and the command line tool, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or on Linux, see [installation](docs/getting-started/installation.md).
+On Linux (x86_64, glibc 2.35 or later, such as Ubuntu 22.04 and newer):
+
+```
+curl -LO https://github.com/lvndry/euphoria/releases/latest/download/Euphoria-x86_64.AppImage
+chmod +x Euphoria-x86_64.AppImage
+./Euphoria-x86_64.AppImage
+```
+
+Every release, with its notes and the command line tool for both systems, is on the [releases page](https://github.com/lvndry/euphoria/releases). To build from source, or for what the AppImage needs from your desktop, see [installation](docs/getting-started/installation.md).
 
 ## Quick start
 
@@ -62,7 +71,8 @@ The full documentation is in [docs](docs/index.md):
 
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
-- [Export to rekordbox](docs/guides/export-to-rekordbox.md)
+- [Export to rekordbox](docs/guides/export-to-rekordbox.md) and [to Traktor](docs/guides/export-to-traktor.md)
+- [DJ program support](docs/reference/dj-program-support.md)
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
 - [Accuracy](docs/concepts/accuracy.md)

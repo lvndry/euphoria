@@ -10,6 +10,7 @@ use super::{Cache, FileLocation, Snapshot};
 use crate::analysis::{TrackAnalysis, analyze_file};
 use crate::correction::Correction;
 use crate::error::EuphoriaError;
+use crate::track_cues::{Cue, TrackCues};
 
 /// The analysis of one file through the cache.
 #[derive(Debug)]
@@ -126,6 +127,43 @@ impl CachedAnalyzer {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .set_correction(path, correction)
+    }
+
+    /// [`Cache::edited_cues_for`] on the cache this analyzer stores into.
+    pub fn edited_cues_for(&self, path: &Path) -> Result<Option<Vec<Cue>>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .edited_cues_for(path)
+    }
+
+    /// [`Cache::verified_edited_cues_for`] on the cache this analyzer
+    /// stores into.
+    pub fn verified_edited_cues_for(&self, path: &Path) -> Result<Option<Vec<Cue>>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .verified_edited_cues_for(path)
+    }
+
+    /// [`Cache::set_edited_cues`] on the cache this analyzer stores into.
+    pub fn set_edited_cues(&self, path: &Path, cues: Option<&[Cue]>) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_edited_cues(path, cues)
+    }
+
+    /// [`Cache::track_cues_for`] on the cache this analyzer stores into.
+    pub fn track_cues_for(
+        &self,
+        path: &Path,
+        analysis: &TrackAnalysis,
+    ) -> Result<TrackCues, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .track_cues_for(path, analysis)
     }
 
     /// [`Cache::recognise_file`] on the cache this analyzer stores into.

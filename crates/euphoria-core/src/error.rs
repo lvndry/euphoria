@@ -46,6 +46,14 @@ pub enum ExportProblem {
     InvalidTempo,
     /// A hot cue is on a pad the track does not have.
     InvalidHotCue,
+    /// The path is not valid Unicode, which a format that stores paths as
+    /// text cannot hold.
+    PathNotUnicode,
+    /// A path contains characters XML cannot represent, even as references.
+    PathNotXml,
+    /// The time an export writes as a last change holds a day, month or
+    /// seconds of the day that date does not have.
+    InvalidModifiedTime,
 }
 
 impl fmt::Display for ExportProblem {
@@ -54,8 +62,13 @@ impl fmt::Display for ExportProblem {
             ExportProblem::NotAbsolutePath => "not an absolute local path",
             ExportProblem::DuplicatePath => "listed more than once",
             ExportProblem::NotInCollection => "in a playlist but not in the collection",
-            ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
+            ExportProblem::InvalidTempo => {
+                "tempo is not a positive number at the export's precision"
+            }
             ExportProblem::InvalidHotCue => "hot cue pad is out of range",
+            ExportProblem::PathNotUnicode => "path is not valid Unicode",
+            ExportProblem::PathNotXml => "path contains characters XML cannot represent",
+            ExportProblem::InvalidModifiedTime => "the modified time does not name a real date",
         })
     }
 }
@@ -150,6 +163,10 @@ pub enum EuphoriaError {
         /// What is wrong with it.
         problem: ExportProblem,
     },
+    /// A name, comment or cue name contains characters XML 1.0 cannot
+    /// represent, even as references.
+    #[error("a name or comment contains characters XML cannot represent")]
+    ExportTextNotXml,
     /// The playlist folders of an export are nested too deeply.
     #[error("cannot export folder {folder:?}: nested more than {maximum} folders deep")]
     ExportFolderDepth {
@@ -199,10 +216,10 @@ pub enum EuphoriaError {
         /// What went wrong, usually the database library's own error.
         source: ErrorSource,
     },
-    /// Whether the user corrected the file's key or tempo could not be
-    /// checked, so the file is left out of a tag write or an export rather
-    /// than given the detected values against the user's choice.
-    #[error("cannot check whether the key or tempo of {path} was corrected, so it was left out")]
+    /// The user's saved key, tempo or cue edits could not be checked, so
+    /// the file is left out of a tag write or an export rather than given
+    /// the detected values against the user's choice.
+    #[error("cannot check the saved edits for {path}, so it was left out")]
     CorrectionUnchecked {
         /// The audio file.
         path: PathBuf,
@@ -252,11 +269,71 @@ pub enum EuphoriaError {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// A set of cues that cannot be kept.
+    #[error("cannot keep these cues: {reason}")]
+    InvalidCues {
+        /// What is wrong with them.
+        reason: &'static str,
+    },
     /// No folder for Euphoria's data could be worked out from the environment.
     #[error(
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"
     )]
     NoDataDirectory,
+    /// The stem separation model could not be downloaded, usually because
+    /// the computer is offline. Nothing was kept, so the next separation
+    /// tries again.
+    #[error(
+        "cannot download the stem separation model from {url}: check that this computer is online. \
+         The model is downloaded once, then kept at {destination}"
+    )]
+    ModelDownload {
+        /// Where the model is downloaded from.
+        url: String,
+        /// Where the model is kept once downloaded.
+        destination: PathBuf,
+        /// The network library's own error.
+        source: ErrorSource,
+    },
+    /// The stem separation model file is not the one Euphoria expects. A
+    /// downloaded file is removed; a damaged file already on disk is left
+    /// for the user to delete, which downloads it again.
+    #[error(
+        "the stem separation model at {path} is damaged: its SHA-256 is {actual}, not {expected}. Delete it to download it again"
+    )]
+    ModelIntegrity {
+        /// The model file.
+        path: PathBuf,
+        /// The SHA-256 the model must have.
+        expected: &'static str,
+        /// The SHA-256 the file has.
+        actual: String,
+    },
+    /// The stem separation model could not be saved to disk.
+    #[error("cannot save the stem separation model to {path}")]
+    ModelFile {
+        /// The file or folder that could not be written.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
+    /// The separation network could not be loaded or run.
+    #[error("stem separation failed: {reason}")]
+    Separation {
+        /// What went wrong.
+        reason: String,
+        /// The inference library's own error, when it gave one.
+        #[source]
+        source: Option<ErrorSource>,
+    },
+    /// The folder of separated stems could not be read or written.
+    #[error("cannot use the stems at {path}")]
+    StemFiles {
+        /// The file or folder that could not be used.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
 }
 
 impl EuphoriaError {
