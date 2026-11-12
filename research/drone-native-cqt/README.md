@@ -29,6 +29,11 @@ bash research/drone-native-cqt/build_soxr.sh /home/lysk-admin/drone-experiments/
 cargo build --release --locked --jobs 2 --manifest-path research/drone-native-cqt/Cargo.toml
 ```
 
+The soxr build checks both the archive checksum and the actual extracted source
+against the 167-file inventory in `evidence/build-evidence-v2.json` before CMake
+runs. Missing, extra or changed files and symlinks escaping that source tree are
+rejected. The original pinned internal file symlink remains supported.
+
 The first nine-case measurements use pinned Rust1.99.1, source `d8424bf`, binary
 SHA `9ee59e01709bf6f9def5fbeaade529944e5835731910ca166ac5d22554616f4b`.
 The optional owner snapshot is external and must never be committed or published.
@@ -92,7 +97,7 @@ Run `python3 -m unittest discover -s research/drone-native-cqt -p 'test_*.py'` t
 check roundtrips, repeatability and rejection of altered evidence. Server
 artifacts and measured source refs remain unchanged by publication packaging.
 
-Subsequent runner validation rejects malformed captured plans and accepts a
+Subsequent runner validation checks captured plan dimensions and accepts a
 manifest basename relative to the working directory. These checks do not
 regenerate or relabel the frozen numerical evidence above; any new numerical
 qualification remains tied to its own executed source and binary identities.
