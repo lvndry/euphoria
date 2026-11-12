@@ -167,6 +167,15 @@ pub enum EuphoriaError {
     /// represent, even as references.
     #[error("a name or comment contains characters XML cannot represent")]
     ExportTextNotXml,
+    /// A VirtualDJ database could not be read, or is not one Euphoria can
+    /// update without risk to the data in it. Nothing was written.
+    #[error("cannot update the VirtualDJ database {path}: {reason}")]
+    VirtualDjDatabase {
+        /// The database file.
+        path: PathBuf,
+        /// What is wrong with it.
+        reason: String,
+    },
     /// The playlist folders of an export are nested too deeply.
     #[error("cannot export folder {folder:?}: nested more than {maximum} folders deep")]
     ExportFolderDepth {
