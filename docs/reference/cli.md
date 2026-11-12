@@ -392,6 +392,27 @@ Tracks are matched by the path Engine DJ stores. It refuses to write while Engin
 | `--dry-run` | Checks the library and says what would change, writing nothing. |
 
 The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library or a file could not be analyzed.
+## euphoria export virtualdj
+
+Analyzes audio files and writes the results into the songs of your VirtualDJ `database.xml`, after saving a copy of it. [Export to VirtualDJ](../guides/export-to-virtualdj.md) explains what is written and kept. **Not tested in VirtualDJ.**
+
+```
+euphoria export virtualdj [OPTIONS] <PATHS>...
+euphoria export virtualdj [OPTIONS] --playlist <NAME>
+```
+
+Songs are matched by path, and only songs the database holds are changed. Every other byte of the file is kept. It refuses to write while VirtualDJ is running.
+
+| Option | Effect |
+| --- | --- |
+| `--database <FILE>` | The `database.xml` to update. Found in your home folder when not given; tracks on another drive are in `VirtualDJ/database.xml` on that drive. |
+| `--label <WHERE>` | Where the key and energy label goes: `comment-start` (the default), `comment-end`, `grouping` or `none`. The text already there is kept. |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. The `Key` attributes are musical names, which VirtualDJ shows in its own notation. |
+| `--beat-grid` | The grid anchor at each track's first downbeat, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
+| `--dry-run` | Says what would change and writes nothing. |
+
+The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database or a file could not be analyzed.
 
 ## euphoria export m3u8
 

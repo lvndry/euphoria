@@ -798,6 +798,13 @@ pub const ENGINE_IMPORT_STEPS: [&str; 3] = [
     "To undo, close Engine DJ and put the backup in place of Database2/m.db.",
 ];
 
+/// What to do in VirtualDJ after its database was updated.
+pub const VIRTUALDJ_IMPORT_STEPS: [&str; 3] = [
+    "Start VirtualDJ. The key, tempo and comment show in the browser.",
+    "VirtualDJ shows keys in the notation of its keyDisplay option.",
+    "To undo, close VirtualDJ and put the backup in place of database.xml.",
+];
+
 /// Writes how to bring an exported file into the program, and where the
 /// full guide is.
 pub fn write_import_steps(
@@ -809,9 +816,10 @@ pub fn write_import_steps(
         Program::Rekordbox => (&REKORDBOX_IMPORT_STEPS, "export-to-rekordbox.md"),
         Program::Traktor => (&TRAKTOR_IMPORT_STEPS, "export-to-traktor.md"),
         Program::Engine => (&ENGINE_IMPORT_STEPS, "export-to-engine-dj.md"),
+        Program::VirtualDj => (&VIRTUALDJ_IMPORT_STEPS, "export-to-virtualdj.md"),
     };
     match program {
-        Program::Engine => writeln!(writer, "In {}:", program.name())?,
+        Program::Engine | Program::VirtualDj => writeln!(writer, "In {}:", program.name())?,
         Program::Rekordbox | Program::Traktor => {
             writeln!(writer, "To import it in {}:", program.name())?;
         }

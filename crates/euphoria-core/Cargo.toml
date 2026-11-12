@@ -38,6 +38,7 @@ symphonia = { workspace = true, features = [
   "id3v1",
   "id3v2",
 ] }
+roxmltree.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
 ort = { workspace = true, optional = true }

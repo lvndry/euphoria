@@ -17,6 +17,8 @@ pub mod playlists;
 pub mod rekordbox;
 /// The Traktor collection format, NML.
 pub mod traktor;
+/// Updating the songs of a VirtualDJ database.xml.
+pub mod virtualdj;
 
 pub use assemble::{
     AssembledLibrary, ExportContents, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library,

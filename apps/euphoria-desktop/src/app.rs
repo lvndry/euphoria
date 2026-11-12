@@ -184,6 +184,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) stems: crate::stems::StemSession,
     /// The two decks, their mixer and the tracks to play next.
     pub(crate) decks: crate::decks::Decks,
+    /// The curve, pool and set of the set builder page.
+    pub(crate) set_builder: crate::set_builder::SetBuilder,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
     /// Moving, adding, renaming and deleting the selected track's cues.
@@ -374,6 +376,7 @@ impl EuphoriaApp {
             by_ear: crate::key_by_ear::ByEar::default(),
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
             decks: crate::decks::Decks::default(),
+            set_builder: crate::set_builder::SetBuilder::default(),
             bpm_input,
             cue_editor: crate::cue_editing::CueEditor::default(),
             cue_name_input,
@@ -1105,6 +1108,7 @@ impl EuphoriaApp {
 
     /// Shows every track of every folder.
     pub(crate) fn show_all_tracks(&mut self, cx: &mut Context<'_, Self>) {
+        self.close_set_builder();
         self.playlist = None;
         self.showing_favorites = false;
         self.filter = LibraryFilter::AllTracks;
@@ -1116,6 +1120,7 @@ impl EuphoriaApp {
 
     /// Shows only the tracks that need review, within the folder on show.
     pub(crate) fn show_tracks_needing_review(&mut self, cx: &mut Context<'_, Self>) {
+        self.close_set_builder();
         self.playlist = None;
         self.showing_favorites = false;
         self.filter = LibraryFilter::NeedsReview;
@@ -1126,6 +1131,7 @@ impl EuphoriaApp {
     /// Shows only the tracks whose quality is weak on a big system or likely
     /// re-encoded, within the folder on show.
     pub(crate) fn show_tracks_with_quality_to_check(&mut self, cx: &mut Context<'_, Self>) {
+        self.close_set_builder();
         self.playlist = None;
         self.showing_favorites = false;
         self.filter = LibraryFilter::QualityToCheck;
@@ -1135,6 +1141,7 @@ impl EuphoriaApp {
 
     /// Shows every track in the folder at `path` and the folders inside it.
     pub(crate) fn show_folder(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        self.close_set_builder();
         self.playlist = None;
         self.showing_favorites = false;
         self.filter = LibraryFilter::AllTracks;
@@ -1911,7 +1918,13 @@ impl Render for EuphoriaApp {
                 .when(shows_sidebar, |body| {
                     body.child(views::sidebar::render(self, cx))
                 })
-                .child(library_and_detail)
+                .map(|body| {
+                    if self.set_builder.is_open {
+                        body.child(views::set_builder::render(self, cx))
+                    } else {
+                        body.child(library_and_detail)
+                    }
+                })
         };
 
         let has_player_bar = !self.is_empty() && self.theme.layout == Layout::InspectorRight;

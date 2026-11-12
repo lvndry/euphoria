@@ -4,7 +4,8 @@
 //! Compiles the C++ wrapper around libkeyfinder and links the library, and
 //! the threads library of FFTW that the wrapper uses, when the
 //! `libkeyfinder` feature is enabled, and the C interface to the vendored
-//! Signalsmith Stretch when the `pitch-shift` feature is.
+//! Signalsmith Stretch when the `pitch-shift` feature is, and clang's
+//! runtime library for ONNX Runtime when the `stems` feature is, on macOS.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/detect/keyfinder_wrapper.cpp");
@@ -15,6 +16,35 @@ fn main() {
     build_keyfinder_wrapper();
     #[cfg(feature = "pitch-shift")]
     build_signalsmith_shim();
+    #[cfg(feature = "stems")]
+    link_compiler_runtime_on_macos();
+}
+
+/// ONNX Runtime's Core ML code checks the macOS version with `@available`,
+/// which calls `__isPlatformVersionAtLeast` from clang's runtime library.
+/// rustc links without the compiler's default libraries, and some Rust
+/// toolchains, such as Homebrew's, do not provide that function, so the
+/// library is linked here when clang can say where it is.
+#[cfg(feature = "stems")]
+fn link_compiler_runtime_on_macos() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+    let Ok(output) = std::process::Command::new("clang")
+        .arg("--print-runtime-dir")
+        .output()
+    else {
+        return;
+    };
+    let directory = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if output.status.success()
+        && std::path::Path::new(&directory)
+            .join("libclang_rt.osx.a")
+            .is_file()
+    {
+        println!("cargo:rustc-link-search=native={directory}");
+        println!("cargo:rustc-link-lib=static=clang_rt.osx");
+    }
 }
 
 #[cfg(feature = "pitch-shift")]

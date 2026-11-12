@@ -18,6 +18,9 @@ use euphoria_core::export::rekordbox::{
     ExistingFile, ExportOptions, KeyNotation, Library, PlaylistNode, write_xml_file,
 };
 use euphoria_core::export::traktor::{ModifiedTime, TraktorOptions, write_nml_file};
+use euphoria_core::export::virtualdj::{
+    VirtualDjOptions, VirtualDjTrack, preview_database_update, update_database_file,
+};
 use euphoria_core::tags::{KeyNotation as TagKeyNotation, LabelPlacement};
 use euphoria_core::{
     AssembledLibrary, CachedAnalyzer, CachedBatch, EntryLocation, EuphoriaError, ExportContents,
@@ -50,6 +53,10 @@ pub enum ExportTarget {
     /// tracks of your Engine DJ library, after saving a copy of it.
     #[command(after_help = crate::help::engine_export_examples())]
     Engine(EngineArguments),
+    /// Write the key, tempo, beat grid, cues and energy of every track into
+    /// the songs of your VirtualDJ database, after saving a copy of it.
+    #[command(name = "virtualdj", after_help = crate::help::virtualdj_export_examples())]
+    Virtualdj(VirtualDjArguments),
     /// Write a playlist built in the desktop app as an M3U8 file, which
     /// nearly every DJ and music program can open.
     M3u8(M3u8Arguments),
@@ -250,6 +257,68 @@ impl From<TraktorKeyNotationChoice> for TagKeyNotation {
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum LabelChoice {
+    /// In front of the comment.
+    #[default]
+    CommentStart,
+    /// After the comment.
+    CommentEnd,
+    /// In front of the grouping.
+    Grouping,
+    /// Nowhere: the energy is not written.
+    None,
+}
+
+impl From<LabelChoice> for LabelPlacement {
+    fn from(choice: LabelChoice) -> Self {
+        match choice {
+            LabelChoice::CommentStart => LabelPlacement::CommentStart,
+            LabelChoice::CommentEnd => LabelPlacement::CommentEnd,
+            LabelChoice::Grouping => LabelPlacement::Grouping,
+            LabelChoice::None => LabelPlacement::None,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct VirtualDjArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required_unless_present = "playlist", conflicts_with = "playlist")]
+    paths: Vec<PathBuf>,
+    /// Export the tracks of a playlist built in the desktop app, by name,
+    /// in place of files and folders.
+    #[arg(long, value_name = "NAME")]
+    playlist: Option<String>,
+    /// Your VirtualDJ database.xml. Found by itself in the VirtualDJ folder
+    /// of your home folder; give it for tracks on another drive, whose
+    /// songs are in VirtualDJ/database.xml on that drive.
+    #[arg(long, value_name = "FILE")]
+    database: Option<PathBuf>,
+    /// Where the key and energy label, such as "8A - Energy 7", goes. The
+    /// text already there is kept.
+    #[arg(long, value_enum, default_value_t, value_name = "WHERE")]
+    label: LabelChoice,
+    /// How the key is written in the label. VirtualDJ's Key column shows
+    /// the key in the notation set in its own options.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: TraktorKeyNotationChoice,
+    /// Write each track's beat grid, except grids rated low confidence,
+    /// which VirtualDJ keeps its own for.
+    #[arg(long)]
+    beat_grid: bool,
+    /// Write cues where each track's sections start, as hot cues 1 to 8,
+    /// on tracks whose beat grid is written. A song that has cues of its
+    /// own in VirtualDJ keeps them and gets none.
+    #[arg(long, requires = "beat_grid")]
+    cues: bool,
+    /// Show what would change and write nothing.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
 enum KeyNotationChoice {
     /// Camelot codes such as 8A.
     #[default]
@@ -275,6 +344,7 @@ pub fn run(target: ExportTarget) -> Result<ExitCode> {
         ExportTarget::Rekordbox(arguments) => export_to_rekordbox(&arguments),
         ExportTarget::Traktor(arguments) => export_to_traktor(&arguments),
         ExportTarget::Engine(arguments) => export_to_engine(&arguments),
+        ExportTarget::Virtualdj(arguments) => export_to_virtualdj(&arguments),
         ExportTarget::M3u8(arguments) => export_to_m3u8(&arguments),
     }
 }
@@ -285,6 +355,7 @@ pub enum Program {
     Rekordbox,
     Traktor,
     Engine,
+    VirtualDj,
 }
 
 impl Program {
@@ -294,6 +365,7 @@ impl Program {
             Program::Rekordbox => "rekordbox",
             Program::Traktor => "Traktor",
             Program::Engine => "Engine DJ",
+            Program::VirtualDj => "VirtualDJ",
         }
     }
 }
@@ -548,6 +620,251 @@ fn export_library(
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    })
+}
+fn default_virtualdj_database() -> Option<PathBuf> {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")?
+    } else {
+        std::env::var_os("HOME")?
+    };
+    let home = PathBuf::from(home);
+    [
+        home.join("Library/Application Support/VirtualDJ/database.xml"),
+        home.join("Documents/VirtualDJ/database.xml"),
+        home.join("OneDrive/Documents/VirtualDJ/database.xml"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+}
+
+/// Whether VirtualDJ is running on this computer, or `None` when it cannot
+/// be checked.
+fn virtualdj_is_running() -> Option<bool> {
+    let (program, arguments): (&str, &[&str]) = if cfg!(windows) {
+        ("tasklist", &["/FI", "IMAGENAME eq virtualdj.exe", "/NH"])
+    } else {
+        ("pgrep", &["-x", "VirtualDJ"])
+    };
+    let output = std::process::Command::new(program)
+        .args(arguments)
+        .output()
+        .ok()?;
+    Some(if cfg!(windows) {
+        String::from_utf8_lossy(&output.stdout)
+            .to_lowercase()
+            .contains("virtualdj.exe")
+    } else {
+        output.status.success()
+    })
+}
+
+fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
+    let database = match &arguments.database {
+        Some(path) => std::path::absolute(path)?,
+        None => default_virtualdj_database().ok_or_else(|| {
+            anyhow!(
+                "no VirtualDJ database.xml was found in your home folder; give it with --database"
+            )
+        })?,
+    };
+    if !database.is_file() {
+        bail!(
+            "{} is not a file; give your VirtualDJ database.xml with --database",
+            database.display()
+        );
+    }
+    if !arguments.dry_run {
+        match virtualdj_is_running() {
+            Some(true) => bail!(
+                "VirtualDJ is running. It saves its database when it closes, which would undo the export. Close VirtualDJ and export again."
+            ),
+            Some(false) => {}
+            None => {
+                eprintln!(
+                    "warning: could not check whether VirtualDJ is running; close it before exporting"
+                );
+            }
+        }
+    }
+
+    let playlist = match &arguments.playlist {
+        Some(name) => Some(find_playlist(name, arguments.analysis.uses_cache())?),
+        None => None,
+    };
+    let audio_files = match &playlist {
+        Some(playlist) => playlist.files.clone(),
+        None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
+    };
+    if let Some(playlist) = &playlist {
+        write_missing_files(&playlist.missing)?;
+    }
+    if audio_files.is_empty() {
+        bail!("no audio files found, so nothing was exported");
+    }
+
+    batch::require_readable_user_edits(&arguments.analysis)?;
+    let CachedBatch {
+        results,
+        cached_count: _,
+        store_error,
+    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let user_edits = batch::user_edits(
+        &results,
+        &arguments.analysis,
+        batch::CorrectionCheck::ReadFile,
+    )?;
+    let results = batch::corrected(results, &user_edits);
+
+    let energies: HashMap<PathBuf, u8> = results
+        .iter()
+        .filter_map(|result| match &result.outcome {
+            Ok(analysis) => analysis.energy.map(|energy| (result.path.clone(), energy)),
+            Err(_) => None,
+        })
+        .collect();
+
+    let AssembledLibrary {
+        library,
+        skipped,
+        unread_tags,
+    } = assemble_library_with(
+        results,
+        PlaylistLayout::CollectionOnly,
+        ExportContents {
+            beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
+            edited_cues: batch::edited_cues(&user_edits),
+        },
+    );
+    let virtualdj_tracks: Vec<VirtualDjTrack<'_>> = library
+        .tracks
+        .iter()
+        .map(|track| VirtualDjTrack {
+            track,
+            energy: energies.get(&track.path).copied(),
+        })
+        .collect();
+    let options = VirtualDjOptions {
+        label: arguments.label.into(),
+        label_notation: arguments.key_notation.into(),
+    };
+
+    let now = ModifiedTime::now();
+    let backup = database
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(
+            "database.xml.euphoria-backup-{:04}{:02}{:02}-{:06}",
+            now.year, now.month, now.day, now.seconds_of_day
+        ));
+    let merge = if library.tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else if arguments.dry_run {
+        preview_database_update(&database, &virtualdj_tracks, &options).map_err(with_causes)
+    } else {
+        update_database_file(&database, &backup, &virtualdj_tracks, &options).map_err(with_causes)
+    };
+
+    let mut standard_error = std::io::stderr().lock();
+    let theme = Theme::stderr();
+    output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
+    output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
+    let merge = merge?;
+    if !arguments.dry_run && !merge.updated.is_empty() {
+        writeln!(
+            standard_error,
+            "Updated {} in {}",
+            output::counted(merge.updated.len(), "song", "songs"),
+            Printable(database.display())
+        )?;
+        writeln!(
+            standard_error,
+            "Saved the database as it was to {}",
+            Printable(backup.display())
+        )?;
+    } else if arguments.dry_run && !merge.updated.is_empty() {
+        writeln!(
+            standard_error,
+            "Dry run: {} of {} would be updated; nothing was written.",
+            output::counted(merge.updated.len(), "song", "songs"),
+            Printable(database.display())
+        )?;
+    } else {
+        writeln!(
+            standard_error,
+            "No track is in {}, so nothing was written.",
+            Printable(database.display())
+        )?;
+    }
+    if !merge.not_in_database.is_empty() {
+        writeln!(
+            standard_error,
+            "{} not in this database, so not updated:",
+            output::counted(merge.not_in_database.len(), "track is", "tracks are")
+        )?;
+        const LISTED: usize = 10;
+        for path in merge.not_in_database.iter().take(LISTED) {
+            writeln!(standard_error, "  {}", Printable(path.display()))?;
+        }
+        if merge.not_in_database.len() > LISTED {
+            writeln!(
+                standard_error,
+                "  and {} more",
+                merge.not_in_database.len() - LISTED
+            )?;
+        }
+        writeln!(
+            standard_error,
+            "Load them in VirtualDJ once, or give the database of their drive with --database, and export again."
+        )?;
+    }
+    if arguments.beat_grid {
+        let with_grid = library
+            .tracks
+            .iter()
+            .filter(|track| track.first_beat.is_some())
+            .count();
+        output::write_beat_grid_summary(
+            &mut standard_error,
+            with_grid,
+            library.tracks.len(),
+            Program::VirtualDj,
+        )?;
+    }
+    if arguments.cues {
+        if !merge.kept_own_cues.is_empty() {
+            writeln!(
+                standard_error,
+                "Kept the cues of {} that have cues in VirtualDJ.",
+                output::counted(merge.kept_own_cues.len(), "song", "songs")
+            )?;
+        }
+        if merge.cues_without_pad > 0 {
+            writeln!(
+                standard_error,
+                "Left out {} on no hot cue pad: VirtualDJ has no memory cues.",
+                output::counted(merge.cues_without_pad, "cue", "cues")
+            )?;
+        }
+    }
+    if !skipped.is_empty() {
+        output::write_skipped_summary(&mut standard_error, skipped.len())?;
+    }
+    if !arguments.dry_run && !merge.updated.is_empty() {
+        output::write_import_steps(&mut standard_error, &theme, Program::VirtualDj)?;
+    }
+    drop(standard_error);
+
+    if let Some(store_error) = store_error {
+        return Err(with_causes(store_error).context("some results were not saved to the cache"));
+    }
+    Ok(if merge.updated.is_empty() || !skipped.is_empty() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     })
 }
 
@@ -923,6 +1240,7 @@ fn unmatched_cued_tracks_message(
         Program::Rekordbox => "Export the collection from rekordbox on this computer",
         Program::Traktor => "Use the collection of Traktor on this computer",
         Program::Engine => "Use the library of Engine DJ on this computer",
+        Program::VirtualDj => "Use the database of VirtualDJ on this computer",
     };
     message.push_str(&format!(
         "\nNothing was written. {source}, or relocate or remove those tracks in {name}. If \
