@@ -74,6 +74,7 @@ The full documentation is in [docs](docs/index.md):
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md) and [to Traktor](docs/guides/export-to-traktor.md)
 - [DJ program support](docs/reference/dj-program-support.md)
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
+- [Find and export mashups in the desktop app](docs/guides/mashups.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
 - [Accuracy](docs/concepts/accuracy.md)
 - [Audio quality](docs/concepts/audio-quality.md)
