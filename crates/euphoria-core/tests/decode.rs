@@ -113,6 +113,26 @@ fn decodes_alac_exactly_with_its_bit_depth() {
 }
 
 #[test]
+fn decodes_24_bit_alac_with_its_bit_depth() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("quality-fixtures")
+        .join("sine-440hz-mono-alac-24.m4a");
+    let audio = decode_mono(&fixture).expect("the fixture decodes");
+    assert_eq!(audio.sample_rate().get(), FIXTURE_SAMPLE_RATE);
+    let duration = audio.duration_seconds();
+    assert!(
+        (duration - FIXTURE_DURATION_SECONDS).abs() < DURATION_TOLERANCE_SECONDS,
+        "decoded to {duration} seconds"
+    );
+    let report = analyze_quality(&fixture).expect("the fixture decodes");
+    assert_eq!(report.codec, "alac");
+    assert!(report.lossless);
+    assert_eq!(report.bit_depth, Some(24));
+    assert_eq!(report.verdict, QualityVerdict::Lossless);
+}
+
+#[test]
 fn decodes_ogg_vorbis() {
     let audio = assert_decodes_to_one_second_tone("sine-440hz-mono.ogg");
     // A lossy encoding of the tone keeps its level.

@@ -20,11 +20,15 @@ of 0.125, generated with ffmpeg's `sine` source. The integration tests in
 The opposite-phase file mixes down to silence, which shows that the decoder
 averages channels. The stereo WAV and the AIFF use 8-bit samples, and the
 opposite-phase file uses FLAC, to keep the fixtures under 300 KB in total.
+`../quality-fixtures` holds files that prove a quality-report line end to
+end, such as a 24-bit ALAC stream for the cookie parser. They live outside
+this folder too, so that tests that scan it keep finding the ten files.
 
 ## Tagged fixtures
 
 `../tagged-fixtures` holds one file per format with the title "Low Tide" and the artist "Saffron & Co", for the tests of tag reading in `tests/tags.rs`. Each is a quarter of a second of the same tone at 8 kHz. They live outside this folder so that tests that scan it keep finding the ten files above.
 
+Run these commands from `../tagged-fixtures` to regenerate them:
 Run these commands from `../tagged-fixtures` to regenerate them:
 
 ```sh
