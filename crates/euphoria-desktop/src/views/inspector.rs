@@ -162,6 +162,7 @@ pub(crate) fn render(
             Some(220.0),
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
+        .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
@@ -173,7 +174,6 @@ pub(crate) fn render(
         .children(
             cue_section(track, app, room, cx).map(|section| sized(divided(section), Some(280.0))),
         )
-        .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
         .children(quality(track, &palette).map(|section| sized(divided(section), Some(280.0))))
         .children(mixes(app, room, cx).map(|section| sized(divided(section), Some(300.0))))
