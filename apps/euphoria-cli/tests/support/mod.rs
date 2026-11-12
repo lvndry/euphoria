@@ -74,7 +74,7 @@ impl Euphoria {
 }
 
 pub fn fixtures_directory() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures")
 }
 
 #[allow(dead_code)]

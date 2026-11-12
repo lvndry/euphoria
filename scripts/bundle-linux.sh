@@ -27,7 +27,7 @@ appdir="$output/Euphoria.AppDir"
 binary="$repository/target/release/euphoria-desktop"
 tools="$repository/target/appimage-tools"
 icon_artwork="$repository/assets/logo/app-icon.svg"
-version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/crates/euphoria-desktop/Cargo.toml" | head -n 1)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-desktop/Cargo.toml" | head -n 1)
 architecture=$(uname -m)
 appimagetool_release="1.9.1"
 runtime_release="20251108"
@@ -48,7 +48,7 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 1
 fi
 if [ -z "$version" ]; then
-  echo "error: no version found in crates/euphoria-desktop/Cargo.toml" >&2
+  echo "error: no version found in apps/euphoria-desktop/Cargo.toml" >&2
   exit 1
 fi
 case "$architecture" in
