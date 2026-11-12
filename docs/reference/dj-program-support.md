@@ -20,6 +20,7 @@ Euphoria hands its analysis to a DJ program in one of three ways: a library file
 | Serato DJ | Tags, `--preset serato`, with [`--serato-markers`](../guides/serato-cues.md) for cues and grid | Yes | Only with `--tempo` | With `--serato-markers` | With `--serato-markers`, hot cues 1 to 8, merged with yours | In the comment | **No** |
 | Engine DJ | Tags, `--preset engine-dj` | Yes | Unconfirmed | No | No | In the comment | **No** |
 | Engine DJ | rekordbox XML, through Engine's Import Assistant | Unconfirmed | Unconfirmed | Yes, by Engine's guide | Hot cues, by Engine's guide | Unconfirmed | **No** |
+| VirtualDJ | [database.xml](../guides/export-to-virtualdj.md), `euphoria export virtualdj` | Yes, `Key` of `Tags` and `Scan` | Yes, six decimals of seconds per beat | Yes, `--beat-grid` | Yes, hot cues 1 to 8, `--cues` | In the comment or grouping | **No** |
 | VirtualDJ | Tags, `--preset virtualdj` | Yes, with `useKeyFromTag` | Replaced by VirtualDJ's analysis | No | No | In the comment | **No** |
 | Mixxx | Tags, `--preset mixxx` | Yes | Yes, with decimals | No | No | In the comment | **No** |
 | Any program | [M3U8 playlist](cli.md#euphoria-export-m3u8), `euphoria export m3u8` | No | No | No | No | No | Not needed: a list of paths |

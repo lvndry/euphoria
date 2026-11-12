@@ -791,6 +791,13 @@ pub const TRAKTOR_IMPORT_STEPS: [&str; 3] = [
     "Choose this file. Lock the beat grid or untick BPM before analyzing these tracks.",
 ];
 
+/// What to do in VirtualDJ after its database was updated.
+pub const VIRTUALDJ_IMPORT_STEPS: [&str; 3] = [
+    "Start VirtualDJ. The key, tempo and comment show in the browser.",
+    "VirtualDJ shows keys in the notation of its keyDisplay option.",
+    "To undo, close VirtualDJ and put the backup in place of database.xml.",
+];
+
 /// Writes how to bring an exported file into the program, and where the
 /// full guide is.
 pub fn write_import_steps(
@@ -801,8 +808,14 @@ pub fn write_import_steps(
     let (steps, guide): (&[&str], &str) = match program {
         Program::Rekordbox => (&REKORDBOX_IMPORT_STEPS, "export-to-rekordbox.md"),
         Program::Traktor => (&TRAKTOR_IMPORT_STEPS, "export-to-traktor.md"),
+        Program::VirtualDj => (&VIRTUALDJ_IMPORT_STEPS, "export-to-virtualdj.md"),
     };
-    writeln!(writer, "To import it in {}:", program.name())?;
+    match program {
+        Program::VirtualDj => writeln!(writer, "In {}:", program.name())?,
+        Program::Rekordbox | Program::Traktor => {
+            writeln!(writer, "To import it in {}:", program.name())?;
+        }
+    }
     for (number, step) in steps.iter().enumerate() {
         writeln!(writer, "  {}. {step}", number + 1)?;
     }

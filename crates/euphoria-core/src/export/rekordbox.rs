@@ -639,12 +639,26 @@ pub(crate) fn push_attribute(
     name: &str,
     value: &str,
 ) -> Result<(), EuphoriaError> {
-    if !value.chars().all(is_xml_character) {
-        return Err(EuphoriaError::ExportTextNotXml);
-    }
+    let escaped = escape_attribute_value(value)?;
     document.push(' ');
     document.push_str(name);
     document.push_str("=\"");
+    document.push_str(&escaped);
+    document.push('"');
+    Ok(())
+}
+
+/// `value` as the text between the quotes of an attribute.
+///
+/// # Errors
+///
+/// Returns [`EuphoriaError::ExportTextNotXml`] when the value contains
+/// characters XML 1.0 cannot represent, even as references.
+pub(crate) fn escape_attribute_value(value: &str) -> Result<String, EuphoriaError> {
+    if !value.chars().all(is_xml_character) {
+        return Err(EuphoriaError::ExportTextNotXml);
+    }
+    let mut document = String::with_capacity(value.len());
     for character in value.chars() {
         match character {
             '&' => document.push_str("&amp;"),
@@ -659,8 +673,7 @@ pub(crate) fn push_attribute(
             _ => document.push(character),
         }
     }
-    document.push('"');
-    Ok(())
+    Ok(document)
 }
 
 #[cfg(test)]
