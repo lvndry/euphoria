@@ -156,9 +156,20 @@ impl VoiceState {
 
     /// Changes the key at the current playhead, discarding packets already
     /// decoded in the old key, including while the voice is paused.
+    ///
+    /// The playhead is read while the seek's own lock is held, so the audio
+    /// callback cannot hand out more samples in the old key between reading
+    /// it and the seek dropping the decoded-ahead audio: those frames would
+    /// otherwise be played twice in the new key.
     pub(crate) fn set_shift(&self, semitones: i8) {
         if self.semitones.swap(semitones, Ordering::Relaxed) != semitones {
-            self.seek_to(self.position_seconds());
+            let mut requests = self.lock_seek_requests();
+            let seconds = (self.frames_played.load(Ordering::Relaxed) as f32
+                / self.sample_rate.get() as f32)
+                .max(0.0);
+            requests.for_decoder = Some(seconds);
+            requests.shown = Some(seconds);
+            self.seek_count.fetch_add(1, Ordering::Release);
         }
     }
 
@@ -587,6 +598,11 @@ impl Iterator for TrackSource {
             .next_sample
             .is_multiple_of(usize::from(self.channel_count.get()))
         {
+            // A change of shift reads this counter while the same lock is
+            // held, so the frames handed out and the seek it asks for stay
+            // in one piece. The lock is taken only at a frame boundary
+            // (channel_count samples in), not per individual sample.
+            let _counting_the_frame = self.state.lock_seek_requests();
             self.state.frames_played.fetch_add(1, Ordering::Relaxed);
         }
         Some(sample)
