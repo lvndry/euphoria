@@ -615,7 +615,7 @@ fn a_tempo_that_writes_zero_at_six_decimals_is_refused() {
         0.0,
         -120.0,
         0.000_000_1,
-        0.000_000_4_9,
+        0.000_000_49,
         f64::MIN_POSITIVE,
         f64::INFINITY,
     ] {
@@ -676,6 +676,29 @@ fn xml_whitespace_in_file_names_is_preserved() {
         .descendants()
         .find(|node| node.has_tag_name("LOCATION"))
         .expect("the export has the expected element or value");
+    assert_eq!(location.attribute("FILE"), Some(file));
+}
+
+#[test]
+fn supplementary_xml_characters_are_preserved_and_metadata_controls_are_removed() {
+    // XML 1.0 Char permits the full supplementary range, including these
+    // discouraged noncharacters: https://www.w3.org/TR/xml/#charsets.
+    let file = "name\u{1FFFE}\u{10FFFF}.mp3";
+    let library = one_track(Track {
+        title: Some("Title\u{1}\u{1FFFE}\u{10FFFF}".to_string()),
+        ..Track::new(format!("/Music/{file}"), Duration::from_secs(1))
+    });
+    let text = export(&library, &options());
+    let document = roxmltree::Document::parse(&text).expect("the export is well formed XML 1.0");
+    let entry = document
+        .descendants()
+        .find(|node| node.has_tag_name("ENTRY"))
+        .expect("the track is exported");
+    assert_eq!(entry.attribute("TITLE"), Some("Title\u{1FFFE}\u{10FFFF}"));
+    let location = entry
+        .children()
+        .find(|node| node.has_tag_name("LOCATION"))
+        .expect("the track has a location");
     assert_eq!(location.attribute("FILE"), Some(file));
 }
 

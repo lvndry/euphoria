@@ -244,6 +244,10 @@ pub fn key_from_musical_key_value(value: u8) -> Option<Key> {
 /// already; dj-data-converter does the same. A track with a tempo and a
 /// first beat gets a grid marker at that beat.
 ///
+/// Metadata follows [`super::rekordbox::write_xml`]: characters XML 1.0
+/// cannot represent are removed from titles, comments and other names.
+/// Paths are checked separately and are never changed to remove characters.
+///
 /// # Errors
 ///
 /// Returns [`EuphoriaError::Export`] when a track path is not an absolute

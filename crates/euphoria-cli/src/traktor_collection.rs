@@ -117,18 +117,28 @@ fn has_cues_of_its_own(entry: roxmltree::Node<'_, '_>) -> bool {
 /// `C:` is a Windows drive. On a Mac, `startup_volume` is the root and any
 /// other volume is under `/Volumes`.
 fn local_path(volume: &str, directory: &str, file: &str, startup_volume: &str) -> Option<PathBuf> {
-    if file.is_empty() {
+    let volume_bytes = volume.as_bytes();
+    let windows =
+        volume_bytes.len() == 2 && volume_bytes[0].is_ascii_alphabetic() && volume_bytes[1] == b':';
+    let component = |part: &str| {
+        !part.is_empty()
+            && !matches!(part, "." | "..")
+            && !part.contains('/')
+            && !(windows && part.contains('\\'))
+    };
+    if !component(file) || (!volume.is_empty() && !component(volume)) {
         return None;
     }
-    let folders: Vec<&str> = directory
-        .split("/:")
-        .filter(|folder| !folder.is_empty())
-        .collect();
-    let volume_bytes = volume.as_bytes();
-    let mut path = if volume_bytes.len() == 2
-        && volume_bytes[0].is_ascii_alphabetic()
-        && volume_bytes[1] == b':'
-    {
+    let after_root = directory.strip_prefix("/:")?;
+    let folders: Vec<&str> = if after_root.is_empty() {
+        Vec::new()
+    } else {
+        after_root.strip_suffix("/:")?.split("/:").collect()
+    };
+    if !folders.iter().all(|folder| component(folder)) {
+        return None;
+    }
+    let mut path = if windows {
         format!("{volume}/")
     } else if volume == startup_volume || volume.is_empty() {
         String::from("/")
@@ -214,6 +224,73 @@ mod tests {
             Some(PathBuf::from("/Volumes/Macintosh HD/Users/dj/a.mp3"))
         );
         assert_eq!(local_path("C:", "/:", "", "Studio"), None);
+    }
+
+    #[test]
+    fn location_components_cannot_change_their_stated_directory_or_volume() {
+        for (volume, directory, file) in [
+            ("USB", "/:Music/:../:", "track.mp3"),
+            ("USB", "/:./:", "track.mp3"),
+            ("USB", "/:Music/:", "../track.mp3"),
+            ("USB", "/:Music/:", "nested/track.mp3"),
+            ("../USB", "/:", "track.mp3"),
+            ("..", "/:", "track.mp3"),
+            ("USB", "/:Music/", "track.mp3"),
+            ("USB", "/:/:Music/:", "track.mp3"),
+            ("C:", "/:Music/:", "..\\track.mp3"),
+            ("C:", "/:..\\Music/:", "track.mp3"),
+        ] {
+            assert_eq!(local_path(volume, directory, file, "Studio"), None);
+        }
+        assert_eq!(
+            local_path("USB", "/:Music:Live/:", "back\\slash.mp3", "Studio"),
+            Some(PathBuf::from("/Volumes/USB/Music:Live/back\\slash.mp3"))
+        );
+        assert_eq!(
+            local_path("C:", "/:Music/:", "track.mp3", "Studio"),
+            Some(PathBuf::from("C:/Music/track.mp3"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_locations_cannot_protect_a_different_existing_file() {
+        let scratch =
+            std::env::temp_dir().join(format!("euphoria-traktor-location-{}", std::process::id()));
+        std::fs::create_dir_all(scratch.join("nested")).unwrap();
+        let track = scratch.join("track.mp3");
+        std::fs::write(&track, b"scratch audio").unwrap();
+        let directory = format!(
+            "/:{}/:",
+            scratch
+                .to_str()
+                .unwrap()
+                .trim_start_matches('/')
+                .replace('/', "/:")
+        );
+        let collection = scratch.join("collection.nml");
+        let document = |directory: &str, file: &str| {
+            format!(
+                r#"<NML><COLLECTION><ENTRY TITLE="Cued"><LOCATION VOLUME="Studio" DIR="{directory}" FILE="{file}"/><CUE_V2 TYPE="0" NAME="Drop"/></ENTRY></COLLECTION></NML>"#
+            )
+        };
+        std::fs::write(&collection, document(&directory, "track.mp3")).unwrap();
+        let valid = tracks_with_cues(&collection, "Studio").unwrap();
+        assert!(valid.paths.contains(&track.canonicalize().unwrap()));
+        assert!(valid.unmatched.is_empty());
+        for (directory, file) in [
+            (format!("{directory}nested/:../:"), "track.mp3"),
+            (format!("{directory}nested/:"), "../track.mp3"),
+        ] {
+            std::fs::write(&collection, document(&directory, file)).unwrap();
+            let malformed = tracks_with_cues(&collection, "Studio").unwrap();
+            assert!(
+                malformed.paths.is_empty(),
+                "{directory} {file}: {malformed:?}"
+            );
+            assert_eq!(malformed.unmatched.len(), 1);
+        }
+        std::fs::remove_dir_all(scratch).unwrap();
     }
 
     #[test]

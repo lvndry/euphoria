@@ -17,11 +17,12 @@ It is an open alternative to paid harmonic mixing tools such as Mixed In Key.
 - Measures how far a track is tuned from A = 440 Hz and follows its key over time, both in the JSON output.
 - Analyzes whole folders from the command line, as a table or as JSON.
 - Exports keys, tempos, energy ratings and a playlist per folder to rekordbox, with `euphoria export rekordbox`.
+- Exports keys, tempos, beat grids, cues and playlists to a Traktor NML collection, with `euphoria export traktor`. Importing it in Traktor has not yet been tested.
 - Writes key, tempo and energy into the tags of your files, with `euphoria tags write`. Every change is shown first, nothing else in the file changes, and `euphoria tags undo` puts the old tags back.
 - Reads MP3, M4A (AAC), FLAC, WAV and AIFF.
 - Shows your library in a desktop app with a sortable track table, waveforms and suggestions for tracks that mix together. The app is [downloadable for macOS](getting-started/installation.md#download-for-macos).
 
-Exports for other DJ software are in development.
+Exports for Serato and Engine DJ are in development.
 
 ## Where to start
 
