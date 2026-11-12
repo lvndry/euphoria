@@ -262,7 +262,7 @@ impl EuphoriaApp {
         let done = Arc::new(AtomicUsize::new(0));
         let playlists = self.session.playlist_saver();
         if let Some(saver) = &playlists {
-            saver.register(self.session.playlists());
+            saver.register(self.session.playlists(), self.session.favorites());
         }
         self.tag_panel = Some(TagPanel::Writing {
             done: done.clone(),
@@ -289,6 +289,9 @@ impl EuphoriaApp {
                 if let Some(saver) = this.session.playlist_saver() {
                     this.session
                         .playlists_mut()
+                        .follow_rewrite_history(&saver.rewrites());
+                    this.session
+                        .favorites_mut()
                         .follow_rewrite_history(&saver.rewrites());
                 } else {
                     this.session
@@ -353,7 +356,7 @@ impl EuphoriaApp {
         let cache = self.session.cache();
         let playlists = self.session.playlist_saver();
         if let Some(saver) = &playlists {
-            saver.register(self.session.playlists());
+            saver.register(self.session.playlists(), self.session.favorites());
         }
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -368,6 +371,9 @@ impl EuphoriaApp {
                     if let Some(saver) = this.session.playlist_saver() {
                         this.session
                             .playlists_mut()
+                            .follow_rewrite_history(&saver.rewrites());
+                        this.session
+                            .favorites_mut()
                             .follow_rewrite_history(&saver.rewrites());
                     } else {
                         this.session

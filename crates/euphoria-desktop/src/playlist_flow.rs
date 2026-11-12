@@ -59,6 +59,7 @@ impl EuphoriaApp {
             return;
         }
         self.playlist = Some(id);
+        self.showing_favorites = false;
         self.filter = LibraryFilter::AllTracks;
         self.folder = None;
         self.sort_order = None;
@@ -310,7 +311,7 @@ impl EuphoriaApp {
             .follow_rewrite_history(&history);
         let rewrite_epoch = history.len();
         let playlists = self.session.playlists();
-        saver.register(playlists);
+        saver.register(playlists, self.session.favorites());
         let revision = playlists.revision();
         let mut snapshot = playlists.clone();
         let cache = self.session.cache();
@@ -361,7 +362,22 @@ impl EuphoriaApp {
         let Some(playlist) = self.session.playlists().get(id) else {
             return;
         };
-        let suggested = format!("{}.{}", file_name_for(&playlist.name), format.extension());
+        let name = playlist.name.clone();
+        self.export_tracks(&name, format, cx, move |this| {
+            this.playlist_export_job(id, format)
+        });
+    }
+
+    /// Asks where to save an export named `name`, then writes there what
+    /// `job` works out from the library as it is by then.
+    pub(crate) fn export_tracks(
+        &mut self,
+        name: &str,
+        format: PlaylistFormat,
+        cx: &mut Context<'_, Self>,
+        job: impl FnOnce(&Self) -> Option<PlaylistExport> + 'static,
+    ) {
+        let suggested = format!("{}.{}", file_name_for(name), format.extension());
         let directory = dirs_home().unwrap_or_else(|| PathBuf::from("/"));
         let chosen = cx.prompt_for_new_path(&directory, Some(&suggested));
         cx.spawn(async move |this, cx| {
@@ -377,7 +393,7 @@ impl EuphoriaApp {
                     return;
                 }
             };
-            let Ok(job) = this.update(cx, |this, _| this.playlist_export_job(id, format)) else {
+            let Ok(job) = this.update(cx, |this, _| job(this)) else {
                 return;
             };
             let Some(job) = job else {
@@ -407,9 +423,25 @@ impl EuphoriaApp {
     ) -> Option<PlaylistExport> {
         let playlists = self.session.playlists();
         let playlist = playlists.get(id)?;
+        Some(
+            self.export_job(&playlist.name, &playlist.tracks, format, |path| {
+                playlists.content_of(path)
+            }),
+        )
+    }
+
+    /// What exporting the tracks at `paths`, in order, as a playlist named
+    /// `name` writes, worked out from the library as it is now.
+    /// `content_of` gives the content each track had when it was added.
+    pub(crate) fn export_job(
+        &self,
+        name: &str,
+        paths: &[PathBuf],
+        format: PlaylistFormat,
+        content_of: impl Fn(&Path) -> Option<euphoria_core::ContentHash>,
+    ) -> PlaylistExport {
         let library = self.session.library();
-        let tracks = playlist
-            .tracks
+        let tracks = paths
             .iter()
             .filter_map(|path| {
                 library
@@ -418,7 +450,7 @@ impl EuphoriaApp {
             })
             .map(|track| ExportedTrack {
                 path: track.path.clone(),
-                content: playlists.content_of(&track.path),
+                content: content_of(&track.path),
                 analysis: track
                     .analysis()
                     .map(|analysis| track.correction.apply(analysis.clone())),
@@ -428,16 +460,15 @@ impl EuphoriaApp {
                 },
             })
             .collect();
-        Some(PlaylistExport {
-            name: playlist.name.clone(),
+        PlaylistExport {
+            name: name.to_string(),
             format,
             tracks,
-            not_in_library: playlist
-                .tracks
+            not_in_library: paths
                 .iter()
                 .filter(|path| library.index_of(path).is_none())
                 .count(),
-        })
+        }
     }
 }
 

@@ -25,6 +25,8 @@ pub mod energy;
 pub mod error;
 /// Writing analysis results in the formats of other DJ software.
 pub mod export;
+/// Starred tracks and marked transitions, kept with the playlists.
+pub mod favorites;
 /// Key relations and ranking of the tracks that mix into another.
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
@@ -80,6 +82,7 @@ pub use export::{
     playlist_count, playlists_from_folders, render_corrections_jsonl, render_m3u8,
     write_corrections_file, write_m3u8_file,
 };
+pub use favorites::{FavoriteTransition, StoredFavorites};
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };

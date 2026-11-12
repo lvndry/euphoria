@@ -24,6 +24,7 @@ use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::by_ear;
 use crate::views::cues;
+use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
@@ -154,7 +155,12 @@ pub(crate) fn render(
     };
 
     container
-        .child(sized(summary(track, &palette), Some(220.0)))
+        .child(sized(
+            summary(track, &palette)
+                .child(div().flex_1())
+                .child(track_star(app, cx)),
+            Some(220.0),
+        ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
         .child(sized(stems::section(track, app, cx), None))
         .children(
@@ -176,6 +182,29 @@ pub(crate) fn render(
         })
         .test_support()
         .into_any_element()
+}
+
+/// The star of the selected track.
+fn track_star(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl IntoElement {
+    let is_starred = app
+        .selected_track()
+        .is_some_and(|track| app.session.favorites().is_starred(&track.path));
+    star_button(
+        "inspector-star",
+        is_starred,
+        if is_starred {
+            "Take the star off (F)"
+        } else {
+            "Star (F)"
+        },
+        &app.theme.palette,
+    )
+    .on_click(cx.listener(|this, _, _, cx| {
+        if let Some(index) = this.selected {
+            this.toggle_star_on_track(index, cx);
+        }
+    }))
+    .test_support()
 }
 
 /// Cover placeholder, file name, folder and format.
@@ -728,11 +757,18 @@ fn cue_section(
     Some(cues::section(track, app, list_height, cx))
 }
 
-/// The tracks in the library that mix with the selected one.
+/// What a marked transition whose keys do not mix by the rules says in
+/// place of its key relation.
+const YOUR_TRANSITION: &str = "Your mix";
+
+/// The tracks in the library that mix with the selected one, the marked
+/// transitions out of it first.
 fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
     let theme = &app.theme;
     let palette = theme.palette;
-    app.selected_track()?.key()?;
+    if app.selected_track()?.key().is_none() && app.mixes.is_empty() {
+        return None;
+    }
 
     let shown_count = room.mix_count(app.mixes.len());
     let rows: Vec<Stateful<Div>> = app
@@ -742,6 +778,30 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
         .filter_map(|mix| {
             let track_index = mix.track_index;
             let track = app.session.library().track(track_index)?;
+            let note: Option<SharedString> = app
+                .selected_track()
+                .and_then(|selected| {
+                    app.session
+                        .favorites()
+                        .transition(&selected.path, &track.path)
+                })
+                .and_then(|transition| transition.note.clone())
+                .map(Into::into);
+            let star = star_button(
+                ("mix-star", track_index),
+                mix.is_favorite,
+                if mix.is_favorite {
+                    "Take the mark off this transition"
+                } else {
+                    "Mark this transition as a favorite"
+                },
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_transition_from_selected(track_index, cx);
+                cx.stop_propagation();
+            }))
+            .test_support();
             Some(
                 div()
                     .id(("mix", track_index))
@@ -756,6 +816,10 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select_and_reveal(track_index, cx);
                     }))
+                    .when_some(note, |row, note| {
+                        row.tooltip(move |window, cx| Tooltip::new(note.clone()).build(window, cx))
+                    })
+                    .child(star)
                     .child(
                         div().flex().flex_shrink_0().w(px(38.0)).children(
                             track
@@ -787,7 +851,10 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                             .w(px(62.0))
                             .text_size(SMALL_TEXT_SIZE)
                             .text_color(palette.text_tertiary)
-                            .child(mix.relation.label()),
+                            .child(
+                                mix.relation
+                                    .map_or(YOUR_TRANSITION, |relation| relation.label()),
+                            ),
                     ),
             )
         })

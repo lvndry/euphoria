@@ -12,5 +12,5 @@ pub use mix::{
     DEFAULT_MAX_TEMPO_DIFFERENCE_PERCENT, MixMatch, MixOptions, MixTrack, TempoFit, TempoScaling,
     TrackFeatures, mixes_into,
 };
-pub use next::{EnergyDirection, next_tracks};
+pub use next::{EnergyDirection, next_tracks, next_tracks_favoring};
 pub use relation::Relation;

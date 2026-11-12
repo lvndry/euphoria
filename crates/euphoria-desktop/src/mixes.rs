@@ -8,6 +8,7 @@
 use euphoria_core::harmony::{MixOptions, MixTrack, Relation, mixes_into};
 use euphoria_core::{Key, Mode};
 
+use crate::favorites::Favorites;
 use crate::library::{Library, Track};
 
 impl MixTrack for Track {
@@ -29,11 +30,16 @@ impl MixTrack for Track {
 pub(crate) struct MixSuggestion {
     /// Index of the suggested track in the library.
     pub(crate) track_index: usize,
-    /// How its key relates to the selected track's key.
-    pub(crate) relation: Relation,
+    /// How its key relates to the selected track's key. Only a marked
+    /// transition can have none: its keys do not mix by the rules, but the
+    /// user found they do.
+    pub(crate) relation: Option<Relation>,
     /// How much faster it is than the selected track, in percent, when both
     /// have a tempo.
     pub(crate) tempo_difference_percent: Option<f32>,
+    /// True when the user marked the transition from the selected track
+    /// into this one.
+    pub(crate) is_favorite: bool,
 }
 
 /// A track as it would be with its key shifted, for finding what it mixes
@@ -58,10 +64,12 @@ impl MixTrack for Shifted<'_> {
 }
 
 /// The tracks in the library that mix with the track at `selected_index`
-/// with its key shifted by `semitones`, smoothest first as the core ranks
-/// them, at most `limit` of them.
+/// with its key shifted by `semitones`, at most `limit` of them: first the
+/// transitions out of it the user marked, in the order they were marked,
+/// then the others, smoothest first as the core ranks them.
 pub(crate) fn suggestions(
     library: &Library,
+    favorites: &Favorites,
     selected_index: usize,
     semitones: i8,
     limit: usize,
@@ -69,25 +77,55 @@ pub(crate) fn suggestions(
     let Some(selected) = library.track(selected_index) else {
         return Vec::new();
     };
-    let candidates = library
-        .tracks()
-        .iter()
-        .filter(|candidate| candidate.path != selected.path);
     let shifted = Shifted {
         track: selected,
         semitones,
     };
-    mixes_into(&shifted, candidates, &MixOptions::default())
-        .into_iter()
-        .take(limit)
-        .filter_map(|mix| {
+    let mut suggested: Vec<MixSuggestion> = favorites
+        .transitions_from(&selected.path)
+        .filter_map(|transition| {
+            let track_index = library.index_of(&transition.to)?;
+            let track = library.track(track_index)?;
             Some(MixSuggestion {
-                track_index: library.index_of(&mix.track.path)?,
-                relation: mix.relation,
-                tempo_difference_percent: mix.tempo.map(|tempo| tempo.difference_percent),
+                track_index,
+                relation: shifted
+                    .key()
+                    .zip(track.key())
+                    .and_then(|(from, to)| from.relation_to(&to)),
+                tempo_difference_percent: selected
+                    .bpm()
+                    .zip(track.bpm())
+                    .filter(|(from, _)| *from > 0.0)
+                    .map(|(from, to)| (to / from - 1.0) * 100.0),
+                is_favorite: true,
             })
         })
-        .collect()
+        .collect();
+    if shifted.key().is_none() && suggested.is_empty() {
+        return suggested;
+    }
+    let candidates = library.tracks().iter().filter(|candidate| {
+        candidate.path != selected.path
+            && favorites
+                .transition(&selected.path, &candidate.path)
+                .is_none()
+    });
+    let room = limit.saturating_sub(suggested.len());
+    suggested.extend(
+        mixes_into(&shifted, candidates, &MixOptions::default())
+            .into_iter()
+            .take(room)
+            .filter_map(|mix| {
+                Some(MixSuggestion {
+                    track_index: library.index_of(&mix.track.path)?,
+                    relation: Some(mix.relation),
+                    tempo_difference_percent: mix.tempo.map(|tempo| tempo.difference_percent),
+                    is_favorite: false,
+                })
+            }),
+    );
+    suggested.truncate(limit);
+    suggested
 }
 
 /// Every other key the core counts as mixing with `key` by default.
@@ -147,7 +185,7 @@ mod tests {
             ("in b minor", "B minor", 124.0),
         ]);
         let names = |semitones: i8| -> Vec<String> {
-            suggestions(&library, 0, semitones, 10)
+            suggestions(&library, &Favorites::default(), 0, semitones, 10)
                 .iter()
                 .map(|mix| library.tracks()[mix.track_index].file_name.clone())
                 .collect()
@@ -167,13 +205,13 @@ mod tests {
             ("clashing", "Eb minor", 124.0),
             ("too fast", "A minor", 150.0),
         ]);
-        let suggested = suggestions(&library, 0, 0, 10);
+        let suggested = suggestions(&library, &Favorites::default(), 0, 0, 10);
         let names: Vec<&str> = suggested
             .iter()
             .map(|mix| library.tracks()[mix.track_index].file_name.as_str())
             .collect();
         assert_eq!(names, ["same.flac", "adjacent.flac", "relative.flac"]);
-        assert_eq!(suggested[0].relation, Relation::Same);
+        assert_eq!(suggested[0].relation, Some(Relation::Same));
         let faster = suggested[0].tempo_difference_percent.unwrap();
         assert!((faster - 100.0 / 124.0).abs() < 0.01, "{faster}");
     }
@@ -203,11 +241,42 @@ mod tests {
                 }),
             );
         }
-        let names: Vec<&str> = suggestions(&library, 0, 0, 10)
+        let names: Vec<&str> = suggestions(&library, &Favorites::default(), 0, 0, 10)
             .iter()
             .map(|mix| library.tracks()[mix.track_index].file_name.as_str())
             .collect();
         assert_eq!(names, ["same.flac", "near.flac", "far.flac"]);
+    }
+
+    #[test]
+    fn a_marked_transition_comes_first_even_when_the_keys_clash() {
+        let library = library_of(&[
+            ("selected", "A minor", 124.0),
+            ("same", "A minor", 124.0),
+            ("clashing", "Eb minor", 124.0),
+            ("adjacent", "E minor", 124.0),
+        ]);
+        let mut favorites = Favorites::default();
+        let path_of = |name: &str| PathBuf::from(format!("/music/{name}.flac"));
+        favorites.toggle_transition(&path_of("selected"), &path_of("clashing"));
+        favorites.toggle_transition(&path_of("selected"), &path_of("adjacent"));
+        favorites.toggle_transition(&path_of("same"), &path_of("selected"));
+        let suggested = suggestions(&library, &favorites, 0, 0, 10);
+        let names: Vec<&str> = suggested
+            .iter()
+            .map(|mix| library.tracks()[mix.track_index].file_name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["clashing.flac", "adjacent.flac", "same.flac"],
+            "a transition into the selected track is not one out of it"
+        );
+        assert!(suggested[0].is_favorite && suggested[1].is_favorite);
+        assert!(!suggested[2].is_favorite);
+        assert_eq!(suggested[0].relation, None);
+        assert_eq!(suggested[1].relation, Some(Relation::Adjacent));
+        assert_eq!(suggested[0].tempo_difference_percent, Some(0.0));
+        assert_eq!(suggestions(&library, &favorites, 0, 0, 1).len(), 1);
     }
 
     #[test]
@@ -217,8 +286,11 @@ mod tests {
             ("first", "A minor", 124.0),
             ("second", "A minor", 124.0),
         ]);
-        assert_eq!(suggestions(&library, 0, 0, 1).len(), 1);
-        assert!(suggestions(&library, 99, 0, 10).is_empty());
+        assert_eq!(
+            suggestions(&library, &Favorites::default(), 0, 0, 1).len(),
+            1
+        );
+        assert!(suggestions(&library, &Favorites::default(), 99, 0, 10).is_empty());
     }
 
     #[test]
@@ -226,7 +298,7 @@ mod tests {
         let mut library = library_of(&[("other", "A minor", 124.0)]);
         library.add_files(vec![PathBuf::from("/music/pending.flac")]);
         let pending = library.index_of(Path::new("/music/pending.flac")).unwrap();
-        assert!(suggestions(&library, pending, 0, 10).is_empty());
+        assert!(suggestions(&library, &Favorites::default(), pending, 0, 10).is_empty());
     }
 
     #[test]
