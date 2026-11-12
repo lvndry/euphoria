@@ -43,8 +43,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let counts = app.sidebar_counts();
     let hover_background = palette.raised;
 
-    let in_library =
-        app.playlist.is_none() && !app.set_builder.is_open && !app.showing_favorites;
+    let in_library = app.playlist.is_none() && !app.set_builder.is_open && !app.showing_favorites;
     let favorites_are_current = app.playlist.is_none() && app.showing_favorites;
     let all_tracks_is_current =
         in_library && app.filter == LibraryFilter::AllTracks && app.folder.is_none();
