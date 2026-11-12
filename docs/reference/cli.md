@@ -263,7 +263,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | --- | --- |
 | `-o`, `--output <FILE>` | The file to write. Required. |
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
-| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
+| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
