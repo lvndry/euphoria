@@ -133,7 +133,8 @@ impl TrackAnalysis {
     /// from `canonical`, the grid as analysis fitted it. Pass the grid as it
     /// was stored, not the one already reported in another range: projecting
     /// a projected grid can move the first downbeat, so changing the range
-    /// back and forth would not give the original one.
+    /// back and forth would not give the original one. This keeps the rest
+    /// of the analysis, such as its key timeline, in place.
     pub fn set_tempo_range_from(&mut self, canonical: Option<BeatGrid>, range: TempoRange) {
         let bpm = self.tempo_in(range);
         self.bpm = bpm;
@@ -143,23 +144,6 @@ impl TrackAnalysis {
             Some(bpm) => grid.near_tempo(f64::from(bpm)),
             None => grid.in_tempo_range(range),
         });
-    }
-
-    /// Report [`TrackAnalysis::bpm`] and the beat grid in `range`, editing
-    /// the grid as stored in place. Projecting a grid that is already
-    /// reported in another range can move its first downbeat, so use
-    /// [`TrackAnalysis::set_tempo_range_from`] when the fitted grid is known.
-    pub fn set_tempo_range(&mut self, range: TempoRange) {
-        let bpm = self.tempo_in(range);
-        self.bpm = bpm;
-        if let Some(grid) = &mut self.beat_grid {
-            *grid = match bpm {
-                // Refinement can cross a range edge without changing the
-                // counted beat. Match the reported tempo's nearest octave.
-                Some(bpm) => grid.near_tempo(f64::from(bpm)),
-                None => grid.in_tempo_range(range),
-            };
-        }
     }
 
     /// Half or double the tempo reported in `range`, when a DJ could
