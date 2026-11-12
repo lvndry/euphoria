@@ -53,12 +53,21 @@ Every release is also on the releases page as `Euphoria-<version>-x86_64.AppImag
 
 The app also uses what every desktop provides: X11 or Wayland, Vulkan for drawing (`libvulkan1` and your graphics driver's Vulkan support, which desktop installs include), ALSA, which PulseAudio and PipeWire serve, for playback, and the XDG desktop portal (`xdg-desktop-portal` with the GTK, GNOME or KDE back end) for the folder picker and the save dialog. Without the portal, **Add Folder** says it cannot open the picker; dragging a folder onto the window still works.
 
-To have the app in your launcher, move the AppImage where you keep programs, such as `~/Applications`, and let an AppImage integration tool such as Gear Lever or AppImageLauncher add it, or extract its launcher entry and icon yourself:
+To have the app in your launcher, move the AppImage where you keep programs, such as `~/Applications`, and let an AppImage integration tool such as Gear Lever or AppImageLauncher add it, or extract its launcher entry and icon yourself with Python 3:
 
 ```
 ./Euphoria-x86_64.AppImage --appimage-extract 'usr/share/*'
-cp -r squashfs-root/usr/share/applications squashfs-root/usr/share/icons ~/.local/share/
-sed -i "s|^Exec=.*|Exec=$HOME/Applications/Euphoria-x86_64.AppImage|" ~/.local/share/applications/euphoria.desktop
+mkdir -p "$HOME/.local/share"
+cp -r squashfs-root/usr/share/applications squashfs-root/usr/share/icons "$HOME/.local/share/"
+python3 - <<'PY'
+from pathlib import Path
+
+launcher = Path.home() / ".local/share/applications/euphoria.desktop"
+# The launcher expands HOME at runtime; its value stays one quoted path.
+command = r'Exec=/bin/sh -c "exec \\"\\$HOME/Applications/Euphoria-x86_64.AppImage\\""'
+lines = [command if line.startswith('Exec=') else line for line in launcher.read_text().splitlines()]
+launcher.write_text('\n'.join(lines) + '\n')
+PY
 rm -r squashfs-root
 ```
 
