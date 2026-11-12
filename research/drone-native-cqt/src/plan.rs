@@ -44,6 +44,53 @@ impl Soxr {
         Ok(output)
     }
 }
+/// Explicit host-specific research math library; never a portable fallback.
+pub struct NumpyMath {
+    library: libloading::Library,
+}
+impl NumpyMath {
+    pub fn new(path: &Path) -> Result<Self> {
+        // SAFETY: caller-selected pinned research library; retained for calls.
+        let library = unsafe { libloading::Library::new(path) }?;
+        let result = Self { library };
+        result.log1p(&[])?;
+        Ok(result)
+    }
+    pub fn log1p(&self, input: &[f32]) -> Result<Vec<f32>> {
+        type Log1p = unsafe extern "C" fn(*const f32, *mut f32, usize) -> i32;
+        let mut output = vec![0.0; input.len()];
+        // SAFETY: adjacent svml_wrapper.c defines this ABI and checks CPU/OS
+        // support before any AVX512 execution. Buffers have matching lengths;
+        // zero length is valid and performs only the feature guard.
+        let status = unsafe {
+            let function = self.library.get::<Log1p>(b"cqt_svml_log1p\0")?;
+            function(input.as_ptr(), output.as_mut_ptr(), input.len())
+        };
+        ensure!(
+            status == 0,
+            "Pinned SVML math rejected CPU or input: status {status}"
+        );
+        ensure!(
+            output.iter().all(|v| v.is_finite()),
+            "nonfinite SVML output"
+        );
+        Ok(output)
+    }
+}
+fn numpy_finite_magnitude(re: f32, im: f32) -> Result<f32> {
+    ensure!(
+        re.is_finite() && im.is_finite(),
+        "nonfinite normalized coefficient"
+    );
+    let larger = re.abs().max(im.abs());
+    let smaller = re.abs().min(im.abs());
+    if larger == 0.0 {
+        return Ok(0.0);
+    }
+    let ratio = smaller / larger;
+    Ok(ratio.mul_add(ratio, 1.0).sqrt() * larger)
+}
+
 fn bytes(root: &Path, artifact: &Value) -> Result<Vec<u8>> {
     let path = root
         .join(artifact["path"].as_str().context("artifact path")?)
@@ -119,6 +166,8 @@ pub fn features(
     case: &Value,
     pcm: &[f32],
     soxr: &Soxr,
+    math: Option<&NumpyMath>,
+    numpy_magnitude: bool,
 ) -> Result<(Vec<f32>, usize, Value)> {
     let stages = case["stages"].as_array().context("stages")?;
     let resampling = case["resamplings"].as_array().context("resamples")?;
@@ -197,15 +246,40 @@ pub fn features(
     let lengths = case["normalization"]["lengths"]
         .as_array()
         .context("lengths")?;
-    let mut core = Vec::with_capacity(192 * frames);
+    let mut magnitudes = Vec::with_capacity(192 * frames);
     for bin in 8..200 {
         let scale = lengths[bin].as_f64().context("length")?.sqrt();
         for value in &responses[bin][..frames] {
             let re = (f64::from(value.re) / scale) as f32;
             let im = (f64::from(value.im) / scale) as f32;
-            let logged = re.hypot(im).ln_1p();
-            core.push(half::f16::from_f32(logged).to_f32());
+            magnitudes.push(if numpy_magnitude || math.is_some() {
+                numpy_finite_magnitude(re, im)?
+            } else {
+                re.hypot(im)
+            });
         }
     }
+    let logged = if let Some(math) = math {
+        math.log1p(&magnitudes)?
+    } else {
+        magnitudes.iter().map(|value| value.ln_1p()).collect()
+    };
+    let core = logged
+        .into_iter()
+        .map(|value| half::f16::from_f32(value).to_f32())
+        .collect();
     Ok((core, frames, json!({"resamplings":diagnostics})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn finite_numpy_magnitude_preserves_contract() -> Result<()> {
+        ensure!(numpy_finite_magnitude(0.0, -0.0)?.to_bits() == 0);
+        ensure!(numpy_finite_magnitude(-3.0, 4.0)? == 5.0);
+        ensure!(numpy_finite_magnitude(f32::NAN, 1.0).is_err());
+        ensure!(numpy_finite_magnitude(f32::INFINITY, 0.0).is_err());
+        Ok(())
+    }
 }

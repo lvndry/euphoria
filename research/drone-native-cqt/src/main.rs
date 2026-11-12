@@ -16,6 +16,12 @@ mod owner {
 #[derive(Parser)]
 struct Args {
     #[arg(long)]
+    numpy_magnitude: bool,
+    #[arg(long)]
+    math_library: Option<PathBuf>,
+    #[arg(long)]
+    math_library_sha256: Option<String>,
+    #[arg(long)]
     single_case: bool,
     #[arg(long)]
     expect_manifest_sha256: Option<String>,
@@ -118,8 +124,30 @@ fn main() -> Result<()> {
             .as_str()
             .context("model hash")?,
     )?;
+    if let Some(library) = &args.math_library {
+        ensure!(
+            args.candidate == "exported",
+            "math library is only supported by exported candidate"
+        );
+        check_file(
+            library,
+            args.math_library_sha256
+                .as_deref()
+                .context("math library requires expected SHA256")?,
+        )?;
+    } else {
+        ensure!(
+            args.math_library_sha256.is_none(),
+            "math SHA without library"
+        );
+    }
     let environment = environment(&args.ort_library)?;
     let mut model = Full::new(&environment, &args.full_model)?;
+    let math = args
+        .math_library
+        .as_deref()
+        .map(plan::NumpyMath::new)
+        .transpose()?;
     let root = args.manifest.parent().context("golden root")?;
     let cases = manifest["cases"].as_array().context("cases")?;
     if args.single_case {
@@ -162,7 +190,7 @@ fn main() -> Result<()> {
                     .as_deref()
                     .context("exported requires --soxr-wrapper")?,
             )?;
-            plan::features(root, case, &pcm, &soxr)?
+            plan::features(root, case, &pcm, &soxr, math.as_ref(), args.numpy_magnitude)?
         } else {
             let (values, frames) = owner::features(&pcm);
             (values, frames, json!({}))
@@ -187,7 +215,7 @@ fn main() -> Result<()> {
         eprintln!("{}", row);
         rows.push(row);
     }
-    let result = json!({"format":"k10-native-cqt-feasibility-v1","candidate":args.candidate,"single_case":args.single_case,"passed":passed,"gate":"finite logits; atol=1e-5 rtol=1e-5; zero argmax disagreement; fixed identical-PCM cases","manifest_sha256":file_sha256(&args.manifest)?,"full_model_sha256":file_sha256(&args.full_model)?,"ort_library_sha256":file_sha256(&args.ort_library)?,"executable_sha256":file_sha256(&std::env::current_exe()?)?,"source_sha256":bytes_sha256(include_bytes!("main.rs")),"plan_source_sha256":bytes_sha256(include_bytes!("plan.rs")),"soxr_wrapper_sha256":args.soxr_wrapper.as_ref().map(|p|file_sha256(p)).transpose()?,"owner_source_sha256":owner::identity(),"cases":rows});
+    let result = json!({"format":"k10-native-cqt-feasibility-v1","candidate":args.candidate,"single_case":args.single_case,"numpy_magnitude":args.numpy_magnitude,"passed":passed,"gate":"finite logits; atol=1e-5 rtol=1e-5; zero argmax disagreement; fixed identical-PCM cases","manifest_sha256":file_sha256(&args.manifest)?,"full_model_sha256":file_sha256(&args.full_model)?,"ort_library_sha256":file_sha256(&args.ort_library)?,"executable_sha256":file_sha256(&std::env::current_exe()?)?,"source_sha256":bytes_sha256(include_bytes!("main.rs")),"plan_source_sha256":bytes_sha256(include_bytes!("plan.rs")),"math_library_sha256":args.math_library.as_ref().map(|p|file_sha256(p)).transpose()?,"soxr_wrapper_sha256":args.soxr_wrapper.as_ref().map(|p|file_sha256(p)).transpose()?,"owner_source_sha256":owner::identity(),"cases":rows});
     fs::write(&args.output, serde_json::to_vec_pretty(&result)?)?;
     ensure!(
         passed,
