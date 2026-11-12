@@ -418,6 +418,9 @@ impl Cache {
                 ],
             )?,
         };
+        if let CacheWrite::Store { analysis, .. } = write {
+            edited_cues::reconcile_stored_cues_to_analysis(&transaction, analysis)?;
+        }
         then(&transaction)?;
         transaction.commit()
     }

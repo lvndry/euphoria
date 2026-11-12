@@ -9,7 +9,9 @@
 //! under the content of the file and with no analyzer version, like a
 //! [`Correction`](crate::Correction), so analyzing again never loses it.
 //! Every reader of a track's cues goes through [`TrackCues::of`], which
-//! decides between the two.
+//! decides between the two. The cache keeps a user's set within the track
+//! as soon as its length is recorded, with the same rule, so export, the
+//! command line and the app always agree on which cues exist.
 
 use crate::analysis::TrackAnalysis;
 use crate::detect::{MAXIMUM_CUES, SectionCue};
@@ -127,22 +129,27 @@ impl TrackCues {
     /// Pass the analysis with any [`Correction`](crate::Correction) applied:
     /// a corrected tempo drops the cues analysis placed, which sit on the
     /// grid of the detected tempo, but never the user's.
-    ///
-    /// A cue of the user's past the end of the track, kept from before the
-    /// file was cut shorter or stored by another program, is left out: it
-    /// marks no audio.
     pub fn of(analysis: &TrackAnalysis, edited: Option<Vec<Cue>>) -> Self {
         match edited {
-            Some(cues) => {
-                let end = f64::from(analysis.duration_seconds);
-                Self::edited(
-                    cues.into_iter()
-                        .filter(|cue| end.is_nan() || end <= 0.0 || cue.seconds <= end)
-                        .collect(),
-                )
-            }
+            Some(cues) => Self::within(cues, f64::from(analysis.duration_seconds)),
             None => Self::automatic(&analysis.cues),
         }
+    }
+
+    /// The user's cues within a track `duration_seconds` long, in order of
+    /// time: a cue past the end is left out, because it marks no audio. A
+    /// duration that is not one, such as one not yet recorded, keeps every
+    /// cue, to be filtered when it is known.
+    pub fn within(cues: Vec<Cue>, duration_seconds: f64) -> Self {
+        Self::edited(
+            cues.into_iter()
+                .filter(|cue| {
+                    duration_seconds.is_nan()
+                        || duration_seconds <= 0.0
+                        || cue.seconds <= duration_seconds
+                })
+                .collect(),
+        )
     }
 
     /// True when the user set these cues.
@@ -169,6 +176,7 @@ pub fn check_cues(cues: &[Cue]) -> Result<(), EuphoriaError> {
     let mut taken = [false; MAXIMUM_CUES];
     for hot_cue in cues.iter().filter_map(|cue| cue.hot_cue) {
         let pad = usize::from(hot_cue.pad());
+
         if taken[pad] {
             return Err(EuphoriaError::InvalidCues {
                 reason: "two cues are on the same hot cue pad",
@@ -338,6 +346,21 @@ mod tests {
         assert_eq!(
             TrackCues::of(&analysis_with_cues(), Some(past_the_end)).cues,
             vec![cue(12.0, "Intro", Some('A'))]
+        );
+    }
+
+    #[test]
+    fn within_keeps_every_cue_without_a_duration_and_is_the_same_rule_as_of() {
+        let cues = vec![cue(12.0, "Intro", Some('A')), cue(999.0, "Lost", Some('B'))];
+        assert_eq!(TrackCues::within(cues.clone(), f64::NAN).cues, cues);
+        assert_eq!(TrackCues::within(cues.clone(), 0.0).cues, cues);
+        assert_eq!(
+            TrackCues::within(cues.clone(), 300.0).cues,
+            vec![cue(12.0, "Intro", Some('A'))]
+        );
+        assert_eq!(
+            TrackCues::within(cues.clone(), 300.0).cues,
+            TrackCues::of(&analysis_with_cues(), Some(cues)).cues
         );
     }
 }

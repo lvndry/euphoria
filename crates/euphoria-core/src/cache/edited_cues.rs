@@ -211,6 +211,55 @@ fn stored_text(cues: &[Cue]) -> serde_json::Result<String> {
     serde_json::to_string(&stored)
 }
 
+/// Reconciles the stored cues of every content whose length `analysis` is
+/// now recorded, keeping each set within the track with the same rule
+/// [`TrackCues::of`] applies on read, so no consumer can serve or export a
+/// cue past the end of a track the cache has measured. Runs in the
+/// transaction that records the analysis. A duration that is not a positive
+/// number of seconds is no measurement, and the sets are left as stored.
+///
+/// # Errors
+///
+/// As [`Cache::edited_cues_of`].
+pub(crate) fn reconcile_stored_cues_to_analysis(
+    connection: &rusqlite::Connection,
+    analysis: &TrackAnalysis,
+) -> rusqlite::Result<()> {
+    let end = f64::from(analysis.duration_seconds);
+    if !(end.is_finite() && end > 0.0) {
+        return Ok(());
+    }
+    let hashes: Vec<Vec<u8>> = connection
+        .prepare(
+            "SELECT DISTINCT content_hash FROM edited_cues
+             WHERE content_hash IN (SELECT content_hash FROM analyses)",
+        )?
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for content_hash in hashes {
+        let stored: String = connection.query_row(
+            "SELECT cues FROM edited_cues WHERE content_hash = ?1",
+            params![content_hash],
+            |row| row.get(0),
+        )?;
+        let Some(cues) = parse_stored(&stored) else {
+            // The set is reported to the user as unread when it is read
+            // back, so it is left as stored here.
+            continue;
+        };
+        let Ok(current) = stored_text(&TrackCues::within(cues, end).cues) else {
+            continue;
+        };
+        if current != stored {
+            connection.execute(
+                "UPDATE edited_cues SET cues = ?2 WHERE content_hash = ?1",
+                params![content_hash, current],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn parse_stored(text: &str) -> Option<Vec<Cue>> {
     let stored: Vec<StoredCue> = serde_json::from_str(text).ok()?;
     let cues = stored
@@ -303,6 +352,48 @@ mod tests {
         assert_eq!(
             open(&folder).verified_edited_cues_for(&moved).unwrap(),
             Some(edited())
+        );
+    }
+
+    #[test]
+    fn cues_stored_before_the_length_is_recorded_are_kept_within_it() {
+        let folder = TemporaryFolder::new();
+        let track = track_in(&folder);
+        let mut cache = open(&folder);
+
+        // No analysis yet, so the length is unknown and the 999 s cue is
+        // kept.
+        let cues = vec![
+            Cue {
+                seconds: 16.25,
+                name: "Vocal".to_string(),
+                hot_cue: HotCue::from_letter('C'),
+            },
+            Cue {
+                seconds: 999.0,
+                name: "Past the end".to_string(),
+                hot_cue: None,
+            },
+        ];
+        cache.set_edited_cues(&track, Some(&cues)).unwrap();
+        assert_eq!(cache.edited_cues_for(&track).unwrap().unwrap().len(), 2);
+
+        // The analysis records the length: the cue past the end is dropped
+        // from the stored set, and what is read back is the same set the
+        // display would show.
+        cache.record_retagged_file(&track, &analysis()).unwrap();
+        let stored = cache.edited_cues_for(&track).unwrap().unwrap();
+        assert_eq!(
+            stored,
+            vec![Cue {
+                seconds: 16.25,
+                name: "Vocal".to_string(),
+                hot_cue: HotCue::from_letter('C'),
+            }]
+        );
+        assert_eq!(
+            cache.track_cues_for(&track, &analysis()).unwrap().cues,
+            stored
         );
     }
 

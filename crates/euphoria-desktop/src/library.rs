@@ -147,9 +147,16 @@ impl Track {
 
     /// The cues of the track: the user's set when there is one, and
     /// otherwise those analysis placed on the grid of the detected tempo.
+    /// A user's cue past the end of the analyzed track is left out, the
+    /// same rule as [`TrackCues::of`]; until the track has an analysis
+    /// every cue of the set is shown, to be dropped once the length is
+    /// known.
     pub(crate) fn cues(&self) -> TrackCues {
+        let duration = self
+            .analysis()
+            .map(|analysis| f64::from(analysis.duration_seconds));
         match (&self.edited_cues, self.analysis()) {
-            (Some(edited), _) => TrackCues::edited(edited.clone()),
+            (Some(edited), _) => TrackCues::within(edited.clone(), duration.unwrap_or(f64::NAN)),
             (None, Some(analysis)) if self.correction.bpm.is_none() => {
                 TrackCues::automatic(&analysis.cues)
             }
@@ -1521,5 +1528,36 @@ mod tests {
             elapsed < std::time::Duration::from_secs(3),
             "10,000 tracks took {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn a_user_cue_past_the_end_is_hidden_once_the_track_is_analyzed() {
+        let mut library = Library::default();
+        let path = Path::new("/music/techno/Undertow.wav");
+        let cues = vec![
+            Cue {
+                seconds: 12.0,
+                name: "Intro".to_string(),
+                hot_cue: Some(euphoria_core::HotCue::from_letter('A').unwrap()),
+            },
+            Cue {
+                seconds: 999.0,
+                name: "Past the end".to_string(),
+                hot_cue: None,
+            },
+        ];
+
+        // Without an analysis the length is unknown and every cue of the
+        // set is shown.
+        library.add_files(vec![path.to_path_buf()]);
+        library.set_edited_cues(path, Some(cues.clone()));
+        let track = library.track_by_path(path).unwrap();
+        assert_eq!(track.cues().cues, cues);
+
+        // The analysis records the length, and the cue past the end of the
+        // 370 s track is left out, the same rule as TrackCues::of.
+        library.record_outcome(path, Ok(analysis(None, None, 370.0)));
+        let shown = library.track_by_path(path).unwrap().cues().cues;
+        assert_eq!(shown, cues[..1].to_vec());
     }
 }

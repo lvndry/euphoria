@@ -1828,3 +1828,69 @@ fn unreadable_saved_cues_are_reported_as_unchecked_edits() {
     assert!(!errors.contains("key or tempo"), "{errors}");
     assert!(!output.exists(), "the unchecked track is not exported");
 }
+
+#[test]
+fn cues_saved_before_the_analysis_are_kept_within_the_track_on_every_surface() {
+    let euphoria = Euphoria::new();
+    let music = TemporaryFolder::new();
+    let track = music.path().join("track.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
+        .expect("the fixture is copied");
+    // The cache knows no length yet, so both cues are stored.
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .set_edited_cues(
+            &track,
+            Some(&[
+                euphoria_core::Cue {
+                    seconds: 0.5,
+                    name: "In the track".to_string(),
+                    hot_cue: None,
+                },
+                euphoria_core::Cue {
+                    seconds: 999.0,
+                    name: "Past the end".to_string(),
+                    hot_cue: None,
+                },
+            ]),
+        )
+        .expect("the cues are saved");
+
+    // Analyzing records the 1 s length, and the cue past the end is kept
+    // out of the stored set.
+    let json = euphoria.run(&["analyze", "--json", text(&track)]);
+    assert_success(&json);
+    let report = String::from_utf8_lossy(&json.stdout).into_owned();
+    assert!(report.contains("\"In the track\""), "{report}");
+    assert!(!report.contains("\"Past the end\""), "{report}");
+    let stored = euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .edited_cues_for(&track)
+        .expect("the cues are read")
+        .expect("a set is stored");
+    assert_eq!(stored.len(), 1, "{stored:?}");
+
+    // Export shows the same set as the report.
+    let collection = music.path().join("empty-collection.xml");
+    std::fs::write(
+        &collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let output = music.path().join("library.xml");
+    let exported = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&output),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+    ]);
+    assert_success(&exported);
+    let xml = std::fs::read_to_string(&output).expect("the export is read");
+    assert!(xml.contains("In the track"), "{xml}");
+    assert!(!xml.contains("Past the end"), "{xml}");
+}
