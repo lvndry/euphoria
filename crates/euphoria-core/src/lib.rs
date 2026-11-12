@@ -27,7 +27,8 @@ pub mod error;
 pub mod export;
 /// Starred tracks and marked transitions, kept with the playlists.
 pub mod favorites;
-/// Key relations and ranking of the tracks that mix into another.
+/// Key relations, ranking of the tracks that mix into another, and sets
+/// ordered along an energy curve.
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
 pub mod key;
@@ -84,7 +85,9 @@ pub use export::{
 };
 pub use favorites::{FavoriteTransition, StoredFavorites};
 pub use harmony::{
-    MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
+    CurvePreset, Deviation, EnergyCurve, LeftOut, MissingFeature, MixMatch, MixOptions, MixTrack,
+    Pin, PinPosition, PlannedTrack, Relation, SetError, SetOptions, SetPlan, SetTrack, TempoFit,
+    TempoScaling, TrackFeatures, Transition, build_set, evaluate_set, mixes_into,
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};

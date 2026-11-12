@@ -53,6 +53,8 @@ pub(crate) struct DeckView {
     /// True when sync asks for a tempo the deck cannot play: it plays the
     /// nearest it can.
     pub(crate) tempo_out_of_reach: bool,
+    /// The bars the deck was asked to loop, until it is asked to leave.
+    pub(crate) loop_bars: Option<u32>,
     /// Why the track could not be loaded, when it could not.
     pub(crate) problem: Option<String>,
 }
@@ -184,6 +186,17 @@ impl Decks {
         self.link
             .as_ref()
             .is_some_and(|link| link.meter(deck).is_finished())
+    }
+
+    /// The loop of `deck` in seconds into its track, while it has one,
+    /// including one it is about to start or about to leave.
+    pub(crate) fn loop_seconds(&self, deck: DeckId) -> Option<(f64, f64)> {
+        self.link.as_ref()?.meter(deck).loop_seconds()
+    }
+
+    /// True while `deck` loops `bars` bars and has not been asked to leave.
+    pub(crate) fn is_looping(&self, deck: DeckId, bars: u32) -> bool {
+        self.view(deck).loop_bars == Some(bars) && self.loop_seconds(deck).is_some()
     }
 
     /// True while `deck` waits for the other's downbeat to start.
@@ -372,6 +385,7 @@ impl EuphoriaApp {
         };
         self.decks.view_mut(deck).loading = true;
         self.decks.view_mut(deck).playing = false;
+        self.decks.view_mut(deck).loop_bars = None;
         self.decks.send(DeckCommand::Pause(deck));
         self.decks.load_generation[index(deck)] += 1;
         let generation = self.decks.load_generation[index(deck)];
@@ -477,7 +491,26 @@ impl EuphoriaApp {
         if self.decks.is_finished(deck) {
             self.open_deck_source(deck, seconds, false, cx);
         } else {
+            self.decks.view_mut(deck).loop_bars = None;
             self.decks.send(DeckCommand::Seek { deck, seconds });
+        }
+        cx.notify();
+    }
+
+    /// Loops `bars` bars of `deck` from its next downbeat. Pressed again
+    /// for the same length, the deck plays the loop to its end once more
+    /// and carries on with the track. Needs a beat grid.
+    pub(crate) fn toggle_deck_loop(&mut self, deck: DeckId, bars: u32, cx: &mut Context<'_, Self>) {
+        let view = self.decks.view(deck);
+        if !self.decks.is_open || view.loading || view.problem.is_some() || view.grid.is_none() {
+            return;
+        }
+        let grid = view.grid;
+        let leaving = self.decks.is_looping(deck, bars);
+        let asked = (!leaving).then_some(bars);
+        self.decks.view_mut(deck).loop_bars = asked;
+        if let Some(link) = &self.decks.link {
+            link.set_loop(deck, asked, grid);
         }
         cx.notify();
     }
@@ -503,6 +536,7 @@ impl EuphoriaApp {
             self.open_deck_source(deck, cue.seconds, true, cx);
             return;
         }
+        self.decks.view_mut(deck).loop_bars = None;
         self.decks.send(DeckCommand::Pause(deck));
         self.decks.send(DeckCommand::Seek {
             deck,

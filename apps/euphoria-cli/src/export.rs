@@ -190,6 +190,8 @@ enum KeyNotationChoice {
     Camelot,
     /// Musical names such as Am.
     Musical,
+    /// Open Key codes such as 1m.
+    OpenKey,
 }
 
 impl From<KeyNotationChoice> for KeyNotation {
@@ -197,6 +199,7 @@ impl From<KeyNotationChoice> for KeyNotation {
         match choice {
             KeyNotationChoice::Camelot => KeyNotation::Camelot,
             KeyNotationChoice::Musical => KeyNotation::Musical,
+            KeyNotationChoice::OpenKey => KeyNotation::OpenKey,
         }
     }
 }
@@ -526,7 +529,7 @@ fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
 
 /// "Artist - Title" from the file's tags, the title alone without an
 /// artist, and the file name when the tags say nothing.
-fn display_name(path: &Path) -> String {
+pub fn display_name(path: &Path) -> String {
     let fallback = || {
         path.file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
@@ -544,7 +547,7 @@ fn display_name(path: &Path) -> String {
 
 /// Says which tracks of the playlist are no longer anywhere, so they are
 /// left out.
-fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
+pub fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
     if missing.is_empty() {
         return Ok(());
     }
@@ -687,7 +690,7 @@ pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> R
 /// taken for one the next time its folder is exported. Paths are compared
 /// once resolved, so a symbolic link to an audio file and another spelling of
 /// its path are refused too.
-fn check_output_is_not_an_input(
+pub fn check_output_is_not_an_input(
     output_file: &Path,
     audio_files: &[PathBuf],
     folders: &[PathBuf],

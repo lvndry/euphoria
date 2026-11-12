@@ -46,6 +46,14 @@ fn deck_number(deck: DeckId) -> usize {
     }
 }
 
+/// The loop lengths a deck offers, in bars.
+pub(crate) const LOOP_BARS: [u32; 5] = [1, 2, 4, 8, 16];
+
+/// The element id of the button looping `bars` bars of `deck`.
+pub(crate) fn loop_id(deck: DeckId, bars: u32) -> (&'static str, usize) {
+    ("deck-loop", deck_number(deck) * 100 + bars as usize)
+}
+
 /// The element id of cue `cue_index` of `deck`.
 pub(crate) fn cue_id(deck: DeckId, cue_index: usize) -> (&'static str, usize) {
     ("deck-cue", deck_number(deck) * 100 + cue_index)
@@ -285,6 +293,39 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .duration_seconds
         .map(|duration| format::duration(duration as f32))
         .unwrap_or_default();
+    let has_grid = view.grid.is_some();
+    let loops = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(4.0))
+        .child(
+            div()
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_secondary)
+                .child("Loop bars"),
+        )
+        .children(LOOP_BARS.map(|bars| {
+            let is_looping = decks.is_looping(deck, bars);
+            choice_button(loop_id(deck, bars), bars.to_string(), is_looping, &palette)
+                .when(!has_grid, |button| button.opacity(0.5).cursor_default())
+                .tooltip(move |window, cx| {
+                    let text = if !has_grid {
+                        "Looping needs the track's beat grid.".to_string()
+                    } else if is_looping {
+                        "Leave the loop: it plays to its end once more, then the track carries on."
+                            .to_string()
+                    } else {
+                        format!(
+                            "Loop {bars} {} from the next downbeat.",
+                            if bars == 1 { "bar" } else { "bars" }
+                        )
+                    };
+                    Tooltip::new(text).build(window, cx)
+                })
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_deck_loop(deck, bars, cx)))
+                .test_support()
+        }));
     let transport = div()
         .flex()
         .flex_wrap()
@@ -349,6 +390,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .child(problem)
         }))
         .child(transport)
+        .child(loops)
 }
 
 /// The waveform of a deck with the downbeats of its grid and its cues
@@ -388,6 +430,26 @@ fn waveform_with_grid(
             );
             at += step;
         }
+    }
+    if duration > 0.0
+        && let Some((start, end)) = app.decks.loop_seconds(deck)
+    {
+        let left = (start / duration).clamp(0.0, 1.0) as f32;
+        let right = (end / duration).clamp(0.0, 1.0) as f32;
+        marks.push(
+            div()
+                .id(deck_part("deck-loop-region", deck))
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(relative(left))
+                .w(relative((right - left).max(0.0)))
+                .border_x_2()
+                .border_color(palette.accent)
+                .bg(palette.accent.opacity(0.18))
+                .test_support()
+                .into_any_element(),
+        );
     }
     if duration > 0.0 {
         for cue in &view.cues {
