@@ -225,12 +225,29 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .child(title),
         )
         .children(tempo.map(|tempo| {
+            let out_of_reach = view.tempo_out_of_reach;
             div()
                 .id(deck_part("deck-tempo", deck))
                 .flex_shrink_0()
                 .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.text_secondary)
-                .child(tempo)
+                .text_color(if out_of_reach {
+                    palette.danger
+                } else {
+                    palette.text_secondary
+                })
+                .child(if out_of_reach {
+                    format!("{tempo}, not deck A's")
+                } else {
+                    tempo
+                })
+                .when(out_of_reach, |tempo| {
+                    tempo.tooltip(|window, cx| {
+                        Tooltip::new(
+                            "Deck A's tempo is out of reach: a deck plays from half to twice its own speed, and this is the nearest.",
+                        )
+                        .build(window, cx)
+                    })
+                })
                 .test_support()
         }));
 
@@ -245,14 +262,16 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .into();
         choice_button(cue_id(deck, cue_index), label, false, &palette)
             .tooltip(|window, cx| {
-                Tooltip::new("Play from this cue, on the other deck's next downbeat when it plays.")
+                Tooltip::new("Play from this cue, aligning the upcoming downbeats when the other deck plays.")
                     .build(window, cx)
             })
             .on_click(cx.listener(move |this, _, _, cx| this.play_deck_cue(deck, cue_index, cx)))
             .test_support()
     });
 
-    let play_label = if decks.is_waiting(deck) {
+    let play_label = if view.loading {
+        "Loading…"
+    } else if decks.is_waiting(deck) {
         "Waiting for the downbeat"
     } else if view.playing {
         "Pause"
@@ -295,7 +314,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
             row.child(
                 choice_button("deck-sync", "Sync to A", app.decks.sync, &palette)
                     .tooltip(|window, cx| {
-                        Tooltip::new("Play deck B at deck A's tempo, starting on A's downbeat.")
+                        Tooltip::new("Play deck B at deck A's tempo, aligning their upcoming downbeats.")
                             .build(window, cx)
                     })
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_sync(cx)))

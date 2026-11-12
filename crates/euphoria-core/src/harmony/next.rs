@@ -159,7 +159,11 @@ mod tests {
                 .collect()
         };
         assert_eq!(order(EnergyDirection::Up), [7.0, 6.0, 5.0]);
-        assert_eq!(order(EnergyDirection::Same)[0], 6.0);
+        assert_eq!(
+            order(EnergyDirection::Same),
+            [6.0, 5.0, 7.0],
+            "one point either way costs the same, so the two keep their order"
+        );
         assert_eq!(order(EnergyDirection::Down), [5.0, 6.0, 7.0]);
     }
 

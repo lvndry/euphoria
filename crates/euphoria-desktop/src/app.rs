@@ -607,6 +607,8 @@ impl EuphoriaApp {
                 .filter_map(|index| self.folder_column.label(*index))
                 .map(|label| label.text.as_str()),
         );
+        self.refresh_deck_metadata();
+        self.refresh_suggestions();
     }
 
     /// Works out which columns fit the table in the window as it is now,
@@ -1196,6 +1198,11 @@ impl EuphoriaApp {
 
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
+        if self.decks.is_open {
+            self.notice = Some("Close the decks to use the track player.".to_string());
+            cx.notify();
+            return;
+        }
         let request = self.player.toggle();
         self.carry_out(request, cx);
         cx.notify();
@@ -1548,6 +1555,7 @@ impl EuphoriaApp {
             .map(|track| (track.path.clone(), track.bpm()));
         let Some((path, tempo)) = selected else {
             self.waveform_task = None;
+            self.waveform_task_path = None;
             return;
         };
         if self.waveform_task_path.as_ref() == Some(&path) && self.waveform_task.is_some() {
@@ -1562,10 +1570,20 @@ impl EuphoriaApp {
             );
         if is_decoded {
             self.waveform_task = None;
+            self.waveform_task_path = None;
             return;
         }
         self.waveform_task_path = Some(path.clone());
-        self.waveform_task = Some(self.decode_waveform(path, tempo, cx));
+        let decode = self.decode_waveform(path.clone(), tempo, cx);
+        self.waveform_task = Some(cx.spawn(async move |this, cx| {
+            decode.await;
+            this.update(cx, |this, _| {
+                if this.waveform_task_path.as_ref() == Some(&path) {
+                    this.waveform_task_path = None;
+                }
+            })
+            .ok();
+        }));
     }
 
     /// The waveform of the track at `path`, when it was read.
@@ -1580,14 +1598,16 @@ impl EuphoriaApp {
         path: &Path,
         tempo: Option<f32>,
         cx: &mut Context<'_, Self>,
-    ) {
+    ) -> Option<Task<()>> {
         let is_decoded = self.waveforms.touch(path)
             && matches!(
                 self.waveforms.get(path),
                 Some(Waveform::Ready(_, Some(_))) | Some(Waveform::Unreadable(_))
             );
-        if !is_decoded {
-            self.decode_waveform(path.to_path_buf(), tempo, cx).detach();
+        if is_decoded {
+            None
+        } else {
+            Some(self.decode_waveform(path.to_path_buf(), tempo, cx))
         }
     }
 
@@ -1629,9 +1649,6 @@ impl EuphoriaApp {
                 .await;
             let shown = this.update(cx, |this, cx| {
                 this.waveforms.insert(path.clone(), waveform);
-                if audio.is_none() {
-                    this.waveform_task_path = None;
-                }
                 cx.notify();
             });
             // The waveform shows first; the energy curve, from the same
@@ -1649,7 +1666,6 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.set_energy(&path, curve);
-                this.waveform_task_path = None;
                 cx.notify();
             })
             .ok();
@@ -1810,6 +1826,50 @@ mod waveform_task_tests {
     use gpui::TestAppContext;
 
     use super::*;
+
+    #[gpui::test]
+    fn a_deck_decode_keeps_the_selected_tracks_pending_waveform_task(cx: &mut TestAppContext) {
+        let (_, view) = crate::ui_tests::open_fixture_library(cx);
+        let (next_index, next_path) = cx.update(|cx| {
+            view.update(cx, |app, cx| {
+                let selected = app.selected.unwrap();
+                let others: Vec<usize> = (0..app.session.library().tracks().len())
+                    .filter(|index| *index != selected)
+                    .collect();
+                let deck_track = app.session.library().track(others[0]).unwrap();
+                app.load_deck_waveform(&deck_track.path.clone(), deck_track.bpm(), cx)
+                    .unwrap()
+                    .detach();
+                (
+                    others[1],
+                    app.session.library().track(others[1]).unwrap().path.clone(),
+                )
+            })
+        });
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(90));
+        cx.run_until_parked();
+        cx.update(|cx| view.update(cx, |app, cx| app.select(next_index, cx)));
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let app = view.read(cx);
+            assert_eq!(
+                app.waveform_task_path.as_ref(),
+                Some(&next_path),
+                "the earlier deck decode must not relinquish the selected track's pending task"
+            );
+        });
+        cx.executor().advance_clock(Duration::from_millis(400));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(matches!(
+                view.read(cx).selected_waveform(),
+                Some(Waveform::Ready(_, Some(_)))
+            ))
+        });
+    }
 
     #[gpui::test]
     fn refreshing_after_the_waveform_arrives_keeps_the_pending_energy_task(
