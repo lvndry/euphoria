@@ -540,6 +540,65 @@ A file whose tags changed after the write is not restored, so that the later cha
 
 A write that was interrupted can be undone as well. Files it had not changed yet are counted in the summary as not changed by the write.
 
+## euphoria shift
+
+Writes a copy of a track in another key, with the same tempo. The pitch moves by up to 6 semitones either way while every beat stays where it was. The copy is a 24 bit WAV or FLAC file tagged with the new key, and the original is never changed.
+
+```
+euphoria shift [OPTIONS] -s <N> -o <FILE> <FILE>
+```
+
+```
+$ euphoria shift -s 2 track.flac -o "track (+2).flac"
+Shifted up 2 semitones, from 8A A minor to 9A B minor, to /Users/you/Music/track (+2).flac
+```
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<FILE>` | The track to shift. It is only read, never changed. |
+| `-s`, `--semitones <N>` | How many semitones to move the key, from -6 to 6: 2 moves A minor to B minor, -3 moves it to F# minor. A shift of 0 is an error, since nothing would be written. |
+| `-o`, `--output <FILE>` | The file to write, ending in .wav or .flac. Required. |
+| `--force` | Replace the output file if it exists. |
+| `--key-notation <NOTATION>` | How the shifted key is written into the copy's tags: `camelot` (the default), `musical` or `open-key`. |
+| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `--no-cache` | Analyze the track without reading or updating the [cache](#the-analysis-cache). |
+| `--reanalyze` | Analyze the track again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `--tempo-range <SLOWEST-FASTEST>` | The range tempos are reported in, `90-180` by default, as for [`euphoria analyze`](#options). |
+
+The key of the original comes from the [cache](#the-analysis-cache) when the track was analyzed before, with the key you [corrected](#corrections) when there is one.
+
+On success, one line goes to standard error: how far the track moved, its key before and after, and where the copy is. The command exits with status 0 when the file is written. It exits with status 1 with a message on standard error when the shift is 0 semitones, the file is not audio Euphoria reads, the output does not end in `.wav` or `.flac`, the output exists without `--force`, or the analysis fails.
+
+## euphoria stems
+
+Separates a track into vocals, drums, bass and the rest, with the Demucs htdemucs model, and writes one WAV file per stem. The model, 84 MB, is downloaded the first time. Separation runs on this computer.
+
+```
+euphoria stems [OPTIONS] -o <DIR> <FILE>
+```
+
+```
+$ euphoria stems track.flac --output stems
+Drums   /Users/you/Music/stems/drums.wav
+Bass    /Users/you/Music/stems/bass.wav
+Other   /Users/you/Music/stems/other.wav
+Vocals  /Users/you/Music/stems/vocals.wav
+```
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<FILE>` | The audio file to separate. |
+| `-o`, `--output <DIR>` | The folder to write the stems to, created when missing. Required. |
+| `--force` | Replace stem files already in the folder. |
+
+The stems are written as `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav`, 16 bit stereo WAV files at 44.1 kHz. Each one is listed on standard output with its path, and standard error gets a note: how long the separation took, or that the stems came from the cache. Separated tracks are cached, so separating the same track again is instant.
+
+The command exits with status 0 when the stems are written. It exits with status 1 with a message on standard error when the file is not there, a stem file already exists in the folder without `--force`, an output would replace the input file, or the model download or the separation fails.
+
 ## euphoria corrections export
 
 Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
