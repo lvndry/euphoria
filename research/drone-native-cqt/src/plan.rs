@@ -391,7 +391,19 @@ mod tests {
     #[cfg(unix)]
     fn malformed_captured_plans_return_errors_instead_of_panicking() -> Result<()> {
         let mut accepted_or_panicked = Vec::new();
-        for invalid in ["hop", "fft", "csr", "lengths", "scale", "observation"] {
+        for invalid in [
+            "hop",
+            "fft",
+            "csr",
+            "csr-origin",
+            "csr-decreasing",
+            "lengths",
+            "scale",
+            "observation",
+            "observation-shape",
+            "observation-overflow",
+            "probe-overflow",
+        ] {
             let mut fixture = SyntheticCase::new()?;
             match invalid {
                 "hop" => fixture.case["stages"][0]["hop"] = json!(0),
@@ -402,6 +414,30 @@ mod tests {
                         .flat_map(u32::to_le_bytes)
                         .collect::<Vec<_>>();
                     fixture.case["stages"][0]["indptr"] = fixture.artifact("bad-pointers", &ptr)?;
+                }
+                "csr-origin" | "csr-decreasing" => {
+                    let mut pointers = (0u32..=208).collect::<Vec<_>>();
+                    if invalid == "csr-origin" {
+                        pointers[0] = 1;
+                    } else {
+                        pointers[2] = 0;
+                    }
+                    let bytes = pointers
+                        .into_iter()
+                        .flat_map(u32::to_le_bytes)
+                        .collect::<Vec<_>>();
+                    fixture.case["stages"][0]["indptr"] = fixture.artifact("bad-csr", &bytes)?;
+                }
+                "observation-shape" | "observation-overflow" | "probe-overflow" => {
+                    let shape = if invalid == "observation-shape" {
+                        json!([1, 3])
+                    } else if invalid == "observation-overflow" {
+                        json!([u64::MAX, u64::MAX])
+                    } else {
+                        json!([208, 3])
+                    };
+                    let probe = fixture.artifact("probe", &vec![0; 208 * 2 * 4])?;
+                    fixture.case["stages"][0]["response"] = json!({"sha256":"0".repeat(64),"shape":shape,"dtype":"<c8","probes":[{"start":u64::MAX,"artifact":probe}]});
                 }
                 "lengths" => fixture.case["normalization"]["lengths"] = json!(vec![1.0; 199]),
                 "scale" => fixture.case["normalization"]["lengths"][8] = json!(0),

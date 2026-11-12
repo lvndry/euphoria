@@ -6,12 +6,13 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from verify_soxr_source import PREFIX, verify_source
 
 
 class SoxrSourceTests(unittest.TestCase):
-    def fixture(self, root):
+    def fixture(self, root: Path) -> tuple[Path, dict[str, Any]]:
         path = root / PREFIX / "libsoxr/CMakeLists.txt"
         path.parent.mkdir(parents=True)
         raw = b"original pinned build input\n"
@@ -24,7 +25,7 @@ class SoxrSourceTests(unittest.TestCase):
         }
         return path, inventory
 
-    def test_original_tree_passes_and_same_size_modified_source_fails(self):
+    def test_original_tree_passes_and_same_size_modified_source_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, inventory = self.fixture(root)
@@ -33,7 +34,7 @@ class SoxrSourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "source changed"):
                 verify_source(root, inventory)
 
-    def test_missing_and_extra_build_inputs_fail(self):
+    def test_missing_and_extra_build_inputs_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, inventory = self.fixture(root)
@@ -46,7 +47,7 @@ class SoxrSourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "inventory changed"):
                 verify_source(root, inventory)
 
-    def test_symlink_to_unchanged_source_is_rejected(self):
+    def test_symlink_to_unchanged_source_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, inventory = self.fixture(root)
@@ -56,7 +57,7 @@ class SoxrSourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 verify_source(root, inventory)
 
-    def test_pinned_internal_file_symlink_passes(self):
+    def test_pinned_internal_file_symlink_passes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, inventory = self.fixture(root)
