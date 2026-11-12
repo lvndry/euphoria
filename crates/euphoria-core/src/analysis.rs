@@ -126,17 +126,23 @@ impl TrackAnalysis {
     /// range: a grid that is doubled keeps its first downbeat within the
     /// shorter bar, so halving it again may not bring back the same one.
     pub fn with_tempo_range(mut self, range: TempoRange) -> Self {
-        self.bpm = self.tempo_in(range);
-        self.beat_grid = self.beat_grid.map(|grid| {
-            if let Some(bpm) = self.bpm {
+        self.set_tempo_range(range);
+        self
+    }
+
+    /// [`TrackAnalysis::with_tempo_range`] in place, so the rest of the
+    /// analysis, such as its key timeline, is not copied.
+    pub fn set_tempo_range(&mut self, range: TempoRange) {
+        let bpm = self.tempo_in(range);
+        self.bpm = bpm;
+        if let Some(grid) = &mut self.beat_grid {
+            *grid = match bpm {
                 // Refinement can cross a range edge without changing the
                 // counted beat. Match the reported tempo's nearest octave.
-                grid.near_tempo(f64::from(bpm))
-            } else {
-                grid.in_tempo_range(range)
-            }
-        });
-        self
+                Some(bpm) => grid.near_tempo(f64::from(bpm)),
+                None => grid.in_tempo_range(range),
+            };
+        }
     }
 
     /// Half or double the tempo reported in `range`, when a DJ could

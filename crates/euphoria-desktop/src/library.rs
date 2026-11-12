@@ -491,7 +491,7 @@ impl Library {
             if let TrackStatus::Analyzed(analysis) = &mut track.status {
                 // The same as `with_tempo_range`, in place, so the rest of
                 // the analysis, such as its key timeline, is not copied.
-                analysis.bpm = analysis.tempo_in(range);
+                analysis.set_tempo_range(range);
             }
         }
         self.revision += 1;
@@ -1030,7 +1030,14 @@ mod tests {
         library.add_files(paths.map(PathBuf::from).to_vec());
         let estimates = [87.0, 124.0, 150.0, 61.5];
         for (path, estimate) in paths.iter().zip(estimates) {
-            library.record_outcome(Path::new(path), Ok(rated(0.02, estimate, 0.6)));
+            let mut analysis = rated(0.02, estimate, 0.6);
+            analysis.beat_grid = Some(BeatGrid {
+                first_downbeat_seconds: 0.125,
+                bpm: f64::from(estimate),
+                salience: 5.0,
+                drift_seconds: None,
+            });
+            library.record_outcome(Path::new(path), Ok(analysis));
         }
         let mut no_estimate = analysis(Some("A minor"), Some(95.0), 300.0);
         no_estimate.key_timeline = vec![euphoria_core::KeySection {
@@ -1051,6 +1058,7 @@ mod tests {
                 let analysis = track.analysis().unwrap();
                 let expected = analysis.clone().with_tempo_range(range);
                 assert_eq!(analysis.bpm, expected.bpm, "{range}");
+                assert_eq!(analysis.beat_grid, expected.beat_grid, "{range}");
             }
         }
         let kept = library.tracks()[4].analysis().unwrap();
