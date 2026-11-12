@@ -26,7 +26,7 @@ class PackagedStemLicenseTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY / relative, target)
         for package in ("euphoria-cli", "euphoria-desktop"):
-            manifest = self.repo / "crates" / package / "Cargo.toml"
+            manifest = self.repo / "apps" / package / "Cargo.toml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text('version = "0.1.0"\n')
         for name in ("LICENSE", "README.md"):
