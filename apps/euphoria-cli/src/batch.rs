@@ -136,7 +136,7 @@ pub fn analyze_in_default_range(
     };
     let stage_lines = show_stages.then(|| StageLines::new(progress.clone(), audio_files.len() > 1));
     #[cfg(debug_assertions)]
-    let _debug_hint = is_terminal.then(|| crate::stages::DebugBuildHint::start(progress.clone()));
+    let _debug_hint = show_stages.then(|| crate::stages::DebugBuildHint::start(progress.clone()));
 
     let batch = match &stage_lines {
         Some(stage_lines) => run(
