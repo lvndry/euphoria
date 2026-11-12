@@ -166,7 +166,8 @@ jobs:
           - { name: macOS, runner: macos-latest, packages: --workspace }
           # The desktop app is built, linted and tested on Linux by its own
           # job below, so this one tests every other crate.
-          - { name: Linux, runner: ubuntu-latest, packages: --workspace --exclude euphoria }
+          # These debug binaries are also packaged and exercised on 22.04.
+          - { name: Linux, runner: ubuntu-22.04, packages: --workspace --exclude euphoria }
     runs-on: ${{ matrix.system.runner }}
     timeout-minutes: 30
     steps:
@@ -182,6 +183,9 @@ jobs:
           ./.github/scripts/install-linux-dependencies.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Do not restore native objects built against a newer Ubuntu ABI.
+          key: ${{ matrix.system.runner }}
       - name: Unit tests
         run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
       - name: Audio decoding and detector integration tests
@@ -223,7 +227,8 @@ jobs:
     name: Desktop app on Linux
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
-    runs-on: ubuntu-latest
+    # Match the oldest clean runtime used by the debug-package smoke test.
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -235,6 +240,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-22.04
       - name: Build with the X11 and Wayland back ends
         run: cargo build -p euphoria --locked
       - name: Clippy
@@ -307,9 +314,11 @@ jobs:
       - name: Package the debug binaries the release way
         if: needs.changes.outputs.packaging != 'true'
         run: |
-          mkdir target/release
+          mkdir -p target/release
           cp target/debug/euphoria target/release/euphoria
           cp target/debug/euphoria-desktop target/release/euphoria-desktop
+          # Artifact downloads restore regular files as 0644.
+          chmod +x target/release/euphoria target/release/euphoria-desktop
           ./scripts/release/package-cli.sh --skip-build dist
           ./scripts/bundle-linux.sh --skip-build
       - name: Smoke test the packages on a clean system
