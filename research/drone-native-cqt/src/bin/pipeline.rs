@@ -248,8 +248,23 @@ fn main() -> Result<()> {
         rows.push(json!({"id":case["id"],"frames":case["frames"],"pcm_sha256":case["pcm"]["sha256"],"seconds":seconds,"iterations":results,"loaded_rss_bytes":loaded_rss}));
     }
     let (cpu, peak) = process_usage()?;
-    let report = json!({"format":"k10-composed-pipeline-v1","passed":passed,"cases":rows,"cpu_seconds":cpu,"peak_rss_bytes":peak,"identity":{"executable_sha256":executable,"pipeline_source_sha256":bytes_sha256(include_bytes!("pipeline.rs")),"plan_source_sha256":bytes_sha256(include_bytes!("../plan.rs")),"evidence_source_sha256":bytes_sha256(include_bytes!("../evidence.rs")),"manifest_sha256":file_sha256(&args.manifest)?,"full_model_sha256":MODEL,"ort_sha256":file_sha256(&args.ort_library)?,"soxr_sha256":file_sha256(&args.soxr_wrapper)?,"math_sha256":args.math_library.as_ref().map(|p|file_sha256(p)).transpose()?,"qualification_sha256":args.qualification_report.as_ref().map(|p|file_sha256(p)).transpose()?}});
+    let report = json!({"format":"k10-composed-pipeline-v1","passed":passed,"cases":rows,"cpu_seconds":cpu,"peak_rss_bytes":peak_bytes_from_usage_kib(peak)?,"identity":{"executable_sha256":executable,"pipeline_source_sha256":bytes_sha256(include_bytes!("pipeline.rs")),"plan_source_sha256":bytes_sha256(include_bytes!("../plan.rs")),"evidence_source_sha256":bytes_sha256(include_bytes!("../evidence.rs")),"manifest_sha256":file_sha256(&args.manifest)?,"full_model_sha256":MODEL,"ort_sha256":file_sha256(&args.ort_library)?,"soxr_sha256":file_sha256(&args.soxr_wrapper)?,"math_sha256":args.math_library.as_ref().map(|p|file_sha256(p)).transpose()?,"qualification_sha256":args.qualification_report.as_ref().map(|p|file_sha256(p)).transpose()?}});
     fs::write(&args.output, serde_json::to_vec_pretty(&report)?)?;
     ensure!(passed, "composed parity gate failed; evidence saved");
     Ok(())
+}
+
+fn peak_bytes_from_usage_kib(kib: u64) -> Result<u64> {
+    kib.checked_mul(1024).context("RSS byte overflow")
+}
+
+#[cfg(test)]
+mod reporting_tests {
+    use super::peak_bytes_from_usage_kib;
+    #[test]
+    fn shared_usage_rss_kib_is_converted_to_bytes_once() {
+        let helper_kib = 105_408_u64;
+        assert_eq!(peak_bytes_from_usage_kib(helper_kib).unwrap(), 107_937_792);
+        assert!(peak_bytes_from_usage_kib(u64::MAX).is_err());
+    }
 }
