@@ -1,14 +1,16 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use super::batch::{Origin, cached_or_analyzed};
-use super::identity::FileStamp;
+use super::identity::{ContentHash, FileStamp};
 use super::{Cache, FileLocation, Snapshot};
 use crate::analysis::{TrackAnalysis, analyze_file};
+use crate::correction::Correction;
 use crate::error::EuphoriaError;
+use crate::track_cues::{Cue, TrackCues};
 
 /// The analysis of one file through the cache.
 #[derive(Debug)]
@@ -82,12 +84,115 @@ impl CachedAnalyzer {
             .record_retagged_file(path, analysis)
     }
 
+    /// [`Cache::carry_rewritten_correction`] on the cache this analyzer stores
+    /// into, including when no analysis is kept for either content.
+    pub fn carry_rewritten_correction(
+        &self,
+        before: ContentHash,
+        after: ContentHash,
+    ) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .carry_rewritten_correction(before, after)
+    }
+
+    /// [`Cache::correction_for`] on the cache this analyzer stores into.
+    pub fn correction_for(&self, path: &Path) -> Result<Option<Correction>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .correction_for(path)
+    }
+
+    /// [`Cache::verified_correction_for`] on the cache this analyzer stores
+    /// into.
+    pub fn verified_correction_for(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Correction>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .verified_correction_for(path)
+    }
+
+    /// [`Cache::set_correction`] on the cache this analyzer stores into.
+    pub fn set_correction(
+        &self,
+        path: &Path,
+        correction: &Correction,
+    ) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_correction(path, correction)
+    }
+
+    /// [`Cache::edited_cues_for`] on the cache this analyzer stores into.
+    pub fn edited_cues_for(&self, path: &Path) -> Result<Option<Vec<Cue>>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .edited_cues_for(path)
+    }
+
+    /// [`Cache::verified_edited_cues_for`] on the cache this analyzer
+    /// stores into.
+    pub fn verified_edited_cues_for(&self, path: &Path) -> Result<Option<Vec<Cue>>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .verified_edited_cues_for(path)
+    }
+
+    /// [`Cache::set_edited_cues`] on the cache this analyzer stores into.
+    pub fn set_edited_cues(&self, path: &Path, cues: Option<&[Cue]>) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_edited_cues(path, cues)
+    }
+
+    /// [`Cache::track_cues_for`] on the cache this analyzer stores into.
+    pub fn track_cues_for(
+        &self,
+        path: &Path,
+        analysis: &TrackAnalysis,
+    ) -> Result<TrackCues, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .track_cues_for(path, analysis)
+    }
+
     /// [`Cache::recognise_file`] on the cache this analyzer stores into.
     pub fn recognise_file(&self, path: &Path) -> Result<bool, EuphoriaError> {
         self.cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .recognise_file(path)
+    }
+
+    /// The content of the file at `path`, when the cache recorded it there
+    /// with its current size and modification time. Does not read the file.
+    pub fn known_content(&self, path: &Path) -> Option<ContentHash> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recorded_content(path)
+            .ok()
+            .flatten()
+    }
+
+    /// Where the cache last saw a file with `content`, when it knows.
+    pub fn last_seen_path_of(&self, content: &ContentHash) -> Option<PathBuf> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .last_seen_path_of(content)
+            .ok()
+            .flatten()
     }
 
     fn analyze_file_with(
@@ -153,7 +258,10 @@ mod tests {
                 key_score_margin: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                beat_grid: None,
+                cues: Vec::new(),
                 key_timeline: Vec::new(),
+                quality: None,
             })
         }
 

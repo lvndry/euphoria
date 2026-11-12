@@ -1,0 +1,32 @@
+{
+  "description": "Known regression cases for first-pass coverage and unsupported-finding checks. Keep expectations outside the replay checkout.",
+  "base": "84d2ed6be7d13059e017bdb3403812ad3305f327",
+  "cases": [
+    {
+      "id": "desktop-launcher-before-review-fixes",
+      "head": "2ba39d63f6287be988328f521b8fbbc08403098a",
+      "expected_findings": [
+        "Unchanged screenshot generator builds removed package name",
+        "Ignored benchmark doc command selects removed package name",
+        "Startup termination can bypass temporary bundle/converter cleanup",
+        "Running child is orphaned on direct HUP/QUIT to wrapper",
+        "Assertion-failure test cleanup can orphan its child"
+      ]
+    },
+    {
+      "id": "desktop-launcher-after-review-fixes",
+      "head": "e61b9f72a452b2e1bf3b81a6bc4ad38eabcb22c6",
+      "expected_findings": []
+    }
+  ],
+  "unsupported_claims": [
+    "A single 1024-pixel iconset entry necessarily makes iconutil conversion fail",
+    "subprocess.run leaves its blocked child running when SystemExit unwinds it",
+    "Popen.send_signal exposes ProcessLookupError when a POSIX child has already exited"
+  ],
+  "evidence": [
+    "Native iconutil conversion with only icon_512x512@2x.png succeeded and actual Cargo launch reported NSRunningApplication.localizedName Euphoria.",
+    "Python 3.12.12 subprocess.run kills the child on BaseException and Popen.__exit__ reaps it. Blocked-converter startup tests pass for INT, TERM, HUP and QUIT.",
+    "Python 3.12.12 Popen.send_signal polls and suppresses ProcessLookupError around os.kill."
+  ]
+}

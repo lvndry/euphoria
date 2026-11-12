@@ -5,7 +5,7 @@ use std::fs::File;
 use std::num::NonZeroU32;
 use std::path::Path;
 
-use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
@@ -100,8 +100,40 @@ pub const MINIMUM_SAMPLE_RATE: u32 = 8_000;
 /// decoded.
 pub const MAXIMUM_SAMPLE_RATE: u32 = 384_000;
 
+/// Sees a file while [`decode_mono_observed`] decodes it, without keeping
+/// more than the mono mixdown in memory.
+pub(crate) trait DecodeObserver {
+    /// The parameters of the audio track, before the first packet.
+    fn stream(&mut self, parameters: &AudioCodecParameters);
+    /// The size of one packet of the audio track, as stored in the file.
+    fn packet(&mut self, bytes: usize);
+    /// One decoded chunk of interleaved samples, before the mixdown.
+    fn samples(&mut self, interleaved: &[f32], channel_count: usize, sample_rate: u32);
+    /// How much of the file is decoded, from 0 to 1, when the file says how
+    /// long it is. Called when the share rises by a hundredth or more.
+    fn decoded_share(&mut self, _share: f32) {}
+}
+
+/// An observer that looks at nothing.
+struct Unobserved;
+
+impl DecodeObserver for Unobserved {
+    fn stream(&mut self, _: &AudioCodecParameters) {}
+    fn packet(&mut self, _: usize) {}
+    fn samples(&mut self, _: &[f32], _: usize, _: u32) {}
+}
+
 /// Decodes a whole audio file and averages its channels into mono.
 pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
+    decode_mono_observed(path, &mut Unobserved)
+}
+
+/// Decodes like [`decode_mono`] and shows every packet and every decoded
+/// chunk to `observer` on the way.
+pub(crate) fn decode_mono_observed(
+    path: &Path,
+    observer: &mut impl DecodeObserver,
+) -> Result<AudioBuffer, EuphoriaError> {
     let decode_error = |error: SymphoniaError| decode_error(path, error);
     let missing = |failure: DecodeFailure| EuphoriaError::Decode {
         path: path.to_path_buf(),
@@ -124,12 +156,15 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(codec_parameters, &AudioDecoderOptions::default())
         .map_err(decode_error)?;
+    observer.stream(codec_parameters);
 
     let file_bytes = std::fs::metadata(path).ok().map(|metadata| metadata.len());
     let mut mono_samples: Vec<f32> =
         Vec::with_capacity(frames_to_reserve(declared_frames, file_bytes));
     let mut interleaved: Vec<f32> = Vec::new();
     let mut sample_rate: u32 = 0;
+    let declared_frames = declared_frames.filter(|frames| *frames > 0);
+    let mut reported_hundredths = 0;
 
     loop {
         let packet = match format.next_packet() {
@@ -145,6 +180,7 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
         if packet.track_id != track_id {
             continue;
         }
+        observer.packet(packet.data.len());
         match decoder.decode(&packet) {
             Ok(decoded) => {
                 sample_rate = decoded.spec().rate();
@@ -157,11 +193,19 @@ pub fn decode_mono(path: &Path) -> Result<AudioBuffer, EuphoriaError> {
                 }
                 let channel_count = decoded.num_planes().max(1);
                 decoded.copy_to_vec_interleaved(&mut interleaved);
+                observer.samples(&interleaved, channel_count, sample_rate);
                 mono_samples.extend(
                     interleaved
                         .chunks_exact(channel_count)
                         .map(|frame| frame.iter().sum::<f32>() / channel_count as f32),
                 );
+                if let Some(declared_frames) = declared_frames {
+                    let hundredths = (mono_samples.len() as u64 * 100 / declared_frames).min(100);
+                    if hundredths > reported_hundredths {
+                        reported_hundredths = hundredths;
+                        observer.decoded_share(hundredths as f32 / 100.0);
+                    }
+                }
             }
             Err(SymphoniaError::DecodeError(_)) => continue,
             Err(error) => return Err(decode_error(error)),

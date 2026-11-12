@@ -1,6 +1,6 @@
 ---
 title: Accuracy
-description: How Euphoria's key and tempo detection is measured, and the results.
+description: How Euphoria's key, tempo and beat grid detection is measured, and the results.
 ---
 
 # Accuracy
@@ -11,6 +11,7 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 
 - [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset): 604 two minute previews of electronic dance music, each with a key labelled by people.
 - [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset): 664 previews, scored against the version 2 annotations. 3 of them are labelled as having no tempo and are left out, so 661 are scored.
+- [GTZAN](https://huggingface.co/datasets/marsyas/gtzan) disco and hip hop: 200 excerpts of 30 seconds with [beat and downbeat annotations](https://github.com/CPJKU/beat_this_annotations), used for the [beat grid](#beat-grid).
 
 ## Scores
 
@@ -31,6 +32,8 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 
 Euphoria uses libkeyfinder for key, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
+![How the detected key compares with the annotated key on the 604 previews: exact for 60.6%, a fifth away for 11.3%, the relative key for 6.8%, the parallel key for 5.5% and another key for 15.9%. Exact, a fifth away and the relative key still mix in key.](../images/accuracy/key-outcomes.svg)
+
 ## How the tempo is chosen
 
 Tempo detection runs the stratum-dsp tempogram estimate on its own, without the key analysis that stratum-dsp otherwise computes with it. That estimate finds the pulse of a track well, but it often lands on half the tempo a DJ counts: before any correction, 83 of the 661 previews came out below 70 BPM, where only 3 are labelled that slow, and a 125 BPM house track could be reported as 62.5.
@@ -42,6 +45,8 @@ Euphoria therefore reports every tempo between 90 and 180 BPM. An estimate below
 | Tempogram estimate as it comes | 62.2% | 84.7% | 83 | 0 |
 | Reported between 90 and 180 BPM | 77.6% | 85.5% | 0 | 0 |
 | Full stratum-dsp analysis with its default settings, which Euphoria used before | 59.9% | 84.9% | 26 | 0 |
+
+![Accuracy 1 and Accuracy 2 of each way of choosing the tempo. The estimate as it comes scores 62.2% and 84.7%, placed between 90 and 180 BPM 77.6% and 85.5%, and the full stratum-dsp analysis 59.9% and 84.9%. Placing the tempo in the range raises Accuracy 1 and leaves Accuracy 2 almost where it was.](../images/accuracy/tempo-range.svg)
 
 The price is that a track whose real tempo is below 90 BPM, such as slow hip hop at 85, is reported at double, 170, and one at 180 or above at half. 50 of the 661 previews are labelled below 90 BPM and 6 at 180 or above, and those count as misses in Accuracy 1 above. The harmonic matching can treat half and double tempo as a match for such tracks.
 
@@ -69,6 +74,8 @@ The band edges were set on every other preview in name order and checked on the 
 | Medium | 40% | 57.0% | 67.6% | 78.5% |
 | Low | 20% | 41.0% | 53.0% | 68.9% |
 
+![How often the key is exact on the held out half at each confidence: 74.2% of keys rated high, 57.0% of keys rated medium and 41.0% of keys rated low, against 60.6% of all 604 previews.](../images/accuracy/key-confidence.svg)
+
 On the half the edges were set on, the same bands are right 77.2%, 55.8% and 35.6% of the time. So a key rated high is right about three times in four, and one rated low less than half the time.
 
 The runner up is often the right key. Of the 238 previews whose detected key is wrong, the runner up is the annotated key for 105, so the key or its runner up is right for 78% of the previews. Against the detected key, the runner up is a fifth away for 211 previews, the parallel key (same tonic, other mode) for 196, the relative key for 112 and something else for 85. A fifth away and the relative key are the moves that mix in key, which is why a wrong key so often still sounds right in a mix.
@@ -86,6 +93,8 @@ Bands were set the same way, from the fifths of the first half: low below 0.09, 
 | High | 39% | 97.7% | 82.9% |
 | Medium | 42% | 89.8% | 86.9% |
 | Low | 19% | 62.5% | 57.8% |
+
+![How often the tempo is right modulo octaves on the held out half at each confidence: 97.7% of tempos rated high, 89.8% of tempos rated medium and 62.5% of tempos rated low.](../images/accuracy/tempo-confidence.svg)
 
 On the first half the bands are right modulo octaves 98.5%, 81.2% and 58.8% of the time. Accuracy 1 is not ordered between high and medium on the held out half because its misses are mostly octave errors, which the confidence does not rate: a tempo can be certain and still be counted at double.
 
@@ -176,6 +185,92 @@ Every threshold above was chosen on synthesized audio or on a property of the pr
 ### Cost
 
 Measuring the tuning adds 0.02 to 0.03 CPU seconds to the analysis of a track, 2 to 4% of a two minute preview and less of a longer track. Correcting for it and following the key over time add nothing measurable, because both use what libkeyfinder computes for the key. Peak memory is unchanged for one track at a time, and was about 0.05 GB higher with 4 at once. The measurements are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+
+## Beat grid
+
+The beat grid tells a DJ program where every beat and every bar of a track falls, so that its beat counter, its phase meter and its loops line up with the music. Euphoria finds one grid per track: the tempo, with decimals, and the time of the first downbeat, the first beat of a bar. It is rated high, medium or low like the key and the tempo. `euphoria analyze --json` reports it, and `euphoria export rekordbox --beat-grid` writes it into the rekordbox XML file; see [the command reference](../reference/cli.md#euphoria-export-rekordbox).
+
+![How often the grid is right on the held out excerpts: 97.2% of the 36 rated high, 100% of the 22 rated medium and 64.3% of the 42 rated low, against 84% of all excerpts.](../images/beat-grid/confidence.svg)
+
+### How it is measured
+
+No openly licensed dataset of electronic dance music has both audio and beat annotations, so the grid is measured on the 100 disco and 100 hip hop excerpts of GTZAN, 30 seconds each, with the beat and downbeat annotations of the GTZAN-Rhythm work. Both are steady 4/4 drum music, the closest available material to dance music. The annotations are under the MIT licence. The GTZAN audio has no stated licence: it is downloaded only to run the benchmark locally and is never part of the repository or redistributed. A beat counts as found within 70 ms of an annotated one, a grid is right when its beat F-measure is at least 0.9, and its downbeat is right when the F-measure of the downbeats alone is at least 0.9.
+
+| On the 100 held out excerpts | Beat F-measure | Grid right | Downbeat right |
+| --- | --- | --- | --- |
+| Tempo as reported, between 90 and 180 BPM | 0.897 | 80% | 45% |
+| Octave of the tempo taken from the annotation | 0.908 | 84% | 49% |
+
+The second row judges the grid alone: a grid at half or double the annotated tempo misses half the beats or adds as many, which is the tempo's [octave](#how-the-tempo-is-chosen) and not the grid's placement. 14 of the excerpts are annotated below 90 BPM, outside the range tempos are reported in.
+
+| Grid confidence, held out | Excerpts | Grid right |
+| --- | --- | --- |
+| High | 36 | 97.2% |
+| Medium | 22 | 100% |
+| Low | 42 | 64.3% |
+
+The figures for the development half, where every setting was chosen, are close to these and are in [bench/results/beats.md](https://github.com/lvndry/euphoria/blob/main/bench/results/beats.md).
+
+### The downbeat
+
+The downbeat is right about half the time, and on 57% of the excerpts whose beats are right. When it is wrong, the beats still are: the grid is shifted by one, two or three beats within the bar. Euphoria chooses the beat whose kick is strongest, which is followed by a snare or clap one and three beats later, and where the overall sound and the bass and chords change. The snare alone finds the right pair of beats, the first and third against the second and fourth, for 76% of the excerpts; telling the first beat from the third is where most misses are. The confidence rates the beats and not the downbeat.
+
+### Drift
+
+Euphoria fits one constant tempo to the whole track, which is how dance music is made and how Euphoria writes a grid into the rekordbox XML file. It then cuts the track into 8 second stretches, finds where the beats of each stretch fall, and measures how far they are from the grid. When one in ten of the stretches with clear beats wanders more than 35 ms from it, half the window in which a beat counts as found, the grid is rated low whatever else it shows. A live recording or a track mixed from vinyl gets a grid that fits it on average, rated low, and the export leaves that grid out so rekordbox analyzes the track itself. A grid that follows a changing tempo, with a tempo for each stretch, is not made.
+
+### How the tempo is made precise
+
+The grid's tempo is searched within 2% of the detected tempo, by trying periods and phases and scoring how strongly the onsets fall on the beats. That score is nearly flat within a few thousandths of a beat of the best period, while over a long track such a small error adds up: on a synthesized four minute click track at 127.537 BPM the search alone ended 0.008 BPM off, which puts the last beats 15 ms late. So the period and phase are then fitted to the track itself: the beats of every 8 second stretch are lined up with the grid, and a line through how far each stretch sits from it gives the correction. On the click track that brings the last beats within 5 ms.
+
+On the 604 GiantSteps Key previews, the share of grids rated medium or high with a tempo within 0.01 BPM of a whole number rose from 73% to 92%, and 35 grids were rated higher, one lower. On the GTZAN excerpts, 30 seconds long, it changed no rate on the held out half. No grid of the previews ends within 0.1% of the edge of the 2% window, and the five that end more than 1.5% from the detected tempo are all rated low: they are previews with no steady beat, where every tempo scores alike.
+
+### What the benchmark does and does not show
+
+It shows that the beats of steady drum music are placed within 70 ms for about four excerpts in five, that a grid rated medium or high is almost always right, and that the downbeat is right only about half the time.
+
+It cannot show how the grid does on dance music, on full length tracks with beatless intros and breakdowns, or on fast tempos: the annotated tempos of 180 of the 200 excerpts lie between 90 and 132 BPM, and only 20 are faster. The 661 GiantSteps previews of dance music have tempo labels but no beat positions, so they only test consistency: fitted separately, the two halves of a preview agree within 1% on tempo and 35 ms on the beats for 77% of previews, as measured before the line fit described below was added. Of the 604 GiantSteps Key previews, 92% of the grids rated medium or high have a tempo within 0.01 BPM of a whole number, as tempos set in production software are.
+
+### Cost
+
+The grid adds 11 to 12% to the analysis of a track, 0.1 CPU seconds for a two minute preview and 0.5 for an eight minute track, and about 25 MB of memory for the eight minute track.
+
+## Cue points
+
+Euphoria marks where the sections of a track start, the places a DJ sets cues at to mix in and out:
+
+| Cue | Where |
+| --- | --- |
+| Start | The first bar with sound. |
+| Main | The first bar of the first section at full energy, when the track does not start at full energy. |
+| Breakdown | The first bar of a section without the kick, after a section at full energy. |
+| Drop | The first bar at full energy after a breakdown. |
+| Outro | The first bar after the last section at full energy, when at least 8 bars follow it. |
+
+A track gets at most 8 cues, one per hot cue pad from A to H. When there would be more, the start, the main section and the outro are kept, and then the earliest breakdowns and drops. `euphoria analyze --json` reports the cues, and `euphoria export rekordbox --beat-grid --cues` writes them; see [the command reference](../reference/cli.md#cue-points). Where a cue is off, move it, or add, rename and delete cues, in the [desktop app](../guides/desktop-app.md#cue-points); your cues then replace these everywhere.
+
+![The energy rating of a two minute preview, with the cues Euphoria sets on it: Start at 0.2 seconds where the rating is 2 to 3, Main at 15.7 seconds where it rises to 7 and 8, Breakdown at 77.7 seconds where it falls to 1, and Drop at 93.1 seconds where it comes back to 7 and 8.](../images/beat-grid/cues.svg)
+
+### How they are found
+
+Every bar of the [beat grid](#beat-grid) is measured three ways: how loud it is, how loud it is below 150 Hz, where the kick and the bass are, and how much louder that band is just after each beat than halfway between beats. A kick on the beat makes that last difference large. A sustained bass line or pad sounds as loud between the beats and does not, so a breakdown that keeps its bass is still a breakdown. A bar has a kick when the band is at least 3 dB louder on the beats, and plays at full energy when it also has its usual low end, within 6 dB, and its usual loudness, within 4 dB. The usual level is the level that 90% of the track's bars with sound stay below or reach.
+
+Runs of bars at one level shorter than 8 bars, such as a one bar break before a drop, belong to the section around them. Each section start is then placed on a phrase: a multiple of 8 bars from the first bar with sound, or of 4 bars when the change is more than 2 bars from the nearest multiple of 8, since sections sometimes start half a phrase off the count. The cues use the grid in the default tempo range, so they do not move with `--tempo-range`.
+
+### What has been checked
+
+No dataset with both audio and labelled sections of dance music was found, so the cues are not scored against labels. What was checked:
+
+- **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none.
+- **The 604 GiantSteps Key previews.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
+
+It cannot show how often the cues fall where a DJ would put them on full length tracks.
+
+The cues sit on the bars of the grid, so they share its weaknesses. When the [downbeat](#the-downbeat) is wrong, which on the benchmark is about half the time, the bars start one to three beats away from where the music's do. Every cue is then that many beats away from the start of its section. When the grid is rated low, the cues are not exported.
+
+### Cost
+
+Finding the cues adds no measurable time to an analysis: they use the onset envelope the grid computes and one pass over the audio at a quarter of its sample rate.
 
 ## Energy
 

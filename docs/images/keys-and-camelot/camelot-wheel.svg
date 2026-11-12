@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">The Camelot wheel, from 8A</title>
+<desc id="chart-desc">The Camelot wheel as two rings of twelve: minor keys, A, inside and major keys, B, outside, with 12 at the top and the numbers rising clockwise by a fifth. From 8A, A minor, the moves that mix in key are highlighted strongly: 8A itself, 7A D minor and 9A E minor a fifth away, and 8B C major, the relative major. The bolder moves are highlighted lightly: 7B F major, the diagonal; 10A B minor, the energy boost; 11B A major, the mood change; and 3A Bb minor, the semitone boost. The other keys are plain.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.code { font-size: 13px; font-weight: 600; }
+.key { font-size: 11px; }
+.cell { stroke: #fcfcfb; stroke-width: 2; }
+.cell-plain { fill: #f0efec; }
+.cell-start { fill: #0b0b0b; }
+.cell-near { fill: #1c5cab; }
+.cell-bold { fill: #86b6ef; }
+.on-plain { fill: #52514e; }
+.on-plain.code { fill: #0b0b0b; }
+.on-start { fill: #fcfcfb; }
+.on-near { fill: #ffffff; }
+.on-bold { fill: #0b0b0b; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .cell { stroke: #1a1a19; }
+  .cell-plain { fill: #2c2c2a; }
+  .cell-start { fill: #f0efec; }
+  .cell-near { fill: #6da7ec; }
+  .cell-bold { fill: #184f95; }
+  .on-plain { fill: #c3c2b7; }
+  .on-plain.code { fill: #f0efec; }
+  .on-start { fill: #1a1a19; }
+  .on-near { fill: #0b0b0b; }
+  .on-bold { fill: #f0efec; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="519" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">The Camelot wheel, from 8A</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Where a track in A minor can go next. Numbers step by a fifth clockwise and wrap from 12 to 1.</text>
+<path class="cell cell-plain" d="M285.72,156.7 A138,138 0 0 1 347.58,192.42 L300.91,239.09 A72,72 0 0 0 268.63,220.45 Z"/>
+<text x="302.5" y="198.07" class="code on-plain" text-anchor="middle">1A</text>
+<text x="302.5" y="212.07" class="key on-plain" text-anchor="middle">G#m</text>
+<path class="cell cell-plain" d="M347.58,192.42 A138,138 0 0 1 383.3,254.28 L319.55,271.37 A72,72 0 0 0 300.91,239.09 Z"/>
+<text x="340.93" y="236.5" class="code on-plain" text-anchor="middle">2A</text>
+<text x="340.93" y="250.5" class="key on-plain" text-anchor="middle">Ebm</text>
+<path class="cell cell-bold" d="M383.3,254.28 A138,138 0 0 1 383.3,325.72 L319.55,308.63 A72,72 0 0 0 319.55,271.37 Z"/>
+<text x="355" y="289" class="code on-bold" text-anchor="middle">3A</text>
+<text x="355" y="303" class="key on-bold" text-anchor="middle">Bbm</text>
+<path class="cell cell-plain" d="M383.3,325.72 A138,138 0 0 1 347.58,387.58 L300.91,340.91 A72,72 0 0 0 319.55,308.63 Z"/>
+<text x="340.93" y="341.5" class="code on-plain" text-anchor="middle">4A</text>
+<text x="340.93" y="355.5" class="key on-plain" text-anchor="middle">Fm</text>
+<path class="cell cell-plain" d="M347.58,387.58 A138,138 0 0 1 285.72,423.3 L268.63,359.55 A72,72 0 0 0 300.91,340.91 Z"/>
+<text x="302.5" y="379.93" class="code on-plain" text-anchor="middle">5A</text>
+<text x="302.5" y="393.93" class="key on-plain" text-anchor="middle">Cm</text>
+<path class="cell cell-plain" d="M285.72,423.3 A138,138 0 0 1 214.28,423.3 L231.37,359.55 A72,72 0 0 0 268.63,359.55 Z"/>
+<text x="250" y="394" class="code on-plain" text-anchor="middle">6A</text>
+<text x="250" y="408" class="key on-plain" text-anchor="middle">Gm</text>
+<path class="cell cell-near" d="M214.28,423.3 A138,138 0 0 1 152.42,387.58 L199.09,340.91 A72,72 0 0 0 231.37,359.55 Z"/>
+<text x="197.5" y="379.93" class="code on-near" text-anchor="middle">7A</text>
+<text x="197.5" y="393.93" class="key on-near" text-anchor="middle">Dm</text>
+<path class="cell cell-start" d="M152.42,387.58 A138,138 0 0 1 116.7,325.72 L180.45,308.63 A72,72 0 0 0 199.09,340.91 Z"/>
+<text x="159.07" y="341.5" class="code on-start" text-anchor="middle">8A</text>
+<text x="159.07" y="355.5" class="key on-start" text-anchor="middle">Am</text>
+<path class="cell cell-near" d="M116.7,325.72 A138,138 0 0 1 116.7,254.28 L180.45,271.37 A72,72 0 0 0 180.45,308.63 Z"/>
+<text x="145" y="289" class="code on-near" text-anchor="middle">9A</text>
+<text x="145" y="303" class="key on-near" text-anchor="middle">Em</text>
+<path class="cell cell-bold" d="M116.7,254.28 A138,138 0 0 1 152.42,192.42 L199.09,239.09 A72,72 0 0 0 180.45,271.37 Z"/>
+<text x="159.07" y="236.5" class="code on-bold" text-anchor="middle">10A</text>
+<text x="159.07" y="250.5" class="key on-bold" text-anchor="middle">Bm</text>
+<path class="cell cell-plain" d="M152.42,192.42 A138,138 0 0 1 214.28,156.7 L231.37,220.45 A72,72 0 0 0 199.09,239.09 Z"/>
+<text x="197.5" y="198.07" class="code on-plain" text-anchor="middle">11A</text>
+<text x="197.5" y="212.07" class="key on-plain" text-anchor="middle">F#m</text>
+<path class="cell cell-plain" d="M214.28,156.7 A138,138 0 0 1 285.72,156.7 L268.63,220.45 A72,72 0 0 0 231.37,220.45 Z"/>
+<text x="250" y="184" class="code on-plain" text-anchor="middle">12A</text>
+<text x="250" y="198" class="key on-plain" text-anchor="middle">C#m</text>
+<path class="cell cell-plain" d="M303.06,91.99 A205,205 0 0 1 394.96,145.04 L347.58,192.42 A138,138 0 0 0 285.72,156.7 Z"/>
+<text x="335.75" y="140.48" class="code on-plain" text-anchor="middle">1B</text>
+<text x="335.75" y="154.48" class="key on-plain" text-anchor="middle">B</text>
+<path class="cell cell-plain" d="M394.96,145.04 A205,205 0 0 1 448.01,236.94 L383.3,254.28 A138,138 0 0 0 347.58,192.42 Z"/>
+<text x="398.52" y="203.25" class="code on-plain" text-anchor="middle">2B</text>
+<text x="398.52" y="217.25" class="key on-plain" text-anchor="middle">F#</text>
+<path class="cell cell-plain" d="M448.01,236.94 A205,205 0 0 1 448.01,343.06 L383.3,325.72 A138,138 0 0 0 383.3,254.28 Z"/>
+<text x="421.5" y="289" class="code on-plain" text-anchor="middle">3B</text>
+<text x="421.5" y="303" class="key on-plain" text-anchor="middle">Db</text>
+<path class="cell cell-plain" d="M448.01,343.06 A205,205 0 0 1 394.96,434.96 L347.58,387.58 A138,138 0 0 0 383.3,325.72 Z"/>
+<text x="398.52" y="374.75" class="code on-plain" text-anchor="middle">4B</text>
+<text x="398.52" y="388.75" class="key on-plain" text-anchor="middle">Ab</text>
+<path class="cell cell-plain" d="M394.96,434.96 A205,205 0 0 1 303.06,488.01 L285.72,423.3 A138,138 0 0 0 347.58,387.58 Z"/>
+<text x="335.75" y="437.52" class="code on-plain" text-anchor="middle">5B</text>
+<text x="335.75" y="451.52" class="key on-plain" text-anchor="middle">Eb</text>
+<path class="cell cell-plain" d="M303.06,488.01 A205,205 0 0 1 196.94,488.01 L214.28,423.3 A138,138 0 0 0 285.72,423.3 Z"/>
+<text x="250" y="460.5" class="code on-plain" text-anchor="middle">6B</text>
+<text x="250" y="474.5" class="key on-plain" text-anchor="middle">Bb</text>
+<path class="cell cell-bold" d="M196.94,488.01 A205,205 0 0 1 105.04,434.96 L152.42,387.58 A138,138 0 0 0 214.28,423.3 Z"/>
+<text x="164.25" y="437.52" class="code on-bold" text-anchor="middle">7B</text>
+<text x="164.25" y="451.52" class="key on-bold" text-anchor="middle">F</text>
+<path class="cell cell-near" d="M105.04,434.96 A205,205 0 0 1 51.99,343.06 L116.7,325.72 A138,138 0 0 0 152.42,387.58 Z"/>
+<text x="101.48" y="374.75" class="code on-near" text-anchor="middle">8B</text>
+<text x="101.48" y="388.75" class="key on-near" text-anchor="middle">C</text>
+<path class="cell cell-plain" d="M51.99,343.06 A205,205 0 0 1 51.99,236.94 L116.7,254.28 A138,138 0 0 0 116.7,325.72 Z"/>
+<text x="78.5" y="289" class="code on-plain" text-anchor="middle">9B</text>
+<text x="78.5" y="303" class="key on-plain" text-anchor="middle">G</text>
+<path class="cell cell-plain" d="M51.99,236.94 A205,205 0 0 1 105.04,145.04 L152.42,192.42 A138,138 0 0 0 116.7,254.28 Z"/>
+<text x="101.48" y="203.25" class="code on-plain" text-anchor="middle">10B</text>
+<text x="101.48" y="217.25" class="key on-plain" text-anchor="middle">D</text>
+<path class="cell cell-bold" d="M105.04,145.04 A205,205 0 0 1 196.94,91.99 L214.28,156.7 A138,138 0 0 0 152.42,192.42 Z"/>
+<text x="164.25" y="140.48" class="code on-bold" text-anchor="middle">11B</text>
+<text x="164.25" y="154.48" class="key on-bold" text-anchor="middle">A</text>
+<path class="cell cell-plain" d="M196.94,91.99 A205,205 0 0 1 303.06,91.99 L285.72,156.7 A138,138 0 0 0 214.28,156.7 Z"/>
+<text x="250" y="117.5" class="code on-plain" text-anchor="middle">12B</text>
+<text x="250" y="131.5" class="key on-plain" text-anchor="middle">E</text>
+<text x="250" y="286" class="label" text-anchor="middle">A inside</text>
+<text x="250" y="304" class="label" text-anchor="middle">B outside</text>
+<rect x="520" y="99" width="14" height="14" rx="3" class="cell cell-start"/>
+<text x="544" y="110" class="value" text-anchor="start">8A, the track playing</text>
+<text x="544" y="132" class="label" text-anchor="start">Any track in 8A mixes too</text>
+<rect x="520" y="165" width="14" height="14" rx="3" class="cell cell-near"/>
+<text x="544" y="176" class="value" text-anchor="start">Mixes in key</text>
+<text x="544" y="198" class="label" text-anchor="start">7A  a fifth down</text>
+<text x="544" y="220" class="label" text-anchor="start">9A  a fifth up</text>
+<text x="544" y="242" class="label" text-anchor="start">8B  relative major</text>
+<rect x="520" y="275" width="14" height="14" rx="3" class="cell cell-bold"/>
+<text x="544" y="286" class="value" text-anchor="start">Bolder moves</text>
+<text x="544" y="308" class="label" text-anchor="start">7B  diagonal</text>
+<text x="544" y="330" class="label" text-anchor="start">10A  energy boost</text>
+<text x="544" y="352" class="label" text-anchor="start">11B  mood change</text>
+<text x="544" y="374" class="label" text-anchor="start">3A  semitone boost</text>
+<text x="520" y="418" class="label" text-anchor="start">A is minor, B is major. Same number,</text>
+<text x="520" y="436" class="label" text-anchor="start">other letter: the relative key.</text>
+</svg>

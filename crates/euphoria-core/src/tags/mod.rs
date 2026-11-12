@@ -1,20 +1,26 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Tags are changed in three steps. [`plan_write`] computes the changes
-//! without touching the file, so they can be shown first. [`apply_plan`]
-//! writes them and returns a [`TagBackup`] of the values it replaced.
-//! [`undo`] puts those values back. [`WriteLog`] keeps the backups of a
+//! Tags are changed in three steps. [`crate::tags::plan_write`] computes the changes
+//! without touching the file, so they can be shown first. [`crate::tags::apply_plan`]
+//! writes them and returns a [`crate::tags::TagBackup`] of the values it replaced.
+//! [`crate::tags::undo`] puts those values back. [`crate::tags::WriteLog`] keeps the backups of a
 //! write on disk, so the write can be undone later by another run.
 
+mod base64;
+mod edit;
 mod flac;
 mod history;
 mod id3v2;
-mod label;
+pub(crate) mod label;
 mod mp4;
 mod native;
+mod ogg;
 mod preset;
 mod replace;
+mod riff_info;
+mod serato;
+mod vorbis;
 
 use std::path::{Path, PathBuf};
 
@@ -24,14 +30,21 @@ use crate::analysis::TrackAnalysis;
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
 use crate::key::Key;
+pub use edit::{EditableTags, FieldEdit, TagField, TextChange, plan_edit, read_editable_tags};
 pub use history::{
-    LoggedWrite, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+    LoggedWrite, RewriteStage, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
+    undo_last_write_with_observer,
 };
 use id3v2::COMMENT as ID3_COMMENT;
 pub use label::LabelPlacement;
 use mp4::TEMPO as MP4_TEMPO;
 use native::{Purpose, TagFile};
 pub use preset::DjSoftware;
+pub use serato::{
+    GridOutcome, PlacedCue, SERATO_CUE_COLOURS, SERATO_HOT_CUES, SeratoCue, SeratoGrid,
+    SeratoMarkers, SeratoReport, SeratoSkip, add_serato_markers, describe_serato_value,
+    serato_field_name,
+};
 
 const BPM_MATCH_TOLERANCE: f64 = 0.005;
 
@@ -81,7 +94,7 @@ impl TagFormat {
 
     fn comment_fields(self) -> &'static [&'static str] {
         match self {
-            TagFormat::Id3v2 => &[ID3_COMMENT],
+            TagFormat::Id3v2 => &[ID3_COMMENT, riff_info::COMMENT],
             TagFormat::Mp4 => &["©cmt"],
             TagFormat::VorbisComments => &["COMMENT", "DESCRIPTION"],
         }
@@ -145,7 +158,8 @@ pub enum KeyNotation {
 }
 
 impl KeyNotation {
-    fn spell(self, key: Key) -> String {
+    /// The key written in this notation.
+    pub fn spell(self, key: Key) -> String {
         match self {
             KeyNotation::Camelot => key.camelot(),
             KeyNotation::Musical => key.short_name(),
@@ -327,8 +341,8 @@ pub struct TagBackup {
 /// The file is only read.
 ///
 /// `values` is a [`TagValues`], or a reference to a
-/// [`TrackAnalysis`](crate::TrackAnalysis) or to a detector's
-/// [`Analysis`](crate::detect::Analysis).
+/// [`TrackAnalysis`] or to a detector's
+/// [`Analysis`].
 pub fn plan_write(
     path: &Path,
     values: impl Into<TagValues>,
@@ -403,10 +417,22 @@ pub fn plan_write(
         LabelPlacement::None => None,
     };
     let label = label::label_text(values.key, values.energy, options.key_notation);
-    if let (Some(field), Some(label)) = (label_field, label) {
+    let at_end = options.label == LabelPlacement::CommentEnd;
+    // In a WAV file the label also goes into the comment of the RIFF INFO
+    // list, which is where rekordbox reads a WAV file's comment.
+    let in_info_list = matches!(
+        options.label,
+        LabelPlacement::CommentStart | LabelPlacement::CommentEnd
+    ) && file.has_info_list();
+    let label_fields = label_field
+        .into_iter()
+        .chain(in_info_list.then_some(riff_info::COMMENT));
+    for field in label_fields {
+        let Some(label) = &label else {
+            break;
+        };
         let current = file.get(field)?;
-        let at_end = options.label == LabelPlacement::CommentEnd;
-        let new = label::with_label(&label, current.as_deref(), at_end);
+        let new = label::with_label(label, current.as_deref(), at_end);
         if current.as_deref() != Some(new.as_str()) {
             changes.push(FieldChange {
                 field: field.to_string(),
@@ -420,6 +446,11 @@ pub fn plan_write(
         .iter()
         .map(|change| file.raw(&change.field))
         .collect::<Result<_, _>>()?;
+    let planned: Vec<(&str, Option<&str>)> = changes
+        .iter()
+        .map(|change| (change.field.as_str(), change.new.as_deref()))
+        .collect();
+    file.check_can_write(&planned)?;
     Ok(WritePlan {
         path: path.to_path_buf(),
         format,
@@ -438,6 +469,13 @@ pub fn plan_write(
 /// Fails with [`EuphoriaError::TagConflict`], writing nothing, when a field
 /// no longer holds what the plan was made from.
 pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
+    apply_plan_observing(plan, || {})
+}
+
+pub(super) fn apply_plan_observing(
+    plan: &WritePlan,
+    after: impl FnMut(),
+) -> Result<TagBackup, EuphoriaError> {
     let backup = plan.backup();
     if plan.is_empty() {
         return Ok(backup);
@@ -456,7 +494,7 @@ pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
             None => file.remove(&change.field)?,
         }
     }
-    file.save()?;
+    file.save_with_observer(after)?;
     Ok(backup)
 }
 
@@ -467,6 +505,10 @@ pub fn apply_plan(plan: &WritePlan) -> Result<TagBackup, EuphoriaError> {
 /// no longer holds the value the write left, so that a later edit is not
 /// overwritten.
 pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
+    undo_observing(backup, || {})
+}
+
+pub(super) fn undo_observing(backup: &TagBackup, after: impl FnMut()) -> Result<(), EuphoriaError> {
     if backup.fields.is_empty() {
         return Ok(());
     }
@@ -484,7 +526,7 @@ pub fn undo(backup: &TagBackup) -> Result<(), EuphoriaError> {
             (None, None) => file.restore(&field.field, None)?,
         }
     }
-    file.save()
+    file.save_with_observer(after)
 }
 
 fn conflict(path: &Path, field: &str) -> EuphoriaError {

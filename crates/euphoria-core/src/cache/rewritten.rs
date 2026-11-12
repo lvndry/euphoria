@@ -12,10 +12,11 @@
 //! content now is needs recording.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
+use super::corrections::unreadable;
 use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, cache_error};
 use crate::analysis::TrackAnalysis;
@@ -23,6 +24,25 @@ use crate::error::EuphoriaError;
 use crate::tempo_range::TempoRange;
 
 impl Cache {
+    /// Carries a manual correction across a known metadata-only rewrite,
+    /// even when no analysis remains after clearing the cache.
+    ///
+    /// The caller must obtain both hashes around its own tag write or undo.
+    /// A correction already attached to `after` takes precedence. The old
+    /// correction is retained so undoing the write can recover it too.
+    /// No analysis is created, and no files are read.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be written.
+    pub fn carry_rewritten_correction(
+        &mut self,
+        before: ContentHash,
+        after: ContentHash,
+    ) -> Result<(), EuphoriaError> {
+        carry_user_edits(&self.connection, &before, &after).map_err(cache_error(&self.path))
+    }
+
     /// Records `analysis` for the file at `path` as it is now, after a tag
     /// write changed its tags and nothing else.
     ///
@@ -44,14 +64,24 @@ impl Cache {
         path: &Path,
         analysis: &TrackAnalysis,
     ) -> Result<(), EuphoriaError> {
+        let previous = self.previous_content(path)?;
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(());
         };
-        self.apply_write(&CacheWrite::Store {
-            content_hash,
-            analysis: analysis.clone().with_tempo_range(TempoRange::DEFAULT),
-            location,
-        })
+        // The new content and the user's edits it carries over are kept
+        // together, so a failure never leaves them behind under the content
+        // the file no longer has.
+        self.apply_write_then(
+            &CacheWrite::Store {
+                content_hash,
+                analysis: Box::new(analysis.clone().with_tempo_range(TempoRange::DEFAULT)),
+                location,
+            },
+            |connection| match previous {
+                Some(previous) => carry_user_edits(connection, &previous, &content_hash),
+                None => Ok(()),
+            },
+        )
         .map_err(cache_error(&self.path))
     }
 
@@ -65,8 +95,13 @@ impl Cache {
     /// [`EuphoriaError::Scan`] when the file cannot be read, and
     /// [`EuphoriaError::Cache`] when the database cannot be read or written.
     pub fn recognise_file(&mut self, path: &Path) -> Result<bool, EuphoriaError> {
+        let previous = self.previous_content(path)?;
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(false);
+        };
+        let carry = |connection: &Connection| match previous {
+            Some(previous) => carry_user_edits(connection, &previous, &content_hash),
+            None => Ok(()),
         };
         let is_known = self
             .connection
@@ -85,14 +120,65 @@ impl Cache {
             .map_err(cache_error(&self.path))?
             .is_some();
         if is_known {
-            self.apply_write(&CacheWrite::Relocate {
-                content_hash,
-                location,
-            })
+            self.apply_write_then(
+                &CacheWrite::Relocate {
+                    content_hash,
+                    location,
+                },
+                carry,
+            )
             .map_err(cache_error(&self.path))?;
         }
         Ok(is_known)
     }
+}
+
+impl Cache {
+    /// Where a file with `content` was last seen, by an analysis of any
+    /// version, when the cache knows.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn last_seen_path_of(
+        &self,
+        content: &ContentHash,
+    ) -> Result<Option<PathBuf>, EuphoriaError> {
+        let path: Option<Option<String>> = self
+            .connection
+            .query_row(
+                "SELECT last_known_path FROM analyses WHERE content_hash = ?1",
+                params![content.as_bytes()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(cache_error(&self.path))?;
+        Ok(path.flatten().map(PathBuf::from))
+    }
+}
+
+/// Copies the correction and the edited cues of `from` to `to`, each unless
+/// `to` has its own, when a write or an undo turns one content into the
+/// other.
+fn carry_user_edits(
+    connection: &Connection,
+    from: &ContentHash,
+    to: &ContentHash,
+) -> rusqlite::Result<()> {
+    if from == to {
+        return Ok(());
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
+         SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
+        params![from.as_bytes(), to.as_bytes()],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO edited_cues (content_hash, cues, edited_at)
+         SELECT ?2, cues, edited_at FROM edited_cues WHERE content_hash = ?1",
+        params![from.as_bytes(), to.as_bytes()],
+    )?;
+    Ok(())
 }
 
 /// The hash and location of the file at `path`, or `None` when its size or
@@ -107,14 +193,6 @@ fn steady_content(path: &Path) -> io::Result<Option<(ContentHash, FileLocation)>
         return Ok(None);
     }
     Ok(Some((content_hash, location)))
-}
-
-fn unreadable(path: &Path) -> impl Fn(io::Error) -> EuphoriaError {
-    let path = path.to_path_buf();
-    move |source| EuphoriaError::Scan {
-        path: path.clone(),
-        source,
-    }
 }
 
 #[cfg(test)]
@@ -135,7 +213,10 @@ mod tests {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
+            cues: Vec::new(),
             key_timeline: Vec::new(),
+            quality: None,
         }
     }
 
@@ -219,6 +300,67 @@ mod tests {
     }
 
     #[test]
+    fn explicit_rewrites_carry_corrections_without_any_analysis() {
+        let folder = TemporaryFolder::new();
+        let path = folder.path().join("track.mp3");
+        let original = b"audio with original tags";
+        std::fs::write(&path, original).unwrap();
+        let before = ContentHash::of_file(&path).unwrap();
+        let correction = crate::Correction::of_key(Key::new(4, Mode::Minor))
+            .with_bpm(Some(87.0))
+            .unwrap();
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache.set_correction(&path, &correction).unwrap();
+        let analyzer = CachedAnalyzer::new(cache).unwrap();
+        retag(&path, b" changed");
+        let after = ContentHash::of_file(&path).unwrap();
+
+        analyzer.carry_rewritten_correction(before, after).unwrap();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        assert_eq!(cache.entry_count().unwrap(), 0);
+        assert_eq!(
+            cache.verified_correction_for(&path).unwrap(),
+            Some(correction)
+        );
+        std::fs::write(&path, original).unwrap();
+        analyzer.carry_rewritten_correction(after, before).unwrap();
+        assert_eq!(
+            cache.verified_correction_for(&path).unwrap(),
+            Some(correction)
+        );
+    }
+
+    #[test]
+    fn an_explicit_rewrite_keeps_the_destinations_own_correction() {
+        let folder = TemporaryFolder::new();
+        let source = folder.path().join("original.mp3");
+        let destination = folder.path().join("retagged.mp3");
+        std::fs::write(&source, b"audio with original tags").unwrap();
+        std::fs::write(&destination, b"audio with changed tags").unwrap();
+        let before = ContentHash::of_file(&source).unwrap();
+        let after = ContentHash::of_file(&destination).unwrap();
+        let source_correction = crate::Correction::of_key(Key::new(4, Mode::Minor));
+        let destination_correction = crate::Correction::of_key(Key::new(0, Mode::Major));
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache.set_correction(&source, &source_correction).unwrap();
+        cache
+            .set_correction(&destination, &destination_correction)
+            .unwrap();
+
+        cache.carry_rewritten_correction(before, after).unwrap();
+
+        assert_eq!(
+            cache.verified_correction_for(&source).unwrap(),
+            Some(source_correction)
+        );
+        assert_eq!(
+            cache.verified_correction_for(&destination).unwrap(),
+            Some(destination_correction)
+        );
+        assert_eq!(cache.entry_count().unwrap(), 0);
+    }
+
+    #[test]
     fn unknown_content_is_not_recognised_and_nothing_is_recorded() {
         let folder = TemporaryFolder::new();
         let track = folder.path().join("track.wav");
@@ -226,6 +368,26 @@ mod tests {
         let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
         assert!(!cache.recognise_file(&track).unwrap());
         assert_eq!(cache.entry_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn unknown_replacement_does_not_inherit_the_previous_tracks_correction() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("replaced.mp3");
+        std::fs::write(&track, b"original audio").unwrap();
+        analyzed(&folder, &track);
+        let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .set_correction(&track, &crate::Correction::of_bpm(87.0).unwrap())
+            .unwrap();
+        std::fs::write(&track, b"unrelated new audio").unwrap();
+        assert!(!cache.recognise_file(&track).unwrap());
+        assert_eq!(cache.verified_correction_for(&track).unwrap(), None);
+        std::fs::write(&track, b"original audio").unwrap();
+        assert_eq!(
+            cache.verified_correction_for(&track).unwrap().unwrap().bpm,
+            Some(87.0)
+        );
     }
 
     #[test]

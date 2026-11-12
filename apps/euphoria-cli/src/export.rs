@@ -1,0 +1,1411 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! The `export` command: analyzes files and writes the results in the format
+//! of other DJ software.
+
+use std::collections::{HashMap, HashSet};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use anyhow::{Context, Result, anyhow, bail};
+use clap::{Args, Subcommand, ValueEnum};
+use euphoria_core::export::engine::{
+    EngineOptions, EngineTrack, library_database, preview_library_update, update_library,
+};
+use euphoria_core::export::rekordbox::{
+    ExistingFile, ExportOptions, KeyNotation, Library, PlaylistNode, write_xml_file,
+};
+use euphoria_core::export::traktor::{ModifiedTime, TraktorOptions, write_nml_file};
+use euphoria_core::export::virtualdj::{
+    VirtualDjOptions, VirtualDjTrack, preview_database_update, update_database_file,
+};
+use euphoria_core::tags::{KeyNotation as TagKeyNotation, LabelPlacement};
+use euphoria_core::{
+    AssembledLibrary, CachedAnalyzer, CachedBatch, EntryLocation, EuphoriaError, ExportContents,
+    M3uTrack, PlaylistLayout, assemble_library_with, find_audio_files, is_supported_audio_file,
+    playlist_count, read_track_name, write_m3u8_file,
+};
+
+use crate::batch::{self, AnalysisOptions};
+use crate::collection::{self, CuedTracks};
+use crate::playlists::find_playlist;
+use crate::style::Theme;
+use crate::terminal::Printable;
+use crate::{output, traktor_collection, with_causes};
+
+/// Used for the playlist of files named directly when the output file has no
+/// name to borrow.
+const FALLBACK_PLAYLIST_NAME: &str = "Euphoria";
+
+#[derive(Debug, Subcommand)]
+pub enum ExportTarget {
+    /// Write a rekordbox XML file with the key and tempo of every track, and
+    /// a playlist per folder.
+    #[command(after_help = crate::help::export_examples())]
+    Rekordbox(RekordboxArguments),
+    /// Write a Traktor collection file (NML) with the key, tempo and comment
+    /// of every track, and a playlist per folder.
+    #[command(after_help = crate::help::traktor_export_examples())]
+    Traktor(TraktorArguments),
+    /// Write the key, tempo, beat grid and cues of every track into the
+    /// tracks of your Engine DJ library, after saving a copy of it.
+    #[command(after_help = crate::help::engine_export_examples())]
+    Engine(EngineArguments),
+    /// Write the key, tempo, beat grid, cues and energy of every track into
+    /// the songs of your VirtualDJ database, after saving a copy of it.
+    #[command(name = "virtualdj", after_help = crate::help::virtualdj_export_examples())]
+    Virtualdj(VirtualDjArguments),
+    /// Write a playlist built in the desktop app as an M3U8 file, which
+    /// nearly every DJ and music program can open.
+    M3u8(M3u8Arguments),
+}
+
+#[derive(Debug, Args)]
+pub struct M3u8Arguments {
+    /// The name of the playlist, as `euphoria playlists` lists it.
+    #[arg(long, value_name = "NAME")]
+    playlist: String,
+    /// The M3U8 file to write.
+    #[arg(long, short = 'o', value_name = "FILE")]
+    output: PathBuf,
+    /// Replace the output file if it exists.
+    #[arg(long)]
+    force: bool,
+    /// Look neither in the cache for files that moved nor for their
+    /// lengths.
+    #[arg(long)]
+    no_cache: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RekordboxArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required_unless_present = "playlist", conflicts_with = "playlist")]
+    paths: Vec<PathBuf>,
+    /// Export a playlist built in the desktop app, by name, in place of
+    /// files and folders: its tracks in the collection and one playlist in
+    /// its order.
+    #[arg(long, value_name = "NAME", conflicts_with = "no_playlists")]
+    playlist: Option<String>,
+    /// The rekordbox XML file to write.
+    #[arg(long, short = 'o', value_name = "FILE")]
+    output: PathBuf,
+    /// Replace the output file if it exists.
+    #[arg(long)]
+    force: bool,
+    /// How keys are written. rekordbox shows them as they are in the file.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: KeyNotationChoice,
+    /// Export the tracks only, without a playlist per folder.
+    #[arg(long)]
+    no_playlists: bool,
+    /// Write each track's beat grid, except grids rated low confidence,
+    /// which rekordbox then makes itself.
+    #[arg(long)]
+    beat_grid: bool,
+    /// Write cues where each track's sections start, as memory cues and hot
+    /// cues A to H, on tracks whose beat grid is written. Needs
+    /// --beat-grid, and --collection so that no track loses its own cues.
+    #[arg(long, requires_all = ["beat_grid", "collection"])]
+    cues: bool,
+    /// Your rekordbox collection exported as XML (File > Export Collection
+    /// in xml format). Tracks that already have cues or loops there are
+    /// left out of the file, so that importing it cannot change them.
+    #[arg(long, value_name = "FILE", requires = "cues")]
+    collection: Option<PathBuf>,
+    /// Export even though some tracks with cues in the collection match no
+    /// file on this computer, so they cannot be recognised and protected.
+    #[arg(long, requires = "collection")]
+    allow_unmatched_cued_tracks: bool,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Args)]
+pub struct TraktorArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required_unless_present = "playlist", conflicts_with = "playlist")]
+    paths: Vec<PathBuf>,
+    /// Export a playlist built in the desktop app, by name, in place of
+    /// files and folders: its tracks in the collection and one playlist in
+    /// its order.
+    #[arg(long, value_name = "NAME", conflicts_with = "no_playlists")]
+    playlist: Option<String>,
+    /// The NML file to write. Never your Traktor collection.nml itself:
+    /// import the file into Traktor instead.
+    #[arg(long, short = 'o', value_name = "FILE")]
+    output: PathBuf,
+    /// Replace the output file if it exists.
+    #[arg(long)]
+    force: bool,
+    /// How keys are written in the Key Text column. Traktor's Key column
+    /// shows the key in its own notation whatever this is.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: TraktorKeyNotationChoice,
+    /// Export the tracks only, without a playlist per folder.
+    #[arg(long)]
+    no_playlists: bool,
+    /// Write each track's beat grid, except grids rated low confidence,
+    /// which Traktor then makes itself.
+    #[arg(long)]
+    beat_grid: bool,
+    /// Write cues where each track's sections start, as hot cues 1 to 8,
+    /// on tracks whose beat grid is written. Needs --beat-grid, and
+    /// --collection so that no track loses its own cues.
+    #[arg(long, requires_all = ["beat_grid", "collection"])]
+    cues: bool,
+    /// Your Traktor collection.nml, in Documents/Native Instruments/Traktor
+    /// <version>. It is only read. Tracks that already have cues or loops
+    /// there are left out of the file, so that importing it cannot change
+    /// them.
+    #[arg(long, value_name = "FILE", requires = "cues")]
+    collection: Option<PathBuf>,
+    /// Export even though some tracks with cues in the collection match no
+    /// file on this computer, so they cannot be recognised and protected.
+    #[arg(long, requires = "collection")]
+    allow_unmatched_cued_tracks: bool,
+    /// The name of the Mac volume your system is on, which Traktor writes
+    /// in front of every path outside /Volumes. Found by itself; give it
+    /// only when the export is for another computer.
+    #[arg(long, value_name = "NAME")]
+    startup_volume: Option<String>,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Args)]
+pub struct EngineArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required_unless_present = "playlist", conflicts_with = "playlist")]
+    paths: Vec<PathBuf>,
+    /// Export the tracks of a playlist built in the desktop app, by name,
+    /// in place of files and folders.
+    #[arg(long, value_name = "NAME")]
+    playlist: Option<String>,
+    /// Your Engine Library folder. Music/Engine Library in your home folder
+    /// unless given; give the Engine Library folder of a drive for the
+    /// tracks on it.
+    #[arg(long, value_name = "FOLDER")]
+    library: Option<PathBuf>,
+    /// Where the key and energy label, such as "8A - Energy 7", goes in the
+    /// comment. The comment you wrote is kept.
+    #[arg(long, value_enum, default_value_t, value_name = "WHERE")]
+    label: EngineLabelChoice,
+    /// How the key is written in the label. Engine DJ's Key column uses the
+    /// notation set in its preferences.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: TraktorKeyNotationChoice,
+    /// Write each track's beat grid, except grids rated low confidence, on
+    /// tracks Engine DJ has analysed.
+    #[arg(long)]
+    beat_grid: bool,
+    /// Write cues where each track's sections start, as hot cues 1 to 8, on
+    /// tracks Engine DJ has analysed. A track with hot cues of its own in
+    /// Engine DJ keeps them and gets none.
+    #[arg(long, requires = "beat_grid")]
+    cues: bool,
+    /// Check the library and show what would change, writing nothing.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum EngineLabelChoice {
+    /// In front of the comment.
+    #[default]
+    CommentStart,
+    /// After the comment.
+    CommentEnd,
+    /// Nowhere: the energy is not written.
+    None,
+}
+
+impl From<EngineLabelChoice> for LabelPlacement {
+    fn from(choice: EngineLabelChoice) -> Self {
+        match choice {
+            EngineLabelChoice::CommentStart => LabelPlacement::CommentStart,
+            EngineLabelChoice::CommentEnd => LabelPlacement::CommentEnd,
+            EngineLabelChoice::None => LabelPlacement::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum TraktorKeyNotationChoice {
+    /// Camelot codes such as 8A.
+    #[default]
+    Camelot,
+    /// Musical names such as Am.
+    Musical,
+    /// Open Key codes such as 1m, the notation Traktor shows its own keys
+    /// in.
+    OpenKey,
+}
+
+impl From<TraktorKeyNotationChoice> for TagKeyNotation {
+    fn from(choice: TraktorKeyNotationChoice) -> Self {
+        match choice {
+            TraktorKeyNotationChoice::Camelot => TagKeyNotation::Camelot,
+            TraktorKeyNotationChoice::Musical => TagKeyNotation::Musical,
+            TraktorKeyNotationChoice::OpenKey => TagKeyNotation::OpenKey,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum LabelChoice {
+    /// In front of the comment.
+    #[default]
+    CommentStart,
+    /// After the comment.
+    CommentEnd,
+    /// In front of the grouping.
+    Grouping,
+    /// Nowhere: the energy is not written.
+    None,
+}
+
+impl From<LabelChoice> for LabelPlacement {
+    fn from(choice: LabelChoice) -> Self {
+        match choice {
+            LabelChoice::CommentStart => LabelPlacement::CommentStart,
+            LabelChoice::CommentEnd => LabelPlacement::CommentEnd,
+            LabelChoice::Grouping => LabelPlacement::Grouping,
+            LabelChoice::None => LabelPlacement::None,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct VirtualDjArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required_unless_present = "playlist", conflicts_with = "playlist")]
+    paths: Vec<PathBuf>,
+    /// Export the tracks of a playlist built in the desktop app, by name,
+    /// in place of files and folders.
+    #[arg(long, value_name = "NAME")]
+    playlist: Option<String>,
+    /// Your VirtualDJ database.xml. Found by itself in the VirtualDJ folder
+    /// of your home folder; give it for tracks on another drive, whose
+    /// songs are in VirtualDJ/database.xml on that drive.
+    #[arg(long, value_name = "FILE")]
+    database: Option<PathBuf>,
+    /// Where the key and energy label, such as "8A - Energy 7", goes. The
+    /// text already there is kept.
+    #[arg(long, value_enum, default_value_t, value_name = "WHERE")]
+    label: LabelChoice,
+    /// How the key is written in the label. VirtualDJ's Key column shows
+    /// the key in the notation set in its own options.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: TraktorKeyNotationChoice,
+    /// Write each track's beat grid, except grids rated low confidence,
+    /// which VirtualDJ keeps its own for.
+    #[arg(long)]
+    beat_grid: bool,
+    /// Write cues where each track's sections start, as hot cues 1 to 8,
+    /// on tracks whose beat grid is written. A song that has cues of its
+    /// own in VirtualDJ keeps them and gets none.
+    #[arg(long, requires = "beat_grid")]
+    cues: bool,
+    /// Show what would change and write nothing.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum KeyNotationChoice {
+    /// Camelot codes such as 8A.
+    #[default]
+    Camelot,
+    /// Musical names such as Am.
+    Musical,
+    /// Open Key codes such as 1m.
+    OpenKey,
+}
+
+impl From<KeyNotationChoice> for KeyNotation {
+    fn from(choice: KeyNotationChoice) -> Self {
+        match choice {
+            KeyNotationChoice::Camelot => KeyNotation::Camelot,
+            KeyNotationChoice::Musical => KeyNotation::Musical,
+            KeyNotationChoice::OpenKey => KeyNotation::OpenKey,
+        }
+    }
+}
+
+pub fn run(target: ExportTarget) -> Result<ExitCode> {
+    match target {
+        ExportTarget::Rekordbox(arguments) => export_to_rekordbox(&arguments),
+        ExportTarget::Traktor(arguments) => export_to_traktor(&arguments),
+        ExportTarget::Engine(arguments) => export_to_engine(&arguments),
+        ExportTarget::Virtualdj(arguments) => export_to_virtualdj(&arguments),
+        ExportTarget::M3u8(arguments) => export_to_m3u8(&arguments),
+    }
+}
+
+/// Which DJ program an export is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Program {
+    Rekordbox,
+    Traktor,
+    Engine,
+    VirtualDj,
+}
+
+impl Program {
+    /// The program's name as it spells it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Program::Rekordbox => "rekordbox",
+            Program::Traktor => "Traktor",
+            Program::Engine => "Engine DJ",
+            Program::VirtualDj => "VirtualDJ",
+        }
+    }
+}
+
+/// What every library export is asked for, whatever the program.
+struct ExportRequest<'arguments> {
+    program: Program,
+    paths: &'arguments [PathBuf],
+    playlist: Option<&'arguments str>,
+    output: &'arguments Path,
+    force: bool,
+    no_playlists: bool,
+    beat_grid: bool,
+    cues: bool,
+    collection: Option<&'arguments Path>,
+    /// The collection files an export must never overwrite: the installed
+    /// collections of the program on this computer.
+    protected_collections: Vec<PathBuf>,
+    allow_unmatched_cued_tracks: bool,
+    analysis: &'arguments AnalysisOptions,
+}
+
+fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
+    let options = ExportOptions {
+        key_notation: arguments.key_notation.into(),
+    };
+    export_library(
+        &ExportRequest {
+            program: Program::Rekordbox,
+            paths: &arguments.paths,
+            playlist: arguments.playlist.as_deref(),
+            output: &arguments.output,
+            force: arguments.force,
+            no_playlists: arguments.no_playlists,
+            beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
+            collection: arguments.collection.as_deref(),
+            protected_collections: Vec::new(),
+            allow_unmatched_cued_tracks: arguments.allow_unmatched_cued_tracks,
+            analysis: &arguments.analysis,
+        },
+        collection::tracks_with_cues,
+        |output_file, library, existing| write_xml_file(output_file, library, &options, existing),
+    )
+}
+
+fn export_to_traktor(arguments: &TraktorArguments) -> Result<ExitCode> {
+    let startup_volume = arguments
+        .startup_volume
+        .clone()
+        .unwrap_or_else(traktor_collection::startup_volume_name);
+    let options = TraktorOptions {
+        key_notation: arguments.key_notation.into(),
+        startup_volume: startup_volume.clone(),
+        modified: ModifiedTime::now(),
+    };
+    export_library(
+        &ExportRequest {
+            program: Program::Traktor,
+            paths: &arguments.paths,
+            playlist: arguments.playlist.as_deref(),
+            output: &arguments.output,
+            force: arguments.force,
+            no_playlists: arguments.no_playlists,
+            beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
+            collection: arguments.collection.as_deref(),
+            protected_collections: traktor_collection::installed_collections(),
+            allow_unmatched_cued_tracks: arguments.allow_unmatched_cued_tracks,
+            analysis: &arguments.analysis,
+        },
+        |collection| traktor_collection::tracks_with_cues(collection, &startup_volume),
+        |output_file, library, existing| write_nml_file(output_file, library, &options, existing),
+    )
+}
+
+fn export_library(
+    request: &ExportRequest<'_>,
+    read_cued_tracks: impl Fn(&Path) -> Result<CuedTracks>,
+    write: impl FnOnce(&Path, &Library, ExistingFile) -> Result<(), EuphoriaError>,
+) -> Result<ExitCode> {
+    let program = request.program;
+    let output_file = std::path::absolute(request.output)
+        .with_context(|| format!("cannot use {} as the output", request.output.display()))?;
+    let existing = if request.force {
+        ExistingFile::Replace
+    } else {
+        ExistingFile::Keep
+    };
+    // Checked before the analysis, which can take hours on a large library.
+    check_output_file(&output_file, existing)?;
+    let cued_tracks = match request.collection {
+        Some(collection) => {
+            check_output_is_not_a_collection(&output_file, &[collection.to_path_buf()], program)?;
+            let cued_tracks = read_cued_tracks(collection)?;
+            if !cued_tracks.unmatched.is_empty() && !request.allow_unmatched_cued_tracks {
+                bail!(
+                    "{}",
+                    unmatched_cued_tracks_message(&cued_tracks.unmatched, collection, program)
+                );
+            }
+            cued_tracks
+        }
+        None => CuedTracks::default(),
+    };
+    // The user's installed collection is protected even without --collection,
+    // so --force never overwrites the real one.
+    if !request.protected_collections.is_empty() {
+        check_output_is_not_a_collection(&output_file, &request.protected_collections, program)?;
+    }
+    let already_cued = &cued_tracks.paths;
+
+    let playlist = match request.playlist {
+        Some(name) => Some(find_playlist(name, request.analysis.uses_cache())?),
+        None => None,
+    };
+    let (folders, audio_files) = match &playlist {
+        Some(playlist) => (Vec::new(), playlist.files.clone()),
+        None => {
+            let paths = resolve(request.paths)?;
+            let folders: Vec<PathBuf> =
+                paths.iter().filter(|path| path.is_dir()).cloned().collect();
+            let audio_files = find_audio_files(&paths).map_err(with_causes)?;
+            (folders, audio_files)
+        }
+    };
+    check_output_is_not_an_input(&output_file, &audio_files, &folders)?;
+    if let Some(playlist) = &playlist {
+        write_missing_files(&playlist.missing)?;
+    }
+    if audio_files.is_empty() {
+        bail!("no audio files found, so nothing was exported");
+    }
+
+    // Before the analysis, which can take hours, and before anything is
+    // written.
+    batch::require_readable_user_edits(request.analysis)?;
+    let CachedBatch {
+        results,
+        cached_count,
+        store_error,
+    } = batch::analyze(&audio_files, request.analysis)?;
+    let user_edits =
+        batch::user_edits(&results, request.analysis, batch::CorrectionCheck::ReadFile)?;
+    let results = batch::corrected(results, &user_edits);
+
+    let loose_playlist_name = output_file
+        .file_stem()
+        .map(|file_stem| file_stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| FALLBACK_PLAYLIST_NAME.to_string());
+    let layout = if let Some(playlist) = &playlist {
+        PlaylistLayout::Ordered {
+            name: &playlist.name,
+            tracks: &playlist.files,
+        }
+    } else if request.no_playlists {
+        PlaylistLayout::CollectionOnly
+    } else {
+        PlaylistLayout::MirrorFolders {
+            folders: &folders,
+            loose_playlist_name: &loose_playlist_name,
+        }
+    };
+    let AssembledLibrary {
+        mut library,
+        skipped,
+        unread_tags,
+    } = assemble_library_with(
+        results,
+        layout,
+        ExportContents {
+            beat_grid: request.beat_grid,
+            cues: request.cues,
+            edited_cues: batch::edited_cues(&user_edits),
+        },
+    );
+    // A track that has cues of its own is left out of the file, so that no
+    // import of the file can change them.
+    let left_out = leave_out(&mut library, already_cued);
+
+    // The file is written before anything is reported, so that a reader of
+    // standard error that goes away cannot stop the export.
+    let written = if library.tracks.is_empty() && left_out > 0 {
+        Err(anyhow!(
+            "every track already has cues in your {} collection, so nothing was \
+             written; export again without --cues to update their key and tempo",
+            program.name()
+        ))
+    } else if library.tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else {
+        write(&output_file, &library, existing).map_err(with_causes)
+    };
+
+    let mut standard_error = std::io::stderr().lock();
+    let theme = Theme::stderr();
+    output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
+    written?;
+    output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
+    output::write_export_summary(
+        &mut standard_error,
+        &theme,
+        &output::ExportSummary {
+            track_count: library.tracks.len(),
+            playlist_count: (!request.no_playlists).then(|| playlist_count(&library.playlists)),
+            cached_count,
+            output_file: &output_file,
+        },
+    )?;
+    if request.beat_grid {
+        let with_grid = library
+            .tracks
+            .iter()
+            .filter(|track| track.first_beat.is_some())
+            .count();
+        output::write_beat_grid_summary(
+            &mut standard_error,
+            with_grid,
+            library.tracks.len(),
+            program,
+        )?;
+    }
+    if request.cues {
+        let with_cues = library
+            .tracks
+            .iter()
+            .filter(|track| !track.cue_points.is_empty())
+            .count();
+        output::write_cue_summary(&mut standard_error, with_cues, library.tracks.len())?;
+        if left_out > 0 {
+            output::write_left_out_for_cues(&mut standard_error, left_out, program)?;
+        }
+        if !cued_tracks.unmatched.is_empty() {
+            output::write_unmatched_cued_tracks(
+                &mut standard_error,
+                &cued_tracks.unmatched,
+                program,
+            )?;
+        }
+    }
+    if !skipped.is_empty() {
+        output::write_skipped_summary(&mut standard_error, skipped.len())?;
+    }
+    output::write_import_steps(&mut standard_error, &theme, program)?;
+
+    if let Some(store_error) = store_error {
+        return Err(with_causes(store_error).context("some results were not saved to the cache"));
+    }
+    Ok(if skipped.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+fn default_virtualdj_database() -> Option<PathBuf> {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")?
+    } else {
+        std::env::var_os("HOME")?
+    };
+    let home = PathBuf::from(home);
+    [
+        home.join("Library/Application Support/VirtualDJ/database.xml"),
+        home.join("Documents/VirtualDJ/database.xml"),
+        home.join("OneDrive/Documents/VirtualDJ/database.xml"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+}
+
+/// Whether VirtualDJ is running on this computer, or `None` when it cannot
+/// be checked.
+fn virtualdj_is_running() -> Option<bool> {
+    let (program, arguments): (&str, &[&str]) = if cfg!(windows) {
+        ("tasklist", &["/FI", "IMAGENAME eq virtualdj.exe", "/NH"])
+    } else {
+        ("pgrep", &["-x", "VirtualDJ"])
+    };
+    let output = std::process::Command::new(program)
+        .args(arguments)
+        .output()
+        .ok()?;
+    Some(if cfg!(windows) {
+        String::from_utf8_lossy(&output.stdout)
+            .to_lowercase()
+            .contains("virtualdj.exe")
+    } else {
+        output.status.success()
+    })
+}
+
+fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
+    let database = match &arguments.database {
+        Some(path) => std::path::absolute(path)?,
+        None => default_virtualdj_database().ok_or_else(|| {
+            anyhow!(
+                "no VirtualDJ database.xml was found in your home folder; give it with --database"
+            )
+        })?,
+    };
+    if !database.is_file() {
+        bail!(
+            "{} is not a file; give your VirtualDJ database.xml with --database",
+            database.display()
+        );
+    }
+    if !arguments.dry_run {
+        match virtualdj_is_running() {
+            Some(true) => bail!(
+                "VirtualDJ is running. It saves its database when it closes, which would undo the export. Close VirtualDJ and export again."
+            ),
+            Some(false) => {}
+            None => {
+                eprintln!(
+                    "warning: could not check whether VirtualDJ is running; close it before exporting"
+                );
+            }
+        }
+    }
+
+    let playlist = match &arguments.playlist {
+        Some(name) => Some(find_playlist(name, arguments.analysis.uses_cache())?),
+        None => None,
+    };
+    let audio_files = match &playlist {
+        Some(playlist) => playlist.files.clone(),
+        None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
+    };
+    if let Some(playlist) = &playlist {
+        write_missing_files(&playlist.missing)?;
+    }
+    if audio_files.is_empty() {
+        bail!("no audio files found, so nothing was exported");
+    }
+
+    batch::require_readable_user_edits(&arguments.analysis)?;
+    let CachedBatch {
+        results,
+        cached_count: _,
+        store_error,
+    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let user_edits = batch::user_edits(
+        &results,
+        &arguments.analysis,
+        batch::CorrectionCheck::ReadFile,
+    )?;
+    let results = batch::corrected(results, &user_edits);
+
+    let energies: HashMap<PathBuf, u8> = results
+        .iter()
+        .filter_map(|result| match &result.outcome {
+            Ok(analysis) => analysis.energy.map(|energy| (result.path.clone(), energy)),
+            Err(_) => None,
+        })
+        .collect();
+
+    let AssembledLibrary {
+        library,
+        skipped,
+        unread_tags,
+    } = assemble_library_with(
+        results,
+        PlaylistLayout::CollectionOnly,
+        ExportContents {
+            beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
+            edited_cues: batch::edited_cues(&user_edits),
+        },
+    );
+    let virtualdj_tracks: Vec<VirtualDjTrack<'_>> = library
+        .tracks
+        .iter()
+        .map(|track| VirtualDjTrack {
+            track,
+            energy: energies.get(&track.path).copied(),
+        })
+        .collect();
+    let options = VirtualDjOptions {
+        label: arguments.label.into(),
+        label_notation: arguments.key_notation.into(),
+    };
+
+    let now = ModifiedTime::now();
+    let backup = database
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(
+            "database.xml.euphoria-backup-{:04}{:02}{:02}-{:06}",
+            now.year, now.month, now.day, now.seconds_of_day
+        ));
+    let merge = if library.tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else if arguments.dry_run {
+        preview_database_update(&database, &virtualdj_tracks, &options).map_err(with_causes)
+    } else {
+        update_database_file(&database, &backup, &virtualdj_tracks, &options).map_err(with_causes)
+    };
+
+    let mut standard_error = std::io::stderr().lock();
+    let theme = Theme::stderr();
+    output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
+    output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
+    let merge = merge?;
+    if !arguments.dry_run && !merge.updated.is_empty() {
+        writeln!(
+            standard_error,
+            "Updated {} in {}",
+            output::counted(merge.updated.len(), "song", "songs"),
+            Printable(database.display())
+        )?;
+        writeln!(
+            standard_error,
+            "Saved the database as it was to {}",
+            Printable(backup.display())
+        )?;
+    } else if arguments.dry_run && !merge.updated.is_empty() {
+        writeln!(
+            standard_error,
+            "Dry run: {} of {} would be updated; nothing was written.",
+            output::counted(merge.updated.len(), "song", "songs"),
+            Printable(database.display())
+        )?;
+    } else {
+        writeln!(
+            standard_error,
+            "No track is in {}, so nothing was written.",
+            Printable(database.display())
+        )?;
+    }
+    if !merge.not_in_database.is_empty() {
+        writeln!(
+            standard_error,
+            "{} not in this database, so not updated:",
+            output::counted(merge.not_in_database.len(), "track is", "tracks are")
+        )?;
+        const LISTED: usize = 10;
+        for path in merge.not_in_database.iter().take(LISTED) {
+            writeln!(standard_error, "  {}", Printable(path.display()))?;
+        }
+        if merge.not_in_database.len() > LISTED {
+            writeln!(
+                standard_error,
+                "  and {} more",
+                merge.not_in_database.len() - LISTED
+            )?;
+        }
+        writeln!(
+            standard_error,
+            "Load them in VirtualDJ once, or give the database of their drive with --database, and export again."
+        )?;
+    }
+    if arguments.beat_grid {
+        let with_grid = library
+            .tracks
+            .iter()
+            .filter(|track| track.first_beat.is_some())
+            .count();
+        output::write_beat_grid_summary(
+            &mut standard_error,
+            with_grid,
+            library.tracks.len(),
+            Program::VirtualDj,
+        )?;
+    }
+    if arguments.cues {
+        if !merge.kept_own_cues.is_empty() {
+            writeln!(
+                standard_error,
+                "Kept the cues of {} that have cues in VirtualDJ.",
+                output::counted(merge.kept_own_cues.len(), "song", "songs")
+            )?;
+        }
+        if merge.cues_without_pad > 0 {
+            writeln!(
+                standard_error,
+                "Left out {} on no hot cue pad: VirtualDJ has no memory cues.",
+                output::counted(merge.cues_without_pad, "cue", "cues")
+            )?;
+        }
+    }
+    if !skipped.is_empty() {
+        output::write_skipped_summary(&mut standard_error, skipped.len())?;
+    }
+    if !arguments.dry_run && !merge.updated.is_empty() {
+        output::write_import_steps(&mut standard_error, &theme, Program::VirtualDj)?;
+    }
+    drop(standard_error);
+
+    if let Some(store_error) = store_error {
+        return Err(with_causes(store_error).context("some results were not saved to the cache"));
+    }
+    Ok(if merge.updated.is_empty() || !skipped.is_empty() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn default_engine_library() -> Option<PathBuf> {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")?
+    } else {
+        std::env::var_os("HOME")?
+    };
+    let library = PathBuf::from(home).join("Music").join("Engine Library");
+    library.is_dir().then_some(library)
+}
+
+/// Whether Engine DJ is running on this computer, or `None` when that
+/// cannot be checked.
+fn engine_is_running() -> Option<bool> {
+    if cfg!(windows) {
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq Engine DJ.exe", "/NH"])
+            .output()
+            .ok()?;
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .to_lowercase()
+                .contains("engine dj.exe"),
+        )
+    } else {
+        let output = std::process::Command::new("pgrep")
+            .args(["-x", "Engine DJ"])
+            .output()
+            .ok()?;
+        Some(output.status.success())
+    }
+}
+
+fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
+    let library = match &arguments.library {
+        Some(folder) => std::path::absolute(folder)
+            .with_context(|| format!("cannot use {} as the library", folder.display()))?,
+        None => default_engine_library().ok_or_else(|| {
+            anyhow!(
+                "no Engine Library folder was found in your Music folder; give it with --library"
+            )
+        })?,
+    };
+    let database = library_database(&library);
+    if !database.is_file() {
+        bail!(
+            "{} has no Database2/m.db, so it is not an Engine DJ 2 or later library",
+            library.display()
+        );
+    }
+    if !arguments.dry_run {
+        match engine_is_running() {
+            Some(true) => bail!(
+                "Engine DJ is running. Writing its library while it is open can damage it. \
+                 Close Engine DJ and export again."
+            ),
+            Some(false) => {}
+            None => eprintln!(
+                "warning: could not check whether Engine DJ is running; close it before exporting"
+            ),
+        }
+    }
+    // Checked before the analysis, which can take hours on a large library.
+    preview_library_update(&database, &[], &EngineOptions::default()).map_err(with_causes)?;
+
+    let playlist = match &arguments.playlist {
+        Some(name) => Some(find_playlist(name, arguments.analysis.uses_cache())?),
+        None => None,
+    };
+    let audio_files = match &playlist {
+        Some(playlist) => playlist.files.clone(),
+        None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
+    };
+    if let Some(playlist) = &playlist {
+        write_missing_files(&playlist.missing)?;
+    }
+    if audio_files.is_empty() {
+        bail!("no audio files found, so nothing was exported");
+    }
+
+    batch::require_readable_user_edits(&arguments.analysis)?;
+    let CachedBatch {
+        results,
+        store_error,
+        ..
+    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let user_edits = batch::user_edits(
+        &results,
+        &arguments.analysis,
+        batch::CorrectionCheck::ReadFile,
+    )?;
+    let results = batch::corrected(results, &user_edits);
+    let energies: HashMap<PathBuf, u8> = results
+        .iter()
+        .filter_map(|result| {
+            let energy = result.outcome.as_ref().ok()?.energy?;
+            Some((result.path.clone(), energy))
+        })
+        .collect();
+    let AssembledLibrary {
+        library: assembled,
+        skipped,
+        unread_tags,
+    } = assemble_library_with(
+        results,
+        PlaylistLayout::CollectionOnly,
+        ExportContents {
+            beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
+            edited_cues: batch::edited_cues(&user_edits),
+        },
+    );
+    let tracks: Vec<EngineTrack<'_>> = assembled
+        .tracks
+        .iter()
+        .map(|track| EngineTrack {
+            track,
+            energy: energies.get(&track.path).copied(),
+        })
+        .collect();
+    let options = EngineOptions {
+        label: arguments.label.into(),
+        label_notation: arguments.key_notation.into(),
+    };
+    let now = ModifiedTime::now();
+    let backup = library
+        .parent()
+        .unwrap_or(&library)
+        .join(format!(
+            "Engine Library backup by Euphoria {:04}-{:02}-{:02} {:05}",
+            now.year, now.month, now.day, now.seconds_of_day
+        ))
+        .join("Database2")
+        .join("m.db");
+    let update = if tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else if arguments.dry_run {
+        preview_library_update(&database, &tracks, &options).map_err(with_causes)
+    } else {
+        update_library(&database, &backup, &tracks, &options).map_err(with_causes)
+    };
+
+    let mut standard_error = std::io::stderr().lock();
+    let theme = Theme::stderr();
+    output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
+    let update = update?;
+    output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
+    let schema = update
+        .schema
+        .map(|schema| format!(" (schema {schema})"))
+        .unwrap_or_default();
+    let updated = output::counted(update.updated.len(), "track", "tracks");
+    if update.updated.is_empty() {
+        writeln!(
+            standard_error,
+            "No track is in {}, so nothing was written.",
+            Printable(database.display())
+        )?;
+    } else if arguments.dry_run {
+        writeln!(
+            standard_error,
+            "Dry run: {updated} of {}{schema} would be updated; nothing was written.",
+            Printable(database.display())
+        )?;
+    } else {
+        writeln!(
+            standard_error,
+            "Updated {updated} in {}{schema}",
+            Printable(database.display())
+        )?;
+        writeln!(
+            standard_error,
+            "Saved the library database as it was to {}",
+            Printable(backup.display())
+        )?;
+    }
+    if !update.not_in_library.is_empty() {
+        const LISTED: usize = 10;
+        writeln!(
+            standard_error,
+            "{} not in this library, so not updated:",
+            output::counted(update.not_in_library.len(), "track is", "tracks are")
+        )?;
+        for path in update.not_in_library.iter().take(LISTED) {
+            writeln!(standard_error, "  {}", Printable(path.display()))?;
+        }
+        if update.not_in_library.len() > LISTED {
+            writeln!(
+                standard_error,
+                "  and {} more",
+                update.not_in_library.len() - LISTED
+            )?;
+        }
+        writeln!(
+            standard_error,
+            "Add them to Engine DJ and let it analyse them, or give the library of their \
+             drive with --library, and export again."
+        )?;
+    }
+    if !update.not_analysed.is_empty() {
+        writeln!(
+            standard_error,
+            "{} Engine DJ has not analysed got no beat grid or cues; analyse them in Engine DJ \
+             and export again.",
+            output::counted(update.not_analysed.len(), "track", "tracks")
+        )?;
+    }
+    if arguments.beat_grid {
+        let not_analysed: HashSet<&PathBuf> = update.not_analysed.iter().collect();
+        let with_grid = assembled
+            .tracks
+            .iter()
+            .filter(|track| {
+                track.first_beat.is_some()
+                    && update.updated.contains(&track.path)
+                    && !not_analysed.contains(&track.path)
+            })
+            .count();
+        output::write_beat_grid_summary(
+            &mut standard_error,
+            with_grid,
+            update.updated.len(),
+            Program::Engine,
+        )?;
+    }
+    if arguments.cues {
+        if !update.kept_own_cues.is_empty() {
+            writeln!(
+                standard_error,
+                "Kept the hot cues of {} that have hot cues in Engine DJ.",
+                output::counted(update.kept_own_cues.len(), "track", "tracks")
+            )?;
+        }
+        if update.cues_left_out > 0 {
+            writeln!(
+                standard_error,
+                "Left out {} on no pad from 1 to 8: Engine DJ has eight hot cues and no \
+                 memory cues.",
+                output::counted(update.cues_left_out, "cue", "cues")
+            )?;
+        }
+    }
+    if !skipped.is_empty() {
+        output::write_skipped_summary(&mut standard_error, skipped.len())?;
+    }
+    if !arguments.dry_run && !update.updated.is_empty() {
+        output::write_import_steps(&mut standard_error, &theme, Program::Engine)?;
+    }
+
+    if let Some(store_error) = store_error {
+        return Err(with_causes(store_error).context("some results were not saved to the cache"));
+    }
+    Ok(if update.updated.is_empty() || !skipped.is_empty() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
+    let output_file = std::path::absolute(&arguments.output)
+        .with_context(|| format!("cannot use {} as the output", arguments.output.display()))?;
+    let existing = if arguments.force {
+        ExistingFile::Replace
+    } else {
+        ExistingFile::Keep
+    };
+    check_output_file(&output_file, existing)?;
+    let playlist = find_playlist(&arguments.playlist, !arguments.no_cache)?;
+    check_output_is_not_an_input(&output_file, &playlist.files, &[])?;
+    write_missing_files(&playlist.missing)?;
+
+    let cache = if arguments.no_cache {
+        None
+    } else {
+        batch::open_cache().and_then(CachedAnalyzer::new).ok()
+    };
+    let tracks: Vec<M3uTrack> = playlist
+        .files
+        .iter()
+        .map(|path| M3uTrack {
+            path: path.clone(),
+            duration_seconds: cache
+                .as_ref()
+                .and_then(|cache| cache.stored_analysis(path))
+                .map(|analysis| analysis.duration_seconds),
+            display_name: display_name(path),
+        })
+        .collect();
+    write_m3u8_file(&output_file, &playlist.name, &tracks, existing).map_err(with_causes)?;
+    eprintln!(
+        "Exported {} {} of {} to {}",
+        tracks.len(),
+        if tracks.len() == 1 { "track" } else { "tracks" },
+        Printable(&playlist.name),
+        Printable(output_file.display())
+    );
+    Ok(if playlist.missing.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+/// "Artist - Title" from the file's tags, the title alone without an
+/// artist, and the file name when the tags say nothing.
+pub fn display_name(path: &Path) -> String {
+    let fallback = || {
+        path.file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    match read_track_name(path) {
+        Ok(name) => match (name.artist, name.title) {
+            (Some(artist), Some(title)) => format!("{artist} - {title}"),
+            (None, Some(title)) => title,
+            (_, None) => fallback(),
+        },
+        Err(_) => fallback(),
+    }
+}
+
+/// Says which tracks of the playlist are no longer anywhere, so they are
+/// left out.
+pub fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let mut standard_error = std::io::stderr().lock();
+    for (path, location) in missing {
+        let reason = match location {
+            EntryLocation::Replaced => {
+                "the file there now holds other audio than the track that was added"
+            }
+            _ => "the file is no longer there",
+        };
+        writeln!(
+            standard_error,
+            "warning: left out {}: {reason}",
+            Printable(path.display())
+        )?;
+    }
+    Ok(())
+}
+
+/// How many cued tracks of the collection at `collection` match no file
+/// here, which ones, and what to do about them.
+fn unmatched_cued_tracks_message(
+    unmatched: &[String],
+    collection: &Path,
+    program: Program,
+) -> String {
+    const LISTED: usize = 10;
+    let mut message = format!(
+        "{} with cues in {} match no file on this computer, so Euphoria cannot tell whether \
+         they are among the tracks to export and cannot protect their cues:",
+        output::counted(unmatched.len(), "track", "tracks"),
+        collection.display()
+    );
+    for description in unmatched.iter().take(LISTED) {
+        message.push_str("\n  ");
+        message.push_str(description);
+    }
+    if unmatched.len() > LISTED {
+        message.push_str(&format!("\n  and {} more", unmatched.len() - LISTED));
+    }
+    let name = program.name();
+    let source = match program {
+        Program::Rekordbox => "Export the collection from rekordbox on this computer",
+        Program::Traktor => "Use the collection of Traktor on this computer",
+        Program::Engine => "Use the library of Engine DJ on this computer",
+        Program::VirtualDj => "Use the database of VirtualDJ on this computer",
+    };
+    message.push_str(&format!(
+        "\nNothing was written. {source}, or relocate or remove those tracks in {name}. If \
+         none of them is a track you are exporting, run again with \
+         --allow-unmatched-cued-tracks."
+    ));
+    message
+}
+
+/// Fails when `output_file` is one of `collections`, whatever the spelling
+/// of either path, so that not even `--force` replaces the user's
+/// collection with the export. A collection that cannot be read is skipped:
+/// the guard is about the file the user is about to overwrite, and a missing
+/// file is not that.
+fn check_output_is_not_a_collection(
+    output_file: &Path,
+    collections: &[PathBuf],
+    program: Program,
+) -> Result<()> {
+    let output = match std::fs::canonicalize(output_file) {
+        Ok(output) => output,
+        Err(_) => {
+            let folder = output_file.parent().unwrap_or(Path::new("."));
+            let name = output_file.file_name().unwrap_or_default();
+            std::fs::canonicalize(folder)
+                .map(|folder| folder.join(name))
+                .unwrap_or_else(|_| output_file.to_path_buf())
+        }
+    };
+    for collection in collections {
+        let Ok(collection) = std::fs::canonicalize(collection) else {
+            continue;
+        };
+        if output == collection {
+            bail!(
+                "the output {} is the {} collection in {}; choose another output \
+                 file. --force does not change this",
+                output_file.display(),
+                program.name(),
+                collection.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Removes the tracks at `paths` from the collection and from every
+/// playlist of `library`, and returns how many tracks it removed.
+fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
+    fn from_nodes(nodes: &mut [PlaylistNode], is_cued: &impl Fn(&Path) -> bool) {
+        for node in nodes {
+            match node {
+                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, is_cued),
+                PlaylistNode::Playlist(playlist) => {
+                    playlist.tracks.retain(|path| !is_cued(path));
+                }
+            }
+        }
+    }
+    if paths.is_empty() {
+        return 0;
+    }
+    // A collection may list a file by the path its symbolic links lead to
+    // while the library reached it through a link, or the other way round.
+    // Comparing both spellings keeps a track with cues from being exported
+    // over them.
+    let is_cued = |path: &Path| {
+        paths.contains(path)
+            || path
+                .canonicalize()
+                .is_ok_and(|resolved| paths.contains(&resolved))
+    };
+    let before = library.tracks.len();
+    library.tracks.retain(|track| !is_cued(&track.path));
+    from_nodes(&mut library.playlists, &is_cued);
+    before - library.tracks.len()
+}
+
+pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {
+    if output_file.is_dir() {
+        bail!(
+            "{} is a folder. Give --output the name of a file.",
+            output_file.display()
+        );
+    }
+    if existing == ExistingFile::Keep && output_file.symlink_metadata().is_ok() {
+        bail!(
+            "{} already exists. Pass --force to replace it.",
+            output_file.display()
+        );
+    }
+    if let Some(folder) = output_file.parent()
+        && !folder.is_dir()
+    {
+        bail!(
+            "cannot write {}: the folder {} does not exist",
+            output_file.display(),
+            folder.display()
+        );
+    }
+    Ok(())
+}
+
+/// Refuses an output file that is one of the audio files, or that would be
+/// taken for one the next time its folder is exported. Paths are compared
+/// once resolved, so a symbolic link to an audio file and another spelling of
+/// its path are refused too.
+pub fn check_output_is_not_an_input(
+    output_file: &Path,
+    audio_files: &[PathBuf],
+    folders: &[PathBuf],
+) -> Result<()> {
+    let resolved_output = resolve_output(output_file)?;
+    for audio_file in audio_files {
+        // A file that cannot be resolved cannot be opened either, and is
+        // reported when its analysis fails.
+        if audio_file
+            .canonicalize()
+            .is_ok_and(|resolved_input| resolved_input == resolved_output)
+        {
+            bail!(
+                "{} is one of the files to export, and the export would replace it. Choose another output file.",
+                output_file.display()
+            );
+        }
+    }
+    if is_supported_audio_file(&resolved_output)
+        && let Some(folder) = folders
+            .iter()
+            .find(|folder| resolved_output.starts_with(folder))
+    {
+        bail!(
+            "{} has the extension of an audio file and is inside {}, a folder to export. Give the output file another extension, such as .xml.",
+            output_file.display(),
+            folder.display()
+        );
+    }
+    Ok(())
+}
+
+/// Where the output file really is: the file a symbolic link at that path
+/// leads to, or for a file that does not exist yet, its name in its resolved
+/// folder.
+pub(crate) fn resolve_output(output_file: &Path) -> Result<PathBuf> {
+    if let Ok(resolved) = output_file.canonicalize() {
+        return Ok(resolved);
+    }
+    let cannot_use = || format!("cannot use {} as the output", output_file.display());
+    let folder = output_file.parent().with_context(cannot_use)?;
+    let file_name = output_file.file_name().with_context(cannot_use)?;
+    Ok(folder
+        .canonicalize()
+        .with_context(cannot_use)?
+        .join(file_name))
+}
+
+/// The full path of each argument, with `..` and symbolic links in the
+/// argument itself followed. rekordbox finds tracks by their full path, and
+/// folders are compared by path to build the playlists.
+fn resolve(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    paths
+        .iter()
+        .map(|path| {
+            path.canonicalize()
+                .with_context(|| format!("cannot read {}", path.display()))
+        })
+        .collect()
+}

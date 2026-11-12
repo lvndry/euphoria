@@ -66,6 +66,8 @@ The two boosts only go up. Going from 10A back to 8A is not an energy boost, and
 
 Numbers wrap around the wheel: one step up from 12A is 1A, and an energy boost from 11B lands on 1B.
 
+![The Camelot wheel with minor keys inside and major keys outside, from 8A, A minor. The moves that mix in key are 7A and 9A, a fifth away, and 8B, the relative major. The bolder moves are 7B, the diagonal, 10A, the energy boost, 11B, the mood change, and 3A, the semitone boost.](../images/keys-and-camelot/camelot-wheel.svg)
+
 ## What mixes into a track
 
 When you ask what can follow a track, Euphoria keeps the tracks whose key makes one of the moves you allow and whose tempo is close enough, 6 percent by default. A track at half or double the tempo can count as a tempo match if you allow it. Tracks without a detected key are left out; tracks without a detected tempo are kept and listed last.
@@ -84,4 +86,4 @@ Both are in the [JSON output](../reference/cli.md#json-output) of `euphoria anal
 
 Key detection is good but not perfect, especially on tracks with little harmony, vocals alone, or a key change. See [accuracy](accuracy.md) for measured results.
 
-Euphoria says how sure it is about each key, high, medium or low, and names the runner up, the key that fitted second best. When the detected key is wrong the runner up is often the right one. About half the time the runner up is a key a fifth away or the relative key, which mix in key anyway, and about a third of the time the parallel key, the same home note in the other mode. A key rated low is worth checking by ear: play the track against one in the runner up key and keep the one that sounds right.
+Euphoria says how sure it is about each key, high, medium or low, and names the runner up, the key that fitted second best. When the detected key is wrong the runner up is often the right one. About half the time the runner up is a key a fifth away or the relative key, which mix in key anyway, and about a third of the time the parallel key, the same home note in the other mode. A key rated low is worth checking by ear: in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), play a drone of each key over the track and keep the one that sounds right, with a click. Since the drone holds only the root and the fifth, the piano beside it tells a parallel minor from its major.

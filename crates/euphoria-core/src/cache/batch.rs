@@ -9,7 +9,9 @@ use rayon::prelude::*;
 
 use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, Snapshot};
-use crate::analysis::{FileResult, Progress, TrackAnalysis, analyze_file};
+use crate::analysis::{
+    AnalysisObserver, FileResult, Progress, TrackAnalysis, Unobserved, analyze_file_observed,
+};
 use crate::error::EuphoriaError;
 
 /// Whether a batch may serve analyses that are already stored.
@@ -62,7 +64,20 @@ pub fn analyze_files_cached(
     policy: CachePolicy,
     on_progress: impl Fn(Progress<'_>) + Sync,
 ) -> Result<CachedBatch, EuphoriaError> {
-    analyze_files_cached_with(cache, paths, policy, analyze_file, on_progress)
+    analyze_files_cached_observed(cache, paths, policy, &Unobserved, on_progress)
+}
+
+/// Like [`analyze_files_cached`], telling `observer` the stages of each file
+/// that is analyzed. Files served from the cache report no stage.
+pub fn analyze_files_cached_observed(
+    cache: &mut Cache,
+    paths: &[PathBuf],
+    policy: CachePolicy,
+    observer: &impl AnalysisObserver,
+    on_progress: impl Fn(Progress<'_>) + Sync,
+) -> Result<CachedBatch, EuphoriaError> {
+    let analyze = |path: &Path| analyze_file_observed(path, observer);
+    analyze_files_cached_with(cache, paths, policy, analyze, on_progress)
 }
 
 fn analyze_files_cached_with(
@@ -161,7 +176,7 @@ pub(super) fn cached_or_analyzed(
             }
             let write = CacheWrite::Store {
                 content_hash,
-                analysis: analysis.clone(),
+                analysis: Box::new(analysis.clone()),
                 location,
             };
             (analysis, Origin::Analyzer, write)
@@ -213,6 +228,8 @@ mod tests {
                 key_score_margin: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                beat_grid: None,
+                cues: Vec::new(),
                 key_timeline: vec![
                     crate::KeySection {
                         start_seconds: 0.0,
@@ -225,6 +242,19 @@ mod tests {
                         key: crate::Key::new((checksum % 12) as u8, crate::Mode::Major),
                     },
                 ],
+                quality: Some(crate::quality::QualityReport {
+                    codec: "pcm_s16le".to_string(),
+                    lossless: true,
+                    bitrate_kbps: Some(1_411),
+                    sample_rate: 44_100,
+                    bit_depth: Some(16),
+                    channels: Some(2),
+                    cutoff_hz: None,
+                    clipped_share: 0.0,
+                    integrated_loudness_lufs: Some(-9.0 - (checksum % 5) as f32),
+                    true_peak_dbtp: Some(-0.5),
+                    verdict: crate::quality::QualityVerdict::Lossless,
+                }),
             })
         }
 
@@ -429,25 +459,27 @@ mod tests {
     }
 
     #[test]
-    fn confidence_only_timelines_are_recomputed_after_the_timeline_rule_changes() {
-        let mut library = Library::new();
-        let track = library.add_track("track.wav", "a track");
-        let current_version = library.cache.analyzer_version.clone();
-        library.cache.analyzer_version = if cfg!(feature = "libkeyfinder") {
-            "6+libkeyfinder"
-        } else {
-            "6+stratum"
+    fn earlier_timelines_are_recomputed_after_the_timeline_rule_changes() {
+        for previous_version in [6, 7, 8] {
+            let mut library = Library::new();
+            let track = library.add_track("track.wav", "a track");
+            let current_version = library.cache.analyzer_version.clone();
+            let detector = if cfg!(feature = "libkeyfinder") {
+                "libkeyfinder"
+            } else {
+                "stratum"
+            };
+            library.cache.analyzer_version = format!("{previous_version}+{detector}");
+            library.analyze(std::slice::from_ref(&track));
+
+            library.cache.analyzer_version = current_version;
+            let after_upgrade = library.analyze(std::slice::from_ref(&track));
+            let next_run = library.analyze(std::slice::from_ref(&track));
+
+            assert_eq!(after_upgrade.cached_count, 0, "version {previous_version}");
+            assert_eq!(next_run.cached_count, 1);
+            assert_eq!(library.analyzer.runs(), 2);
         }
-        .to_string();
-        library.analyze(std::slice::from_ref(&track));
-
-        library.cache.analyzer_version = current_version;
-        let after_upgrade = library.analyze(std::slice::from_ref(&track));
-        let next_run = library.analyze(std::slice::from_ref(&track));
-
-        assert_eq!(after_upgrade.cached_count, 0);
-        assert_eq!(next_run.cached_count, 1);
-        assert_eq!(library.analyzer.runs(), 2);
     }
 
     #[test]
@@ -488,6 +520,38 @@ mod tests {
         assert_eq!(next_run.cached_count, 1);
         assert_eq!(analyses(&after_upgrade), analyses(&next_run));
         assert_eq!(library.cache.entry_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_track_stored_by_a_version_4_database_is_analyzed_again_and_replaced() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.wav");
+        std::fs::write(&track, "a track").unwrap();
+        crate::cache::test_support::create_version_4_database(&database, &track);
+        let mut library = Library {
+            cache: Cache::open(&database).unwrap(),
+            folder,
+            analyzer: CountingAnalyzer::new(),
+        };
+
+        let after_upgrade = library.analyze(std::slice::from_ref(&track));
+        let next_run = library.analyze(std::slice::from_ref(&track));
+
+        assert_eq!(after_upgrade.cached_count, 0);
+        assert_eq!(library.analyzer.runs(), 1);
+        assert!(analyses(&after_upgrade)[0].quality.is_some());
+        assert_eq!(next_run.cached_count, 1);
+        assert_eq!(analyses(&after_upgrade), analyses(&next_run));
+        assert_eq!(library.cache.entry_count().unwrap(), 1);
+        let stored_version: String = library
+            .cache
+            .connection
+            .query_row("SELECT analyzer_version FROM analyses", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored_version, crate::ANALYZER_VERSION);
     }
 
     #[test]

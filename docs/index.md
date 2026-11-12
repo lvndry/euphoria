@@ -17,20 +17,31 @@ It is an open alternative to paid harmonic mixing tools such as Mixed In Key.
 - Measures how far a track is tuned from A = 440 Hz and follows its key over time, both in the JSON output.
 - Analyzes whole folders from the command line, as a table or as JSON.
 - Exports keys, tempos, energy ratings and a playlist per folder to rekordbox, with `euphoria export rekordbox`.
+- Orders a folder or playlist into a set that follows an energy curve you choose, with every mix in key and small tempo steps, with `euphoria set build`.
+- Exports keys, tempos, beat grids, cues and playlists to a Traktor NML collection, with `euphoria export traktor`. Importing it in Traktor has not yet been tested.
+- Writes keys, tempos, beat grids and hot cues into the tracks of your Engine DJ library, with `euphoria export engine`. Not yet tested in Engine DJ.
+- Writes keys, tempos, beat grids, cues and energy into the songs of your VirtualDJ database, with `euphoria export virtualdj`. Not yet tested in VirtualDJ.
 - Writes key, tempo and energy into the tags of your files, with `euphoria tags write`. Every change is shown first, nothing else in the file changes, and `euphoria tags undo` puts the old tags back.
-- Reads MP3, M4A (AAC), FLAC, WAV and AIFF.
-- Shows your library in a desktop app with a sortable track table, waveforms and suggestions for tracks that mix together. The app is an early version that runs from source on macOS.
+- Reads MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF.
+- Shows your library in a desktop app with a sortable track table, waveforms and suggestions for tracks that mix together. The app is [downloadable for macOS](getting-started/installation.md#download-for-macos).
 
-Exports for other DJ software are in development.
+Exports for Serato and Engine DJ are in development.
 
 ## Where to start
 
 - New here: [install Euphoria](getting-started/installation.md), then follow the [quick start](getting-started/quick-start.md).
-- Preparing a set: [analyze your library](guides/analyze-your-library.md).
+- Preparing a set: [analyze your library](guides/analyze-your-library.md), then [build a set along an energy curve](guides/build-a-set.md).
 - Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
+- Using Traktor: [export to Traktor](guides/export-to-traktor.md).
+- Using Engine DJ: [export to Engine DJ](guides/export-to-engine-dj.md).
+- Using VirtualDJ: [export to VirtualDJ](guides/export-to-virtualdj.md).
+- Using Serato: [cue points and beat grids for Serato](guides/serato-cues.md).
+- Which DJ program gets what: [DJ program support](reference/dj-program-support.md).
 - Want the key and energy inside the files, for any DJ software: [write tags into your files](guides/write-tags.md), then [set up your DJ program](guides/dj-programs.md).
 - Prefer a window to a terminal: [desktop app](guides/desktop-app.md).
+- Layering two tracks: [mashups](guides/mashups.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Curious what the energy number means: [energy rating](concepts/energy.md).
+- Wondering whether your files are good enough to play loud: [audio quality](concepts/audio-quality.md).
 - Wondering how much to trust the results: [accuracy](concepts/accuracy.md).
 - Want to know what gets written to your files: [tags](reference/tags.md).

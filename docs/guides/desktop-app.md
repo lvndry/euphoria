@@ -14,8 +14,10 @@ The app is an early version. It runs from a source checkout on macOS; there is n
 Install the requirements in [building from source](../development/building.md). On macOS you also need Xcode, which provides the Metal shader compiler the interface is built with. Then:
 
 ```
-cargo run --release -p euphoria-app
+cargo run --release -p euphoria-desktop
 ```
+
+On macOS the command opens the app as **Euphoria**, with its name and icon in the Dock.
 
 Use `--release`: analysis is many times slower in a debug build.
 
@@ -23,7 +25,7 @@ Use `--release`: analysis is many times slower in a debug build.
 
 On first launch the window shows a drop zone. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder**. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
 
-Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
+Folders are searched all the way down for MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
 
 The app analyzes as many tracks at once as your computer has cores, up to 4. The command line tool goes up to 8 by default and lets you choose. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
 
@@ -35,10 +37,11 @@ Your files are only read, until you choose to [write tags](#write-tags) into the
 | --- | --- |
 | Title | The title in the file's tags, or the file name when there is none |
 | Artist | The artist in the file's tags |
-| Key | The Camelot code, coloured by its number |
+| Key | The key's code, coloured by its Camelot number: Camelot (8A) unless you choose musical (Am) or Open Key (1m) in the [settings](#settings) |
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
+| Quality | The [audio quality](../concepts/audio-quality.md) verdict: Lossless, Good, Acceptable, Weak, or Re-encoded? for a file likely made from a lower quality one. Weak and Re-encoded? stand out; the others are quieter. |
 | Time | The length |
 | Format | The file type |
 | Folder | Where the file is, from the folder on show |
@@ -51,9 +54,9 @@ Titles and artists are read from the files after they appear, so the file name s
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
 
-Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Format, then Folder, Artist, Time, Musical key and the row number. The title, key, tempo and energy always stay.
+Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Format and Quality, which the inspector also shows, so that folder paths keep their room; then Folder, Artist, Time, Musical key and the row number. In a 1440 pixel wide window with both the sidebar and the inspector open, Quality is left out; fold the sidebar or close the inspector to bring it back. The title, key, tempo and energy always stay.
 
-Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Tracks with no value in the sorted column come last.
+Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Sorting by Quality puts the files most worth checking first: likely re-encoded, then weak, acceptable, good and lossless. Tracks with no value in the sorted column come last.
 
 Type in the search field, or press Command F first, to filter as you type. Each word must match part of the file name, the title or the artist, the whole key code (`8a`), or the start of the tempo (`124`).
 
@@ -62,7 +65,9 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
+- **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
+- **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
@@ -93,7 +98,31 @@ To give the table more room, fold the sidebar away. Any of these folds it, and t
 
 ## The inspector
 
-The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track.
+The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track. Below them, **Sound quality** gives the quality verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak.
+
+### How sure the key and the tempo are
+
+The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, beside the box's name. Low is shown in red, and puts the track under **Needs review**. Point at the word for what it means.
+
+When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
+
+### Check the key by ear and correct it
+
+Under the three boxes, **Check by ear** helps you settle a key you are not sure of while the track plays:
+
+- **8A tone**, named in the key notation you chose, plays a soft drone of the key's root and fifth over the track. When the runner up key is offered, a second button plays its drone. The drone that sounds right under the music is the key; one that clashes is not. Click the button again to stop it. Only one drone plays at a time, and it stops when you select another track. The drone leaves out the third on purpose, so it sounds the same for a minor key and its parallel major; the piano settles that.
+- The **piano** covers one octave from middle C. The notes of the key's scale are tinted and named, and its root is marked. Click a key to play it over the track: notes of the right scale fit the melody, others stand out.
+- **Volume** sets how loud the drone and the piano are over the track, in five steps, and moves a drone that is already playing.
+
+Both follow the tuning analysis measured, so a track tuned a little sharp or flat gets a reference that matches it.
+
+When your ear disagrees with Euphoria, correct the value:
+
+1. Click the runner up chip ("or 9A") to take that key, or the other tempo ("or 87.0") to take that tempo.
+2. Or click **Correct the key or BPM** to pick any of the 24 keys, laid out in Camelot order, or type a tempo such as 124 or 87.5 and press Return or **Use this tempo**.
+3. The box then says **by you** where it said how sure the value was, and the line under it offers **reset to 8A**, the detected value, to undo your correction.
+
+A value you set wins everywhere: in the table and search, in **Mixes well with**, in **Needs review**, which no longer lists a track for a value you corrected, in the tags you write, and in `euphoria analyze` and `euphoria export rekordbox` on the command line, which mark it as set by you. Corrections are kept in the [analysis cache](../reference/cli.md#corrections), apart from the analyses: analyzing a track again, or a new version of Euphoria analyzing everything again, never loses them, and they follow a file that was moved, renamed or had its tags written. `euphoria cache clear` keeps them too.
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
@@ -123,6 +152,29 @@ In most themes the player is a bar along the bottom of the window, with the play
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
+## Decks
+
+Two decks under the table let you try a transition before the set: **Decks** in the toolbar, **View > Decks** or Command Shift D shows them, and the same again hides them and stops their sound. While they are on screen they take the sound, so the player pauses. Close the decks to use the track player again.
+
+- **Load a track**: select it in the table and click **Load selected** on deck A or deck B, or click a track in **Next on deck B** to put it on deck B.
+- **Each deck** shows its key, its tempo, its waveform with a mark on every bar of its beat grid and on each cue, its energy over time, and its cues as buttons. Click or drag on the waveform to move the deck there.
+- **Play** starts a deck, and **Pause** holds it. When the other deck is playing, playback is scheduled so their upcoming downbeats line up. It starts from the selected position and may wait additional bars to align them; the button says so while it waits. A cue button plays from that cue with the same alignment.
+- **Sync to A**, on by default, plays deck B at deck A's tempo: a track at 125 BPM next to one at 120 plays at 96 percent of its speed. A track counted at half or double tempo is matched at that tempo. **Key lock**, on by default, keeps a deck's pitch when its speed changes; off, the pitch follows the speed as on a turntable. The deck shows its own tempo and the tempo heard, such as 125.0 → 120.0 BPM.
+- **The mixer** has a volume fader for each deck and a crossfader between them. The crossfader moves equal power from one deck to the other: at the middle both play at about 71 percent, and a deck at the near end of the fader plays at full. Use the deck faders to balance the combined level. Under the mixer, the share of one core each deck takes and any frames the decoders could not fill in time are shown, for checking that playback keeps up.
+- **Loop bars** 1, 2, 4, 8 and 16 loop that many bars of a deck from its next downbeat. The loop is marked on the waveform, and the lit button shows the length. The deck keeps the samples of the loop's first pass and plays them again, so every repeat is the same sound and joins the next on the beat, with no gap. Press the lit button again to leave: the loop plays to its end once more and the track carries on from there, still on the beat. Another length starts a new loop at the next downbeat. Moving the deck, playing a cue or loading a track ends the loop. Looping needs the track's beat grid, so a track whose tempo you corrected by hand does not loop.
+
+Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
+
+### Next on deck B
+
+With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
+
+### Mashup mode
+
+**Mashup** above the list under the decks swaps the tracks to play next for tracks that layer over deck A, with a key shift and stems for each, and **Export mashup…** renders the pair to a WAV file.
+
+See [Mashups](mashups.md).
+
 ## The waveform
 
 The waveform shows the whole track from left to right, and its colours show what is sounding:
@@ -137,17 +189,68 @@ The three are drawn on top of one another, bass at the back, each as tall as tha
 
 The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
 
+### Cue points
+
+A row of markers above the waveform shows the track's cues, each at its place on the waveform with its hot cue letter and its name, for example "A Start" and "B Drop", and a line in the accent colour runs down the waveform at each one. When analysis places [automatic cues](../concepts/accuracy.md#cue-points), the track starts with them on the bars of its beat grid, on hot cue pads from A in order. Click a marker to play from its cue.
+
+To change the cues:
+
+- Drag a marker to move its cue. It lands on the nearest beat of the beat grid, or on the nearest first beat of a bar while you hold Shift. A track without a beat grid, or with a [tempo you set](#check-the-key-by-ear-and-correct-it), has no grid to snap to, and a cue stays where you drop it.
+- Double click the waveform to add a cue there, or click **Add at playhead** in the **Cues** list under the waveform, or press C, to add one where playing is. A new cue is called "Cue" and a number, lands on the nearest beat like a moved one, and takes the first free hot cue pad. A ninth cue, with every pad from A to H taken, is a memory cue only.
+- In the **Cues** list, click a name to rename the cue, and press Return to keep the new name. Click the letter before it to put the cue on another pad from A to H, or on none for a memory cue only: a cue already on that pad takes the one the cue leaves. Click the time to play from the cue, and the cross to delete it.
+- **Undo**, or Command Z when no text field has the keyboard, takes back the last change to the selected track's cues, one at a time. **Playback > Undo Cue Edit** does the same.
+- **Reset to automatic cues** forgets your cues and brings back the ones analysis placed. It can be undone too.
+
+The first change makes the track's cues yours: the list says **by you**, and your set replaces the automatic one wherever cues are used, deleting every cue included. In `euphoria analyze --json` its `cues` are yours and `set_by_user` lists `"cues"`, and [`euphoria export rekordbox --cues`](export-to-rekordbox.md#cue-points) exports them. Your cues are kept in the [analysis cache](../reference/cli.md#corrections) apart from the analyses, like corrections: analyzing a track again, a new version of Euphoria analyzing everything again, or `euphoria cache clear` never loses them, and they follow a file that was moved, renamed or had its tags written. A [tempo you set](#check-the-key-by-ear-and-correct-it) drops the automatic cues, which sit on the grid of the detected tempo, but keeps yours.
+
+In the Deck theme the list sits in the strip beside the waveform once the track has cues, and scrolls when they do not fit.
+
 ### Energy over time
 
 Under the waveform, across the same width, a row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of about 4 seconds, as tall as the rating. Breakdowns show as low bars and drops as a jump back to full height, right under the part of the waveform they belong to. Silent stretches have no bar. The playhead runs through the curve too, and the part already played is fainter. The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
 
 ### Key changes
 
-When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it.
+When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
+
+## Favorites
+
+Star the tracks you reach for, and mark the transitions you know work: a track into another that you tried on the decks or played out and want to find again.
+
+### Star a track
+
+- In the table, the star sits before the title. It shows on the row under the pointer, and stays on a starred track. Click it to star the track or take the star off; the click does not change the selection.
+- Press F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. F types a letter when a text field has the keyboard.
+- The right click menu of a row has **Star** or **Remove star**, for the selected tracks.
+- The star at the top of the inspector, beside the track's name, stars the selected track.
+- Each deck has a star beside its track's name.
+
+**Favorites** in the sidebar shows the starred tracks, in the order you starred them. Search and sorting work there as in a playlist.
+
+### Favorite transitions
+
+A favorite transition is one track into another: playing the second after the first mixes well. It has a direction, so a transition from A into B is not one from B into A, since a mix that works one way often does not work the other (an energy lift played backwards is a drop).
+
+- On the decks, with a track on each, **Save transition A → B** under the decks marks the transition from deck A into deck B. Click it again to take the mark off. Once it is marked, click **Add a note** beside it to write how the mix goes, for example where to bring the second track in, and press Return. An empty note takes the note away.
+- In **Mixes well with** in the inspector, the star at the start of a row marks the transition from the selected track into that one.
+
+Marked transitions come first in **Mixes well with**, in the order you marked them, with a filled star, and their note shows when the pointer rests on the row. A marked transition is listed there even when its keys do not mix by the rules, since you found that they do; its relation then reads **Your mix**.
+
+In **Next on deck B**, a marked transition out of the track on deck A moves up the ranking: it counts as much as four steps of key relation, so a mix you know beats one that is only smoother on paper, unless its tempo or energy is far off. A filled star marks it. It still has to mix in key and tempo to be suggested there.
+
+### Export your favorites
+
+Over the starred tracks, **Export to rekordbox** and **Export M3U8** ask where to save them and write them as a playlist named Favorites, in the order you starred them, the same way a [playlist export](#export-a-playlist) does. The line also counts your favorite transitions. Transitions and their notes are not part of the export: rekordbox XML and M3U8 have no place for them.
+
+### Where favorites are kept
+
+Favorites are kept with the playlists in `playlists.sqlite3`, so clearing the analysis cache never touches them. Like a playlist entry, each starred track and each side of a transition is kept by the content of its file and the path it was last seen at: a favorite survives a move or a rename once the app has seen the file in its new place, and follows Euphoria's own tag writes and undo, the way corrections and edited cues do.
 
 ## Write tags
 
 The app can write the key, tempo and energy it found into the files themselves, with the same safety as [`euphoria tags write`](write-tags.md): you see every change before anything is written, and one step puts the old tags back.
+
+![The Write tags preview over the window, for rekordbox. It says keys are written in Camelot, the energy label at the start of the comment and the tempo, and that nothing is written until you confirm. Buttons choose between the 11 selected tracks and all 11 shown. A list gives each file with its changes, such as TKEY from none to 8A, TBPM from none to 125, and the comment from "Purchased at Beatport.com" to "8A - Energy 5 - Purchased at Beatport.com". Cancel and Write 11 files buttons close it.](../images/desktop-app/write-tags-preview.png)
 
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The DJ program the tags are written for is shown beside the button.
@@ -157,16 +260,86 @@ The app can write the key, tempo and energy it found into the files themselves, 
 
 **Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
 
-Each file written, and each file put back by an undo, is recorded in the [analysis cache](../reference/cli.md#the-analysis-cache) as it is, so it is not analyzed again the next time the app starts.
+A key or tempo you corrected is written in place of the detected one. Each file written, and each file put back by an undo, is recorded in the [analysis cache](../reference/cli.md#the-analysis-cache) as it is, so it is not analyzed again the next time the app starts, and its corrections stay with it.
+
+## Playlists
+
+Playlists are where you build a set: a folder holds the tracks you own, a playlist holds the order you will play them in.
+
+- **Make one** with the **+** beside **Playlists** in the sidebar, under the folders, then type its name and press Return. Right click tracks in the table and choose **New playlist from selection** to start one from them.
+- **Add tracks** by dragging them from the table onto a playlist in the sidebar, or with **Add to playlist** in their right click menu. A track is in a playlist once; adding it again changes nothing.
+- **Rename** a playlist by double clicking it, or from its right click menu. The menu also gives it a **Label**, one emoji to tell it apart, and **Delete playlist**, which leaves the tracks in the library.
+- **Reorder playlists** by dragging them up or down the sidebar.
+
+Click a playlist to show its tracks in the table in their order, with their place in the **#** column. Drag rows to move them; a row dropped on another goes just above it, and a whole selection moves together. **Remove from playlist** in the right click menu takes tracks out. Search and sorting work as everywhere else, but sorting is only a view: the playlist keeps its order, and clicking the **#** header goes back to it. While the table is sorted or searched, rows cannot be dragged to a new place.
+
+### A set at a glance
+
+Above a playlist's table, a line shows it as a set:
+
+- **The key path**: each track's key in play order, in the notation you chose. A `›` between two keys is a [compatible move](../concepts/keys-and-camelot.md); a red `×` marks a step that is not, the place to look for a smoother order or a key change you meant.
+- **The tempo range**, from the slowest track to the fastest.
+- **The energy flow**: a small line of each track's [energy](../concepts/energy.md) in order, rising from 1 to 10.
+
+The count beside the name says how many of the playlist's tracks are not in the library, for example after their folder was removed; they come back when the folder is added again.
+
+### Export a playlist
+
+The **rekordbox** and **M3U8** buttons after **Export**, at the end of the line above the table, or the playlist's right click menu, ask where to save the playlist and write it there:
+
+- **rekordbox** writes a rekordbox XML file holding the playlist's tracks and one playlist in its order, with their keys, tempos and energy, as [`euphoria export rekordbox`](../reference/cli.md#euphoria-export-rekordbox) does. [Export to rekordbox](export-to-rekordbox.md) explains the import.
+- **M3U8** writes the playlist for nearly any other program: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx or a music player. It holds the tracks' paths, lengths and names, not their keys; [write the tags](#write-tags) for those programs to see the keys.
+
+Tracks not analyzed yet are left out of a rekordbox export, and the app says how many were. Every file is read and compared with the track that was added before it is exported, so a file replaced at the same path by other audio is left out too, with a note saying so.
+
+### Where playlists are kept
+
+Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [data folder](#what-the-app-remembers). Each track is kept by the content of its file, like a remembered result, together with its path. A file moved or renamed is found again once the app or `euphoria analyze` has seen it in its new place, and only when the file there holds the same content. Euphoria's own tag writes and undo keep playlist identity in step with the rewritten file; an unverified external replacement is still left out of exports. Playlists live in their own file so that clearing or deleting the cache never touches them. The command line lists them with [`euphoria playlists`](../reference/cli.md#euphoria-playlists) and exports one by name.
+
+## Build a set
+
+**Set builder** in the sidebar, **View > Set Builder** or Command Shift B (Control Shift B on Linux) opens a page that orders tracks into a set along an energy curve, with every mix in a compatible key and small tempo steps. It is the same search as [`euphoria set build`](build-a-set.md), which explains how it chooses.
+
+1. **Draw the curve.** Drag across the chart: higher is more energy, from 1 at the bottom to 10 at the top. The stroke is smoothed when you let go. **Warm up**, **Peak time** and **Journey** put a preset curve back.
+2. **Choose the pool.** All tracks, one of the folders you added, or a playlist. The pool starts as what the library showed when you opened the page.
+3. **Set the length** with **−** and **+**, from 2 to 60 tracks, then **Build set** or press Command Return (Control Return on Linux). The length starts at 20, or at the size of the pool when it is smaller.
+
+The chart then draws the energy of each track of the set over the curve, with tracks more than a point away in red. Under it, a summary gives the length of the set, how close it follows the curve and whether every mix keeps the rules, then one line for each place it falls short. Each row of the set shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
+
+- **Lock** keeps a track where it is. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
+- The arrows move a track one place, and **Remove** takes it out. The set is explained again at once: the moves, the steps and the curve follow your order.
+- **Save as playlist** keeps the set as a playlist named after its curve, such as "Set: Journey, 20 tracks", in the sidebar with the others. **Export M3U8…** saves it first if needed, then asks where to write the file.
+
+A pool with more than 4,000 tracks that have a key, a tempo and an energy is refused: choose a folder or a playlist.
+
+## Edit tags
+
+Select one track or thousands and click **Edit tags** in the toolbar, or choose **Tags > Edit Tags…** (Command I), to edit their title, artist, album, genre, year, track number, comment, grouping, key and BPM fields.
+
+- Each field shows the value the selected tracks share. When they differ, it is empty, shows **mixed** and is marked **differs**; leave it empty to keep each track's own value, or type to give them all one.
+- Type in a field to change it. Emptying a field that has a value removes it, and **Remove** beside a field removes it from every track; click **Keep** to take that back.
+- **Change text in one field** works on one field at a time: **Find and replace** (with **Match case** for capital letters), **Add prefix**, **Add suffix**, **Remove prefix** and **Remove suffix**. Choose the field under the tool and type the text.
+- **Preview changes** shows the same preview as [writing tags](#write-tags): each file with each field's value now and the value it would get. Click **Write** to write them, or **Cancel**.
+
+The edit is written with the same safety as a tag write and shares its backups, so **Undo this write**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. The titles and artists in the table follow the edit. A comment or a grouping keeps the key and energy label a tag write put there, as [`euphoria tags set`](../reference/cli.md#euphoria-tags-set) explains, and the comment field shows only your own text. The key and BPM fields are the tags in the files; the key and tempo Euphoria detected stay as they were.
 
 ## Settings
 
 Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.
 
+How keys and tempos are shown:
+
+| Setting | Choices |
+| --- | --- |
+| Keys | Camelot (8A), musical (Am) or Open Key (1m), in the table, the track detail, the mixes and the key timeline. The wheel keeps Camelot codes. Search finds a key in any of the three. |
+| Tempo range | House and techno, 90 to 180 (the default); hip hop, 70 to 140; drum and bass, 120 to 200; or a custom range of whole beats per minute, at most an octave wide, such as 80 up to 160. A track counted at half or double speed moves into the range. Nothing is analyzed again, and tags are written with the tempo as shown. A custom range that cannot be used is explained under it, and the last range that worked stays in use. [Choosing the range](../concepts/accuracy.md#choosing-the-range) says more. |
+
+How tags are written:
+
 | Setting | Choices |
 | --- | --- |
 | DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
-| Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. |
+| Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
 | Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. |
 | Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
 
@@ -186,9 +359,13 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
 | Key first | Slate colours with solid key chips, a Camelot wheel in the inspector, and the table sorted by key. The wheel has the minor keys (A) on its inner ring and the major keys (B) on its outer ring; the selected track's key is filled in the accent colour and the keys that mix with it, its neighbours and its relative major or minor, in a lighter tint. |
 
+![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
+
+![The Key first theme: the table sorted by key from 1A to 12A, with solid key chips. The inspector shows the selected track in 5A with a Camelot wheel under its waveform, where 5A is filled in the accent colour and 4A, 6A and 5B, the keys that mix with it, are tinted.](../images/desktop-app/key-first.png)
+
 ## What the app remembers
 
-The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
@@ -214,26 +391,33 @@ You can quit while tracks are being analyzed. The app closes at once: tracks alr
 
 ## Build Euphoria.app
 
-A binary started with `cargo run` has no Dock icon of its own. To get an application with the Euphoria icon that you can keep in the Dock, build a bundle on macOS:
+To get an application you can keep in the Dock and put in Applications, build an installable bundle on macOS:
 
 ```
 ./scripts/bundle-macos.sh
 open target/release/bundle/Euphoria.app
 ```
 
-The script builds the app in release mode, makes the icon from `assets/logo` and writes `target/release/bundle/Euphoria.app`. The bundle is meant for the computer that built it: it uses the libkeyfinder installed there and is not signed.
+The script builds the app in release mode, makes the icon from `assets/logo`, copies libkeyfinder and FFTW into the bundle so it runs without Homebrew, signs it with an ad hoc signature, and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
 
 ## Try it without music
 
 To see how the interface behaves with a large library, start the app with made up tracks. Their keys and tempos are invented and nothing is analyzed:
 
 ```
-EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-app
+EUPHORIA_DEMO_TRACKS=10000 cargo run -p euphoria-desktop
 ```
+
+## About the screenshots
+
+The screenshots on this page and in the README show a demo library of GiantSteps Key previews, the clips the benchmarks use, never anyone's own music. [`make_screenshots.py`](https://github.com/lvndry/euphoria/blob/main/docs/images/desktop-app/make_screenshots.py) builds that library, runs the app on it and captures the window again when the app changes.
 
 ## Not there yet
 
-- Cue points, and the reference tone for checking a key by ear.
-- Exporting to DJ software from the app; `euphoria export rekordbox` does it from the command line.
+- On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
+- Rating favorites (more than one star), and exporting favorite transitions with their notes.
+- Loops, and cue colours.
+- Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
+- Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
 - Filters for key and tempo ranges.
-- Linux and Windows builds: the app is only built and tested on macOS so far.
+- Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

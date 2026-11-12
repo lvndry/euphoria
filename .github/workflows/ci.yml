@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       rust: ${{ steps.paths.outputs.rust }}
+      packaging: ${{ steps.paths.outputs.packaging }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,15 +47,21 @@ jobs:
           git diff --name-only --no-renames -z "$base" "$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-files"
 
           rust=false
+          packaging=false
           while IFS= read -r -d '' path; do
             case "$path" in
-              crates/*|assets/*|bench/*.sh|bench/*.py|scripts/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/workflows/ci.yml|.editorconfig)
+              apps/*|crates/*|assets/*|bench/*.sh|bench/*.py|scripts/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/workflows/ci.yml|.github/workflows/release.yml|.editorconfig)
                 rust=true
-                break
+                ;;
+            esac
+            case "$path" in
+              Cargo.lock|*Cargo.toml|*/build.rs|*.cpp|assets/logo/*|scripts/linux_libraries.py|scripts/bundle-linux.sh|scripts/release/package-cli.sh|scripts/release/check-linux-packages.sh|.github/scripts/*|.github/workflows/ci.yml|.github/workflows/release.yml)
+                packaging=true
                 ;;
             esac
           done < "$RUNNER_TEMP/ci-changed-files"
           echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "packaging=$packaging" >> "$GITHUB_OUTPUT"
 
   format:
     name: Formatting
@@ -77,6 +84,10 @@ jobs:
         run: cargo fmt --all --check
       - name: Check TOML formatting
         run: taplo fmt --check --diff
+      - name: Check release and CI helper scripts
+        run: |
+          python3 -m unittest discover -s scripts/release -p 'test_*.py'
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
   dependencies:
     name: Dependency advisories and licenses
@@ -89,6 +100,40 @@ jobs:
         with:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
+      # cargo deny cannot see vendored C++, so its files are checked against
+      # the tags and checksums recorded when it was vendored.
+      - name: Vendored Signalsmith libraries match VENDORED.md
+        run: python3 scripts/vendor_signalsmith.py check
+
+  python:
+    name: Release and benchmark script tests
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Vendored library updater regressions
+        run: uv run --no-project --python 3.12 python -m unittest scripts/test_vendor_signalsmith.py
+      - name: Release scripts
+        run: uv run --no-project --python 3.12 python -m unittest discover -s scripts/release -p 'test_*.py'
+      - name: Benchmark scripts
+        run: uv run --no-project --python 3.12 --with numpy --with scipy python -m unittest discover -s bench -p 'test_*.py'
+
+  docs:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Relative links and headings
+        run: uv run --no-project --python 3.12 python -m unittest scripts/test_docs_links.py
 
   lint:
     name: Lint
@@ -106,9 +151,7 @@ jobs:
       - name: Install system libraries on Linux
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libfftw3-dev pkg-config
-          ./.github/scripts/install-libkeyfinder.sh
+          ./.github/scripts/install-linux-dependencies.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -127,10 +170,10 @@ jobs:
       matrix:
         system:
           - { name: macOS, runner: macos-latest, packages: --workspace }
-          # The desktop app needs the X11, Wayland and font development packages
-          # that GPUI links against on Linux. Until those are installed and the
-          # app is checked there, the Linux job tests every other crate.
-          - { name: Linux, runner: ubuntu-latest, packages: --workspace --exclude euphoria-app }
+          # The desktop app is built, linted and tested on Linux by its own
+          # job below, so this one tests every other crate.
+          # These debug binaries are also packaged and exercised on 22.04.
+          - { name: Linux, runner: ubuntu-22.04, packages: --workspace --exclude euphoria-desktop }
     runs-on: ${{ matrix.system.runner }}
     timeout-minutes: 30
     steps:
@@ -143,14 +186,178 @@ jobs:
       - name: Install system libraries on Linux
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libfftw3-dev pkg-config
-          ./.github/scripts/install-libkeyfinder.sh
+          ./.github/scripts/install-linux-dependencies.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Unit tests
+        with:
+          # Do not restore native objects built against a newer Ubuntu ABI.
+          key: ${{ matrix.system.runner }}
+      - name: Unit tests on macOS
+        if: runner.os == 'macOS'
         run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
-      - name: Audio decoding and detector integration tests
+      - name: Unit tests on Linux
+        if: runner.os == 'Linux'
+        env:
+          # Link the ONNX Runtime install-linux-dependencies.sh puts into
+          # /usr/local/lib, which runs on 22.04's libstdc++, instead of the
+          # one ort downloads, which needs a newer C++ runtime.
+          ORT_LIB_PATH: /usr/local/lib
+          ORT_PREFER_DYNAMIC_LINK: "1"
+        run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
+      - name: Audio decoding and detector integration tests on macOS
+        if: runner.os == 'macOS'
+        run: cargo test ${{ matrix.system.packages }} --test '*' --locked
+      - name: Audio decoding and detector integration tests on Linux
+        if: runner.os == 'Linux'
+        env:
+          ORT_LIB_PATH: /usr/local/lib
+          ORT_PREFER_DYNAMIC_LINK: "1"
         run: cargo test ${{ matrix.system.packages }} --test '*' --locked
       - name: Core tests without libkeyfinder
         run: cargo test -p euphoria-core --no-default-features --locked
+      - name: Linux packaging library tests
+        if: runner.os == 'Linux'
+        # The debug build of the euphoria command links libkeyfinder and FFTW
+        # from /usr/local/lib, so bundling it exercises the same walk as the
+        # release.
+        env:
+          EUPHORIA_LINKED_BINARY: ${{ github.workspace }}/target/debug/euphoria
+        run: |
+          test -x "$EUPHORIA_LINKED_BINARY"
+          python3 -m unittest scripts/test_linux_libraries.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: runner.os == 'Linux'
+        # The clean-system smoke test packs this binary without rebuilding it.
+        with:
+          name: linux-debug-cli
+          path: target/debug/euphoria
+          if-no-files-found: error
+          retention-days: 1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: runner.os == 'macOS'
+      - name: App packaging library tests
+        if: runner.os == 'macOS'
+        # The debug build of the euphoria command, made by the integration
+        # tests above, links libkeyfinder and FFTW like the app does, so the
+        # app needs no release build here.
+        env:
+          EUPHORIA_LINKED_BINARY: ${{ github.workspace }}/target/debug/euphoria
+        run: |
+          test -x "$EUPHORIA_LINKED_BINARY"
+          uv run --no-project --python 3.12 python -m unittest scripts/test_macos_libraries.py
+
+  desktop-linux:
+    name: Desktop app on Linux
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    # Match the oldest clean runtime used by the debug-package smoke test.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      # Link the ONNX Runtime install-linux-dependencies.sh puts into
+      # /usr/local/lib, which runs on 22.04's libstdc++, instead of the one
+      # ort downloads, which needs a newer C++ runtime.
+      ORT_LIB_PATH: /usr/local/lib
+      ORT_PREFER_DYNAMIC_LINK: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install system libraries
+        run: ./.github/scripts/install-linux-dependencies.sh
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-22.04
+      - name: Build with the X11 and Wayland back ends
+        run: cargo build -p euphoria-desktop --locked
+      - name: Clippy
+        # The code behind cfg(not(target_os = "macos")) is linted only here.
+        run: cargo clippy -p euphoria-desktop --all-targets --locked -- -D warnings
+      - name: Unit and headless UI tests
+        run: cargo test -p euphoria-desktop --locked
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        # The clean-system smoke test packs this binary without rebuilding it.
+        with:
+          name: linux-debug-desktop
+          path: target/debug/euphoria-desktop
+          if-no-files-found: error
+          retention-days: 1
+
+  linux-packages:
+    name: Linux AppImage and tarball on a clean system
+    needs: [changes, test, desktop-linux]
+    # The LTO release build takes a while, so it runs only when what goes
+    # into the packages changes: dependencies, build scripts and packaging
+    # scripts. A Rust source-only change skips it and packages the binaries
+    # the other Linux jobs already built instead, then runs the same
+    # clean-system check, so a change that breaks startup or runtime
+    # dependencies still fails here before the release workflow rebuilds.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true') }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      # Link the ONNX Runtime install-linux-dependencies.sh puts into
+      # /usr/local/lib, which runs on 22.04's libstdc++, instead of the one
+      # ort downloads, which needs a newer C++ runtime.
+      ORT_LIB_PATH: /usr/local/lib
+      ORT_PREFER_DYNAMIC_LINK: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install system libraries
+        run: ./.github/scripts/install-linux-dependencies.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the app and the AppImage
+        if: needs.changes.outputs.packaging == 'true'
+        run: ./scripts/bundle-linux.sh
+      - name: Build the command line tool
+        if: needs.changes.outputs.packaging == 'true'
+        run: ./scripts/release/package-cli.sh dist
+      - name: Check that the files run on a clean system
+        if: needs.changes.outputs.packaging == 'true'
+        run: |
+          cp target/release/bundle/Euphoria-*-x86_64.AppImage dist/
+          ./scripts/release/check-linux-packages.sh dist
+      - name: Read the oldest glibc the files run on
+        if: needs.changes.outputs.packaging == 'true'
+        run: |
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf dist/euphoria-*-x86_64-unknown-linux-gnu.tar.gz -C "$RUNNER_TEMP/unpacked"
+          python3 scripts/linux_libraries.py minimum-glibc \
+            --root target/release/bundle/Euphoria.AppDir --root "$RUNNER_TEMP/unpacked"
+
+      # The smoke test: no LTO rebuild, the debug binaries the other Linux
+      # jobs made are packaged the release way, and the packages are still
+      # proven to run on a clean system.
+      - name: Download the debug command line binary
+        if: needs.changes.outputs.packaging != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-debug-cli
+          path: target/debug
+      - name: Download the debug desktop binary
+        if: needs.changes.outputs.packaging != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-debug-desktop
+          path: target/debug
+      - name: Package the debug binaries the release way
+        if: needs.changes.outputs.packaging != 'true'
+        run: |
+          mkdir -p target/release
+          cp target/debug/euphoria target/release/euphoria
+          cp target/debug/euphoria-desktop target/release/euphoria-desktop
+          # Artifact downloads restore regular files as 0644.
+          chmod +x target/release/euphoria target/release/euphoria-desktop
+          ./scripts/release/package-cli.sh --skip-build dist
+          ./scripts/bundle-linux.sh --skip-build
+      - name: Smoke test the packages on a clean system
+        if: needs.changes.outputs.packaging != 'true'
+        run: |
+          cp target/release/bundle/Euphoria-*-x86_64.AppImage dist/
+          ./scripts/release/check-linux-packages.sh dist

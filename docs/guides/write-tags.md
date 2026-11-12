@@ -65,7 +65,7 @@ When you change this option between two writes, a label with an energy rating at
 
 `--preset` picks the tag fields for one program: `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. The default, `generic`, is the right choice when you use several programs or are not sure.
 
-All presets write the key to the same fields: `TKEY` in MP3, WAV and AIFF, both `initialkey` and `KEY` in M4A, and `INITIALKEY` in FLAC. They differ in the tempo:
+All presets write the key to the same fields: `TKEY` in MP3, WAV and AIFF, both `initialkey` and `KEY` in M4A and MP4, and `INITIALKEY` in FLAC and Ogg Vorbis. They differ in the tempo:
 
 | Preset | Tempo |
 | --- | --- |
@@ -89,7 +89,7 @@ $ euphoria tags write ~/Music/DJ
 Write these changes to 340 files? [y/N]
 ```
 
-Answer `y` to write. Any other answer writes nothing.
+On a terminal, the current values are dimmed and the new ones are green. Answer `y` to write. Any other answer writes nothing.
 
 - `--dry-run` stops after the preview. Nothing is written and nothing is asked.
 - `--yes` writes without asking, for use in scripts.
@@ -104,6 +104,10 @@ Files that already hold the right values are not touched at all.
 The backup of every file is saved on disk before the file is changed, so a write that was interrupted, by a crash or a power cut, can be undone too. Backups are kept in Euphoria's data folder, next to the [analysis cache](../reference/cli.md#where-the-cache-is-stored).
 
 If you changed the tags of a file after the write, undo leaves that file alone rather than overwrite your change, reports it, and restores the others. Running `euphoria tags undo` again tries that file again.
+
+## Edit other fields
+
+`euphoria tags set` edits the title, artist, album, genre, year, track number, comment, grouping, key and BPM fields by hand across many files, with find and replace and prefixes and suffixes, through the same preview, safety and undo. The [command reference](../reference/cli.md#euphoria-tags-set) lists its options, and the desktop app does the same with **Edit tags**.
 
 ## Limits
 

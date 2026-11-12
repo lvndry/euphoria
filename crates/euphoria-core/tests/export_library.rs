@@ -32,7 +32,10 @@ fn analyzed(path: &Path) -> FileResult {
             key_score_margin: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            beat_grid: None,
+            cues: Vec::new(),
             key_timeline: Vec::new(),
+            quality: None,
         }),
     }
 }
@@ -103,7 +106,10 @@ fn tracks_carry_the_analysis_and_the_tags_and_only_failed_files_are_skipped() {
                 key_score_margin: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                beat_grid: None,
+                cues: Vec::new(),
                 key_timeline: Vec::new(),
+                quality: None,
             }),
         },
         analyzed(&damaged_tag),
@@ -286,4 +292,38 @@ fn a_destination_that_cannot_be_written_is_an_error_and_leaves_no_temporary_file
         );
     }
     assert_eq!(file_names(&folder), ["taken"]);
+}
+
+#[test]
+fn a_refined_grid_near_the_range_edge_exports_in_the_detected_tempos_octave() {
+    use euphoria_core::export::rekordbox::write_xml;
+    use euphoria_core::{BeatGrid, ExportContents, TempoRange, assemble_library_with};
+
+    let path = tests_directory().join("fixtures/sine-440hz-mono.wav");
+    let mut result = analyzed(&path);
+    let mut analysis = result.outcome.unwrap();
+    analysis.bpm = Some(90.1);
+    analysis.tempo_estimate = Some(90.1);
+    analysis.beat_grid = Some(BeatGrid {
+        first_downbeat_seconds: 0.5,
+        bpm: 89.8,
+        salience: 12.0,
+        drift_seconds: Some(0.0),
+    });
+    // This is the range projection the CLI performs even for the default.
+    result.outcome = Ok(analysis.with_tempo_range(TempoRange::DEFAULT));
+    let exported = assemble_library_with(
+        vec![result],
+        PlaylistLayout::CollectionOnly,
+        ExportContents {
+            beat_grid: true,
+            cues: false,
+            edited_cues: Default::default(),
+        },
+    );
+    let mut xml = Vec::new();
+    write_xml(&mut xml, &exported.library, &ExportOptions::default()).unwrap();
+    let xml = String::from_utf8(xml).unwrap();
+    assert!(xml.contains("AverageBpm=\"89.80\""), "{xml}");
+    assert!(xml.contains("Bpm=\"89.80\""), "{xml}");
 }

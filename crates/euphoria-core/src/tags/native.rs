@@ -16,7 +16,9 @@ use super::TagFormat;
 use super::flac::{self, FlacFile};
 use super::id3v2::{self, Id3Tag};
 use super::mp4::Mp4File;
+use super::ogg::{self, OggVorbisFile};
 use super::replace::{Replacement, Splice, carried_over, compose, has_several_links};
+use super::riff_info::{self, InfoList};
 use crate::error::{ErrorSource, EuphoriaError};
 
 const PROBE_LENGTH: usize = 16;
@@ -24,6 +26,8 @@ const MPEG_SEARCH_LENGTH: u64 = 64 * 1024;
 const IFF_HEADER_LENGTH: u64 = 12;
 const CHUNK_HEADER_LENGTH: u64 = 8;
 const ID3_CHUNK: &[u8; 4] = b"ID3 ";
+const LIST_CHUNK: &[u8; 4] = b"LIST";
+const DATA_CHUNK: &[u8; 4] = b"data";
 const SEVERAL_LINKS: &str = "it has more than one hard link, and replacing it would leave its other names \
      with the old contents";
 
@@ -53,6 +57,11 @@ fn refusal(reason: &'static str) -> ErrorSource {
     Box::new(Refusal(reason))
 }
 
+/// `source` as the reason a file is not rewritten.
+fn refusal_with(source: ErrorSource) -> ErrorSource {
+    format!("refusing to rewrite the file: {source}").into()
+}
+
 /// Where a file keeps its ID3v2 tag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Id3Place {
@@ -79,12 +88,19 @@ enum Id3Place {
 struct Id3File {
     tag: Id3Tag,
     place: Id3Place,
+    /// The `INFO` list of a WAV file, which some programs read instead of
+    /// the ID3 chunk. `None` for MP3 and AIFF.
+    info: Option<InfoList>,
     /// A length the tag should get back when it fits, set by an undo.
     preferred_length: Option<u64>,
     problem: Option<&'static str>,
 }
 
-fn read_exactly(file: &mut File, start: u64, length: u64) -> Result<Vec<u8>, ErrorSource> {
+pub(super) fn read_exactly(
+    file: &mut File,
+    start: u64,
+    length: u64,
+) -> Result<Vec<u8>, ErrorSource> {
     let mut bytes = Vec::new();
     file.seek(SeekFrom::Start(start))?;
     file.take(length).read_to_end(&mut bytes)?;
@@ -101,6 +117,7 @@ impl Id3File {
             return Ok(Self {
                 tag: Id3Tag::new(),
                 place: Id3Place::Start { length: 0 },
+                info: None,
                 preferred_length: None,
                 problem: None,
             });
@@ -111,6 +128,7 @@ impl Id3File {
         Ok(Self {
             tag,
             place: Id3Place::Start { length },
+            info: None,
             preferred_length: None,
             problem: has_second_tag.then_some("it holds more than one ID3v2 tag"),
         })
@@ -138,6 +156,8 @@ impl Id3File {
         }
 
         let mut found: Option<(std::ops::Range<u64>, u64, [u8; 4], Id3Tag)> = None;
+        let mut info_chunk: Option<(std::ops::Range<u64>, u64)> = None;
+        let mut data_offset: Option<u64> = None;
         let mut offset = IFF_HEADER_LENGTH;
         while offset < container_end.min(file_length) {
             let Ok(header) = read_exactly(file, offset, CHUNK_HEADER_LENGTH) else {
@@ -165,8 +185,33 @@ impl Id3File {
                 let name = [header[0], header[1], header[2], header[3]];
                 found = Some((offset..end, size, name, Id3Tag::parse(&content)?));
             }
+            if little_endian && &header[..4] == DATA_CHUNK && data_offset.is_none() {
+                data_offset = Some(offset);
+            }
+            if little_endian && &header[..4] == LIST_CHUNK && size >= 4 {
+                let list_type = read_exactly(file, offset + CHUNK_HEADER_LENGTH, 4)?;
+                if InfoList::is_info(&list_type) {
+                    if info_chunk.is_some() {
+                        problem = Some("it holds more than one RIFF INFO list");
+                        break;
+                    }
+                    info_chunk = Some((offset..end, size));
+                }
+            }
             offset = end;
         }
+
+        let info = if !little_endian {
+            None
+        } else if let Some(data_offset) = data_offset {
+            Some(match info_chunk {
+                Some((chunk, size)) => InfoList::load(file, chunk, size, data_offset)?,
+                None => InfoList::absent(data_offset),
+            })
+        } else {
+            problem = problem.or(Some("it has no data chunk"));
+            None
+        };
 
         let (chunk, tag_length, name, tag) = match found {
             Some((chunk, tag_length, name, tag)) => (Some(chunk), tag_length, name, tag),
@@ -182,13 +227,67 @@ impl Id3File {
                 container_size,
                 container_end,
             },
+            info,
             preferred_length: None,
             problem,
         })
     }
 
     fn problem(&self) -> Option<&'static str> {
-        self.problem.or(self.tag.problem())
+        self.problem
+            .or(self.tag.problem())
+            .or(self.info.as_ref().and_then(InfoList::problem))
+    }
+
+    /// Every item: the ID3v2 frames, then the values of the `INFO` list.
+    fn items(&self) -> Vec<Vec<u8>> {
+        let mut items = self.tag.frames().to_vec();
+        if let Some(info) = &self.info {
+            items.extend(info.values().iter().cloned());
+        }
+        items
+    }
+
+    fn info_mut(&mut self) -> Result<&mut InfoList, ErrorSource> {
+        self.info
+            .as_mut()
+            .ok_or_else(|| "only WAV files have a RIFF INFO list".into())
+    }
+
+    fn position(&self, field: &str) -> Option<usize> {
+        if let Some(id) = riff_info::value_id(field) {
+            let info_position = self.info.as_ref()?.position_of(&id)?;
+            return Some(self.tag.frames().len() + info_position);
+        }
+        self.tag.position(field)
+    }
+
+    fn raw(&self, field: &str) -> Option<Vec<u8>> {
+        if let Some(id) = riff_info::value_id(field) {
+            return self.info.as_ref()?.raw_of(&id).map(<[u8]>::to_vec);
+        }
+        self.tag.raw(field).map(<[u8]>::to_vec)
+    }
+
+    fn get(&self, field: &str) -> Result<Option<String>, ErrorSource> {
+        if let Some(id) = riff_info::value_id(field) {
+            return Ok(self.info.as_ref().and_then(|info| info.get_of(&id)));
+        }
+        self.tag.get(field)
+    }
+
+    fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
+        if let Some(id) = riff_info::value_id(field) {
+            return self.info_mut()?.set_of(&id, value);
+        }
+        self.tag.set(field, value)
+    }
+
+    fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
+        if let Some(id) = riff_info::value_id(field) {
+            return self.info_mut()?.restore_of(&id, raw);
+        }
+        self.tag.restore(field, raw)
     }
 
     /// The length of the tag in the file, zero when there is none.
@@ -256,23 +355,29 @@ impl Id3File {
                     bytes.insert(0, 0);
                 }
                 let place = chunk.clone().unwrap_or(*container_end..*container_end);
-                let old_length = place.end - place.start;
-                let new_container_size = (u64::from(*container_size) + bytes.len() as u64)
-                    .checked_sub(old_length)
-                    .and_then(|size| u32::try_from(size).ok())
-                    .ok_or("the file would be larger than its container format allows")?;
-                Ok(vec![
-                    Splice {
-                        start: 4,
-                        end: 8,
-                        bytes: number(new_container_size).to_vec(),
-                    },
-                    Splice {
-                        start: place.start,
-                        end: place.end,
-                        bytes,
-                    },
-                ])
+                let mut edits = vec![Splice {
+                    start: place.start,
+                    end: place.end,
+                    bytes,
+                }];
+                if let Some(info) = &self.info {
+                    edits.extend(info.splice()?);
+                }
+                let mut new_container_size = u64::from(*container_size);
+                for edit in &edits {
+                    new_container_size = (new_container_size + edit.bytes.len() as u64)
+                        .checked_sub(edit.end - edit.start)
+                        .ok_or("the changes to the file do not fit its container")?;
+                }
+                let new_container_size = u32::try_from(new_container_size)
+                    .map_err(|_| "the file would be larger than its container format allows")?;
+                let mut splices = vec![Splice {
+                    start: 4,
+                    end: 8,
+                    bytes: number(new_container_size).to_vec(),
+                }];
+                splices.extend(edits);
+                Ok(splices)
             }
         }
     }
@@ -283,6 +388,7 @@ enum Document {
     Id3(Id3File),
     Mp4(Mp4File),
     Flac(FlacFile),
+    Ogg(OggVorbisFile),
 }
 
 /// Whether `bytes` start with a plausible MPEG audio frame header.
@@ -303,7 +409,7 @@ fn has_mpeg_audio(file: &mut File, start: u64) -> Result<bool, ErrorSource> {
 }
 
 impl Document {
-    fn load(file: &mut File) -> Result<Self, ErrorSource> {
+    fn load(file: &mut File, full_stream: bool) -> Result<Self, ErrorSource> {
         let mut beginning = [0; PROBE_LENGTH];
         let mut read = 0;
         file.seek(SeekFrom::Start(0))?;
@@ -314,9 +420,12 @@ impl Document {
             }
         }
         let beginning = &beginning[..read];
-        let unsupported = || "not an MP3, WAV, AIFF, M4A or FLAC file".into();
+        let unsupported = || "not an MP3, WAV, AIFF, MP4, FLAC or Ogg Vorbis file".into();
         if beginning.len() < PROBE_LENGTH {
             return Err(unsupported());
+        }
+        if ogg::is_ogg(beginning) {
+            return Ok(Self::Ogg(OggVorbisFile::load(file, full_stream)?));
         }
 
         let after_id3 = flac::stream_start(beginning)?;
@@ -342,16 +451,19 @@ impl Document {
             Self::Id3(file) => file.problem(),
             Self::Mp4(file) => file.problem(),
             Self::Flac(file) => file.problem(),
+            Self::Ogg(file) => file.problem(),
         }
     }
 
     /// The length of the area the tag occupies in the file: the ID3v2 tag,
-    /// the `moov` atom, or all FLAC metadata blocks.
+    /// the `moov` atom, all FLAC metadata blocks, or the Ogg pages of the
+    /// comment and setup headers.
     fn tag_length(&self) -> u64 {
         match self {
             Self::Id3(file) => file.tag_length(),
             Self::Mp4(file) => file.moov_length(),
             Self::Flac(file) => file.metadata_length(),
+            Self::Ogg(file) => file.header_length(),
         }
     }
 
@@ -360,48 +472,59 @@ impl Document {
             Self::Id3(file) => file.preferred_length = tag,
             Self::Mp4(file) => file.prefer_lengths(tag, file_length),
             Self::Flac(file) => file.prefer_metadata_length(tag),
+            // A rewrite keeps the pages and gives back their layout by
+            // itself.
+            Self::Ogg(_) => {}
         }
     }
 
     /// Every item of the tag, whole and in order.
     fn items(&self) -> Vec<Vec<u8>> {
         match self {
-            Self::Id3(file) => file.tag.frames().to_vec(),
+            Self::Id3(file) => file.items(),
             Self::Mp4(file) => file.items().to_vec(),
             Self::Flac(file) => file.items(),
+            Self::Ogg(file) => file.items(),
         }
     }
 
     /// The index among [`Document::items`] of the item `field` names.
     fn position(&self, field: &str) -> Result<Option<usize>, ErrorSource> {
         match self {
-            Self::Id3(file) => Ok(file.tag.position(field)),
+            Self::Id3(file) => Ok(file.position(field)),
             Self::Mp4(file) => file.position(field),
             Self::Flac(file) => Ok(file.position(field)),
+            Self::Ogg(file) => Ok(file.position(field)),
         }
     }
 
     fn raw(&self, field: &str) -> Result<Option<Vec<u8>>, ErrorSource> {
         Ok(match self {
-            Self::Id3(file) => file.tag.raw(field).map(<[u8]>::to_vec),
+            Self::Id3(file) => file.raw(field),
             Self::Mp4(file) => file.raw(field)?.map(<[u8]>::to_vec),
             Self::Flac(file) => file.raw(field).map(<[u8]>::to_vec),
+            Self::Ogg(file) => file.raw(field).map(<[u8]>::to_vec),
         })
     }
 
     fn get(&self, field: &str) -> Result<Option<String>, ErrorSource> {
         match self {
-            Self::Id3(file) => file.tag.get(field),
+            Self::Id3(file) => file.get(field),
             Self::Mp4(file) => file.get(field),
             Self::Flac(file) => Ok(file.get(field)),
+            Self::Ogg(file) => Ok(file.get(field)),
         }
     }
 
     fn set(&mut self, field: &str, value: Option<&str>) -> Result<(), ErrorSource> {
         match self {
-            Self::Id3(file) => file.tag.set(field, value),
+            Self::Id3(file) => file.set(field, value),
             Self::Mp4(file) => file.set(field, value),
             Self::Flac(file) => {
+                file.set(field, value);
+                Ok(())
+            }
+            Self::Ogg(file) => {
                 file.set(field, value);
                 Ok(())
             }
@@ -410,9 +533,10 @@ impl Document {
 
     fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
         match self {
-            Self::Id3(file) => file.tag.restore(field, raw),
+            Self::Id3(file) => file.restore(field, raw),
             Self::Mp4(file) => file.restore(field, raw),
             Self::Flac(file) => file.restore(field, raw),
+            Self::Ogg(file) => file.restore(field, raw),
         }
     }
 
@@ -421,6 +545,7 @@ impl Document {
             Self::Id3(file) => file.splices(),
             Self::Mp4(file) => file.splices(),
             Self::Flac(file) => file.splices(),
+            Self::Ogg(file) => file.splices(),
         }
     }
 }
@@ -447,10 +572,13 @@ impl TagFile {
             path: path.to_path_buf(),
             source,
         })?;
-        let document = Document::load(&mut file).map_err(|source| EuphoriaError::TagRead {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        let document =
+            Document::load(&mut file, purpose != Purpose::Reading).map_err(|source| {
+                EuphoriaError::TagRead {
+                    path: path.to_path_buf(),
+                    source,
+                }
+            })?;
         let metadata = file.metadata().map_err(|source| EuphoriaError::Open {
             path: path.to_path_buf(),
             source,
@@ -476,11 +604,20 @@ impl TagFile {
         })
     }
 
+    /// The major version of the file's ID3v2 tag, for a file that has
+    /// one: 2, 3 or 4.
+    pub(super) fn id3_version(&self) -> Option<u8> {
+        match &self.document {
+            Document::Id3(file) => Some(file.tag.version()),
+            Document::Mp4(_) | Document::Flac(_) | Document::Ogg(_) => None,
+        }
+    }
+
     pub(super) fn format(&self) -> TagFormat {
         match self.document {
             Document::Id3(_) => TagFormat::Id3v2,
             Document::Mp4(_) => TagFormat::Mp4,
-            Document::Flac(_) => TagFormat::VorbisComments,
+            Document::Flac(_) | Document::Ogg(_) => TagFormat::VorbisComments,
         }
     }
 
@@ -496,6 +633,17 @@ impl TagFile {
         self.document
             .raw(field)
             .map_err(|source| self.read_error(source))
+    }
+
+    /// Whether the file is a WAV file, with an `INFO` list or a place for
+    /// one.
+    pub(super) fn has_info_list(&self) -> bool {
+        matches!(&self.document, Document::Id3(file) if file.info.is_some())
+    }
+
+    /// Whether the file is an Ogg Vorbis file.
+    pub(super) fn is_ogg(&self) -> bool {
+        matches!(&self.document, Document::Ogg(_))
     }
 
     /// The length of the area the tag occupies in the file.
@@ -527,7 +675,9 @@ impl TagFile {
 
     fn touch(&mut self, field: &str) -> Result<(), ErrorSource> {
         if !self.touched.iter().any(|(touched, _)| touched == field) {
-            let position = self.document.position(field)?;
+            // The position among the items as loaded, which the items as
+            // changed so far no longer give once a field was removed.
+            let position = self.loaded.position(field)?;
             self.touched.push((field.to_string(), position));
         }
         Ok(())
@@ -556,6 +706,22 @@ impl TagFile {
             .map_err(|source| self.write_error(source))
     }
 
+    /// Fails when the tag could not be written back with `changes` made,
+    /// such as when the new items do not fit where the format needs them,
+    /// so that a plan is refused before it is shown.
+    pub(super) fn check_can_write(
+        &self,
+        changes: &[(&str, Option<&str>)],
+    ) -> Result<(), EuphoriaError> {
+        let mut document = self.document.clone();
+        changes
+            .iter()
+            .try_for_each(|(field, value)| document.set(field, *value))
+            .and_then(|()| document.splices())
+            .map(|_| ())
+            .map_err(|source| self.write_error(refusal_with(source)))
+    }
+
     /// Writes the tag to the file.
     ///
     /// The new file is built next to the real one: the original with the
@@ -565,11 +731,18 @@ impl TagFile {
     /// refused write leaves the file as it was. A symbolic link is
     /// followed: the file it points to is rewritten and the link stays a
     /// link.
+    #[cfg(test)]
     pub(super) fn save(&self) -> Result<(), EuphoriaError> {
         self.save_checked()
             .map_err(|source| self.write_error(source))
     }
 
+    pub(super) fn save_with_observer(&self, mut after: impl FnMut()) -> Result<(), EuphoriaError> {
+        self.save_after_observing(|_| Ok(()), &mut after)
+            .map_err(|source| self.write_error(source))
+    }
+
+    #[cfg(test)]
     fn save_checked(&self) -> Result<(), ErrorSource> {
         self.save_after(|_| Ok(()))
     }
@@ -578,11 +751,25 @@ impl TagFile {
     /// it in place. `before_checks` does nothing outside tests, where it
     /// stands in for whatever could damage the new file or change the
     /// original while a write is under way.
+    #[cfg(test)]
     fn save_after(
         &self,
         before_checks: impl FnOnce(&mut File) -> std::io::Result<()>,
     ) -> Result<(), ErrorSource> {
+        self.save_after_observing(before_checks, &mut || {})
+    }
+
+    fn save_after_observing(
+        &self,
+        before_checks: impl FnOnce(&mut File) -> std::io::Result<()>,
+        after: &mut impl FnMut(),
+    ) -> Result<(), ErrorSource> {
         let target = std::fs::canonicalize(&self.path)?;
+        // The new file is built from the original as it is now, with the
+        // changes worked out from the tag as it was loaded, so a file that
+        // changed since is refused before it is built from. The check is
+        // made again last thing before the replacement.
+        self.check_source_is_unchanged(&target)?;
         let mut original = File::open(&target)?;
         let mut splices = self.document.splices()?;
         let mut replacement = Replacement::start(&target)?;
@@ -592,7 +779,7 @@ impl TagFile {
             .and_then(|()| self.check(&mut original, &splices, replacement.file()))
             .and_then(|()| self.check_source_is_unchanged(&target));
         match written {
-            Ok(()) => replacement.commit(),
+            Ok(()) => replacement.commit_with_observer(after),
             Err(error) => {
                 // The write error is the one reported.
                 let _ = replacement.discard();
@@ -609,7 +796,7 @@ impl TagFile {
     fn check_source_is_unchanged(&self, target: &Path) -> Result<(), ErrorSource> {
         let mut current = File::open(target)?;
         let is_unchanged = current.metadata()?.len() == self.file_length
-            && Document::load(&mut current)? == self.loaded;
+            && Document::load(&mut current, true)? == self.loaded;
         if is_unchanged {
             Ok(())
         } else {
@@ -631,9 +818,10 @@ impl TagFile {
         if !carried_over(original, splices, copy)? {
             return Err(refusal("data outside the tag would change"));
         }
-        let written = Document::load(copy)?;
+        let unreadable = || refusal("the rewritten tag would not be readable");
+        let written = Document::load(copy, true).map_err(|_| unreadable())?;
         if written.problem().is_some() {
-            return Err(refusal("the rewritten tag would not be readable"));
+            return Err(unreadable());
         }
 
         let without = |mut items: Vec<Vec<u8>>, mut positions: Vec<usize>| {
@@ -695,12 +883,18 @@ mod tests {
 
     use super::*;
 
-    const KEY_FIELDS: [(&str, &str); 5] = [
+    const KEY_FIELDS: [(&str, &str); 8] = [
         ("sine-440hz-mono.mp3", "TKEY"),
         ("sine-440hz-mono.wav", "TKEY"),
         ("sine-440hz-mono.aiff", "TKEY"),
         ("sine-440hz-mono.flac", "INITIALKEY"),
         ("sine-440hz-mono.m4a", "----:com.apple.iTunes:initialkey"),
+        ("sine-440hz-mono.ogg", "INITIALKEY"),
+        (
+            "sine-440hz-mono-alac.m4a",
+            "----:com.apple.iTunes:initialkey",
+        ),
+        ("sine-440hz-mono.mp4", "----:com.apple.iTunes:initialkey"),
     ];
 
     /// Writes a key to a copy of `fixture`, lets `tamper` change the new
@@ -763,10 +957,14 @@ mod tests {
     #[test]
     fn check_refuses_a_change_to_data_outside_the_plan() {
         for (fixture, field) in KEY_FIELDS {
-            // Every fixture but the AIFF names its encoder, in a tag item
-            // or in a chunk of its own.
+            // Every fixture but the AIFF and the Ogg Vorbis file names
+            // its encoder, in a tag item or in a chunk of its own. The Ogg
+            // file's setup header is rewritten with the comments but must
+            // keep its bytes.
             let untouched = if fixture.ends_with("aiff") {
                 &b"SSND"[..]
+            } else if fixture.ends_with("ogg") {
+                &b"\x05vorbis"[..]
             } else {
                 &b"Lavf"[..]
             };
@@ -780,10 +978,14 @@ mod tests {
     fn check_refuses_a_field_that_did_not_take_its_value() {
         for (fixture, field) in KEY_FIELDS {
             let error = check_after(fixture, field, |bytes| flip_last(bytes, b"8A")).unwrap_err();
-            assert!(
-                error.to_string().contains("did not take the value"),
-                "{fixture}: {error}"
-            );
+            // An Ogg page checksums its contents, so there the changed
+            // value already makes the page unreadable.
+            let expected = if fixture.ends_with("ogg") {
+                "would not be readable"
+            } else {
+                "did not take the value"
+            };
+            assert!(error.to_string().contains(expected), "{fixture}: {error}");
         }
     }
 

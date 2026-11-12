@@ -22,21 +22,25 @@ Euphoria does not read a tag into a model and write the model back, because that
 | ID3v2 | A frame, header included |
 | MP4 | A child of the `ilst` atom, with all its `data` atoms |
 | Vorbis comments | One `NAME=value` comment |
+| RIFF INFO list of a WAV file | One value, such as `ICMT`, with its header |
 
 What stays byte for byte the same:
 
 - Every item the plan does not name, in its place: artwork (`APIC` frames, `covr`, FLAC picture blocks), ratings, sort names, gapless and volume data, the private data of other programs, and items Euphoria does not know.
 - An item the plan does name keeps what it can: an ID3v2 frame keeps its flags and its text encoding when the new text fits in it, a comment frame keeps its language, a Vorbis comment and a freeform MP4 item keep the spelling of their name.
-- Tags of other kinds in the same file: ID3v1 and APE tags in MP3, RIFF INFO in WAV, text chunks in AIFF, and an ID3v2 tag in front of a FLAC stream.
-- Everything else in the container, such as other MP4 atoms and FLAC metadata blocks, and the audio.
+- Tags of other kinds in the same file: ID3v1 and APE tags in MP3, the RIFF INFO values of a WAV file other than its comment, text chunks in AIFF, and an ID3v2 tag in front of a FLAC stream.
+- Everything else in the container, such as other MP4 atoms, FLAC metadata blocks and the identification and setup headers of an Ogg Vorbis file, and the audio.
 
 What may change besides the planned items is padding, the empty space formats keep for tags to grow into. When there is enough, it takes up the difference and nothing else in the file moves. When there is not, the tag area grows and the audio moves back. In an MP4 file whose `moov` atom comes before the audio, the chunk offsets (`stco`, `co64`) are then moved by the same distance.
+
+An Ogg Vorbis file has no padding, and its comments share pages with the setup header that follows them. Euphoria lays the two headers out again over exactly as many pages as before: the page the comments end on takes up the change in length, every other page keeps its number of segments, and the rewritten pages get new checksums. The audio pages after them keep every byte, sequence numbers and checksums included. When the comments would need more room than that page has, the write is refused, because the alternative is to renumber and rewrite every audio page of the file.
 
 The new file is built next to the original, flushed to disk, and checked before it takes the original's place:
 
 - Every byte outside the rewritten tag area is compared with the original.
 - The new file is read again from scratch. Its items, apart from the planned ones, must be the original items, byte for byte and in the same order. Each planned item must hold exactly what was meant to be written.
 - For MP4, the rest of `moov` must be unchanged, and every chunk offset must still point at the same audio.
+- For Ogg Vorbis, every rewritten page must match its checksum and join up with the pages around it.
 
 Last of all, the original is read once more and must still hold the tag the write started from. If another program changed the file in the meantime, replacing it would undo that change.
 
@@ -56,7 +60,7 @@ Undoing the last write restores its files one by one. A file that cannot be rest
 
 The backup holds, for each field, the item's original bytes. Undo puts those bytes back, so a restored field is identical to the original, not just equal in value: a comment that was UTF-16 is UTF-16 again. Undo is checked the same way as a write.
 
-The backup also holds the original length of the tag area and of the file. Undo gives the padding its original size again, so the file is byte for byte what it was before the write. The exceptions are padding that held something other than zeros, and a WAV or AIFF file whose last chunk lacked its padding byte; in both cases every item is still restored exactly.
+The backup also holds the original length of the tag area and of the file. Undo gives the padding its original size again, so the file is byte for byte what it was before the write. The exceptions are padding that held something other than zeros, and a WAV or AIFF file whose last chunk lacked its padding byte; in both cases every item is still restored exactly. In an Ogg Vorbis file, a write and its undo change the same page by the same amount, so the pages come back as they were without a stored length.
 
 ### When a write is refused
 
@@ -69,6 +73,10 @@ The error names the file and the reason, and the file is not touched. `read_tags
 - The `meta` atom of an MP4 file lacks its version field, as some QuickTime style files have it.
 - A fragmented MP4 file would need its audio moved, because padding cannot take up the change in length.
 - The size in an ID3v2 tag header is damaged, so the end of the tag cannot be known. `read_tags` fails on such a file too.
+- An Ogg file holds a stream other than Vorbis, such as Opus, or a second stream among the pages of its Vorbis headers. `read_tags` fails on such a file too.
+- An Ogg Vorbis file has a second stream anywhere after its headers, such as one chained after the first, or something other than Ogg pages after them. Every page header of the file is read to find out. `read_tags` reads such a file.
+- A page of an Ogg Vorbis file's headers does not match its checksum, or the pages are not numbered from 0 one after the other, the headers end on the same page as the first audio, or the new comments do not fit the page the old ones ended on, as described above.
+- The Vorbis headers of an Ogg file take more than 128 MiB or 4096 pages, or contain more than 65,536 comments. These limits allow large embedded artwork while bounding packet data and per-comment allocations. `read_tags` fails on such a file too.
 - The file has more than one hard link. See below.
 - Another program changed the file between the moment its tags were read and the moment the new file was ready. Make a new plan and apply that.
 
@@ -84,14 +92,14 @@ The error names the file and the reason, and the file is not touched. `read_tags
 | File format | Tag format |
 | --- | --- |
 | MP3, WAV, AIFF | ID3v2 |
-| M4A | MP4 atoms |
-| FLAC | Vorbis comments |
+| M4A, MP4 (AAC or ALAC) | MP4 atoms |
+| FLAC, Ogg Vorbis | Vorbis comments |
 
 An existing ID3v2 tag keeps its version, whether ID3v2.2, ID3v2.3 or ID3v2.4, along with frames that belong to another version. A file with no ID3v2 tag gets an ID3v2.3 tag, the version the widest range of DJ software accepts. In WAV and AIFF the tag lives in an `ID3 ` chunk, and an existing chunk keeps the spelling of its name.
 
 New text is stored as Latin-1 when it fits, and otherwise as UTF-16 in ID3v2.2 and ID3v2.3 and as UTF-8 in ID3v2.4.
 
-An M4A file without metadata gets the `udta`, `meta` and `ilst` atoms that iTunes style tags live in.
+An M4A or MP4 file without metadata gets the `udta`, `meta` and `ilst` atoms that iTunes style tags live in. The codec makes no difference: AAC and ALAC files have the same atoms.
 
 ## Fields read
 
@@ -103,10 +111,10 @@ When several fields are listed, the first one present is used.
 | Artist | `TPE1` | `©ART` | `ARTIST` |
 | Key | `TKEY` | `----:com.apple.iTunes:initialkey`, `----:com.apple.iTunes:KEY` | `INITIALKEY`, `KEY` |
 | Tempo | `TBPM` | `----:com.apple.iTunes:BPM`, `tmpo` | `BPM`, `TEMPO` |
-| Comment | `COMM` with an empty description | `©cmt` | `COMMENT`, `DESCRIPTION` |
+| Comment | `COMM` with an empty description, then in WAV the RIFF INFO `ICMT` | `©cmt` | `COMMENT`, `DESCRIPTION` |
 | Grouping | `TIT1`, `GRP1` | `©grp` | `GROUPING` |
 
-Freeform MP4 names are matched in any letter case. WAV and AIFF files are read through their ID3v2 tag only, not through RIFF INFO or AIFF text chunks.
+Freeform MP4 names are matched in any letter case. WAV and AIFF files are read through their ID3v2 tag, apart from the comment of a WAV file that has none there, which is read from RIFF INFO. AIFF text chunks are not read.
 
 ## Fields written
 
@@ -116,7 +124,7 @@ Freeform MP4 names are matched in any letter case. WAV and AIFF files are read t
 | --- | --- | --- | --- |
 | Every preset | `TKEY` | `----:com.apple.iTunes:initialkey` and `----:com.apple.iTunes:KEY` | `INITIALKEY` |
 
-Every preset writes the same key fields. When a FLAC file already has a `KEY` comment, it is given the same value as `INITIALKEY`; a FLAC file without one does not get one. The reasons are in [use Euphoria with your DJ program](../guides/dj-programs.md#the-same-in-every-program).
+Every preset writes the same key fields. When a FLAC or Ogg Vorbis file already has a `KEY` comment, it is given the same value as `INITIALKEY`; a file without one does not get one. The reasons are in [use Euphoria with your DJ program](../guides/dj-programs.md#the-same-in-every-program).
 
 The key is written as a Camelot code such as `8A`, as a short musical name such as `Am`, or as an Open Key code such as `1m`.
 
@@ -131,7 +139,7 @@ The key is written as a Camelot code such as `8A`, as a short musical name such 
 
 `tmpo` always holds a whole number, stored in two bytes. With decimals, a tempo is written such as `127.5`; without, it is rounded to a whole number. A tempo field that already holds the same number, for example `128.00`, counts as matching and is not rewritten.
 
-A file that already has `----:com.apple.iTunes:BPM` in M4A, or `TEMPO` in FLAC, gets the same tempo there too, so a field that Mixxx would read first never holds an older value.
+A file that already has `----:com.apple.iTunes:BPM` in M4A or MP4, or `TEMPO` in FLAC or Ogg Vorbis, gets the same tempo there too, so a field that Mixxx would read first never holds an older value.
 
 ### Label
 
@@ -160,10 +168,38 @@ A label is never moved between the comment and the grouping: only the field of t
 
 | Target | ID3v2 | MP4 | Vorbis comments |
 | --- | --- | --- | --- |
-| Comment | `COMM` with an empty description | `©cmt` | `COMMENT` |
+| Comment | `COMM` with an empty description, and in WAV also the RIFF INFO `ICMT` | `©cmt` | `COMMENT` |
 | Grouping | `TIT1` | `©grp` | `GROUPING` |
 
 An existing ID3v2 comment keeps its language. Comments with a description belong to other programs and are not touched.
+
+### The comment of a WAV file
+
+A WAV file has two places for a comment: the ID3 chunk, which most tag editors and DJ programs read, and the `ICMT` value of its RIFF INFO list, the tag WAV defines for itself. rekordbox reads a WAV file's comment from RIFF INFO only (tested in rekordbox 7.2.19). So when the label goes into the comment, at its start or its end, Euphoria writes it into both, with every preset:
+
+- Each comment keeps its own text. The label goes in front of, or after, whatever that comment holds, and a label written earlier is recognised and replaced in each, as described above. The two comments end up with the same label, even when the text after it differs.
+- The preview shows the RIFF comment on a line of its own, as `INFO ICMT`.
+- The other values of the RIFF INFO list, such as the title `INAM` and the artist `IART`, keep their bytes and their order.
+- A file without a RIFF INFO list gets one, holding only the comment, in front of the `data` chunk, where ffmpeg puts it and where a reader that stops at the audio still finds it. Undo takes it out again.
+- The format names no text encoding. A RIFF comment that is valid UTF-8 is read and written as UTF-8. One that is not, such as one written in Windows-1252 with a euro sign, is read byte for byte as Latin-1 and written back the same way, so that its own text keeps its exact bytes next to the label. The preview may show such characters differently from the program that wrote them; the bytes in the file do not change.
+- Undo puts the RIFF comment back byte for byte, with the same checks as every other field. The one case where the file does not return to the exact bytes it had is a RIFF INFO list that was empty before the write: it is taken out when its last value goes.
+- A RIFF INFO list that cannot be taken apart into values, a second list in the same file, or more than one `ICMT` comment is a reason to refuse the write, like a damaged ID3 chunk.
+
+RIFF INFO has no field for the key or the tempo, so those stay in the ID3 chunk only. For rekordbox, the [rekordbox XML export](../guides/export-to-rekordbox.md) carries them for WAV files.
+
+### Serato cue points and beat grid
+
+Only with `euphoria tags write --serato-markers`. Euphoria writes these fields where Serato DJ reads them. It writes nothing for WAV or Ogg Vorbis files, or for ID3v2.2 tags. **Not tested in Serato.** [Cue points and beat grids for Serato](../guides/serato-cues.md) explains how your own cues are kept.
+
+| Data | ID3v2 (MP3, AIFF) | MP4 | Vorbis comments (FLAC) |
+| --- | --- | --- | --- |
+| Cue points | `GEOB` frame `Serato Markers2` | `----:com.serato.dj:markersv2` | `SERATO_MARKERS_V2` |
+| Beat grid | `GEOB` frame `Serato BeatGrid` | `----:com.serato.dj:beatgrid` | `SERATO_BEATGRID` |
+| First five cues, older copy | `GEOB` frame `Serato Markers_`, when the file has one | `----:com.serato.dj:markers`, added when missing | None |
+
+- In the preview, these fields are named `Serato cue points`, `Serato beat grid` and `Serato cue points, older copy`. Their values are described instead of being shown as stored, for example `cue points 1 Start at 0:00.146, 2 Drop at 1:03.500`.
+- Every entry the field already holds keeps its bytes: cue points, loops, flips, the track colour and the grid lock. Euphoria's cues are added on free pads only, and a beat grid already in the file is never replaced.
+- Undo puts each of these fields back byte for byte, like every other field.
 
 ## How well each field is confirmed
 
@@ -172,8 +208,8 @@ DJ software vendors do not publish the exact fields their programs read. [Use Eu
 | Program | Strongest evidence |
 | --- | --- |
 | Mixxx | Every field above, confirmed in its source code. |
-| rekordbox | Tested in rekordbox 7: the key is read from `TKEY`, M4A `KEY` (not `initialkey`) and FLAC `INITIALKEY`; the comment from every format; WAV title and comment from RIFF INFO only; no tempo from any tag. |
-| Serato | Serato's own statements for the key in MP3 and the analysis settings. M4A and FLAC field names are unconfirmed. |
-| Traktor | Mixed In Key's guide and user reports for the Key Text column. M4A and FLAC field names are unconfirmed. |
+| rekordbox | Tested in rekordbox 7: the key is read from `TKEY`, M4A `KEY` (not `initialkey`) and FLAC `INITIALKEY`; the comment from every format; WAV title and comment from RIFF INFO only, so Euphoria writes the label into the RIFF INFO comment as well; no tempo from any tag. The tests used AAC in M4A; ALAC and `.mp4` files have the same atoms but were not tested. Its manual does not list Ogg Vorbis among the formats it plays. |
+| Serato | Serato's own statements for the key in MP3 and the analysis settings. M4A, FLAC and Ogg Vorbis field names are unconfirmed. |
+| Traktor | Mixed In Key's guide and user reports for the Key Text column. M4A, FLAC and Ogg Vorbis field names are unconfirmed. |
 | Engine DJ | The Engine DJ user guide for when tags are read. Field names are unconfirmed. |
 | VirtualDJ | Its options list and its CTO's statement about FLAC key fields. MP3 and M4A field names are unconfirmed. |

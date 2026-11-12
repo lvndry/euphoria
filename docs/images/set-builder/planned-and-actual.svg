@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="380" viewBox="0 0 800 380" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Planned and actual energy</title>
+<desc id="chart-desc">Line chart of energy against position in a set of 20 tracks. The dashed curve drawn rises from 4 to 9 two thirds of the way in and falls to 5. The set built follows it within half a point at every track, rising 4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 9, 9, 9 and falling 8, 8, 7, 7, 6, 6, 5.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.planned { stroke: #898781; stroke-width: 2; stroke-dasharray: 6 5; fill: none; stroke-linejoin: round; }
+.series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.miss-fill { fill: #c4610a; }
+.miss-line { stroke: #c4610a; stroke-width: 1.5; fill: none; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .planned { stroke: #a3a29c; }
+  .series-line { stroke: #3987e5; }
+  .series-fill { fill: #3987e5; }
+  .miss-fill { fill: #e0812f; }
+  .miss-line { stroke: #e0812f; }
+  .ring { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="379" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Planned and actual energy</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">20 tracks from a folder of 119 melodic house tracks, curve 4,6,8,9,7,5.</text>
+<line x1="64" y1="300" x2="600" y2="300" class="grid"/>
+<text x="54" y="304" class="tick" text-anchor="end">1</text>
+<line x1="64" y1="233.33" x2="600" y2="233.33" class="grid"/>
+<text x="54" y="237.33" class="tick" text-anchor="end">4</text>
+<line x1="64" y1="166.67" x2="600" y2="166.67" class="grid"/>
+<text x="54" y="170.67" class="tick" text-anchor="end">7</text>
+<line x1="64" y1="100" x2="600" y2="100" class="grid"/>
+<text x="54" y="104" class="tick" text-anchor="end">10</text>
+<line x1="64" y1="300" x2="600" y2="300" class="axis"/>
+<text x="64" y="320" class="tick" text-anchor="middle">1</text>
+<text x="176.84" y="320" class="tick" text-anchor="middle">5</text>
+<text x="317.89" y="320" class="tick" text-anchor="middle">10</text>
+<text x="458.95" y="320" class="tick" text-anchor="middle">15</text>
+<text x="600" y="320" class="tick" text-anchor="middle">20</text>
+<text x="332" y="344" class="label" text-anchor="middle">Track in the set</text>
+<polyline points="64,233.33 171.2,188.89 278.4,144.44 385.6,122.22 492.8,166.67 600,211.11" class="planned"/>
+<polyline points="64,233.33 92.21,211.11 120.42,211.11 148.63,188.89 176.84,188.89 205.05,166.67 233.26,166.67 261.47,144.44 289.68,144.44 317.89,144.44 346.11,122.22 374.32,122.22 402.53,122.22 430.74,144.44 458.95,144.44 487.16,166.67 515.37,166.67 543.58,188.89 571.79,188.89 600,211.11" class="series-line"/>
+<circle cx="64" cy="233.33" r="4" class="series-fill ring"/>
+<circle cx="92.21" cy="211.11" r="4" class="series-fill ring"/>
+<circle cx="120.42" cy="211.11" r="4" class="series-fill ring"/>
+<circle cx="148.63" cy="188.89" r="4" class="series-fill ring"/>
+<circle cx="176.84" cy="188.89" r="4" class="series-fill ring"/>
+<circle cx="205.05" cy="166.67" r="4" class="series-fill ring"/>
+<circle cx="233.26" cy="166.67" r="4" class="series-fill ring"/>
+<circle cx="261.47" cy="144.44" r="4" class="series-fill ring"/>
+<circle cx="289.68" cy="144.44" r="4" class="series-fill ring"/>
+<circle cx="317.89" cy="144.44" r="4" class="series-fill ring"/>
+<circle cx="346.11" cy="122.22" r="4" class="series-fill ring"/>
+<circle cx="374.32" cy="122.22" r="4" class="series-fill ring"/>
+<circle cx="402.53" cy="122.22" r="4" class="series-fill ring"/>
+<circle cx="430.74" cy="144.44" r="4" class="series-fill ring"/>
+<circle cx="458.95" cy="144.44" r="4" class="series-fill ring"/>
+<circle cx="487.16" cy="166.67" r="4" class="series-fill ring"/>
+<circle cx="515.37" cy="166.67" r="4" class="series-fill ring"/>
+<circle cx="543.58" cy="188.89" r="4" class="series-fill ring"/>
+<circle cx="571.79" cy="188.89" r="4" class="series-fill ring"/>
+<circle cx="600" cy="211.11" r="4" class="series-fill ring"/>
+<line x1="624" y1="112" x2="652" y2="112" class="planned"/>
+<text x="660" y="116" class="label" text-anchor="start">Curve asked for</text>
+<line x1="624" y1="140" x2="652" y2="140" class="series-line"/>
+<circle cx="638" cy="140" r="4" class="series-fill ring"/>
+<text x="660" y="144" class="label" text-anchor="start">Set built</text>
+</svg>
