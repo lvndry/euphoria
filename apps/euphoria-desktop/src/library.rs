@@ -54,9 +54,11 @@ pub(crate) struct Track {
     /// The cues the user set, which replace those analysis placed, even
     /// when empty. `None` keeps the automatic cues.
     pub(crate) edited_cues: Option<Vec<Cue>>,
-    /// The beat grid as analysis fitted it, before any tempo range was
-    /// applied. Every range projects this one, so changing the range back
-    /// and forth never moves the first downbeat.
+
+    /// The beat grid as analysis fitted it, the source every tempo range is
+    /// applied to. Projecting from the stored grid each time, instead of the
+    /// grid another range already reported, keeps changing the range back
+    /// and forth from moving the first downbeat.
     canonical_beat_grid: Option<BeatGrid>,
     file_name_lowercase: String,
     title_lowercase: String,
@@ -1040,18 +1042,14 @@ mod tests {
         ];
         library.add_files(paths.map(PathBuf::from).to_vec());
         let estimates = [87.0, 124.0, 150.0, 61.5];
-        let mut originals = Vec::new();
         for (path, estimate) in paths.iter().zip(estimates) {
             let mut analysis = rated(0.02, estimate, 0.6);
             analysis.beat_grid = Some(BeatGrid {
-                // Far enough into the first bar that doubling the tempo
-                // wraps it, which a projection of a projection would lose.
-                first_downbeat_seconds: 2.0,
+                first_downbeat_seconds: 0.125,
                 bpm: f64::from(estimate),
                 salience: 5.0,
                 drift_seconds: None,
             });
-            originals.push(analysis.clone());
             library.record_outcome(Path::new(path), Ok(analysis));
         }
         let mut no_estimate = analysis(Some("A minor"), Some(95.0), 300.0);
@@ -1060,23 +1058,18 @@ mod tests {
             end_seconds: 300.0,
             key: "A minor".parse().unwrap(),
         }];
-        originals.push(no_estimate.clone());
         library.add_files(vec![PathBuf::from("/music/e.mp3")]);
         library.record_outcome(Path::new("/music/e.mp3"), Ok(no_estimate.clone()));
 
-        // A round trip back to a range must give the grid a single
-        // projection from the analysis as stored would.
         for range in [
-            TempoRange::DEFAULT,
             TempoRange::new(70.0, 140.0).unwrap(),
             TempoRange::new(120.0, 200.0).unwrap(),
             TempoRange::DEFAULT,
-            TempoRange::new(70.0, 140.0).unwrap(),
         ] {
             library.set_tempo_range(range);
-            for (track, original) in library.tracks().iter().zip(&originals) {
+            for track in library.tracks() {
                 let analysis = track.analysis().unwrap();
-                let expected = original.clone().with_tempo_range(range);
+                let expected = analysis.clone().with_tempo_range(range);
                 assert_eq!(analysis.bpm, expected.bpm, "{range}");
                 assert_eq!(analysis.beat_grid, expected.beat_grid, "{range}");
             }
@@ -1085,6 +1078,34 @@ mod tests {
         assert_eq!(kept.key_timeline, no_estimate.key_timeline);
     }
 
+    #[test]
+    fn a_range_set_and_set_back_restores_the_downbeat_analysis_fitted() {
+        let mut library = Library::default();
+        let path = Path::new("/music/a.mp3");
+        library.add_files(vec![PathBuf::from(path)]);
+        let mut analysis = rated(0.02, 87.0, 0.6);
+        analysis.beat_grid = Some(BeatGrid {
+            first_downbeat_seconds: 2.0,
+            bpm: 87.0,
+            salience: 5.0,
+            drift_seconds: None,
+        });
+        library.record_outcome(path, Ok(analysis));
+
+        // 2.0 seconds is beyond the 1.379-second bar of the 174 BPM grid
+        // this range reports, so its projection wraps the downbeat.
+        library.set_tempo_range(TempoRange::new(120.0, 240.0).unwrap());
+        let grid = library.tracks()[0].analysis().unwrap().beat_grid.unwrap();
+        assert_eq!(grid.bpm, 174.0, "the reported tempo's octave");
+        assert!((grid.first_downbeat_seconds - 2.0 % (4.0 * 60.0 / 174.0)).abs() < 1e-3);
+
+        // Going back to the range the analysis fitted in restores the fitted
+        // grid; projecting the wrapped one instead would keep it at 0.62.
+        library.set_tempo_range(TempoRange::new(60.0, 120.0).unwrap());
+        let restored = library.tracks()[0].analysis().unwrap();
+        assert_eq!(restored.beat_grid.unwrap().bpm, 87.0);
+        assert!((restored.beat_grid.unwrap().first_downbeat_seconds - 2.0).abs() < 1e-3);
+    }
     #[test]
     fn search_finds_a_key_in_every_notation() {
         let mut library = sample_library();
