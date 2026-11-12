@@ -21,9 +21,9 @@ mod synthesis;
 mod tuning;
 
 pub use beat_grid::{BeatGrid, detect_beat_grid};
+pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, detect_beat_grid_and_cues};
 #[cfg(feature = "drone")]
 pub use drone::{DroneDetector, KeyProbabilities};
-pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, detect_beat_grid_and_cues};
 #[cfg(feature = "libkeyfinder")]
 pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant};
 pub use stratum::StratumDetector;
@@ -33,7 +33,63 @@ use crate::audio::AudioBuffer;
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::error::EuphoriaError;
 use crate::key::Key;
+use crate::key_engine::{KeyEngine, KeySource};
 use crate::tempo_range::TempoRange;
+
+/// Reads the key of a track with `engine`, falling back to what the build
+/// has when it lacks the engine's detectors.
+///
+/// - [`KeyEngine::Auto`]: drone-v1 decides the key, and libkeyfinder
+///   measures the tuning and follows the key over time against it. When
+///   drone-v1 finds no key, as for audio shorter than about 1.5 seconds,
+///   libkeyfinder decides it.
+/// - [`KeyEngine::Drone`]: drone-v1 alone. The tuning is measured but not
+///   used, and there is no key over time.
+/// - [`KeyEngine::KeyFinder`]: libkeyfinder with tuning correction.
+///
+/// Without either detector, `stratum-dsp` finds the key, with no margin,
+/// and the tuning is measured without being corrected for.
+pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
+    #[cfg(feature = "drone")]
+    if engine != KeyEngine::KeyFinder || !cfg!(feature = "libkeyfinder") {
+        let reading = DroneDetector.read_key(audio)?;
+        #[cfg(feature = "libkeyfinder")]
+        if engine == KeyEngine::Auto {
+            return match reading.key {
+                Some(key) => {
+                    let (tuning_cents, timeline) =
+                        KeyFinderDetector.tuning_and_timeline(audio, key)?;
+                    Ok(KeyReading {
+                        tuning_cents,
+                        timeline,
+                        ..reading
+                    })
+                }
+                None => KeyFinderDetector.read_key(audio),
+            };
+        }
+        return Ok(KeyReading {
+            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            ..reading
+        });
+    }
+    #[cfg(feature = "libkeyfinder")]
+    {
+        let _ = engine;
+        KeyFinderDetector.read_key(audio)
+    }
+    #[cfg(not(feature = "libkeyfinder"))]
+    {
+        let _ = engine;
+        let key = StratumDetector.detect_key(audio)?;
+        Ok(KeyReading {
+            key,
+            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            source: key.map(|_| KeySource::Stratum),
+            ..KeyReading::default()
+        })
+    }
+}
 
 /// Estimates the musical key of a track.
 pub trait KeyDetector: Sync {
@@ -98,6 +154,9 @@ pub struct KeyReading {
     /// when the track has no key or the detector does not follow the key
     /// over time.
     pub timeline: Vec<KeySection>,
+    /// The detector that decided the key, which sets how its confidence is
+    /// rated. `None` when there is no key.
+    pub source: Option<KeySource>,
 }
 
 /// A tempo estimate before it is placed in a [`TempoRange`], with what its
@@ -129,6 +188,8 @@ impl KeyReading {
     /// How far to trust the key, or `None` when there is no key or the
     /// detector does not rank keys.
     pub fn confidence(&self) -> Option<Confidence> {
-        self.key.and(self.score_margin).map(key_confidence)
+        self.key
+            .and(self.score_margin)
+            .map(|margin| key_confidence(self.source, margin))
     }
 }

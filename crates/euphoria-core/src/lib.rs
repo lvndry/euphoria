@@ -29,6 +29,7 @@ pub mod export;
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
 pub mod key;
+pub mod key_engine;
 /// Finding audio files in folders.
 pub mod library;
 /// Playlists the user builds, kept by the content of their files.
@@ -56,6 +57,7 @@ pub mod track_name;
 pub use analysis::{
     ANALYZER_VERSION, AnalysisObserver, AnalysisStage, FileResult, Progress, TrackAnalysis,
     Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
+    analyzer_version,
 };
 pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
 pub use audio_stream::AudioStream;
@@ -84,6 +86,7 @@ pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
 };
 pub use key::{Key, Mode};
+pub use key_engine::{KeyEngine, KeySource, key_engine, set_key_engine};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,

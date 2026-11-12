@@ -11,6 +11,7 @@ mod confidence;
 mod dataset;
 mod energy;
 mod evaluate;
+mod key_readings;
 mod quality;
 mod rekordbox;
 mod render;
@@ -22,7 +23,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use euphoria_core::detect::{
-    KeyDecision, KeyDetector, KeyFinderDetector, KeyFinderVariant, StratumDetector,
+    DroneDetector, KeyDecision, KeyDetector, KeyFinderDetector, KeyFinderVariant, StratumDetector,
 };
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
@@ -38,12 +39,16 @@ const SHIFT_MODE: &str = "shift";
 /// The first argument that selects the audio quality measurement.
 const QUALITY_MODE: &str = "quality";
 
+/// The first argument that writes both key detectors' readings per track.
+const KEY_READINGS_MODE: &str = "key-readings";
+
 /// The first argument that scores a rekordbox collection export.
 const REKORDBOX_MODE: &str = "rekordbox";
 
-/// The key detectors that are measured. The first is the one Euphoria
+/// The key detectors that are measured. The first decides the key Euphoria
 /// ships, and the others are compared with it track by track.
-const KEY_DETECTORS: [&dyn KeyDetector; 4] = [
+const KEY_DETECTORS: [&dyn KeyDetector; 5] = [
+    &DroneDetector,
     &KeyFinderDetector,
     &KeyFinderVariant {
         tuning_correction: false,
@@ -158,6 +163,10 @@ fn main() -> Result<()> {
     if command_line.peek().map(String::as_str) == Some(QUALITY_MODE) {
         let arguments = quality::parse_arguments(command_line.skip(1))?;
         return quality::run(&arguments);
+    }
+    if command_line.peek().map(String::as_str) == Some(KEY_READINGS_MODE) {
+        let data_directory = key_readings::parse_arguments(command_line.skip(1))?;
+        return key_readings::run(&data_directory);
     }
     if command_line.peek().map(String::as_str) == Some(REKORDBOX_MODE) {
         let arguments = rekordbox::parse_arguments(command_line.skip(1))?;

@@ -12,6 +12,7 @@ use crate::detect::tuning::{Tuning, measure_tuning};
 use crate::detect::{KeyDetector, KeyReading, KeySection};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
+use crate::key_engine::KeySource;
 
 const A_PITCH_CLASS: usize = 9;
 
@@ -91,7 +92,22 @@ impl KeyFinderDetector {
             score_margin: ranking.map(|ranking| ranking.score_margin),
             tuning_cents: tuning.map(|tuning| tuning.cents),
             timeline,
+            source: key.map(|_| KeySource::KeyFinder),
         })
+    }
+
+    /// How far a track is tuned from concert pitch, and its key over time
+    /// measured against `track_key`, a key another detector decided. The
+    /// sections that stay in the key of the track carry `track_key`.
+    pub fn tuning_and_timeline(
+        &self,
+        audio: &AudioBuffer,
+        track_key: Key,
+    ) -> Result<(Option<f32>, Vec<KeySection>), EuphoriaError> {
+        let tuning = measure_tuning(audio);
+        let analysis = ChromaAnalysis::of_audio(audio, tuning.filter(is_worth_correcting))?;
+        let timeline = analysis.timeline(track_key, audio.duration_seconds())?;
+        Ok((tuning.map(|tuning| tuning.cents), timeline))
     }
 }
 

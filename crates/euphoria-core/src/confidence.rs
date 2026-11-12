@@ -3,13 +3,16 @@
 
 use std::fmt::{self, Display, Formatter};
 
+use crate::key_engine::KeySource;
+
 /// How far to trust a detected key or tempo.
 ///
 /// Each level comes from how clearly the detector preferred its answer to
 /// the next best one, with band edges set on half of the GiantSteps previews
-/// and checked on the other half. On that other half, a key rated high was
-/// exactly right 74% of the time, medium 57% and low 41%; a tempo rated high
-/// was right modulo octaves 98% of the time, medium 90% and low 63%.
+/// and checked on the other half. On that other half, a drone-v1 key rated
+/// high was exactly right 78% of the time, medium 72% and low 43%; a
+/// libkeyfinder key 74%, 57% and 41%; a tempo rated high was right modulo
+/// octaves 98% of the time, medium 90% and low 63%.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Confidence {
     /// About one track in five. Worth checking by ear.
@@ -44,6 +47,15 @@ const KEY_MEDIUM_MARGIN: f32 = 0.003;
 /// A key whose score beats the runner up by at least this is rated high.
 const KEY_HIGH_MARGIN: f32 = 0.011;
 
+/// A drone-v1 key whose probability beats the runner up's by less than
+/// this is rated low. Set, like the libkeyfinder edges, on the GiantSteps
+/// development half so that about one key in five is low and two in five
+/// are high.
+const DRONE_KEY_MEDIUM_MARGIN: f32 = 0.25;
+/// A drone-v1 key whose probability beats the runner up's by at least this
+/// is rated high.
+const DRONE_KEY_HIGH_MARGIN: f32 = 0.80;
+
 /// A tempo whose tempogram score beats the best tempo that is not an
 /// octave of it by less than this is rated low.
 const TEMPO_MEDIUM_MARGIN: f32 = 0.09;
@@ -51,9 +63,16 @@ const TEMPO_MEDIUM_MARGIN: f32 = 0.09;
 /// octave of it by at least this is rated high.
 const TEMPO_HIGH_MARGIN: f32 = 0.45;
 
-/// How far to trust a key, from how far its score is above the runner up's.
-pub fn key_confidence(score_margin: f32) -> Confidence {
-    level(score_margin, KEY_MEDIUM_MARGIN, KEY_HIGH_MARGIN)
+/// How far to trust a key, from how far its score is above the runner up's
+/// in the detector that found it. A key of unknown source, as in an
+/// analysis built by hand, is rated as a libkeyfinder key.
+pub fn key_confidence(source: Option<KeySource>, score_margin: f32) -> Confidence {
+    match source {
+        Some(KeySource::Drone) => {
+            level(score_margin, DRONE_KEY_MEDIUM_MARGIN, DRONE_KEY_HIGH_MARGIN)
+        }
+        _ => level(score_margin, KEY_MEDIUM_MARGIN, KEY_HIGH_MARGIN),
+    }
 }
 
 /// How far to trust a tempo, from how far its tempogram score is above that
@@ -82,12 +101,25 @@ mod tests {
 
     #[test]
     fn key_margins_fall_into_their_bands() {
-        assert_eq!(key_confidence(0.0), Confidence::Low);
-        assert_eq!(key_confidence(0.002_9), Confidence::Low);
-        assert_eq!(key_confidence(0.003), Confidence::Medium);
-        assert_eq!(key_confidence(0.010_9), Confidence::Medium);
-        assert_eq!(key_confidence(0.011), Confidence::High);
-        assert_eq!(key_confidence(0.2), Confidence::High);
+        assert_eq!(key_confidence(None, 0.0), Confidence::Low);
+        assert_eq!(key_confidence(None, 0.002_9), Confidence::Low);
+        assert_eq!(key_confidence(None, 0.003), Confidence::Medium);
+        assert_eq!(key_confidence(None, 0.010_9), Confidence::Medium);
+        assert_eq!(key_confidence(None, 0.011), Confidence::High);
+        assert_eq!(key_confidence(None, 0.2), Confidence::High);
+    }
+
+    #[test]
+    fn drone_margins_fall_into_their_own_bands() {
+        let drone = Some(KeySource::Drone);
+        assert_eq!(key_confidence(drone, 0.249), Confidence::Low);
+        assert_eq!(key_confidence(drone, 0.25), Confidence::Medium);
+        assert_eq!(key_confidence(drone, 0.799), Confidence::Medium);
+        assert_eq!(key_confidence(drone, 0.8), Confidence::High);
+        assert_eq!(
+            key_confidence(Some(KeySource::KeyFinder), 0.2),
+            Confidence::High
+        );
     }
 
     #[test]

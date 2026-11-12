@@ -138,8 +138,8 @@ fn soxr_halving_taps() -> Vec<f64> {
     let transition = (0.5 * (stopband - passband)).min(0.5 * stopband);
     let cutoff = stopband - transition;
     let beta = kaiser_beta(attenuation, transition * 0.5 / cutoff);
-    let length_factor = ((0.000_752_835_8 - 1.577_737e-5 * beta) * beta + 0.624_802_2) * beta
-        + 0.061_869_02;
+    let length_factor =
+        ((0.000_752_835_8 - 1.577_737e-5 * beta) * beta + 0.624_802_2) * beta + 0.061_869_02;
     let estimated = (length_factor / transition + 1.0).ceil() as usize;
     let tap_count = (estimated + modulo - 2) / modulo * modulo + 1;
 
@@ -167,8 +167,8 @@ fn linear_to_decibels(ratio: f64) -> f64 {
 
 /// libsoxr's estimate of where its filters fall by `drop` decibels.
 fn inverse_frequency_response(drop: f64, attenuation: f64) -> f64 {
-    let phi = ((2.0517e-7 * attenuation - 1.1303e-4) * attenuation + 0.023_154) * attenuation
-        + 0.559_24;
+    let phi =
+        ((2.0517e-7 * attenuation - 1.1303e-4) * attenuation + 0.023_154) * attenuation + 0.559_24;
     let power = 0.5_f64.ln() / (phi * 0.5).sin().ln();
     let level = (drop * (std::f64::consts::LN_10 * 0.05)).exp();
     let part = if level > 0.5 { 1.0 - level } else { level };
@@ -184,26 +184,65 @@ fn inverse_frequency_response(drop: f64, attenuation: f64) -> f64 {
 /// more and a transition band width relative to the cutoff.
 fn kaiser_beta(attenuation: f64, transition: f64) -> f64 {
     const COEFFICIENTS: [[f64; 4]; 10] = [
-        [-6.784957e-10, 1.02856e-05, 0.108_755_6, -0.898_836_5 + 0.001],
+        [
+            -6.784957e-10,
+            1.02856e-05,
+            0.108_755_6,
+            -0.898_836_5 + 0.001,
+        ],
         [-6.897885e-10, 1.027433e-05, 0.10876, -0.899_465_8 + 0.002],
-        [-1.000683e-09, 1.030092e-05, 0.108_767_7, -0.900_789_8 + 0.003],
-        [-3.654474e-10, 1.040631e-05, 0.108_708_5, -0.897_776_6 + 0.006],
-        [8.106988e-09, 6.983091e-06, 0.109_138_7, -0.917_204_8 + 0.015],
-        [9.519571e-09, 7.272678e-06, 0.109_006_8, -0.914_076_8 + 0.025],
-        [-5.626821e-09, 1.342186e-05, 0.108_399_9, -0.906_545_2 + 0.05],
-        [-9.965946e-08, 5.073548e-05, 0.104_096_7, -0.767_277_8 + 0.085],
+        [
+            -1.000683e-09,
+            1.030092e-05,
+            0.108_767_7,
+            -0.900_789_8 + 0.003,
+        ],
+        [
+            -3.654474e-10,
+            1.040631e-05,
+            0.108_708_5,
+            -0.897_776_6 + 0.006,
+        ],
+        [
+            8.106988e-09,
+            6.983091e-06,
+            0.109_138_7,
+            -0.917_204_8 + 0.015,
+        ],
+        [
+            9.519571e-09,
+            7.272678e-06,
+            0.109_006_8,
+            -0.914_076_8 + 0.025,
+        ],
+        [
+            -5.626821e-09,
+            1.342186e-05,
+            0.108_399_9,
+            -0.906_545_2 + 0.05,
+        ],
+        [
+            -9.965946e-08,
+            5.073548e-05,
+            0.104_096_7,
+            -0.767_277_8 + 0.085,
+        ],
         [1.604808e-07, -5.856462e-05, 0.118_599_8, -1.34824 + 0.1],
-        [-1.511964e-07, 6.363034e-05, 0.106_462_7, -0.987_666_5 + 0.18],
+        [
+            -1.511964e-07,
+            6.363034e-05,
+            0.106_462_7,
+            -0.987_666_5 + 0.18,
+        ],
     ];
     let position = (transition / 0.0005).ln() / 2.0_f64.ln();
     let row = |index: i64| COEFFICIENTS[index.clamp(0, COEFFICIENTS.len() as i64 - 1) as usize];
     let whole = position as i64;
-    let evaluate =
-        |coefficients: [f64; 4]| -> f64 {
-            ((coefficients[0] * attenuation + coefficients[1]) * attenuation + coefficients[2])
-                * attenuation
-                + coefficients[3]
-        };
+    let evaluate = |coefficients: [f64; 4]| -> f64 {
+        ((coefficients[0] * attenuation + coefficients[1]) * attenuation + coefficients[2])
+            * attenuation
+            + coefficients[3]
+    };
     let low = evaluate(row(whole));
     let high = evaluate(row(whole + 1));
     low + (high - low) * (position - whole as f64)

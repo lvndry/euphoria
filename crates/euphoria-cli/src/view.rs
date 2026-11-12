@@ -848,6 +848,7 @@ mod tests {
             tuning_cents: Some(-31.26),
             key_runner_up: Some(Key::new(0, Mode::Major)),
             key_score_margin: Some(key_margin),
+            key_source: None,
             tempo_estimate: Some(124.9),
             tempo_score_margin: Some(tempo_margin),
             beat_grid: None,

@@ -13,9 +13,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use euphoria_core::{
-    AnalysisObserver, Cache, CachePolicy, CachedBatch, Correction, Cue, EuphoriaError, Progress,
-    TempoRange, TrackCues, Unobserved, analyze_files_cached_observed, analyze_files_observed,
-    default_cache_path,
+    AnalysisObserver, Cache, CachePolicy, CachedBatch, Correction, Cue, EuphoriaError, KeyEngine,
+    Progress, TempoRange, TrackCues, Unobserved, analyze_files_cached_observed,
+    analyze_files_observed, default_cache_path, set_key_engine,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 
@@ -47,6 +47,21 @@ pub struct AnalysisOptions {
     /// Changing it needs no new analysis.
     #[arg(long, value_name = "SLOWEST-FASTEST", default_value_t = TempoRange::DEFAULT)]
     tempo_range: TempoRange,
+    /// Which detector decides the key: auto (the drone-v1 network, with
+    /// libkeyfinder for the tuning and the key over time), drone (the
+    /// network alone, fastest, no key over time) or keyfinder (libkeyfinder
+    /// alone, as before drone-v1). Each engine's analyses are cached apart.
+    #[arg(long, value_name = "ENGINE", default_value_t = KeyEngine::Auto, value_parser = parse_key_engine)]
+    key_engine: KeyEngine,
+}
+
+fn parse_key_engine(text: &str) -> Result<KeyEngine, String> {
+    let engine: KeyEngine = text.parse()?;
+    if engine.is_available() {
+        Ok(engine)
+    } else {
+        Err(format!("this build of Euphoria has no {engine} key engine"))
+    }
 }
 
 impl AnalysisOptions {
@@ -73,6 +88,7 @@ pub fn analyze_in_default_range(
     audio_files: &[PathBuf],
     options: &AnalysisOptions,
 ) -> Result<CachedBatch> {
+    set_key_engine(options.key_engine)?;
     let policy = if options.no_cache {
         None
     } else if options.reanalyze {

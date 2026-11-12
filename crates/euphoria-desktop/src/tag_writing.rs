@@ -406,6 +406,7 @@ pub(crate) mod testing {
             tuning_cents: None,
             key_runner_up: None,
             key_score_margin: None,
+            key_source: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,

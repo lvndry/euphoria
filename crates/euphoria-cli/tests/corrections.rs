@@ -10,7 +10,7 @@ mod support;
 use std::path::Path;
 use std::process::Output;
 
-use euphoria_core::{ANALYZER_VERSION, Cache, ContentHash, Correction, Key, Mode};
+use euphoria_core::{Cache, ContentHash, Correction, Key, Mode, analyzer_version};
 use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
 
 fn text(path: &Path) -> &str {
@@ -298,7 +298,7 @@ fn corrections_export_writes_one_line_per_correction_named_by_content_and_no_pat
         line["detected_key"]["camelot"],
         detected[0]["key"]["camelot"]
     );
-    assert_eq!(line["analyzer_version"], ANALYZER_VERSION);
+    assert_eq!(line["analyzer_version"], analyzer_version());
     assert!(
         line["corrected_at"]
             .as_i64()

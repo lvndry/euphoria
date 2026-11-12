@@ -71,7 +71,10 @@ fn bin_frequencies() -> [f64; TOTAL_BINS] {
 /// librosa's relative bandwidth of each bin, from the spacing of its
 /// neighbours on a log scale.
 fn relative_bandwidths(frequencies: &[f64; TOTAL_BINS]) -> [f64; TOTAL_BINS] {
-    let logs: Vec<f64> = frequencies.iter().map(|frequency| frequency.log2()).collect();
+    let logs: Vec<f64> = frequencies
+        .iter()
+        .map(|frequency| frequency.log2())
+        .collect();
     std::array::from_fn(|bin| {
         let bins_per_octave = if bin == 0 {
             1.0 / (logs[1] - logs[0])
@@ -209,11 +212,28 @@ fn sparsify(coefficients: &[Complex<f64>]) -> Vec<(usize, Complex<f64>)> {
         .collect()
 }
 
+/// How many frames [`features`] gives for `sample_count` samples: the
+/// fewest of any octave, as librosa trims them.
+pub(super) fn frame_count(sample_count: usize) -> usize {
+    let plan = plan();
+    let mut length = sample_count;
+    let mut hop = HOP;
+    let mut fewest = usize::MAX;
+    for halves in &plan.halves_after {
+        fewest = fewest.min(1 + length / hop);
+        if *halves {
+            length = length.div_ceil(2);
+            hop /= 2;
+        }
+    }
+    fewest
+}
+
 /// The features of mono audio at [`SAMPLE_RATE`].
-pub(super) fn features(samples: &[f32]) -> Features {
+pub(super) fn features(samples: Vec<f32>) -> Features {
     let plan = plan();
     let mut responses: Vec<Vec<f32>> = vec![Vec::new(); TOTAL_BINS];
-    let mut octave_samples = samples.to_vec();
+    let mut octave_samples = samples;
     let mut hop = HOP;
     let mut planner = FftPlanner::new();
     for (octave, halves) in plan.octaves.iter().zip(&plan.halves_after) {
@@ -221,7 +241,8 @@ pub(super) fn features(samples: &[f32]) -> Features {
         let fft = planner.plan_fft_forward(octave.frame_length);
         let half = octave.frame_length / 2;
         let mut frame = vec![Complex::new(0.0_f64, 0.0); octave.frame_length];
-        let mut magnitudes: Vec<Vec<f32>> = vec![Vec::with_capacity(frame_count); octave.rows.len()];
+        let mut magnitudes: Vec<Vec<f32>> =
+            vec![Vec::with_capacity(frame_count); octave.rows.len()];
         for frame_index in 0..frame_count {
             let centre = frame_index * hop;
             for (offset, value) in frame.iter_mut().enumerate() {
@@ -257,11 +278,9 @@ pub(super) fn features(samples: &[f32]) -> Features {
     let mut values = Vec::with_capacity(CORE_BINS * frame_count);
     for bin in FIRST_CORE_BIN..FIRST_CORE_BIN + CORE_BINS {
         let scale = 1.0 / plan.lengths[bin].sqrt();
-        values.extend(
-            responses[bin][..frame_count]
-                .iter()
-                .map(|magnitude| round_to_half_precision((f64::from(*magnitude) * scale).ln_1p() as f32)),
-        );
+        values.extend(responses[bin][..frame_count].iter().map(|magnitude| {
+            round_to_half_precision((f64::from(*magnitude) * scale).ln_1p() as f32)
+        }));
     }
     Features {
         values,
@@ -304,7 +323,11 @@ mod tests {
     fn the_plan_follows_librosa() {
         let plan = plan();
         assert_eq!(plan.octaves.len(), 9);
-        let frame_lengths: Vec<usize> = plan.octaves.iter().map(|octave| octave.frame_length).collect();
+        let frame_lengths: Vec<usize> = plan
+            .octaves
+            .iter()
+            .map(|octave| octave.frame_length)
+            .collect();
         assert_eq!(frame_lengths, [256, 512, 512, 512, 512, 512, 512, 512, 256]);
         assert_eq!(
             plan.halves_after,
@@ -319,12 +342,16 @@ mod tests {
     fn a_tone_lights_its_own_bin() {
         let frequency = 440.0;
         let samples: Vec<f32> = (0..SAMPLE_RATE as usize * 4)
-            .map(|index| (TAU * frequency * index as f64 / f64::from(SAMPLE_RATE)).sin() as f32 * 0.5)
+            .map(|index| {
+                (TAU * frequency * index as f64 / f64::from(SAMPLE_RATE)).sin() as f32 * 0.5
+            })
             .collect();
-        let features = features(&samples);
+        let features = features(samples);
         let middle = features.frame_count / 2;
         let loudest = (0..CORE_BINS)
-            .max_by(|left, right| features.row(*left)[middle].total_cmp(&features.row(*right)[middle]))
+            .max_by(|left, right| {
+                features.row(*left)[middle].total_cmp(&features.row(*right)[middle])
+            })
             .unwrap();
         let semitones_from_c1_to_a4 = 3 * 12 + 9;
         assert_eq!(loudest, semitones_from_c1_to_a4 * 2);

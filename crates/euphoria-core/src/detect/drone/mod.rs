@@ -15,6 +15,7 @@ use crate::audio::AudioBuffer;
 use crate::detect::{KeyDetector, KeyReading};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
+use crate::key_engine::KeySource;
 
 use network::{KEY_COUNT, Network};
 
@@ -67,7 +68,11 @@ impl KeyProbabilities {
 }
 
 fn key_of_class(class: usize) -> Key {
-    let mode = if class % 2 == 1 { Mode::Minor } else { Mode::Major };
+    let mode = if class % 2 == 1 {
+        Mode::Minor
+    } else {
+        Mode::Major
+    };
     Key::new((class / 2) as u8, mode)
 }
 
@@ -90,15 +95,17 @@ pub struct DroneDetector;
 impl DroneDetector {
     /// How likely each key is, or `None` when the track is silent or
     /// shorter than about 1.5 seconds, too short for the network.
-    pub fn probabilities(&self, audio: &AudioBuffer) -> Result<Option<KeyProbabilities>, EuphoriaError> {
+    pub fn probabilities(
+        &self,
+        audio: &AudioBuffer,
+    ) -> Result<Option<KeyProbabilities>, EuphoriaError> {
         if audio.is_silent() {
             return Ok(None);
         }
         let network = network()?;
-        let samples = front_end::to_model_input(audio.samples(), audio.sample_rate().get());
-        let features = cqt::features(&samples);
+        let (values, frame_count) = features_of_audio(audio, SEGMENT_FRAMES);
         Ok(network
-            .logits(&features.values, features.frame_count)
+            .logits(&values, frame_count)
             .map(|logits| KeyProbabilities::from_logits(&logits)))
     }
 
@@ -111,12 +118,7 @@ impl DroneDetector {
         &self,
         samples: &[f32],
     ) -> Result<(Vec<f32>, usize, Option<KeyProbabilities>), EuphoriaError> {
-        let network = network()?;
-        let features = cqt::features(samples);
-        let probabilities = network
-            .logits(&features.values, features.frame_count)
-            .map(|logits| KeyProbabilities::from_logits(&logits));
-        Ok((features.values, features.frame_count, probabilities))
+        read_model_input(samples.to_vec())
     }
 
     /// Like [`DroneDetector::inspect_model_input`] for decoded audio at any
@@ -126,8 +128,12 @@ impl DroneDetector {
         &self,
         audio: &AudioBuffer,
     ) -> Result<(Vec<f32>, usize, Option<KeyProbabilities>), EuphoriaError> {
-        let samples = front_end::to_model_input(audio.samples(), audio.sample_rate().get());
-        self.inspect_model_input(&samples)
+        let network = network()?;
+        let (values, frame_count) = features_of_audio(audio, SEGMENT_FRAMES);
+        let probabilities = network
+            .logits(&values, frame_count)
+            .map(|logits| KeyProbabilities::from_logits(&logits));
+        Ok((values, frame_count, probabilities))
     }
 
     /// The most likely key and the runner up, with the margin between their
@@ -140,6 +146,56 @@ impl DroneDetector {
     }
 }
 
+/// Frames of features computed at once, about three minutes. Memory stays
+/// near what one segment needs however long the track is.
+const SEGMENT_FRAMES: usize = 1_024;
+/// Frames of audio read on either side of a segment. A frame of the lowest
+/// octave depends on about 16 frames of audio on either side, through seven
+/// halvings of the rate and its own window, so the features of a segment are
+/// those of the whole track.
+const CONTEXT_FRAMES: usize = 24;
+
+/// The features of a track, converted to the network's input a segment at
+/// a time, as 192 rows of frames stored row after row, and the frame count.
+fn features_of_audio(audio: &AudioBuffer, segment_frames: usize) -> (Vec<f32>, usize) {
+    let samples = audio.samples();
+    let converter = front_end::Converter::new(audio.sample_rate().get());
+    let total_samples = converter.output_length(samples.len());
+    let frame_count = cqt::frame_count(total_samples);
+    let mut values = vec![0.0; cqt::CORE_BINS * frame_count];
+    let mut first_frame = 0;
+    while first_frame < frame_count {
+        let end_frame = first_frame.saturating_add(segment_frames).min(frame_count);
+        let read_from_frame = first_frame.saturating_sub(CONTEXT_FRAMES);
+        let read_from = read_from_frame * cqt::HOP;
+        let read_to = ((end_frame + CONTEXT_FRAMES) * cqt::HOP).min(total_samples);
+        let segment = cqt::features(converter.convert(samples, read_from..read_to));
+        let offset = first_frame - read_from_frame;
+        let width = end_frame - first_frame;
+        for row in 0..cqt::CORE_BINS {
+            let source_start = row * segment.frame_count + offset;
+            let target_start = row * frame_count + first_frame;
+            values[target_start..target_start + width]
+                .copy_from_slice(&segment.values[source_start..source_start + width]);
+        }
+        first_frame = end_frame;
+    }
+    (values, frame_count)
+}
+
+/// The features of audio in the network's input form, their frame count,
+/// and the key probabilities when there are enough frames.
+fn read_model_input(
+    samples: Vec<f32>,
+) -> Result<(Vec<f32>, usize, Option<KeyProbabilities>), EuphoriaError> {
+    let network = network()?;
+    let features = cqt::features(samples);
+    let probabilities = network
+        .logits(&features.values, features.frame_count)
+        .map(|logits| KeyProbabilities::from_logits(&logits));
+    Ok((features.values, features.frame_count, probabilities))
+}
+
 /// The reading the probabilities give: the most likely key, the runner up,
 /// and how far apart their probabilities are.
 pub(crate) fn reading_of(probabilities: &KeyProbabilities) -> KeyReading {
@@ -148,6 +204,7 @@ pub(crate) fn reading_of(probabilities: &KeyProbabilities) -> KeyReading {
         key: Some(ranked[0].0),
         runner_up: Some(ranked[1].0),
         score_margin: Some(ranked[0].1 - ranked[1].1),
+        source: Some(KeySource::Drone),
         ..KeyReading::default()
     }
 }
@@ -177,6 +234,28 @@ mod tests {
         assert_eq!(probabilities.ranked()[0].0, Key::new(9, Mode::Minor));
         let total: f32 = probabilities.probabilities.iter().sum();
         assert!((total - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn segments_give_the_features_of_the_whole_track() {
+        let rate = 44_100;
+        let samples: Vec<f32> = (0..rate * 30)
+            .map(|index| {
+                let time = index as f32 / rate as f32;
+                0.3 * (std::f32::consts::TAU * 220.0 * time).sin()
+                    + 0.2 * (std::f32::consts::TAU * 61.7 * time * (1.0 + time / 60.0)).sin()
+            })
+            .collect();
+        let audio = AudioBuffer::new(samples, std::num::NonZeroU32::new(rate as u32).unwrap());
+        let (whole, whole_frames) = features_of_audio(&audio, usize::MAX);
+        let (segmented, segmented_frames) = features_of_audio(&audio, 40);
+        assert_eq!(whole_frames, segmented_frames);
+        let largest_difference = whole
+            .iter()
+            .zip(&segmented)
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(largest_difference <= 0.002, "{largest_difference}");
     }
 
     #[test]

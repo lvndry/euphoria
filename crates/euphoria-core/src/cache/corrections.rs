@@ -303,6 +303,7 @@ mod tests {
             quality: None,
             key_runner_up: None,
             key_score_margin: None,
+            key_source: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -558,7 +559,7 @@ mod tests {
         let detected = stored[1].detected.as_ref().unwrap();
         assert_eq!(detected.key, Some(Key::new(9, Mode::Minor)));
         assert_eq!(detected.bpm, Some(124.0));
-        assert_eq!(detected.analyzer_version, crate::ANALYZER_VERSION);
+        assert_eq!(detected.analyzer_version, crate::analyzer_version());
         assert_eq!(
             detected.last_known_path.as_deref(),
             std::path::absolute(&analyzed).unwrap().to_str()

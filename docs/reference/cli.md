@@ -109,6 +109,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `--key-engine <ENGINE>` | Which detector decides the key. `auto`, the default, uses the drone-v1 network for the key and libkeyfinder for the tuning and the key over time. `drone` uses the network alone, which is faster and has no key over time. `keyfinder` uses libkeyfinder alone, as Euphoria did before drone-v1. Each engine's results are cached apart. See [key detection](../concepts/accuracy.md#key-detection-with-drone-v1). |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
@@ -274,6 +275,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `--key-engine <ENGINE>` | The key engine, `auto` by default, as for [`euphoria analyze`](#options). |
 | `-h`, `--help` | Show help. |
 
 ### What is written

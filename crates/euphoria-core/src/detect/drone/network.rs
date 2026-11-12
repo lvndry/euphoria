@@ -102,7 +102,10 @@ fn read_safetensors(bytes: &[u8]) -> Result<(Tensors, HashMap<String, String>), 
         let entry: TensorEntry = serde_json::from_value(value)
             .map_err(|error| invalid(format!("tensor {name} is malformed: {error}")))?;
         if entry.dtype != "F32" {
-            return Err(invalid(format!("tensor {name} is {}, not F32", entry.dtype)));
+            return Err(invalid(format!(
+                "tensor {name} is {}, not F32",
+                entry.dtype
+            )));
         }
         let [start, end] = entry.data_offsets;
         let element_count: usize = entry.shape.iter().product();
@@ -127,9 +130,14 @@ impl Network {
 
     fn from_safetensors(bytes: &[u8]) -> Result<Self, EuphoriaError> {
         let (mut tensors, metadata) = read_safetensors(bytes)?;
-        for (field, expected) in [("feature_spec", FEATURE_SPEC), ("label_schema", LABEL_SCHEMA)] {
+        for (field, expected) in [
+            ("feature_spec", FEATURE_SPEC),
+            ("label_schema", LABEL_SCHEMA),
+        ] {
             if metadata.get(field).map(String::as_str) != Some(expected) {
-                return Err(invalid(format!("the weights do not declare {field} {expected}")));
+                return Err(invalid(format!(
+                    "the weights do not declare {field} {expected}"
+                )));
             }
         }
         let mut take = |name: &str, shape: &[usize]| -> Result<Vec<f32>, EuphoriaError> {
@@ -156,8 +164,14 @@ impl Network {
             let bias = take(&format!("net.{convolution}.bias"), &[output_channels])?;
             let scale = take(&format!("net.{normalization}.weight"), &[output_channels])?;
             let shift = take(&format!("net.{normalization}.bias"), &[output_channels])?;
-            let mean = take(&format!("net.{normalization}.running_mean"), &[output_channels])?;
-            let variance = take(&format!("net.{normalization}.running_var"), &[output_channels])?;
+            let mean = take(
+                &format!("net.{normalization}.running_mean"),
+                &[output_channels],
+            )?;
+            let variance = take(
+                &format!("net.{normalization}.running_var"),
+                &[output_channels],
+            )?;
             let gains: Vec<f32> = scale
                 .iter()
                 .zip(&variance)
@@ -224,10 +238,7 @@ impl Network {
             }
             stretch_start = stretch_end;
         }
-        let means: Vec<f32> = sums
-            .iter()
-            .map(|sum| sum / final_columns as f32)
-            .collect();
+        let means: Vec<f32> = sums.iter().map(|sum| sum / final_columns as f32).collect();
         Some(std::array::from_fn(|key| {
             let weights = &self.head_weights[key * means.len()..(key + 1) * means.len()];
             self.head_bias[key]
@@ -249,7 +260,8 @@ impl Network {
     ) -> Activations {
         let mut activations = Activations::zeroed(1, CORE_BINS, columns.len());
         for row in 0..CORE_BINS {
-            let source = &features[row * frame_count + columns.start..row * frame_count + columns.end];
+            let source =
+                &features[row * frame_count + columns.start..row * frame_count + columns.end];
             activations.row_mut(0, row).copy_from_slice(source);
         }
         for pair in self.convolutions.chunks_exact(2) {
@@ -367,7 +379,11 @@ impl Convolution {
             for row in 0..output.rows {
                 for value in output.row_mut(channel, row) {
                     let shifted = *value + bias;
-                    *value = if shifted > 0.0 { shifted } else { shifted.exp_m1() };
+                    *value = if shifted > 0.0 {
+                        shifted
+                    } else {
+                        shifted.exp_m1()
+                    };
                 }
             }
             let plane_start = channel * plane;
@@ -392,7 +408,9 @@ mod tests {
         let parameters: usize = network
             .convolutions
             .iter()
-            .map(|convolution| convolution.tap_weights.iter().map(Vec::len).sum::<usize>() + convolution.bias.len())
+            .map(|convolution| {
+                convolution.tap_weights.iter().map(Vec::len).sum::<usize>() + convolution.bias.len()
+            })
             .sum::<usize>()
             + network.head_weights.len()
             + network.head_bias.len();
@@ -418,7 +436,12 @@ mod tests {
             let whole = network.blocks(&features, frame_count, 0..frame_count);
             let columns = frame_count / 8;
             let means: Vec<f32> = (0..64 * 24)
-                .map(|index| whole.row(index / 24, index % 24)[..columns].iter().sum::<f32>() / columns as f32)
+                .map(|index| {
+                    whole.row(index / 24, index % 24)[..columns]
+                        .iter()
+                        .sum::<f32>()
+                        / columns as f32
+                })
                 .collect();
             for key in 0..KEY_COUNT {
                 let expected: f32 = network.head_bias[key]
@@ -427,7 +450,10 @@ mod tests {
                         .zip(&means)
                         .map(|(weight, mean)| weight * mean)
                         .sum::<f32>();
-                assert!((streamed[key] - expected).abs() < 1e-3, "{frame_count} {key}");
+                assert!(
+                    (streamed[key] - expected).abs() < 1e-3,
+                    "{frame_count} {key}"
+                );
             }
         }
     }

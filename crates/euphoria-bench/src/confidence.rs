@@ -7,8 +7,8 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use euphoria_core::detect::{KeyFinderDetector, KeyReading, StratumDetector, TempoReading};
-use euphoria_core::{Confidence, Key, TempoRange};
+use euphoria_core::detect::{KeyReading, StratumDetector, TempoReading, read_key};
+use euphoria_core::{Confidence, Key, KeyEngine, TempoRange};
 
 use crate::dataset::Dataset;
 use crate::evaluate::{TrackOutcome, measure_tracks};
@@ -85,7 +85,7 @@ impl KeyConfidenceReport {
 /// by confidence level.
 pub fn evaluate_key_confidence(dataset: &Dataset<Key>) -> KeyConfidenceReport {
     let outcomes = measure_tracks(&dataset.tracks, 1, |_, audio| {
-        KeyFinderDetector.read_key(audio).map(Some)
+        read_key(KeyEngine::Auto, audio).map(Some)
     });
     let mut report = KeyConfidenceReport::default();
     for (track, outcome) in dataset.tracks.iter().zip(outcomes) {

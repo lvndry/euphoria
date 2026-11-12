@@ -116,6 +116,7 @@ mod tests {
             quality: None,
             key_runner_up: Some(Key::new(4, Mode::Minor)),
             key_score_margin: Some(0.001),
+            key_source: None,
             tempo_estimate: Some(87.0),
             tempo_score_margin: Some(0.01),
             beat_grid: None,
