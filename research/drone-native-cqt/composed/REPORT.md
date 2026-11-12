@@ -296,9 +296,9 @@ python -m tools.cqt_mac376_remainder combine \
   --output /tmp/mac376-rechecked-disjoint.json
 ```
 
-This command verifies existing artifacts; it is not permission to recreate audio
-or restart the stopped phases. The publication verifier independently recomputes
-gates/certificates and checks the retained original native report vectors.
+This command reads saved artifacts and performs no audio or model work. The
+publication verifier independently recomputes gates/certificates and checks the
+retained original native report vectors.
 
 ## Decision and limits
 
