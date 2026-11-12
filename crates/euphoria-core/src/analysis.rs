@@ -121,17 +121,34 @@ impl TrackAnalysis {
     }
 
     /// The same analysis with [`TrackAnalysis::bpm`] and the beat grid
-    /// reported in `range`. Nothing is analyzed again: the tempo comes from
-    /// the stored estimate. Call it on an analysis as stored, in the default
-    /// range: a grid that is doubled keeps its first downbeat within the
-    /// shorter bar, so halving it again may not bring back the same one.
+    /// reported in `range`, projecting the grid as this analysis stored it.
+    /// Nothing is analyzed again: the tempo comes from the stored estimate.
     pub fn with_tempo_range(mut self, range: TempoRange) -> Self {
-        self.set_tempo_range(range);
+        let canonical = self.beat_grid;
+        self.set_tempo_range_from(canonical, range);
         self
     }
 
-    /// [`TrackAnalysis::with_tempo_range`] in place, so the rest of the
-    /// analysis, such as its key timeline, is not copied.
+    /// [`TrackAnalysis::with_tempo_range`] in place, deriving the beat grid
+    /// from `canonical`, the grid as analysis fitted it. Pass the grid as it
+    /// was stored, not the one already reported in another range: projecting
+    /// a projected grid can move the first downbeat, so changing the range
+    /// back and forth would not give the original one.
+    pub fn set_tempo_range_from(&mut self, canonical: Option<BeatGrid>, range: TempoRange) {
+        let bpm = self.tempo_in(range);
+        self.bpm = bpm;
+        self.beat_grid = canonical.map(|grid| match bpm {
+            // Refinement can cross a range edge without changing the
+            // counted beat. Match the reported tempo's nearest octave.
+            Some(bpm) => grid.near_tempo(f64::from(bpm)),
+            None => grid.in_tempo_range(range),
+        });
+    }
+
+    /// Report [`TrackAnalysis::bpm`] and the beat grid in `range`, editing
+    /// the grid as stored in place. Projecting a grid that is already
+    /// reported in another range can move its first downbeat, so use
+    /// [`TrackAnalysis::set_tempo_range_from`] when the fitted grid is known.
     pub fn set_tempo_range(&mut self, range: TempoRange) {
         let bpm = self.tempo_in(range);
         self.bpm = bpm;
