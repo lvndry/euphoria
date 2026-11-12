@@ -255,7 +255,7 @@ impl Player {
                 ]
             }
             PlayerStatus::Starting | PlayerStatus::Stopped | PlayerStatus::Failed(_) => {
-                vec![self.start(path)]
+                vec![self.start(path, self.offers_stems)]
             }
         }
     }

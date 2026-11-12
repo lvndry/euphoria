@@ -3970,7 +3970,6 @@ fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut Te
     assert!(is_shown(window, "key-timeline", cx));
 }
 
-
 /// The core's fixture files as three tracks with keys, tempos, energies,
 /// beat grids and cues: A minor at 120, E minor at 125 and C major at 118.
 fn deck_tracks() -> Vec<DemoTrack> {
@@ -4559,6 +4558,7 @@ fn replacing_a_deck_load_cancels_its_abandoned_waveform_work(cx: &mut TestAppCon
             "replaced loads must not keep decoding full tracks"
         );
     });
+}
 
 /// Length of the tracks of [`open_cued_library`], in seconds.
 const CUED_TRACK_SECONDS: f32 = 32.0;
@@ -4946,7 +4946,6 @@ fn a_corrected_tempo_drops_the_automatic_cues_but_keeps_the_users(cx: &mut TestA
         selected_cues(&view, cx),
         (vec![(16.0, "Drop".to_string(), Some('B'))], true)
     );
-
 }
 
 #[gpui::test]
