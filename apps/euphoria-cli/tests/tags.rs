@@ -839,3 +839,100 @@ fn writing_a_faster_tempo_range_preserves_the_original_cached_downbeat() {
         "the shorter displayed bar must not replace the detected downbeat"
     );
 }
+
+/// Writes 40 seconds of a 16 bit mono AIFF file holding a decaying low tone
+/// on every beat at 124 BPM from 0.2 seconds, so that the analysis finds a
+/// beat grid and cues.
+fn write_kick_aiff(path: &Path) {
+    const SAMPLE_RATE: u32 = 44_100;
+    let sample_count = 40 * SAMPLE_RATE as usize;
+    let mut samples = vec![0.0_f64; sample_count];
+    let mut beat = 0.2;
+    while beat < 40.0 {
+        let first = (beat * f64::from(SAMPLE_RATE)) as usize;
+        for (offset, sample) in samples.iter_mut().skip(first).take(8_000).enumerate() {
+            let time = offset as f64 / f64::from(SAMPLE_RATE);
+            *sample += (std::f64::consts::TAU * 60.0 * time).sin() * (-time / 0.04).exp();
+        }
+        beat += 60.0 / 124.0;
+    }
+    let mut sound = vec![0_u8; 8];
+    for sample in samples {
+        let scaled = (sample.clamp(-1.0, 1.0) * 0.8 * f64::from(i16::MAX)) as i16;
+        sound.extend(scaled.to_be_bytes());
+    }
+    // 44 100 as an 80 bit extended float.
+    let rate = [0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0];
+    let mut common = 1_u16.to_be_bytes().to_vec();
+    common.extend((sample_count as u32).to_be_bytes());
+    common.extend(16_u16.to_be_bytes());
+    common.extend(rate);
+    let mut body = b"AIFF".to_vec();
+    body.extend(b"COMM");
+    body.extend((common.len() as u32).to_be_bytes());
+    body.extend(common);
+    body.extend(b"SSND");
+    body.extend((sound.len() as u32).to_be_bytes());
+    body.extend(sound);
+    let mut file = b"FORM".to_vec();
+    file.extend((body.len() as u32).to_be_bytes());
+    file.extend(body);
+    std::fs::write(path, file).expect("the track is written");
+}
+
+#[test]
+fn serato_markers_are_written_merged_on_a_second_run_and_undone() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = folder.path().join("kicks.aiff");
+    write_kick_aiff(&track);
+    let wav = folder.path().join("sine-440hz-mono.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &wav)
+        .expect("the fixture is copied");
+    let original = std::fs::read(&track).expect("the track is read");
+    let arguments = [
+        "tags",
+        "write",
+        "--serato-markers",
+        "--label",
+        "none",
+        "--no-tempo",
+        "--yes",
+        text(folder.path()),
+    ];
+
+    let first = run(&euphoria, &arguments);
+    let second = run(&euphoria, &arguments);
+    let undone = run(&euphoria, &["tags", "undo"]);
+
+    assert!(first.status.success(), "{}", standard_error(&first));
+    let preview = standard_output(&first);
+    assert!(
+        preview.contains("Serato cue points: (none) -> cue points 1 Start at "),
+        "{preview}"
+    );
+    assert!(
+        preview.contains("Serato beat grid: (none) -> beat grid from "),
+        "{preview}"
+    );
+    let errors = standard_error(&first);
+    assert!(
+        errors.contains(
+            "sine-440hz-mono.wav: no Serato cues or grid: Serato reads none from WAV tags"
+        ),
+        "{errors}"
+    );
+    assert!(errors.contains("Serato: "), "{errors}");
+    assert!(
+        errors.contains("to add, 0 cue points of yours kept."),
+        "{errors}"
+    );
+
+    assert!(second.status.success(), "{}", standard_error(&second));
+    let errors = standard_error(&second);
+    assert!(errors.contains("Serato: 0 cue points to add"), "{errors}");
+    assert!(!standard_output(&second).contains("Serato cue points:"));
+
+    assert!(undone.status.success(), "{}", standard_error(&undone));
+    assert_eq!(std::fs::read(&track).expect("the track is read"), original);
+}

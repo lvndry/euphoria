@@ -11,7 +11,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::tags::WritePlan;
+use euphoria_core::tags::{
+    GridOutcome, SeratoReport, SeratoSkip, WritePlan, describe_serato_value, serato_field_name,
+};
 use euphoria_core::{
     BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeySection, SUPPORTED_EXTENSIONS,
     SkippedTrack, TempoRange, UnreadTags,
@@ -868,17 +870,99 @@ pub fn write_tag_preview(
     for plan in plans {
         writeln!(writer, "{}", theme.bold(Printable(plan.path().display())))?;
         for change in plan.changes() {
+            let shown = |value: Option<&str>| -> String {
+                match value {
+                    None => ABSENT_FIELD.to_string(),
+                    Some(value) => describe_serato_value(&change.field, value)
+                        .unwrap_or_else(|| value.to_string()),
+                }
+            };
             writeln!(
                 writer,
                 "  {} {} {} {}",
-                theme.dim(format_args!("{}:", change.field)),
-                theme.dim(Printable(change.current.as_deref().unwrap_or(ABSENT_FIELD))),
+                theme.dim(format_args!(
+                    "{}:",
+                    serato_field_name(&change.field).unwrap_or(&change.field)
+                )),
+                theme.dim(Printable(shown(change.current.as_deref()))),
                 theme.dim("->"),
-                theme.good(Printable(change.new.as_deref().unwrap_or(ABSENT_FIELD)))
+                theme.good(Printable(shown(change.new.as_deref())))
             )?;
         }
     }
     Ok(())
+}
+
+/// Writes a `warning:` line for each file whose Serato cues or grid could
+/// not all go where Euphoria wanted, because cues or a grid of yours were
+/// there, and for each file that got no Serato data, then one line of
+/// totals.
+pub fn write_serato_reports(
+    writer: &mut impl Write,
+    theme: &Theme,
+    reports: &[(PathBuf, SeratoReport)],
+) -> io::Result<()> {
+    let mut placed = 0;
+    let mut kept = 0;
+    for (path, report) in reports {
+        placed += report.placed.len();
+        kept += report.kept;
+        let mut problems = Vec::new();
+        match &report.skipped {
+            Some(SeratoSkip::Wav) => {
+                problems.push("no Serato cues or grid: Serato reads none from WAV tags".to_string())
+            }
+            Some(SeratoSkip::Ogg) => problems.push(
+                "no Serato cues or grid: Serato's layout in Ogg files is not known well enough to write"
+                    .to_string(),
+            ),
+            Some(SeratoSkip::OldId3) => problems
+                .push("no Serato cues or grid: its ID3v2.2 tag cannot hold them".to_string()),
+            Some(SeratoSkip::Unreadable { field, reason }) => problems.push(format!(
+                "no Serato cues or grid: its {} could not be read ({reason}), so it is left as it is",
+                serato_field_name(field).unwrap_or(field)
+            )),
+            None => {}
+        }
+        for cue in &report.placed {
+            if cue.pad != cue.wanted_pad {
+                problems.push(format!(
+                    "{} went to pad {}, since pad {} holds a cue of yours",
+                    if cue.name.is_empty() {
+                        "a cue"
+                    } else {
+                        &cue.name
+                    },
+                    cue.pad + 1,
+                    cue.wanted_pad + 1
+                ));
+            }
+        }
+        if !report.no_free_pad.is_empty() {
+            problems.push(format!(
+                "{} left out: every pad holds a cue of yours",
+                report.no_free_pad.join(", ")
+            ));
+        }
+        if let GridOutcome::KeptYours { position, bpm } = report.grid {
+            problems.push(format!(
+                "your Serato beat grid ({bpm:.2} BPM from {position:.3} s) is kept, not replaced"
+            ));
+        }
+        for problem in problems {
+            write_warning(
+                writer,
+                theme,
+                format_args!("{}: {}", Printable(path.display()), Printable(&problem)),
+            )?;
+        }
+    }
+    writeln!(
+        writer,
+        "Serato: {} to add, {} of yours kept.",
+        counted(placed, "cue point", "cue points"),
+        counted(kept, "cue point", "cue points"),
+    )
 }
 
 /// Writes one `error:` line per file that was left out of a tag write or an
