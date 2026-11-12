@@ -36,7 +36,7 @@ icon_artwork="$repository/assets/logo/app-icon.svg"
 # The line of the full size artwork thins out to nothing at 16 and 32 pixels,
 # so those sizes are drawn from the favicon, which has a heavier line.
 small_icon_artwork="$repository/assets/logo/favicon.svg"
-version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/crates/euphoria-desktop/Cargo.toml" | head -n 1)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-desktop/Cargo.toml" | head -n 1)
 dmgbuild_version="1.6.7"
 make_dmg=yes
 build=yes
@@ -57,7 +57,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 if [ -z "$version" ]; then
-  echo "error: no version found in crates/euphoria-desktop/Cargo.toml" >&2
+  echo "error: no version found in apps/euphoria-desktop/Cargo.toml" >&2
   exit 1
 fi
 if [ "$make_dmg" = yes ] && ! command -v uv > /dev/null; then
