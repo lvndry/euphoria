@@ -71,16 +71,20 @@ def checksum(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def vendored_files():
+def vendored_files(directory=None):
+    directory = VENDOR if directory is None else directory
+    record = directory / RECORD.relative_to(VENDOR)
     return sorted(
-        path.relative_to(VENDOR).as_posix()
-        for path in VENDOR.rglob("*")
-        if path.is_file() and path != RECORD
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_file() and path != record
     )
 
 
 def update(stretch_tag):
-    work = Path(__import__("tempfile").mkdtemp())
+    work = Path(__import__("tempfile").mkdtemp(prefix=".signalsmith-update-", dir=VENDOR.parent))
+    previous = work / "previous"
+    installed = False
     try:
         stretch_commit = commit_of(STRETCH, stretch_tag)
         stretch_source = work / "stretch"
@@ -94,10 +98,9 @@ def update(stretch_tag):
         linear_source = work / "linear"
         extract(LINEAR, linear_commit, linear_source)
 
-        if VENDOR.exists():
-            shutil.rmtree(VENDOR)
-        stretch_target = VENDOR / "signalsmith-stretch"
-        linear_target = VENDOR / "signalsmith-linear"
+        prepared = work / "vendor"
+        stretch_target = prepared / "signalsmith-stretch"
+        linear_target = prepared / "signalsmith-linear"
         for name in STRETCH_FILES:
             (stretch_target / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(stretch_source / name, stretch_target / name)
@@ -122,11 +125,28 @@ def update(stretch_tag):
             "| File | SHA-256 |",
             "| --- | --- |",
         ]
-        lines += [f"| `{path}` | `{checksum(VENDOR / path)}` |" for path in vendored_files()]
-        RECORD.write_text("\n".join(lines) + "\n")
+        lines += [f"| `{path}` | `{checksum(prepared / path)}` |" for path in vendored_files(prepared)]
+        (prepared / RECORD.relative_to(VENDOR)).write_text("\n".join(lines) + "\n")
+
+        # Sources and their manifest are complete before the current tree is
+        # touched. Keep the previous tree until the same-filesystem install
+        # succeeds, so a failed rename can restore it intact.
+        had_previous = VENDOR.exists() or VENDOR.is_symlink()
+        if had_previous:
+            VENDOR.rename(previous)
+        try:
+            prepared.rename(VENDOR)
+            installed = True
+        except OSError:
+            if had_previous:
+                previous.rename(VENDOR)
+            raise
         print(f"vendored Signalsmith Stretch {stretch_tag} and Signalsmith Linear {linear_tag}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        if installed or not (previous.exists() or previous.is_symlink()):
+            shutil.rmtree(work, ignore_errors=True)
+        else:
+            print(f"previous vendored files retained at {previous}", file=sys.stderr)
 
 
 def recorded_checksums():

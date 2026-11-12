@@ -59,6 +59,76 @@ class VendorUpdateTests(unittest.TestCase):
                 self.assertEqual((self.root / "keep").read_bytes(), b"old source")
                 self.assertEqual(VENDOR.RECORD.read_bytes(), b"old manifest")
 
+    def assert_original_preserved(self):
+        self.assertEqual((self.root / "keep").read_bytes(), b"old source")
+        self.assertEqual(VENDOR.RECORD.read_bytes(), b"old manifest")
+
+    def test_copy_failure_preserves_existing_sources_and_manifest(self):
+        copyfile = VENDOR.shutil.copyfile
+        copied = 0
+
+        def fail_after_one_copy(source, destination):
+            nonlocal copied
+            copied += 1
+            if copied == 2:
+                raise OSError("disk full during copy")
+            return copyfile(source, destination)
+
+        with patch.object(VENDOR, "commit_of", return_value="a" * 40), patch.object(
+            VENDOR.shutil, "copyfile", side_effect=fail_after_one_copy
+        ):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                VENDOR.update("1.4.0")
+        self.assert_original_preserved()
+
+    def test_manifest_write_failure_preserves_existing_sources_and_manifest(self):
+        write_text = Path.write_text
+
+        def fail_manifest(path, *arguments, **keywords):
+            if path.name == "VENDORED.md":
+                raise OSError("disk full writing manifest")
+            return write_text(path, *arguments, **keywords)
+
+        with patch.object(VENDOR, "commit_of", return_value="a" * 40), patch.object(
+            Path, "write_text", fail_manifest
+        ):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                VENDOR.update("1.4.0")
+        self.assert_original_preserved()
+
+    def test_install_failure_restores_existing_sources_and_manifest(self):
+        rename = Path.rename
+
+        def fail_install(path, target):
+            if path != self.root and path.name == "vendor" and target == self.root:
+                raise OSError("cannot install prepared sources")
+            return rename(path, target)
+
+        with patch.object(VENDOR, "commit_of", return_value="a" * 40), patch.object(
+            Path, "rename", fail_install
+        ):
+            with self.assertRaisesRegex(OSError, "cannot install"):
+                VENDOR.update("1.4.0")
+        self.assert_original_preserved()
+
+    def test_failed_rollback_keeps_the_previous_tree_for_recovery(self):
+        rename = Path.rename
+
+        def fail_publish_and_rollback(path, target):
+            if target == self.root and path != self.root:
+                raise OSError("directory rename unavailable")
+            return rename(path, target)
+
+        with patch.object(VENDOR, "commit_of", return_value="a" * 40), patch.object(
+            Path, "rename", fail_publish_and_rollback
+        ), contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaisesRegex(OSError, "rename unavailable"):
+                VENDOR.update("1.4.0")
+        retained = list(self.root.parent.glob(".signalsmith-update-*/previous"))
+        self.assertEqual(len(retained), 1, errors.getvalue())
+        self.assertEqual((retained[0] / "keep").read_bytes(), b"old source")
+        self.assertEqual((retained[0] / "VENDORED.md").read_bytes(), b"old manifest")
+
     def test_downloads_are_pinned_to_the_commits_written_in_the_manifest(self):
         commits = {VENDOR.STRETCH: "a" * 40, VENDOR.LINEAR: "b" * 40}
         with patch.object(VENDOR, "commit_of", lambda repository, _tag: commits[repository]):
