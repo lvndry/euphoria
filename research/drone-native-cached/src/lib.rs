@@ -615,7 +615,8 @@ impl Chunked {
     }
 }
 
-/// Individual process CPU consumption and maximum resident memory, not system RAM.
+/// Individual process CPU seconds and maximum resident memory in KiB on both supported OSes.
+/// This helper preserves the cached-harness KiB contract; byte-reporting callers must convert.
 pub fn process_usage() -> Result<(f64, u64)> {
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: getrusage writes the complete struct on success; checked before access.

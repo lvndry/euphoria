@@ -104,3 +104,7 @@ Subsequent runner validation checks captured plan dimensions and accepts a
 manifest basename relative to the working directory. These checks do not
 regenerate or relabel the frozen numerical evidence above; any new numerical
 qualification remains tied to its own executed source and binary identities.
+
+The follow-up [composed frontend/inference and Mac portability study](composed/REPORT.md)
+qualifies the prepared API on376 public tracks and measures20 FMAK tracks.
+Its audited RSS erratum preserves the original execution evidence.
