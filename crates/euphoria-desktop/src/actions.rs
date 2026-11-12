@@ -28,6 +28,8 @@ actions!(
         EditTags,
         /// Opens the settings.
         OpenSettings,
+        /// Shows the two decks, or hides them.
+        ToggleDecks,
         /// Selects every track the table shows.
         SelectAllTracks,
         /// Returns every column of the table to its usual width.

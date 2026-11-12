@@ -383,13 +383,13 @@ fn render(library: &Library, options: &ExportOptions) -> Result<String, Euphoria
     document.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\n");
     document.push_str("<DJ_PLAYLISTS Version=\"1.0.0\">\n");
     document.push_str("  <PRODUCT");
-    push_attribute(&mut document, "Name", "Euphoria");
-    push_attribute(&mut document, "Version", env!("CARGO_PKG_VERSION"));
-    push_attribute(&mut document, "Company", "The Euphoria contributors");
+    push_attribute(&mut document, "Name", "Euphoria")?;
+    push_attribute(&mut document, "Version", env!("CARGO_PKG_VERSION"))?;
+    push_attribute(&mut document, "Company", "The Euphoria contributors")?;
     document.push_str("/>\n");
 
     document.push_str("  <COLLECTION");
-    push_attribute(&mut document, "Entries", &library.tracks.len().to_string());
+    push_attribute(&mut document, "Entries", &library.tracks.len().to_string())?;
     document.push_str(">\n");
     for (index, track) in library.tracks.iter().enumerate() {
         let track_id = index + 1;
@@ -402,7 +402,7 @@ fn render(library: &Library, options: &ExportOptions) -> Result<String, Euphoria
 
     document.push_str("  <PLAYLISTS>\n");
     document.push_str("    <NODE Type=\"0\" Name=\"ROOT\"");
-    push_attribute(&mut document, "Count", &library.playlists.len().to_string());
+    push_attribute(&mut document, "Count", &library.playlists.len().to_string())?;
     document.push_str(">\n");
     for node in &library.playlists {
         push_playlist_node(&mut document, node, 1, &track_ids)?;
@@ -423,7 +423,7 @@ fn push_track(
         .ok_or_else(|| export_error(&track.path, ExportProblem::NotAbsolutePath))?;
     let tempo = match track.bpm {
         Some(bpm) => Some(
-            tempo_text(bpm)
+            tempo_text(bpm, 2)
                 .ok_or_else(|| export_error(&track.path, ExportProblem::InvalidTempo))?,
         ),
         None => None,
@@ -437,24 +437,24 @@ fn push_track(
     }
 
     document.push_str("    <TRACK");
-    push_attribute(document, "TrackID", &track_id.to_string());
+    push_attribute(document, "TrackID", &track_id.to_string())?;
     if let Some(title) = &track.title {
-        push_attribute(document, "Name", title);
+        push_attribute(document, "Name", title)?;
     }
     if let Some(artist) = &track.artist {
-        push_attribute(document, "Artist", artist);
+        push_attribute(document, "Artist", artist)?;
     }
     let whole_seconds = track.duration.as_secs_f64().round();
-    push_attribute(document, "TotalTime", &format!("{whole_seconds:.0}"));
+    push_attribute(document, "TotalTime", &format!("{whole_seconds:.0}"))?;
     if let Some(tempo) = &tempo {
-        push_attribute(document, "AverageBpm", tempo);
+        push_attribute(document, "AverageBpm", tempo)?;
     }
-    push_attribute(document, "Location", &location);
+    push_attribute(document, "Location", &location)?;
     if let Some(key) = track.key {
-        push_attribute(document, "Tonality", &tonality(key, options.key_notation));
+        push_attribute(document, "Tonality", &tonality(key, options.key_notation))?;
     }
     if let Some(comment) = &track.comment {
-        push_attribute(document, "Comments", comment);
+        push_attribute(document, "Comments", comment)?;
     }
 
     let beat_grid = tempo.zip(track.first_beat);
@@ -465,10 +465,10 @@ fn push_track(
     document.push_str(">\n");
     if let Some((tempo, first_beat)) = beat_grid {
         document.push_str("      <TEMPO");
-        push_attribute(document, "Inizio", &seconds(first_beat));
-        push_attribute(document, "Bpm", &tempo);
-        push_attribute(document, "Metro", "4/4");
-        push_attribute(document, "Battito", "1");
+        push_attribute(document, "Inizio", &seconds(first_beat))?;
+        push_attribute(document, "Bpm", &tempo)?;
+        push_attribute(document, "Metro", "4/4")?;
+        push_attribute(document, "Battito", "1")?;
         document.push_str("/>\n");
     }
     for cue_point in &track.cue_points {
@@ -477,10 +477,10 @@ fn push_track(
             CueKind::Hot(pad) => pad.to_string(),
         };
         document.push_str("      <POSITION_MARK");
-        push_attribute(document, "Name", &cue_point.name);
-        push_attribute(document, "Type", "0");
-        push_attribute(document, "Start", &seconds(cue_point.time));
-        push_attribute(document, "Num", &number);
+        push_attribute(document, "Name", &cue_point.name)?;
+        push_attribute(document, "Type", "0")?;
+        push_attribute(document, "Start", &seconds(cue_point.time))?;
+        push_attribute(document, "Num", &number)?;
         document.push_str("/>\n");
     }
     document.push_str("    </TRACK>\n");
@@ -507,8 +507,8 @@ fn push_playlist_node(
     match node {
         PlaylistNode::Folder(folder) => {
             document.push_str("<NODE Type=\"0\"");
-            push_attribute(document, "Name", &folder.name);
-            push_attribute(document, "Count", &folder.children.len().to_string());
+            push_attribute(document, "Name", &folder.name)?;
+            push_attribute(document, "Count", &folder.children.len().to_string())?;
             if folder.children.is_empty() {
                 document.push_str("/>\n");
                 return Ok(());
@@ -520,9 +520,9 @@ fn push_playlist_node(
         }
         PlaylistNode::Playlist(playlist) => {
             document.push_str("<NODE Type=\"1\"");
-            push_attribute(document, "Name", &playlist.name);
-            push_attribute(document, "KeyType", "0");
-            push_attribute(document, "Entries", &playlist.tracks.len().to_string());
+            push_attribute(document, "Name", &playlist.name)?;
+            push_attribute(document, "KeyType", "0")?;
+            push_attribute(document, "Entries", &playlist.tracks.len().to_string())?;
             if playlist.tracks.is_empty() {
                 document.push_str("/>\n");
                 return Ok(());
@@ -534,7 +534,7 @@ fn push_playlist_node(
                     .ok_or_else(|| export_error(path, ExportProblem::NotInCollection))?;
                 document.push_str(&indent);
                 document.push_str("  <TRACK");
-                push_attribute(document, "Key", &track_id.to_string());
+                push_attribute(document, "Key", &track_id.to_string())?;
                 document.push_str("/>\n");
             }
         }
@@ -544,7 +544,7 @@ fn push_playlist_node(
     Ok(())
 }
 
-fn export_error(path: &Path, problem: ExportProblem) -> EuphoriaError {
+pub(crate) fn export_error(path: &Path, problem: ExportProblem) -> EuphoriaError {
     EuphoriaError::Export {
         path: path.to_path_buf(),
         problem,
@@ -555,13 +555,13 @@ fn seconds(position: Duration) -> String {
     format!("{:.3}", position.as_secs_f64())
 }
 
-/// The tempo with two decimals, or `None` when it is not a number or is
-/// written as zero or less at that precision.
-fn tempo_text(bpm: f64) -> Option<String> {
+/// The tempo with `decimals` decimals, or `None` when it is not a number
+/// or is written as zero or less at that precision.
+pub(crate) fn tempo_text(bpm: f64, decimals: usize) -> Option<String> {
     if !(bpm.is_finite() && bpm > 0.0) {
         return None;
     }
-    let text = format!("{bpm:.2}");
+    let text = format_args!("{bpm:.prec$}", prec = decimals).to_string();
     text.contains(|digit: char| ('1'..='9').contains(&digit))
         .then_some(text)
 }
@@ -610,7 +610,35 @@ fn location_url(path: &Path) -> Option<String> {
     Some(url)
 }
 
-fn push_attribute(document: &mut String, name: &str, value: &str) {
+/// True when `character` is XML 1.0 Char: tab, line feed, carriage return,
+/// U+20 and up, except the C1 controls U+0080 to U+009F and the plane-ending
+/// noncharacters, the U+FFFE and U+FFFF at the end of every plane, as
+/// https://www.w3.org/TR/xml/#charsets lists them.
+pub(crate) fn is_xml_character(character: char) -> bool {
+    match character {
+        '\t' | '\n' | '\r' => true,
+        '\u{0}'..='\u{1F}' | '\u{80}'..='\u{9F}' => false,
+        _ => {
+            let code = u32::from(character);
+            code % 0x1_0000 != 0xFFFE && code % 0x1_0000 != 0xFFFF
+        }
+    }
+}
+
+/// Writes the attribute `name` and `value` of an element.
+///
+/// # Errors
+///
+/// Returns [`EuphoriaError::ExportTextNotXml`] when the value contains
+/// characters XML 1.0 cannot represent, even as references.
+pub(crate) fn push_attribute(
+    document: &mut String,
+    name: &str,
+    value: &str,
+) -> Result<(), EuphoriaError> {
+    if !value.chars().all(is_xml_character) {
+        return Err(EuphoriaError::ExportTextNotXml);
+    }
     document.push(' ');
     document.push_str(name);
     document.push_str("=\"");
@@ -625,12 +653,11 @@ fn push_attribute(document: &mut String, name: &str, value: &str) {
             '\t' => document.push_str("&#9;"),
             '\n' => document.push_str("&#10;"),
             '\r' => document.push_str("&#13;"),
-            // XML 1.0 cannot carry these characters, even as references.
-            '\0'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}' => {}
             _ => document.push(character),
         }
     }
     document.push('"');
+    Ok(())
 }
 
 #[cfg(test)]

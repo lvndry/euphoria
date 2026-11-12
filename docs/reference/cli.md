@@ -348,6 +348,27 @@ The command also exits with status 1, and writes no file, when:
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
+## euphoria export traktor
+
+Analyzes audio files and writes the results as a Traktor collection file (NML), which Traktor Pro imports with **Import Another Collection**. [Export to Traktor](../guides/export-to-traktor.md) walks through the import. **Not tested in Traktor.**
+
+```
+euphoria export traktor [OPTIONS] --output <FILE> <PATHS>...
+euphoria export traktor [OPTIONS] --output <FILE> --playlist <NAME>
+```
+
+It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the same paths, cache, playlists per folder, `--playlist`, refusals, exit status and temporary file. The differences:
+
+| Option | Effect |
+| --- | --- |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the Key Text column. The Key column is filled from the key itself. |
+| `--beat-grid` | A grid marker at each track's first downbeat, with the grid's tempo in six decimals, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. |
+| `--collection <FILE>` | Your Traktor `collection.nml`, only read. Tracks with a cue, hot cue or loop of their own there are left out of the file. Grid markers and Traktor's `AutoGrid` hot cue on a grid marker do not count. It is never replaced, even with `--force`. |
+| `--startup-volume <NAME>` | The name of the Mac disk the system is on, which Traktor writes as the volume of every path outside `/Volumes`. Found from `/Volumes` when not given. |
+
+Each track has its location as volume, folders and file, its title and artist from its tags, its duration, its key in `INFO KEY` and `MUSICAL_KEY`, its tempo, and its energy rating as the comment `Energy 7`. A path that is not valid Unicode cannot be written in the file and is an error. Two paths that name the same file to Traktor, such as `/a.mp3` and `/Volumes/Macintosh HD/a.mp3`, are an error too.
+
 ## euphoria export m3u8
 
 Writes a playlist built in the desktop app as an M3U8 file, the playlist format nearly every DJ and music program opens: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx and music players.
@@ -466,7 +487,7 @@ Write these changes to 14 files? [y/N]
 
 Nothing is analyzed. The fields are the same in every format:
 
-| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A) | Vorbis (FLAC) |
+| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A, MP4) | Vorbis (FLAC, Ogg Vorbis) |
 | --- | --- | --- | --- |
 | `title` | `TIT2` | `©nam` | `TITLE` |
 | `artist` | `TPE1` | `©ART` | `ARTIST` |
@@ -479,7 +500,7 @@ Nothing is analyzed. The fields are the same in every format:
 | `key` | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
 | `bpm` | `TBPM` | `----:com.apple.iTunes:BPM` | `BPM` |
 
-`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
+`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC or Ogg Vorbis file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
 
 A comment or a grouping keeps the key and energy label that `tags write` put there, such as `8A - Energy 7`: the edit changes your own text next to it. `--field "comment=Peak opener"` turns `8A - Energy 7 - Purchased` into `8A - Energy 7 - Peak opener`, `--clear comment` leaves `8A - Energy 7`, and a value typed with its label, such as `8A - Energy 7 - Opener`, replaces the label rather than adding a second one. Only a label with an energy rating is recognised, so text of yours that starts with a key is kept as it is.
 

@@ -5,6 +5,7 @@
 //! it into elements, taking every colour from the theme.
 
 pub(crate) mod by_ear;
+pub(crate) mod decks;
 pub(crate) mod empty_state;
 pub(crate) mod inspector;
 pub(crate) mod key_chip;

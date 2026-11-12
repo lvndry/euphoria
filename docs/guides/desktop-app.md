@@ -23,7 +23,7 @@ Use `--release`: analysis is many times slower in a debug build.
 
 On first launch the window shows a drop zone. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder**. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
 
-Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
+Folders are searched all the way down for MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
 
 The app analyzes as many tracks at once as your computer has cores, up to 4. The command line tool goes up to 8 by default and lets you choose. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
 
@@ -148,6 +148,22 @@ Select a track and press Space, or click the round play button, to hear it. Pres
 In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, a thin progress line and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
+
+## Decks
+
+Two decks under the table let you try a transition before the set: **Decks** in the toolbar, **View > Decks** or Command Shift D shows them, and the same again hides them and stops their sound. While they are on screen they take the sound, so the player pauses. Close the decks to use the track player again.
+
+- **Load a track**: select it in the table and click **Load selected** on deck A or deck B, or click a track in **Next on deck B** to put it on deck B.
+- **Each deck** shows its key, its tempo, its waveform with a mark on every bar of its beat grid and on each cue, its energy over time, and its cues as buttons. Click or drag on the waveform to move the deck there.
+- **Play** starts a deck, and **Pause** holds it. When the other deck is playing, playback is scheduled so their upcoming downbeats line up. It starts from the selected position and may wait additional bars to align them; the button says so while it waits. A cue button plays from that cue with the same alignment.
+- **Sync to A**, on by default, plays deck B at deck A's tempo: a track at 125 BPM next to one at 120 plays at 96 percent of its speed. A track counted at half or double tempo is matched at that tempo. **Key lock**, on by default, keeps a deck's pitch when its speed changes; off, the pitch follows the speed as on a turntable. The deck shows its own tempo and the tempo heard, such as 125.0 → 120.0 BPM.
+- **The mixer** has a volume fader for each deck and a crossfader between them. The crossfader moves equal power from one deck to the other: at the middle both play at about 71 percent, and a deck at the near end of the fader plays at full. Use the deck faders to balance the combined level. Under the mixer, the share of one core each deck takes and any frames the decoders could not fill in time are shown, for checking that playback keeps up.
+
+Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
+
+### Next on deck B
+
+With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
 
 ## The waveform
 
@@ -323,8 +339,9 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 
 ## Not there yet
 
-- Cue points.
+- On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend.
+- Editing cue points: the decks show and play the cues analysis places, but they cannot be moved or added yet.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
 - Filters for key and tempo ranges.
-- Linux and Windows builds: the app is only built and tested on macOS so far.
+- Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

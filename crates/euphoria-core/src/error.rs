@@ -46,6 +46,14 @@ pub enum ExportProblem {
     InvalidTempo,
     /// A hot cue is on a pad the track does not have.
     InvalidHotCue,
+    /// The path is not valid Unicode, which a format that stores paths as
+    /// text cannot hold.
+    PathNotUnicode,
+    /// A path contains characters XML cannot represent, even as references.
+    PathNotXml,
+    /// The time an export writes as a last change holds a day, month or
+    /// seconds of the day that date does not have.
+    InvalidModifiedTime,
 }
 
 impl fmt::Display for ExportProblem {
@@ -54,8 +62,13 @@ impl fmt::Display for ExportProblem {
             ExportProblem::NotAbsolutePath => "not an absolute local path",
             ExportProblem::DuplicatePath => "listed more than once",
             ExportProblem::NotInCollection => "in a playlist but not in the collection",
-            ExportProblem::InvalidTempo => "tempo is not a number of at least 0.01",
+            ExportProblem::InvalidTempo => {
+                "tempo is not a positive number at the export's precision"
+            }
             ExportProblem::InvalidHotCue => "hot cue pad is out of range",
+            ExportProblem::PathNotUnicode => "path is not valid Unicode",
+            ExportProblem::PathNotXml => "path contains characters XML cannot represent",
+            ExportProblem::InvalidModifiedTime => "the modified time does not name a real date",
         })
     }
 }
@@ -150,6 +163,10 @@ pub enum EuphoriaError {
         /// What is wrong with it.
         problem: ExportProblem,
     },
+    /// A name, comment or cue name contains characters XML 1.0 cannot
+    /// represent, even as references.
+    #[error("a name or comment contains characters XML cannot represent")]
+    ExportTextNotXml,
     /// The playlist folders of an export are nested too deeply.
     #[error("cannot export folder {folder:?}: nested more than {maximum} folders deep")]
     ExportFolderDepth {

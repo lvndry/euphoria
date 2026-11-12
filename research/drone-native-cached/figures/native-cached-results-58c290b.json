@@ -1,0 +1,14 @@
+{
+  "measured_source_commit": "58c290b88959c9901a5c59fd27037b247364190d",
+  "binary_sha256": "0cce67453a2c0ed388aab4a8a71116cb4c1475725b2c0ff429df106aeed612b8",
+  "plot_script_sha256": "0ab2282368bef52168c61377b4e70542e03e3ec430eaf2cf933e49b99d1e44e2",
+  "matplotlib": "3.11.2",
+  "raw_report_sha256": {
+    "native-full-58c290b.json": "68fb6a9f6311f817c6bd8b3e0431477b9f42c1d99d4a5cf430d70faad3a39f2f",
+    "native-chunked-58c290b.json": "5a49330cbd0d8777541e9ce54fcdec0ef62aa7a3e3204d2b2df095f0e74ee0be"
+  },
+  "figure_sha256": {
+    "native-cached-results-58c290b.svg": "d9b0b1bb96940fc494c160ce5a5c7128e2b97062ad81087346adc1a7a0fe3767",
+    "native-cached-results-58c290b.png": "fae31824da2bbc24cff2e46cfcfcf3135dfe7ae37e646c800670627bc638b090"
+  }
+}

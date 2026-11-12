@@ -8,16 +8,21 @@
 """Measures what lossy encoding does to the values the quality report reads.
 
     ./bench/download_quality_sources.sh
-    uv run bench/quality_benchmark.py bench/data/quality
+    uv run bench/quality_benchmark.py bench/data/quality [ENCODER ...]
 
 Takes the lossless sources in DATA/sources, adds synthesized wideband
 material, encodes everything at 96 to 320 kbit/s with LAME (MP3), FFmpeg's
-AAC encoder, and Apple's AAC encoder when `afconvert` exists (macOS), makes
-transcodes from low bit rates up to high ones, runs `euphoria-bench quality`
+AAC encoder, Apple's AAC encoder when `afconvert` exists (macOS), and the
+reference Vorbis encoder when `oggenc` exists, makes transcodes from low bit
+rates up to high ones, runs `euphoria-bench quality`
 on all of it, and prints a Markdown table per encoding: the measured bit
 rate, the cutoff, the verdict, and how much encoding error there is below
 15 kHz. The quality thresholds in `crates/euphoria-core/src/quality` come
 from that table.
+
+Naming encoders (lame, ffmpeg-aac, apple-aac, oggenc) measures only those,
+with the transcodes that use nothing else, to add one encoder's rows to the
+table without encoding everything again.
 """
 
 import shutil
@@ -32,6 +37,9 @@ import numpy
 RATE = 44100
 SYNTH_SECONDS = 60
 BITRATES = [96, 128, 192, 256, 320]
+# oggenc is used as people use it, with a quality level. These levels have
+# the nominal bit rates of BITRATES.
+VORBIS_QUALITY = {96: 2, 128: 4, 192: 6, 256: 8, 320: 9}
 ERROR_BAND_HZ = 15000
 ALIGN_SECONDS = 20
 LONGEST_DELAY = 8192
@@ -82,15 +90,25 @@ def encode(source, target, kind, bitrate):
              "-b:a", f"{bitrate}k", str(target)])
     elif kind == "apple-aac":
         run(["afconvert", "-f", "m4af", "-d", "aac", "-b", str(bitrate * 1000), str(source), str(target)])
+    elif kind == "oggenc":
+        if source.suffix != ".wav":
+            decoded = target.with_suffix(".source.wav")
+            run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(source), str(decoded)])
+            source = decoded
+        run(["oggenc", "--quiet", "-q", str(VORBIS_QUALITY[bitrate]), "-o", str(target), str(source)])
     elif kind == "flac":
         run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(source), "-c:a", "flac", str(target)])
 
 
-EXTENSION = {"lame": "mp3", "ffmpeg-aac": "m4a", "apple-aac": "m4a", "flac": "flac"}
+EXTENSION = {"lame": "mp3", "ffmpeg-aac": "m4a", "apple-aac": "m4a", "oggenc": "ogg", "flac": "flac"}
 
 
-def make_variants(sources, folder):
+def available_kinds():
     kinds = ["lame", "ffmpeg-aac"] + (["apple-aac"] if shutil.which("afconvert") else [])
+    return kinds + (["oggenc"] if shutil.which("oggenc") else [])
+
+
+def make_variants(sources, folder, kinds):
     variants = []
     for source in sources:
         name = source.stem
@@ -104,17 +122,25 @@ def make_variants(sources, folder):
                 encode(source, target, kind, bitrate)
                 variants.append((f"{kind} {bitrate}", name, target))
         low = folder / f"{name}.lame-128.mp3"
+        # Each transcode with the encoders it needs.
         transcodes = [
-            ("lame 128 to lame 320", low, "lame", 320),
-            ("lame 128 to flac", low, "flac", None),
-            ("lame 192 to lame 320", folder / f"{name}.lame-192.mp3", "lame", 320),
-            ("ffmpeg-aac 128 to ffmpeg-aac 256", folder / f"{name}.ffmpeg-aac-128.m4a", "ffmpeg-aac", 256),
+            ("lame 128 to lame 320", low, "lame", 320, {"lame"}),
+            ("lame 128 to flac", low, "flac", None, {"lame"}),
+            ("lame 192 to lame 320", folder / f"{name}.lame-192.mp3", "lame", 320, {"lame"}),
+            ("ffmpeg-aac 128 to ffmpeg-aac 256", folder / f"{name}.ffmpeg-aac-128.m4a",
+             "ffmpeg-aac", 256, {"ffmpeg-aac"}),
+            ("lame 128 to apple-aac 256", low, "apple-aac", 256, {"lame", "apple-aac"}),
+            ("apple-aac 128 to apple-aac 320", folder / f"{name}.apple-aac-128.m4a",
+             "apple-aac", 320, {"apple-aac"}),
+            ("oggenc 128 to oggenc 320", folder / f"{name}.oggenc-128.ogg", "oggenc", 320, {"oggenc"}),
+            ("oggenc 128 to flac", folder / f"{name}.oggenc-128.ogg", "flac", None, {"oggenc"}),
+            ("lame 128 to oggenc 320", low, "oggenc", 320, {"lame", "oggenc"}),
         ]
-        if "apple-aac" in kinds:
-            transcodes += [
-                ("lame 128 to apple-aac 256", low, "apple-aac", 256),
-                ("apple-aac 128 to apple-aac 320", folder / f"{name}.apple-aac-128.m4a", "apple-aac", 320),
-            ]
+        transcodes = [
+            (label, origin, kind, bitrate)
+            for label, origin, kind, bitrate, needed in transcodes
+            if needed <= set(kinds)
+        ]
         for label, origin, kind, bitrate in transcodes:
             target = folder / f"{name}.{label.replace(' ', '-')}.{EXTENSION[kind]}"
             encode(origin, target, kind, bitrate)
@@ -152,13 +178,17 @@ def error_below_band(reference, encoded):
 
 def main():
     data = Path(sys.argv[1]).resolve()
+    kinds = sys.argv[2:] or available_kinds()
+    unknown = set(kinds) - (set(EXTENSION) - {"flac"})
+    if unknown:
+        sys.exit(f"unknown encoders: {', '.join(sorted(unknown))}")
     sources = sorted((data / "sources").glob("*.wav"))
     work = data / "encoded"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     synthesize(work)
     sources += sorted(work.glob("synth-*.wav"))
-    variants = make_variants(sources, work)
+    variants = make_variants(sources, work, kinds)
 
     listing = work / "list.tsv"
     listing.write_text("".join(f"{label}|{name}\t{path}\n" for label, name, path in variants))

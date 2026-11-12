@@ -78,7 +78,7 @@ def breaking_description(body):
 COMPLETE_MARKER = "<!-- euphoria-release-complete -->"
 
 
-def notes(version, since, until, repository, minimum_macos=None):
+def notes(version, since, until, repository, minimum_macos=None, minimum_glibc=None):
     grouped = {kind: [] for kind, _ in SECTIONS}
     breaking = []
     for sha, subject, body in commits(since, until):
@@ -105,6 +105,18 @@ def notes(version, since, until, repository, minimum_macos=None):
         + (f" and macOS {minimum_macos} or later." if minimum_macos else "."),
         "",
     ]
+    if minimum_glibc:
+        lines += [
+            "On Linux, download `Euphoria-"
+            + version
+            + "-x86_64.AppImage`, make it executable with `chmod +x` and run it. "
+            "The command line tool is in `euphoria-"
+            + version
+            + "-x86_64-unknown-linux-gnu.tar.gz`. "
+            f"Both need an x86_64 Linux with glibc {minimum_glibc} or later; "
+            "`ldd --version` shows yours.",
+            "",
+        ]
     if breaking:
         lines += ["## Breaking changes", "", *breaking, ""]
     for kind, title in SECTIONS:
@@ -134,6 +146,10 @@ def main():
         "--minimum-macos",
         help="the oldest macOS the app runs on, as its Info.plist says",
     )
+    parser.add_argument(
+        "--minimum-glibc",
+        help="the oldest glibc the Linux files run on, as linux_libraries.py reads it",
+    )
     arguments = parser.parse_args()
     print(
         notes(
@@ -142,6 +158,7 @@ def main():
             arguments.until,
             arguments.repository,
             arguments.minimum_macos,
+            arguments.minimum_glibc,
         ),
         end="",
     )

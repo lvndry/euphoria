@@ -23,7 +23,7 @@ fn analyzes_a_folder_as_json() {
     let tracks = tracks.as_array().expect("the output is an array");
     assert_eq!(
         tracks.len(),
-        7,
+        10,
         "one entry per audio fixture, README skipped"
     );
     for track in tracks {
@@ -41,11 +41,21 @@ fn analyzes_a_folder_as_json() {
         let quality = &track["quality"];
         assert_eq!(quality["sample_rate"], 44_100, "{track}");
         let lossless = quality["lossless"].as_bool().expect("a lossless flag");
-        assert_eq!(
-            lossless,
-            !(path.ends_with(".mp3") || path.ends_with(".m4a")),
-            "{track}"
-        );
+        let lossy = [".mp3", "mono.m4a", ".mp4", ".ogg"]
+            .iter()
+            .any(|ending| path.ends_with(ending));
+        assert_eq!(lossless, !lossy, "{track}");
+        if path.contains("alac") {
+            assert_eq!(
+                quality["bit_depth"], 16,
+                "ALAC fixture must report 16-bit depth: {track}"
+            );
+        } else if lossy {
+            assert!(
+                quality["bit_depth"].is_null(),
+                "lossy fixtures have no bit depth: {track}"
+            );
+        }
         assert!(quality["reason"].as_str().is_some(), "{track}");
         let tuning = &track["tuning_cents"];
         let timeline = track["key_timeline"].as_array().expect("a key timeline");
@@ -403,11 +413,11 @@ fn a_narrowed_table_says_how_many_it_shows() {
     assert!(output.status.success(), "{}", standard_error(&output));
     let summary = standard_error(&output);
     assert!(
-        summary.starts_with("Showing 5 of 7 tracks, those with sound quality lossless.\n"),
+        summary.starts_with("Showing 6 of 10 tracks, those with sound quality lossless.\n"),
         "{summary}"
     );
     assert!(
-        summary.contains("Sound quality: 5 tracks lossless, "),
+        summary.contains("Sound quality: 6 tracks lossless, "),
         "{summary}"
     );
 }

@@ -13,6 +13,8 @@ mod app;
 mod assets;
 mod camelot;
 mod columns;
+mod deck_audio;
+mod decks;
 mod demo;
 mod display_settings;
 mod dock_icon;
@@ -55,8 +57,8 @@ use gpui::{
 
 use crate::actions::{
     AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths, SelectAllTracks,
-    TogglePlayback, ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme,
-    UsePaperTheme, UseSlateTheme, WriteTags,
+    ToggleDecks, TogglePlayback, ToggleSidebar, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
+    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -65,6 +67,10 @@ use crate::state::Session;
 use crate::theme::ThemeName;
 
 const WINDOW_TITLE: &str = "Euphoria";
+
+/// The name Linux desktops match against `euphoria.desktop`, the launcher
+/// entry the AppImage installs, to show the window with its name and icon.
+const APP_ID: &str = "euphoria";
 
 /// Where the space bar belongs to the player: anywhere in the window but a
 /// text field.
@@ -148,6 +154,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
         }),
         // The toolbar is the title bar: it moves the window itself.
         app_owns_titlebar_drag: true,
+        app_id: Some(APP_ID.into()),
         ..Default::default()
     };
     let theme = settings.theme;
@@ -177,8 +184,11 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         // Control Command S is what macOS apps use to show and hide a sidebar.
         #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
+        KeyBinding::new("cmd-shift-d", ToggleDecks, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-alt-s", ToggleSidebar, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-d", ToggleDecks, None),
         // Space plays and pauses, except in a text field, where it types.
         KeyBinding::new("space", TogglePlayback, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-a", SelectAllTracks, Some(SPACE_BAR_CONTEXT)),
@@ -218,6 +228,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     });
 
     register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
+    register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
     register_view_command::<UndoTagWrite>(view, cx, |view, cx| view.open_tag_undo(cx));
     register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
@@ -314,6 +325,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         Menu::new("File").items([MenuItem::action("Add Folder\u{2026}", AddFolder)]),
         Menu::new("View").items([
             MenuItem::action(sidebar_item, ToggleSidebar),
+            MenuItem::action("Decks", ToggleDecks),
             MenuItem::separator(),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
