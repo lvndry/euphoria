@@ -38,6 +38,8 @@ actions!(
         OpenSetBuilder,
         /// Builds the set on the set builder page.
         BuildSet,
+        /// Stars the selected tracks, or takes their stars off.
+        ToggleFavorite,
         /// Selects every track the table shows.
         SelectAllTracks,
         /// Returns every column of the table to its usual width.
