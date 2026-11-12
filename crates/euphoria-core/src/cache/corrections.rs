@@ -13,12 +13,48 @@
 
 use std::path::Path;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Row, params};
 
 use super::identity::{ContentHash, FileStamp};
-use super::{Cache, cache_error, key_in_column, seconds_since_epoch};
+use super::{Cache, cache_error, key_in_column, seconds_since_epoch, tempo_in_column};
 use crate::correction::Correction;
 use crate::error::EuphoriaError;
+use crate::key::Key;
+
+/// A correction as the cache keeps it, with what was detected for the same
+/// content when an analysis of it is stored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredCorrection {
+    /// The content the correction belongs to.
+    pub content_hash: ContentHash,
+    /// The values the user set.
+    pub correction: Correction,
+    /// When the user set them, in seconds since the Unix epoch.
+    pub corrected_at_seconds: i64,
+    /// The stored analysis of the same content, if any. A correction made
+    /// before the track was analyzed, or kept after its analysis was
+    /// cleared, has none.
+    pub detected: Option<DetectedValues>,
+}
+
+/// The key and tempo an analysis found, as the cache stored them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetectedValues {
+    /// The detected key, or `None` when the track had no detectable key.
+    pub key: Option<Key>,
+    /// The detected tempo in the default tempo range, or `None` when the
+    /// track had no detectable tempo.
+    pub bpm: Option<f32>,
+    /// The version of the analyzer that detected them, which may be older
+    /// than the running one.
+    pub analyzer_version: String,
+    /// When the analysis was stored, in seconds since the Unix epoch.
+    pub analyzed_at_seconds: i64,
+    /// Where the file was last seen, absolute, as the cache records it:
+    /// only paths that are valid Unicode are recorded. The file may have
+    /// moved since.
+    pub last_known_path: Option<String>,
+}
 
 impl Cache {
     /// The correction the user set for the file at `path`, if any.
@@ -35,10 +71,7 @@ impl Cache {
         if !self.has_corrections()? {
             return Ok(None);
         }
-        let content_hash = match self.recorded_content(path)? {
-            Some(content_hash) => content_hash,
-            None => ContentHash::of_file(path).map_err(unreadable(path))?,
-        };
+        let content_hash = self.content_at(path)?;
         self.correction_of(&content_hash)
     }
 
@@ -57,10 +90,7 @@ impl Cache {
     ) -> Result<(), EuphoriaError> {
         // Public fields also allow callers to bypass the constructors.
         correction.with_bpm(correction.bpm)?;
-        let content_hash = match self.recorded_content(path)? {
-            Some(content_hash) => content_hash,
-            None => ContentHash::of_file(path).map_err(unreadable(path))?,
-        };
+        let content_hash = self.content_at(path)?;
         let result = if correction.is_empty() {
             self.connection.execute(
                 "DELETE FROM corrections WHERE content_hash = ?1",
@@ -101,6 +131,37 @@ impl Cache {
         self.correction_of(&content_hash)
     }
 
+    /// Every correction kept in the cache, oldest first, each with the
+    /// stored analysis of the same content. Reads no audio file.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read, and
+    /// [`EuphoriaError::InvalidCorrection`] when it holds a tempo that is
+    /// not a positive number no faster than 999.
+    pub fn stored_corrections(&self) -> Result<Vec<StoredCorrection>, EuphoriaError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT corrections.content_hash, corrections.key, corrections.bpm,
+                        corrections.corrected_at, analyses.analyzer_version,
+                        analyses.key, analyses.bpm, analyses.analyzed_at,
+                        analyses.last_known_path
+                 FROM corrections
+                 LEFT JOIN analyses ON analyses.content_hash = corrections.content_hash
+                 ORDER BY corrections.corrected_at, corrections.content_hash",
+            )
+            .map_err(cache_error(&self.path))?;
+        let stored: Vec<StoredCorrection> = statement
+            .query_map([], stored_correction_in_row)
+            .and_then(Iterator::collect)
+            .map_err(cache_error(&self.path))?;
+        for entry in &stored {
+            entry.correction.with_bpm(entry.correction.bpm)?;
+        }
+        Ok(stored)
+    }
+
     /// The content an analysis last recorded at `path`, whatever its
     /// analyzer version, when the file there still has the size and
     /// modification time recorded with it. Does not read the file.
@@ -128,6 +189,15 @@ impl Cache {
             .map_err(cache_error(&self.path))
     }
 
+    /// The content of the file at `path`: the one an analysis recorded
+    /// there, without reading the file, or else the hash of the file.
+    pub(super) fn content_at(&self, path: &Path) -> Result<ContentHash, EuphoriaError> {
+        match self.recorded_content(path)? {
+            Some(content_hash) => Ok(content_hash),
+            None => ContentHash::of_file(path).map_err(unreadable(path)),
+        }
+    }
+
     /// The content an analysis last recorded at `path`, whatever the file
     /// there is now, as before a write replaced it.
     pub(super) fn previous_content(
@@ -151,7 +221,7 @@ impl Cache {
             .map_err(cache_error(&self.path))
     }
 
-    fn has_corrections(&self) -> Result<bool, EuphoriaError> {
+    pub(super) fn has_corrections(&self) -> Result<bool, EuphoriaError> {
         self.connection
             .query_row("SELECT EXISTS (SELECT 1 FROM corrections)", [], |row| {
                 row.get(0)
@@ -159,7 +229,7 @@ impl Cache {
             .map_err(cache_error(&self.path))
     }
 
-    fn correction_of(
+    pub(super) fn correction_of(
         &self,
         content_hash: &ContentHash,
     ) -> Result<Option<Correction>, EuphoriaError> {
@@ -183,7 +253,30 @@ impl Cache {
     }
 }
 
-fn unreadable(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError {
+fn stored_correction_in_row(row: &Row<'_>) -> rusqlite::Result<StoredCorrection> {
+    let analyzer_version: Option<String> = row.get(4)?;
+    let detected = match analyzer_version {
+        Some(analyzer_version) => Some(DetectedValues {
+            key: key_in_column(row, 5)?,
+            bpm: tempo_in_column(row, 6)?,
+            analyzer_version,
+            analyzed_at_seconds: row.get(7)?,
+            last_known_path: row.get(8)?,
+        }),
+        None => None,
+    };
+    Ok(StoredCorrection {
+        content_hash: ContentHash::from_bytes(row.get(0)?),
+        correction: Correction {
+            key: key_in_column(row, 1)?,
+            bpm: row.get(2)?,
+        },
+        corrected_at_seconds: row.get(3)?,
+        detected,
+    })
+}
+
+pub(super) fn unreadable(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError {
     let path = path.to_path_buf();
     move |source| EuphoriaError::Scan {
         path: path.clone(),
@@ -422,6 +515,71 @@ mod tests {
         let analyzer = CachedAnalyzer::new(open(&folder)).unwrap();
         analyzer.set_correction(&track, &e_minor()).unwrap();
         assert_eq!(analyzer.correction_for(&track).unwrap(), Some(e_minor()));
+    }
+
+    #[test]
+    fn stored_corrections_come_with_what_was_detected_when_an_analysis_is_kept() {
+        let folder = TemporaryFolder::new();
+        let analyzed = folder.path().join("analyzed.mp3");
+        let unanalyzed = folder.path().join("unanalyzed.mp3");
+        std::fs::write(&analyzed, b"audio").unwrap();
+        std::fs::write(&unanalyzed, b"other audio").unwrap();
+        let mut cache = open(&folder);
+        assert!(cache.stored_corrections().unwrap().is_empty());
+        cache.record_retagged_file(&analyzed, &analysis()).unwrap();
+        cache.set_correction(&analyzed, &e_minor()).unwrap();
+        cache
+            .set_correction(&unanalyzed, &Correction::of_bpm(126.0).unwrap())
+            .unwrap();
+        cache
+            .connection
+            .execute(
+                "UPDATE corrections SET corrected_at = 5 WHERE content_hash = ?1",
+                params![ContentHash::of_file(&unanalyzed).unwrap().as_bytes()],
+            )
+            .unwrap();
+
+        let stored = cache.stored_corrections().unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(
+            stored[0].content_hash,
+            ContentHash::of_file(&unanalyzed).unwrap(),
+            "oldest first"
+        );
+        assert_eq!(stored[0].correction, Correction::of_bpm(126.0).unwrap());
+        assert_eq!(stored[0].corrected_at_seconds, 5);
+        assert_eq!(stored[0].detected, None);
+
+        assert_eq!(
+            stored[1].content_hash,
+            ContentHash::of_file(&analyzed).unwrap()
+        );
+        assert_eq!(stored[1].correction, e_minor());
+        let detected = stored[1].detected.as_ref().unwrap();
+        assert_eq!(detected.key, Some(Key::new(9, Mode::Minor)));
+        assert_eq!(detected.bpm, Some(124.0));
+        assert_eq!(detected.analyzer_version, crate::ANALYZER_VERSION);
+        assert_eq!(
+            detected.last_known_path.as_deref(),
+            std::path::absolute(&analyzed).unwrap().to_str()
+        );
+    }
+
+    #[test]
+    fn a_stored_tempo_that_is_not_valid_fails_the_listing() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        cache.set_correction(&track, &e_minor()).unwrap();
+        cache
+            .connection
+            .execute("UPDATE corrections SET bpm = 0", [])
+            .unwrap();
+        assert!(matches!(
+            cache.stored_corrections(),
+            Err(EuphoriaError::InvalidCorrection { .. })
+        ));
     }
 
     #[test]

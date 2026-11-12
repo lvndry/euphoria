@@ -343,3 +343,12 @@ fn an_m4a_file_gets_the_older_copy_serato_reads_its_first_cues_from() {
         .and_then(|change| describe_serato_value(&change.field, change.new.as_deref()?));
     assert_eq!(older.as_deref(), Some("3 of the first 5 cue points"));
 }
+
+#[test]
+fn ogg_files_get_no_serato_data() {
+    let folder = scratch("ogg");
+    let path = copy_fixture(&folder, "sine-440hz-mono.ogg");
+    let (plan, report) = write(&path, &euphoria_markers());
+    assert_eq!(report.skipped, Some(SeratoSkip::Ogg));
+    assert!(plan.is_empty());
+}

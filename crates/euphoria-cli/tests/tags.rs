@@ -12,11 +12,14 @@ use std::process::{Output, Stdio};
 use euphoria_core::tags::{TrackTags, read_tags};
 use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
 
-const FIXTURES: [&str; 5] = [
+const FIXTURES: [&str; 8] = [
+    "sine-440hz-mono-alac.m4a",
     "sine-440hz-mono.aiff",
     "sine-440hz-mono.flac",
     "sine-440hz-mono.m4a",
     "sine-440hz-mono.mp3",
+    "sine-440hz-mono.mp4",
+    "sine-440hz-mono.ogg",
     "sine-440hz-mono.wav",
 ];
 const USER_COMMENT: &str = "https://example.com/track/42?a=b - bought 2019";
@@ -174,7 +177,7 @@ fn dry_run_shows_the_changes_and_writes_nothing() {
         );
     }
     let report = standard_error(&output);
-    assert!(report.contains("5 files to change."), "{report}");
+    assert!(report.contains("8 files to change."), "{report}");
     assert!(report.contains("Nothing was written."), "{report}");
 }
 
@@ -235,13 +238,17 @@ fn write_then_undo_gives_back_the_exact_files() {
     let output = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
     assert_success(&output);
     let report = standard_error(&output);
-    assert!(report.contains("Wrote the tags of 5 files."), "{report}");
+    assert!(report.contains("Wrote the tags of 8 files."), "{report}");
     assert!(report.contains("euphoria tags undo"), "{report}");
     assert_eq!(log_count(&euphoria), 1);
     for tags in library.tags() {
         assert_written(&tags);
     }
-    let wav_comment = library.tags()[4].comment.clone().unwrap();
+    let wav = FIXTURES
+        .iter()
+        .position(|fixture| fixture.ends_with(".wav"))
+        .expect("a WAV fixture");
+    let wav_comment = library.tags()[wav].comment.clone().unwrap();
     assert!(
         wav_comment.ends_with(&format!(" - {USER_COMMENT}")),
         "{wav_comment:?}"
@@ -257,7 +264,7 @@ fn write_then_undo_gives_back_the_exact_files() {
         assert!(restored.contains(text(&track)), "{restored}");
     }
     let report = standard_error(&output);
-    assert!(report.contains("Restored the tags of 5 files."), "{report}");
+    assert!(report.contains("Restored the tags of 8 files."), "{report}");
 
     let output = run(&euphoria, &["tags", "undo"]);
     assert_success(&output);
@@ -282,7 +289,7 @@ fn writing_again_changes_nothing_and_does_not_stack_the_label() {
     assert_eq!(standard_output(&output), "");
     let report = standard_error(&output);
     assert!(
-        report.contains("0 files to change, 5 already up to date."),
+        report.contains("0 files to change, 8 already up to date."),
         "{report}"
     );
     assert_eq!(log_count(&euphoria), 1);
@@ -305,7 +312,11 @@ fn writing_again_changes_nothing_and_does_not_stack_the_label() {
         let comment = tags.comment.unwrap();
         assert_eq!(comment.matches("Energy").count(), 1, "{comment:?}");
     }
-    let wav_comment = library.tags()[4].comment.clone().unwrap();
+    let wav = FIXTURES
+        .iter()
+        .position(|fixture| fixture.ends_with(".wav"))
+        .expect("a WAV fixture");
+    let wav_comment = library.tags()[wav].comment.clone().unwrap();
     assert!(
         wav_comment.ends_with(&format!(" - {USER_COMMENT}")),
         "{wav_comment:?}"
@@ -379,7 +390,11 @@ fn options_choose_what_is_written_and_where() {
         ],
     );
     assert_success(&output);
-    let wav_comment = library.tags()[4].comment.clone().unwrap();
+    let wav = FIXTURES
+        .iter()
+        .position(|fixture| fixture.ends_with(".wav"))
+        .expect("a WAV fixture");
+    let wav_comment = library.tags()[wav].comment.clone().unwrap();
     assert!(
         wav_comment.starts_with(&format!("{USER_COMMENT} - ")),
         "{wav_comment:?}"
@@ -509,10 +524,10 @@ fn a_file_that_fails_is_reported_and_the_others_are_written() {
         "{report}"
     );
     assert!(
-        report.contains("5 files to change, 1 left out because of errors."),
+        report.contains("8 files to change, 1 left out because of errors."),
         "{report}"
     );
-    assert!(report.contains("Wrote the tags of 5 files."), "{report}");
+    assert!(report.contains("Wrote the tags of 8 files."), "{report}");
     for tags in library.tags() {
         assert_written(&tags);
     }
@@ -541,7 +556,7 @@ fn a_file_the_module_refuses_is_reported_with_the_reason() {
         "{report}"
     );
     assert!(report.contains("more than one hard link"), "{report}");
-    assert!(report.contains("Wrote the tags of 4 files."), "{report}");
+    assert!(report.contains("Wrote the tags of 7 files."), "{report}");
     assert!(std::fs::read(&linked).unwrap() == original);
     assert!(std::fs::read(&other_name).unwrap() == original);
 }
@@ -589,7 +604,7 @@ fn a_file_changed_after_the_write_is_reported_by_undo_and_can_be_retried() {
         "{report}"
     );
     assert!(
-        report.contains("Restored the tags of 4 files, 1 could not be restored"),
+        report.contains("Restored the tags of 7 files, 1 could not be restored"),
         "{report}"
     );
     assert!(std::fs::read(&edited).unwrap() == edited_contents);
@@ -704,7 +719,7 @@ fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
     assert_success(&after_write);
     assert_eq!(
         standard_error(&after_write),
-        "5 of 5 tracks came from the cache.\n"
+        "8 of 8 tracks came from the cache.\n"
     );
     assert_eq!(after_write.stdout, first.stdout);
 
@@ -714,7 +729,7 @@ fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
     assert_success(&after_undo);
     assert_eq!(
         standard_error(&after_undo),
-        "5 of 5 tracks came from the cache.\n"
+        "8 of 8 tracks came from the cache.\n"
     );
     assert_eq!(after_undo.stdout, first.stdout);
 }

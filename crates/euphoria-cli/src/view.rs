@@ -77,7 +77,7 @@ pub enum KeyNotationChoice {
 
 impl KeyNotationChoice {
     /// The key in this notation, as short as it goes.
-    fn short(self, key: Key) -> String {
+    pub(crate) fn short(self, key: Key) -> String {
         match self {
             KeyNotationChoice::Camelot => key.camelot(),
             KeyNotationChoice::Musical => key.short_name(),

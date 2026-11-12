@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use euphoria_core::quality::{QualityVerdict, analyze_quality};
 use euphoria_core::{AudioBuffer, DecodeFailure, EuphoriaError, decode_mono};
 
 const FIXTURE_SAMPLE_RATE: u32 = 44_100;
@@ -84,6 +85,66 @@ fn decodes_mp3() {
 #[test]
 fn decodes_aac_in_m4a() {
     assert_decodes_to_one_second_tone("sine-440hz-mono.m4a");
+}
+
+#[test]
+fn decodes_aac_in_mp4() {
+    assert_decodes_to_one_second_tone("sine-440hz-mono.mp4");
+    let report = analyze_quality(&fixture("sine-440hz-mono.mp4")).expect("the fixture decodes");
+    assert_eq!(report.codec, "aac");
+    assert!(!report.lossless);
+}
+
+#[test]
+fn decodes_alac_exactly_with_its_bit_depth() {
+    let audio = assert_decodes_to_one_second_tone("sine-440hz-mono-alac.m4a");
+    assert!((peak(&audio) - FIXTURE_AMPLITUDE).abs() < PCM_AMPLITUDE_TOLERANCE);
+    // ALAC is lossless, so it decodes to the same samples as the WAV it
+    // was made from.
+    let wav = decode_mono(&fixture("sine-440hz-mono.wav")).expect("the fixture decodes");
+    assert_eq!(audio.samples(), wav.samples());
+
+    let report =
+        analyze_quality(&fixture("sine-440hz-mono-alac.m4a")).expect("the fixture decodes");
+    assert_eq!(report.codec, "alac");
+    assert!(report.lossless);
+    assert_eq!(report.bit_depth, Some(16));
+    assert_eq!(report.verdict, QualityVerdict::Lossless);
+}
+
+#[test]
+fn decodes_24_bit_alac_with_its_bit_depth() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("quality-fixtures")
+        .join("sine-440hz-mono-alac-24.m4a");
+    let audio = decode_mono(&fixture).expect("the fixture decodes");
+    assert_eq!(audio.sample_rate().get(), FIXTURE_SAMPLE_RATE);
+    let duration = audio.duration_seconds();
+    assert!(
+        (duration - FIXTURE_DURATION_SECONDS).abs() < DURATION_TOLERANCE_SECONDS,
+        "decoded to {duration} seconds"
+    );
+    let report = analyze_quality(&fixture).expect("the fixture decodes");
+    assert_eq!(report.codec, "alac");
+    assert!(report.lossless);
+    assert_eq!(report.bit_depth, Some(24));
+    assert_eq!(report.verdict, QualityVerdict::Lossless);
+}
+
+#[test]
+fn decodes_ogg_vorbis() {
+    let audio = assert_decodes_to_one_second_tone("sine-440hz-mono.ogg");
+    // A lossy encoding of the tone keeps its level.
+    assert!(
+        (peak(&audio) - FIXTURE_AMPLITUDE).abs() < 0.03,
+        "{}",
+        peak(&audio)
+    );
+    let report = analyze_quality(&fixture("sine-440hz-mono.ogg")).expect("the fixture decodes");
+    assert_eq!(report.codec, "vorbis");
+    assert!(!report.lossless);
+    assert_eq!(report.bit_depth, None);
 }
 
 #[test]

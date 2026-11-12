@@ -163,6 +163,9 @@ pub enum GridOutcome {
 pub enum SeratoSkip {
     /// WAV files: Serato is not known to read cue points from their tags.
     Wav,
+    /// Ogg Vorbis files, where Serato keeps its data in another layout that
+    /// is not worked out well enough to write.
+    Ogg,
     /// The file has an ID3v2.2 tag, which has no room for Serato's data.
     OldId3,
     /// The file's Serato data could not be read, so it is left as it is.
@@ -381,6 +384,10 @@ pub fn add_serato_markers(
         }
         TagFormat::Id3v2 if file.id3_version() == Some(2) => {
             report.skipped = Some(SeratoSkip::OldId3);
+            return Ok(report);
+        }
+        TagFormat::VorbisComments if file.is_ogg() => {
+            report.skipped = Some(SeratoSkip::Ogg);
             return Ok(report);
         }
         TagFormat::Id3v2 => Container::Id3,

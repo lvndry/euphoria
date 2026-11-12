@@ -27,6 +27,11 @@ impl ContentHash {
         &self.0
     }
 
+    /// The hash as 64 lowercase hexadecimal digits, as `b3sum` prints it.
+    pub fn to_hex(&self) -> String {
+        blake3::Hash::from_bytes(self.0).to_hex().to_string()
+    }
+
     pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }

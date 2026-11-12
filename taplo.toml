@@ -1,5 +1,5 @@
 include = ["**/*.toml"]
-exclude = ["target/**", "bench/data/**"]
+exclude = ["target/**", "bench/data/**", "crates/euphoria-core/vendor/**"]
 
 [formatting]
 align_comments = false

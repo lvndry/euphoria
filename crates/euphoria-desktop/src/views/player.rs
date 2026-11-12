@@ -111,7 +111,8 @@ pub(crate) fn seek_on_press_and_drag(
             }),
         )
         .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _, cx| {
-            if event.pressed_button == Some(MouseButton::Left) {
+            // A cue dragged across the strip moves the cue, not playing.
+            if event.pressed_button == Some(MouseButton::Left) && this.cue_editor.drag.is_none() {
                 this.seek_to_pointer(event.position.x, &bounds_on_drag, cx);
             }
         }))
