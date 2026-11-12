@@ -54,7 +54,7 @@ impl Features {
 
 /// The lowest bin centre, four semitones below C1, as drone computes it.
 fn lowest_frequency() -> f64 {
-    let c1 = 16.351_597_933_828_117 * 2.0_f64.powf(12.0 / 12.0);
+    let c1 = 16.351_597_933_828_117 * 2.0;
     c1 * 2.0_f64.powf(-4.0 / 12.0)
 }
 
@@ -276,9 +276,10 @@ pub(super) fn features(samples: Vec<f32>) -> Features {
 
     let frame_count = responses.iter().map(Vec::len).min().unwrap_or(0);
     let mut values = Vec::with_capacity(CORE_BINS * frame_count);
-    for bin in FIRST_CORE_BIN..FIRST_CORE_BIN + CORE_BINS {
-        let scale = 1.0 / plan.lengths[bin].sqrt();
-        values.extend(responses[bin][..frame_count].iter().map(|magnitude| {
+    let core = FIRST_CORE_BIN..FIRST_CORE_BIN + CORE_BINS;
+    for (response, length) in responses[core.clone()].iter().zip(&plan.lengths[core]) {
+        let scale = 1.0 / length.sqrt();
+        values.extend(response[..frame_count].iter().map(|magnitude| {
             round_to_half_precision((f64::from(*magnitude) * scale).ln_1p() as f32)
         }));
     }
@@ -362,7 +363,7 @@ mod tests {
         assert_eq!(round_to_half_precision(1.0), 1.0);
         assert_eq!(round_to_half_precision(1.000_4), 1.0);
         assert_eq!(round_to_half_precision(1.000_6), 1.000_976_6);
-        assert_eq!(round_to_half_precision(3.141_592_7), 3.140_625);
+        assert_eq!(round_to_half_precision(3.3), 3.300_781_3);
         assert_eq!(round_to_half_precision(0.0), 0.0);
         assert_eq!(round_to_half_precision(1e-7), 1.192_092_9e-7);
     }

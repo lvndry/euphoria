@@ -25,14 +25,50 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 
 | | Key exact | Key MIREX score | Tempo Accuracy 1 | Tempo Accuracy 2 | CPU seconds per track |
 | --- | --- | --- | --- | --- | --- |
-| libkeyfinder with tuning correction, key | 60.6% | 69.4% | | | 0.26 |
+| drone-v1, key | 68.4% | 74.7% | | | DRONE_CPU |
+| libkeyfinder with tuning correction, key | 60.6% | 69.4% | | | KEYFINDER_CPU |
 | stratum-dsp, key | 30.6% | 45.4% | | | 2.21 |
 | stratum-dsp, tempo | | | 77.6% | 85.5% | 0.38 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
 
-Euphoria uses libkeyfinder for key, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+Euphoria decides the key with [drone-v1](#key-detection-with-drone-v1), a small neural network, and uses libkeyfinder, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, to measure the tuning and follow the key over time. Tempo comes from stratum-dsp. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
-![How the detected key compares with the annotated key on the 604 previews: exact for 60.6%, a fifth away for 11.3%, the relative key for 6.8%, the parallel key for 5.5% and another key for 15.9%. Exact, a fifth away and the relative key still mix in key.](../images/accuracy/key-outcomes.svg)
+![How the key drone-v1 detects compares with the annotated key on the 604 previews, against libkeyfinder: exact for 68.4% against 60.6%, a fifth away for 6.6% against 11.3%, the relative key for 7.5% against 6.8%, the parallel key for 4.0% against 5.5% and another key for 13.6% against 15.9%.](../images/accuracy/key-outcomes.svg)
+
+## Key detection with drone-v1
+
+drone-v1 is a convolutional network of 109,128 parameters, trained by the Euphoria project ([source](https://github.com/lvndry/drone), [model card](https://huggingface.co/lvndry/drone)) on 1,237 two minute previews from the Beatport EDM Key dataset and chosen on 126 more. It reads a constant-Q spectrogram of the whole track, 24 bins per octave over eight octaves from C1, and scores all 24 keys. GiantSteps Key was held out: it was never used to train the network or to choose it.
+
+![Exact and MIREX score of drone-v1 and libkeyfinder on the 604 GiantSteps Key previews: drone-v1 68.4% and 74.7%, libkeyfinder 60.6% and 69.4%.](../images/accuracy/key-detectors.svg)
+
+| On the 604 previews | Exact | Fifth | Relative | Parallel | Other | MIREX score |
+| --- | --- | --- | --- | --- | --- | --- |
+| drone-v1, as Euphoria ships it | 68.4% | 6.6% | 7.5% | 4.0% | 13.6% | 74.7% |
+| libkeyfinder with tuning correction, as Euphoria used it before | 60.6% | 11.3% | 6.8% | 5.5% | 15.9% | 69.4% |
+
+The difference is not chance. drone-v1 has the exact key on 78 previews where libkeyfinder does not, and libkeyfinder on 31 where drone-v1 does not (a sign test gives p < 0.0001). Resampling the previews 20,000 times, the gain lies between 2.8 and 7.9 points of MIREX score and between 4.5 and 11.1 points of exact matches 95% of the time. Most of the gain is fifths turned into exact matches.
+
+### Combining the two
+
+Using libkeyfinder's key when the network is unsure was tried, with the threshold chosen on every other preview and checked on the rest. On the held out half it changed the MIREX score by +0.2 points (95% interval −0.8 to +1.2), which is noise, so the network decides alone. When the two agree, on 436 previews, the key is exact 76.8% of the time.
+
+### Running it in Euphoria
+
+The network and the spectrogram run inside Euphoria in plain Rust, with no inference library, GPU or download: the weights, 441 KB, are compiled into the program. The Rust spectrogram reproduces drone's own Python code, which uses librosa: given the same audio, the features differ by at most 0.002 (one step of the 16 bit floats drone stores them in), and the 604 predictions are identical. Through Euphoria's own decoder, 603 of the 604 agree with drone's, which decodes with ffmpeg. The scores above are Euphoria's.
+
+`--key-engine` on the [command line](../reference/cli.md#options) chooses the detector: `auto`, the default, as described here; `drone`, the network alone, which saves libkeyfinder's time and gives no key over time; or `keyfinder`, libkeyfinder alone, as before. When the network finds no key, as in audio shorter than about 1.5 seconds, `auto` falls back to libkeyfinder.
+
+### What the benchmark does and does not show
+
+GiantSteps Key is two minute previews of electronic dance music from Beatport, and so is the music drone-v1 learned from. The network was chosen without GiantSteps, but dance music is all it has seen. That has three consequences:
+
+- On other genres, such as pop, rock, jazz or classical music, it is not measured here. On FMAK, a set of 5,489 songs of 17 genres, the drone project measured an earlier, different network about 14 points of MIREX score below libkeyfinder, so a gain on dance music is no promise elsewhere. drone-v1 itself has not been measured on FMAK or any other genre.
+- On full length tracks it is not measured. The network averages over the whole track, so long intros and breakdowns count, which the previews do not have.
+- Tracks tuned away from 440 Hz are rare in the training data and the benchmark. The network sees absolute pitch and is not corrected for tuning, unlike libkeyfinder.
+
+### Cost
+
+On the machine the benchmark ran on, an Apple Silicon Mac with 24 GB of memory shared with other work, the network and its spectrogram take DRONE_CPU CPU seconds per two minute preview on one thread, against KEYFINDER_CPU for libkeyfinder. `auto` runs both. RESOURCE_PARAGRAPH
 
 ## How the tempo is chosen
 
@@ -64,6 +100,20 @@ Every key and every tempo is rated high, medium or low, for how far to trust it,
 
 ### Key confidence
 
+drone-v1 gives every key a probability, and the confidence is how far the probability of the key is above the runner up's. The band edges were set the same way as for libkeyfinder below, on every other preview: low below a margin of 0.25 and high from 0.80.
+
+| drone-v1 key confidence | Share of the held out half | Exact | MIREX score | Key or runner up exact |
+| --- | --- | --- | --- | --- |
+| High | 38% | 77.2% | 81.0% | 82.5% |
+| Medium | 41% | 72.4% | 77.3% | 83.7% |
+| Low | 22% | 43.1% | 52.3% | 66.2% |
+
+![How often the drone-v1 key is exact on the held out half at each confidence: 77.2% of keys rated high, 72.4% of keys rated medium and 43.1% of keys rated low, against 68.4% of all 604 previews.](../images/accuracy/key-confidence.svg)
+
+On the half the edges were set on, the bands are right 88.5%, 64.7% and 37.7% of the time, so high and medium are closer apart on unseen previews than the first half suggests. Low is what to check by ear: less than half of those keys are right. Of the 191 previews whose drone-v1 key is wrong, the runner up is the annotated key for 69.
+
+The rest of this section describes libkeyfinder's confidence, which `--key-engine keyfinder` uses.
+
 libkeyfinder scores every one of the 24 keys against a track, and the key is the best score. The confidence is how far that score is above the runner up's: when two keys score almost the same, the detector had little to choose between them. Of the measures tried, this margin separated right keys from wrong ones best (on the first half of the previews, a right key has the larger margin 70% of the time), better than the score of the key itself (58%).
 
 The band edges were set on every other preview in name order and checked on the others. On that first half, the fifth of previews with the smallest margins became low and the two fifths with the largest became high, which with the edges rounded is low below a margin of 0.003 and high from 0.011.
@@ -73,8 +123,6 @@ The band edges were set on every other preview in name order and checked on the 
 | High | 40% | 74.2% | 78.9% | 81.7% |
 | Medium | 40% | 57.0% | 67.6% | 78.5% |
 | Low | 20% | 41.0% | 53.0% | 68.9% |
-
-![How often the key is exact on the held out half at each confidence: 74.2% of keys rated high, 57.0% of keys rated medium and 41.0% of keys rated low, against 60.6% of all 604 previews.](../images/accuracy/key-confidence.svg)
 
 On the half the edges were set on, the same bands are right 77.2%, 55.8% and 35.6% of the time. So a key rated high is right about three times in four, and one rated low less than half the time.
 
@@ -106,7 +154,7 @@ The span was chosen on the first half, where it resolves 24 of its 26 octave err
 
 ### What the confidence does and does not show
 
-The bands are set on two minute previews of electronic dance music. On other music the margins may sit elsewhere, so the share of tracks in each band will differ, though a larger margin should still mean a more reliable answer. The levels are worked out from the stored margins each time a result is shown, so new band edges would not need a new analysis. Tracks with no key or no tempo, such as silence, have no rating. Builds without libkeyfinder rate the tempo but not the key, since stratum-dsp does not rank keys.
+The bands are set on two minute previews of electronic dance music. On other music the margins may sit elsewhere, so the share of tracks in each band will differ, though a larger margin should still mean a more reliable answer. The levels are worked out from the stored margins each time a result is shown, so new band edges would not need a new analysis. Tracks with no key or no tempo, such as silence, have no rating. Builds with neither drone-v1 nor libkeyfinder rate the tempo but not the key, since stratum-dsp does not rank keys.
 
 Rating costs no measurable time, since both margins come from scores the detectors already compute. The figures for every band on both halves, and the cost measured before and after, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md#confidence).
 

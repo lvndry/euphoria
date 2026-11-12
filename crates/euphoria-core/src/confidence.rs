@@ -10,7 +10,7 @@ use crate::key_engine::KeySource;
 /// Each level comes from how clearly the detector preferred its answer to
 /// the next best one, with band edges set on half of the GiantSteps previews
 /// and checked on the other half. On that other half, a drone-v1 key rated
-/// high was exactly right 78% of the time, medium 72% and low 43%; a
+/// high was exactly right 77% of the time, medium 72% and low 43%; a
 /// libkeyfinder key 74%, 57% and 41%; a tempo rated high was right modulo
 /// octaves 98% of the time, medium 90% and low 63%.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

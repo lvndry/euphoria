@@ -66,6 +66,10 @@ pitch-shift = ["dep:cc"]
 # which is linked statically and adds tens of megabytes to the binary.
 stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
 
+[[example]]
+name = "drone_features"
+required-features = ["drone"]
+
 [build-dependencies]
 cc = { workspace = true, optional = true }
 pkg-config = { workspace = true, optional = true }

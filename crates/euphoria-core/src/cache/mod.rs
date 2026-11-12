@@ -1056,7 +1056,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1075,7 +1075,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1280,7 +1280,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1303,7 +1303,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1329,7 +1329,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1361,7 +1361,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL,
-                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL)"
+                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1386,7 +1386,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1419,7 +1419,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 9);
+        assert_eq!(SCHEMA_VERSION, 10);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1462,7 +1462,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 9);
+        assert_eq!(SCHEMA_VERSION, 10);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1516,7 +1516,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 9);
+        assert_eq!(SCHEMA_VERSION, 10);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1581,7 +1581,7 @@ mod tests {
                     &format!(
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues})"
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1604,7 +1604,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();

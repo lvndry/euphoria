@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="336" viewBox="0 0 800 336" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="404" viewBox="0 0 800 404" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">What the detected key is, against the annotated one</title>
-<desc id="chart-desc">Horizontal bars of how the key Euphoria detects compares with the annotated key on the 604 GiantSteps Key previews: exact for 60.6%, a fifth away for 11.3%, the relative key for 6.8%, the parallel key for 5.5% and something else for 15.9%. A bracket marks exact, a fifth away and relative as the outcomes that still mix in key.</desc>
+<desc id="chart-desc">Paired horizontal bars of how the detected key compares with the annotated key on the 604 GiantSteps Key previews, drone-v1 against libkeyfinder: exact 68.4% against 60.6%, a fifth away 6.6% against 11.3%, the relative key 7.5% against 6.8%, the parallel key 4.0% against 5.5%, and another key 13.6% against 15.9%.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -30,34 +30,45 @@
   .ring, .halo { stroke: #1a1a19; }
 }
 </style>
-<rect x="0.5" y="0.5" width="799" height="335" rx="12" class="surface"/>
+<rect x="0.5" y="0.5" width="799" height="403" rx="12" class="surface"/>
 <text x="24" y="36" class="title" text-anchor="start">What the detected key is, against the annotated one</text>
 <text x="24" y="58" class="subtitle" text-anchor="start">604 GiantSteps Key previews. The MIREX score counts exact 1.0, a fifth 0.5, relative 0.3, parallel 0.2.</text>
-<line x1="150" y1="92" x2="150" y2="272" class="axis"/>
-<text x="150" y="292" class="tick" text-anchor="middle">0%</text>
-<line x1="290" y1="92" x2="290" y2="272" class="grid"/>
-<text x="290" y="292" class="tick" text-anchor="middle">20%</text>
-<line x1="430" y1="92" x2="430" y2="272" class="grid"/>
-<text x="430" y="292" class="tick" text-anchor="middle">40%</text>
-<line x1="570" y1="92" x2="570" y2="272" class="grid"/>
-<text x="570" y="292" class="tick" text-anchor="middle">60%</text>
-<text x="360" y="316" class="label" text-anchor="middle">Share of the previews</text>
-<text x="136" y="114.5" class="label" text-anchor="end">Exact</text>
-<path class="series-fill" d="M150,100 H570.2 Q574.2,100 574.2,104 V116 Q574.2,120 570.2,120 H150 Z"/>
-<text x="584.2" y="114.5" class="value halo" text-anchor="start">60.6%</text>
-<text x="136" y="150.5" class="label" text-anchor="end">A fifth away</text>
-<path class="series-fill" d="M150,136 H225.1 Q229.1,136 229.1,140 V152 Q229.1,156 225.1,156 H150 Z"/>
-<text x="239.1" y="150.5" class="value halo" text-anchor="start">11.3%</text>
-<text x="136" y="186.5" class="label" text-anchor="end">Relative key</text>
-<path class="series-fill" d="M150,172 H193.6 Q197.6,172 197.6,176 V188 Q197.6,192 193.6,192 H150 Z"/>
-<text x="207.6" y="186.5" class="value halo" text-anchor="start">6.8%</text>
-<text x="136" y="222.5" class="label" text-anchor="end">Parallel key</text>
-<path class="series-fill" d="M150,208 H184.5 Q188.5,208 188.5,212 V224 Q188.5,228 184.5,228 H150 Z"/>
-<text x="198.5" y="222.5" class="value halo" text-anchor="start">5.5%</text>
-<text x="136" y="258.5" class="label" text-anchor="end">Other</text>
-<path class="series-fill" d="M150,244 H257.3 Q261.3,244 261.3,248 V260 Q261.3,264 257.3,264 H150 Z"/>
-<text x="271.3" y="258.5" class="value halo" text-anchor="start">15.9%</text>
-<polyline points="652,100 660,100 660,192 652,192" class="bracket"/>
-<text x="670" y="142" class="label" text-anchor="start">Mixes</text>
-<text x="670" y="159" class="label" text-anchor="start">in key</text>
+<circle cx="30" cy="86" r="6" class="series-1-fill ring"/>
+<text x="44" y="90" class="label" text-anchor="start">drone-v1, as Euphoria ships it</text>
+<circle cx="270" cy="86" r="6" class="series-2-fill ring"/>
+<text x="284" y="90" class="label" text-anchor="start">libkeyfinder, as before</text>
+<line x1="150" y1="120" x2="150" y2="340" class="axis"/>
+<text x="150" y="360" class="tick" text-anchor="middle">0%</text>
+<line x1="290" y1="120" x2="290" y2="340" class="grid"/>
+<text x="290" y="360" class="tick" text-anchor="middle">20%</text>
+<line x1="430" y1="120" x2="430" y2="340" class="grid"/>
+<text x="430" y="360" class="tick" text-anchor="middle">40%</text>
+<line x1="570" y1="120" x2="570" y2="340" class="grid"/>
+<text x="570" y="360" class="tick" text-anchor="middle">60%</text>
+<text x="360" y="384" class="label" text-anchor="middle">Share of the previews</text>
+<text x="136" y="146.5" class="label" text-anchor="end">Exact</text>
+<path class="series-1-fill" d="M150,127 H624.8 Q628.8,127 628.8,131 V137 Q628.8,141 624.8,141 H150 Z"/>
+<text x="636.8" y="138.5" class="value halo" text-anchor="start">68.4%</text>
+<path class="series-2-fill" d="M150,143 H570.2 Q574.2,143 574.2,147 V153 Q574.2,157 570.2,157 H150 Z"/>
+<text x="582.2" y="154.5" class="value halo" text-anchor="start">60.6%</text>
+<text x="136" y="190.5" class="label" text-anchor="end">A fifth away</text>
+<path class="series-1-fill" d="M150,171 H192.2 Q196.2,171 196.2,175 V181 Q196.2,185 192.2,185 H150 Z"/>
+<text x="204.2" y="182.5" class="value halo" text-anchor="start">6.6%</text>
+<path class="series-2-fill" d="M150,187 H225.1 Q229.1,187 229.1,191 V197 Q229.1,201 225.1,201 H150 Z"/>
+<text x="237.1" y="198.5" class="value halo" text-anchor="start">11.3%</text>
+<text x="136" y="234.5" class="label" text-anchor="end">Relative key</text>
+<path class="series-1-fill" d="M150,215 H198.5 Q202.5,215 202.5,219 V225 Q202.5,229 198.5,229 H150 Z"/>
+<text x="210.5" y="226.5" class="value halo" text-anchor="start">7.5%</text>
+<path class="series-2-fill" d="M150,231 H193.6 Q197.6,231 197.6,235 V241 Q197.6,245 193.6,245 H150 Z"/>
+<text x="205.6" y="242.5" class="value halo" text-anchor="start">6.8%</text>
+<text x="136" y="278.5" class="label" text-anchor="end">Parallel key</text>
+<path class="series-1-fill" d="M150,259 H174 Q178,259 178,263 V269 Q178,273 174,273 H150 Z"/>
+<text x="186" y="270.5" class="value halo" text-anchor="start">4.0%</text>
+<path class="series-2-fill" d="M150,275 H184.5 Q188.5,275 188.5,279 V285 Q188.5,289 184.5,289 H150 Z"/>
+<text x="196.5" y="286.5" class="value halo" text-anchor="start">5.5%</text>
+<text x="136" y="322.5" class="label" text-anchor="end">Other</text>
+<path class="series-1-fill" d="M150,303 H241.2 Q245.2,303 245.2,307 V313 Q245.2,317 241.2,317 H150 Z"/>
+<text x="253.2" y="314.5" class="value halo" text-anchor="start">13.6%</text>
+<path class="series-2-fill" d="M150,319 H257.3 Q261.3,319 261.3,323 V329 Q261.3,333 257.3,333 H150 Z"/>
+<text x="269.3" y="330.5" class="value halo" text-anchor="start">15.9%</text>
 </svg>

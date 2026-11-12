@@ -114,8 +114,10 @@ fn read_safetensors(bytes: &[u8]) -> Result<(Tensors, HashMap<String, String>), 
             .filter(|raw| raw.len() == element_count * 4)
             .ok_or_else(|| invalid(format!("tensor {name} does not fit its offsets")))?;
         let values = raw
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|chunk| f32::from_le_bytes(*chunk))
             .collect();
         tensors.insert(name, (entry.shape, values));
     }
@@ -264,9 +266,9 @@ impl Network {
                 &features[row * frame_count + columns.start..row * frame_count + columns.end];
             activations.row_mut(0, row).copy_from_slice(source);
         }
-        for pair in self.convolutions.chunks_exact(2) {
-            activations = pair[0].apply(&activations);
-            activations = pair[1].apply(&activations);
+        for [first, second] in self.convolutions.as_chunks::<2>().0 {
+            activations = first.apply(&activations);
+            activations = second.apply(&activations);
             activations = activations.max_pooled();
         }
         activations
@@ -443,7 +445,7 @@ mod tests {
                         / columns as f32
                 })
                 .collect();
-            for key in 0..KEY_COUNT {
+            for (key, streamed_logit) in streamed.iter().enumerate() {
                 let expected: f32 = network.head_bias[key]
                     + network.head_weights[key * means.len()..(key + 1) * means.len()]
                         .iter()
@@ -451,7 +453,7 @@ mod tests {
                         .map(|(weight, mean)| weight * mean)
                         .sum::<f32>();
                 assert!(
-                    (streamed[key] - expected).abs() < 1e-3,
+                    (streamed_logit - expected).abs() < 1e-3,
                     "{frame_count} {key}"
                 );
             }
