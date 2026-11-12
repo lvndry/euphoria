@@ -642,12 +642,12 @@ fn check_output_is_not_a_collection(
 /// Removes the tracks at `paths` from the collection and from every
 /// playlist of `library`, and returns how many tracks it removed.
 fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
-    fn from_nodes(nodes: &mut [PlaylistNode], paths: &HashSet<PathBuf>) {
+    fn from_nodes(nodes: &mut [PlaylistNode], is_cued: &impl Fn(&Path) -> bool) {
         for node in nodes {
             match node {
-                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, paths),
+                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, is_cued),
                 PlaylistNode::Playlist(playlist) => {
-                    playlist.tracks.retain(|path| !paths.contains(path));
+                    playlist.tracks.retain(|path| !is_cued(path));
                 }
             }
         }
@@ -655,9 +655,19 @@ fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
     if paths.is_empty() {
         return 0;
     }
+    // A collection may list a file by the path its symbolic links lead to
+    // while the library reached it through a link, or the other way round.
+    // Comparing both spellings keeps a track with cues from being exported
+    // over them.
+    let is_cued = |path: &Path| {
+        paths.contains(path)
+            || path
+                .canonicalize()
+                .is_ok_and(|resolved| paths.contains(&resolved))
+    };
     let before = library.tracks.len();
-    library.tracks.retain(|track| !paths.contains(&track.path));
-    from_nodes(&mut library.playlists, paths);
+    library.tracks.retain(|track| !is_cued(&track.path));
+    from_nodes(&mut library.playlists, &is_cued);
     before - library.tracks.len()
 }
 
