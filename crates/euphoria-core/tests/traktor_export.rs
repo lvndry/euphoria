@@ -609,6 +609,40 @@ fn libraries_traktor_cannot_hold_are_refused() {
     );
 }
 
+#[test]
+fn a_tempo_that_writes_zero_at_six_decimals_is_refused() {
+    for bpm in [
+        0.0,
+        -120.0,
+        0.000_000_1,
+        0.000_000_4_9,
+        f64::MIN_POSITIVE,
+        f64::INFINITY,
+    ] {
+        assert_eq!(
+            refusal(&one_track(Track {
+                bpm: Some(bpm),
+                ..Track::new("/a.mp3", Duration::from_secs(10))
+            }))
+            .1,
+            ExportProblem::InvalidTempo,
+            "{bpm}"
+        );
+    }
+
+    let mut output = Vec::new();
+    let tempo = Track {
+        bpm: Some(0.01),
+        ..Track::new("/a.mp3", Duration::from_secs(10))
+    };
+    write_nml(&mut output, &one_track(tempo), &options()).unwrap();
+    assert!(
+        String::from_utf8(output)
+            .unwrap()
+            .contains("BPM=\"0.010000\"")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn a_file_name_xml_cannot_represent_is_refused_instead_of_changed() {

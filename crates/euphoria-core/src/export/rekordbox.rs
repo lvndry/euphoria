@@ -423,7 +423,7 @@ fn push_track(
         .ok_or_else(|| export_error(&track.path, ExportProblem::NotAbsolutePath))?;
     let tempo = match track.bpm {
         Some(bpm) => Some(
-            tempo_text(bpm)
+            tempo_text(bpm, 2)
                 .ok_or_else(|| export_error(&track.path, ExportProblem::InvalidTempo))?,
         ),
         None => None,
@@ -555,13 +555,13 @@ fn seconds(position: Duration) -> String {
     format!("{:.3}", position.as_secs_f64())
 }
 
-/// The tempo with two decimals, or `None` when it is not a number or is
-/// written as zero or less at that precision.
-fn tempo_text(bpm: f64) -> Option<String> {
+/// The tempo with `decimals` decimals, or `None` when it is not a number
+/// or is written as zero or less at that precision.
+pub(crate) fn tempo_text(bpm: f64, decimals: usize) -> Option<String> {
     if !(bpm.is_finite() && bpm > 0.0) {
         return None;
     }
-    let text = format!("{bpm:.2}");
+    let text = format_args!("{bpm:.prec$}", prec = decimals).to_string();
     text.contains(|digit: char| ('1'..='9').contains(&digit))
         .then_some(text)
 }

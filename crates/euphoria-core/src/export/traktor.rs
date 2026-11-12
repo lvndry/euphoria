@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::rekordbox::{
     CueKind, CuePoint, ExistingFile, Library, MAX_FOLDER_DEPTH, PlaylistNode, Track, export_error,
-    push_attribute, write_file,
+    push_attribute, tempo_text, write_file,
 };
 use crate::error::{EuphoriaError, ExportProblem};
 use crate::key::{Key, Mode};
@@ -330,13 +330,10 @@ fn push_entry(
     options: &TraktorOptions,
 ) -> Result<(), EuphoriaError> {
     let tempo = match track.bpm {
-        Some(bpm) => {
-            let text = format!("{bpm:.6}");
-            if !(bpm.is_finite() && bpm > 0.0) || text == "0.000000" {
-                return Err(export_error(&track.path, ExportProblem::InvalidTempo));
-            }
-            Some(text)
-        }
+        Some(bpm) => Some(
+            tempo_text(bpm, 6)
+                .ok_or_else(|| export_error(&track.path, ExportProblem::InvalidTempo))?,
+        ),
         None => None,
     };
     if track
