@@ -26,9 +26,11 @@ const DATABASE_FILE_NAME: &str = "playlists.sqlite3";
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-const SCHEMA_VERSION: u32 = 1;
-
-const SCHEMA: &str = "
+/// The changes that build the database, one per schema version, applied in
+/// order. Each entry is applied once, inside the transaction that records
+/// its version.
+const MIGRATIONS: [&str; 2] = [
+    "
     CREATE TABLE playlists (
         position INTEGER NOT NULL PRIMARY KEY,
         name     TEXT    NOT NULL,
@@ -42,7 +44,11 @@ const SCHEMA: &str = "
         path              TEXT    NOT NULL,
         PRIMARY KEY (playlist_position, position)
     ) WITHOUT ROWID;
-";
+    ",
+    crate::favorites::FAVORITES_MIGRATION,
+];
+
+const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 
 /// One track of a playlist: the content of its file and where that file was
 /// last seen.
@@ -130,12 +136,13 @@ pub fn default_playlists_path() -> Result<PathBuf, EuphoriaError> {
 /// The playlists database.
 #[derive(Debug)]
 pub struct PlaylistStore {
-    connection: Connection,
-    path: PathBuf,
+    pub(crate) connection: Connection,
+    pub(crate) path: PathBuf,
 }
 
 impl PlaylistStore {
-    /// Keeps playlist identity in step with a known safe metadata rewrite.
+    /// Keeps playlist and favorite identity in step with a known safe
+    /// metadata rewrite.
     /// Both hashes must be captured around that operation; this must never
     /// be used to infer a rewrite from an arbitrary changed file. Only rows
     /// holding `before` at `path`, or at a now missing path, are rebound.
@@ -182,6 +189,10 @@ impl PlaylistStore {
                 changed.push((original, entry));
             }
         }
+        changed.extend(
+            crate::favorites::rebind_rewritten_favorites(&transaction, &path, before, after)
+                .map_err(store_error(&self.path))?,
+        );
         transaction.commit().map_err(store_error(&self.path))?;
         Ok(changed)
     }
@@ -444,19 +455,28 @@ pub fn locate_moved_files(
     (moved, not_found)
 }
 
+#[cfg(test)]
+pub(crate) fn first_migration_for_tests() -> &'static str {
+    MIGRATIONS[0]
+}
+
 fn prepare(connection: &mut Connection) -> rusqlite::Result<u32> {
     connection.pragma_update(None, "foreign_keys", "ON")?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let applied: u32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if applied == 0 {
-        transaction.execute_batch(SCHEMA)?;
+    if applied < SCHEMA_VERSION {
+        for migration in MIGRATIONS.iter().skip(applied as usize) {
+            transaction.execute_batch(migration)?;
+        }
         transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     transaction.commit()?;
     Ok(applied.max(SCHEMA_VERSION))
 }
 
-fn store_error<Cause: Into<ErrorSource>>(path: &Path) -> impl Fn(Cause) -> EuphoriaError {
+pub(crate) fn store_error<Cause: Into<ErrorSource>>(
+    path: &Path,
+) -> impl Fn(Cause) -> EuphoriaError {
     move |cause| EuphoriaError::Playlists {
         path: path.to_path_buf(),
         source: cause.into(),

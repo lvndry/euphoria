@@ -20,6 +20,7 @@ use crate::format;
 use crate::player::fraction_along;
 use crate::theme::Palette;
 use crate::track_overview::EnergyCurve;
+use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::tag_panel::choice_button;
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
@@ -174,6 +175,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             DeckMode::NextTrack => suggestions(app, cx),
             DeckMode::Mashup => mashup::ideas(app, cx),
         })
+        .children(favorites::deck_transition(app, cx))
 }
 
 fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
@@ -242,6 +244,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .font_weight(FontWeight::MEDIUM)
                 .child(title),
         )
+        .children(favorites::deck_star(app, deck, cx))
         .children(tempo.map(|tempo| {
             let out_of_reach = view.tempo_out_of_reach;
             div()
@@ -655,6 +658,20 @@ fn suggestion_rows(app: &EuphoriaApp, heading: Div, cx: &mut Context<'_, Euphori
                 .rounded(px(4.0))
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover_background))
+                .child(
+                    div()
+                        .id(("suggestion-favorite", track_index))
+                        .w(px(14.0))
+                        .flex_shrink_0()
+                        .when(suggestion.is_favorite, |mark| {
+                            mark.child(favorites::star_icon(true, &palette)).tooltip(
+                                |window, cx| {
+                                    Tooltip::new("A transition you marked as a favorite")
+                                        .build(window, cx)
+                                },
+                            )
+                        }),
+                )
                 .child(
                     div().w(px(38.0)).flex_shrink_0().children(
                         track

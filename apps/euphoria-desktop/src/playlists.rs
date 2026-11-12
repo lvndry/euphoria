@@ -12,7 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use euphoria_core::{ContentHash, Key, PlaylistEntry, StoredPlaylist};
+use euphoria_core::{ContentHash, EuphoriaError, Key, PlaylistEntry, StoredPlaylist};
 
 use crate::mixes::compatible_keys;
 
@@ -119,20 +119,23 @@ impl Playlists {
 
     /// The playlists to keep, with the content of every track that has one:
     /// those already known and those `content_of` works out. A track whose
-    /// content cannot be worked out, such as a file that has gone before it
-    /// was ever read, is left out of what is kept.
+    /// file has gone before it was ever read, for which `content_of` gives
+    /// `None`, is left out of what is kept. An error from `content_of`, such
+    /// as a file that is there but cannot be read, stops the save, so the
+    /// playlists kept before are not replaced by ones missing that track.
     pub(crate) fn stored_with_contents(
         &mut self,
-        mut content_of: impl FnMut(&Path) -> Option<ContentHash>,
-    ) -> Vec<StoredPlaylist> {
+        mut content_of: impl FnMut(&Path) -> Result<Option<ContentHash>, EuphoriaError>,
+    ) -> Result<Vec<StoredPlaylist>, EuphoriaError> {
         for path in self.items.iter().flat_map(|playlist| &playlist.tracks) {
             if !self.contents.contains_key(path)
-                && let Some(content) = content_of(path)
+                && let Some(content) = content_of(path)?
             {
                 self.contents.insert(path.clone(), content);
             }
         }
-        self.items
+        Ok(self
+            .items
             .iter()
             .map(|playlist| StoredPlaylist {
                 name: playlist.name.clone(),
@@ -148,7 +151,7 @@ impl Playlists {
                     })
                     .collect(),
             })
-            .collect()
+            .collect())
     }
 
     /// The content of the file at `path` when it was added, when known.
@@ -518,10 +521,12 @@ mod tests {
         playlists.set_label(id, Some(LABELS[0]));
         playlists.add_tracks(id, &paths(&["a", "gone", "b"]));
         let mut reads = Vec::new();
-        let stored = playlists.stored_with_contents(|path| {
-            reads.push(path.to_path_buf());
-            (!path.ends_with("gone.mp3")).then(|| fake_content(path))
-        });
+        let stored = playlists
+            .stored_with_contents(|path| {
+                reads.push(path.to_path_buf());
+                Ok((!path.ends_with("gone.mp3")).then(|| fake_content(path)))
+            })
+            .unwrap();
         assert_eq!(reads.len(), 3);
         assert_eq!(
             stored[0].entries.len(),
@@ -530,10 +535,12 @@ mod tests {
         );
 
         let mut asked_again = Vec::new();
-        let again = playlists.stored_with_contents(|path| {
-            asked_again.push(path.to_path_buf());
-            None
-        });
+        let again = playlists
+            .stored_with_contents(|path| {
+                asked_again.push(path.to_path_buf());
+                Ok(None)
+            })
+            .unwrap();
         assert_eq!(
             asked_again,
             paths(&["gone"]),
