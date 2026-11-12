@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="628" viewBox="0 0 800 628" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="646" viewBox="0 0 800 646" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">The crates of the workspace</title>
-<desc id="chart-desc">Three crates, euphoria-cli, euphoria-desktop, euphoria-bench, each point down to euphoria-core, and none to another. euphoria-core holds all product logic in its modules. Find and decode: library, audio, audio_stream, track_name; Analyze: analysis, detect, key, confidence, tempo_range, energy, quality; Keep and share: cache, correction, playlists, harmony, tags, export. Its main libraries are libkeyfinder, stratum-dsp, Symphonia, blake3, rusqlite, ebur128, rustfft; libkeyfinder, a C++ library, is drawn dashed because it is behind the optional libkeyfinder feature, on by default.</desc>
+<desc id="chart-desc">Three crates, euphoria-cli in apps/euphoria-cli, euphoria-desktop in apps/euphoria-desktop, euphoria-bench in crates/euphoria-bench, each point down to euphoria-core, and none to another. euphoria-core, in crates/euphoria-core, holds all product logic in its modules. Find and decode: library, audio, audio_stream, track_name; Analyze: analysis, detect, key, confidence, tempo_range, energy, quality; Keep and share: cache, correction, playlists, harmony, tags, export. Its main libraries are libkeyfinder, stratum-dsp, Symphonia, blake3, rusqlite, ebur128, rustfft; libkeyfinder, a C++ library, is drawn dashed because it is behind the optional libkeyfinder feature, on by default.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -25,70 +25,74 @@
   .arrow-head { fill: #898781; }
 }
 </style>
-<rect x="0.5" y="0.5" width="799" height="627" rx="12" class="surface"/>
+<rect x="0.5" y="0.5" width="799" height="645" rx="12" class="surface"/>
 <text x="24" y="36" class="title" text-anchor="start">The crates of the workspace</text>
-<text x="24" y="58" class="subtitle" text-anchor="start">Every front end depends on euphoria-core and none depends on another.</text>
-<rect x="24" y="84" width="240" height="72" rx="8" class="box"/>
+<text x="24" y="58" class="subtitle" text-anchor="start">Apps live in apps/, libraries and tools in crates/. Every front end depends on euphoria-core only.</text>
+<rect x="24" y="84" width="240" height="90" rx="8" class="box"/>
 <text x="40" y="110" class="name" text-anchor="start">euphoria-cli</text>
-<text x="40" y="130" class="label" text-anchor="start">The euphoria command</text>
-<text x="40" y="147" class="small" text-anchor="start">clap, indicatif, Rayon</text>
-<line x1="144" y1="156" x2="144" y2="187" class="arrow"/>
-<path d="M139,187 L149,187 L144,194 Z" class="arrow-head"/>
-<rect x="280" y="84" width="240" height="72" rx="8" class="box"/>
+<text x="40" y="128" class="module" text-anchor="start">apps/euphoria-cli</text>
+<text x="40" y="148" class="label" text-anchor="start">The euphoria command</text>
+<text x="40" y="165" class="small" text-anchor="start">clap, indicatif, Rayon</text>
+<line x1="144" y1="174" x2="144" y2="205" class="arrow"/>
+<path d="M139,205 L149,205 L144,212 Z" class="arrow-head"/>
+<rect x="280" y="84" width="240" height="90" rx="8" class="box"/>
 <text x="296" y="110" class="name" text-anchor="start">euphoria-desktop</text>
-<text x="296" y="130" class="label" text-anchor="start">The desktop app</text>
-<text x="296" y="147" class="small" text-anchor="start">GPUI, rodio, Rayon</text>
-<line x1="400" y1="156" x2="400" y2="187" class="arrow"/>
-<path d="M395,187 L405,187 L400,194 Z" class="arrow-head"/>
-<rect x="536" y="84" width="240" height="72" rx="8" class="box"/>
+<text x="296" y="128" class="module" text-anchor="start">apps/euphoria-desktop</text>
+<text x="296" y="148" class="label" text-anchor="start">The desktop app</text>
+<text x="296" y="165" class="small" text-anchor="start">GPUI, rodio, Rayon</text>
+<line x1="400" y1="174" x2="400" y2="205" class="arrow"/>
+<path d="M395,205 L405,205 L400,212 Z" class="arrow-head"/>
+<rect x="536" y="84" width="240" height="90" rx="8" class="box"/>
 <text x="552" y="110" class="name" text-anchor="start">euphoria-bench</text>
-<text x="552" y="130" class="label" text-anchor="start">Accuracy benchmark, not shipped</text>
-<text x="552" y="147" class="small" text-anchor="start">cpu-time, Rayon</text>
-<line x1="656" y1="156" x2="656" y2="187" class="arrow"/>
-<path d="M651,187 L661,187 L656,194 Z" class="arrow-head"/>
-<rect x="24" y="196" width="752" height="216" rx="8" class="core"/>
-<text x="40" y="222" class="name" text-anchor="start">euphoria-core</text>
-<text x="160" y="222" class="label" text-anchor="start">All product logic. No user interface, prints nothing.</text>
-<text x="40" y="252" class="group" text-anchor="start">Find and decode</text>
-<text x="40" y="274" class="module" text-anchor="start">library</text>
-<text x="40" y="294" class="module" text-anchor="start">audio</text>
-<text x="40" y="314" class="module" text-anchor="start">audio_stream</text>
-<text x="40" y="334" class="module" text-anchor="start">track_name</text>
-<text x="280" y="252" class="group" text-anchor="start">Analyze</text>
-<text x="280" y="274" class="module" text-anchor="start">analysis</text>
-<text x="280" y="294" class="module" text-anchor="start">detect</text>
-<text x="280" y="314" class="module" text-anchor="start">key</text>
-<text x="280" y="334" class="module" text-anchor="start">confidence</text>
-<text x="280" y="354" class="module" text-anchor="start">tempo_range</text>
-<text x="280" y="374" class="module" text-anchor="start">energy</text>
-<text x="280" y="394" class="module" text-anchor="start">quality</text>
-<text x="520" y="252" class="group" text-anchor="start">Keep and share</text>
-<text x="520" y="274" class="module" text-anchor="start">cache</text>
-<text x="520" y="294" class="module" text-anchor="start">correction</text>
-<text x="520" y="314" class="module" text-anchor="start">playlists</text>
-<text x="520" y="334" class="module" text-anchor="start">harmony</text>
-<text x="520" y="354" class="module" text-anchor="start">tags</text>
-<text x="520" y="374" class="module" text-anchor="start">export</text>
-<rect x="24" y="452" width="752" height="152" rx="8" class="box"/>
-<text x="40" y="474" class="label" text-anchor="start">The main libraries euphoria-core builds on</text>
-<line x1="400" y1="412" x2="400" y2="443" class="arrow"/>
-<path d="M395,443 L405,443 L400,450 Z" class="arrow-head"/>
-<rect x="36" y="480" width="237.33" height="52" rx="8" class="box box-optional"/>
-<text x="48" y="502" class="group" text-anchor="start">libkeyfinder</text>
-<text x="48" y="520" class="small" text-anchor="start">key, C++, optional</text>
-<rect x="281.33" y="480" width="237.33" height="52" rx="8" class="box"/>
-<text x="293.33" y="502" class="group" text-anchor="start">stratum-dsp</text>
-<text x="293.33" y="520" class="small" text-anchor="start">tempo</text>
-<rect x="526.67" y="480" width="237.33" height="52" rx="8" class="box"/>
-<text x="538.67" y="502" class="group" text-anchor="start">Symphonia</text>
-<text x="538.67" y="520" class="small" text-anchor="start">decoding</text>
-<rect x="36" y="540" width="237.33" height="52" rx="8" class="box"/>
-<text x="48" y="562" class="group" text-anchor="start">blake3</text>
-<text x="48" y="580" class="small" text-anchor="start">content hashes for the cache</text>
-<rect x="281.33" y="540" width="237.33" height="52" rx="8" class="box"/>
-<text x="293.33" y="562" class="group" text-anchor="start">rusqlite</text>
-<text x="293.33" y="580" class="small" text-anchor="start">the cache, SQLite</text>
-<rect x="526.67" y="540" width="237.33" height="52" rx="8" class="box"/>
-<text x="538.67" y="562" class="group" text-anchor="start">ebur128, rustfft</text>
-<text x="538.67" y="580" class="small" text-anchor="start">loudness, spectra</text>
+<text x="552" y="128" class="module" text-anchor="start">crates/euphoria-bench</text>
+<text x="552" y="148" class="label" text-anchor="start">Accuracy benchmark, not shipped</text>
+<text x="552" y="165" class="small" text-anchor="start">cpu-time, Rayon</text>
+<line x1="656" y1="174" x2="656" y2="205" class="arrow"/>
+<path d="M651,205 L661,205 L656,212 Z" class="arrow-head"/>
+<rect x="24" y="214" width="752" height="216" rx="8" class="core"/>
+<text x="40" y="240" class="name" text-anchor="start">euphoria-core</text>
+<text x="160" y="240" class="label" text-anchor="start">All product logic. No user interface, prints nothing.</text>
+<text x="760" y="240" class="module" text-anchor="end">crates/euphoria-core</text>
+<text x="40" y="270" class="group" text-anchor="start">Find and decode</text>
+<text x="40" y="292" class="module" text-anchor="start">library</text>
+<text x="40" y="312" class="module" text-anchor="start">audio</text>
+<text x="40" y="332" class="module" text-anchor="start">audio_stream</text>
+<text x="40" y="352" class="module" text-anchor="start">track_name</text>
+<text x="280" y="270" class="group" text-anchor="start">Analyze</text>
+<text x="280" y="292" class="module" text-anchor="start">analysis</text>
+<text x="280" y="312" class="module" text-anchor="start">detect</text>
+<text x="280" y="332" class="module" text-anchor="start">key</text>
+<text x="280" y="352" class="module" text-anchor="start">confidence</text>
+<text x="280" y="372" class="module" text-anchor="start">tempo_range</text>
+<text x="280" y="392" class="module" text-anchor="start">energy</text>
+<text x="280" y="412" class="module" text-anchor="start">quality</text>
+<text x="520" y="270" class="group" text-anchor="start">Keep and share</text>
+<text x="520" y="292" class="module" text-anchor="start">cache</text>
+<text x="520" y="312" class="module" text-anchor="start">correction</text>
+<text x="520" y="332" class="module" text-anchor="start">playlists</text>
+<text x="520" y="352" class="module" text-anchor="start">harmony</text>
+<text x="520" y="372" class="module" text-anchor="start">tags</text>
+<text x="520" y="392" class="module" text-anchor="start">export</text>
+<rect x="24" y="470" width="752" height="152" rx="8" class="box"/>
+<text x="40" y="492" class="label" text-anchor="start">The main libraries euphoria-core builds on</text>
+<line x1="400" y1="430" x2="400" y2="461" class="arrow"/>
+<path d="M395,461 L405,461 L400,468 Z" class="arrow-head"/>
+<rect x="36" y="498" width="237.33" height="52" rx="8" class="box box-optional"/>
+<text x="48" y="520" class="group" text-anchor="start">libkeyfinder</text>
+<text x="48" y="538" class="small" text-anchor="start">key, C++, optional</text>
+<rect x="281.33" y="498" width="237.33" height="52" rx="8" class="box"/>
+<text x="293.33" y="520" class="group" text-anchor="start">stratum-dsp</text>
+<text x="293.33" y="538" class="small" text-anchor="start">tempo</text>
+<rect x="526.67" y="498" width="237.33" height="52" rx="8" class="box"/>
+<text x="538.67" y="520" class="group" text-anchor="start">Symphonia</text>
+<text x="538.67" y="538" class="small" text-anchor="start">decoding</text>
+<rect x="36" y="558" width="237.33" height="52" rx="8" class="box"/>
+<text x="48" y="580" class="group" text-anchor="start">blake3</text>
+<text x="48" y="598" class="small" text-anchor="start">content hashes for the cache</text>
+<rect x="281.33" y="558" width="237.33" height="52" rx="8" class="box"/>
+<text x="293.33" y="580" class="group" text-anchor="start">rusqlite</text>
+<text x="293.33" y="598" class="small" text-anchor="start">the cache, SQLite</text>
+<rect x="526.67" y="558" width="237.33" height="52" rx="8" class="box"/>
+<text x="538.67" y="580" class="group" text-anchor="start">ebur128, rustfft</text>
+<text x="538.67" y="598" class="small" text-anchor="start">loudness, spectra</text>
 </svg>

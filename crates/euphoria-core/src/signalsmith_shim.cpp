@@ -50,6 +50,11 @@ void euphoria_stretch_free(euphoria_stretch *stretch) noexcept {
     delete stretch;
 }
 
+void euphoria_stretch_reset(euphoria_stretch *stretch) noexcept {
+    if (stretch == nullptr) return;
+    stretch->stretch.reset();
+}
+
 int euphoria_stretch_input_latency(const euphoria_stretch *stretch) noexcept {
     if (stretch == nullptr) return EUPHORIA_STRETCH_INVALID;
     return stretch->stretch.inputLatency();
