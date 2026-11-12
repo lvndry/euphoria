@@ -82,7 +82,7 @@ sys.exit(19)""")
 
     @unittest.skipUnless(os.name == "posix", "POSIX signals")
     def test_termination_during_icon_conversion_cleans_up(self):
-        for number in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
             with self.subTest(signal=number):
                 ready = self.folder / "icon-ready"
                 ready.unlink(missing_ok=True)
@@ -106,7 +106,7 @@ while True: time.sleep(1)""")
                     runner.send_signal(number)
                     status = runner.wait(timeout=10)
                     self.assertFalse(temporary.exists(), "startup termination left the app bundle behind")
-                    self.assertEqual(status, 128 + number)
+                    self.assertEqual(status, -number if number == signal.SIGINT else 128 + number)
                     with self.assertRaises(ProcessLookupError):
                         os.kill(int(pid), 0)
                 finally:
