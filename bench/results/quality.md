@@ -126,8 +126,41 @@ The same 207 encoded files, measured with the cutoff on the mono mixdown and wit
 - In five encodings of music the mixdown fell steeply where the separate channels did not: content above the fall was out of phase between the channels and cancelled. None of them was a lossless or direct encode wrongly called likely re-encoded, but one transcode was caught only because of that cancellation, so 38 of 42 music transcodes are now recognised instead of 39.
 - No file encoded once from a lossless source is called likely re-encoded with either method.
 
+## Ogg Vorbis
+
+Measured on 11 November 2026 on the same Apple M5 and macOS 27.2, by `uv run bench/quality_benchmark.py bench/data/quality lame oggenc`, with `oggenc` from vorbis-tools 1.4.3 (libvorbis 1.3.7). People encode Vorbis at a quality level rather than a bit rate, so each row is the quality level whose nominal bit rate is in its name: quality 2 for 96, 4 for 128, 6 for 192, 8 for 256 and 9 for 320. LAME was measured again alongside and matched the table above. The same seven music files per row as above:
+
+| Encoding | Bit rate (kbit/s) | Cutoff, lowest to highest (kHz) | Full band | Error below 15 kHz (dB) | Verdicts with the MP3 and AAC lines | Verdicts with the Vorbis lines |
+| --- | --- | --- | --- | --- | --- | --- |
+| oggenc 96 (quality 2) | 71 | 16.7 to 16.9 | 0 of 7 | -21.8 | Weak on a big system 7 | Weak on a big system 7 |
+| oggenc 128 (quality 4) | 89 | 17.1 to 19.7 | 0 of 7 | -23.7 | Weak on a big system 7 | Weak on a big system 6, Acceptable 1 |
+| oggenc 192 (quality 6) | 131 | 18.9 to 20.6 | 4 of 7 | -28.9 | Weak on a big system 5, Acceptable 1, Good 1 | Acceptable 5, Good 2 |
+| oggenc 256 (quality 8) | 175 | 19.6 to 20.8 | 5 of 7 | -31.6 | Acceptable 5, Good 2 | Good 7 |
+| oggenc 320 (quality 9) | 231 | 20.8 to 20.8 | 6 of 7 | -32.6 | Good 7 | Good 7 |
+| oggenc 128 to oggenc 320 | 224 | 17.4 to 19.7 | 0 of 7 | -23.1 | Good 6, Acceptable 1 | Likely re-encoded 3, Good 4 |
+| oggenc 128 to flac | 1001 | 17.0 to 19.7 | 0 of 7 | -23.7 | Lossless 4, Likely re-encoded 3 | Lossless 4, Likely re-encoded 3 |
+| lame 128 to oggenc 320 | 228 | 16.7 to 18.4 | 0 of 7 | -24.9 | Likely re-encoded 6, Good 1 | Likely re-encoded 7 |
+
+The bit rates of the music files alone, lowest to highest: quality 4 measured 69 to 104 kbit/s, quality 6 116 to 162, quality 8 148 to 221, quality 9 201 to 273. The synthesized loops ran higher at every level.
+
+What the table shows:
+
+- Vorbis averages far below the nominal rate of its quality level, about 70% of it on this music. Judged by the MP3 and AAC lines, five of seven quality 6 files, which is the level most people use, came out weak on a big system, the verdict of a 128 kbit/s MP3.
+- The reference encoder keeps a higher cutoff than LAME at each level, and from quality 6 often none at all. Its lowest cutoff was 18.9 kHz at quality 6 and 19.6 kHz at quality 8.
+- A Vorbis file made from a 128 kbit/s MP3 keeps the MP3's cutoff, 16.7 to 18.4 kHz, and is recognised. A Vorbis file made from a low quality Vorbis file is caught only when the first encoding cut low, because the encoder cuts high to begin with.
+
+So Vorbis has lines of its own in `crates/euphoria-core/src/quality/mod.rs`:
+
+- **Good** from 145 kbit/s: every quality 8 file (148 and up) and the busiest quality 6 file.
+- **Acceptable** from 110 kbit/s: every quality 6 file (116 and up), and no quality 4 track of music (104 at most); the wideband loop at quality 4 measured 122.
+- **Likely re-encoded** when the cutoff is below 18.5 kHz from 145 kbit/s, or below 18 kHz from 110 kbit/s: under the lowest cutoff of a direct encoding at those rates, with a margin.
+- A lossless file made from Vorbis is judged by the lossless line, 19 kHz, which catches it only when the Vorbis file cut lower than that.
+
+The error column falls more slowly with the level than LAME's and stays above LAME 256's. It is a plain measure of change, not of what is heard, and Vorbis shapes its noise differently, so the lines follow what each quality level measures rather than this column.
+
 ## Not measured
 
-- Encoders other than LAME, FFmpeg's AAC encoder and Apple's AAC encoder, such as Fraunhofer's or those of stores and streaming services.
+- Encoders other than LAME, FFmpeg's AAC encoder, Apple's AAC encoder and the reference Vorbis encoder, such as Fraunhofer's, aoTuV's Vorbis encoder, or those of stores and streaming services.
+- Vorbis set to a bit rate rather than a quality level, and Opus.
 - Sample rates other than 44.1 kHz.
 - Whether listeners hear the difference between the verdicts on a club system. The error column is a plain measure of how much the encoder changed, not a listening test.

@@ -23,7 +23,7 @@ Use `--release`: analysis is many times slower in a debug build.
 
 On first launch the window shows a drop zone. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder**. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
 
-Folders are searched all the way down for MP3, M4A, FLAC, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
+Folders are searched all the way down for MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
 
 The app analyzes as many tracks at once as your computer has cores, up to 4. The command line tool goes up to 8 by default and lets you choose. See [large libraries and memory](analyze-your-library.md#large-libraries-and-memory).
 

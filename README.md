@@ -23,7 +23,7 @@ Available now:
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos, beat grids, cues and playlists; importing it in Traktor has not yet been tested
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, `euphoria tags set`, which edits title, artist, genre and other fields across many files with find and replace, and `euphoria tags undo`, which puts the old tags back byte for byte
-- MP3, M4A (AAC), FLAC, WAV and AIFF
+- MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF
 - A desktop app for macOS, downloadable below: see the [desktop app guide](docs/guides/desktop-app.md)
 - Playlists built in the desktop app, with each set's key path, tempo range and energy flow at a glance, exported to rekordbox or as M3U8 for any other program
 

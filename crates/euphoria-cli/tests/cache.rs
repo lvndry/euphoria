@@ -34,7 +34,7 @@ fn a_second_run_comes_from_the_cache_and_prints_the_same_results() {
     assert!(!standard_error(&first_run).contains(FROM_THE_CACHE));
     assert_eq!(
         standard_error(&second_run),
-        "7 of 7 tracks came from the cache.\n"
+        "10 of 10 tracks came from the cache.\n"
     );
     assert_eq!(first_run.stdout, second_run.stdout);
     assert!(euphoria.cache_path().is_file());
@@ -57,7 +57,7 @@ fn another_tempo_range_comes_from_the_cache_with_tempos_in_that_range() {
     assert_success(&in_other_range);
     assert_eq!(
         standard_error(&in_other_range),
-        "7 of 7 tracks came from the cache.\n"
+        "10 of 10 tracks came from the cache.\n"
     );
     let tempos = |output: &Output| -> Vec<Option<f64>> {
         let tracks: serde_json::Value =

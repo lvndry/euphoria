@@ -487,7 +487,7 @@ Write these changes to 14 files? [y/N]
 
 Nothing is analyzed. The fields are the same in every format:
 
-| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A) | Vorbis (FLAC) |
+| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A, MP4) | Vorbis (FLAC, Ogg Vorbis) |
 | --- | --- | --- | --- |
 | `title` | `TIT2` | `©nam` | `TITLE` |
 | `artist` | `TPE1` | `©ART` | `ARTIST` |
@@ -500,7 +500,7 @@ Nothing is analyzed. The fields are the same in every format:
 | `key` | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
 | `bpm` | `TBPM` | `----:com.apple.iTunes:BPM` | `BPM` |
 
-`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
+`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC or Ogg Vorbis file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
 
 A comment or a grouping keeps the key and energy label that `tags write` put there, such as `8A - Energy 7`: the edit changes your own text next to it. `--field "comment=Peak opener"` turns `8A - Energy 7 - Purchased` into `8A - Energy 7 - Peak opener`, `--clear comment` leaves `8A - Energy 7`, and a value typed with its label, such as `8A - Energy 7 - Opener`, replaces the label rather than adding a second one. Only a label with an energy rating is recognised, so text of yours that starts with a key is kept as it is.
 
