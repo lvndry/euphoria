@@ -93,7 +93,7 @@ impl Library {
             .expect("the track is added");
         let track_id = connection.last_insert_rowid();
         if analysed {
-            let grid = constant_beat_grid(SAMPLE_RATE, SAMPLES, 0.1, 100.0);
+            let grid = constant_beat_grid(SAMPLE_RATE, SAMPLES, 0.1, 100.0).expect("a real grid");
             connection
                 .execute(
                     "UPDATE PerformanceData SET trackData = ?1, beatData = ?2, quickCues = ?3 WHERE trackId = ?4",
@@ -259,7 +259,7 @@ fn an_analysed_track_gets_key_tempo_grid_cues_and_label() {
             "{schema_file}"
         );
         let beat_data = decoded(library.blob(track_id, "beatData"), BeatData::decode);
-        let grid = constant_beat_grid(SAMPLE_RATE, SAMPLES, 0.25, 128.0);
+        let grid = constant_beat_grid(SAMPLE_RATE, SAMPLES, 0.25, 128.0).expect("a real grid");
         assert_eq!(beat_data.default_grid, grid, "{schema_file}");
         assert_eq!(beat_data.adjusted_grid, grid, "{schema_file}");
         assert_eq!(beat_data.is_beatgrid_set, 1);
@@ -363,7 +363,7 @@ fn a_track_with_its_own_hot_cues_keeps_them() {
         let beat_data = decoded(library.blob(track_id, "beatData"), BeatData::decode);
         assert_eq!(
             beat_data.adjusted_grid,
-            constant_beat_grid(SAMPLE_RATE, SAMPLES, 0.25, 128.0),
+            constant_beat_grid(SAMPLE_RATE, SAMPLES, 0.25, 128.0).expect("a real grid"),
             "{schema_file}"
         );
     }
@@ -581,5 +581,52 @@ fn key_numbers_match_libdjinterop() {
     for (value, name) in keys.into_iter().enumerate() {
         let key: Key = name.parse().expect("a key");
         assert_eq!(engine_key_value(key), value as i64, "{name}");
+    }
+}
+
+#[test]
+fn a_matched_track_that_changes_nothing_is_not_reported_updated() {
+    for (schema_file, _) in SCHEMAS {
+        let library = Library::new(schema_file);
+        let track_id = library.add_track("a.mp3", false);
+        let before = std::fs::read(&library.database).expect("the database is read");
+        // Nothing is known about the track: no key, tempo, beat or cue to
+        // write, and the library holds no performance data for it either.
+        let tracks = [Track::new(
+            library.track_path("a.mp3"),
+            Duration::from_secs(300),
+        )];
+        // No energy either: with an energy rating a label goes into the
+        // comment, which would be a change to report.
+        let entries = tracks
+            .iter()
+            .map(|track| EngineTrack {
+                track,
+                energy: None,
+            })
+            .collect::<Vec<_>>();
+
+        let update = preview_library_update(&library.database, &entries, &EngineOptions::default())
+            .expect("the preview runs");
+        assert!(update.updated.is_empty(), "{schema_file}");
+        assert!(update.not_in_library.is_empty(), "{schema_file}");
+
+        let update = update_library(
+            &library.database,
+            &library.backup("backup"),
+            &entries,
+            &EngineOptions::default(),
+        )
+        .unwrap_or_else(|error| panic!("{schema_file}: {error}"));
+        assert!(update.updated.is_empty(), "{schema_file}");
+        assert!(
+            library.blob(track_id, "trackData").is_none(),
+            "{schema_file}"
+        );
+        assert_eq!(
+            std::fs::read(&library.database).expect("the database is read"),
+            before,
+            "{schema_file}"
+        );
     }
 }

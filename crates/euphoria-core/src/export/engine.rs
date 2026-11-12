@@ -396,10 +396,24 @@ struct RowUpdate {
     quick_cues: Option<Vec<u8>>,
 }
 
+impl RowUpdate {
+    /// True when the row carries no value to write: `apply` would run
+    /// nothing on it.
+    fn is_noop(&self) -> bool {
+        self.key.is_none()
+            && self.bpm.is_none()
+            && self.comment.is_none()
+            && self.track_data.is_none()
+            && self.beat_data.is_none()
+            && self.quick_cues.is_none()
+    }
+}
+
 #[derive(Debug, Default)]
 struct Plan {
     rows: Vec<RowUpdate>,
     matched: Vec<bool>,
+    updated: Vec<bool>,
     not_analysed: Vec<bool>,
     kept_own_cues: Vec<bool>,
     cues_left_out: usize,
@@ -418,7 +432,7 @@ impl Plan {
         let unmatched: Vec<bool> = self.matched.iter().map(|flag| !flag).collect();
         EngineUpdate {
             schema: Some(schema),
-            updated: pick(&self.matched),
+            updated: pick(&self.updated),
             not_in_library: pick(&unmatched),
             not_analysed: pick(&self.not_analysed),
             kept_own_cues: pick(&self.kept_own_cues),
@@ -483,6 +497,7 @@ fn plan(
 
     let mut plan = Plan {
         matched: vec![false; tracks.len()],
+        updated: vec![false; tracks.len()],
         not_analysed: vec![false; tracks.len()],
         kept_own_cues: vec![false; tracks.len()],
         ..Plan::default()
@@ -527,7 +542,12 @@ fn plan(
         )
         .map_err(|reason| fail(format!("{stored_path}: {reason}")))?;
         plan.matched[index] = true;
-        plan.rows.push(row);
+        // A matched track whose values all match what the library already
+        // holds changes nothing, and is not reported as updated.
+        if !row.is_noop() {
+            plan.updated[index] = true;
+            plan.rows.push(row);
+        }
     }
     Ok(plan)
 }
@@ -587,7 +607,7 @@ fn row_update(
             track_data.samples,
             first_beat.as_secs_f64(),
             bpm,
-        );
+        )?;
         let existing = match beat_data_blob.as_deref().map(decompress).transpose()? {
             Some(payload) if !payload.is_empty() => Some(BeatData::decode(&payload)?),
             _ => None,

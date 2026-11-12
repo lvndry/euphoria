@@ -32,6 +32,12 @@ const QUICK_CUE_FIXED_LENGTH: usize = 13;
 const MAIN_CUE_LENGTH: usize = 17;
 const MAXIMUM_LABEL_LENGTH: usize = 255;
 
+/// The most bytes a payload's length header may declare. The blobs hold a
+/// track's sample rate, grids and cues; a track with every hot cue holding a
+/// full-length label is a few kilobytes, so a library that declares more is
+/// not one Euphoria can trust to hold in memory.
+const MAXIMUM_PAYLOAD_LENGTH: usize = 1_048_576;
+
 /// Reads fixed-size fields from a payload, failing instead of reading past
 /// its end.
 struct Reader<'payload> {
@@ -116,7 +122,8 @@ pub fn compress(payload: &[u8]) -> Vec<u8> {
 ///
 /// # Errors
 ///
-/// A blob of one to three bytes, a zlib stream that fails, or a stream whose
+/// A blob of one to three bytes, a declared length above
+/// [`MAXIMUM_PAYLOAD_LENGTH`], a zlib stream that fails, or a stream whose
 /// length differs from its header, as a short reason.
 pub fn decompress(blob: &[u8]) -> Result<Vec<u8>, String> {
     if blob.is_empty() {
@@ -126,6 +133,11 @@ pub fn decompress(blob: &[u8]) -> Result<Vec<u8>, String> {
     let declared_length = u32::from_be_bytes(reader.array()?) as usize;
     if declared_length == 0 {
         return Ok(Vec::new());
+    }
+    if declared_length > MAXIMUM_PAYLOAD_LENGTH {
+        return Err(format!(
+            "the blob declares {declared_length} bytes, more than the {MAXIMUM_PAYLOAD_LENGTH} it can hold"
+        ));
     }
     let mut restored = Vec::new();
     ZlibDecoder::new(&blob[LENGTH_HEADER..])
@@ -380,22 +392,40 @@ impl QuickCues {
 /// the first downbeat and one at or after the end of the track, as
 /// libdjinterop's `normalize_beatgrid` (`src/djinterop/engine/engine.cpp`)
 /// places them. Positions are in samples at `sample_rate`.
+///
+/// # Errors
+///
+/// When the values cannot form a grid: a non-finite or non-positive sample
+/// rate, bpm or first downbeat, or a track so long in beats that its beat
+/// number overflows, as a short reason.
 pub fn constant_beat_grid(
     sample_rate: f64,
     samples: i64,
     first_downbeat_seconds: f64,
     bpm: f64,
-) -> Vec<BeatGridMarker> {
+) -> Result<Vec<BeatGridMarker>, String> {
+    if !(sample_rate > 0.0 && sample_rate.is_finite()) {
+        return Err("the sample rate is not a positive number".to_string());
+    }
+    if !(bpm > 0.0 && bpm.is_finite()) {
+        return Err("the tempo is not a positive number".to_string());
+    }
+    if !first_downbeat_seconds.is_finite() || first_downbeat_seconds < 0.0 {
+        return Err("the first downbeat is not a real moment in the track".to_string());
+    }
     let samples_per_beat = sample_rate * 60.0 / bpm;
     let first_downbeat = first_downbeat_seconds * sample_rate;
     let last_beat = ((samples as f64 - first_downbeat) / samples_per_beat)
         .ceil()
         .max(1.0) as i64;
-    vec![
+    let Some(beat_count) = last_beat.checked_add(4) else {
+        return Err("the track holds more beats than its grid can count".to_string());
+    };
+    Ok(vec![
         BeatGridMarker {
             sample_offset: first_downbeat - 4.0 * samples_per_beat,
             beat_number: -4,
-            beats_to_next_marker: i32::try_from(last_beat + 4).unwrap_or(i32::MAX),
+            beats_to_next_marker: i32::try_from(beat_count).unwrap_or(i32::MAX),
             unknown: 0,
         },
         BeatGridMarker {
@@ -404,7 +434,7 @@ pub fn constant_beat_grid(
             beats_to_next_marker: 0,
             unknown: 0,
         },
-    ]
+    ])
 }
 
 #[cfg(test)]
@@ -543,7 +573,7 @@ mod tests {
 
     #[test]
     fn the_grid_spans_the_track() {
-        let grid = constant_beat_grid(44100.0, 44100 * 60, 0.5, 120.0);
+        let grid = constant_beat_grid(44100.0, 44100 * 60, 0.5, 120.0).expect("a real grid");
         let [first, last] = grid.as_slice() else {
             panic!("two markers");
         };
@@ -561,5 +591,36 @@ mod tests {
             "the last marker, at the end of the track"
         );
         assert!(last.sample_offset >= 2_646_000.0);
+    }
+
+    #[test]
+    fn a_grid_refuses_metadata_that_cannot_form_one() {
+        // A sample rate of 1.0 with a whole i64 of samples puts the last
+        // beat at i64::MAX, so the count of four beats past it would overflow.
+        assert!(constant_beat_grid(1.0, i64::MAX, 0.0, 120.0).is_err());
+        assert!(constant_beat_grid(0.0, 1_000, 0.0, 120.0).is_err());
+        assert!(constant_beat_grid(44100.0, 1_000, 0.0, 0.0).is_err());
+        assert!(constant_beat_grid(44100.0, 1_000, f64::NAN, 120.0).is_err());
+        assert!(constant_beat_grid(44100.0, 1_000, -1.0, 120.0).is_err());
+        // A grid the size of a normal track still forms.
+        assert!(constant_beat_grid(44100.0, 44100 * 300, 0.1, 120.0).is_ok());
+    }
+
+    #[test]
+    fn decompress_rejects_a_declared_length_it_cannot_hold() {
+        // A header declaring a little over 4 GiB would ask for a payload the
+        // stream cannot possibly hold; it is rejected before decompression.
+        let huge = [0xFFu8, 0xFF, 0xFF, 0xFF, 0x78, 0x01].to_vec();
+        let refused = decompress(&huge);
+        assert!(refused.is_err(), "{refused:?}");
+        assert!(refused.as_ref().unwrap_err().contains("4294967295"));
+        // A header just past the maximum is refused the same way.
+        let just_past = [0x10u8, 0x00, 0x01, 0x00, 0x78, 0x01].to_vec();
+        assert!(decompress(&just_past).is_err());
+        // A round trip still works below the maximum.
+        assert_eq!(
+            decompress(&compress(b"abc")).expect("the round trip"),
+            b"abc"
+        );
     }
 }
