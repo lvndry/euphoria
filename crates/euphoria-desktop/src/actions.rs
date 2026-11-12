@@ -34,6 +34,10 @@ actions!(
         OpenSettings,
         /// Shows the two decks, or hides them.
         ToggleDecks,
+        /// Opens the set builder page.
+        OpenSetBuilder,
+        /// Builds the set on the set builder page.
+        BuildSet,
         /// Selects every track the table shows.
         SelectAllTracks,
         /// Returns every column of the table to its usual width.

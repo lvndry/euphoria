@@ -61,9 +61,10 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths,
-    SelectAllTracks, ToggleDecks, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
-    UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    AddCueAtPlayhead, AddFolder, BuildSet, EditTags, FocusSearch, OpenSetBuilder, OpenSettings,
+    Quit, ResetColumnWidths, SelectAllTracks, ToggleDecks, TogglePlayback, ToggleSidebar,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
+    UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -190,6 +191,12 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-d", ToggleDecks, None),
+        KeyBinding::new("cmd-shift-b", OpenSetBuilder, None),
+        KeyBinding::new("cmd-enter", BuildSet, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-b", OpenSetBuilder, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-enter", BuildSet, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-alt-s", ToggleSidebar, None),
         #[cfg(not(target_os = "macos"))]
@@ -239,6 +246,12 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
 
     register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
     register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
+    register_view_command::<OpenSetBuilder>(view, cx, |view, cx| view.open_set_builder(cx));
+    register_view_command::<BuildSet>(view, cx, |view, cx| {
+        if view.set_builder.is_open && !view.set_builder.is_building {
+            view.build_set(cx);
+        }
+    });
     register_view_command::<UndoTagWrite>(view, cx, |view, cx| view.open_tag_undo(cx));
     register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
@@ -338,6 +351,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         Menu::new("View").items([
             MenuItem::action(sidebar_item, ToggleSidebar),
             MenuItem::action("Decks", ToggleDecks),
+            MenuItem::action("Set Builder", OpenSetBuilder),
             MenuItem::separator(),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),

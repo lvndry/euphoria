@@ -151,14 +151,15 @@ impl SetTrack for PoolEntry {
 
 impl EuphoriaApp {
     pub(crate) fn open_set_builder(&mut self, cx: &mut Context<'_, Self>) {
-        let builder = &mut self.set_builder;
-        builder.is_open = true;
-        if builder.planned.is_none() {
-            builder.pool = match (&self.playlist, &self.folder) {
+        self.set_builder.is_open = true;
+        if self.set_builder.planned.is_none() {
+            self.set_builder.pool = match (&self.playlist, &self.folder) {
                 (Some(playlist), _) => SetPool::Playlist(*playlist),
                 (None, Some(folder)) => SetPool::Folder(folder.clone()),
                 (None, None) => SetPool::AllTracks,
             };
+            let pool_size = self.set_pool_paths(&self.set_builder.pool).len();
+            self.set_builder.track_count = DEFAULT_TRACK_COUNT.min(pool_size).max(FEWEST_TRACKS);
         }
         cx.notify();
     }
@@ -214,6 +215,10 @@ impl EuphoriaApp {
     }
 
     pub(crate) fn choose_set_pool(&mut self, pool: SetPool, cx: &mut Context<'_, Self>) {
+        if self.set_builder.planned.is_none() {
+            let pool_size = self.set_pool_paths(&pool).len();
+            self.set_builder.track_count = DEFAULT_TRACK_COUNT.min(pool_size).max(FEWEST_TRACKS);
+        }
         self.set_builder.pool = pool;
         cx.notify();
     }

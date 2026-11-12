@@ -311,6 +311,24 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .child(legend_swatch("Off the curve", palette.danger))
         });
 
+    let mut axis = div()
+        .flex()
+        .flex_col()
+        .justify_between()
+        .h(px(CURVE_HEIGHT + 12.0))
+        .mt(px(-6.0))
+        .w(px(16.0))
+        .text_size(LABEL_TEXT_SIZE)
+        .text_color(palette.text_tertiary);
+    for energy in ENERGY_GRID.iter().rev() {
+        axis = axis.child(
+            div()
+                .h(px(12.0))
+                .flex()
+                .items_center()
+                .child(format!("{energy:.0}")),
+        );
+    }
     div()
         .flex()
         .flex_col()
@@ -320,7 +338,13 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
-        .child(drawing)
+        .child(
+            div()
+                .flex()
+                .gap(px(8.0))
+                .child(axis)
+                .child(div().flex_1().min_w_0().child(drawing)),
+        )
         .child(legend)
 }
 
@@ -448,7 +472,7 @@ fn summary(app: &EuphoriaApp, planned: &PlannedSet) -> AnyElement {
     let headline = format!(
         "{} tracks, {}. Energy within {:.1} of the curve on average; {rules}.",
         planned.paths.len(),
-        format::duration(seconds),
+        format::long_duration(seconds),
         plan.mean_energy_error(),
     );
     let mut notes = div()
@@ -641,12 +665,14 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                     .flex_1()
                     .min_w_0()
                     .child(div().truncate().child(title))
-                    .child(
-                        div()
-                            .truncate()
-                            .text_color(palette.text_tertiary)
-                            .child(artist),
-                    ),
+                    .when(!artist.is_empty(), |cell| {
+                        cell.child(
+                            div()
+                                .truncate()
+                                .text_color(palette.text_tertiary)
+                                .child(artist),
+                        )
+                    }),
             )
             .child(row_button(
                 ("set-earlier", position),

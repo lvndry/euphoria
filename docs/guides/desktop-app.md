@@ -257,11 +257,11 @@ Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [dat
 
 ## Build a set
 
-**Set builder** in the sidebar opens a page that orders tracks into a set along an energy curve, with every mix in a compatible key and small tempo steps. It is the same search as [`euphoria set build`](build-a-set.md), which explains how it chooses.
+**Set builder** in the sidebar, **View > Set Builder** or Command Shift B (Control Shift B on Linux) opens a page that orders tracks into a set along an energy curve, with every mix in a compatible key and small tempo steps. It is the same search as [`euphoria set build`](build-a-set.md), which explains how it chooses.
 
 1. **Draw the curve.** Drag across the chart: higher is more energy, from 1 at the bottom to 10 at the top. The stroke is smoothed when you let go. **Warm up**, **Peak time** and **Journey** put a preset curve back.
 2. **Choose the pool.** All tracks, one of the folders you added, or a playlist. The pool starts as what the library showed when you opened the page.
-3. **Set the length** with **−** and **+**, from 2 to 60 tracks, then **Build set**.
+3. **Set the length** with **−** and **+**, from 2 to 60 tracks, then **Build set** or press Command Return (Control Return on Linux). The length starts at 20, or at the size of the pool when it is smaller.
 
 The chart then draws the energy of each track of the set over the curve, with tracks more than a point away in red. Under it, a summary gives the length of the set, how close it follows the curve and whether every mix keeps the rules, then one line for each place it falls short. Each row of the set shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
 
