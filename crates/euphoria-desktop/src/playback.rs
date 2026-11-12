@@ -967,12 +967,19 @@ mod tests {
         assert!((up - 440.0 * 2_f32.powf(2.0 / 12.0)).abs() < 3.0, "{up}");
 
         state.set_shift(-3);
-        next_sound(&mut source, 13_230);
-        let down = tone_frequency(&next_sound(&mut source, 4_410), rate);
-        assert!(
-            (down - 440.0 * 2_f32.powf(-3.0 / 12.0)).abs() < 3.0,
-            "{down}"
-        );
+        // The shift applies from the next chunk the decoder decodes, so the
+        // change lands a chunk or more after the call: discard what still
+        // plays in the old key until the tone settles on the new one.
+        let target = 440.0 * 2_f32.powf(-3.0 / 12.0);
+        let mut down = 0.0;
+        for _ in 0..48 {
+            next_sound(&mut source, 4_410);
+            down = tone_frequency(&next_sound(&mut source, 4_410), rate);
+            if (down - target).abs() < 3.0 {
+                break;
+            }
+        }
+        assert!((down - target).abs() < 3.0, "{down}");
     }
 
     #[test]
