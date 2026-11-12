@@ -4,10 +4,15 @@
 //! Changes the key of a track by shifting its pitch, without changing its
 //! tempo, and writes the shifted copy to a new file.
 
+use std::collections::hash_map::RandomState;
 use std::fs::File;
+use std::hash::{BuildHasher, Hasher};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
+mod flac;
+
+use crate::audio::{MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE};
 use crate::audio_stream::AudioStream;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -21,15 +26,17 @@ pub const MAXIMUM_SHIFT_SEMITONES: i8 = 6;
 
 /// Bits per sample of the files written, enough for any source a DJ plays.
 const BITS_PER_SAMPLE: u16 = 24;
+// Hound's 24-bit WAVEFORMATEXTENSIBLE header uses 60 bytes of RIFF's
+// u32 length, plus at most one byte of data-chunk padding.
+const MAXIMUM_WAV_SAMPLES: u64 = (u32::MAX as u64 - 61) / (BITS_PER_SAMPLE as u64 / 8);
 
 /// Shifts the pitch of interleaved audio by a whole number of semitones
 /// while keeping its timing, chunk by chunk, so that a long track never
 /// has to be held in memory twice.
 ///
-/// Every chunk given to [`PitchShifter::process`] comes back the same
-/// length, apart from a delay at the start that [`PitchShifter::finish`]
-/// makes up at the end, so the whole output is exactly as long as the
-/// input and every beat stays where it was.
+/// Output begins after a startup delay. [`PitchShifter::finish`] emits the
+/// remaining frames, so the whole output has the same complete channel
+/// frames as the input and every beat stays where it was.
 pub struct PitchShifter {
     stretch: Stretch,
     channels: usize,
@@ -45,16 +52,24 @@ pub struct PitchShifter {
     to_drop: usize,
     /// Input samples per channel seen.
     input_length: usize,
+    /// An interleaved frame split across chunk boundaries.
+    pending_frame: Vec<f32>,
 }
 
 impl PitchShifter {
     /// A shifter for `channels` channels at `sample_rate` that moves every
     /// pitch by `semitones`, from -[`MAXIMUM_SHIFT_SEMITONES`] to
-    /// [`MAXIMUM_SHIFT_SEMITONES`].
+    /// [`MAXIMUM_SHIFT_SEMITONES`]. Sample rates follow the supported audio
+    /// range, 8 kHz through 384 kHz.
     pub fn new(channels: usize, sample_rate: u32, semitones: i8) -> Result<Self, String> {
         if semitones.unsigned_abs() > MAXIMUM_SHIFT_SEMITONES.unsigned_abs() {
             return Err(format!(
                 "a shift of {semitones} semitones is more than {MAXIMUM_SHIFT_SEMITONES} either way"
+            ));
+        }
+        if !(MINIMUM_SAMPLE_RATE..=MAXIMUM_SAMPLE_RATE).contains(&sample_rate) {
+            return Err(format!(
+                "cannot shift audio at {sample_rate} Hz; supported rates are {MINIMUM_SAMPLE_RATE} to {MAXIMUM_SAMPLE_RATE} Hz"
             ));
         }
         let mut stretch = Stretch::new(channels, sample_rate)?;
@@ -70,6 +85,7 @@ impl PitchShifter {
             started: false,
             to_drop: output_latency,
             input_length: 0,
+            pending_frame: Vec::new(),
         })
     }
 
@@ -93,9 +109,20 @@ impl PitchShifter {
     }
 
     /// Shifts the next stretch of interleaved audio and returns the shifted
-    /// audio that is ready, interleaved.
+    /// audio that is ready, interleaved. Chunks may split a channel frame;
+    /// the full input must end on a complete frame.
     pub fn process(&mut self, interleaved: &[f32]) -> Result<Vec<f32>, String> {
-        let mut channels = deinterleave(interleaved, self.channels);
+        let mut joined = std::mem::take(&mut self.pending_frame);
+        let interleaved = if joined.is_empty() {
+            interleaved
+        } else {
+            joined.extend_from_slice(interleaved);
+            &joined
+        };
+        let complete = interleaved.len() / self.channels * self.channels;
+        self.pending_frame
+            .extend_from_slice(&interleaved[complete..]);
+        let mut channels = deinterleave(&interleaved[..complete], self.channels);
         self.input_length += channels[0].len();
         if !self.started {
             let wanted = self.input_latency.saturating_sub(self.preroll[0].len());
@@ -113,26 +140,33 @@ impl PitchShifter {
     }
 
     /// Shifts what is left and returns the rest of the output, so that the
-    /// whole output is as long as the whole input.
+    /// whole output is as long as the whole input. Returns an error if the
+    /// final chunk leaves an incomplete interleaved frame.
     pub fn finish(mut self) -> Result<Vec<f32>, String> {
-        if !self.started {
-            // Fewer samples than the shifter needs to start: the start of
-            // the track is all there is, so it is used as the pre-roll and
-            // shifted from zeros on.
-            let length = self.preroll[0].len();
+        if !self.pending_frame.is_empty() {
+            return Err("the input ends with an incomplete interleaved frame".to_string());
+        }
+        if self.input_length == 0 {
+            return Ok(Vec::new());
+        }
+        let short = !self.started;
+        if short {
+            // Seek a full pre-roll with silence after the actual short clip,
+            // so its first sample still starts at processing time zero.
+            for channel in &mut self.preroll {
+                channel.resize(self.input_latency, 0.0);
+            }
             self.stretch.seek(&self.preroll, 1.0)?;
             self.started = true;
-            let silence = vec![vec![0.0; length]; self.channels];
-            let mut output = self.shift(&silence)?;
-            output.extend(self.flushed()?);
-            output.truncate(self.input_length * self.channels);
-            return Ok(output);
         }
         // The pre-roll is still owed to the shifter as input: zeros stand in
         // for what would follow the end of the track.
         let silence = vec![vec![0.0; self.input_latency]; self.channels];
         let mut output = self.shift(&silence)?;
         output.extend(self.flushed()?);
+        if short {
+            output.truncate(self.input_length * self.channels);
+        }
         Ok(output)
     }
 
@@ -264,14 +298,18 @@ pub fn write_shifted_copy(
     let mut shifter =
         PitchShifter::new(usize::from(channels), sample_rate, semitones).map_err(failure)?;
 
-    let temporary = temporary_path(output);
+    let (file, temporary) =
+        create_temporary_file(output).map_err(|source| EuphoriaError::ExportFile {
+            path: output.to_path_buf(),
+            source,
+        })?;
     let written = (|| -> Result<u64, EuphoriaError> {
-        let mut writer = ShiftedWriter::create(&temporary, format, channels, sample_rate)?;
+        let mut writer = ShiftedWriter::create(file, &temporary, format, channels, sample_rate)?;
         let mut chunk = Vec::new();
         while stream.read_chunk(&mut chunk)? {
-            writer.write(&shifter.process(&chunk).map_err(&failure)?)?;
+            writer.write(&shifter.process(&chunk).map_err(failure)?)?;
         }
-        writer.write(&shifter.finish().map_err(&failure)?)?;
+        writer.write(&shifter.finish().map_err(failure)?)?;
         writer.finish()
     })();
     let frames = match written {
@@ -307,55 +345,53 @@ fn same_file(first: &Path, second: &Path) -> bool {
     }
 }
 
-/// A hidden name next to `output` with the same extension, so that the
-/// tags of the right format are written to it.
-fn temporary_path(output: &Path) -> PathBuf {
-    let name = output
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let extension = output
-        .extension()
-        .map(|extension| extension.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or(0);
-    output.with_file_name(format!(
-        ".{name}.{}-{unique}.partial.{extension}",
-        std::process::id()
+/// Claims a short name of our own, preserving the extension for tag detection.
+fn create_temporary_file(output: &Path) -> std::io::Result<(File, PathBuf)> {
+    let extension = output.extension().unwrap_or_default();
+    for _ in 0..64 {
+        let mut name = std::ffi::OsString::from(format!(
+            ".euphoria-shift-{:016x}.partial.",
+            RandomState::new().build_hasher().finish()
+        ));
+        name.push(extension);
+        let temporary = output.with_file_name(name);
+        match File::options()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => return Ok((file, temporary)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "every temporary file name is taken",
     ))
 }
 
 fn install(temporary: &Path, output: &Path, existing: ExistingOutput) -> Result<(), EuphoriaError> {
-    let failure = |source: std::io::Error| EuphoriaError::ExportFile {
-        path: output.to_path_buf(),
-        source,
-    };
-    match existing {
-        ExistingOutput::Replace => std::fs::rename(temporary, output).map_err(failure),
-        ExistingOutput::Keep => {
-            // A link takes the name only when it is free, unlike a rename.
-            std::fs::hard_link(temporary, output).map_err(failure)?;
-            std::fs::remove_file(temporary).map_err(failure)
-        }
-    }
+    use crate::export::rekordbox::{ExistingFile, install};
+    install(
+        temporary,
+        output,
+        match existing {
+            ExistingOutput::Keep => ExistingFile::Keep,
+            ExistingOutput::Replace => ExistingFile::Replace,
+        },
+    )
 }
 
 /// Writes interleaved samples as 24 bit integers.
 enum ShiftedWriter {
     Wav(hound::WavWriter<BufWriter<File>>, PathBuf, u64),
-    Flac {
-        path: PathBuf,
-        samples: Vec<i32>,
-        channels: u16,
-        sample_rate: u32,
-    },
+    Flac(Box<flac::FlacWriter>),
 }
 
 impl ShiftedWriter {
     fn create(
+        file: File,
         path: &Path,
         format: ShiftedFormat,
         channels: u16,
@@ -369,32 +405,33 @@ impl ShiftedWriter {
                     bits_per_sample: BITS_PER_SAMPLE,
                     sample_format: hound::SampleFormat::Int,
                 };
-                let writer = hound::WavWriter::create(path, spec)
+                let writer = hound::WavWriter::new(BufWriter::new(file), spec)
                     .map_err(|error| write_error(path, error.to_string()))?;
                 Self::Wav(writer, path.to_path_buf(), 0)
             }
-            ShiftedFormat::Flac => Self::Flac {
-                path: path.to_path_buf(),
-                samples: Vec::new(),
+            ShiftedFormat::Flac => Self::Flac(Box::new(flac::FlacWriter::new(
+                file,
+                path,
                 channels,
                 sample_rate,
-            },
+            )?)),
         })
     }
 
     fn write(&mut self, interleaved: &[f32]) -> Result<(), EuphoriaError> {
         match self {
             Self::Wav(writer, path, count) => {
+                let total = count.checked_add(interleaved.len() as u64)
+                    .filter(|total| *total <= MAXIMUM_WAV_SAMPLES)
+                    .ok_or_else(|| write_error(path, "the shifted WAV would exceed RIFF's 4 GiB limit; use FLAC for a longer copy".to_string()))?;
                 for sample in interleaved {
                     writer
                         .write_sample(to_integer(*sample))
                         .map_err(|error| write_error(path, error.to_string()))?;
                 }
-                *count += interleaved.len() as u64;
+                *count = total;
             }
-            Self::Flac { samples, .. } => {
-                samples.extend(interleaved.iter().map(|sample| to_integer(*sample)));
-            }
+            Self::Flac(writer) => writer.write(interleaved)?,
         }
         Ok(())
     }
@@ -409,54 +446,9 @@ impl ShiftedWriter {
                     .map_err(|error| write_error(&path, error.to_string()))?;
                 Ok(count)
             }
-            Self::Flac {
-                path,
-                samples,
-                channels,
-                sample_rate,
-            } => {
-                use flacenc::component::BitRepr;
-                use flacenc::error::Verify;
-                let config = flacenc::config::Encoder::default()
-                    .into_verified()
-                    .map_err(|error| write_error(&path, format!("{error:?}")))?;
-                let source = flacenc::source::MemSource::from_samples(
-                    &samples,
-                    usize::from(channels),
-                    usize::from(BITS_PER_SAMPLE),
-                    sample_rate as usize,
-                );
-                let stream =
-                    flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
-                        .map_err(|error| write_error(&path, format!("{error:?}")))?;
-                let mut sink = flacenc::bitsink::ByteSink::new();
-                stream
-                    .write(&mut sink)
-                    .map_err(|error| write_error(&path, format!("{error:?}")))?;
-                let mut bytes = sink.as_slice().to_vec();
-                with_fixed_minimum_block_size(&mut bytes);
-                std::fs::write(&path, bytes).map_err(|source| EuphoriaError::ExportFile {
-                    path: path.clone(),
-                    source,
-                })?;
-                Ok(samples.len() as u64)
-            }
+            Self::Flac(writer) => writer.finish(),
         }
     }
-}
-
-/// Sets the minimum block size of a FLAC stream with one block size to that
-/// size. The encoder counts the shorter last block as the minimum, which
-/// the format reserves for streams whose blocks vary, and decoders then
-/// misplace the last frames: Symphonia stops reading the file there.
-fn with_fixed_minimum_block_size(flac: &mut [u8]) {
-    // "fLaC", the four byte header of the STREAMINFO block, then its
-    // minimum and its maximum block size, two bytes each.
-    if flac.len() < 12 || &flac[..4] != b"fLaC" || flac[4] & 0x7f != 0 {
-        return;
-    }
-    let maximum = [flac[10], flac[11]];
-    flac[8..10].copy_from_slice(&maximum);
 }
 
 fn write_error(path: &Path, reason: String) -> EuphoriaError {
@@ -470,6 +462,127 @@ fn write_error(path: &Path, reason: String) -> EuphoriaError {
 fn to_integer(sample: f32) -> i32 {
     let full_scale = f64::from((1_i32 << (BITS_PER_SAMPLE - 1)) - 1);
     (f64::from(sample).clamp(-1.0, 1.0) * full_scale).round() as i32
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "euphoria-shift-export-{name}-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_valid_long_output_filename_can_be_written_without_touching_the_source() {
+        let scratch = Scratch::new("long-name");
+        let input =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sine-440hz-mono.wav");
+        let original = std::fs::read(&input).unwrap();
+        let output = scratch.0.join(format!("{}.wav", "a".repeat(240)));
+        let copy = write_shifted_copy(
+            &input,
+            &output,
+            2,
+            TagValues::default(),
+            &TagWriteOptions::default(),
+            ExistingOutput::Keep,
+        )
+        .unwrap();
+        assert!(copy.frames > 0);
+        assert!(output.is_file());
+        assert_eq!(std::fs::read(&input).unwrap(), original);
+    }
+
+    #[test]
+    fn wav_export_refuses_a_chunk_that_would_overflow_the_riff_length() {
+        let scratch = Scratch::new("riff-limit");
+        for (index, written) in [((u32::MAX as u64 - 60) / 3), u64::MAX]
+            .into_iter()
+            .enumerate()
+        {
+            let path = scratch.0.join(format!("limit-{index}.wav"));
+            let mut writer = ShiftedWriter::create(
+                File::create(&path).unwrap(),
+                &path,
+                ShiftedFormat::Wav,
+                1,
+                44_100,
+            )
+            .unwrap();
+            if let ShiftedWriter::Wav(_, _, count) = &mut writer {
+                *count = written;
+            }
+            let error = writer
+                .write(&[0.25])
+                .expect_err("RIFF's length must not wrap");
+            assert!(error.to_string().contains("FLAC"));
+        }
+    }
+
+    #[test]
+    fn flac_frames_are_written_as_chunks_arrive_and_decode_with_correct_length() {
+        let scratch = Scratch::new("streaming");
+        let output = scratch.0.join("stream.flac");
+        let mut writer = ShiftedWriter::create(
+            File::create(&output).unwrap(),
+            &output,
+            ShiftedFormat::Flac,
+            2,
+            44_100,
+        )
+        .unwrap();
+        let chunk: Vec<f32> = (0..8192)
+            .map(|i| (((i * 6271) % 65521) as f32 / 65521.0 - 0.5) * 0.8)
+            .collect();
+        for _ in 0..32 {
+            writer.write(&chunk).unwrap();
+        }
+        assert!(
+            std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0) > 42,
+            "completed FLAC frames must reach disk without retaining the whole track"
+        );
+        writer.write(&chunk[..600]).unwrap();
+        let samples = writer.finish().unwrap();
+        assert_eq!(samples, 32 * chunk.len() as u64 + 600);
+        let mut stream = AudioStream::open(&output).unwrap();
+        assert_eq!(stream.channel_count().get(), 2);
+        assert_eq!(stream.sample_rate().get(), 44_100);
+        let mut decoded = Vec::new();
+        let mut count = 0;
+        while stream.read_chunk(&mut decoded).unwrap() {
+            for sample in &decoded {
+                let expected = chunk[count as usize % chunk.len()];
+                assert!(
+                    (*sample - expected).abs() < 2.0e-7,
+                    "sample {count}: {sample} vs {expected}"
+                );
+                count += 1;
+            }
+        }
+        assert_eq!(count, samples);
+        use flacenc::source::Fill;
+        let mut expected = flacenc::source::Context::new(24, 2);
+        let integers: Vec<i32> = chunk.iter().map(|sample| to_integer(*sample)).collect();
+        for _ in 0..32 {
+            expected.fill_interleaved(&integers).unwrap();
+        }
+        expected.fill_interleaved(&integers[..600]).unwrap();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(&bytes[26..42], &expected.md5_digest());
+    }
 }
 
 #[cfg(test)]
@@ -608,6 +721,7 @@ mod tests {
         let frames = 3 * SAMPLE_RATE as usize + 1_234;
         let left = tone(440.0, frames as f64 / f64::from(SAMPLE_RATE));
         let mut original = ShiftedWriter::create(
+            File::create(folder.join("original.wav")).unwrap(),
             &folder.join("original.wav"),
             ShiftedFormat::Wav,
             2,
@@ -690,6 +804,60 @@ mod tests {
             0.5,
         );
         assert!((found - expected).abs() < 2.0, "{found}");
+    }
+
+    #[test]
+    fn short_audio_keeps_its_sound_not_only_its_length() {
+        let input = tone(440.0, 0.01);
+        let output = shifted(&input, 1, 1, 100);
+        assert_eq!(output.len(), input.len());
+        let peak = output.iter().copied().map(f32::abs).fold(0.0, f32::max);
+        assert!(peak > 0.01, "short audio became silence: peak {peak}");
+    }
+
+    #[test]
+    fn streaming_chunks_can_split_interleaved_frames() {
+        let input: Vec<f32> = tone(440.0, 0.2)
+            .iter()
+            .flat_map(|sample| [*sample, 0.0])
+            .collect();
+        let mut shifter = PitchShifter::new(2, SAMPLE_RATE, 1).unwrap();
+        let mut output = Vec::new();
+        for chunk in input.chunks(301) {
+            output.extend(shifter.process(chunk).unwrap());
+        }
+        output.extend(shifter.finish().unwrap());
+        assert_eq!(output.len(), input.len());
+        let silent_peak = output
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .copied()
+            .map(f32::abs)
+            .fold(0.0, f32::max);
+        assert!(silent_peak < 0.0001, "channels leaked: peak {silent_peak}");
+    }
+
+    #[test]
+    fn an_incomplete_final_frame_is_rejected() {
+        for samples in [1, 3] {
+            let mut shifter = PitchShifter::new(2, SAMPLE_RATE, 1).unwrap();
+            shifter.process(&vec![0.25; samples]).unwrap();
+            let error = shifter
+                .finish()
+                .expect_err("a partial final frame must not disappear");
+            assert!(error.contains("frame"));
+        }
+    }
+
+    #[test]
+    fn unsupported_sample_rates_are_refused_before_native_setup() {
+        for sample_rate in [7_999, 0, 384_001, u32::MAX] {
+            assert!(
+                PitchShifter::new(1, sample_rate, 1).is_err(),
+                "accepted {sample_rate} Hz"
+            );
+        }
     }
 
     #[test]
