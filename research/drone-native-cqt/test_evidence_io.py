@@ -20,6 +20,27 @@ from evidence_io import (
 
 
 class EvidenceStorageTests(unittest.TestCase):
+    def test_plain_json_must_match_its_indexed_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "reference-summary.json"
+            raw = b'{"cases": [{"id": "original"}]}\n'
+            path.write_bytes(raw)
+            (root / "index.json").write_text(json.dumps({"files": {path.name: digest(raw)}}))
+            self.assertEqual(load_json(path), json.loads(raw))
+            path.write_bytes(b'{"cases": [{"id": "changed"}]}\n')
+            with self.assertRaises(ValueError):
+                load_json(path)
+
+    def test_unindexed_plain_json_is_not_accepted_as_verified_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "unindexed.json"
+            path.write_text("{}")
+            (root / "index.json").write_text(json.dumps({"files": {}}))
+            with self.assertRaises(ValueError):
+                load_json(path)
+
     def test_roundtrip_is_deterministic_and_keeps_decoded_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
