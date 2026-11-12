@@ -48,6 +48,7 @@ pub(crate) fn model_separation() -> Result<Box<dyn StemSeparation>, EuphoriaErro
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum SeparationPhase {
     Starting,
+    Waiting,
     Downloading { fraction: f32 },
     LoadingModel,
     Decoding,
@@ -64,6 +65,7 @@ impl SeparationPhase {
                 "Downloading the model, {}%",
                 (fraction * 100.0).round() as u32
             ),
+            SeparationPhase::Waiting => "Waiting for another separation to finish".to_string(),
             SeparationPhase::LoadingModel => "Loading the model".to_string(),
             SeparationPhase::Decoding => "Decoding the track".to_string(),
             SeparationPhase::Separating { done, total } => {
@@ -154,6 +156,7 @@ impl SharedProgress {
 
     fn stage(&self, stage: SeparationStage) {
         self.set(match stage {
+            SeparationStage::Waiting => SeparationPhase::Waiting,
             SeparationStage::LoadingModel => SeparationPhase::LoadingModel,
             SeparationStage::Decoding => SeparationPhase::Decoding,
             SeparationStage::Separating => SeparationPhase::Separating { done: 0, total: 0 },

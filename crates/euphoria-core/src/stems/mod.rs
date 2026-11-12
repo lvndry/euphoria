@@ -25,7 +25,7 @@ use ort::value::Tensor;
 
 use crate::cache::ContentHash;
 use crate::error::EuphoriaError;
-use segments::SegmentPlan;
+use segments::{OverlapWindow, SegmentPlan};
 use spectrogram::{
     FRAMES, FREQUENCY_BINS, SEGMENT_SAMPLES, SPECTROGRAM_CHANNELS, SpectrogramTransforms,
 };
@@ -40,6 +40,8 @@ pub const STEMS_CHANNELS: usize = 2;
 /// Names the model whose stems are cached, so that stems from another
 /// model are never served in their place.
 pub const STEMS_MODEL: &str = "htdemucs-955717e8";
+/// Environment variable setting how many threads separation runs on.
+pub const STEMS_THREADS_VARIABLE: &str = "EUPHORIA_STEMS_THREADS";
 
 // ORT permits only one environment to be built in a process, even after
 // its last handle is dropped. Keep it alive and share it across separators.
@@ -130,6 +132,9 @@ impl Stems {
 /// What a separation is doing, for progress reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeparationStage {
+    /// Waiting for a separation in another window or command to finish,
+    /// since two at once would need twice the memory.
+    Waiting,
     /// Reading the model, and downloading it the first time.
     LoadingModel,
     /// Decoding the audio file.
@@ -144,6 +149,7 @@ impl SeparationStage {
     /// A few words saying what the stage does.
     pub fn label(self) -> &'static str {
         match self {
+            SeparationStage::Waiting => "waiting for another separation to finish",
             SeparationStage::LoadingModel => "loading the model",
             SeparationStage::Decoding => "decoding",
             SeparationStage::Separating => "separating",
@@ -213,8 +219,10 @@ impl StemSeparator {
             })?;
         drop(bytes);
         let environment = environment()?;
-        let mut builder =
-            Session::builder(&environment).map_err(runtime_error("cannot start ONNX Runtime"))?;
+        let mut builder = Session::builder(&environment)
+            .map_err(runtime_error("cannot start ONNX Runtime"))?
+            .with_intra_threads(separation_threads())
+            .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
         for tensor in tensors {
             let value = Tensor::from_array((tensor.shape, tensor.values))
                 .map_err(runtime_error("cannot hold the weights"))?;
@@ -253,6 +261,24 @@ impl StemSeparator {
         right: &[f32],
         observer: &dyn SeparationObserver,
     ) -> Result<Stems, EuphoriaError> {
+        let mut collected = CollectedStems::default();
+        let frames = self.separate_into(left, right, observer, &mut collected)?;
+        Ok(Stems {
+            frames,
+            interleaved: collected.interleaved,
+        })
+    }
+
+    /// Separates like [`StemSeparator::separate`] and hands the stems to
+    /// `sink` in order as soon as their blend is final, so that only about
+    /// one segment of output is held at a time. Returns the frames written.
+    pub(crate) fn separate_into(
+        &mut self,
+        left: &[f32],
+        right: &[f32],
+        observer: &dyn SeparationObserver,
+        sink: &mut dyn StemSink,
+    ) -> Result<usize, EuphoriaError> {
         if left.len() != right.len() {
             return Err(EuphoriaError::Separation {
                 reason: "the left and right channels must have the same number of samples".into(),
@@ -267,23 +293,23 @@ impl StemSeparator {
                 source: None,
             });
         }
-        let (mean, deviation) = mono_mean_and_deviation(&left[..frames], &right[..frames]);
-        let normalised: [Vec<f32>; 2] = [left, right].map(|channel| {
-            channel[..frames]
-                .iter()
-                .map(|sample| (sample - mean) / deviation)
-                .collect()
-        });
+        let (mean, deviation) = mono_mean_and_deviation(left, right);
+        let normalise = |sample: f32| (sample - mean) / deviation;
+        let restore = |sample: f32| sample * deviation + mean;
 
         let plan = SegmentPlan::new(frames);
-        let mut accumulated = vec![vec![0.0f32; frames]; Stem::ALL.len() * STEMS_CHANNELS];
+        let source_channels = Stem::ALL.len() * STEMS_CHANNELS;
+        let mut window = OverlapWindow::new(source_channels);
+        let mut finished = vec![Vec::new(); source_channels];
+        let mut blocks: [Vec<f32>; 4] = Default::default();
         let mut spectrogram = Vec::new();
         let mut segment_waveform = vec![vec![0.0f32; SEGMENT_SAMPLES]; STEMS_CHANNELS];
         let mut separated_segment = vec![0.0f32; SEGMENT_SAMPLES];
         observer.separated(0, plan.len());
         for (done, segment) in plan.segments().enumerate() {
             for (channel, waveform) in segment_waveform.iter_mut().enumerate() {
-                segment.read_padded(&normalised[channel], waveform);
+                let samples = if channel == 0 { left } else { right };
+                segment.read_padded(samples, waveform, normalise);
             }
             self.transforms.spectrogram(
                 [&segment_waveform[0], &segment_waveform[1]],
@@ -325,29 +351,45 @@ impl StemSeparator {
                         &frequency_branch[real_start + plane..real_start + 2 * plane],
                         &mut separated_segment,
                     );
-                    segment.add_weighted(&separated_segment, &mut accumulated[source_channel]);
+                    window.add(&segment, source_channel, &separated_segment);
                 }
             }
+            drop(outputs);
+            window.take_until(segment.final_until(), &mut finished);
+            for (stem_index, block) in blocks.iter_mut().enumerate() {
+                let left_channel = &finished[stem_index * STEMS_CHANNELS];
+                let right_channel = &finished[stem_index * STEMS_CHANNELS + 1];
+                block.clear();
+                for (left_sample, right_sample) in left_channel.iter().zip(right_channel) {
+                    block.push(restore(*left_sample));
+                    block.push(restore(*right_sample));
+                }
+            }
+            sink.write(&blocks)?;
             observer.separated(done + 1, plan.len());
         }
+        Ok(frames)
+    }
+}
 
-        let total_weight = plan.total_weight();
-        let mut channels = accumulated.into_iter();
-        let interleaved = Stem::ALL.map(|_| {
-            let left = channels.next().unwrap_or_default();
-            let right = channels.next().unwrap_or_default();
-            let restore = |sample: f32, weight: f32| sample / weight * deviation + mean;
-            let mut samples = Vec::with_capacity(frames * STEMS_CHANNELS);
-            for index in 0..frames {
-                samples.push(restore(left[index], total_weight[index]));
-                samples.push(restore(right[index], total_weight[index]));
-            }
-            samples
-        });
-        Ok(Stems {
-            frames,
-            interleaved,
-        })
+/// Receives separated audio in order, a block of frames at a time: for
+/// every stem, in the order of [`Stem::ALL`], left and right interleaved.
+pub(crate) trait StemSink {
+    fn write(&mut self, blocks: &[Vec<f32>; 4]) -> Result<(), EuphoriaError>;
+}
+
+/// Keeps every block in memory, for [`StemSeparator::separate`].
+#[derive(Default)]
+struct CollectedStems {
+    interleaved: [Vec<f32>; 4],
+}
+
+impl StemSink for CollectedStems {
+    fn write(&mut self, blocks: &[Vec<f32>; 4]) -> Result<(), EuphoriaError> {
+        for (collected, block) in self.interleaved.iter_mut().zip(blocks) {
+            collected.extend_from_slice(block);
+        }
+        Ok(())
     }
 }
 
@@ -397,27 +439,51 @@ impl CachedSeparator {
         if let Some(files) = self.cache.lookup(&hash) {
             return Ok(files);
         }
+        let _turn = self.cache.separation_turn(observer)?;
+        if let Some(files) = self.cache.lookup(&hash) {
+            return Ok(files);
+        }
         let separator = match &mut self.separator {
             Some(separator) => separator,
             empty => empty.insert(StemSeparator::load_from(&self.weights_path, observer)?),
         };
-        let stems = separator.separate_file(path, observer)?;
-        observer.stage(SeparationStage::Saving);
-        let current_hash = ContentHash::of_file(path).map_err(|source| EuphoriaError::Open {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if current_hash != hash {
-            return Err(EuphoriaError::Separation {
-                reason: format!(
-                    "{} changed while it was being separated; try again",
-                    path.display()
-                ),
-                source: None,
-            });
-        }
-        self.cache.store(&hash, &stems)
+        observer.stage(SeparationStage::Decoding);
+        let [left, right] = input::decode_stereo(path, STEMS_SAMPLE_RATE)?;
+        self.cache.store_streamed(&hash, left.len(), |sink| {
+            separator.separate_into(&left, &right, observer, sink)?;
+            observer.stage(SeparationStage::Saving);
+            let current_hash =
+                ContentHash::of_file(path).map_err(|source| EuphoriaError::Open {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+            if current_hash != hash {
+                return Err(EuphoriaError::Separation {
+                    reason: format!(
+                        "{} changed while it was being separated; try again",
+                        path.display()
+                    ),
+                    source: None,
+                });
+            }
+            Ok(())
+        })
     }
+}
+
+/// How many threads the network runs on: the value of
+/// `EUPHORIA_STEMS_THREADS` when it is a positive number, otherwise every
+/// core but one, so that the app and the music playing stay responsive.
+fn separation_threads() -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    threads_for(std::env::var(STEMS_THREADS_VARIABLE).ok().as_deref(), cores)
+}
+
+fn threads_for(chosen: Option<&str>, cores: usize) -> usize {
+    chosen
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|threads| *threads > 0)
+        .unwrap_or_else(|| cores.saturating_sub(1).max(1))
 }
 
 /// The mean and the standard deviation of the mono mix, which Demucs
@@ -472,6 +538,52 @@ mod tests {
         let mut separator = synthetic_separator();
         for (left, right) in [(&[0.0, 0.5][..], &[0.0][..]), (&[0.0][..], &[0.0, 0.5][..])] {
             assert!(separator.separate(left, right, &Unobserved).is_err());
+        }
+    }
+
+    #[test]
+    fn separation_leaves_a_core_free_unless_told_otherwise() {
+        assert_eq!(threads_for(None, 10), 9);
+        assert_eq!(threads_for(None, 1), 1);
+        assert_eq!(threads_for(Some("4"), 10), 4);
+        assert_eq!(threads_for(Some("0"), 10), 9);
+        assert_eq!(threads_for(Some("many"), 4), 3);
+    }
+
+    #[test]
+    fn streamed_and_collected_stems_are_the_same() {
+        let left: Vec<f32> = (0..700_000)
+            .map(|index| (index as f32 * 0.003).sin() * 0.4)
+            .collect();
+        let right: Vec<f32> = left.iter().map(|sample| sample * 0.5 + 0.01).collect();
+        let mut separator = synthetic_separator();
+        let collected = separator.separate(&left, &right, &Unobserved).unwrap();
+        let folder = crate::cache::test_support::TemporaryFolder::new();
+        let cache = StemCache::new(folder.path().to_path_buf(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        let files = cache
+            .store_streamed(&ContentHash::from_bytes([7; 32]), left.len(), |sink| {
+                separator
+                    .separate_into(&left, &right, &Unobserved, sink)
+                    .map(|_| ())
+            })
+            .unwrap();
+        let expected = folder.path().join("expected");
+        std::fs::create_dir_all(&expected).unwrap();
+        for stem in Stem::ALL {
+            assert_eq!(collected.interleaved(stem).len(), left.len() * 2);
+            let expected_file = expected.join(format!("{}.wav", stem.name()));
+            wav::write_wav(
+                &expected_file,
+                collected.interleaved(stem),
+                2,
+                STEMS_SAMPLE_RATE,
+            )
+            .unwrap();
+            assert_eq!(
+                std::fs::read(files.path(stem)).unwrap(),
+                std::fs::read(&expected_file).unwrap(),
+                "{stem:?}"
+            );
         }
     }
 

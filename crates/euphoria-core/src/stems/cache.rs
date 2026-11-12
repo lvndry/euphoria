@@ -10,8 +10,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use super::wav::write_wav;
-use super::{STEMS_CHANNELS, STEMS_MODEL, STEMS_SAMPLE_RATE, Stem, Stems};
+use super::wav::WavWriter;
+use super::{
+    STEMS_CHANNELS, STEMS_MODEL, STEMS_SAMPLE_RATE, SeparationObserver, SeparationStage, Stem,
+    StemSink, Stems,
+};
 use crate::cache::ContentHash;
 use crate::error::EuphoriaError;
 
@@ -22,6 +25,7 @@ pub const DEFAULT_STEM_CACHE_LIMIT_BYTES: u64 = 5_000_000_000;
 /// such as `20` or `0.5`.
 pub const STEM_CACHE_LIMIT_VARIABLE: &str = "EUPHORIA_STEMS_CACHE_GB";
 
+const SEPARATION_LOCK_FILE_NAME: &str = ".separating.lock";
 const LAST_USED_FILE_NAME: &str = "last-used";
 const INCOMING_PREFIX: &str = ".incoming-";
 
@@ -107,6 +111,19 @@ impl StemCache {
     /// removes the stems used longest ago until the cache fits its limit.
     /// The new stems are always kept, even when they alone exceed it.
     pub fn store(&self, hash: &ContentHash, stems: &Stems) -> Result<StemFiles, EuphoriaError> {
+        self.store_streamed(hash, stems.frames, |sink| sink.write(&stems.interleaved))
+    }
+
+    /// Stores like [`StemCache::store`] stems `frames` long that `separate`
+    /// hands to the sink it is given a block at a time, written to disk as
+    /// they come. Nothing is kept when `separate` fails or hands over
+    /// another length.
+    pub(crate) fn store_streamed(
+        &self,
+        hash: &ContentHash,
+        frames: usize,
+        separate: impl FnOnce(&mut dyn StemSink) -> Result<(), EuphoriaError>,
+    ) -> Result<StemFiles, EuphoriaError> {
         let stem_error = |path: &Path| {
             let path = path.to_path_buf();
             move |source| EuphoriaError::StemFiles { path, source }
@@ -116,7 +133,11 @@ impl StemCache {
             .prefix(INCOMING_PREFIX)
             .tempdir_in(&self.directory)
             .map_err(stem_error(&self.directory))?;
-        write_entry(incoming.path(), stems).map_err(stem_error(incoming.path()))?;
+        let mut sink =
+            WavStemSink::create(incoming.path(), frames).map_err(stem_error(incoming.path()))?;
+        separate(&mut sink)?;
+        sink.finish().map_err(stem_error(incoming.path()))?;
+        mark_used(incoming.path()).map_err(stem_error(incoming.path()))?;
         let destination = self.entry_directory(hash);
         install_entry(incoming.path(), &destination).map_err(stem_error(&destination))?;
         self.evict(&destination)
@@ -124,6 +145,37 @@ impl StemCache {
         Ok(StemFiles {
             directory: destination,
         })
+    }
+
+    /// Waits until no other process separates into this cache, then holds
+    /// the turn until the returned file is dropped. Separations run one at
+    /// a time across every window and command, so that two never need the
+    /// memory of the model twice.
+    pub(crate) fn separation_turn(
+        &self,
+        observer: &dyn SeparationObserver,
+    ) -> Result<File, EuphoriaError> {
+        let lock_path = self.directory.join(SEPARATION_LOCK_FILE_NAME);
+        let lock_error = |source| EuphoriaError::StemFiles {
+            path: lock_path.clone(),
+            source,
+        };
+        fs::create_dir_all(&self.directory).map_err(lock_error)?;
+        let lock = File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .map_err(lock_error)?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => {
+                observer.stage(SeparationStage::Waiting);
+                lock.lock().map_err(lock_error)?;
+            }
+            Err(fs::TryLockError::Error(source)) => return Err(lock_error(source)),
+        }
+        Ok(lock)
     }
 
     /// Removes the entries used longest ago until the total size is within
@@ -200,16 +252,48 @@ fn install_entry(incoming: &Path, destination: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn write_entry(directory: &Path, stems: &Stems) -> io::Result<()> {
-    for stem in Stem::ALL {
-        write_wav(
-            &directory.join(format!("{}.wav", stem.name())),
-            stems.interleaved(stem),
-            STEMS_CHANNELS as u16,
-            STEMS_SAMPLE_RATE,
-        )?;
+/// The four WAV files of a cache entry being written.
+struct WavStemSink {
+    directory: PathBuf,
+    writers: Vec<WavWriter>,
+}
+
+impl WavStemSink {
+    fn create(directory: &Path, frames: usize) -> io::Result<Self> {
+        let writers = Stem::ALL
+            .iter()
+            .map(|stem| {
+                WavWriter::create(
+                    &directory.join(format!("{}.wav", stem.name())),
+                    frames,
+                    STEMS_CHANNELS as u16,
+                    STEMS_SAMPLE_RATE,
+                )
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        Ok(Self {
+            directory: directory.to_path_buf(),
+            writers,
+        })
     }
-    mark_used(directory)
+
+    fn finish(self) -> io::Result<()> {
+        self.writers.into_iter().try_for_each(WavWriter::finish)
+    }
+}
+
+impl StemSink for WavStemSink {
+    fn write(&mut self, blocks: &[Vec<f32>; 4]) -> Result<(), EuphoriaError> {
+        for (writer, block) in self.writers.iter_mut().zip(blocks) {
+            writer
+                .append(block)
+                .map_err(|source| EuphoriaError::StemFiles {
+                    path: self.directory.clone(),
+                    source,
+                })?;
+        }
+        Ok(())
+    }
 }
 
 fn mark_used(directory: &Path) -> io::Result<()> {
@@ -264,6 +348,14 @@ mod tests {
             frames,
             interleaved: Stem::ALL.map(|stem| vec![stem.index() as f32 / 10.0; frames * 2]),
         }
+    }
+
+    fn write_entry(directory: &Path, stems: &Stems) -> io::Result<()> {
+        let mut sink = WavStemSink::create(directory, stems.frames)?;
+        sink.write(&stems.interleaved)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        sink.finish()?;
+        mark_used(directory)
     }
 
     fn hash(byte: u8) -> ContentHash {
@@ -399,6 +491,37 @@ mod tests {
         assert_eq!(
             fs::read(personal.join("keep.txt")).unwrap(),
             b"unrelated data"
+        );
+    }
+
+    #[test]
+    fn a_second_separation_waits_for_the_first() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Heard(AtomicBool);
+        impl SeparationObserver for Heard {
+            fn stage(&self, stage: SeparationStage) {
+                if stage == SeparationStage::Waiting {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+        let folder = TemporaryFolder::new("turns");
+        let cache = StemCache::new(folder.0.clone(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        let first = cache
+            .separation_turn(&Heard(AtomicBool::new(false)))
+            .unwrap();
+        let second_cache = cache.clone();
+        let waiting = std::thread::spawn(move || {
+            let heard = Heard(AtomicBool::new(false));
+            let _turn = second_cache.separation_turn(&heard).unwrap();
+            heard.0.load(Ordering::SeqCst)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!waiting.is_finished());
+        drop(first);
+        assert!(
+            waiting.join().unwrap(),
+            "the second separation never said it waited"
         );
     }
 
