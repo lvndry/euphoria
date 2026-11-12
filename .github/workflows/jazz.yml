@@ -623,11 +623,14 @@ jobs:
           PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         run: |
-          # Isolated Python prevents repository modules from shadowing the standard library.
-          if ! python3 -I .github/jazz/workflows/code-review/collect_context.py \
-              --root "$GITHUB_WORKSPACE" --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" \
-              > /tmp/jazz-contract-context.json; then
-            echo '{"error":"Contract inventory unavailable; perform manual caller searches."}' > /tmp/jazz-contract-context.json
+          # Run the target branch's collector, never the proposed implementation.
+          # Isolated Python also prevents repository modules from shadowing stdlib.
+          collector="$RUNNER_TEMP/jazz-review-collector.py"
+          if ! git show "$PR_BASE_SHA:.github/jazz/workflows/code-review/collect_context.py" > "$collector" ||
+              ! python3 -I "$collector" --root "$GITHUB_WORKSPACE" \
+                --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" > /tmp/jazz-contract-context.json; then
+            # The introducing PR has no collector on its base yet. Review still runs.
+            echo '{"error":"Base collector unavailable; perform manual caller searches."}' > /tmp/jazz-contract-context.json
           fi
 
       - name: Receive the ChatGPT access token
