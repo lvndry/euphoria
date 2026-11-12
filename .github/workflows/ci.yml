@@ -198,6 +198,14 @@ jobs:
         run: |
           test -x "$EUPHORIA_LINKED_BINARY"
           python3 -m unittest scripts/test_linux_libraries.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: runner.os == 'Linux'
+        # The clean-system smoke test packs this binary without rebuilding it.
+        with:
+          name: linux-debug-cli
+          path: target/debug/euphoria
+          if-no-files-found: error
+          retention-days: 1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: runner.os == 'macOS'
       - name: App packaging library tests
@@ -234,13 +242,24 @@ jobs:
         run: cargo clippy -p euphoria --all-targets --locked -- -D warnings
       - name: Unit and headless UI tests
         run: cargo test -p euphoria --locked
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        # The clean-system smoke test packs this binary without rebuilding it.
+        with:
+          name: linux-debug-desktop
+          path: target/debug/euphoria-desktop
+          if-no-files-found: error
+          retention-days: 1
 
   linux-packages:
     name: Linux AppImage and tarball on a clean system
-    needs: changes
-    # The release build takes a while, so it runs when what goes into the
-    # packages changes: dependencies, build scripts and packaging scripts.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.packaging == 'true') }}
+    needs: [changes, test, desktop-linux]
+    # The LTO release build takes a while, so it runs only when what goes
+    # into the packages changes: dependencies, build scripts and packaging
+    # scripts. A Rust source-only change skips it and packages the binaries
+    # the other Linux jobs already built instead, then runs the same
+    # clean-system check, so a change that breaks startup or runtime
+    # dependencies still fails here before the release workflow rebuilds.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
@@ -252,16 +271,49 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build the app and the AppImage
+        if: needs.changes.outputs.packaging == 'true'
         run: ./scripts/bundle-linux.sh
       - name: Build the command line tool
+        if: needs.changes.outputs.packaging == 'true'
         run: ./scripts/release/package-cli.sh dist
       - name: Check that the files run on a clean system
+        if: needs.changes.outputs.packaging == 'true'
         run: |
           cp target/release/bundle/Euphoria-*-x86_64.AppImage dist/
           ./scripts/release/check-linux-packages.sh dist
       - name: Read the oldest glibc the files run on
+        if: needs.changes.outputs.packaging == 'true'
         run: |
           mkdir "$RUNNER_TEMP/unpacked"
           tar -xzf dist/euphoria-*-x86_64-unknown-linux-gnu.tar.gz -C "$RUNNER_TEMP/unpacked"
           python3 scripts/linux_libraries.py minimum-glibc \
             --root target/release/bundle/Euphoria.AppDir --root "$RUNNER_TEMP/unpacked"
+
+      # The smoke test: no LTO rebuild, the debug binaries the other Linux
+      # jobs made are packaged the release way, and the packages are still
+      # proven to run on a clean system.
+      - name: Download the debug command line binary
+        if: needs.changes.outputs.packaging != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-debug-cli
+          path: target/debug
+      - name: Download the debug desktop binary
+        if: needs.changes.outputs.packaging != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-debug-desktop
+          path: target/debug
+      - name: Package the debug binaries the release way
+        if: needs.changes.outputs.packaging != 'true'
+        run: |
+          mkdir target/release
+          cp target/debug/euphoria target/release/euphoria
+          cp target/debug/euphoria-desktop target/release/euphoria-desktop
+          ./scripts/release/package-cli.sh --skip-build dist
+          ./scripts/bundle-linux.sh --skip-build
+      - name: Smoke test the packages on a clean system
+        if: needs.changes.outputs.packaging != 'true'
+        run: |
+          cp target/release/bundle/Euphoria-*-x86_64.AppImage dist/
+          ./scripts/release/check-linux-packages.sh dist
