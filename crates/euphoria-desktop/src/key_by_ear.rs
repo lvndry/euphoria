@@ -42,55 +42,68 @@ struct Drone {
     _voice: Box<dyn Voice>,
 }
 
-/// Keeps corrections in the cache in the order they were made. Each edit
-/// starts a write of its own off the main thread, and those can run in any
-/// order; each write takes the latest correction of its track when it
-/// starts, so the last edit is what stays whatever order the writes run in.
+/// Keeps the user's edits of a kind, such as corrections or cues, in the
+/// cache in the order they were made. Each edit starts a write of its own
+/// off the main thread, and those can run in any order; each write takes
+/// the latest edit of its track when it starts, so the last edit is what
+/// stays whatever order the writes run in.
 ///
 /// Two locks keep the window from waiting on the disk: `latest` is only
-/// held for a moment, to note or read a correction, while `writing` lets
-/// one write at a time touch the cache, which may read a whole file.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct CorrectionWriter {
-    latest: Arc<Mutex<HashMap<PathBuf, PendingCorrection>>>,
+/// held for a moment, to note or read an edit, while `writing` lets one
+/// write at a time touch the cache, which may read a whole file.
+#[derive(Debug, Clone)]
+pub(crate) struct LatestWriter<Value> {
+    latest: Arc<Mutex<HashMap<PathBuf, PendingEdit<Value>>>>,
     writing: Arc<Mutex<()>>,
 }
 
-/// A correction waiting to be kept, and which edit made it.
-#[derive(Debug, Clone, Copy)]
-struct PendingCorrection {
-    correction: Correction,
+/// Keeps corrections in the cache in the order they were made.
+pub(crate) type CorrectionWriter = LatestWriter<Correction>;
+
+impl<Value> Default for LatestWriter<Value> {
+    fn default() -> Self {
+        Self {
+            latest: Arc::new(Mutex::new(HashMap::new())),
+            writing: Arc::new(Mutex::new(())),
+        }
+    }
+}
+
+/// An edit waiting to be kept, and which edit it is.
+#[derive(Debug, Clone)]
+struct PendingEdit<Value> {
+    value: Value,
     edit: u64,
 }
 
-impl CorrectionWriter {
-    /// Notes `correction` as the latest one for the file at `path`. Never
-    /// waits for a write in progress.
-    pub(crate) fn queue(&self, path: &Path, correction: Correction) {
+impl<Value: Clone> LatestWriter<Value> {
+    /// Notes `value` as the latest edit for the file at `path`. Never waits
+    /// for a write in progress.
+    pub(crate) fn queue(&self, path: &Path, value: Value) {
         let mut latest = self.lock();
         let edit = latest.get(path).map_or(1, |pending| pending.edit + 1);
-        latest.insert(path.to_path_buf(), PendingCorrection { correction, edit });
+        latest.insert(path.to_path_buf(), PendingEdit { value, edit });
     }
 
-    /// The correction of the file at `path` that waits to be kept, if any:
-    /// the latest the user made.
-    pub(crate) fn pending(&self, path: &Path) -> Option<Correction> {
-        self.lock().get(path).map(|pending| pending.correction)
+    /// The edit of the file at `path` that waits to be kept, if any: the
+    /// latest the user made.
+    pub(crate) fn pending(&self, path: &Path) -> Option<Value> {
+        self.lock().get(path).map(|pending| pending.value.clone())
     }
 
-    /// Keeps the latest correction of the file at `path` with `write`, if
-    /// an earlier write has not kept it already. An edit made while `write`
+    /// Keeps the latest edit of the file at `path` with `write`, if an
+    /// earlier write has not kept it already. An edit made while `write`
     /// runs is left for its own write, which follows this one.
     pub(crate) fn write_latest<Failure>(
         &self,
         path: &Path,
-        write: impl FnOnce(&Correction) -> Result<(), Failure>,
+        write: impl FnOnce(&Value) -> Result<(), Failure>,
     ) -> Result<(), Failure> {
         let _writing = self.writing.lock().unwrap_or_else(PoisonError::into_inner);
-        let Some(snapshot) = self.lock().get(path).copied() else {
+        let Some(snapshot) = self.lock().get(path).cloned() else {
             return Ok(());
         };
-        write(&snapshot.correction)?;
+        write(&snapshot.value)?;
         let mut latest = self.lock();
         if latest
             .get(path)
@@ -101,7 +114,7 @@ impl CorrectionWriter {
         Ok(())
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, PendingCorrection>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, PendingEdit<Value>>> {
         self.latest.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -427,13 +440,25 @@ mod tests {
         };
         has_started.recv().unwrap();
 
-        let before = std::time::Instant::now();
-        writer.queue(path, second);
-        assert_eq!(writer.pending(path), Some(second));
+        // The write holds until the test lets it finish, so an edit that
+        // waited for it would never return. It is queued on its own thread,
+        // and a generous limit on that thread turns such a wait into a
+        // failure instead of a test that hangs.
+        let (queued, has_queued) = std::sync::mpsc::channel();
+        {
+            let writer = writer.clone();
+            std::thread::spawn(move || {
+                writer.queue(path, second);
+                queued.send(()).ok();
+            });
+        }
         assert!(
-            before.elapsed() < std::time::Duration::from_millis(500),
-            "the edit did not wait for the write"
+            has_queued
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .is_ok(),
+            "the edit waited for the write"
         );
+        assert_eq!(writer.pending(path), Some(second));
 
         finish.send(()).unwrap();
         slow.join().unwrap().unwrap();

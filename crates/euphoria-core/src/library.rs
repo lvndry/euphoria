@@ -8,7 +8,8 @@ use walkdir::WalkDir;
 use crate::error::EuphoriaError;
 
 /// File extensions Euphoria can decode, in lower case.
-pub const SUPPORTED_EXTENSIONS: [&str; 6] = ["mp3", "m4a", "flac", "wav", "aif", "aiff"];
+pub const SUPPORTED_EXTENSIONS: [&str; 8] =
+    ["mp3", "m4a", "mp4", "flac", "ogg", "wav", "aif", "aiff"];
 
 /// True when the file name ends in one of [`SUPPORTED_EXTENSIONS`], in any
 /// letter case.
@@ -81,7 +82,9 @@ mod tests {
 
     #[test]
     fn recognises_supported_extensions_in_any_case() {
-        for name in ["a.mp3", "b.FLAC", "c.Aiff", "d.m4a", "e.wav", "f.aif"] {
+        for name in [
+            "a.mp3", "b.FLAC", "c.Aiff", "d.m4a", "e.wav", "f.aif", "g.ogg", "h.MP4",
+        ] {
             assert!(is_supported_audio_file(Path::new(name)), "{name}");
         }
         for name in ["notes.txt", "cover.jpg", "no_extension", "track.mp3.part"] {

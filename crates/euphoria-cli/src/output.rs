@@ -13,12 +13,13 @@ use std::path::{Path, PathBuf};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
-    BeatGrid, Confidence, Correction, EuphoriaError, FileResult, Key, KeySection,
-    SUPPORTED_EXTENSIONS, SectionCue, SkippedTrack, TempoRange, UnreadTags,
+    BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeySection, SUPPORTED_EXTENSIONS,
+    SkippedTrack, TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
-use crate::batch::Corrections;
+use crate::batch::{UserEdits, UserEditsByFile};
+use crate::export::Program;
 use crate::style::Theme;
 use crate::tags::Failure;
 use crate::terminal::Printable;
@@ -127,7 +128,7 @@ struct JsonTrack<'result> {
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
     /// The values the user set by hand, which replace the detected ones:
-    /// "key", "bpm" or both.
+    /// any of "key", "bpm" and "cues".
     set_by_user: Vec<&'static str>,
     error: Option<String>,
 }
@@ -135,14 +136,17 @@ struct JsonTrack<'result> {
 #[derive(Serialize)]
 struct JsonCue {
     seconds: f64,
-    name: &'static str,
+    name: String,
+    /// The hot cue pad, "A" to "H", or `None` for a memory cue only.
+    hot_cue: Option<String>,
 }
 
-impl From<SectionCue> for JsonCue {
-    fn from(cue: SectionCue) -> Self {
+impl From<Cue> for JsonCue {
+    fn from(cue: Cue) -> Self {
         Self {
             seconds: round_to_thousandths(cue.seconds),
-            name: cue.section.name(),
+            name: cue.name,
+            hot_cue: cue.hot_cue.map(|hot_cue| hot_cue.to_string()),
         }
     }
 }
@@ -233,42 +237,50 @@ pub fn write_json(
     writer: &mut impl Write,
     results: &[FileResult],
     range: TempoRange,
-    corrections: &Corrections,
+    user_edits: &UserEditsByFile,
 ) -> io::Result<()> {
+    let no_edits = UserEdits::default();
     let tracks: Vec<JsonTrack<'_>> = results
         .iter()
         .map(|result| match &result.outcome {
-            Ok(analysis) => JsonTrack {
-                path: &result.path,
-                duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
-                key: analysis
-                    .key
-                    .map(|key| JsonKey::rated(key, analysis.key_confidence())),
-                runner_up_key: analysis.key_runner_up.map(JsonKey::from),
-                bpm: analysis.bpm.map(round_to_tenths),
-                bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
-                bpm_alternative: analysis
-                    .bpm
-                    .and_then(|bpm| range.alternative(bpm))
-                    .map(round_to_tenths),
-                energy: analysis.energy,
-                tuning_cents: analysis.tuning_cents.map(round_to_tenths),
-                key_timeline: analysis
-                    .key_timeline
-                    .iter()
-                    .map(JsonKeySection::from)
-                    .collect(),
-                beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
-                cues: analysis.cues.iter().copied().map(JsonCue::from).collect(),
-                quality: analysis.quality.as_ref().map(JsonQuality::from),
-                needs_review: Some(analysis.needs_review()),
-                set_by_user: set_by_user(
-                    corrections
-                        .get(&result.path)
-                        .and_then(|looked_up| looked_up.as_ref().ok()),
-                ),
-                error: None,
-            },
+            Ok(analysis) => {
+                let edits = user_edits
+                    .get(&result.path)
+                    .and_then(|looked_up| looked_up.as_ref().ok())
+                    .unwrap_or(&no_edits);
+                JsonTrack {
+                    path: &result.path,
+                    duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
+                    key: analysis
+                        .key
+                        .map(|key| JsonKey::rated(key, analysis.key_confidence())),
+                    runner_up_key: analysis.key_runner_up.map(JsonKey::from),
+                    bpm: analysis.bpm.map(round_to_tenths),
+                    bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
+                    bpm_alternative: analysis
+                        .bpm
+                        .and_then(|bpm| range.alternative(bpm))
+                        .map(round_to_tenths),
+                    energy: analysis.energy,
+                    tuning_cents: analysis.tuning_cents.map(round_to_tenths),
+                    key_timeline: analysis
+                        .key_timeline
+                        .iter()
+                        .map(JsonKeySection::from)
+                        .collect(),
+                    beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
+                    cues: edits
+                        .track_cues(analysis)
+                        .cues
+                        .into_iter()
+                        .map(JsonCue::from)
+                        .collect(),
+                    quality: analysis.quality.as_ref().map(JsonQuality::from),
+                    needs_review: Some(analysis.needs_review()),
+                    set_by_user: set_by_user(edits),
+                    error: None,
+                }
+            }
             Err(error) => JsonTrack {
                 path: &result.path,
                 duration_seconds: None,
@@ -293,17 +305,17 @@ pub fn write_json(
     writeln!(writer)
 }
 
-/// The values of `correction` the user set, as JSON names them.
-fn set_by_user(correction: Option<&Correction>) -> Vec<&'static str> {
-    let Some(correction) = correction else {
-        return Vec::new();
-    };
+/// The values the user set in `edits`, as JSON names them.
+fn set_by_user(edits: &UserEdits) -> Vec<&'static str> {
     let mut names = Vec::new();
-    if correction.key.is_some() {
+    if edits.correction.key.is_some() {
         names.push("key");
     }
-    if correction.bpm.is_some() {
+    if edits.correction.bpm.is_some() {
         names.push("bpm");
+    }
+    if edits.cues.is_some() {
+        names.push("cues");
     }
     names
 }
@@ -316,7 +328,7 @@ fn set_by_user(correction: Option<&Correction>) -> Vec<&'static str> {
 pub fn write_plain_table(
     writer: &mut impl Write,
     results: &[FileResult],
-    corrections: &Corrections,
+    user_edits: &UserEditsByFile,
 ) -> io::Result<()> {
     let header = [
         "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
@@ -325,9 +337,10 @@ pub fn write_plain_table(
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
-            let correction = corrections
+            let correction = user_edits
                 .get(&result.path)
-                .and_then(|looked_up| looked_up.as_ref().ok());
+                .and_then(|looked_up| looked_up.as_ref().ok())
+                .map(|edits| edits.correction);
             let key_letter = match correction.and_then(|correction| correction.key) {
                 Some(_) => "U",
                 None => confidence_letter(analysis.key_confidence()),
@@ -684,6 +697,7 @@ pub fn write_beat_grid_summary(
     writer: &mut impl Write,
     with_grid: usize,
     track_count: usize,
+    program: Program,
 ) -> io::Result<()> {
     write!(
         writer,
@@ -693,7 +707,8 @@ pub fn write_beat_grid_summary(
     if with_grid < track_count {
         write!(
             writer,
-            "; the others have no clear beat or a grid rated low confidence, so rekordbox analyzes them"
+            "; the others have no clear beat or a grid rated low confidence, so {} analyzes them",
+            program.name()
         )?;
     }
     writeln!(writer, ".")
@@ -711,7 +726,10 @@ pub fn write_cue_summary(
         counted(track_count, "track", "tracks")
     )?;
     if with_cues < track_count {
-        write!(writer, "; tracks without a beat grid in the file get none")?;
+        write!(
+            writer,
+            "; tracks without a beat grid in the file get none, unless you edited their cues in the app"
+        )?;
     }
     writeln!(writer, ".")
 }
@@ -721,11 +739,13 @@ pub fn write_cue_summary(
 pub fn write_unmatched_cued_tracks(
     writer: &mut impl Write,
     unmatched: &[String],
+    program: Program,
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "Not protected, as --allow-unmatched-cued-tracks asked: {} with cues in your rekordbox collection {} no file on this computer:",
+        "Not protected, as --allow-unmatched-cued-tracks asked: {} with cues in your {} collection {} no file on this computer:",
         counted(unmatched.len(), "track", "tracks"),
+        program.name(),
         if unmatched.len() == 1 {
             "matches"
         } else {
@@ -740,12 +760,17 @@ pub fn write_unmatched_cued_tracks(
 
 /// Writes how many tracks were left out of the export because they have
 /// cues in rekordbox, and how to update them.
-pub fn write_left_out_for_cues(writer: &mut impl Write, left_out: usize) -> io::Result<()> {
+pub fn write_left_out_for_cues(
+    writer: &mut impl Write,
+    left_out: usize,
+    program: Program,
+) -> io::Result<()> {
     writeln!(
         writer,
-        "Left out {} that already {} cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update {} key and tempo.",
+        "Left out {} that already {} cues in your {} collection, so importing this file cannot change them. Export again without --cues to update {} key and tempo.",
         counted(left_out, "track", "tracks"),
         if left_out == 1 { "has" } else { "have" },
+        program.name(),
         if left_out == 1 { "its" } else { "their" },
     )
 }
@@ -757,19 +782,34 @@ pub const REKORDBOX_IMPORT_STEPS: [&str; 3] = [
     "Refresh rekordbox xml in the tree, then import its tracks or playlists.",
 ];
 
-/// Writes how to bring an exported file into rekordbox, and where the full
-/// guide is.
-pub fn write_rekordbox_import_steps(writer: &mut impl Write, theme: &Theme) -> io::Result<()> {
-    writeln!(writer, "To import it in rekordbox:")?;
-    for (number, step) in REKORDBOX_IMPORT_STEPS.iter().enumerate() {
+/// The steps to bring an exported file into Traktor.
+pub const TRAKTOR_IMPORT_STEPS: [&str; 3] = [
+    "Back up collection.nml in Documents/Native Instruments/Traktor <version>.",
+    "In the browser tree, right click Track Collection > Import Another Collection.",
+    "Choose this file. Lock the beat grid or untick BPM before analyzing these tracks.",
+];
+
+/// Writes how to bring an exported file into the program, and where the
+/// full guide is.
+pub fn write_import_steps(
+    writer: &mut impl Write,
+    theme: &Theme,
+    program: Program,
+) -> io::Result<()> {
+    let (steps, guide): (&[&str], &str) = match program {
+        Program::Rekordbox => (&REKORDBOX_IMPORT_STEPS, "export-to-rekordbox.md"),
+        Program::Traktor => (&TRAKTOR_IMPORT_STEPS, "export-to-traktor.md"),
+    };
+    writeln!(writer, "To import it in {}:", program.name())?;
+    for (number, step) in steps.iter().enumerate() {
         writeln!(writer, "  {}. {step}", number + 1)?;
     }
     writeln!(
         writer,
         "{}",
-        theme.dim(
-            "Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-rekordbox.md"
-        )
+        theme.dim(format!(
+            "Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/{guide}"
+        ))
     )
 }
 
@@ -1004,7 +1044,7 @@ fn round_to_tenths(value: f32) -> f32 {
 mod tests {
     use std::path::PathBuf;
 
-    use euphoria_core::{Mode, TrackAnalysis};
+    use euphoria_core::{Correction, Mode, SectionCue, TrackAnalysis};
 
     use super::*;
 
@@ -1087,7 +1127,12 @@ mod tests {
     }
 
     fn write_json_in_default_range(writer: &mut Vec<u8>, results: &[FileResult]) -> io::Result<()> {
-        write_json(writer, results, TempoRange::DEFAULT, &Corrections::new())
+        write_json(
+            writer,
+            results,
+            TempoRange::DEFAULT,
+            &UserEditsByFile::new(),
+        )
     }
 
     fn summary(results: &[FileResult], narrowing: &Narrowing) -> String {
@@ -1168,7 +1213,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
 -                 -       -  -/-   -        1:00  music/intro.wav
 ";
         assert_eq!(
-            render(|writer, results| write_plain_table(writer, results, &Corrections::new())),
+            render(|writer, results| write_plain_table(writer, results, &UserEditsByFile::new())),
             expected
         );
     }
@@ -1176,21 +1221,73 @@ Key             BPM  Energy  Conf  Quality  Time  File
     #[test]
     fn values_the_user_set_are_marked_in_the_table_and_the_json() {
         let results = sample_results();
-        let mut corrections = Corrections::new();
-        corrections.insert(
+        let mut user_edits = UserEditsByFile::new();
+        user_edits.insert(
             results[0].path.clone(),
-            Ok(Correction::of_bpm(85.0).unwrap()),
+            Ok(UserEdits {
+                correction: Correction::of_bpm(85.0).unwrap(),
+                cues: None,
+            }),
         );
         let mut table = Vec::new();
-        write_plain_table(&mut table, &results, &corrections).unwrap();
+        write_plain_table(&mut table, &results, &user_edits).unwrap();
         let table = String::from_utf8(table).unwrap();
         assert!(table.contains("H/U"), "{table}");
 
         let mut json = Vec::new();
-        write_json(&mut json, &results, TempoRange::DEFAULT, &corrections).unwrap();
+        write_json(&mut json, &results, TempoRange::DEFAULT, &user_edits).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
         assert_eq!(json[0]["set_by_user"], serde_json::json!(["bpm"]));
         assert_eq!(json[1]["set_by_user"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn the_json_lists_the_users_cues_in_place_of_the_automatic_ones() {
+        let mut results = sample_results();
+        if let Ok(analysis) = &mut results[1].outcome {
+            analysis.cues = vec![SectionCue {
+                seconds: 0.5,
+                section: euphoria_core::CueSection::Start,
+            }];
+        }
+        let json_of = |user_edits: &UserEditsByFile| {
+            let mut json = Vec::new();
+            write_json(&mut json, &results, TempoRange::DEFAULT, user_edits).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&json).unwrap()
+        };
+        assert_eq!(
+            json_of(&UserEditsByFile::new())[1]["cues"],
+            serde_json::json!([{"seconds": 0.5, "name": "Start", "hot_cue": "A"}])
+        );
+
+        let mut user_edits = UserEditsByFile::new();
+        user_edits.insert(
+            results[1].path.clone(),
+            Ok(UserEdits {
+                correction: Correction::default(),
+                cues: Some(vec![
+                    Cue {
+                        seconds: 40.0,
+                        name: "Vocal".to_string(),
+                        hot_cue: None,
+                    },
+                    Cue {
+                        seconds: 8.25,
+                        name: "Intro".to_string(),
+                        hot_cue: euphoria_core::HotCue::from_letter('D'),
+                    },
+                ]),
+            }),
+        );
+        let json = json_of(&user_edits);
+        assert_eq!(
+            json[1]["cues"],
+            serde_json::json!([
+                {"seconds": 8.25, "name": "Intro", "hot_cue": "D"},
+                {"seconds": 40.0, "name": "Vocal", "hot_cue": null},
+            ])
+        );
+        assert_eq!(json[1]["set_by_user"], serde_json::json!(["cues"]));
     }
 
     #[test]
@@ -1371,7 +1468,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
     #[test]
     fn import_steps_are_numbered_and_end_with_the_guide() {
         let mut buffer = Vec::new();
-        write_rekordbox_import_steps(&mut buffer, &Theme::PLAIN).unwrap();
+        write_import_steps(&mut buffer, &Theme::PLAIN, Program::Rekordbox).unwrap();
         let steps = String::from_utf8(buffer).unwrap();
         let lines: Vec<&str> = steps.lines().collect();
         assert_eq!(lines.len(), 5);

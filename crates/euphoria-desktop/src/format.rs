@@ -11,6 +11,13 @@ pub(crate) fn duration(seconds: f32) -> String {
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
 }
 
+/// The time of a cue as minutes and seconds to a tenth, for example
+/// "1:02.5".
+pub(crate) fn cue_time(seconds: f64) -> String {
+    let tenths = (seconds.max(0.0) * 10.0).round() as u64;
+    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
 /// A tempo with one decimal, for example "124.0".
 pub(crate) fn bpm(beats_per_minute: f32) -> String {
     format!("{beats_per_minute:.1}")
@@ -167,6 +174,14 @@ mod tests {
         assert_eq!(duration(1.0), "0:01");
         assert_eq!(duration(408.2), "6:48");
         assert_eq!(duration(3599.6), "60:00");
+    }
+
+    #[test]
+    fn formats_cue_times_to_a_tenth_of_a_second() {
+        assert_eq!(cue_time(0.0), "0:00.0");
+        assert_eq!(cue_time(62.46), "1:02.5");
+        assert_eq!(cue_time(59.97), "1:00.0");
+        assert_eq!(cue_time(-1.0), "0:00.0");
     }
 
     #[test]

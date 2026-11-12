@@ -35,11 +35,21 @@ pub mod library;
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// Changing the key of a track by shifting its pitch.
+#[cfg(feature = "pitch-shift")]
+pub mod shift;
+#[cfg(feature = "pitch-shift")]
+mod signalsmith;
+/// Separating tracks into vocals, drums, bass and the rest.
+#[cfg(feature = "stems")]
+pub mod stems;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;
 /// The range of tempos a track is reported at.
 pub mod tempo_range;
+/// The cues of a track: those analysis placed, or the user's.
+pub mod track_cues;
 /// Reading the title and artist stored in audio files.
 pub mod track_name;
 
@@ -51,8 +61,8 @@ pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mo
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
-    DATA_DIRECTORY_VARIABLE, analyze_files_cached, analyze_files_cached_observed, clear_cache,
-    default_cache_path,
+    DATA_DIRECTORY_VARIABLE, DetectedValues, StoredCorrection, analyze_files_cached,
+    analyze_files_cached_observed, clear_cache, default_cache_path,
 };
 pub use confidence::Confidence;
 pub use correction::Correction;
@@ -65,9 +75,10 @@ pub use energy::{
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{
-    AssembledLibrary, ExportContents, M3uTrack, PlaylistLayout, SkippedTrack, UnreadTags,
-    assemble_library, assemble_library_with, playlist_count, playlists_from_folders, render_m3u8,
-    write_m3u8_file,
+    AssembledLibrary, CORRECTIONS_SCHEMA_VERSION, ExportContents, M3uTrack, PathInclusion,
+    PlaylistLayout, SkippedTrack, UnreadTags, assemble_library, assemble_library_with,
+    playlist_count, playlists_from_folders, render_corrections_jsonl, render_m3u8,
+    write_corrections_file, write_m3u8_file,
 };
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
@@ -79,4 +90,5 @@ pub use playlists::{
     default_playlists_path, locate_entry, locate_moved_files,
 };
 pub use tempo_range::TempoRange;
+pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
 pub use track_name::{TrackName, read_track_name};

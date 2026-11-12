@@ -1,5 +1,5 @@
 [package]
-name = "euphoria"
+name = "euphoria-desktop"
 version = "0.1.0"
 description = "The Euphoria desktop app: find the key and BPM of every track in your music collection"
 readme = "../../README.md"
@@ -17,7 +17,7 @@ name = "euphoria-desktop"
 path = "src/main.rs"
 
 [dependencies]
-euphoria-core.workspace = true
+euphoria-core = { workspace = true, features = ["stems"] }
 gpui.workspace = true
 rayon.workspace = true
 rodio.workspace = true
