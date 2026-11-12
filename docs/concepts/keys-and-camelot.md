@@ -66,6 +66,8 @@ The two boosts only go up. Going from 10A back to 8A is not an energy boost, and
 
 Numbers wrap around the wheel: one step up from 12A is 1A, and an energy boost from 11B lands on 1B.
 
+![The Camelot wheel with minor keys inside and major keys outside, from 8A, A minor. The moves that mix in key are 7A and 9A, a fifth away, and 8B, the relative major. The bolder moves are 7B, the diagonal, 10A, the energy boost, 11B, the mood change, and 3A, the semitone boost.](../images/keys-and-camelot/camelot-wheel.svg)
+
 ## What mixes into a track
 
 When you ask what can follow a track, Euphoria keeps the tracks whose key makes one of the moves you allow and whose tempo is close enough, 6 percent by default. A track at half or double the tempo can count as a tempo match if you allow it. Tracks without a detected key are left out; tracks without a detected tempo are kept and listed last.

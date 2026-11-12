@@ -65,7 +65,7 @@ When you change this option between two writes, a label with an energy rating at
 
 `--preset` picks the tag fields for one program: `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. The default, `generic`, is the right choice when you use several programs or are not sure.
 
-All presets write the key to the same fields: `TKEY` in MP3, WAV and AIFF, both `initialkey` and `KEY` in M4A, and `INITIALKEY` in FLAC. They differ in the tempo:
+All presets write the key to the same fields: `TKEY` in MP3, WAV and AIFF, both `initialkey` and `KEY` in M4A and MP4, and `INITIALKEY` in FLAC and Ogg Vorbis. They differ in the tempo:
 
 | Preset | Tempo |
 | --- | --- |

@@ -5,6 +5,7 @@
 
 mod batch;
 mod collection;
+mod corrections;
 mod export;
 mod help;
 mod output;
@@ -12,11 +13,15 @@ mod playlists;
 mod rewrites;
 mod set;
 mod set_view;
+mod shift;
 mod stages;
+#[cfg(feature = "stems")]
+mod stems;
 mod style;
 mod tag_edit;
 mod tags;
 mod terminal;
+mod traktor_collection;
 mod view;
 
 use std::io::{IsTerminal, Write};
@@ -32,6 +37,7 @@ use euphoria_core::{
 };
 
 use crate::batch::AnalysisOptions;
+use crate::corrections::CorrectionsCommand;
 use crate::export::ExportTarget;
 use crate::output::Narrowing;
 use crate::style::{ColorChoice, Theme};
@@ -88,6 +94,32 @@ enum Command {
         #[command(subcommand)]
         target: ExportTarget,
     },
+    /// Export the keys and tempos you corrected, to train a key model.
+    #[command(after_help = help::corrections_examples())]
+    Corrections {
+        #[command(subcommand)]
+        command: CorrectionsCommand,
+    },
+
+    /// Write a copy of a track in another key, with the same tempo.
+    #[command(
+        long_about = "Write a copy of a track in another key, with the same tempo.
+
+                      The pitch moves by up to 6 semitones either way while every beat                       stays where it was. The copy is a 24 bit WAV or FLAC file tagged                       with the new key; the original is never changed.",
+        after_help = help::shift_examples(),
+    )]
+    Shift(shift::ShiftArguments),
+    /// Separate a track into vocals, drums, bass and the rest.
+    #[cfg(feature = "stems")]
+    #[command(
+        long_about = "Separate a track into vocals, drums, bass and the rest, with the Demucs \
+                      htdemucs model, and write one WAV file per stem.\n\n\
+                      The model, 84 MB, is downloaded the first time. Separation runs on this \
+                      computer and takes about a minute for a track of a few minutes. The stems \
+                      are saved, so separating the same track again is instant.",
+        after_help = help::stems_examples(),
+    )]
+    Stems(stems::StemsArguments),
     /// Order tracks into a set that follows an energy curve, every mix in key.
     #[command(after_help = help::set_examples())]
     Set {
@@ -213,8 +245,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
+        Command::Corrections { command } => corrections::run(command),
+        Command::Shift(arguments) => shift::run(&arguments),
         Command::Set { command } => set::run(command),
         Command::Cache { command } => manage_cache(command),
+        #[cfg(feature = "stems")]
+        Command::Stems(arguments) => stems::run(&arguments),
     }
 }
 
@@ -268,8 +304,9 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, analysis)?;
+    let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
+    let results = batch::corrected(results, &user_edits);
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
-    let results = batch::corrected(results, &corrections);
     let analyzed_count = results.len();
 
     let verdicts: Vec<QualityVerdict> = arguments
@@ -363,10 +400,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &mut standard_output,
             &listed_results,
             analysis.tempo_range(),
-            &corrections,
+            &user_edits,
         )?,
         Layout::PlainTable => {
-            output::write_plain_table(&mut standard_output, &listed_results, &corrections)?
+            output::write_plain_table(&mut standard_output, &listed_results, &user_edits)?
         }
         Layout::Table => view::write_table(
             &mut standard_output,
@@ -417,7 +454,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     })
 }
 
-fn with_causes(error: EuphoriaError) -> anyhow::Error {
+pub(crate) fn with_causes(error: EuphoriaError) -> anyhow::Error {
     anyhow::anyhow!(error.chain())
 }
 

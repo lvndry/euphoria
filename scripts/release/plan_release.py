@@ -25,14 +25,26 @@ import next_version
 from release_notes import COMPLETE_MARKER
 
 
-def expected_assets(version):
-    """The files every release carries."""
-    return {
+# The script that packages the Linux files. A tag whose files hold it is
+# released with them; an older tag is released with the macOS files only.
+LINUX_PACKAGING = "scripts/bundle-linux.sh"
+
+
+def expected_assets(version, linux=True):
+    """The files every release carries, with the Linux ones when `linux`."""
+    assets = {
         f"Euphoria-{version}.dmg",
         "Euphoria.dmg",
         f"euphoria-{version}-aarch64-apple-darwin.tar.gz",
         "SHA256SUMS",
     }
+    if linux:
+        assets |= {
+            f"Euphoria-{version}-x86_64.AppImage",
+            "Euphoria-x86_64.AppImage",
+            f"euphoria-{version}-x86_64-unknown-linux-gnu.tar.gz",
+        }
+    return assets
 
 
 def release_tags(tags):
@@ -41,29 +53,30 @@ def release_tags(tags):
     return [tag for _, tag in sorted(found, reverse=True)]
 
 
-def is_complete(release, version):
+def is_complete(release, version, linux=True):
     """Whether a GitHub Release, as `release_state` describes it, is what the
     workflow leaves when it finishes: every file, its title, its notes, which
     end with the marker the workflow writes last, and marked as the latest
     release."""
     return (
         release is not None
-        and expected_assets(version) <= set(release["assets"])
+        and expected_assets(version, linux) <= set(release["assets"])
         and release["title"] == f"Euphoria {version}"
         and release["notes"].rstrip().endswith(COMPLETE_MARKER)
         and release["is_latest"]
     )
 
 
-def plan(tags, release_state, today):
+def plan(tags, release_state, today, packages_linux=lambda tag: True):
     """What to do, given the tags, a function that describes the GitHub
-    Release of a tag or returns None when it has none, and today's date.
-    Returns (mode, version, previous tag)."""
+    Release of a tag or returns None when it has none, today's date, and a
+    function that tells whether the files of a tag package the Linux
+    release. Returns (mode, version, previous tag)."""
     ordered = release_tags(tags)
     if ordered:
         newest = ordered[0]
         version = newest[1:]
-        if not is_complete(release_state(newest), version):
+        if not is_complete(release_state(newest), version, packages_linux(newest)):
             previous = ordered[1] if len(ordered) > 1 else ""
             return "resume", version, previous
     version = next_version.next_version(tags, today)
@@ -98,12 +111,22 @@ def release_state(tag):
     }
 
 
+def packages_linux(tag):
+    """Whether the files of `tag` hold the Linux packaging script."""
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{tag}:{LINUX_PACKAGING}"],
+        check=False,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def main():
     listed = subprocess.run(
         ["git", "tag", "--list", "v*"], capture_output=True, text=True, check=True
     )
     mode, version, previous = plan(
-        listed.stdout.split(), release_state, next_version.today()
+        listed.stdout.split(), release_state, next_version.today(), packages_linux
     )
     print(f"mode={mode}")
     print(f"version={version}")

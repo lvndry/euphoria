@@ -225,9 +225,9 @@ fn build(arguments: &BuildArguments) -> Result<ExitCode> {
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, &arguments.analysis)?;
-    let corrections =
-        batch::corrections(&results, &arguments.analysis, batch::CorrectionCheck::Quick)?;
-    let results = batch::corrected(results, &corrections);
+    let user_edits =
+        batch::user_edits(&results, &arguments.analysis, batch::CorrectionCheck::Quick)?;
+    let results = batch::corrected(results, &user_edits);
     let (analyzed, failures): (Vec<_>, Vec<_>) = results
         .into_iter()
         .partition(|result| result.outcome.is_ok());

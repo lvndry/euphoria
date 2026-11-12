@@ -10,6 +10,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use super::id3v2;
 use super::replace::Splice;
+use super::vorbis::Comments;
 use crate::error::ErrorSource;
 
 const MARKER: &[u8; 4] = b"fLaC";
@@ -33,17 +34,11 @@ pub(super) struct FlacFile {
     metadata_end: u64,
     blocks: Vec<Block>,
     comment_block: Option<usize>,
-    vendor: Vec<u8>,
-    comments: Vec<Vec<u8>>,
+    comments: Comments,
     /// A length the metadata should get back when padding allows, set by
     /// an undo.
     preferred_length: Option<u64>,
     problem: Option<&'static str>,
-}
-
-fn little_endian_u32(bytes: &[u8], offset: usize) -> Option<usize> {
-    let word: [u8; 4] = bytes.get(offset..offset + 4)?.try_into().ok()?;
-    Some(u32::from_le_bytes(word) as usize)
 }
 
 impl FlacFile {
@@ -62,8 +57,7 @@ impl FlacFile {
             metadata_end: metadata_start,
             blocks: Vec::new(),
             comment_block: None,
-            vendor: Vec::new(),
-            comments: Vec::new(),
+            comments: Comments::default(),
             preferred_length: None,
             problem: None,
         };
@@ -97,26 +91,9 @@ impl FlacFile {
             return;
         }
         self.comment_block = Some(self.blocks.len());
-        let parsed = (|| {
-            let vendor_length = little_endian_u32(content, 0)?;
-            let vendor = content.get(4..4 + vendor_length)?.to_vec();
-            let mut offset = 4 + vendor_length;
-            let count = little_endian_u32(content, offset)?;
-            offset += 4;
-            let mut comments = Vec::new();
-            for _ in 0..count {
-                let length = little_endian_u32(content, offset)?;
-                comments.push(content.get(offset + 4..offset + 4 + length)?.to_vec());
-                offset += 4 + length;
-            }
-            (offset == content.len()).then_some((vendor, comments))
-        })();
-        match parsed {
-            Some((vendor, comments)) => {
-                self.vendor = vendor;
-                self.comments = comments;
-            }
-            None => self.problem = Some("its Vorbis comment block is damaged"),
+        match Comments::parse(content) {
+            Some((comments, length)) if length == content.len() => self.comments = comments,
+            _ => self.problem = Some("its Vorbis comment block is damaged"),
         }
     }
 
@@ -147,85 +124,37 @@ impl FlacFile {
                 item.extend(&block.content);
                 item
             });
-        std::iter::once(self.vendor.clone())
-            .chain(self.comments.iter().cloned())
+        std::iter::once(self.comments.vendor.clone())
+            .chain(self.comments.entries.iter().cloned())
             .chain(other_blocks)
             .collect()
     }
 
-    fn comment_index(&self, field: &str) -> Option<usize> {
-        self.comments.iter().position(|comment| {
-            comment
-                .iter()
-                .position(|byte| *byte == b'=')
-                .is_some_and(|equals| comment[..equals].eq_ignore_ascii_case(field.as_bytes()))
-        })
-    }
-
     /// The index of the comment `field` names among [`FlacFile::items`].
     pub(super) fn position(&self, field: &str) -> Option<usize> {
-        self.comment_index(field).map(|index| index + 1)
+        self.comments.index(field).map(|index| index + 1)
     }
 
     /// The whole comment `field` names, as `NAME=value` bytes.
     pub(super) fn raw(&self, field: &str) -> Option<&[u8]> {
-        self.comment_index(field)
-            .map(|index| &*self.comments[index])
+        self.comments.raw(field)
     }
 
     /// The text of `field`, or `None` when there is no such comment.
     pub(super) fn get(&self, field: &str) -> Option<String> {
-        let comment = self.raw(field)?;
-        Some(String::from_utf8_lossy(&comment[field.len() + 1..]).into_owned())
+        self.comments.get(field)
     }
 
     /// Sets `field` to `value`, or removes it when `value` is `None`. An
     /// existing comment keeps its place and the spelling of its name.
     pub(super) fn set(&mut self, field: &str, value: Option<&str>) {
-        let index = self.comment_index(field);
-        match (index, value) {
-            (Some(index), Some(value)) => {
-                self.comments[index].truncate(field.len() + 1);
-                self.comments[index].extend(value.as_bytes());
-            }
-            (Some(index), None) => {
-                self.comments.remove(index);
-            }
-            (None, Some(value)) => self.comments.push(format!("{field}={value}").into_bytes()),
-            (None, None) => {}
-        }
+        self.comments.set(field, value);
     }
 
     /// Puts back the exact bytes of the comment `field` names, or removes
     /// the comment when `raw` is `None`.
     pub(super) fn restore(&mut self, field: &str, raw: Option<&[u8]>) -> Result<(), ErrorSource> {
-        if let Some(raw) = raw {
-            let names_field = raw.get(field.len()) == Some(&b'=')
-                && raw[..field.len()].eq_ignore_ascii_case(field.as_bytes());
-            if !names_field {
-                return Err(format!("the saved bytes are not a {field} comment").into());
-            }
-        }
-        match (self.comment_index(field), raw) {
-            (Some(index), Some(raw)) => self.comments[index] = raw.to_vec(),
-            (Some(index), None) => {
-                self.comments.remove(index);
-            }
-            (None, Some(raw)) => self.comments.push(raw.to_vec()),
-            (None, None) => {}
-        }
-        Ok(())
-    }
-
-    fn comment_block_content(&self) -> Vec<u8> {
-        let mut content = (self.vendor.len() as u32).to_le_bytes().to_vec();
-        content.extend(&self.vendor);
-        content.extend((self.comments.len() as u32).to_le_bytes());
-        for comment in &self.comments {
-            content.extend((comment.len() as u32).to_le_bytes());
-            content.extend(comment);
-        }
-        content
+        self.comments.restore(field, raw)
     }
 
     /// The change that writes the metadata back to the file. Padding is
@@ -236,12 +165,12 @@ impl FlacFile {
         // A block with no vendor text and no comments is what a write to a
         // file without comments creates, so it goes away with its last
         // comment.
-        let is_empty = self.vendor.is_empty() && self.comments.is_empty();
+        let is_empty = self.comments.is_empty();
         match (self.comment_block, is_empty) {
             (Some(index), true) => {
                 blocks.remove(index);
             }
-            (Some(index), false) => blocks[index].content = self.comment_block_content(),
+            (Some(index), false) => blocks[index].content = self.comments.serialize()?,
             (None, true) => {}
             (None, false) => {
                 let before_padding = blocks
@@ -250,7 +179,7 @@ impl FlacFile {
                     .unwrap_or(blocks.len());
                 let comments = Block {
                     kind: VORBIS_COMMENT,
-                    content: self.comment_block_content(),
+                    content: self.comments.serialize()?,
                 };
                 blocks.insert(before_padding, comments);
             }

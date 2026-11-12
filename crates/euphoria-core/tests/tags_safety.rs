@@ -28,8 +28,8 @@ use lofty::iff::aiff::{AiffFile, AiffTextChunks};
 use lofty::iff::wav::{RiffInfoList, WavFile};
 use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst, Mp4File};
 use lofty::mpeg::MpegFile;
-use lofty::ogg::OggPictureStorage;
 use lofty::ogg::tag::VorbisComments;
+use lofty::ogg::{OggPictureStorage, VorbisFile};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::{ItemValue, TagExt};
 
@@ -38,7 +38,10 @@ const WAV: &str = "sine-440hz-mono.wav";
 const AIFF: &str = "sine-440hz-mono.aiff";
 const M4A: &str = "sine-440hz-mono.m4a";
 const FLAC: &str = "sine-440hz-mono.flac";
-const ALL_FIXTURES: [&str; 5] = [MP3, WAV, AIFF, M4A, FLAC];
+const OGG: &str = "sine-440hz-mono.ogg";
+const ALAC: &str = "sine-440hz-mono-alac.m4a";
+const MP4: &str = "sine-440hz-mono.mp4";
+const ALL_FIXTURES: [&str; 8] = [MP3, WAV, AIFF, M4A, FLAC, OGG, ALAC, MP4];
 
 const TITLE: &str = "Test Tone";
 const CUE_DATA: &str = "cue points of another program";
@@ -186,7 +189,7 @@ fn seed_everything(path: &Path) {
             };
             chunks.save_to_path(path, options).expect(WORKS);
         }
-        "m4a" => {
+        "m4a" | "mp4" => {
             let mut ilst = Ilst::new();
             ilst.insert(Atom::new(
                 AtomIdent::Fourcc(*b"\xa9nam"),
@@ -203,7 +206,7 @@ fn seed_everything(path: &Path) {
             ilst.save_to_path(path, options).expect(WORKS);
             add_chapter_atom(path);
         }
-        "flac" => {
+        "flac" | "ogg" => {
             let mut comments = VorbisComments::new();
             comments.push("TITLE".to_string(), TITLE.to_string());
             comments.push("SERATO_MARKERS_V2".to_string(), CUE_DATA.to_string());
@@ -255,7 +258,7 @@ fn audio_payload(path: &Path) -> Vec<u8> {
                 offset += 8 + size + size % 2;
             }
         }
-        "m4a" => {
+        "m4a" | "mp4" => {
             let (offset, size) = find_atom(&bytes, 0, bytes.len(), b"mdat").expect("an mdat atom");
             bytes[offset + 8..offset + size].to_vec()
         }
@@ -272,8 +275,25 @@ fn audio_payload(path: &Path) -> Vec<u8> {
                 }
             }
         }
+        "ogg" => bytes[ogg_header_pages_end(&bytes)..].to_vec(),
         other => panic!("no audio locator for {other}"),
     }
+}
+
+/// Where the Ogg page on which the third packet, the Vorbis setup header,
+/// ends stops: the audio pages start there.
+fn ogg_header_pages_end(bytes: &[u8]) -> usize {
+    let mut offset = 0;
+    let mut packets = 0;
+    while packets < 3 {
+        assert_eq!(&bytes[offset..offset + 4], b"OggS");
+        let segments = usize::from(bytes[offset + 26]);
+        let lacing = &bytes[offset + 27..offset + 27 + segments];
+        packets += lacing.iter().filter(|value| **value < 255).count();
+        let data: usize = lacing.iter().map(|value| usize::from(*value)).sum();
+        offset += 27 + segments + data;
+    }
+    offset
 }
 
 /// The length of the ID3v2 tag at the start of `bytes`, or zero.
@@ -333,7 +353,7 @@ fn snapshot(path: &Path) -> Snapshot {
                 id3v2_pictures(file.id3v2()),
             )
         }
-        "m4a" => {
+        "m4a" | "mp4" => {
             let file = Mp4File::read_from(&mut file, options).expect(WORKS);
             let pictures = file
                 .ilst()
@@ -358,6 +378,16 @@ fn snapshot(path: &Path) -> Snapshot {
                 ),
                 pictures,
             )
+        }
+        "ogg" => {
+            let file = VorbisFile::read_from(&mut file, options).expect(WORKS);
+            let pictures = file
+                .vorbis_comments()
+                .pictures()
+                .iter()
+                .map(|(picture, _)| picture.data().to_vec())
+                .collect();
+            (format!("{:?}", file.vorbis_comments()), pictures)
         }
         other => panic!("no tag reader for {other}"),
     };
@@ -478,7 +508,10 @@ fn everything_else_survives_apply_and_undo() {
             let original = snapshot(&path);
             let original_bytes = std::fs::read(&path).unwrap();
             assert_eq!(original.pictures.is_empty(), !seeded, "{context}");
-            assert_eq!(original.has_chapter_atom, seeded && fixture == M4A);
+            assert_eq!(
+                original.has_chapter_atom,
+                seeded && [M4A, ALAC, MP4].contains(&fixture)
+            );
 
             let plan = plan_write(&path, &a_minor(), &full_options())
                 .unwrap_or_else(|error| panic!("{context}: {}", error.chain()));

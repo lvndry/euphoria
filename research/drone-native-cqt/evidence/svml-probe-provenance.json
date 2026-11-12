@@ -1,0 +1,39 @@
+{
+  "format": "k10-native-svml-probe-provenance-v1",
+  "source_commit": "euphoria:93aeb04",
+  "svml_source": {
+    "numpy_version": "2.5.4",
+    "numpy_git_revision": "a3d0ef1df045b858e68115001fdabc930bb3b68c",
+    "submodule_commit": "bd9d46e0c627ab16f3d2641f7cdb1bc15d303ba4",
+    "upstream_url": "https://github.com/numpy/SVML/blob/bd9d46e0c627ab16f3d2641f7cdb1bc15d303ba4/linux/avx512/svml_z0_log1p_s_la.s",
+    "upstream_git_blob": "36107575d7d88a074b7e828eddfc9a6b034186d8",
+    "source_sha256": "91f68c250ebf9360c078f8ae3f1e6a96506d5995bb717362fb7b65147f3f76a2",
+    "license": "BSD-3-Clause (Intel source header; upstream LICENSE preserved)",
+    "changes": "none: original source bytes verified with Git blob SHA1",
+    "scope": "arithmetic-only Linux x86-64 AVX512+FMA research; not a new frontend parity candidate"
+  },
+  "shared_library_sha256": "8749faf3d54f5256f87bfac7a1a4bcfff56b17deed61686bebb3efb43c65a3bc",
+  "probe_binary_sha256": "15653d6365f80d00447a5c5ede88363af7284b3403a9821761f2152de4144d73",
+  "reference_magnitude_sha256": "c3c0daa88ef420180d021083f001aef39fc2e5254b7ad891d8fcfbe39edd7029",
+  "reference_logged_sha256": "d181bda5635ad370a787bcaa2e55e935d7d6988f7b64eae29725cdabb8fc9d40",
+  "input_identity_sha256": "7b369d7c42678e2fe91c7e5ce75947221f7e425bd8b0457654c4ceefddd5eeef",
+  "wrapper_source_sha256": "06341403a71cecd726b3ab3b8ca360f7226118357a08d0bd7701c08a7a63658b",
+  "probe_source_sha256": "0623c85b259a783f80dd0932f58d4bc99424fe5be99fd0e05afe0fc0d202af9e",
+  "compiler_flags": [
+    "-O2",
+    "-fno-fast-math",
+    "-shared",
+    "-fPIC",
+    "-Wl,-z,noexecstack"
+  ],
+  "observed_ldd_dependencies": [
+    "linux-vdso.so.1",
+    "libcqt_numpy_svml.so",
+    "libc.so.6",
+    "ld-linux-x86-64.so.2"
+  ],
+  "numpy_or_python_linked": false,
+  "values": 124032,
+  "bit_mismatches": 0,
+  "actual_exit_code": 0
+}

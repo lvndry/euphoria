@@ -5,10 +5,13 @@ description: What Euphoria writes for rekordbox, Serato, Traktor, Engine DJ, Vir
 
 # Use Euphoria with your DJ program
 
-Euphoria brings its keys, tempos and energy ratings into a DJ program in one of two ways:
+Euphoria brings its keys, tempos and energy ratings into a DJ program in one of these ways:
 
 - **Tags.** `euphoria tags write --preset <program>` writes them into the files' own tags, which the program reads when it imports a track or reloads its tags. See [write tags into your files](write-tags.md).
 - **rekordbox XML.** `euphoria export rekordbox` writes a library file that rekordbox and Engine DJ can import. Your audio files are not changed. See [export to rekordbox](export-to-rekordbox.md).
+- **Traktor NML.** `euphoria export traktor` writes a collection file that Traktor imports, with beat grids and cue points if you ask. See [export to Traktor](export-to-traktor.md).
+
+[DJ program support](../reference/dj-program-support.md) has a table of what each program receives by each route, and which were tested in the program.
 
 No DJ software vendor publishes which tag fields its program reads. What this page says about each program comes from the program's own manual where it says anything, from the source code of programs that read the same files, from the names stored inside the rekordbox application, and from user reports. Each statement is marked:
 
@@ -25,7 +28,7 @@ The rekordbox facts marked **Tested** were checked in rekordbox 7.2.19 on macOS 
 
 Every preset writes these fields. The key is written in the notation you choose: a Camelot code (`8A`, the default), a musical name (`Am`) or an Open Key code (`1m`).
 
-| | MP3, AIFF and WAV (ID3v2) | M4A | FLAC |
+| | MP3, AIFF and WAV (ID3v2) | M4A and MP4, AAC or ALAC | FLAC and Ogg Vorbis |
 | --- | --- | --- | --- |
 | Key | `TKEY` | `----:com.apple.iTunes:initialkey` and `----:com.apple.iTunes:KEY` | `INITIALKEY`, and `KEY` when the file already has one |
 | Tempo | `TBPM` | `tmpo` | `BPM` |
@@ -34,10 +37,26 @@ Every preset writes these fields. The key is written in the notation you choose:
 Why these choices:
 
 - **Two key fields in M4A.** rekordbox reads the key only from `KEY` (tested), the other programs are reported to read `initialkey`, and no program is known to misread a file that has both. Most of a typical library is M4A, so this is the field that matters most.
+- **The codec does not change the fields.** An ALAC file and an `.mp4` file carry the same MP4 atoms as an AAC file in `.m4a`, and an Ogg Vorbis file the same Vorbis comments as a FLAC file, so each gets the same fields. Mixxx reads them the same way (**confirmed** in its source code). For the other programs, what is known about M4A and FLAC is assumed to hold for these formats too, which is **unconfirmed**: no source looked at them separately.
 - **No new `KEY` in FLAC.** VirtualDJ is reported to read neither field when a FLAC file has both. When a file already has a `KEY`, left by another program, Euphoria gives it the same value, so the two never disagree.
 - **Whole number tempos.** Only Mixxx is known to read a tempo with decimals. Every preset except Mixxx writes `128`, not `127.6`. A tempo with decimals belongs in the rekordbox XML, which keeps two.
 - **The energy rating is in the comment.** No program has a tag field for it. The label `8A - Energy 7` has the form Mixed In Key writes, so sorting and searching on it works the same way.
 - **WAV is the weakest case.** Euphoria writes an ID3 chunk into WAV files, as most tag editors do. rekordbox shows the title and comment from a WAV file's RIFF INFO list, not from its ID3 chunk (tested), so Euphoria also puts the label into the RIFF INFO comment, `ICMT`, in front of the comment already there, with every preset. RIFF INFO is the tag WAV defines for itself, and a program that does not read it ignores it. RIFF INFO has no key or tempo field, so those stay in the ID3 chunk. Serato's staff have said WAV holds no tags for Serato, and Mixed In Key does not tag WAV at all. For the key and tempo of WAV files in rekordbox, use the rekordbox XML, or convert the files to AIFF.
+
+## Formats each program plays
+
+A tag only helps in a program that plays the file. What each program plays, as far as the sources go:
+
+| Program | ALAC | AAC in `.mp4` | Ogg Vorbis |
+| --- | --- | --- | --- |
+| rekordbox | `.m4a` only. **Confirmed** by the rekordbox 7 manual. | **Confirmed** by the manual. | Not listed in the manual, which lists the formats it plays, and its tag list leaves Ogg out too. Treat Ogg Vorbis as not playable in rekordbox. |
+| Serato DJ | **Unconfirmed** | **Unconfirmed** | **Reported**: Serato keeps its own cue and grid data in Ogg Vorbis files, in comments named `serato_*`, according to the open source readers of that data. |
+| Traktor | **Unconfirmed** | **Unconfirmed** | **Unconfirmed** |
+| Engine DJ | **Unconfirmed** | **Unconfirmed** | **Unconfirmed** |
+| VirtualDJ | **Unconfirmed** | **Unconfirmed** | **Unconfirmed** |
+| Mixxx | Its source code reads the tags of M4A and MP4 files (**confirmed**). Playback was not looked at. | As for ALAC | Its source code reads Ogg Vorbis tags with the same fields as FLAC (**confirmed**). Playback was not looked at. |
+
+"Unconfirmed" here means only that the research behind this page did not look at it; check your program's own list of supported formats. A track in a format your program cannot play is still analyzed and tagged by Euphoria, and `euphoria export rekordbox` still lists it, which matters for Engine DJ, the other program that imports a rekordbox XML file.
 
 ## rekordbox
 
@@ -56,6 +75,7 @@ Reload Tag replaces information you edited inside rekordbox with what the file s
 | Key from `TKEY` in MP3 (ID3v2.3 and 2.4) and AIFF | **Tested**: read when the track is added. |
 | Key from M4A | **Tested**: read from `----:com.apple.iTunes:KEY`. A file with only `initialkey` shows the text in the Alphanumeric display but no key in the Classic display, so rekordbox does not take it as a key. Euphoria writes both names. |
 | Key from FLAC | **Tested**: read from `INITIALKEY`. A file with only `KEY` shows no key. |
+| Key from ALAC and `.mp4` files | **Unconfirmed**: the tests used AAC in `.m4a`. These files hold the same atoms, so the result is expected to be the same. |
 | Title and comment from WAV | **Tested**: read from RIFF INFO, not from the ID3 chunk. Euphoria writes the label into the RIFF INFO comment too. That rekordbox shows a comment written by Euphoria is **unconfirmed**: test T11 of the kit checks it. |
 | Tempo from `TBPM`, `tmpo` and FLAC `BPM` | **Tested**: not read when a track is added; the BPM column stays empty until rekordbox analyzes the track. Use the rekordbox XML to hand rekordbox a tempo. |
 | `8A`, `Am` and `1m` in a key tag | **Tested**: all three are recognised as keys and shown in the display format you chose. **Display key information on the database** shows the text as written. |
@@ -92,6 +112,7 @@ What to set in Serato:
 | Comment shows the `8A - Energy 7` label | **Reported**: Mixed In Key's guide shows its label in Serato's Comment column. |
 | Key from M4A (`initialkey`) | **Unconfirmed**: stated in a comment in Mixxx's source code only. |
 | Key from FLAC | **Unconfirmed**, with old reports of FLAC key bugs. |
+| Key from Ogg Vorbis | **Unconfirmed** |
 | Key and tempo from WAV | Not read: Serato's staff said WAV holds no tags for Serato. |
 | Whether a key written as `8A` or `1m` is converted for display and Key Sync | **Unconfirmed**. **Original Tag** always shows it. |
 
@@ -111,10 +132,10 @@ What to set in Traktor:
 | --- | --- |
 | Key Text from `TKEY` in MP3 | **Reported** |
 | Comment from `COMM` in MP3 | **Reported**: a real Traktor collection file has the comment, though not where it came from |
-| Key Text from M4A and FLAC | **Unconfirmed** |
+| Key Text from M4A, MP4, FLAC and Ogg Vorbis | **Unconfirmed** |
 | Tempo from tags when Traktor's analysis is off | **Unconfirmed** |
 
-Euphoria does not write Traktor's `collection.nml`. Its key numbering, for anyone who builds on it: `MUSICAL_KEY VALUE` 0 to 11 are the major keys from C upwards by semitone, and 12 to 23 the minor keys from C minor, checked against a real Traktor Pro 4 collection. Mixxx's Traktor reader is one semitone off from this.
+For the key in Traktor's own **Key** column, a tempo with decimals, a beat grid and cue points, use `euphoria export traktor`, which writes an NML collection file that Traktor imports with **Import Another Collection**. It never writes your own `collection.nml`. It fills `MUSICAL_KEY`, numbered 0 to 11 for the major keys from C upwards by semitone and 12 to 23 for the minor keys from C minor, checked against a real Traktor Pro 4 collection; Mixxx's Traktor reader is one semitone off from this. **Not tested in Traktor.** See [export to Traktor](export-to-traktor.md).
 
 ## Engine DJ
 
@@ -131,7 +152,7 @@ What to set in Engine DJ:
 | Key from MP3 tags | **Reported**: users see Mixed In Key's keys. The frame name is **unconfirmed**. |
 | Whether the first analysis keeps a tagged key | **Unconfirmed**: users disagree. |
 | Key from FLAC | **Unconfirmed**: reported missing in Engine 2.2.2. |
-| Key from M4A, AIFF and WAV | **Unconfirmed** |
+| Key from M4A, MP4, Ogg Vorbis, AIFF and WAV | **Unconfirmed** |
 | Whether the key, tempo and comment of a rekordbox XML are imported, or the file's tags | **Unconfirmed** |
 
 ## VirtualDJ
@@ -150,13 +171,13 @@ VirtualDJ reads a tempo tag when it first meets a file, then replaces it with it
 | --- | --- |
 | Key from FLAC `INITIALKEY` and `KEY` | **Confirmed** by VirtualDJ's CTO, who said both are read and `KEY` wins when both exist. One user reports neither being read when both exist, which is why Euphoria never adds a `KEY` and keeps an existing one equal. |
 | Key from MP3 | **Reported**: users see Mixed In Key's keys. The frame name is **unconfirmed**. |
-| Key from M4A, WAV and AIFF | **Unconfirmed** |
+| Key from M4A, MP4, Ogg Vorbis, WAV and AIFF | **Unconfirmed** |
 
 ## Mixxx
 
 `--preset mixxx` writes the fields above, keeps up to two decimals in the tempo, and adds `----:com.apple.iTunes:BPM` with decimals in M4A next to `tmpo`, which can hold only whole numbers. Everything in this section is **confirmed** in Mixxx's source code.
 
-- Mixxx reads every field Euphoria writes, both key names in M4A and FLAC, Camelot, Open Key and musical notation, and Camelot with a leading zero.
+- Mixxx reads every field Euphoria writes, both key names in M4A, MP4, FLAC and Ogg Vorbis, Camelot, Open Key and musical notation, and Camelot with a leading zero. Ogg Vorbis files are read with the same fields as FLAC.
 - A track that already has a key is not analysed for its key again.
 - Mixxx does not notice tag changes made by another program on a rescan. Select the tracks and choose **Metadata > Import From File Tags**.
 - Mixxx does not read tags from WAV files beyond RIFF INFO, which has no key or tempo.

@@ -146,11 +146,11 @@ One object per file, in path order, including files that failed:
     ],
     "beat_grid": { "first_downbeat_seconds": 0.372, "bpm": 170.004, "confidence": "high" },
     "cues": [
-      { "seconds": 0.372, "name": "Start" },
-      { "seconds": 45.548, "name": "Main" },
-      { "seconds": 181.077, "name": "Breakdown" },
-      { "seconds": 226.249, "name": "Drop" },
-      { "seconds": 361.775, "name": "Outro" }
+      { "seconds": 0.372, "name": "Start", "hot_cue": "A" },
+      { "seconds": 45.548, "name": "Main", "hot_cue": "B" },
+      { "seconds": 181.077, "name": "Breakdown", "hot_cue": "C" },
+      { "seconds": 226.249, "name": "Drop", "hot_cue": "D" },
+      { "seconds": 361.775, "name": "Outro", "hot_cue": "E" }
     ],
     "needs_review": false,
     "set_by_user": [],
@@ -199,7 +199,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
 
-`set_by_user` lists the values you [corrected](#corrections), `"key"`, `"bpm"` or both, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid` and no `cues`, since both were fitted to the detected tempo.
+`set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
@@ -207,7 +207,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
 
-`cues` lists where the sections of the track start, in order: `seconds` from the start of the track, to a thousandth, and `name`, one of `Start`, `Main`, `Breakdown`, `Drop` and `Outro`. Every cue is on the first beat of a bar of `beat_grid`, at a phrase boundary, and there are at most 8. It is empty when the track has no beat grid. See [cue points](../concepts/accuracy.md#cue-points).
+`cues` lists the cues of the track in order: `seconds` from the start of the track, to a thousandth, `name`, and `hot_cue`, the hot cue pad from `"A"` to `"H"`, or `null` for a memory cue only. The cues analysis placed mark where the sections of the track start, named `Start`, `Main`, `Breakdown`, `Drop` and `Outro`, each on the first beat of a bar of `beat_grid` at a phrase boundary, on pads from A in order, at most 8. They are empty when the track has no beat grid. See [cue points](../concepts/accuracy.md#cue-points). When you [edited the cues](#edited-cues) of a track in the desktop app, `cues` lists yours instead, with the names and pads you gave them, and `set_by_user` includes `"cues"`; an empty list then means you deleted every cue.
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
@@ -267,7 +267,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
-| `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
+| `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written, or the cues you [edited](#edited-cues) in the desktop app in their place. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
 | `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. It is never replaced by the export, even with `--force`. |
 | `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
@@ -303,10 +303,12 @@ Beat grids for 312 of 340 tracks; the others have no clear beat or a grid rated 
 
 With `--cues`, each track whose beat grid is written also gets its cues, each twice: as a memory cue and as a hot cue, on pads from A in order. Cues are off unless asked for.
 
+A track whose cues you [edited](#edited-cues) in the desktop app gets yours instead, with your names: each as a memory cue, and also as a hot cue on its pad when it has one. Your cues are exported whether or not the track's beat grid is, since you placed them yourself, and a track whose cues you all deleted gets none. The rule below still applies: a track with cues of its own in your rekordbox collection is left out, whatever cues you edited in Euphoria.
+
 Euphoria never changes the cues of a track that already has some of its own in rekordbox. `--cues` therefore needs `--collection`, naming your collection exported from rekordbox with **File > Export Collection in xml format**. A track listed there with any cue, hot cue or loop is left out of the file entirely, from the collection and from every playlist. **Import To Collection** replaces what rekordbox has for a track with what the file says, and was not tested on cues, so leaving such a track out is the only way to be sure no import of the file can change its cues. Export again without `--cues` to update the key and tempo of those tracks. Standard error gives the counts:
 
 ```
-Cues for 296 of 324 tracks; tracks without a beat grid in the file get none.
+Cues for 296 of 324 tracks; tracks without a beat grid in the file get none, unless you edited their cues in the app.
 Left out 16 tracks that already have cues in your rekordbox collection, so importing this file cannot change them. Export again without --cues to update their key and tempo.
 ```
 
@@ -348,6 +350,27 @@ The command also exits with status 1, and writes no file, when:
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
+## euphoria export traktor
+
+Analyzes audio files and writes the results as a Traktor collection file (NML), which Traktor Pro imports with **Import Another Collection**. [Export to Traktor](../guides/export-to-traktor.md) walks through the import. **Not tested in Traktor.**
+
+```
+euphoria export traktor [OPTIONS] --output <FILE> <PATHS>...
+euphoria export traktor [OPTIONS] --output <FILE> --playlist <NAME>
+```
+
+It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the same paths, cache, playlists per folder, `--playlist`, refusals, exit status and temporary file. The differences:
+
+| Option | Effect |
+| --- | --- |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the Key Text column. The Key column is filled from the key itself. |
+| `--beat-grid` | A grid marker at each track's first downbeat, with the grid's tempo in six decimals, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. |
+| `--collection <FILE>` | Your Traktor `collection.nml`, only read. Tracks with a cue, hot cue or loop of their own there are left out of the file. Grid markers and Traktor's `AutoGrid` hot cue on a grid marker do not count. It is never replaced, even with `--force`. |
+| `--startup-volume <NAME>` | The name of the Mac disk the system is on, which Traktor writes as the volume of every path outside `/Volumes`. Found from `/Volumes` when not given. |
+
+Each track has its location as volume, folders and file, its title and artist from its tags, its duration, its key in `INFO KEY` and `MUSICAL_KEY`, its tempo, and its energy rating as the comment `Energy 7`. A path that is not valid Unicode cannot be written in the file and is an error. Two paths that name the same file to Traktor, such as `/a.mp3` and `/Volumes/Macintosh HD/a.mp3`, are an error too.
+
 ## euphoria export m3u8
 
 Writes a playlist built in the desktop app as an M3U8 file, the playlist format nearly every DJ and music program opens: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx and music players.
@@ -383,6 +406,37 @@ Warmup  (9 tracks)
 ```
 
 Playlists are kept in `playlists.sqlite3` beside the [cache](#where-the-cache-is-stored), each track by the content of its file and its last path, so `euphoria cache clear` leaves them as they are.
+
+## euphoria set build
+
+Orders tracks from a pool into a set that follows an energy curve, with every transition an allowed key move and a small tempo step.
+
+```
+euphoria set build [OPTIONS] <FOLDER|PLAYLIST>...
+```
+
+The pool is folders or audio files, searched as `euphoria analyze` searches them, or the name of a playlist built in the desktop app when the one argument is not a path. Tracks are analyzed first or read from the cache, with your corrections applied. The [guide](../guides/build-a-set.md) explains the curve, the rules and how the set is chosen.
+
+| Option | Meaning |
+| --- | --- |
+| `--curve <CURVE>` | Energy levels from 1 to 10 separated by commas, spread evenly over the set, or a preset: `warm-up`, `peak-time`, `journey` (the default). |
+| `--tracks <COUNT>` | The length of the set. Defaults to 20. |
+| `--minutes <MINUTES>` | The length of the set in minutes, turned into a count by the median track length of the pool. |
+| `--first <FILE>`, `--last <FILE>` | Open or close the set with this track, which joins the pool if it is not in it. |
+| `--max-bpm-step <BPM>` | The largest tempo change between two tracks. Defaults to 5. |
+| `--moves <MOVES>` | The key moves allowed, separated by commas: `same`, `adjacent`, `relative`, `diagonal`, `energy-boost`, `mood-change`, `semitone-boost`. Defaults to the first five. |
+| `--allow-artist-repeats` | Let two tracks by the same artist follow each other. |
+| `--json` | Print JSON instead of the table. |
+| `--m3u <FILE>` | Also write the set as an M3U8 playlist. `--force` replaces an existing file. |
+| `--key-notation <NOTATION>` | How keys are shown in the table. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output gets a table, one track per line, with the key move and tempo step from the track before, the energy and the energy the curve asks for, then two rows of blocks that draw the curve and the set. Standard error gets a summary and a `warning:` for each place the set falls short of the curve or breaks a rule.
+
+The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
+
+The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
 
 ## euphoria tags write
 
@@ -466,7 +520,7 @@ Write these changes to 14 files? [y/N]
 
 Nothing is analyzed. The fields are the same in every format:
 
-| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A) | Vorbis (FLAC) |
+| Field | ID3 (MP3, WAV, AIFF) | MP4 (M4A, MP4) | Vorbis (FLAC, Ogg Vorbis) |
 | --- | --- | --- | --- |
 | `title` | `TIT2` | `©nam` | `TITLE` |
 | `artist` | `TPE1` | `©ART` | `ARTIST` |
@@ -479,7 +533,7 @@ Nothing is analyzed. The fields are the same in every format:
 | `key` | `TKEY` | `----:com.apple.iTunes:initialkey` | `INITIALKEY` |
 | `bpm` | `TBPM` | `----:com.apple.iTunes:BPM` | `BPM` |
 
-`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
+`tempo`, `date` and `tracknumber` are accepted for `bpm`, `year` and `track`. When a file also has another field of the same meaning, such as the `KEY` field of a FLAC or Ogg Vorbis file, the integer `tmpo` tempo of an M4A file or the `GRP1` grouping of an MP3, that field gets the same change, so programs that read either agree. A WAV file's title, artist, album, genre, date, track number and comment also go into its RIFF `INFO` list, which rekordbox and others read in place of the ID3 chunk.
 
 A comment or a grouping keeps the key and energy label that `tags write` put there, such as `8A - Energy 7`: the edit changes your own text next to it. `--field "comment=Peak opener"` turns `8A - Energy 7 - Purchased` into `8A - Energy 7 - Peak opener`, `--clear comment` leaves `8A - Energy 7`, and a value typed with its label, such as `8A - Energy 7 - Opener`, replaces the label rather than adding a second one. Only a label with an energy rating is recognised, so text of yours that starts with a key is kept as it is.
 
@@ -517,6 +571,50 @@ A file whose tags changed after the write is not restored, so that the later cha
 
 A write that was interrupted can be undone as well. Files it had not changed yet are counted in the summary as not changed by the write.
 
+## euphoria corrections export
+
+Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
+
+```
+euphoria corrections export [--output <FILE>] [--force] [--include-paths]
+```
+
+```
+$ euphoria corrections export -o corrections.jsonl
+Exported 42 corrections to /Users/you/corrections.jsonl
+```
+
+| Option | Effect |
+| --- | --- |
+| `-o`, `--output <FILE>` | The file to write. Without it the lines go to standard output and the summary to standard error. |
+| `--force` | Replace the output file if it exists. The source cache and its SQLite companion files cannot be outputs, even with this option. |
+| `--include-paths` | Add the path each file was last seen at. |
+
+Nothing is analyzed and no audio file is read: the lines come from the [cache](#the-analysis-cache), oldest correction first. With no cache, or a cache without corrections, nothing is written to standard output, an output file is empty, and a note says so. A cache that cannot be read is an error, and the command exits with status 1. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+
+### What each line holds
+
+By default a line names its track only by the hash of the file's content: no path and no file name. A program that has the same files finds each one by hashing it the same way. The hash does not hide which track a line is about from someone who has the same file, since they can hash it and look for the result, so treat an export as a list of the tracks you own.
+
+```json
+{"schema_version":1,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | `1`. It goes up when a field is removed or changes meaning; a new field can appear without it changing. |
+| `content_hash` | The BLAKE3 hash of every byte of the file, tags and artwork included, as 64 lowercase hexadecimal digits: what `b3sum` prints for the file. |
+| `corrected_key` | The key you set, or `null` when you corrected only the tempo. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
+| `corrected_bpm` | The tempo you set, as you typed it, or `null` when you corrected only the key. |
+| `corrected_at` | When you set the correction, in seconds since 1 January 1970 UTC. |
+| `detected_key` | The key Euphoria detected for the same content, in the same shape, or `null` when it found none or the track has no stored analysis. |
+| `detected_bpm` | The tempo Euphoria detected, between 90 and 180 BPM, or `null`. |
+| `analyzer_version` | The version of the analyzer that detected them, which can be older than the one you run, or `null` when the track has no stored analysis. |
+| `analyzed_at` | When that analysis was stored, in seconds since 1 January 1970 UTC, or `null`. |
+| `path` | Only with `--include-paths`: the absolute path the file was last seen at, or `null` when the cache never recorded one. The file may have moved since. |
+
+A correction follows its file through tag writes. The export includes both its new content hash and older entries retained so a tag write can be undone. One audio track can therefore have several lines for different versions of its tags, and an older hash need not match a file that still exists. A file whose tags another program changed since also has a different hash, and a program matching the export by hash will not find it.
+
 ## The analysis cache
 
 `euphoria analyze` and `euphoria export` remember every result in a SQLite database on your computer, so a track is analyzed once. A later run uses the remembered result instead of analyzing the file again.
@@ -535,7 +633,11 @@ A file found where it was last seen, with the same size and modification time, i
 
 When you correct a key or a tempo in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
 
-Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction.
+Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction. [`euphoria corrections export`](#euphoria-corrections-export) writes them all out, to train a key model on.
+
+### Edited cues
+
+When you [edit the cues](../guides/desktop-app.md#cue-points) of a track in the desktop app, your set of cues is kept in the cache in the same way, in a table of its own: by the file's content, apart from the analyses, so `--reanalyze`, a new version of Euphoria and `euphoria cache clear` keep it, and it follows a file that is moved, renamed or has its tags written. Your set replaces the cues analysis placed, even when you deleted every cue: `euphoria analyze --json` lists your cues and `"cues"` in `set_by_user`, and [`euphoria export rekordbox --cues`](#cue-points) exports them. As for corrections, the whole file is read before its cues go into an export, and a file whose edits cannot be checked is left out with the reason. **Reset to automatic cues** in the app forgets your set. With `--no-cache` edited cues are not read.
 
 ### Where the cache is stored
 
@@ -565,7 +667,7 @@ hint: Run `euphoria cache clear` to reset the cache, or pass --no-cache to skip 
 
 The results and the exit status are the same as with `--no-cache`. Nothing is read from or saved to the cache in that run.
 
-`euphoria tags write` and `euphoria export rekordbox` stop instead, before analyzing anything, and write nothing: the cache may hold keys and tempos you [corrected](#corrections), and the detected values must not replace them without your knowing. Pass `--no-cache` to go on with the detected values, or run `euphoria cache clear` to reset a damaged cache.
+`euphoria tags write` and `euphoria export rekordbox` stop instead, before analyzing anything, and write nothing: the cache may hold keys and tempos you [corrected](#corrections) and cues you [edited](#edited-cues), and the detected values must not replace them without your knowing. Pass `--no-cache` to go on with the detected values, or run `euphoria cache clear` to reset a damaged cache.
 
 ## euphoria cache
 
@@ -578,7 +680,7 @@ euphoria cache <COMMAND>
 | Command | Effect |
 | --- | --- |
 | `path` | Print the location of the cache database. |
-| `clear` | Forget every cached result. Every track is analyzed again on the next run. [Corrections](#corrections) are kept. |
+| `clear` | Forget every cached result. Every track is analyzed again on the next run. [Corrections](#corrections) and [edited cues](#edited-cues) are kept. |
 
 `clear` empties the database and keeps the file, so it is safe while an analysis is running: that analysis carries on, and the results it saves after the clear are kept. A database that cannot be opened, such as a damaged file, is deleted instead, and the next run creates a new one. Unlike `euphoria analyze` and `euphoria export`, both commands report a problem as an error and exit with status 1.
 
