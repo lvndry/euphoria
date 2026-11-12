@@ -1994,6 +1994,7 @@ dependencies = [
  "cc",
  "ebur128",
  "flacenc",
+ "flate2",
  "hound",
  "lofty",
  "ort",

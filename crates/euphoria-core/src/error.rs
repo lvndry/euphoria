@@ -167,6 +167,15 @@ pub enum EuphoriaError {
     /// represent, even as references.
     #[error("a name or comment contains characters XML cannot represent")]
     ExportTextNotXml,
+    /// An Engine DJ library could not be read, or is not one Euphoria can
+    /// update without risk to the data in it. Nothing was written.
+    #[error("cannot update the Engine DJ library {path}: {reason}")]
+    EngineLibrary {
+        /// The database file, `Database2/m.db`.
+        path: PathBuf,
+        /// What is wrong with it.
+        reason: String,
+    },
     /// A VirtualDJ database could not be read, or is not one Euphoria can
     /// update without risk to the data in it. Nothing was written.
     #[error("cannot update the VirtualDJ database {path}: {reason}")]

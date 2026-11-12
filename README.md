@@ -22,6 +22,7 @@ Available now:
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos and playlists, plus beat grids and cues with `--beat-grid` and `--cues`; importing it in Traktor has not yet been tested
+- `euphoria export engine`, which writes keys, tempos, beat grids and hot cues into the tracks of your Engine DJ library after saving a copy; not yet tested in Engine DJ
 - `euphoria export virtualdj`, which writes keys, tempos, beat grids, cues and energy into the songs of your VirtualDJ database after saving a copy; not yet tested in VirtualDJ
 - `euphoria tags write --serato-markers`, which writes cue points and beat grids into the tags Serato DJ reads, keeping the cues already there; not yet tested in Serato
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, `euphoria tags set`, which edits title, artist, genre and other fields across many files with find and replace, and `euphoria tags undo`, which puts the old tags back byte for byte
@@ -29,7 +30,7 @@ Available now:
 - A desktop app for macOS, downloadable below: see the [desktop app guide](docs/guides/desktop-app.md)
 - Playlists built in the desktop app, with each set's key path, tempo range and energy flow at a glance, exported to rekordbox or as M3U8 for any other program
 
-In development: exports for Serato and Engine DJ.
+In development: an export for Serato DJ.
 
 ## Install
 
@@ -74,6 +75,7 @@ The full documentation is in [docs](docs/index.md):
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
 - [Build a set along an energy curve](docs/guides/build-a-set.md)
+- [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to Engine DJ](docs/guides/export-to-engine-dj.md)
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to VirtualDJ](docs/guides/export-to-virtualdj.md)
 - [Cue points and beat grids for Serato](docs/guides/serato-cues.md)
 - [DJ program support](docs/reference/dj-program-support.md)

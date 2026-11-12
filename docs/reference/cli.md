@@ -371,6 +371,27 @@ It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the 
 
 Each track has its location as volume, folders and file, its title and artist from its tags, its duration, its key in `INFO KEY` and `MUSICAL_KEY`, its tempo, and its energy rating as the comment `Energy 7`. A path that is not valid Unicode cannot be written in the file and is an error. Two paths that name the same file to Traktor, such as `/a.mp3` and `/Volumes/Macintosh HD/a.mp3`, are an error too.
 
+## euphoria export engine
+
+Analyzes audio files and writes the results into the tracks of your Engine DJ library, `Engine Library/Database2/m.db`, after saving a copy of it. [Export to Engine DJ](../guides/export-to-engine-dj.md) explains what is written, what is kept and why it is safe to the extent it is. **Not tested in Engine DJ.**
+
+```
+euphoria export engine [OPTIONS] <PATHS>...
+euphoria export engine [OPTIONS] --playlist <NAME>
+```
+
+Tracks are matched by the path Engine DJ stores. It refuses to write while Engine DJ is running, when a journal holds an unfinished write, and for a schema version other than 2.18.0 to 3.0.2 (Engine DJ 2.0 to 5.0). These checks run before the analysis.
+
+| Option | Effect |
+| --- | --- |
+| `--library <FOLDER>` | The `Engine Library` folder. `Music/Engine Library` in your home folder when not given. |
+| `--label <WHERE>` | Where the key and energy label goes in the comment: `comment-start` (the default), `comment-end` or `none`. |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. |
+| `--beat-grid` | A constant grid from each track's first downbeat, on tracks Engine DJ has analysed, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
+| `--dry-run` | Checks the library and says what would change, writing nothing. |
+
+The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library or a file could not be analyzed.
 ## euphoria export virtualdj
 
 Analyzes audio files and writes the results into the songs of your VirtualDJ `database.xml`, after saving a copy of it. [Export to VirtualDJ](../guides/export-to-virtualdj.md) explains what is written and kept. **Not tested in VirtualDJ.**

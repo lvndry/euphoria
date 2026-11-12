@@ -61,3 +61,7 @@ ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=1" -ac 1 -c:a 
 ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=1" -ac 1 -c:a alac sine-440hz-mono-alac.m4a
 oggenc -q 0 -o sine-440hz-mono.ogg sine-440hz-mono.wav
 ```
+
+## Engine DJ library schemas
+
+`engine/engine-desktop-<version>-m.db.sql` are the schemas of the empty `Database2/m.db` that Engine DJ Desktop 2.0.0 (schema 2.18.0), 4.0.1 (2.21.2), 4.3.0 (3.0.1) and 5.0.0 (3.0.2) create, as SQL dumps. They are copied unchanged from libdjinterop (<https://github.com/xsco/libdjinterop>, `testdata/ref/engine/desktop/`, commit `d61727c5`), which is licensed under the LGPL 3.0 or later. `tests/engine_export.rs` builds a library from each of them.
