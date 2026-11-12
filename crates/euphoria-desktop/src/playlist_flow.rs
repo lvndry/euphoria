@@ -300,6 +300,7 @@ impl EuphoriaApp {
     /// Keeps the playlists in the background. Files are read there when
     /// their content is not known yet.
     pub(crate) fn save_playlists(&mut self, cx: &mut Context<'_, Self>) {
+        self.refresh_suggestions();
         let Some(saver) = self.session.playlist_saver() else {
             return;
         };

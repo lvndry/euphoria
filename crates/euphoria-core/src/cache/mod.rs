@@ -53,8 +53,9 @@
 
 mod batch;
 mod corrections;
+mod edited_cues;
 mod identity;
-mod location;
+pub(crate) mod location;
 mod rewritten;
 mod single;
 
@@ -67,6 +68,7 @@ use rusqlite::types::Type;
 use rusqlite::{Connection, ErrorCode, Row, TransactionBehavior, params};
 
 pub use batch::{CachePolicy, CachedBatch, analyze_files_cached, analyze_files_cached_observed};
+pub use corrections::{DetectedValues, StoredCorrection};
 pub use identity::ContentHash;
 pub(crate) use location::default_data_directory;
 pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
@@ -83,7 +85,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 8] = [
+const MIGRATIONS: [&str; 9] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -131,6 +133,13 @@ const MIGRATIONS: [&str; 8] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN cues TEXT;
+",
+    "
+    CREATE TABLE edited_cues (
+        content_hash BLOB    NOT NULL PRIMARY KEY,
+        cues         TEXT    NOT NULL,
+        edited_at    INTEGER NOT NULL
+    ) WITHOUT ROWID;
 ",
 ];
 
@@ -410,6 +419,9 @@ impl Cache {
                 ],
             )?,
         };
+        if let CacheWrite::Store { analysis, .. } = write {
+            edited_cues::reconcile_stored_cues_to_analysis(&transaction, analysis)?;
+        }
         then(&transaction)?;
         transaction.commit()
     }
@@ -1393,7 +1405,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 8);
+        assert_eq!(SCHEMA_VERSION, 9);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1435,8 +1447,8 @@ mod tests {
 
         let mut cache = Cache::open(&database).unwrap();
 
-        assert_eq!(schema_version(&cache.connection).unwrap(), 8);
-        assert_eq!(SCHEMA_VERSION, 8);
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 9);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1452,6 +1464,60 @@ mod tests {
         let stored = snapshot.analyses.values().next().unwrap();
         assert!(stored.beat_grid.is_some());
         assert!(stored.cues.is_empty());
+    }
+
+    #[test]
+    fn a_version_8_database_gains_edited_cues_and_keeps_its_analyses_and_corrections() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let track = folder.path().join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let content_hash = ContentHash::of_file(&track).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..8] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 8).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, 124.0, 0.5, NULL, 0.25, 124.0, 10.0, NULL, ?4)",
+                params![
+                    content_hash.as_bytes(),
+                    ANALYZER_VERSION,
+                    ENERGY_MODEL_VERSION,
+                    "0.25\tStart"
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO corrections VALUES (?1, 'C major', NULL, 0)",
+                params![content_hash.as_bytes()],
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 9);
+        let snapshot = cache.snapshot().unwrap();
+        assert_eq!(
+            snapshot.analyses.len(),
+            1,
+            "edited cues need no new analysis: the analyzer version is unchanged"
+        );
+        let analysis = snapshot.analyses.values().next().unwrap().clone();
+        assert_eq!(analysis.cues.len(), 1);
+        assert!(cache.correction_for(&track).unwrap().is_some());
+        let automatic = cache.track_cues_for(&track, &analysis).unwrap();
+        assert!(!automatic.is_edited());
+        assert_eq!(automatic.cues[0].name, "Start");
+
+        cache.set_edited_cues(&track, Some(&[])).unwrap();
+        assert!(cache.track_cues_for(&track, &analysis).unwrap().is_edited());
     }
 
     #[test]

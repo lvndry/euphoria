@@ -1,0 +1,109 @@
+# Copyright 2026 The Euphoria contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Exercise the real workflow preflight against trusted and proposed scripts."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/jazz.yml"
+COLLECTOR = ".github/jazz/workflows/code-review/collect_context.py"
+
+
+def preflight():
+    step = WORKFLOW.read_text().split("      - name: Map changed contracts and their callers\n", 1)[1]
+    block = step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
+    return "\n".join(line[10:] for line in block.splitlines() if line.strip())
+
+
+class ReviewPreflightTests(unittest.TestCase):
+    def git(self, root, *arguments):
+        return subprocess.check_output(["git", "-C", str(root), *arguments], stderr=subprocess.PIPE).decode().strip()
+
+    def commit(self, root):
+        self.git(root, "add", ".")
+        self.git(root, "commit", "--allow-empty", "-qm", "fixture")
+        return self.git(root, "rev-parse", "HEAD")
+
+    def check_case(self, base_has_collector):
+        with tempfile.TemporaryDirectory(prefix="review preflight ") as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            self.git(root, "init", "-q")
+            self.git(root, "config", "user.email", "fixture@example.invalid")
+            self.git(root, "config", "user.name", "Review fixture")
+            self.git(root, "config", "commit.gpgsign", "false")
+            collector = root / COLLECTOR
+            collector.parent.mkdir(parents=True)
+            if base_has_collector:
+                collector.write_text('import json\nprint(json.dumps({"trusted_base": True}))\n')
+            base = self.commit(root)
+            marker = Path(temporary) / "proposed-script-executed"
+            collector.write_text(f'from pathlib import Path\nPath({str(marker)!r}).touch()\nprint("{{}}")\n')
+            head = self.commit(root)
+            output = Path(temporary) / "context.json"
+            script = preflight().replace("/tmp/jazz-contract-context.json", str(output))
+            # Quote the substituted output path exactly as a workflow-provided path.
+            script = script.replace(str(output), '"' + str(output) + '"')
+            result = subprocess.run(
+                ["bash", "-eu", "-c", script], cwd=root,
+                env={**os.environ, "PR_BASE_SHA": base, "PR_HEAD_SHA": head,
+                     "GITHUB_WORKSPACE": str(root), "RUNNER_TEMP": temporary},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists(), "the proposed collector was executed")
+            context = json.loads(output.read_text())
+            if base_has_collector:
+                self.assertEqual(context, {"trusted_base": True})
+            else:
+                self.assertIn("manual caller searches", context["error"])
+
+    def test_reviewer_policy_and_model_come_from_the_target_branch(self):
+        with tempfile.TemporaryDirectory(prefix="review policy ") as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            self.git(root, "init", "-q")
+            self.git(root, "config", "user.email", "fixture@example.invalid")
+            self.git(root, "config", "user.name", "Review fixture")
+            self.git(root, "config", "commit.gpgsign", "false")
+            agent = root / ".github/jazz/agents/ci-reviewer.json"
+            policy = root / ".github/jazz/workflows/code-review/WORKFLOW.md"
+            agent.parent.mkdir(parents=True)
+            policy.parent.mkdir(parents=True)
+            selected = {"id": "ci-reviewer", "config": {"llm": {"provider": "base", "model": "deployed"}}}
+            agent.write_text(json.dumps(selected))
+            policy.write_text("deployed __PR_BASE_SHA__ __PR_HEAD_SHA__ __WORKSPACE__")
+            base = self.commit(root)
+            agent.write_text('{"config":{"llm":{"model":"proposed"}}}')
+            policy.write_text("proposed policy must not govern this review")
+            head = self.commit(root)
+            step = WORKFLOW.read_text().split("      - name: Setup Jazz agent and workflow\n", 1)[1]
+            block = step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
+            script = "\n".join(line[10:] for line in block.splitlines() if line.strip())
+            private_home = Path(temporary) / "owned config"
+            script = script.replace("$HOME", str(private_home))
+            result = subprocess.run(
+                ["bash", "-eu", "-c", script], cwd=root,
+                env={**os.environ, "PR_BASE_SHA": base, "PR_HEAD_SHA": head,
+                     "WORKSPACE": str(root), "RUNNER_TEMP": temporary},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads((private_home / ".jazz/agents/ci-reviewer.json").read_text()), selected)
+            self.assertEqual(json.loads((Path(temporary) / "jazz-ci-reviewer.json").read_text()), selected)
+            self.assertEqual((root / "workflows/code-review/WORKFLOW.md").read_text(), f"deployed {base} {head} {root}")
+
+    def test_proposed_script_is_not_executed(self):
+        self.check_case(True)
+
+    def test_missing_base_collector_falls_back_without_executing_head(self):
+        self.check_case(False)
+
+
+if __name__ == "__main__":
+    unittest.main()

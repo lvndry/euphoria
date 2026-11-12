@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::corrections::unreadable;
 use super::identity::{ContentHash, FileStamp};
 use super::{Cache, CacheWrite, FileLocation, cache_error};
 use crate::analysis::TrackAnalysis;
@@ -39,7 +40,7 @@ impl Cache {
         before: ContentHash,
         after: ContentHash,
     ) -> Result<(), EuphoriaError> {
-        carry_correction(&self.connection, &before, &after).map_err(cache_error(&self.path))
+        carry_user_edits(&self.connection, &before, &after).map_err(cache_error(&self.path))
     }
 
     /// Records `analysis` for the file at `path` as it is now, after a tag
@@ -67,9 +68,9 @@ impl Cache {
         let Some((content_hash, location)) = steady_content(path).map_err(unreadable(path))? else {
             return Ok(());
         };
-        // The new content and the correction it carries over are kept
-        // together, so a failure never leaves the correction behind under
-        // the content the file no longer has.
+        // The new content and the user's edits it carries over are kept
+        // together, so a failure never leaves them behind under the content
+        // the file no longer has.
         self.apply_write_then(
             &CacheWrite::Store {
                 content_hash,
@@ -77,7 +78,7 @@ impl Cache {
                 location,
             },
             |connection| match previous {
-                Some(previous) => carry_correction(connection, &previous, &content_hash),
+                Some(previous) => carry_user_edits(connection, &previous, &content_hash),
                 None => Ok(()),
             },
         )
@@ -99,7 +100,7 @@ impl Cache {
             return Ok(false);
         };
         let carry = |connection: &Connection| match previous {
-            Some(previous) => carry_correction(connection, &previous, &content_hash),
+            Some(previous) => carry_user_edits(connection, &previous, &content_hash),
             None => Ok(()),
         };
         let is_known = self
@@ -156,9 +157,10 @@ impl Cache {
     }
 }
 
-/// Copies the correction of `from` to `to`, unless `to` has one, when a
-/// write or an undo turns one content into the other.
-fn carry_correction(
+/// Copies the correction and the edited cues of `from` to `to`, each unless
+/// `to` has its own, when a write or an undo turns one content into the
+/// other.
+fn carry_user_edits(
     connection: &Connection,
     from: &ContentHash,
     to: &ContentHash,
@@ -166,13 +168,17 @@ fn carry_correction(
     if from == to {
         return Ok(());
     }
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
-             SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
-            params![from.as_bytes(), to.as_bytes()],
-        )
-        .map(|_| ())
+    connection.execute(
+        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
+         SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
+        params![from.as_bytes(), to.as_bytes()],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO edited_cues (content_hash, cues, edited_at)
+         SELECT ?2, cues, edited_at FROM edited_cues WHERE content_hash = ?1",
+        params![from.as_bytes(), to.as_bytes()],
+    )?;
+    Ok(())
 }
 
 /// The hash and location of the file at `path`, or `None` when its size or
@@ -187,14 +193,6 @@ fn steady_content(path: &Path) -> io::Result<Option<(ContentHash, FileLocation)>
         return Ok(None);
     }
     Ok(Some((content_hash, location)))
-}
-
-fn unreadable(path: &Path) -> impl Fn(io::Error) -> EuphoriaError {
-    let path = path.to_path_buf();
-    move |source| EuphoriaError::Scan {
-        path: path.clone(),
-        source,
-    }
 }
 
 #[cfg(test)]

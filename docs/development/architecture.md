@@ -16,6 +16,8 @@ crates/
 bench/              dataset download script, Essentia reference script, results
 ```
 
+![Three crates, euphoria-cli, euphoria-desktop and euphoria-bench, each depend on euphoria-core and none on another. euphoria-core holds every module of product logic, grouped as finding and decoding files, analyzing them, and keeping and sharing the results, and builds on libkeyfinder for key (optional, C++), stratum-dsp for tempo, Symphonia for decoding, rusqlite and blake3 for the cache, and ebur128 and rustfft for loudness and spectra.](../images/architecture/crates.svg)
+
 ## Rules between crates
 
 - `euphoria-core` depends on no front end. It contains no command line parsing, no user interface code, and prints nothing.
@@ -29,7 +31,7 @@ bench/              dataset download script, Essentia reference script, results
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
 | `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. The `_observed` variants also tell an `AnalysisObserver` the stage each file is in and how far decoding has come; the plain functions pass `Unobserved`, whose methods do nothing. |
 | `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and analyzes only the files it does not know, as a batch or one file at a time. |
-| `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
+| `audio` | Decodes MP3, AAC and ALAC in MP4, FLAC, Ogg Vorbis, WAV and AIFF with Symphonia and mixes them to mono. |
 | `audio_stream` | Decodes the same formats a packet at a time with their channels kept, with seeking, for playback. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
@@ -38,6 +40,7 @@ bench/              dataset download script, Essentia reference script, results
 | `tempo_range` | `TempoRange`, the range tempos are reported in, and the half or double tempo offered as an alternative. |
 | `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `track_name` | Reads the title and artist stored in an audio file. |
+| `track_cues` | The cues of a track as a DJ uses them, with names and hot cue pads, and `TrackCues::of`, which gives the user's edited set when there is one and the automatic cues otherwise. The cache keeps edited sets in their own table, like corrections. |
 | `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 
@@ -56,9 +59,9 @@ Key and tempo detection sit behind traits so implementations can be compared and
 
 Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::analyze_files` with `--no-cache`) on a Rayon pool sized by `--jobs`, shows a line per file with its stage under a bar that counts files on a terminal (`stages.rs`), and formats the results: the table that fits the terminal and the detailed view (`view.rs`), the plain table and JSON for pipes, and every message in one `error:`, `warning:`, `hint:` shape (`output.rs`). `style.rs` decides when to colour, from `--color`, `NO_COLOR`, `CLICOLOR_FORCE` and whether the stream is a terminal. `analyze` and `export` share that batch code in `batch.rs`. `export rekordbox` passes the results to `export::assemble_library` and `export::rekordbox::write_xml_file`. The crate contains no analysis or export logic.
 
-## euphoria (desktop)
+## euphoria-desktop
 
-The `euphoria` package lives in `crates/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
+The `euphoria-desktop` package lives in `crates/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
 
 The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, fills in the ones `cache::CachedAnalyzer` already knows, analyzes the rest through it on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. To play a track it reads an `AudioStream` from the core a packet at a time, on a thread that decodes about a second ahead, and hands the decoded samples to the system audio output through rodio. The first sound never waits for the whole file, and the audio output never waits for the disk or the decoder. State that needs no window (the library, sorting and searching, progress, the player, waveform bands, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
 

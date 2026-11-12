@@ -34,7 +34,7 @@ fn a_second_run_comes_from_the_cache_and_prints_the_same_results() {
     assert!(!standard_error(&first_run).contains(FROM_THE_CACHE));
     assert_eq!(
         standard_error(&second_run),
-        "7 of 7 tracks came from the cache.\n"
+        "10 of 10 tracks came from the cache.\n"
     );
     assert_eq!(first_run.stdout, second_run.stdout);
     assert!(euphoria.cache_path().is_file());
@@ -57,7 +57,7 @@ fn another_tempo_range_comes_from_the_cache_with_tempos_in_that_range() {
     assert_success(&in_other_range);
     assert_eq!(
         standard_error(&in_other_range),
-        "7 of 7 tracks came from the cache.\n"
+        "10 of 10 tracks came from the cache.\n"
     );
     let tempos = |output: &Output| -> Vec<Option<f64>> {
         let tracks: serde_json::Value =
@@ -292,7 +292,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
     let schema_version: u32 = upgraded
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(schema_version, 8);
+    assert_eq!(schema_version, 9);
     let old_rows: u32 = upgraded
         .query_row(
             "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
@@ -453,6 +453,7 @@ fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
         .execute_batch(
             "ALTER TABLE analyses DROP COLUMN quality;
          DROP TABLE corrections;
+         DROP TABLE edited_cues;
          ALTER TABLE analyses DROP COLUMN grid_first_downbeat;
          ALTER TABLE analyses DROP COLUMN grid_bpm;
          ALTER TABLE analyses DROP COLUMN grid_salience;
@@ -478,7 +479,7 @@ fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 }
 
 #[cfg(unix)]

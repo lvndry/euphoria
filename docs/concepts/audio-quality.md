@@ -21,7 +21,7 @@ The verdict is about the file, not the music. A great track in a weak file is st
 
 | Measurement | What it is |
 | --- | --- |
-| Codec | The audio codec, such as MP3, AAC, FLAC or PCM, and whether it is lossless. |
+| Codec | The audio codec, such as MP3, AAC, Vorbis, FLAC, ALAC or PCM, and whether it is lossless. |
 | Bit rate | The average bit rate of the audio data, measured from the size of every audio packet and the length of the audio. Tags and artwork are not counted. For a variable bit rate file this is the real average, which can be well below the setting it was encoded with. |
 | Sample rate, bit depth, channels | As the file declares them. Bit depth only exists for lossless files. |
 | Cutoff | The frequency where the content stops. See below. |
@@ -69,6 +69,19 @@ The thresholds that follow:
 - **Likely re-encoded** when the cutoff is below what the bit rate keeps: below 18 kHz at 200 to 287 kbit/s, below 19.5 kHz from 288 kbit/s, and below 15.5 kHz at 144 to 199 kbit/s. For lossless files, below 19 kHz. These lines sit under the lowest cutoff any encoder reached at that bit rate from a lossless source, and above the cutoffs of most transcodes. 38 of 42 music transcodes are caught. The 4 that are missed show no clear fall in their spectrum after re-encoding: three times because Apple's encoder had kept the whole spectrum at 128 kbit/s, once because re-encoding added content above the earlier cutoff.
 - Clipping never changes the verdict. When at least 0.1% of the samples are clipped, the reason adds that the master is clipped in places.
 
+### Ogg Vorbis
+
+Vorbis is encoded at a quality level, not a bit rate, and averages far below the level's nominal rate: quality 6, nominally 192 kbit/s, averaged 116 to 162 kbit/s on the same music, and quality 8, nominally 256, 148 to 221. Judged by the lines above, most quality 6 files, the level most people use, would be called weak. Vorbis files get lines of their own, from the same benchmark run with the reference encoder, `oggenc`:
+
+| Verdict | Vorbis average bit rate |
+| --- | --- |
+| Good | From 145 kbit/s: quality 8 and above, and busy tracks at quality 6. |
+| Acceptable | From 110 kbit/s: quality 6. |
+| Weak on a big system | Below 110 kbit/s: quality 4 and below. |
+| Likely re-encoded | A cutoff below 18.5 kHz from 145 kbit/s, or below 18 kHz from 110 kbit/s. The reference encoder stopped no lower than 18.9 kHz at quality 6. A Vorbis file made from a 128 kbit/s MP3 keeps the MP3's cutoff and is caught. |
+
+The reference encoder keeps more of the top end than LAME at each level, often all of it, so a Vorbis file made from another Vorbis file of low quality, and a lossless file made from one, are recognised only when the first encoding cut below the line. The [benchmark results](https://github.com/lvndry/euphoria/blob/main/bench/results/quality.md#ogg-vorbis) have the full table.
+
 ![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, the lowest cutoff of each encoding made once from a lossless source sits above the step line; the lowest cutoff of each transcode to a higher bit rate sits below it, in the likely re-encoded zone. Some transcoded files have no cutoff and cannot be identified.](../images/audio-quality/verdicts.svg)
 
 ## Limits
@@ -79,5 +92,5 @@ The thresholds that follow:
 - **Some files have their own lowpass.** A master with a deliberate lowpass, or an old recording, can stop early without having been encoded twice. The verdict then says "likely", and the cutoff in the details shows where it stops.
 - **Lossy encoding hides clipping.** A master clipped hard measured about 1% of its samples clipped as a lossless file, and between 0% and 0.2% after lossy encoding. A clipping figure of zero in a lossy file does not prove a clean master.
 - **Peaks above 0 dB are normal in lossy files.** Decoding a loud master often gives true peaks of +1 or +2 dB. Most players and DJ software handle them; the figure is there for reference.
-- **The thresholds come from three encoders.** Files from other encoders, such as Fraunhofer's or those of streaming services, were not measured.
+- **The thresholds come from four encoders.** Files from other encoders, such as Fraunhofer's, aoTuV's Vorbis encoder or those of streaming services, were not measured, nor Vorbis set to a bit rate rather than a quality level.
 - **The loudness is measured on the mono mixdown**, as for the energy rating. It can differ from a stereo measurement by about a decibel.
