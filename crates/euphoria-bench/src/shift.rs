@@ -198,17 +198,31 @@ fn render(outcomes: &[Outcome]) -> String {
     report
 }
 
-pub fn run(arguments: &Arguments) -> Result<()> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&arguments.audio_directory)
-        .with_context(|| {
-            format!(
-                "reading {}; run bench/download_datasets.sh first",
-                arguments.audio_directory.display()
-            )
-        })?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+fn preview_files(
+    directory: &Path,
+    entries: impl IntoIterator<Item = std::io::Result<PathBuf>>,
+) -> Result<Vec<PathBuf>> {
+    let files: Vec<PathBuf> = entries
+        .into_iter()
+        .collect::<std::io::Result<_>>()
+        .with_context(|| format!("reading {}", directory.display()))?;
+    Ok(files
+        .into_iter()
         .filter(|path| euphoria_core::is_supported_audio_file(path))
-        .collect();
+        .collect())
+}
+
+pub fn run(arguments: &Arguments) -> Result<()> {
+    let entries = std::fs::read_dir(&arguments.audio_directory).with_context(|| {
+        format!(
+            "reading {}; run bench/download_datasets.sh first",
+            arguments.audio_directory.display()
+        )
+    })?;
+    let mut files = preview_files(
+        &arguments.audio_directory,
+        entries.map(|entry| entry.map(|entry| entry.path())),
+    )?;
     files.sort();
     let chosen: Vec<PathBuf> = files.into_iter().step_by(arguments.every).collect();
     if chosen.is_empty() {
@@ -227,6 +241,33 @@ pub fn run(arguments: &Arguments) -> Result<()> {
 mod tests {
     use super::*;
     use euphoria_core::Mode;
+
+    #[test]
+    fn unreadable_directory_entries_fail_instead_of_measuring_a_partial_set() {
+        let entries = [
+            Ok(PathBuf::from("previews/first.wav")),
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "entry became unreadable",
+            )),
+        ];
+        let error = preview_files(Path::new("previews"), entries).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("previews"), "{message}");
+        assert!(message.contains("entry became unreadable"), "{message}");
+    }
+
+    #[test]
+    fn successful_enumeration_still_ignores_non_audio_files() {
+        let entries = [
+            Ok(PathBuf::from("previews/song.wav")),
+            Ok(PathBuf::from("previews/cover.png")),
+        ];
+        assert_eq!(
+            preview_files(Path::new("previews"), entries).unwrap(),
+            [PathBuf::from("previews/song.wav")]
+        );
+    }
 
     #[test]
     fn parses_the_directory_and_the_sampling() {
