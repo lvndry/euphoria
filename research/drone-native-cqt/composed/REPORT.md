@@ -23,23 +23,23 @@ remain material. This is not the earlier cached-only memory result.
 
 ![Measured Linux latency and corrected peak RSS](linux-composed.png)
 
-The figure shows fresh-process peaks and within-worker medians, not model-only
-latency. All timing workers were restricted to Linux logical CPU2. A separate
+The figure relates fresh-process peaks and within-worker medians to exact CQT
+frame counts, making long-input costs visible. It does not show model-only latency. All timing workers were restricted to Linux logical CPU2. A separate
 late observer saw two OS threads restricted to that CPU; it did not sample every
-worker. All four numeric thread environment variables were1.
+worker. All four numeric thread environment variables were 1.
 
 | Mode | Median track median | p95 track median | Median worker peak | Maximum worker peak |
 | --- | ---: | ---: | ---: | ---: |
-| Python full |90.791ms |186.535ms |383.783MiB |1241.738MiB |
-| Native full |64.985ms |157.664ms |181.264MiB |1076.336MiB |
-| Native chunked |67.063ms |157.219ms |132.838MiB |477.500MiB |
+| Python full |90.791 ms |186.535 ms |383.783 MiB |1241.738 MiB |
+| Native full |64.985 ms |157.664 ms |181.264 MiB |1076.336 MiB |
+| Native chunked |67.063 ms |157.219 ms |132.838 MiB |477.500 MiB |
 
 These summary medians are not used to calculate paired effects. Per-track ratios
-are calculated first, then their median. p95 uses linear interpolation across20
+are calculated first, then their median. p95 uses linear interpolation across 20
 track medians. The frozen composed protocol required a visible paired improvement
-with full correctness. The older program target of2× maximum RSS reduction and
+with full correctness. The older program target of 2× maximum RSS reduction and
 ≤10% latency regression was not a numeric preregistered gate for this stage;
-maximum native-full/native-chunked RSS happened to improve2.254×.
+maximum native-full/native-chunked RSS happened to improve 2.254×.
 
 ## Method
 
@@ -51,17 +51,17 @@ magnitude plus the pinned upstream SVML kernel. Mac uses FMA-ratio magnitude plu
 platform log1p, with actual Mac-captured constants and exact-revision task-local
 libsoxr. No NumPy/Python runtime is called by native inference.
 
-All376 references were recreated from SHA-verified public audio through the
+All 376 PCM inputs were recreated from SHA-verified public audio through the
 original decode/PCM preparation; PCM hashes had to match the archived canonical
-references. Qualification ran on CPUs4–5/env1 and explicitly exercised the new
+references. Canonical CQT hashes and logit vectors were reused, not regenerated. Qualification ran on CPUs4–5/env1 and explicitly exercised the new
 prepared API with full and chunked inference. It passed before timing. The
 qualification and timing reports have identical source/config/artifact bindings,
 including the supervisor and CPU-session source hashes. No numerical source
 changed between them.
 
-Timing used60 fresh workers: Python full, native full and native chunked for each
-of20 fixed tracks, with mode order rotated by track. Each worker loaded the same
-PCM before timing, warmed once, then performed20 timed repetitions. Timers cover
+Timing used 60 fresh workers: Python full, native full and native chunked for each
+of 20 fixed tracks, with mode order rotated by track. Each worker loaded the same
+PCM before timing, warmed once, then performed 20 timed repetitions. Timers cover
 CQT→FP16-roundtripped core→logits. Decode, input reads, session/plan setup, kernel
 hashing, evidence JSON/probes and output integrity comparisons are outside the
 timed region; returned-input/API checks remain inside the compute calls. Python's
@@ -71,17 +71,17 @@ low-level operator work. Every timed iteration retained core-hash, finite/logit
 and key checks outside its timer. RSS covers the complete fresh worker lifetime,
 including setup, PCM, frontend and inference, rather than only the timed region.
 
-The Linux host was AMD Ryzen Threadripper PRO9955WX. ORT1.31.1 CPU only used
-intra/inter1, sequential execution and disabled spinning. Unchanged model SHA is
+The Linux host was AMD Ryzen Threadripper PRO 9955WX. ORT 1.31.1 CPU only used
+intra/inter 1, sequential execution and disabled spinning. Unchanged model SHA is
 `35fc1bfe5d67f7aed2c46221c15519d0f3d5822351932b5bd9899d47d48cb613`.
 Source/binary/library/config/hardware bindings and every raw report are in the
 [lossless evidence index](evidence/index.json). No ML runtime download is needed
 for the evidence/unit tests.
 
-Qualification consumed218.19 aggregate child CPU seconds and269.87 wall seconds;
-timing consumed162.55 child CPU and168.74 wall seconds. Both completed before the
-authorized2026-11-12 08:30UTC deadline. The stage used the reviewed1200/1500s
-qualification and1800/2100s timing CPU/wall limits,2GiB monitored tree RSS/storage
+Qualification consumed 218.19 aggregate child CPU seconds and 269.87 wall seconds;
+timing consumed 162.55 child CPU and 168.74 wall seconds. Both completed before the
+authorized 2026-11-12 08:30UTC deadline. The stage used the reviewed 1200/1500s
+qualification and 1800/2100s timing CPU/wall limits, 2 GiB monitored tree RSS/storage
 limits, and streamed/deleted each track spool. These are research-supervisor
 observations and stops, not a universal allocation bound.
 
@@ -91,15 +91,29 @@ observations and stops, not a universal allocation bound.
 At executed source `c5f8c4e`, `drone_native_cached::process_usage()` returns KiB on
 both platforms (Linux ru_maxrss directly, Darwin ru_maxrss/1024). `pipeline` stored
 that value unchanged under a byte field. All native peak RSS values in this
-report/checker are recovered as **raw ×1024**. Original bytes, SHA values and
+report/checker are recovered as **raw ×1,024**. Original bytes, SHA values and
 server artifacts are preserved. Python peak values, loaded-RSS values and
 supervisor sampled tree RSS already use bytes and are not multiplied.
 
 [The checked summarizer](summarize.py) verifies compressed and decoded bundle
 hashes, every raw-file hash, track/repetition counts, qualification identity and
-peak≥loaded RSS. Its regression fixes the known105408KiB→107937792byte example.
-The post-measurement source fixes future reports by checked conversion once; it
-was not used to produce these measurements and no timing binary was rebuilt.
+peak ≥ loaded RSS. A separate lossless bundle retains all 376 original input
+manifests: their hashes bind the recorded native reports, reference logits and
+core identities. The checker independently checks all qualification and timed
+logit vectors, both native backends, and every Mac contrast against the fixed
+tolerance and key requirements. Its regression fixes the known 105,408 KiB → 107,937,792 byte example.
+The post-measurement source fixes future reports by checked conversion once and
+labels their format v2 with an explicit byte unit. Historical recovery refuses
+other source identities/formats, preventing accidental double conversion. This
+repair was not used to produce these measurements; no numerical benchmark was
+rerun for it. Any future execution must bind the rebuilt executable.
+
+Historical execution sources are preserved at the
+[native compute tag](https://github.com/lvndry/euphoria/tree/research/cqt-composed-compute-20261112),
+[Linux controller tag](https://github.com/lvndry/drone/tree/research/cqt-composed-linux-20261112)
+and [Mac controller tag](https://github.com/lvndry/drone/tree/research/cqt-mac-nine-20261112).
+Use those frozen identities for historical replay. The publication branch's
+reporting repair is a later implementation, not the measured executable.
 
 ```sh
 python3 research/drone-native-cqt/composed/summarize.py
@@ -116,10 +130,10 @@ recovery. PNG and SVG are adjacent to this report.
 
 Mac processing used the same six synthetic and three public canonical PCM arrays,
 without new decoding or SVML. Exact preflight versions matched Linux:
-librosa1.0.0, NumPy2.5.4, SciPy1.18.1, python-soxr1.1.0, ORT1.31.1. The verified
+librosa 1.0.0, NumPy 2.5.4, SciPy 1.18.1, python-soxr 1.1.0, ORT 1.31.1. The verified
 166-file vendored soxr tree was built task-locally, Release/shared/OpenMPoff,
-jobs≤2, with no installation or production change. Source/compiler/CMake/library
-hashes, dependency resolution and LGPL2.1-or-later provenance are preserved.
+jobs ≤2, with no installation or production change. Source/compiler/CMake/library
+hashes, dependency resolution and LGPL 2.1-or-later provenance are preserved.
 
 All nine cases passed every named comparison using the unchanged finite/shape,
 `abs(delta) ≤1e-5 +1e-5*abs(reference)` and zero-argmax-change gates:
@@ -131,30 +145,30 @@ All nine cases passed every named comparison using the unchanged finite/shape,
 | Native Mac / canonical Linux |9/9 |1.407e-5 |0 |
 | Canonical Linux core through Mac ORT / Linux ORT |9/9 |1.335e-5 |0 |
 
-The relative term allows some absolute errors above1e-5. These are not bitwise
-comparisons. Native/Mac reference cores differed at303 of2,048,256 values;
+The relative term allows some absolute errors above 1e-5. These are not bitwise
+comparisons. Native/Mac reference cores differed at 303 of 2,048,256 values;
 feature max/RMS and per-case mismatches remain in the raw comparisons.
 
 ![All fixed Mac comparisons and visible feature differences](mac-nine.png)
 
-The Mac reference and native workers consumed10.65 and2.84 child CPU seconds,
-respectively, with9.33 and2.95 wall seconds. These are instrumented diagnostic
+The Mac reference and native workers consumed 10.65 and 2.84 child CPU seconds,
+respectively, with 9.33 and 2.95 wall seconds. These are instrumented diagnostic
 worker costs, not performance results. Sampled owned-tree peak RSS was
-1,268,514,816bytes. There was one numeric worker, thread variables and VECLIB set1;
+1,268,514,816 bytes. There was one numeric worker, thread variables and VECLIB set 1;
 macOS offers no Linux-style hard affinity here. The retained executor completed
-exit0 before08:00UTC. An earlier detached launch was cleaned up before any stage
+exit 0 before 08:00 UTC. An earlier detached launch was cleaned up before any stage
 existed; its empty log and absent PID were investigated, and the retained session
 is the authoritative execution record.
 
 ## Decision and limits
 
-The prepared Linux frontend→full/chunked API is qualified on the fixed376 public
-tracks, and its20-case FMAK performance improvement is measured. Preserve both
+The prepared Linux frontend→full/chunked API is qualified on the fixed 376 public
+tracks, and its 20-case FMAK performance improvement is measured. Preserve both
 paths and prefer chunked inference for long inputs. The complete frontend still
 materializes PCM and CQT arrays, so production memory requires further work.
 
-The Mac nine-case result justifies proposing the same376-case expansion and
+The Mac nine-case result justifies proposing the same 376-case expansion and
 conditional performance measurement under a new window. It does not establish
-Mac376 parity, production integration, decoder parity for a different decoder,
+376-case Mac parity, production integration, decoder parity for a different decoder,
 or key-label accuracy. No final-result cache, Euphoria production key detector,
 default dependency/MSRV, model weights or training changed.

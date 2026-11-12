@@ -91,14 +91,18 @@ The measured Mac nine binary is preserved separately at
 `01d51a582f815961ce67ac8263e422c8279605c2dfc0784679a3eddfc37eeb0c`.
 It is not the prospective reporting binary.
 
-The repaired native numerical source is Euphoria commit **83c5145** (parent
-c5f8c4e), which changes only future peak-RSS reporting with checked KiB→bytes
-conversion and documents the cached helper's unchanged KiB contract. A separate
-release target built with Rust/Cargo1.99.1, jobs1, codegen-units1/LTOoff has SHA
+The initial reporting repair was Euphoria commit **83c5145** (parent c5f8c4e),
+which adds checked KiB→bytes conversion and documents the cached helper's
+unchanged KiB contract. Its separate, unexecuted release target built with
+Rust/Cargo 1.99.1, jobs 1, codegen-units 1/LTO off has SHA
 **c694bcb3b35fbbb94c27a9790241ef9b4e03b33b39ec3db55332535153192b3c**,
 `/tmp/euphoria-native-cqt-mac-v1/repaired-target/release/pipeline`.
-No model/CQT execution has used that new binary yet. The new nine/376 proof must
-bind and qualify it before timing. Never reattribute old results to this binary.
+No model/CQT execution used that candidate binary. The publication branch also
+labels repaired reports as format v2 with explicit byte units. Therefore this
+proposal requires a new source freeze and rebuilt executable SHA before launch;
+the initial repaired candidate SHA above is historical setup evidence, not an
+approved prospective execution identity. The new nine/376 proof must qualify the
+actual frozen binary before timing. Never reattribute old results to a new binary.
 
 Use existing Mac ORT1.31.1 CPU dylib SHA
 `d586cbe89effc085a09d3341b3cfbd5c322517f9d397aeb20814af21433f2b36`,

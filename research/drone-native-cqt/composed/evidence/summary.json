@@ -142,7 +142,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "4ac9149b927032f6dbec78a37b67c5a6e8d961aafa9f901c3f8eb2504df0fec4"
         }
-      }
+      },
+      "frames": 597
     },
     {
       "id": "fmak:015124",
@@ -238,7 +239,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "18bd86dd8113f769d335648e1d2b7dbd46a91f02a051331ddd097e891bda3176"
         }
-      }
+      },
+      "frames": 1040
     },
     {
       "id": "fmak:020230",
@@ -334,7 +336,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "057a2390830775291c82b5cec9c2fde3b90fda94376ca86d40064350eadf4f67"
         }
-      }
+      },
+      "frames": 1437
     },
     {
       "id": "fmak:048616",
@@ -430,7 +433,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "e392c1aac22affed33cc31ea0f26257cd538029479605209d2d4a535b7a3921c"
         }
-      }
+      },
+      "frames": 1708
     },
     {
       "id": "fmak:048621",
@@ -526,7 +530,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "ca559baec627b9dffe178f71f8deda357c59c974d031d8712575324b80dfc3f0"
         }
-      }
+      },
+      "frames": 775
     },
     {
       "id": "fmak:063227",
@@ -622,7 +627,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "f739aef35b119dbbaa4ea6251d96fcfd7f111a2daf7bd080ab89aac3c5d005a4"
         }
-      }
+      },
+      "frames": 1512
     },
     {
       "id": "fmak:083349",
@@ -718,7 +724,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "28a7049a3d30078ff2a96598b0d87e9601057ef4278c99cdd4c656a2fe854a8e"
         }
-      }
+      },
+      "frames": 1604
     },
     {
       "id": "fmak:085942",
@@ -814,7 +821,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "1d39f306a2732b9937b71455e02bd728e997b11c6a5a879f77b6370e756116e9"
         }
-      }
+      },
+      "frames": 913
     },
     {
       "id": "fmak:086561",
@@ -910,7 +918,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "8fa0f9f69ed4a0a317374a0a8d53fa29462f5f7797db9dad720612fd55d95545"
         }
-      }
+      },
+      "frames": 1911
     },
     {
       "id": "fmak:087373",
@@ -1006,7 +1015,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "f0b7f5c43b059f6501797e1953bf517bc1597cecf6f731c46167fd9921c3575a"
         }
-      }
+      },
+      "frames": 9057
     },
     {
       "id": "fmak:087562",
@@ -1102,7 +1112,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "cf686b42c1e2cbb6275ef44fd6e474504aa87d07071db2936946703af3c7ff3a"
         }
-      }
+      },
+      "frames": 1149
     },
     {
       "id": "fmak:091359",
@@ -1198,7 +1209,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "6246f95c289ec3b9f4f19b80cb10f9e5dd5672f6f9bd62da810eee41fe06a9b4"
         }
-      }
+      },
+      "frames": 2367
     },
     {
       "id": "fmak:091709",
@@ -1294,7 +1306,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "a5a912fef6af2567329d8f6307dc5a3e30bb79c6fac1fae6f568384307e831d4"
         }
-      }
+      },
+      "frames": 843
     },
     {
       "id": "fmak:097288",
@@ -1390,7 +1403,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "0ec773a400e1884f122c1c653eee95a6236f9687608d5ca80b749ed48a517a34"
         }
-      }
+      },
+      "frames": 1321
     },
     {
       "id": "fmak:101394",
@@ -1486,7 +1500,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "197e411c776af5d29e56fff521ef50d3d5ed477082f3c0368ae041fbb1651645"
         }
-      }
+      },
+      "frames": 1254
     },
     {
       "id": "fmak:107222",
@@ -1582,7 +1597,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "48fa69c45d224676058975bc161e26dca87f23959b7ab8c0a18558eb713d4aff"
         }
-      }
+      },
+      "frames": 1373
     },
     {
       "id": "fmak:107350",
@@ -1678,7 +1694,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "752c98244a37a0bad5e34cf02dc663a1249810c18d5f57cb204f1f42af0b94c5"
         }
-      }
+      },
+      "frames": 1090
     },
     {
       "id": "fmak:107354",
@@ -1774,7 +1791,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "49debb959b798b893f73d9b8fc6c2e0544ae9fb056e87122281481de4334a4dd"
         }
-      }
+      },
+      "frames": 1295
     },
     {
       "id": "fmak:109897",
@@ -1870,7 +1888,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "77dcd63428eac59a8315300424d67d559bee2490ec7009eab816612459bd5752"
         }
-      }
+      },
+      "frames": 988
     },
     {
       "id": "fmak:110544",
@@ -1966,7 +1985,8 @@
           "raw_peak_unit": "KiB",
           "report_sha256": "19399c8e4c2f9f90df0281853fd80046901525734ee17a2b5989e474d27cfbb5"
         }
-      }
+      },
+      "frames": 217
     }
   ],
   "mac": {

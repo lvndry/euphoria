@@ -9,14 +9,23 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from summarize import summarize
 
 
-def plot(root: Path) -> None:
-    data = summarize(root)
-    ordered = sorted(
-        data["rows"], key=lambda row: row["modes"]["python"]["median_seconds"]
+def save_figure(figure: Figure, root: Path, name: str) -> None:
+    figure.savefig(root / f"{name}.png", dpi=180)
+    svg = root / f"{name}.svg"
+    figure.savefig(svg, metadata={"Date": None})
+    svg.write_text(
+        "\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n"
     )
+
+
+def plot(root: Path) -> None:
+    plt.rcParams["svg.hashsalt"] = "drone-native-cqt-composed-v1"
+    data = summarize(root)
+    ordered = sorted(data["rows"], key=lambda row: row["frames"])
     colors = {"python": "#bc6d35", "full": "#3e6e9d", "chunked": "#23856d"}
     names = {
         "python": "Python full",
@@ -26,14 +35,14 @@ def plot(root: Path) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(11.4, 4.5), layout="constrained")
     for mode, color in colors.items():
         axes[0].plot(
-            range(1, 21),
+            [row["frames"] for row in ordered],
             [row["modes"][mode]["median_seconds"] * 1000 for row in ordered],
             marker=".",
             color=color,
             label=names[mode],
         )
         axes[1].plot(
-            range(1, 21),
+            [row["frames"] for row in ordered],
             [row["modes"][mode]["peak_rss_bytes"] / 1024**2 for row in ordered],
             marker=".",
             color=color,
@@ -42,7 +51,7 @@ def plot(root: Path) -> None:
     axes[0].set_ylabel("CQT + inference median (ms)")
     axes[1].set_ylabel("Fresh worker peak RSS (MiB)")
     for axis in axes:
-        axis.set_xlabel("20 FMAK tracks, ordered by Python latency")
+        axis.set_xlabel("Full-recording CQT frames (20 FMAK tracks)")
         axis.grid(alpha=0.2)
         axis.spines[["top", "right"]].set_visible(False)
     axes[0].legend(frameon=False)
@@ -50,8 +59,7 @@ def plot(root: Path) -> None:
         "Identical PCM → features → logits: one Linux logical CPU\n376 composition checks passed; 20 fresh workers per mode, 20 timed reps each",
         fontsize=12,
     )
-    fig.savefig(root / "linux-composed.png", dpi=180)
-    fig.savefig(root / "linux-composed.svg")
+    save_figure(fig, root, "linux-composed")
     plt.close(fig)
     mac = data["mac"]["cases"]
     names = {
@@ -102,8 +110,7 @@ def plot(root: Path) -> None:
         "Apple M5 / arm64, identical PCM: all four nine-case logit/key gates passed\nFeature bytes differ; no Mac376 or production claim",
         fontsize=12,
     )
-    fig.savefig(root / "mac-nine.png", dpi=180)
-    fig.savefig(root / "mac-nine.svg")
+    save_figure(fig, root, "mac-nine")
     plt.close(fig)
 
 

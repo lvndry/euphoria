@@ -15,7 +15,7 @@
   "measured_sources": {
     "euphoria": "c5f8c4e46e31a5fb8c147270291a8b7377cb6b7b",
     "drone_linux": "c18806c2a75f841d641b9d4dd7904be9977a3184",
-    "drone_mac": "b86edd6"
+    "drone_mac": "b86edd67f499ca00a9496a3e75cb0c3b2a96bde8"
   },
   "native_rss_erratum": {
     "raw_field": "peak_rss_bytes",
@@ -23,5 +23,11 @@
     "recovery_multiplier": 1024,
     "helper_source_sha256": "fe52147c70be9dc47cbbc5498d15744e13953ae56b8a597c3d74ee68cc35615d",
     "pipeline_source_sha256": "77bc7059ce96f81cac38751590f9fca7fba7a4728460d5d6215dcd841e1af5ec"
+  },
+  "qualification_inputs": {
+    "path": "qualification-inputs.json.gz",
+    "sha256": "33bc3a96a7d70abdbd6e303837dcda3985056cadeb784cbd6f7bb13f628763a4",
+    "decoded_sha256": "2395c29f81fd101d5c14e7f4296588c408cf16b8796039ebb6749be702946af8",
+    "files": 376
   }
 }
