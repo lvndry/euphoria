@@ -19,6 +19,10 @@ mod decks;
 mod demo;
 mod display_settings;
 mod dock_icon;
+mod favorite_flow;
+mod favorites;
+#[cfg(test)]
+mod favorites_ui_tests;
 mod folder_tree;
 mod format;
 mod key_by_ear;
@@ -59,8 +63,9 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, EditTags, FocusSearch, OpenSettings, Quit, ResetColumnWidths,
-    SelectAllTracks, ToggleDecks, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
-    UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    SelectAllTracks, ToggleDecks, ToggleFavorite, TogglePlayback, ToggleSidebar, UndoCueEdit,
+    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme, UseSlateTheme,
+    WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -197,6 +202,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         // Outside a text field, where Command Z undoes typing.
         KeyBinding::new("cmd-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("c", AddCueAtPlayhead, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("f", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
         KeyBinding::new("cmd-i", EditTags, None),
@@ -241,6 +247,9 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
     register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
     register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_cue_edit(cx));
+    register_view_command::<ToggleFavorite>(view, cx, |view, cx| {
+        view.toggle_star_on_selection(cx);
+    });
     register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
         view.reset_column_widths(cx);
     });
@@ -338,6 +347,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::separator(),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
+            MenuItem::action("Star or Unstar Selection", ToggleFavorite),
             MenuItem::separator(),
             MenuItem::action("Reset Column Widths", ResetColumnWidths),
             MenuItem::separator(),

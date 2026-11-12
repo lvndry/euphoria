@@ -263,7 +263,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | --- | --- |
 | `-o`, `--output <FILE>` | The file to write. Required. |
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
-| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
+| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
@@ -429,6 +429,37 @@ Warmup  (9 tracks)
 
 Playlists are kept in `playlists.sqlite3` beside the [cache](#where-the-cache-is-stored), each track by the content of its file and its last path, so `euphoria cache clear` leaves them as they are.
 
+## euphoria set build
+
+Orders tracks from a pool into a set that follows an energy curve, with every transition an allowed key move and a small tempo step.
+
+```
+euphoria set build [OPTIONS] <FOLDER|PLAYLIST>...
+```
+
+The pool is folders or audio files, searched as `euphoria analyze` searches them, or the name of a playlist built in the desktop app when the one argument is not a path. Tracks are analyzed first or read from the cache, with your corrections applied. The [guide](../guides/build-a-set.md) explains the curve, the rules and how the set is chosen.
+
+| Option | Meaning |
+| --- | --- |
+| `--curve <CURVE>` | Energy levels from 1 to 10 separated by commas, spread evenly over the set, or a preset: `warm-up`, `peak-time`, `journey` (the default). |
+| `--tracks <COUNT>` | The length of the set. Defaults to 20. |
+| `--minutes <MINUTES>` | The length of the set in minutes, turned into a count by the median track length of the pool. |
+| `--first <FILE>`, `--last <FILE>` | Open or close the set with this track, which joins the pool if it is not in it. |
+| `--max-bpm-step <BPM>` | The largest tempo change between two tracks. Defaults to 5. |
+| `--moves <MOVES>` | The key moves allowed, separated by commas: `same`, `adjacent`, `relative`, `diagonal`, `energy-boost`, `mood-change`, `semitone-boost`. Defaults to the first five. |
+| `--allow-artist-repeats` | Let two tracks by the same artist follow each other. |
+| `--json` | Print JSON instead of the table. |
+| `--m3u <FILE>` | Also write the set as an M3U8 playlist. `--force` replaces an existing file. |
+| `--key-notation <NOTATION>` | How keys are shown in the table. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output gets a table, one track per line, with the key move and tempo step from the track before, the energy and the energy the curve asks for, then two rows of blocks that draw the curve and the set. Standard error gets a summary and a `warning:` for each place the set falls short of the curve or breaks a rule.
+
+The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
+
+The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
+
 ## euphoria tags write
 
 Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.
@@ -561,6 +592,65 @@ Each restored file is listed on standard output and is byte for byte what it was
 A file whose tags changed after the write is not restored, so that the later change is not lost. It is listed on standard error with the reason, the other files are restored, and the command exits with status 1. The backup of such a file is kept, and running the command again tries it again. An earlier write cannot be undone while such a file remains.
 
 A write that was interrupted can be undone as well. Files it had not changed yet are counted in the summary as not changed by the write.
+
+## euphoria shift
+
+Writes a copy of a track in another key, with the same tempo. The pitch moves by up to 6 semitones either way while every beat stays where it was. The copy is a 24 bit WAV or FLAC file tagged with the new key, and the original is never changed.
+
+```
+euphoria shift [OPTIONS] -s <N> -o <FILE> <FILE>
+```
+
+```
+$ euphoria shift -s 2 track.flac -o "track (+2).flac"
+Shifted up 2 semitones, from 8A A minor to 9A B minor, to /Users/you/Music/track (+2).flac
+```
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<FILE>` | The track to shift. It is only read, never changed. |
+| `-s`, `--semitones <N>` | How many semitones to move the key, from -6 to 6: 2 moves A minor to B minor, -3 moves it to F# minor. A shift of 0 is an error, since nothing would be written. |
+| `-o`, `--output <FILE>` | The file to write, ending in .wav or .flac. Required. |
+| `--force` | Replace the output file if it exists. |
+| `--key-notation <NOTATION>` | How the shifted key is written into the copy's tags: `camelot` (the default), `musical` or `open-key`. |
+| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `--no-cache` | Analyze the track without reading or updating the [cache](#the-analysis-cache). |
+| `--reanalyze` | Analyze the track again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `--tempo-range <SLOWEST-FASTEST>` | The range tempos are reported in, `90-180` by default, as for [`euphoria analyze`](#options). |
+
+The key of the original comes from the [cache](#the-analysis-cache) when the track was analyzed before, with the key you [corrected](#corrections) when there is one.
+
+On success, one line goes to standard error: how far the track moved, its key before and after, and where the copy is. The command exits with status 0 when the file is written. It exits with status 1 with a message on standard error when the shift is 0 semitones, the file is not audio Euphoria reads, the output does not end in `.wav` or `.flac`, the output exists without `--force`, or the analysis fails.
+
+## euphoria stems
+
+Separates a track into vocals, drums, bass and the rest, with the Demucs htdemucs model, and writes one WAV file per stem. The model, 84 MB, is downloaded the first time. Separation runs on this computer.
+
+```
+euphoria stems [OPTIONS] -o <DIR> <FILE>
+```
+
+```
+$ euphoria stems track.flac --output stems
+Drums   /Users/you/Music/stems/drums.wav
+Bass    /Users/you/Music/stems/bass.wav
+Other   /Users/you/Music/stems/other.wav
+Vocals  /Users/you/Music/stems/vocals.wav
+```
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<FILE>` | The audio file to separate. |
+| `-o`, `--output <DIR>` | The folder to write the stems to, created when missing. Required. |
+| `--force` | Replace stem files already in the folder. |
+
+The stems are written as `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav`, 16 bit stereo WAV files at 44.1 kHz. Each one is listed on standard output with its path, and standard error gets a note: how long the separation took, or that the stems came from the cache. Separated tracks are cached, so separating the same track again is instant.
+
+The command exits with status 0 when the stems are written. It exits with status 1 with a message on standard error when the file is not there, a stem file already exists in the folder without `--force`, an output would replace the input file, or the model download or the separation fails.
 
 ## euphoria corrections export
 

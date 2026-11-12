@@ -50,6 +50,10 @@ pub fn main_examples() -> StyledStr {
                 "euphoria export rekordbox ~/Music/DJ -o euphoria.xml",
                 "A file for rekordbox",
             ),
+            (
+                "euphoria set build ~/Music/DJ --curve journey",
+                "A set that follows an energy curve",
+            ),
         ],
         "Analyses are saved, so the second run over a folder is instant.\n\
          Run `euphoria <COMMAND> --help` for the options of a command.\n\
@@ -189,6 +193,27 @@ pub fn engine_export_examples() -> StyledStr {
             ),
         ],
         "",
+    )
+}
+
+pub fn set_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria set build ~/Music/DJ --curve 4,6,8,9,7,5 --tracks 20",
+                "Twenty tracks that rise, peak and land",
+            ),
+            (
+                "euphoria set build \"Friday\" --curve peak-time --minutes 90",
+                "Ninety minutes from a playlist",
+            ),
+            (
+                "euphoria set build ~/Music/DJ --first opener.flac --m3u set.m3u8",
+                "Open with a track, save the set",
+            ),
+        ],
+        "Curve presets: warm-up, peak-time and journey.",
     )
 }
 

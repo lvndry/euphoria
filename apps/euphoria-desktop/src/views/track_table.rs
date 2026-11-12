@@ -24,12 +24,16 @@ use crate::library::{LibraryFilter, NOT_FOUND, Track, TrackStatus};
 use crate::playlist_flow::DraggedTracks;
 use crate::playlists::PlaylistId;
 use crate::theme::Palette;
+use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::playlists::{DragLabel, track_menu};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 use gpui::component::menu::ContextMenuExt;
 
 const HEADER_HEIGHT: f32 = 28.0;
+
+/// The group a row's star shows on hover in.
+const TRACK_ROW_GROUP: &str = "track-row";
 
 /// Width of the grip on the edge between two column headers.
 const EDGE_GRIP_WIDTH: f32 = 8.0;
@@ -140,6 +144,8 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
     if app.playlist.is_some() && app.query.trim().is_empty() {
         "This playlist is empty. Drag tracks onto it in the sidebar, or right click tracks and \
          choose Add to playlist."
+    } else if app.showing_favorites && app.query.trim().is_empty() {
+        "No favorites yet. Click the star beside a track, or select tracks and press F."
     } else if app.scans_in_progress > 0 {
         "Looking for audio files"
     } else if app.session.library().tracks().is_empty() {
@@ -162,6 +168,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
     let folder = app.folder.as_deref().map(folder_name);
     let playlist = app.playlist.and_then(|id| app.session.playlists().get(id));
     let title: SharedString = match (app.filter, folder) {
+        _ if app.showing_favorites => "Favorites".into(),
         _ if playlist.is_some() => playlist
             .map(|playlist| match &playlist.label {
                 Some(label) => format!("{label} {}", playlist.name),
@@ -179,6 +186,11 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
         }
     };
     let count = match playlist {
+        None if app.showing_favorites => {
+            let shown = app.visible.len();
+            let tracks = if shown == 1 { "track" } else { "tracks" };
+            format!("{} {tracks}", format::count(shown))
+        }
         Some(playlist) => {
             let shown = app.visible.len();
             let not_in_library = playlist.tracks.len() - app.playlist_positions.len();
@@ -222,6 +234,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
                         .child(title),
                 )
                 .children(crate::views::playlists::set_summary(app, cx))
+                .children(crate::views::favorites::favorites_summary(app, cx))
                 .when(
                     app.filter == LibraryFilter::NeedsReview && playlist.is_none(),
                     |heading| {
@@ -425,13 +438,21 @@ fn row(
         .map(|playlist| (playlist.id, playlist.name.clone()))
         .collect();
     let shown_playlist = app.playlist;
+    let is_starred = app.session.favorites().is_starred(&track.path);
     let cells: Vec<AnyElement> = app
         .table_layout
         .columns()
         .iter()
         .map(|(column, width)| {
             cell(*column, *width)
-                .child(cell_contents(app, *column, row_index, track_index, track))
+                .child(cell_contents(
+                    app,
+                    *column,
+                    row_index,
+                    track_index,
+                    track,
+                    cx,
+                ))
                 .into_any_element()
         })
         .collect();
@@ -439,6 +460,7 @@ fn row(
     Some(
         div()
             .id(("track", track_index))
+            .group(TRACK_ROW_GROUP)
             .flex()
             .w_full()
             .items_center()
@@ -481,7 +503,15 @@ fn row(
             .children(cells)
             .test_support()
             .context_menu(move |menu, window, cx| {
-                track_menu(menu, &app_handle, &playlists, shown_playlist, window, cx)
+                track_menu(
+                    menu,
+                    &app_handle,
+                    &playlists,
+                    shown_playlist,
+                    is_starred,
+                    window,
+                    cx,
+                )
             })
             .into_any_element(),
     )
@@ -494,6 +524,7 @@ fn cell_contents(
     row_index: usize,
     track_index: usize,
     track: &Track,
+    cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
     let theme = &app.theme;
     let palette = theme.palette;
@@ -510,17 +541,46 @@ fn cell_contents(
         ColumnId::Title => {
             let title: SharedString = track.title().to_string().into();
             let tooltip = title.clone();
+            let is_starred = app.session.favorites().is_starred(&track.path);
             div()
-                .id(("title-cell", track_index))
+                .flex()
+                .items_center()
+                .gap(px(4.0))
                 .min_w_0()
-                .truncate()
-                .font_weight(FontWeight::MEDIUM)
-                .when(track.is_unfinished(), |title| {
-                    title.text_color(palette.text_secondary)
-                })
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-                .child(title)
-                .test_support()
+                .child(
+                    star_button(
+                        ("star", track_index),
+                        is_starred,
+                        if is_starred {
+                            "Take the star off (F)"
+                        } else {
+                            "Star (F)"
+                        },
+                        &palette,
+                    )
+                    .when(!is_starred, |star| {
+                        star.invisible()
+                            .group_hover(TRACK_ROW_GROUP, |style| style.visible())
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_star_on_track(track_index, cx);
+                        cx.stop_propagation();
+                    }))
+                    .test_support(),
+                )
+                .child(
+                    div()
+                        .id(("title-cell", track_index))
+                        .min_w_0()
+                        .truncate()
+                        .font_weight(FontWeight::MEDIUM)
+                        .when(track.is_unfinished(), |title| {
+                            title.text_color(palette.text_secondary)
+                        })
+                        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                        .child(title)
+                        .test_support(),
+                )
                 .into_any_element()
         }
         ColumnId::Artist => div()

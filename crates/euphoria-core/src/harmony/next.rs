@@ -73,6 +73,10 @@ const ENERGY_POINT: f32 = 2.0;
 const SCALED_TEMPO: f32 = 1.5;
 /// The cost of a candidate whose energy is not known.
 const UNKNOWN_ENERGY: f32 = 1.5;
+/// What a transition the DJ marked as a favorite takes off its cost: as
+/// much as four steps of key relation, so a proven mix comes before a
+/// smoother one on paper, unless the tempo or energy is far off.
+const FAVORITE_TRANSITION: f32 = 8.0;
 
 /// The candidates that mix into `reference`, as [`mixes_into`] keeps them,
 /// ordered best first for playing next with the energy going `direction`.
@@ -91,13 +95,36 @@ where
     Reference: MixTrack + ?Sized,
     Candidate: MixTrack + 'candidates,
 {
+    next_tracks_favoring(reference, candidates, options, direction, |_| false)
+}
+
+/// The order of [`next_tracks`], with the candidates `is_favorite` picks
+/// moved up: those the DJ marked as mixing well after `reference`. A
+/// favorite still has to mix in key and tempo to be kept, and one without a
+/// tempo still comes after those with one.
+pub fn next_tracks_favoring<'candidates, Reference, Candidate>(
+    reference: &Reference,
+    candidates: impl IntoIterator<Item = &'candidates Candidate>,
+    options: &MixOptions,
+    direction: EnergyDirection,
+    is_favorite: impl Fn(&Candidate) -> bool,
+) -> Vec<MixMatch<'candidates, Candidate>>
+where
+    Reference: MixTrack + ?Sized,
+    Candidate: MixTrack + 'candidates,
+{
     let mut ranked: Vec<(bool, f32, MixMatch<'candidates, Candidate>)> =
         mixes_into(reference, candidates, options)
             .into_iter()
             .map(|mix_match| {
+                let favorite_bonus = if is_favorite(mix_match.track) {
+                    FAVORITE_TRANSITION
+                } else {
+                    0.0
+                };
                 (
                     mix_match.tempo.is_none(),
-                    score(&mix_match, direction),
+                    score(&mix_match, direction) - favorite_bonus,
                     mix_match,
                 )
             })
@@ -182,6 +209,54 @@ mod tests {
         );
         assert_eq!(ranked.len(), 2, "a key that does not mix is left out");
         assert_eq!(ranked[0].track.key, adjacent_close.key);
+    }
+
+    #[test]
+    fn a_favorite_transition_comes_before_a_smoother_mix_but_must_still_mix() {
+        let playing = track("8A", 124.0, 6.0);
+        let same_key = track("8A", 124.0, 6.0);
+        let favorite_adjacent = track("9A", 125.0, 6.0);
+        let favorite_clashing = track("3B", 124.0, 6.0);
+        let candidates = [same_key, favorite_adjacent, favorite_clashing];
+        let is_favorite = |candidate: &TrackFeatures| candidate.key != same_key.key;
+        let plain = next_tracks(
+            &playing,
+            &candidates,
+            &MixOptions::default(),
+            EnergyDirection::Same,
+        );
+        assert_eq!(plain[0].track.key, same_key.key);
+        let favoring = next_tracks_favoring(
+            &playing,
+            &candidates,
+            &MixOptions::default(),
+            EnergyDirection::Same,
+            is_favorite,
+        );
+        let keys: Vec<_> = favoring.iter().map(|mix| mix.track.key).collect();
+        assert_eq!(
+            keys,
+            [favorite_adjacent.key, same_key.key],
+            "the favorite moves up, and a favorite whose key clashes is still left out"
+        );
+    }
+
+    #[test]
+    fn a_favorite_without_a_tempo_stays_behind_those_with_one() {
+        let playing = track("8A", 124.0, 6.0);
+        let with_tempo = track("9A", 124.0, 6.0);
+        let mut favorite_without_tempo = track("8A", 124.0, 6.0);
+        favorite_without_tempo.bpm = None;
+        let candidates = [favorite_without_tempo, with_tempo];
+        let ranked = next_tracks_favoring(
+            &playing,
+            &candidates,
+            &MixOptions::default(),
+            EnergyDirection::Same,
+            |candidate| candidate.bpm.is_none(),
+        );
+        assert_eq!(ranked[0].track.bpm, Some(124.0));
+        assert_eq!(ranked[1].track.bpm, None);
     }
 
     #[test]

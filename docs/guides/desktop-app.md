@@ -67,6 +67,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 - **All tracks** shows the whole library.
 - **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
+- **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
@@ -160,6 +161,7 @@ Two decks under the table let you try a transition before the set: **Decks** in 
 - **Play** starts a deck, and **Pause** holds it. When the other deck is playing, playback is scheduled so their upcoming downbeats line up. It starts from the selected position and may wait additional bars to align them; the button says so while it waits. A cue button plays from that cue with the same alignment.
 - **Sync to A**, on by default, plays deck B at deck A's tempo: a track at 125 BPM next to one at 120 plays at 96 percent of its speed. A track counted at half or double tempo is matched at that tempo. **Key lock**, on by default, keeps a deck's pitch when its speed changes; off, the pitch follows the speed as on a turntable. The deck shows its own tempo and the tempo heard, such as 125.0 → 120.0 BPM.
 - **The mixer** has a volume fader for each deck and a crossfader between them. The crossfader moves equal power from one deck to the other: at the middle both play at about 71 percent, and a deck at the near end of the fader plays at full. Use the deck faders to balance the combined level. Under the mixer, the share of one core each deck takes and any frames the decoders could not fill in time are shown, for checking that playback keeps up.
+- **Loop bars** 1, 2, 4, 8 and 16 loop that many bars of a deck from its next downbeat. The loop is marked on the waveform, and the lit button shows the length. The deck keeps the samples of the loop's first pass and plays them again, so every repeat is the same sound and joins the next on the beat, with no gap. Press the lit button again to leave: the loop plays to its end once more and the track carries on from there, still on the beat. Another length starts a new loop at the next downbeat. Moving the deck, playing a cue or loading a track ends the loop. Looping needs the track's beat grid, so a track whose tempo you corrected by hand does not loop.
 
 Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
 
@@ -204,6 +206,39 @@ Under the waveform, across the same width, a row of bars shows the [energy curve
 ### Key changes
 
 When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
+
+## Favorites
+
+Star the tracks you reach for, and mark the transitions you know work: a track into another that you tried on the decks or played out and want to find again.
+
+### Star a track
+
+- In the table, the star sits before the title. It shows on the row under the pointer, and stays on a starred track. Click it to star the track or take the star off; the click does not change the selection.
+- Press F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. F types a letter when a text field has the keyboard.
+- The right click menu of a row has **Star** or **Remove star**, for the selected tracks.
+- The star at the top of the inspector, beside the track's name, stars the selected track.
+- Each deck has a star beside its track's name.
+
+**Favorites** in the sidebar shows the starred tracks, in the order you starred them. Search and sorting work there as in a playlist.
+
+### Favorite transitions
+
+A favorite transition is one track into another: playing the second after the first mixes well. It has a direction, so a transition from A into B is not one from B into A, since a mix that works one way often does not work the other (an energy lift played backwards is a drop).
+
+- On the decks, with a track on each, **Save transition A → B** under the decks marks the transition from deck A into deck B. Click it again to take the mark off. Once it is marked, click **Add a note** beside it to write how the mix goes, for example where to bring the second track in, and press Return. An empty note takes the note away.
+- In **Mixes well with** in the inspector, the star at the start of a row marks the transition from the selected track into that one.
+
+Marked transitions come first in **Mixes well with**, in the order you marked them, with a filled star, and their note shows when the pointer rests on the row. A marked transition is listed there even when its keys do not mix by the rules, since you found that they do; its relation then reads **Your mix**.
+
+In **Next on deck B**, a marked transition out of the track on deck A moves up the ranking: it counts as much as four steps of key relation, so a mix you know beats one that is only smoother on paper, unless its tempo or energy is far off. A filled star marks it. It still has to mix in key and tempo to be suggested there.
+
+### Export your favorites
+
+Over the starred tracks, **Export to rekordbox** and **Export M3U8** ask where to save them and write them as a playlist named Favorites, in the order you starred them, the same way a [playlist export](#export-a-playlist) does. The line also counts your favorite transitions. Transitions and their notes are not part of the export: rekordbox XML and M3U8 have no place for them.
+
+### Where favorites are kept
+
+Favorites are kept with the playlists in `playlists.sqlite3`, so clearing the analysis cache never touches them. Like a playlist entry, each starred track and each side of a transition is kept by the content of its file and the path it was last seen at: a favorite survives a move or a rename once the app has seen the file in its new place, and follows Euphoria's own tag writes and undo, the way corrections and edited cues do.
 
 ## Write tags
 
@@ -308,7 +343,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) explains. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
@@ -357,7 +392,8 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 
 ## Not there yet
 
-- On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend.
+- On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
+- Rating favorites (more than one star), and exporting favorite transitions with their notes.
 - Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.

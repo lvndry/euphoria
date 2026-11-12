@@ -256,6 +256,8 @@ enum KeyNotationChoice {
     Camelot,
     /// Musical names such as Am.
     Musical,
+    /// Open Key codes such as 1m.
+    OpenKey,
 }
 
 impl From<KeyNotationChoice> for KeyNotation {
@@ -263,6 +265,7 @@ impl From<KeyNotationChoice> for KeyNotation {
         match choice {
             KeyNotationChoice::Camelot => KeyNotation::Camelot,
             KeyNotationChoice::Musical => KeyNotation::Musical,
+            KeyNotationChoice::OpenKey => KeyNotation::OpenKey,
         }
     }
 }
@@ -855,7 +858,7 @@ fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
 
 /// "Artist - Title" from the file's tags, the title alone without an
 /// artist, and the file name when the tags say nothing.
-fn display_name(path: &Path) -> String {
+pub fn display_name(path: &Path) -> String {
     let fallback = || {
         path.file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
@@ -873,7 +876,7 @@ fn display_name(path: &Path) -> String {
 
 /// Says which tracks of the playlist are no longer anywhere, so they are
 /// left out.
-fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
+pub fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
     if missing.is_empty() {
         return Ok(());
     }
@@ -969,12 +972,12 @@ fn check_output_is_not_a_collection(
 /// Removes the tracks at `paths` from the collection and from every
 /// playlist of `library`, and returns how many tracks it removed.
 fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
-    fn from_nodes(nodes: &mut [PlaylistNode], paths: &HashSet<PathBuf>) {
+    fn from_nodes(nodes: &mut [PlaylistNode], is_cued: &impl Fn(&Path) -> bool) {
         for node in nodes {
             match node {
-                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, paths),
+                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, is_cued),
                 PlaylistNode::Playlist(playlist) => {
-                    playlist.tracks.retain(|path| !paths.contains(path));
+                    playlist.tracks.retain(|path| !is_cued(path));
                 }
             }
         }
@@ -982,9 +985,19 @@ fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
     if paths.is_empty() {
         return 0;
     }
+    // A collection may list a file by the path its symbolic links lead to
+    // while the library reached it through a link, or the other way round.
+    // Comparing both spellings keeps a track with cues from being exported
+    // over them.
+    let is_cued = |path: &Path| {
+        paths.contains(path)
+            || path
+                .canonicalize()
+                .is_ok_and(|resolved| paths.contains(&resolved))
+    };
     let before = library.tracks.len();
-    library.tracks.retain(|track| !paths.contains(&track.path));
-    from_nodes(&mut library.playlists, paths);
+    library.tracks.retain(|track| !is_cued(&track.path));
+    from_nodes(&mut library.playlists, &is_cued);
     before - library.tracks.len()
 }
 
@@ -1017,7 +1030,7 @@ pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> R
 /// taken for one the next time its folder is exported. Paths are compared
 /// once resolved, so a symbolic link to an audio file and another spelling of
 /// its path are refused too.
-fn check_output_is_not_an_input(
+pub fn check_output_is_not_an_input(
     output_file: &Path,
     audio_files: &[PathBuf],
     folders: &[PathBuf],

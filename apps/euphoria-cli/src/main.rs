@@ -11,6 +11,8 @@ mod help;
 mod output;
 mod playlists;
 mod rewrites;
+mod set;
+mod set_view;
 mod shift;
 mod stages;
 #[cfg(feature = "stems")]
@@ -118,6 +120,12 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Order tracks into a set that follows an energy curve, every mix in key.
+    #[command(after_help = help::set_examples())]
+    Set {
+        #[command(subcommand)]
+        command: set::SetCommand,
+    },
     /// Show where the saved analyses are, or forget them.
     #[command(after_help = help::cache_examples())]
     Cache {
@@ -239,6 +247,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Playlists => playlists::list(),
         Command::Corrections { command } => corrections::run(command),
         Command::Shift(arguments) => shift::run(&arguments),
+        Command::Set { command } => set::run(command),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
         Command::Stems(arguments) => stems::run(&arguments),

@@ -8,6 +8,7 @@ pub(crate) mod by_ear;
 pub(crate) mod cues;
 pub(crate) mod decks;
 pub(crate) mod empty_state;
+pub(crate) mod favorites;
 pub(crate) mod inspector;
 pub(crate) mod key_chip;
 pub(crate) mod key_shift;
