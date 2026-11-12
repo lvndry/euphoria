@@ -35,6 +35,9 @@ pub mod library;
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// Separating tracks into vocals, drums, bass and the rest.
+#[cfg(feature = "stems")]
+pub mod stems;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;

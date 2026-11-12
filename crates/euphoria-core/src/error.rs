@@ -274,6 +274,60 @@ pub enum EuphoriaError {
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"
     )]
     NoDataDirectory,
+    /// The stem separation model could not be downloaded, usually because
+    /// the computer is offline. Nothing was kept, so the next separation
+    /// tries again.
+    #[error(
+        "cannot download the stem separation model from {url}: check that this computer is online. \
+         The model is downloaded once, then kept at {destination}"
+    )]
+    ModelDownload {
+        /// Where the model is downloaded from.
+        url: String,
+        /// Where the model is kept once downloaded.
+        destination: PathBuf,
+        /// The network library's own error.
+        source: ErrorSource,
+    },
+    /// The stem separation model file is not the one Euphoria expects. A
+    /// downloaded file is removed; a damaged file already on disk is left
+    /// for the user to delete, which downloads it again.
+    #[error(
+        "the stem separation model at {path} is damaged: its SHA-256 is {actual}, not {expected}. Delete it to download it again"
+    )]
+    ModelIntegrity {
+        /// The model file.
+        path: PathBuf,
+        /// The SHA-256 the model must have.
+        expected: &'static str,
+        /// The SHA-256 the file has.
+        actual: String,
+    },
+    /// The stem separation model could not be saved to disk.
+    #[error("cannot save the stem separation model to {path}")]
+    ModelFile {
+        /// The file or folder that could not be written.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
+    /// The separation network could not be loaded or run.
+    #[error("stem separation failed: {reason}")]
+    Separation {
+        /// What went wrong.
+        reason: String,
+        /// The inference library's own error, when it gave one.
+        #[source]
+        source: Option<ErrorSource>,
+    },
+    /// The folder of separated stems could not be read or written.
+    #[error("cannot use the stems at {path}")]
+    StemFiles {
+        /// The file or folder that could not be used.
+        path: PathBuf,
+        /// The underlying input or output error.
+        source: std::io::Error,
+    },
 }
 
 impl EuphoriaError {

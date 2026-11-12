@@ -16,6 +16,7 @@ pub(crate) mod player;
 pub(crate) mod playlists;
 pub(crate) mod settings_panel;
 pub(crate) mod sidebar;
+pub(crate) mod stems;
 pub(crate) mod tag_editor;
 pub(crate) mod tag_panel;
 pub(crate) mod toolbar;

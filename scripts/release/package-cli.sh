@@ -56,6 +56,8 @@ folder="$staging/$name"
 mkdir -p "$folder/bin" "$folder/lib"
 cp "$repository/target/release/euphoria" "$folder/bin/euphoria"
 chmod u+w "$folder/bin/euphoria"
+mkdir -p "$folder/licenses"
+cp "$repository/licenses/webpki-root-certs-CDLA-Permissive-2.0.txt" "$repository/licenses/demucs-NOTICE.txt" "$folder/licenses/"
 if [ "$system" = Linux ]; then
   python3 "$repository/scripts/linux_libraries.py" bundle \
     --root "$folder" \
@@ -75,7 +77,6 @@ else
     codesign --force --sign - --timestamp=none "$file"
   done
   cp "$repository/LICENSE" "$repository/README.md" "$folder/"
-
   python3 "$repository/scripts/macos_libraries.py" verify --root "$folder" --executable "$folder/bin/euphoria"
 fi
 "$folder/bin/euphoria" --version > /dev/null

@@ -11,6 +11,8 @@ mod output;
 mod playlists;
 mod rewrites;
 mod stages;
+#[cfg(feature = "stems")]
+mod stems;
 mod style;
 mod tag_edit;
 mod tags;
@@ -87,6 +89,17 @@ enum Command {
         #[command(subcommand)]
         target: ExportTarget,
     },
+    /// Separate a track into vocals, drums, bass and the rest.
+    #[cfg(feature = "stems")]
+    #[command(
+        long_about = "Separate a track into vocals, drums, bass and the rest, with the Demucs \
+                      htdemucs model, and write one WAV file per stem.\n\n\
+                      The model, 84 MB, is downloaded the first time. Separation runs on this \
+                      computer and takes about a minute for a track of a few minutes. The stems \
+                      are saved, so separating the same track again is instant.",
+        after_help = help::stems_examples(),
+    )]
+    Stems(stems::StemsArguments),
     /// Show where the saved analyses are, or forget them.
     #[command(after_help = help::cache_examples())]
     Cache {
@@ -207,6 +220,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Tags { command } => tags::run(command),
         Command::Playlists => playlists::list(),
         Command::Cache { command } => manage_cache(command),
+        #[cfg(feature = "stems")]
+        Command::Stems(arguments) => stems::run(&arguments),
     }
 }
 
@@ -409,7 +424,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     })
 }
 
-fn with_causes(error: EuphoriaError) -> anyhow::Error {
+pub(crate) fn with_causes(error: EuphoriaError) -> anyhow::Error {
     anyhow::anyhow!(error.chain())
 }
 

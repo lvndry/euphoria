@@ -722,7 +722,9 @@ fn each_theme_puts_the_player_where_its_layout_expects(cx: &mut TestAppContext) 
                     assert!(window.try_find("player-bar").is_none(), "{name:?}");
                     assert!(inspector.contains(&button.center()), "{name:?}");
                     assert!(button.right() <= waveform.left(), "{name:?}");
-                    assert!(waveform.size.width > px(300.0), "{name:?}");
+                    // The stems section shares the strip's width, so the
+                    // waveform keeps what is left of it.
+                    assert!(waveform.size.width > px(240.0), "{name:?}");
                 }
             }
         })

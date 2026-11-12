@@ -343,9 +343,9 @@ fn count_bar(total: usize) -> ProgressBar {
     progress_bar
 }
 
-/// Writes about how long is left, once enough files have finished for the
-/// estimate to mean something.
-fn write_time_left(state: &ProgressState, writer: &mut dyn std::fmt::Write) {
+/// Writes about how long is left, once enough files or segments have
+/// finished for the estimate to mean something.
+pub fn write_time_left(state: &ProgressState, writer: &mut dyn std::fmt::Write) {
     if state.pos() < 2 || state.pos() >= state.len().unwrap_or(0) {
         return;
     }

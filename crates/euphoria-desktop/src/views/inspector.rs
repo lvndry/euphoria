@@ -25,6 +25,7 @@ use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::by_ear;
 use crate::views::key_chip::key_chip;
 use crate::views::player::{self, seek_on_press_and_drag};
+use crate::views::stems;
 use crate::views::track_overview;
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
@@ -152,6 +153,7 @@ pub(crate) fn render(
     container
         .child(sized(summary(track, &palette), Some(220.0)))
         .child(sized(statistics(track, app, cx), Some(264.0)))
+        .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
         )
