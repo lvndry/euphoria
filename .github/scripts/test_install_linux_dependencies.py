@@ -31,11 +31,16 @@ if [[ "$*" == 'apt-get update' ]]; then
     transient) if ((count == 1)); then exit 42; fi ;;
   esac
 else
-  echo install >> "$TEST_STATE/installed"
+  if [[ "$*" == apt-get\ install* ]]; then
+    echo install >> "$TEST_STATE/installed"
+  fi
 fi
 """,
                 "sleep": "#!/usr/bin/env bash\necho \"$1\" >> \"$TEST_STATE/pauses\"\n",
                 "install-libkeyfinder.sh": "#!/usr/bin/env bash\necho keyfinder >> \"$TEST_STATE/installed\"\n",
+                "curl": "#!/usr/bin/env bash\necho onnxruntime >> \"$TEST_STATE/installed\"\n",
+                "sha256sum": "#!/usr/bin/env bash\nexit 0\n",
+                "tar": "#!/usr/bin/env bash\nexit 0\n",
             }
             for name, source in stubs.items():
                 path = root / name
@@ -65,9 +70,10 @@ fi
         self.assertEqual(count, 5)
         self.assertEqual(installed, "")
 
-    def test_successful_retry_continues_through_both_install_steps(self):
+    def test_successful_retry_continues_through_every_install_step(self):
         result, count, installed, pauses = self.run_install("transient")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 2)
-        self.assertEqual(installed.splitlines(), ["install", "keyfinder"])
+        self.assertEqual(installed.splitlines(),
+                     ["install", "keyfinder", "onnxruntime"])
         self.assertEqual(pauses, ["15"])

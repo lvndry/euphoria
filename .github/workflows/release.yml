@@ -200,6 +200,11 @@ jobs:
       minimum_glibc: ${{ steps.minimum.outputs.minimum_glibc }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      # Link the ONNX Runtime install-linux-dependencies.sh puts into
+      # /usr/local/lib, which runs on 22.04's libstdc++, instead of the one
+      # ort downloads, which needs a newer C++ runtime.
+      ORT_LIB_PATH: /usr/local/lib
+      ORT_PREFER_DYNAMIC_LINK: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
