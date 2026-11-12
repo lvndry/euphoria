@@ -8,7 +8,6 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use super::wav::write_wav;
@@ -25,8 +24,6 @@ pub const STEM_CACHE_LIMIT_VARIABLE: &str = "EUPHORIA_STEMS_CACHE_GB";
 
 const LAST_USED_FILE_NAME: &str = "last-used";
 const INCOMING_PREFIX: &str = ".incoming-";
-
-static INCOMING_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The folder of stems kept on disk.
 #[derive(Debug, Clone)]
@@ -115,30 +112,13 @@ impl StemCache {
             move |source| EuphoriaError::StemFiles { path, source }
         };
         fs::create_dir_all(&self.directory).map_err(stem_error(&self.directory))?;
-        let incoming = self.directory.join(format!(
-            "{INCOMING_PREFIX}{}-{}",
-            std::process::id(),
-            INCOMING_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        let written = write_entry(&incoming, stems);
-        if let Err(source) = written {
-            let _ = fs::remove_dir_all(&incoming);
-            return Err(EuphoriaError::StemFiles {
-                path: incoming,
-                source,
-            });
-        }
+        let incoming = tempfile::Builder::new()
+            .prefix(INCOMING_PREFIX)
+            .tempdir_in(&self.directory)
+            .map_err(stem_error(&self.directory))?;
+        write_entry(incoming.path(), stems).map_err(stem_error(incoming.path()))?;
         let destination = self.entry_directory(hash);
-        if destination.exists() {
-            let _ = fs::remove_dir_all(&destination);
-        }
-        if let Err(source) = fs::rename(&incoming, &destination) {
-            let _ = fs::remove_dir_all(&incoming);
-            return Err(EuphoriaError::StemFiles {
-                path: destination,
-                source,
-            });
-        }
+        install_entry(incoming.path(), &destination).map_err(stem_error(&destination))?;
         self.evict(&destination)
             .map_err(stem_error(&self.directory))?;
         Ok(StemFiles {
@@ -190,8 +170,37 @@ impl StemCache {
     }
 }
 
+fn install_entry(incoming: &Path, destination: &Path) -> io::Result<()> {
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let backup = tempfile::Builder::new()
+        .prefix(".replaced-")
+        .tempdir_in(parent)?;
+    let saved = backup.path().join("entry");
+    let had_previous = match fs::symlink_metadata(destination) {
+        Ok(_) => {
+            fs::rename(destination, &saved)?;
+            true
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error),
+    };
+    if let Err(error) = fs::rename(incoming, destination) {
+        if had_previous && let Err(restore) = fs::rename(&saved, destination) {
+            let retained = backup.keep();
+            return Err(io::Error::new(
+                error.kind(),
+                format!(
+                    "{error}; could not restore the previous cache entry: {restore}; it is kept at {}",
+                    retained.display()
+                ),
+            ));
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn write_entry(directory: &Path, stems: &Stems) -> io::Result<()> {
-    fs::create_dir_all(directory)?;
     for stem in Stem::ALL {
         write_wav(
             &directory.join(format!("{}.wav", stem.name())),
@@ -268,6 +277,62 @@ mod tests {
             .unwrap()
             .set_modified(SystemTime::now() - Duration::from_secs(seconds_ago))
             .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_installation_preserves_the_previous_entry() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = TemporaryFolder::new("failed-install");
+        fs::create_dir_all(&folder.0).unwrap();
+        let destination = folder.0.join("existing");
+        let incoming = folder.0.join("incoming");
+        fs::create_dir(&destination).unwrap();
+        fs::create_dir(&incoming).unwrap();
+        write_entry(&destination, &stems(10)).unwrap();
+        write_entry(&incoming, &stems(20)).unwrap();
+        let original = fs::read(destination.join("vocals.wav")).unwrap();
+        fs::set_permissions(&folder.0, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = install_entry(&incoming, &destination);
+        fs::set_permissions(&folder.0, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(fs::read(destination.join("vocals.wav")).unwrap(), original);
+    }
+
+    #[test]
+    fn a_failed_rename_restores_the_previous_cache_entry() {
+        let folder = TemporaryFolder::new("restore-install");
+        let cache = StemCache::new(folder.0.clone(), u64::MAX);
+        let previous = cache.store(&hash(8), &stems(10)).unwrap();
+        let original = fs::read(previous.path(Stem::Vocals)).unwrap();
+        assert!(install_entry(&folder.0.join("missing"), previous.directory()).is_err());
+        assert_eq!(fs::read(previous.path(Stem::Vocals)).unwrap(), original);
+        assert_eq!(cache.lookup(&hash(8)), Some(previous));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preexisting_incoming_symlinks_cannot_redirect_cache_writes() {
+        let folder = TemporaryFolder::new("incoming-symlink");
+        let outside = folder.0.join("outside");
+        let directory = folder.0.join("cache");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir(&directory).unwrap();
+        fs::write(outside.join("vocals.wav"), b"original bytes").unwrap();
+        for number in 0..128 {
+            std::os::unix::fs::symlink(
+                &outside,
+                directory.join(format!("{INCOMING_PREFIX}{}-{number}", std::process::id())),
+            )
+            .unwrap();
+        }
+        let cache = StemCache::new(directory, u64::MAX);
+        let stored = cache.store(&hash(7), &stems(10)).unwrap();
+        assert!(stored.path(Stem::Vocals).is_file());
+        assert_eq!(
+            fs::read(outside.join("vocals.wav")).unwrap(),
+            b"original bytes"
+        );
     }
 
     #[test]

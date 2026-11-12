@@ -73,29 +73,112 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
 
     std::fs::create_dir_all(&arguments.output)
         .with_context(|| format!("cannot create {}", Printable(arguments.output.display())))?;
-    for (stem, destination) in &destinations {
-        copy_stem(&files, *stem, destination, arguments.force)?;
-    }
+    publish_stems(&files, &destinations, arguments.force)?;
     write_summary(&destinations, was_cached, started.elapsed())?;
     Ok(ExitCode::SUCCESS)
 }
 
-fn copy_stem(files: &StemFiles, stem: Stem, destination: &Path, force: bool) -> Result<()> {
-    let write_error = || format!("cannot write {}", Printable(destination.display()));
-    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(parent).with_context(write_error)?;
-    let mut source = std::fs::File::open(files.path(stem))
-        .with_context(|| format!("cannot read the cached {} stem", stem.name()))?;
-    std::io::copy(&mut source, temporary.as_file_mut()).with_context(write_error)?;
-    temporary.as_file().sync_all().with_context(write_error)?;
+/// Stages every stem before replacing any output. A failed publication
+/// removes the new files and restores the previous directory entries.
+fn publish_stems(files: &StemFiles, destinations: &[(Stem, PathBuf)], force: bool) -> Result<()> {
+    publish_stems_using(files, destinations, force, install_stem)
+}
+
+fn install_stem(
+    temporary: tempfile::NamedTempFile,
+    destination: &Path,
+    force: bool,
+) -> std::io::Result<()> {
     if force {
-        temporary.persist(destination).map_err(|error| error.error)
+        temporary.persist(destination)
     } else {
-        temporary
-            .persist_noclobber(destination)
-            .map_err(|error| error.error)
+        temporary.persist_noclobber(destination)
     }
-    .with_context(write_error)?;
+    .map(|_| ())
+    .map_err(|error| error.error)
+}
+
+fn publish_stems_using(
+    files: &StemFiles,
+    destinations: &[(Stem, PathBuf)],
+    force: bool,
+    mut install: impl FnMut(tempfile::NamedTempFile, &Path, bool) -> std::io::Result<()>,
+) -> Result<()> {
+    let mut staged = Vec::new();
+    for (stem, destination) in destinations {
+        let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        let mut source = std::fs::File::open(files.path(*stem))
+            .with_context(|| format!("cannot read the cached {} stem", stem.name()))?;
+        std::io::copy(&mut source, temporary.as_file_mut())?;
+        temporary.as_file().sync_all()?;
+        match std::fs::symlink_metadata(destination) {
+            Ok(metadata) if !force || metadata.is_dir() => {
+                bail!("cannot replace {}", Printable(destination.display()))
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("cannot check {}", Printable(destination.display())));
+            }
+        }
+        staged.push(temporary);
+    }
+    let parent = destinations
+        .first()
+        .and_then(|(_, path)| path.parent())
+        .unwrap_or_else(|| Path::new("."));
+    let backups = tempfile::Builder::new()
+        .prefix(".euphoria-stems-")
+        .tempdir_in(parent)?;
+    let mut saved = Vec::new();
+    let mut published = Vec::new();
+    let result: Result<()> = (|| {
+        if force {
+            for (index, (_, destination)) in destinations.iter().enumerate() {
+                match std::fs::symlink_metadata(destination) {
+                    Ok(metadata) if metadata.is_dir() => {
+                        bail!("cannot replace {}", Printable(destination.display()))
+                    }
+                    Ok(_) => {
+                        let backup = backups.path().join(index.to_string());
+                        std::fs::rename(destination, &backup)?;
+                        saved.push((destination, backup));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        for ((_, destination), temporary) in destinations.iter().zip(staged) {
+            install(temporary, destination, force)
+                .with_context(|| format!("cannot write {}", Printable(destination.display())))?;
+            published.push(destination);
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let mut rollback_errors = Vec::new();
+        for destination in published.into_iter().rev() {
+            if let Err(error) = std::fs::remove_file(destination) {
+                rollback_errors.push(error);
+            }
+        }
+        for (destination, backup) in saved.into_iter().rev() {
+            if let Err(error) = std::fs::rename(backup, destination) {
+                rollback_errors.push(error);
+            }
+        }
+        if !rollback_errors.is_empty() {
+            let retained = backups.keep();
+            bail!(
+                "{error:#}; could not completely restore the previous stems: {rollback_errors:?}; backups kept at {}",
+                Printable(retained.display())
+            );
+        }
+        return Err(error);
+    }
     Ok(())
 }
 
@@ -279,7 +362,7 @@ mod tests {
         let destination = folder.join("vocals.wav");
         assert!(!destination.exists());
         std::fs::write(&destination, b"created by another writer").unwrap();
-        let result = copy_stem(&files, Stem::Vocals, &destination, false);
+        let result = publish_stems(&files, &[(Stem::Vocals, destination.clone())], false);
         let bytes = std::fs::read(&destination).unwrap();
         std::fs::remove_dir_all(folder).unwrap();
         assert!(
@@ -287,6 +370,72 @@ mod tests {
             "a late output must not be silently overwritten"
         );
         assert_eq!(bytes, b"created by another writer");
+    }
+
+    #[test]
+    fn a_late_publication_error_rolls_back_new_and_replaced_outputs() {
+        use euphoria_core::{
+            ContentHash,
+            stems::{STEMS_MODEL, StemCache},
+        };
+        let folder = tempfile::tempdir().unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
+        let hash = ContentHash::of_file(&fixture).unwrap();
+        let cache = StemCache::new(folder.path().join("cache"), u64::MAX);
+        let hex: String = hash
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let entry = cache.directory().join(format!("{STEMS_MODEL}-{hex}"));
+        std::fs::create_dir_all(&entry).unwrap();
+        for stem in Stem::ALL {
+            std::fs::copy(&fixture, entry.join(format!("{}.wav", stem.name()))).unwrap();
+        }
+        let files = cache.lookup(&hash).unwrap();
+        for force in [false, true] {
+            let output = folder.path().join(format!("output-{force}"));
+            std::fs::create_dir(&output).unwrap();
+            let destinations: Vec<_> = Stem::ALL
+                .iter()
+                .map(|stem| (*stem, output.join(format!("{}.wav", stem.name()))))
+                .collect();
+            if force {
+                for (_, destination) in &destinations {
+                    std::fs::write(destination, b"previous stem").unwrap();
+                }
+            }
+            let mut installed = 0;
+            let result = publish_stems_using(
+                &files,
+                &destinations,
+                force,
+                |temporary, destination, force| {
+                    installed += 1;
+                    if installed == 3 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "simulated publication failure",
+                        ));
+                    }
+                    install_stem(temporary, destination, force)
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(installed, 3, "two outputs were installed before failure");
+            for (_, destination) in destinations {
+                if force {
+                    assert_eq!(std::fs::read(destination).unwrap(), b"previous stem");
+                } else {
+                    assert!(!destination.exists());
+                }
+            }
+            assert_eq!(
+                std::fs::read_dir(output).unwrap().count(),
+                if force { 4 } else { 0 }
+            );
+        }
     }
 
     #[test]

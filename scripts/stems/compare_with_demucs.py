@@ -19,9 +19,6 @@ from pathlib import Path
 
 import numpy
 import soundfile
-import torch
-from demucs.apply import apply_model
-from demucs.hf import load_safetensors_model
 
 SOURCES = ["drums", "bass", "other", "vocals"]
 
@@ -37,6 +34,10 @@ def correlation(reference: numpy.ndarray, estimate: numpy.ndarray) -> float:
 
 
 def reference_separation(weights: Path, mix: numpy.ndarray) -> numpy.ndarray:
+    import torch
+    from demucs.apply import apply_model
+    from demucs.hf import load_safetensors_model
+
     model = load_safetensors_model(weights)
     model.eval()
     waveform = torch.from_numpy(mix.T.copy())
@@ -50,6 +51,15 @@ def reference_separation(weights: Path, mix: numpy.ndarray) -> numpy.ndarray:
     return sources.numpy()
 
 
+def read_stereo(path: Path, frames: int | None = None) -> numpy.ndarray:
+    audio, rate = soundfile.read(path, dtype="float32", always_2d=True)
+    if rate != 44100 or audio.shape[1] != 2:
+        raise SystemExit(f"{path} must be stereo at 44.1 kHz")
+    if frames is not None and len(audio) != frames:
+        raise SystemExit(f"{path} has {len(audio)} frames; expected exactly {frames}")
+    return audio
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weights", type=Path, required=True)
@@ -59,32 +69,33 @@ def main() -> None:
     parser.add_argument("--save-reference", type=Path)
     arguments = parser.parse_args()
 
-    mix, sample_rate = soundfile.read(arguments.mix, dtype="float32", always_2d=True)
-    if sample_rate != 44100 or mix.shape[1] != 2:
-        raise SystemExit("the mix must be stereo at 44.1 kHz")
+    mix = read_stereo(arguments.mix)
     reference = reference_separation(arguments.weights, mix)
+    if reference.shape != (len(SOURCES), 2, len(mix)):
+        raise SystemExit("the reference separation must match the mix's channels and frame count")
     report = {}
+    vocals_estimate = None
     for index, source in enumerate(SOURCES):
-        estimate, _ = soundfile.read(arguments.stems / f"{source}.wav", dtype="float32", always_2d=True)
+        estimate = read_stereo(arguments.stems / f"{source}.wav", len(mix))
+        if source == "vocals":
+            vocals_estimate = estimate
         expected = reference[index].T
-        length = min(len(estimate), len(expected))
         report[source] = {
-            "sdr_against_reference_db": round(signal_to_distortion(expected[:length], estimate[:length]), 2),
-            "correlation_with_reference": round(correlation(expected[:length], estimate[:length]), 6),
+            "sdr_against_reference_db": round(signal_to_distortion(expected, estimate), 2),
+            "correlation_with_reference": round(correlation(expected, estimate), 6),
         }
         if arguments.save_reference:
             arguments.save_reference.mkdir(parents=True, exist_ok=True)
             soundfile.write(arguments.save_reference / f"{source}.wav", expected, 44100, subtype="FLOAT")
 
     if arguments.instrumental:
-        instrumental, _ = soundfile.read(arguments.instrumental, dtype="float32", always_2d=True)
-        length = min(len(instrumental), len(mix))
-        vocals_truth = mix[:length] - instrumental[:length]
+        instrumental = read_stereo(arguments.instrumental, len(mix))
+        vocals_truth = mix - instrumental
         vocals_index = SOURCES.index("vocals")
-        euphoria_vocals, _ = soundfile.read(arguments.stems / "vocals.wav", dtype="float32", always_2d=True)
+        euphoria_vocals = vocals_estimate
         report["vocals_against_mix_minus_instrumental"] = {
-            "euphoria_sdr_db": round(signal_to_distortion(vocals_truth, euphoria_vocals[:length]), 2),
-            "demucs_sdr_db": round(signal_to_distortion(vocals_truth, reference[vocals_index].T[:length]), 2),
+            "euphoria_sdr_db": round(signal_to_distortion(vocals_truth, euphoria_vocals), 2),
+            "demucs_sdr_db": round(signal_to_distortion(vocals_truth, reference[vocals_index].T), 2),
         }
     print(json.dumps(report, indent=2))
 

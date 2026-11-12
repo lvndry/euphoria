@@ -93,3 +93,40 @@ fn forcing_an_output_hard_link_leaves_the_original_bytes_unchanged() {
         );
     }
 }
+
+#[test]
+fn a_failed_forced_export_keeps_the_previous_complete_set() {
+    let app = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let input = input(&folder, "original.wav");
+    cache_stems(&app, &input);
+    let output = folder.path().join("outputs");
+    std::fs::create_dir(&output).unwrap();
+    for stem in [Stem::Drums, Stem::Bass, Stem::Other] {
+        std::fs::write(
+            output.join(format!("{}.wav", stem.name())),
+            b"previous stem",
+        )
+        .unwrap();
+    }
+    std::fs::create_dir(output.join("vocals.wav")).unwrap();
+    std::fs::write(output.join("vocals.wav/keep"), b"unrelated directory").unwrap();
+    let result = app.run(&[
+        "stems",
+        input.to_str().unwrap(),
+        "--output",
+        output.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(!result.status.success());
+    for stem in [Stem::Drums, Stem::Bass, Stem::Other] {
+        assert_eq!(
+            std::fs::read(output.join(format!("{}.wav", stem.name()))).unwrap(),
+            b"previous stem"
+        );
+    }
+    assert_eq!(
+        std::fs::read(output.join("vocals.wav/keep")).unwrap(),
+        b"unrelated directory"
+    );
+}

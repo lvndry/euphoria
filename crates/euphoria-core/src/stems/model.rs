@@ -28,6 +28,8 @@ pub const WEIGHTS_SHA256: &str = "d9fa14133cfcc034a6758923bb3a8ca9f8dfd0b5821346
 pub const WEIGHTS_BYTES: u64 = 84_025_440;
 const WEIGHTS_FILE_NAME: &str = "htdemucs-955717e8.safetensors";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+// Includes headers, redirects and the complete 84 MB response body.
+const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(600);
 const READ_BUFFER_BYTES: usize = 1 << 16;
 static PARTIAL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -42,7 +44,8 @@ pub fn default_weights_path() -> Result<PathBuf, EuphoriaError> {
 /// missing. `downloaded` hears the bytes received so far and the total.
 ///
 /// The file is checked against [`WEIGHTS_SHA256`] every time it is read, so
-/// a damaged file is reported, never used.
+/// a damaged file is reported, never used. Downloads have a ten-minute
+/// deadline covering connection, redirects, headers and the response body.
 pub(crate) fn load_weights(
     path: &Path,
     downloaded: &dyn Fn(u64, u64),
@@ -70,6 +73,15 @@ fn download_weights(
     destination: &Path,
     downloaded: &dyn Fn(u64, u64),
 ) -> Result<(), EuphoriaError> {
+    download_weights_with_deadline(url, destination, downloaded, DOWNLOAD_DEADLINE)
+}
+
+fn download_weights_with_deadline(
+    url: &str,
+    destination: &Path,
+    downloaded: &dyn Fn(u64, u64),
+    deadline: Duration,
+) -> Result<(), EuphoriaError> {
     let download_error = |source: ErrorSource| EuphoriaError::ModelDownload {
         url: url.to_string(),
         destination: destination.to_path_buf(),
@@ -84,6 +96,7 @@ fn download_weights(
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_global(Some(deadline))
         .tls_config(
             ureq::tls::TlsConfig::builder()
                 .provider(ureq::tls::TlsProvider::NativeTls)
@@ -246,6 +259,51 @@ mod tests {
             unowned_link_remains,
             "cleanup must not remove an unclaimed partial file"
         );
+    }
+
+    #[test]
+    fn stalled_headers_and_bodies_time_out_and_leave_no_partial_file() {
+        use std::net::TcpListener;
+        for headers_first in [false, true] {
+            let folder = std::env::temp_dir().join(format!(
+                "euphoria-weights-timeout-{}-{headers_first}",
+                std::process::id()
+            ));
+            let destination = folder.join("weights");
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/weights", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut client, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                assert!(client.read(&mut request).unwrap() > 0);
+                let headers = b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\n";
+                if headers_first {
+                    client.write_all(headers).unwrap();
+                }
+                std::thread::sleep(Duration::from_millis(500));
+                if !headers_first {
+                    let _ = client.write_all(headers);
+                }
+                let _ = client.write_all(b"abc");
+            });
+            let began = std::time::Instant::now();
+            let result = download_weights_with_deadline(
+                &url,
+                &destination,
+                &|_, _| {},
+                Duration::from_millis(100),
+            );
+            let elapsed = began.elapsed();
+            server.join().unwrap();
+            let empty = std::fs::read_dir(&folder).unwrap().next().is_none();
+            let _ = std::fs::remove_dir_all(folder);
+            assert!(
+                matches!(result, Err(EuphoriaError::ModelDownload { .. })),
+                "{result:?}"
+            );
+            assert!(elapsed < Duration::from_millis(400), "{elapsed:?}");
+            assert!(empty, "failed downloads leave no file");
+        }
     }
 
     #[test]

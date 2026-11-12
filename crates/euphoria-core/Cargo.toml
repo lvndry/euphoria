@@ -38,6 +38,7 @@ ort = { workspace = true, optional = true }
 rubato = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 # An independent reader and writer of tags, to check ours against.
@@ -50,7 +51,7 @@ default = ["libkeyfinder"]
 libkeyfinder = ["dep:cc", "dep:pkg-config"]
 # Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
 # which is linked statically and adds tens of megabytes to the binary.
-stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq"]
+stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
 
 [build-dependencies]
 cc = { workspace = true, optional = true }
