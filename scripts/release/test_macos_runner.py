@@ -27,7 +27,8 @@ class MacosRunnerTests(unittest.TestCase):
             "Path(sys.argv[sys.argv.index('--output') + 1]).write_bytes(b'icns')\n"
         )
         iconutil.chmod(0o755)
-        self.environment = {**os.environ, "PATH": f"{self.folder}{os.pathsep}{os.environ['PATH']}"}
+        self.environment = {**os.environ, "PATH": f"{self.folder}{os.pathsep}{os.environ['PATH']}",
+                            "TMPDIR": str(self.folder)}
 
     def executable(self, name, body):
         binary = self.folder / name
@@ -66,26 +67,76 @@ sys.exit(19)""")
         self.assertFalse(Path(observed["path"]).exists())
         self.assertTrue(binary.exists())
 
+    def stop_runner(self, runner):
+        if runner.poll() is None:
+            runner.terminate()
+            try:
+                runner.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        try:
+            os.killpg(runner.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        runner.communicate(timeout=10)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX signals")
+    def test_termination_during_icon_conversion_cleans_up(self):
+        for number in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+            with self.subTest(signal=number):
+                ready = self.folder / "icon-ready"
+                ready.unlink(missing_ok=True)
+                self.executable("iconutil", f"""import os,resource,sys,time
+from pathlib import Path
+resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+Path({str(ready)!r}).write_text(str(os.getpid()) + '\\n' + sys.argv[sys.argv.index('--output') + 1])
+while True: time.sleep(1)""")
+                binary = self.executable("euphoria-desktop", "raise SystemExit('must not start')")
+                runner = subprocess.Popen(
+                    [sys.executable, str(RUNNER), str(binary)],
+                    env=self.environment, start_new_session=True, stderr=subprocess.PIPE,
+                )
+                try:
+                    deadline = time.monotonic() + 10
+                    while not ready.exists() and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    self.assertTrue(ready.exists(), "icon conversion never started")
+                    pid, icon = ready.read_text().splitlines()
+                    temporary = Path(icon).parents[3]
+                    runner.send_signal(number)
+                    status = runner.wait(timeout=10)
+                    self.assertFalse(temporary.exists(), "startup termination left the app bundle behind")
+                    self.assertEqual(status, 128 + number)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int(pid), 0)
+                finally:
+                    self.stop_runner(runner)
+
     @unittest.skipUnless(os.name == "posix", "POSIX signals")
     def test_termination_reaches_the_desktop_and_removes_the_bundle(self):
-        ready = self.folder / "ready"
-        binary = self.executable("euphoria-desktop", f"""import os,time
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+            with self.subTest(signal=number):
+                ready = self.folder / "ready"
+                ready.unlink(missing_ok=True)
+                binary = self.executable("euphoria-desktop", f"""import os,resource,time
 from pathlib import Path
+resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 Path({str(ready)!r}).write_text(str(os.getpid()) + '\\n' + __file__)
 while True: time.sleep(1)""")
-        runner = subprocess.Popen([sys.executable, str(RUNNER), str(binary)], env=self.environment)
-        try:
-            deadline = time.monotonic() + 10
-            while not ready.exists() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            self.assertTrue(ready.exists(), "the desktop never started")
-            pid, executable = ready.read_text().splitlines()
-            runner.send_signal(signal.SIGTERM)
-            self.assertEqual(runner.wait(timeout=10), 143)
-            self.assertFalse(Path(executable).exists())
-            with self.assertRaises(ProcessLookupError):
-                os.kill(int(pid), 0)
-        finally:
-            if runner.poll() is None:
-                runner.kill()
-                runner.wait(timeout=10)
+                runner = subprocess.Popen(
+                    [sys.executable, str(RUNNER), str(binary)],
+                    env=self.environment, start_new_session=True, stderr=subprocess.PIPE,
+                )
+                try:
+                    deadline = time.monotonic() + 10
+                    while not ready.exists() and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    self.assertTrue(ready.exists(), "the desktop never started")
+                    pid, executable = ready.read_text().splitlines()
+                    runner.send_signal(number)
+                    self.assertEqual(runner.wait(timeout=10), 128 + number)
+                    self.assertFalse(Path(executable).exists())
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int(pid), 0)
+                finally:
+                    self.stop_runner(runner)
