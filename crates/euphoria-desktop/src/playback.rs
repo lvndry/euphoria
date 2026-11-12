@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use euphoria_core::{AudioStream, EuphoriaError};
 
+use crate::deck_audio::DeckMix;
 use crate::reference_sound::ReferenceSound;
 
 /// How many decoded chunks wait between the decoder and the audio output. A
@@ -145,7 +146,6 @@ impl VoiceState {
     }
 
     /// Frames of silence played while waiting for the decoder.
-    #[cfg(test)]
     pub(crate) fn silent_frames(&self) -> u64 {
         self.silent_frames.load(Ordering::Relaxed)
     }
@@ -309,6 +309,11 @@ pub(crate) struct TrackSource {
     next_sample: usize,
     /// Samples of silence still owed to complete a silent frame.
     silence_owed: usize,
+    /// The frame the current chunk starts at.
+    chunk_start_frame: u64,
+    /// Whether to wait for the decoder rather than play silence, for tests
+    /// that pull samples far faster than real time.
+    is_patient: bool,
 }
 
 impl TrackSource {
@@ -348,6 +353,8 @@ impl TrackSource {
             chunk_seek_count: 0,
             next_sample: 0,
             silence_owed: 0,
+            chunk_start_frame: start_frame,
+            is_patient: false,
         };
         let decoder = Decoder {
             stream,
@@ -374,6 +381,27 @@ impl TrackSource {
         self.duration_seconds
     }
 
+    /// The frame the next sample belongs to, exactly: the position of the
+    /// sound handed out so far, which the state only gives a chunk at a
+    /// time. Right after a seek it is where the seek asked for.
+    pub(crate) fn next_frame(&self) -> u64 {
+        let latest_seek_count = self.state.seek_count.load(Ordering::Acquire);
+        if self.chunk_seek_count != latest_seek_count {
+            return self.state.frames_at(self.state.position_seconds());
+        }
+        let channel_count = usize::from(self.channel_count.get());
+        self.chunk_start_frame + (self.next_sample.min(self.chunk.len()) / channel_count) as u64
+    }
+
+    /// The source, waiting for the decoder whenever it is behind rather
+    /// than playing silence, for tests that pull samples as fast as they
+    /// can.
+    #[cfg(test)]
+    pub(crate) fn patient(mut self) -> Self {
+        self.is_patient = true;
+        self
+    }
+
     /// Takes the next chunk the decoder has ready, passing over anything
     /// decoded before the latest seek.
     fn take_next_chunk(&mut self, latest_seek_count: u64) -> NextChunk {
@@ -389,6 +417,7 @@ impl TrackSource {
                     self.chunk = samples;
                     self.chunk_seek_count = seek_count;
                     self.next_sample = 0;
+                    self.chunk_start_frame = start_frame;
                     self.state
                         .frames_played
                         .store(start_frame, Ordering::Relaxed);
@@ -404,6 +433,9 @@ impl TrackSource {
                 Ok(Decoded::Problem(problem)) => {
                     self.state.stop_on(problem);
                     return NextChunk::NothingMore;
+                }
+                Err(TryRecvError::Empty) if self.is_patient => {
+                    std::thread::sleep(Duration::from_micros(200));
                 }
                 Err(TryRecvError::Empty) => return NextChunk::NotDecodedYet,
                 Err(TryRecvError::Disconnected) => {
@@ -442,6 +474,10 @@ impl Iterator for TrackSource {
                 NextChunk::NotDecodedYet => {
                     // One whole frame of silence, so the channels stay in
                     // step, then look again.
+                    if self.chunk_seek_count == latest_seek_count {
+                        self.chunk_start_frame +=
+                            (self.chunk.len() / usize::from(self.channel_count.get())) as u64;
+                    }
                     self.chunk.clear();
                     self.next_sample = 0;
                     self.silence_owed = usize::from(self.channel_count.get()) - 1;
@@ -490,6 +526,10 @@ pub(crate) trait AudioOutput {
     /// Starts playing a reference sound at once, mixed over whatever else
     /// is playing.
     fn play_reference(&mut self, sound: ReferenceSound) -> Result<Box<dyn Voice>, PlaybackProblem>;
+
+    /// Starts playing the mix of the two decks, which plays until the voice
+    /// is dropped.
+    fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem>;
 }
 
 /// The computer's default audio output, opened the first time a track is
@@ -526,6 +566,12 @@ impl AudioOutput for SystemOutput {
     fn play_reference(&mut self, sound: ReferenceSound) -> Result<Box<dyn Voice>, PlaybackProblem> {
         let player = self.new_player()?;
         player.append(sound);
+        Ok(Box::new(SystemVoice(player)))
+    }
+
+    fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
+        let player = self.new_player()?;
+        player.append(mix);
         Ok(Box::new(SystemVoice(player)))
     }
 }
@@ -571,6 +617,10 @@ pub(crate) mod testing {
             sound: ReferenceSound,
         ) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Ok(Box::new(SilentVoice(sound)))
+        }
+
+        fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(mix)))
         }
     }
 
@@ -651,6 +701,10 @@ pub(crate) mod testing {
                 });
             Ok(Box::new(ListenedVoice(sounding)))
         }
+
+        fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(mix)))
+        }
     }
 
     /// An output on a computer with no audio device.
@@ -663,6 +717,10 @@ pub(crate) mod testing {
         }
 
         fn play_reference(&mut self, _: ReferenceSound) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Err(PlaybackProblem::NoOutput)
+        }
+
+        fn play_decks(&mut self, _: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Err(PlaybackProblem::NoOutput)
         }
     }
