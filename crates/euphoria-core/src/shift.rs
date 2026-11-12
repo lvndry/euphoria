@@ -92,9 +92,15 @@ impl PitchShifter {
     /// Shifts the next stretch of interleaved audio for playing: the output
     /// is exactly as long as the input and follows it by
     /// [`PitchShifter::live_latency_frames`], so sound comes out at once.
+    /// Every chunk must contain complete channel frames; incomplete frames
+    /// return an error without consuming audio. Use [`PitchShifter::process`]
+    /// when chunk boundaries can split frames.
     /// Use either this or [`PitchShifter::process`] on one shifter, not
     /// both.
     pub fn process_live(&mut self, interleaved: &[f32]) -> Result<Vec<f32>, String> {
+        if !interleaved.len().is_multiple_of(self.channels) {
+            return Err("the live input ends with an incomplete interleaved frame".to_string());
+        }
         let channels = deinterleave(interleaved, self.channels);
         let length = channels.first().map_or(0, Vec::len);
         let mut output = vec![vec![0.0; length]; self.channels];
@@ -804,6 +810,22 @@ mod tests {
             0.5,
         );
         assert!((found - expected).abs() < 2.0, "{found}");
+    }
+
+    #[test]
+    fn live_shifting_rejects_split_frames_without_consuming_audio() {
+        let mut shifter = PitchShifter::new(2, SAMPLE_RATE, 2).unwrap();
+        let mut untouched = PitchShifter::new(2, SAMPLE_RATE, 2).unwrap();
+        assert!(shifter.process_live(&[0.25, -0.25, 0.5]).is_err());
+        assert!(shifter.process_live(&[0.25]).is_err());
+        assert!(shifter.process_live(&[]).unwrap().is_empty());
+        let input: Vec<f32> = tone(440.0, 0.5)
+            .into_iter()
+            .flat_map(|sample| [sample, -sample])
+            .collect();
+        let actual = shifter.process_live(&input).unwrap();
+        assert_eq!(actual.len(), input.len());
+        assert_eq!(actual, untouched.process_live(&input).unwrap());
     }
 
     #[test]
