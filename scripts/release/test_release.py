@@ -307,7 +307,8 @@ class SetVersionTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.folder)
         files = ["Cargo.toml", "Cargo.lock"] + [
             str(path.relative_to(REPOSITORY))
-            for path in REPOSITORY.glob("crates/*/Cargo.toml")
+            for folder in set_version.PACKAGE_FOLDERS
+            for path in REPOSITORY.glob(f"{folder}/*/Cargo.toml")
         ]
         self.files = sorted(files)
         for name in self.files:
