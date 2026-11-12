@@ -16,8 +16,12 @@ use crate::audio::{MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE};
 use crate::audio_stream::AudioStream;
 use crate::error::EuphoriaError;
 use crate::key::Key;
-use crate::signalsmith::Stretch;
 use crate::tags::{TagValues, TagWriteOptions, apply_plan, plan_write};
+
+/// The Signalsmith Stretch time stretcher the core compiles, re-exported so
+/// that the desktop app decks and this pitch shift play with one version of
+/// its C++ code.
+pub use crate::signalsmith::Stretch;
 
 /// The furthest a track can be shifted, in semitones either way. Six
 /// semitones reach every key, and the further a track is shifted, the more
@@ -198,7 +202,7 @@ impl PitchShifter {
     }
 }
 
-fn deinterleave(interleaved: &[f32], channels: usize) -> Vec<Vec<f32>> {
+pub(crate) fn deinterleave(interleaved: &[f32], channels: usize) -> Vec<Vec<f32>> {
     let frames = interleaved.len() / channels;
     (0..channels)
         .map(|channel| {
@@ -209,7 +213,7 @@ fn deinterleave(interleaved: &[f32], channels: usize) -> Vec<Vec<f32>> {
         .collect()
 }
 
-fn interleave(channels: &[Vec<f32>]) -> Vec<f32> {
+pub(crate) fn interleave(channels: &[Vec<f32>]) -> Vec<f32> {
     let frames = channels.first().map_or(0, Vec::len);
     let mut interleaved = Vec::with_capacity(frames * channels.len());
     for frame in 0..frames {

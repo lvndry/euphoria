@@ -342,7 +342,7 @@ mod tests {
         let cache = StemCache::new(folder.join("cache"), u64::MAX);
         let hash = ContentHash::of_file(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../euphoria-core/tests/fixtures/sine-440hz-stereo.wav"),
+                .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav"),
         )
         .unwrap();
         let entry = cache.directory().join(format!(
@@ -354,7 +354,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&entry).unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
+            .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
         for stem in Stem::ALL {
             std::fs::copy(&fixture, entry.join(format!("{}.wav", stem.name()))).unwrap();
         }
@@ -380,7 +380,7 @@ mod tests {
         };
         let folder = tempfile::tempdir().unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
+            .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
         let hash = ContentHash::of_file(&fixture).unwrap();
         let cache = StemCache::new(folder.path().join("cache"), u64::MAX);
         let hex: String = hash

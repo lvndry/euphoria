@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn the_drone_and_the_piano_mix_over_a_playing_track() {
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../euphoria-core/tests/fixtures/sine-440hz-mono.wav");
+            .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-mono.wav");
         let channels = NonZeroU16::new(2).unwrap();
         let sample_rate = NonZeroU32::new(48_000).unwrap();
         let mixed = |with_reference: bool| {
