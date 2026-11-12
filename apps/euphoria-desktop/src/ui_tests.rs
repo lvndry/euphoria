@@ -59,7 +59,8 @@ pub(crate) fn open_fixture_library(
 }
 
 fn fixture_tracks() -> Vec<DemoTrack> {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
         "sine-440hz-mono.flac",
         "sine-440hz-mono.mp3",
@@ -2178,9 +2179,10 @@ fn writing_and_undoing_tags_on_bench_clips_restores_every_byte(cx: &mut TestAppC
 
 #[gpui::test]
 fn titles_and_artists_are_read_from_the_tags_off_the_main_thread(cx: &mut TestAppContext) {
-    let tagged =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/tagged-fixtures");
-    let untagged = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let tagged = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/euphoria-core/tests/tagged-fixtures");
+    let untagged =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     let paths = vec![
         tagged.join("tagged.mp3"),
         tagged.join("tagged.flac"),
@@ -2414,7 +2416,8 @@ fn fitting_a_column_measures_each_distinct_text_once(cx: &mut TestAppContext) {
 /// One fixture track that changes key: A minor for its first 40 seconds,
 /// silence, then E minor from 50 seconds to its end at 100.
 fn track_changing_key() -> DemoTrack {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     DemoTrack {
         path: fixtures.join("sine-440hz-mono.flac"),
         outcome: Ok(TrackAnalysis {
@@ -3998,7 +4001,8 @@ fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut Te
 /// The core's fixture files as three tracks with keys, tempos, energies,
 /// beat grids and cues: A minor at 120, E minor at 125 and C major at 118.
 pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
         (
             "sine-440hz-mono.flac",
@@ -4596,7 +4600,8 @@ const CUED_TRACK_SECONDS: f32 = 32.0;
 /// beats fall every half second from 0 and bars every two seconds, and
 /// analysis placed a Start cue at 0 and a Drop at 16.
 fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     let section_cue = |seconds, section| euphoria_core::SectionCue { seconds, section };
     DemoTrack {
         path: fixtures.join(name),

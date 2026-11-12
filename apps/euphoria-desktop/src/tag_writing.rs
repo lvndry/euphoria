@@ -366,8 +366,8 @@ pub(crate) mod testing {
         /// Copies the core's test files of every format that takes tags into
         /// the folder `music` inside this one and returns the copies.
         pub(crate) fn copy_fixtures(&self) -> Vec<PathBuf> {
-            let fixtures =
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../crates/euphoria-core/tests/fixtures");
             let music = self.0.join("music");
             std::fs::create_dir_all(&music).unwrap();
             [
