@@ -71,6 +71,7 @@ The full documentation is in [docs](docs/index.md):
 
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
+- [Build a set along an energy curve](docs/guides/build-a-set.md)
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md) and [to Traktor](docs/guides/export-to-traktor.md)
 - [DJ program support](docs/reference/dj-program-support.md)
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
