@@ -694,6 +694,10 @@ impl LoadedTrack {
                 }
             }
         }
+        if self.tail_input_samples > 0 {
+            // The track ended before the loop was whole.
+            self.end_loop();
+        }
         // Decoder starvation adds output silence without consuming a frame
         // of the track. Keep only real track frames in the bar we replay.
         if self.source.next_frame() > frame
@@ -1629,6 +1633,35 @@ mod tests {
             track.loop_seconds().map(|(start, end)| end - start),
             Some(8.0)
         );
+    }
+
+    #[test]
+    fn a_loop_the_track_ends_inside_is_dropped_and_the_deck_finishes() {
+        let scratch = ScratchFolder::new("loop-past-end");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.5, 1.5);
+        let grid = Some(GridTiming {
+            first_downbeat_seconds: 0.5,
+            bpm: 120.0,
+        });
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), grid),
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        mix.render_block();
+        link.set_loop(DeckId::A, Some(1), grid);
+        mix.render_block();
+        assert!(link.meter(DeckId::A).loop_seconds().is_some());
+        pull(&mut mix, 3.0);
+        assert_eq!(link.meter(DeckId::A).loop_seconds(), None);
+        assert!(link.meter(DeckId::A).is_finished());
+        let spent: Vec<Vec<f32>> = link.spent_loops.try_iter().collect();
+        assert_eq!(spent.len(), 1, "its buffer goes back to the window");
     }
 
     #[test]
