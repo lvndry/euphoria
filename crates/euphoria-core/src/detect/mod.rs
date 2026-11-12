@@ -9,6 +9,8 @@ mod beat_grid;
 mod chromagram;
 mod cues;
 mod decimate;
+#[cfg(feature = "drone")]
+mod drone;
 #[cfg(feature = "libkeyfinder")]
 mod key_sections;
 #[cfg(feature = "libkeyfinder")]
@@ -19,6 +21,8 @@ mod synthesis;
 mod tuning;
 
 pub use beat_grid::{BeatGrid, detect_beat_grid};
+#[cfg(feature = "drone")]
+pub use drone::{DroneDetector, KeyProbabilities};
 pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, detect_beat_grid_and_cues};
 #[cfg(feature = "libkeyfinder")]
 pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant};
