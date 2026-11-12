@@ -540,6 +540,50 @@ A file whose tags changed after the write is not restored, so that the later cha
 
 A write that was interrupted can be undone as well. Files it had not changed yet are counted in the summary as not changed by the write.
 
+## euphoria corrections export
+
+Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
+
+```
+euphoria corrections export [--output <FILE>] [--force] [--include-paths]
+```
+
+```
+$ euphoria corrections export -o corrections.jsonl
+Exported 42 corrections to /Users/you/corrections.jsonl
+```
+
+| Option | Effect |
+| --- | --- |
+| `-o`, `--output <FILE>` | The file to write. Without it the lines go to standard output and the summary to standard error. |
+| `--force` | Replace the output file if it exists. The source cache and its SQLite companion files cannot be outputs, even with this option. |
+| `--include-paths` | Add the path each file was last seen at. |
+
+Nothing is analyzed and no audio file is read: the lines come from the [cache](#the-analysis-cache), oldest correction first. With no cache, or a cache without corrections, nothing is written to standard output, an output file is empty, and a note says so. A cache that cannot be read is an error, and the command exits with status 1. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+
+### What each line holds
+
+By default a line names its track only by the hash of the file's content: no path and no file name. A program that has the same files finds each one by hashing it the same way. The hash does not hide which track a line is about from someone who has the same file, since they can hash it and look for the result, so treat an export as a list of the tracks you own.
+
+```json
+{"schema_version":1,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | `1`. It goes up when a field is removed or changes meaning; a new field can appear without it changing. |
+| `content_hash` | The BLAKE3 hash of every byte of the file, tags and artwork included, as 64 lowercase hexadecimal digits: what `b3sum` prints for the file. |
+| `corrected_key` | The key you set, or `null` when you corrected only the tempo. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
+| `corrected_bpm` | The tempo you set, as you typed it, or `null` when you corrected only the key. |
+| `corrected_at` | When you set the correction, in seconds since 1 January 1970 UTC. |
+| `detected_key` | The key Euphoria detected for the same content, in the same shape, or `null` when it found none or the track has no stored analysis. |
+| `detected_bpm` | The tempo Euphoria detected, between 90 and 180 BPM, or `null`. |
+| `analyzer_version` | The version of the analyzer that detected them, which can be older than the one you run, or `null` when the track has no stored analysis. |
+| `analyzed_at` | When that analysis was stored, in seconds since 1 January 1970 UTC, or `null`. |
+| `path` | Only with `--include-paths`: the absolute path the file was last seen at, or `null` when the cache never recorded one. The file may have moved since. |
+
+A correction follows its file through tag writes. The export includes both its new content hash and older entries retained so a tag write can be undone. One audio track can therefore have several lines for different versions of its tags, and an older hash need not match a file that still exists. A file whose tags another program changed since also has a different hash, and a program matching the export by hash will not find it.
+
 ## The analysis cache
 
 `euphoria analyze` and `euphoria export` remember every result in a SQLite database on your computer, so a track is analyzed once. A later run uses the remembered result instead of analyzing the file again.
@@ -558,7 +602,7 @@ A file found where it was last seen, with the same size and modification time, i
 
 When you correct a key or a tempo in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
 
-Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction.
+Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction. [`euphoria corrections export`](#euphoria-corrections-export) writes them all out, to train a key model on.
 
 ### Edited cues
 

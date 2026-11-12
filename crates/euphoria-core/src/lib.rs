@@ -61,8 +61,8 @@ pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mo
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
-    DATA_DIRECTORY_VARIABLE, analyze_files_cached, analyze_files_cached_observed, clear_cache,
-    default_cache_path,
+    DATA_DIRECTORY_VARIABLE, DetectedValues, StoredCorrection, analyze_files_cached,
+    analyze_files_cached_observed, clear_cache, default_cache_path,
 };
 pub use confidence::Confidence;
 pub use correction::Correction;
@@ -75,9 +75,10 @@ pub use energy::{
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{
-    AssembledLibrary, ExportContents, M3uTrack, PlaylistLayout, SkippedTrack, UnreadTags,
-    assemble_library, assemble_library_with, playlist_count, playlists_from_folders, render_m3u8,
-    write_m3u8_file,
+    AssembledLibrary, CORRECTIONS_SCHEMA_VERSION, ExportContents, M3uTrack, PathInclusion,
+    PlaylistLayout, SkippedTrack, UnreadTags, assemble_library, assemble_library_with,
+    playlist_count, playlists_from_folders, render_corrections_jsonl, render_m3u8,
+    write_corrections_file, write_m3u8_file,
 };
 pub use harmony::{
     MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,

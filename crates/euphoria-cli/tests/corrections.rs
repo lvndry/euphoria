@@ -10,7 +10,7 @@ mod support;
 use std::path::Path;
 use std::process::Output;
 
-use euphoria_core::{Cache, Correction, Key, Mode};
+use euphoria_core::{ANALYZER_VERSION, Cache, ContentHash, Correction, Key, Mode};
 use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
 
 fn text(path: &Path) -> &str {
@@ -260,4 +260,240 @@ fn manual_tag_edits_after_cache_clear_keep_the_users_corrections() {
     assert_eq!(tracks[0]["key"]["camelot"], "9A");
     assert_eq!(tracks[0]["bpm"], 87.0);
     assert_eq!(tracks[0]["set_by_user"], serde_json::json!(["key", "bpm"]));
+}
+
+fn export_lines(output: &[u8]) -> Vec<serde_json::Value> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("each line is JSON"))
+        .collect()
+}
+
+#[test]
+fn corrections_export_writes_one_line_per_correction_named_by_content_and_no_path() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+    let detected_output = euphoria.run(&["analyze", "--json", "--no-cache", text(&track)]);
+    let detected: serde_json::Value =
+        serde_json::from_slice(&detected_output.stdout).expect("JSON");
+
+    let exported = euphoria.run(&["corrections", "export"]);
+    assert_success(&exported);
+    let lines = export_lines(&exported.stdout);
+    assert_eq!(lines.len(), 1);
+    let line = &lines[0];
+    assert_eq!(line["schema_version"], 1);
+    assert_eq!(
+        line["content_hash"],
+        ContentHash::of_file(&track)
+            .expect("the track is read")
+            .to_hex()
+    );
+    assert_eq!(line["corrected_key"]["name"], "E minor");
+    assert_eq!(line["corrected_key"]["tonic"], 4);
+    assert_eq!(line["corrected_key"]["mode"], "minor");
+    assert_eq!(line["corrected_bpm"], 87.0);
+    assert_eq!(
+        line["detected_key"]["camelot"],
+        detected[0]["key"]["camelot"]
+    );
+    assert_eq!(line["analyzer_version"], ANALYZER_VERSION);
+    assert!(
+        line["corrected_at"]
+            .as_i64()
+            .is_some_and(|seconds| seconds > 0)
+    );
+    assert!(line.get("path").is_none(), "{line}");
+    let raw = String::from_utf8_lossy(&exported.stdout);
+    assert!(!raw.contains(text(folder.path())), "{raw}");
+    assert!(
+        standard_error(&exported).contains("Exported 1 correction"),
+        "{}",
+        standard_error(&exported)
+    );
+}
+
+#[test]
+fn corrections_export_to_a_file_keeps_an_existing_one_and_adds_paths_when_asked() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = corrected_track(&euphoria, &folder);
+    let destination = folder.path().join("corrections.jsonl");
+    let destination_text = text(&destination);
+
+    assert_success(&euphoria.run(&["corrections", "export", "-o", destination_text]));
+    let without_paths = std::fs::read(&destination).expect("the export is written");
+    assert_eq!(export_lines(&without_paths).len(), 1);
+
+    let refused = euphoria.run(&[
+        "corrections",
+        "export",
+        "--include-paths",
+        "-o",
+        destination_text,
+    ]);
+    assert!(!refused.status.success());
+    assert!(
+        standard_error(&refused).contains("--force"),
+        "{}",
+        standard_error(&refused)
+    );
+    assert_eq!(std::fs::read(&destination).expect("kept"), without_paths);
+
+    assert_success(&euphoria.run(&[
+        "corrections",
+        "export",
+        "--include-paths",
+        "--force",
+        "-o",
+        destination_text,
+    ]));
+    let with_paths = export_lines(&std::fs::read(&destination).expect("replaced"));
+    assert_eq!(
+        with_paths[0]["path"],
+        text(&std::path::absolute(&track).expect("absolute"))
+    );
+}
+
+#[test]
+fn corrections_export_without_a_cache_writes_nothing_and_creates_no_cache() {
+    let euphoria = Euphoria::new();
+    let exported = euphoria.run(&["corrections", "export"]);
+    assert_success(&exported);
+    assert!(exported.stdout.is_empty());
+    assert!(
+        standard_error(&exported).contains("no corrections yet"),
+        "{}",
+        standard_error(&exported)
+    );
+    assert!(!euphoria.cache_path().exists());
+}
+
+#[test]
+fn corrections_export_reports_a_cache_it_cannot_read() {
+    let euphoria = Euphoria::new();
+    std::fs::write(euphoria.cache_path(), b"not a database").expect("written");
+    let exported = euphoria.run(&["corrections", "export"]);
+    assert!(!exported.status.success());
+    assert!(exported.stdout.is_empty());
+    assert!(
+        standard_error(&exported).starts_with("error:"),
+        "{}",
+        standard_error(&exported)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn corrections_export_reports_a_cache_folder_it_cannot_look_into() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let data_directory = folder.path().join("locked");
+    std::fs::create_dir(&data_directory).expect("created");
+    std::fs::set_permissions(&data_directory, std::fs::Permissions::from_mode(0o000))
+        .expect("locked");
+    let looked_into = std::fs::metadata(data_directory.join("analysis-cache.sqlite3"));
+    if looked_into.is_ok() {
+        // Permissions do not hold back the superuser, so there is nothing to test.
+        return;
+    }
+    let exported = euphoria
+        .command(&["corrections", "export"])
+        .env("EUPHORIA_DATA_DIR", &data_directory)
+        .output()
+        .expect("the euphoria binary runs");
+    std::fs::set_permissions(&data_directory, std::fs::Permissions::from_mode(0o755))
+        .expect("unlocked");
+    assert!(!exported.status.success());
+    assert!(
+        standard_error(&exported).contains("cannot look for the cache"),
+        "{}",
+        standard_error(&exported)
+    );
+}
+
+#[test]
+fn corrections_export_never_replaces_its_source_cache_even_with_force() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    corrected_track(&euphoria, &folder);
+    let cache_path = euphoria.cache_path();
+    let before = std::fs::read(&cache_path).unwrap();
+    let exported = euphoria.run(&["corrections", "export", "--force", "-o", text(&cache_path)]);
+    assert!(
+        !exported.status.success(),
+        "export must preserve its source database"
+    );
+    assert_eq!(std::fs::read(&cache_path).unwrap(), before);
+    assert_eq!(
+        Cache::open(&cache_path)
+            .unwrap()
+            .stored_corrections()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn corrections_export_keeps_sqlite_companion_files() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    corrected_track(&euphoria, &folder);
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut name = euphoria.cache_path().into_os_string();
+        name.push(suffix);
+        let source = std::path::PathBuf::from(name);
+        std::fs::write(&source, b"sqlite companion").unwrap();
+        let exported = euphoria.run(&["corrections", "export", "--force", "-o", text(&source)]);
+        assert!(!exported.status.success());
+        assert!(
+            standard_error(&exported).contains("SQLite companion"),
+            "{}",
+            standard_error(&exported)
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), b"sqlite companion");
+        std::fs::remove_file(source).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn corrections_export_refuses_directory_symlink_and_hard_link_aliases_of_the_cache() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    corrected_track(&euphoria, &folder);
+    let directory_alias = folder.path().join("data-alias");
+    std::os::unix::fs::symlink(euphoria.data_directory(), &directory_alias).unwrap();
+    let hard_link = folder.path().join("cache-alias.jsonl");
+    std::fs::hard_link(euphoria.cache_path(), &hard_link).unwrap();
+    for destination in [directory_alias.join("analysis-cache.sqlite3"), hard_link] {
+        let before = std::fs::read(&destination).unwrap();
+        let exported =
+            euphoria.run(&["corrections", "export", "--force", "-o", text(&destination)]);
+        assert!(!exported.status.success());
+        assert!(
+            standard_error(&exported).contains("SQLite companion"),
+            "{}",
+            standard_error(&exported)
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), before);
+    }
+}
+
+#[test]
+fn corrections_export_cannot_create_an_export_at_the_missing_cache_path() {
+    let euphoria = Euphoria::new();
+    let exported = euphoria.run(&[
+        "corrections",
+        "export",
+        "--force",
+        "-o",
+        text(&euphoria.cache_path()),
+    ]);
+    assert!(!exported.status.success());
+    assert!(!euphoria.cache_path().exists());
 }

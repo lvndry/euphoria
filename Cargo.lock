@@ -2102,25 +2102,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "euphoria"
-version = "0.1.0"
-dependencies = [
- "euphoria-core",
- "gpui-kit",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "png 0.18.1",
- "rayon",
- "rodio",
- "rusqlite",
- "serde",
- "serde_json",
- "signalsmith-stretch",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "euphoria-bench"
 version = "0.1.0"
 dependencies = [
@@ -2143,6 +2124,7 @@ dependencies = [
  "rayon",
  "roxmltree 0.21.2",
  "rusqlite",
+ "same-file",
  "serde",
  "serde_json",
  "tempfile",
@@ -2174,6 +2156,25 @@ dependencies = [
  "thiserror 2.0.21",
  "ureq",
  "walkdir",
+]
+
+[[package]]
+name = "euphoria-desktop"
+version = "0.1.0"
+dependencies = [
+ "euphoria-core",
+ "gpui-kit",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "png 0.18.1",
+ "rayon",
+ "rodio",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "signalsmith-stretch",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

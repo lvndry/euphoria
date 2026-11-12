@@ -130,6 +130,23 @@ pub fn export_examples() -> StyledStr {
     )
 }
 
+pub fn corrections_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria corrections export -o corrections.jsonl",
+                "Every correction, named by content hash",
+            ),
+            (
+                "euphoria corrections export --include-paths",
+                "With file paths, for use on this computer",
+            ),
+        ],
+        "",
+    )
+}
+
 pub fn shift_examples() -> StyledStr {
     examples(
         "Examples",
