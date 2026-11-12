@@ -4210,16 +4210,37 @@ fn suggestions_can_come_from_a_playlist(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_deck_does_not_play_or_cue_the_previous_track_while_loading(cx: &mut TestAppContext) {
     use crate::deck_audio::DeckId;
-    let (_, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let output = RenderedDecks::default();
+    let (_, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
     let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
     cx.update(|cx| {
         view.update(cx, |app, cx| {
             app.toggle_decks(cx);
             app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_deck_play(DeckId::A, cx)));
+    assert!(
+        output.pull(2.0) > 0.01,
+        "the first load must be open and play before the replacement"
+    );
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.load_on_deck(DeckId::A, wav, cx);
+            assert!(
+                app.decks
+                    .view(DeckId::A)
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| path.ends_with("sine-440hz-stereo.wav")),
+                "the replacement's view is in place while it opens"
+            );
             app.toggle_deck_play(DeckId::A, cx);
             assert!(
                 !app.decks.view(DeckId::A).playing,
-                "opening the new source must finish first"
+                "Play must not start the previous source while the replacement opens"
             );
             app.play_deck_cue(DeckId::A, 0, cx);
             assert!(
@@ -4234,7 +4255,7 @@ fn a_deck_does_not_play_or_cue_the_previous_track_while_loading(cx: &mut TestApp
             app.toggle_deck_play(DeckId::A, cx);
             assert!(
                 app.decks.view(DeckId::A).playing,
-                "the loaded source can play"
+                "the replaced source can play once it is open"
             );
         })
     });
