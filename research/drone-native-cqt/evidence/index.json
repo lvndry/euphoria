@@ -1,5 +1,5 @@
 {
-  "format": "k10-native-cqt-evidence-index-v1",
+  "format": "k10-native-cqt-evidence-index-v2",
   "protocol_sha256": "4b66f2f7b16b06581aa07b45a8ca710a422baad87b31e54f129129de3338b118",
   "reference_export_source": "drone:b1c90d3",
   "provenance_collector_source": "drone:b9c22f2",
@@ -16,12 +16,64 @@
     "build-evidence-v2.json": "35fa6cad00c030c66be93e615de53cc953b3cf3da7a09f90176f007e52d28328",
     "exported-d8424bf.json": "bff6020b466149e68f61b20563d90b8cb31aca6a4f1012c7d24286cfe90f85da",
     "exported-diagnostics-9fd6c34.json": "f53ca43fb491273aa4979a415e9474397a2cc49b3535638e9140ec08f51560b0",
+    "first-failure-arithmetic-input.json": "7b369d7c42678e2fe91c7e5ce75947221f7e425bd8b0457654c4ceefddd5eeef",
+    "first-failure-arithmetic.json": "943420f0821fb52f909dbd3bd1d37ddeedc1c5a5f3187b2179baed344c0d3a2b",
+    "original-376-summary.json": "b3b02a6f5fdc1d11f0d0014a363637cde12786eddfce19df10c73e1b126fdf55",
     "owner-d8424bf.json": "29ad3f2535034d654fb75986ec3e0331b9583c01cfbeef945849272c9bb0c708",
-    "reference-summary.json": "3e86ad29c451b627896132db7d67618c20fd595eea9e9c7b6f3ee51f88288b99"
+    "reference-summary.json": "3e86ad29c451b627896132db7d67618c20fd595eea9e9c7b6f3ee51f88288b99",
+    "svml-arithmetic-result.json": "b4b750f2f73ad4daebf7dde51bae41f830f9b4fa0446efea5ae97892e8695f70",
+    "svml-probe-provenance.json": "4b5203b97589476cde0f014ae7b81bdef5e54ae7bac28985a4ceac8dfa46eec1",
+    "twoarm-376-summary.json": "f5988673554aa9969d71e49bf59f2b7a457340ca968a1327552a209c7d712777",
+    "twoarm-exit.json": "5cc319f54b05a38799195a491c303aa686eab7caccfdbbf1e8b8c07405cb7392",
+    "twoarm-membership-check.json": "98f9af06f841ba47edc9e5b3e984bcf0ab3a08d51e2049de1e1418e45af5c79c"
   },
   "notes": [
-    "No raw audio, PCM or features committed. Owner WIP source remains external.",
-    "Build evidence v2 corrects wrapper license metadata from draft v1; numerical reports and binaries remain unchanged.",
-    "Nine-case passing gate is not a labeled accuracy or production/end-to-end claim."
-  ]
+    "No raw audio, PCM, bulk features or owner WIP source committed.",
+    "Original and FMA-only failed gates remain preserved; neither is promoted.",
+    "FMA+SVML equality is observed after the original FP16 boundary on the fixed host/runtime set.",
+    "Measured core source hashes remain frozen while report/CI files change."
+  ],
+  "qualified_twoarm_source": {
+    "drone": "2ac6364",
+    "euphoria": "2f87e2c",
+    "execution": {
+      "executable_sha256": "c3916665a86792e66f3c0922ab4b67217a1a2afcab0adcacfa93c9a94dde05bf",
+      "source_sha256": "93fcf108cc7723d89060651c52b7e8a0cfd5b26d626482bb163c32ad1fbd2e99",
+      "plan_source_sha256": "2c4f4807e5da2878b23f504884c54716fa2b9f1026affbacc3e5a19cc6eb1515",
+      "full_model_sha256": "35fc1bfe5d67f7aed2c46221c15519d0f3d5822351932b5bd9899d47d48cb613",
+      "ort_library_sha256": "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3",
+      "math_library_sha256": "8749faf3d54f5256f87bfac7a1a4bcfff56b17deed61686bebb3efb43c65a3bc",
+      "soxr_wrapper_sha256": "09d9baa98928e67e098c3627d5162e72a0528fab97c644ec58a7ae8389443c24",
+      "numpy_magnitude": true
+    },
+    "cached_runtime_source_sha256": "11a68cffcd85ee6e3ad317a8330765abf346a4ec79b233326dad360fa4c8f67a"
+  },
+  "arithmetic_sources": {
+    "producer": "drone:1452f4c",
+    "rust_probe": "euphoria:5beef8c",
+    "svml_probe": "euphoria:93aeb04"
+  },
+  "summary_source": "drone:35644f8",
+  "current_core_sources_match_qualified_execution": true,
+  "windows": {
+    "original_stop": "2026-11-12T00:45:00+00:00",
+    "original_report_completed": "2026-11-11T23:50:53+00:00",
+    "arithmetic_completed": "2026-11-11T23:53:30+00:00",
+    "svml_probe_completed": "2026-11-11T23:56:49+00:00",
+    "new_authorization_before_outcomes": true,
+    "twoarm_stop": "2026-11-12T06:00:00+00:00",
+    "twoarm_start": "2026-11-12T05:10:08+00:00"
+  },
+  "reference_equivalence": {
+    "tracks": 376,
+    "same_ordered_ids": true,
+    "same_pcm_sha256": true,
+    "same_reference_logits": true
+  },
+  "figures": {
+    "cqt-376-ablation.png": "cc6f1e14da2faaab7ffcb0c42dbc020f77ee530b689e9abbb2665ecbf646016e",
+    "cqt-feasibility.png": "edebf0a08110c82181686758d8fa95a3b043c69376bafe21291348e67df9074c",
+    "cqt-376-ablation.svg": "271d345f96aa5c5e24d437d000f48ba6aa79d6a39f006c56ce89b7883e025d62",
+    "cqt-feasibility.svg": "3d1e2e2d5845e88e939b1738f5caea13ced7a14f2b426fd4288d3333980b6ffc"
+  }
 }
