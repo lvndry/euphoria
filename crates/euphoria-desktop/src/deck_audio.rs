@@ -23,6 +23,8 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use euphoria_core::shift::Stretch as CoreStretch;
+
 use crate::playback::{PlaybackProblem, TrackSource};
 
 /// The sample rate the decks are mixed at. The output converts it to the
@@ -45,18 +47,22 @@ const COMMAND_CAPACITY: usize = 64;
 const RETIRED_CAPACITY: usize = 8;
 
 /// The time stretcher of a deck, the one place that names the stretching
-/// library, so that another binding of the same algorithm is a change to
-/// this type alone.
-struct TimeStretcher(signalsmith_stretch::Stretch);
+/// this type alone. It is the same Signalsmith Stretch the `euphoria`
+/// command line tool compiles, so the binary holds one version of its C++
+/// code, not two.
+struct TimeStretcher(CoreStretch);
 
 impl TimeStretcher {
     /// A stretcher for `channel_count` interleaved channels mixed at
     /// [`MIX_SAMPLE_RATE`]. It allocates, so build it off the audio thread.
     fn new(channel_count: usize) -> Self {
-        Self(signalsmith_stretch::Stretch::preset_default(
-            channel_count as u32,
-            MIX_SAMPLE_RATE,
-        ))
+        // The channel count is at least one and the mix rate is fixed, so
+        // the stretcher can only fail to be created if its buffers are not
+        // allocated.
+        Self(
+            CoreStretch::new(channel_count, MIX_SAMPLE_RATE)
+                .expect("a deck stretcher could not be created"),
+        )
     }
 
     /// Forgets what it holds, as after a jump in the track.
@@ -66,7 +72,11 @@ impl TimeStretcher {
 
     /// Multiplies every frequency by `factor`.
     fn set_transpose(&mut self, factor: f32) {
-        self.0.set_transpose_factor(factor, None);
+        // The factor is a ratio of sample rates, or one multiplied by a
+        // deck rate, so it is a positive finite number.
+        self.0
+            .set_transpose_factor(factor)
+            .expect("a deck transpose could not be applied");
     }
 
     /// Frames of input held before output starts.
@@ -81,7 +91,9 @@ impl TimeStretcher {
 
     /// Stretches `input` to fill `output`, both interleaved.
     fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        self.0.process(input, output);
+        self.0
+            .process_interleaved(input, output)
+            .expect("a deck block could not be stretched");
     }
 }
 
