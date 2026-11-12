@@ -18,14 +18,14 @@
     "exported-diagnostics-9fd6c34.json": "f53ca43fb491273aa4979a415e9474397a2cc49b3535638e9140ec08f51560b0",
     "first-failure-arithmetic-input.json": "7b369d7c42678e2fe91c7e5ce75947221f7e425bd8b0457654c4ceefddd5eeef",
     "first-failure-arithmetic.json": "943420f0821fb52f909dbd3bd1d37ddeedc1c5a5f3187b2179baed344c0d3a2b",
-    "original-376-summary.json": "b3b02a6f5fdc1d11f0d0014a363637cde12786eddfce19df10c73e1b126fdf55",
     "owner-d8424bf.json": "29ad3f2535034d654fb75986ec3e0331b9583c01cfbeef945849272c9bb0c708",
     "reference-summary.json": "3e86ad29c451b627896132db7d67618c20fd595eea9e9c7b6f3ee51f88288b99",
     "svml-arithmetic-result.json": "b4b750f2f73ad4daebf7dde51bae41f830f9b4fa0446efea5ae97892e8695f70",
     "svml-probe-provenance.json": "4b5203b97589476cde0f014ae7b81bdef5e54ae7bac28985a4ceac8dfa46eec1",
-    "twoarm-376-summary.json": "f5988673554aa9969d71e49bf59f2b7a457340ca968a1327552a209c7d712777",
     "twoarm-exit.json": "5cc319f54b05a38799195a491c303aa686eab7caccfdbbf1e8b8c07405cb7392",
-    "twoarm-membership-check.json": "98f9af06f841ba47edc9e5b3e984bcf0ab3a08d51e2049de1e1418e45af5c79c"
+    "twoarm-membership-check.json": "98f9af06f841ba47edc9e5b3e984bcf0ab3a08d51e2049de1e1418e45af5c79c",
+    "original-376-summary.json.gz": "b9bc5cf2d179a26b97f2e8cf80d7cecf42bf4778980896534bde6651f7f73468",
+    "twoarm-376-summary.json.gz": "433b919ac943fce29c8c86ac52eb250e2b83c0466f0616008d49f6451b75c36d"
   },
   "notes": [
     "No raw audio, PCM, bulk features or owner WIP source committed.",
@@ -54,7 +54,6 @@
     "svml_probe": "euphoria:93aeb04"
   },
   "summary_source": "drone:35644f8",
-  "current_core_sources_match_qualified_execution": true,
   "windows": {
     "original_stop": "2026-11-12T00:45:00+00:00",
     "original_report_completed": "2026-11-11T23:50:53+00:00",
@@ -76,5 +75,31 @@
     "cqt-376-ablation.svg": "271d345f96aa5c5e24d437d000f48ba6aa79d6a39f006c56ce89b7883e025d62",
     "cqt-feasibility.svg": "3d1e2e2d5845e88e939b1738f5caea13ced7a14f2b426fd4288d3333980b6ffc"
   },
-  "candidate2_launcher_sha256": "83b0e4351d30774a446c9973f08574bdfaf211bb2adfeec13256cdb5fff7472e"
+  "candidate2_launcher_sha256": "83b0e4351d30774a446c9973f08574bdfaf211bb2adfeec13256cdb5fff7472e",
+  "compressed_json": {
+    "original-376-summary.json.gz": {
+      "decoded_name": "original-376-summary.json",
+      "decoded_sha256": "b3b02a6f5fdc1d11f0d0014a363637cde12786eddfce19df10c73e1b126fdf55",
+      "decoded_bytes": 959394,
+      "compressed_sha256": "b9bc5cf2d179a26b97f2e8cf80d7cecf42bf4778980896534bde6651f7f73468",
+      "compressed_bytes": 266598,
+      "gzip_mtime": 0,
+      "gzip_filename": "",
+      "gzip_level": 9,
+      "zlib_version": "1.2.12"
+    },
+    "twoarm-376-summary.json.gz": {
+      "decoded_name": "twoarm-376-summary.json",
+      "decoded_sha256": "f5988673554aa9969d71e49bf59f2b7a457340ca968a1327552a209c7d712777",
+      "decoded_bytes": 1473469,
+      "compressed_sha256": "433b919ac943fce29c8c86ac52eb250e2b83c0466f0616008d49f6451b75c36d",
+      "compressed_bytes": 305890,
+      "gzip_mtime": 0,
+      "gzip_filename": "",
+      "gzip_level": 9,
+      "zlib_version": "1.2.12"
+    }
+  },
+  "frozen_core_sources_verified_at_collection": true,
+  "publication_packaging_scope": "Decoded evidence bytes and measured source identities are unchanged. Integrated publication refs preserve current main fixes and may add non-numerical packaging/CI changes."
 }

@@ -43,9 +43,11 @@ All 376 PCM hashes and reference logit vectors also match the earlier expansion
 exactly. This confirms reference stability across stages. An independent
 [summary verifier](https://github.com/lvndry/drone/blob/research/cqt-summary-35644f8/tools/summarize_cqt_expansion.py)
 checks every recorded logit, first-index argmax tie, artifact hash and execution
-identity. The [original summary](evidence/original-376-summary.json) and
-[two-arm summary](evidence/twoarm-376-summary.json) include every case and the
-underlying immutable report hashes. The original source/data are retained on
+identity. The [original summary](evidence/original-376-summary.json.gz) and
+[two-arm summary](evidence/twoarm-376-summary.json.gz) include every case and the
+underlying immutable report hashes. The summaries use deterministic gzip;
+`evidence/index.json` retains both encoded and original decoded-byte SHA256
+identities, and plot loading verifies both. The original source/data are retained on
 the research host; the Git execution refs are listed below for publication.
 
 ### Why the arithmetic change was necessary

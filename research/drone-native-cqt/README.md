@@ -82,3 +82,12 @@ paths are immutable. Reproduction needs a new output directory and a declared
 execution window; retain the old evidence. The supervisor supplies
 `--numpy-magnitude` to both arms and the hash-checked `--math-library` only to the
 SVML arm. FMA-only's failed status remains part of the experiment.
+
+
+The two complete376 evidence summaries are stored as deterministic `.json.gz`.
+`evidence_io.py` verifies encoded and original decoded-byte SHA256 values against
+`evidence/index.json`; `plot_expansion.py` uses that verified reader. The
+compression preserves the original JSON bytes (including whitespace/newline).
+Run `python3 -m unittest discover -s research/drone-native-cqt -p 'test_*.py'` to
+check roundtrips, repeatability and rejection of altered evidence. Server
+artifacts and measured source refs remain unchanged by publication packaging.

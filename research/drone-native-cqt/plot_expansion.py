@@ -6,20 +6,15 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
 import matplotlib.pyplot as plt
-
-
-def load(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+from evidence_io import load_json
 
 
 def plot(root: Path) -> None:
-    original = load(root / "evidence/original-376-summary.json")
-    ablation = load(root / "evidence/twoarm-376-summary.json")
+    original = load_json(root / "evidence/original-376-summary.json.gz")
+    ablation = load_json(root / "evidence/twoarm-376-summary.json.gz")
     series = [
         ("Original scalar math", "#bd672f", original, "original"),
         ("FMA + platform log1p", "#3566a1", ablation, "fma"),

@@ -74,3 +74,9 @@ jobs:
         working-directory: research/drone-native-cqt
         if: runner.os == 'macOS'
         run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Evidence packaging integrity
+        working-directory: research/drone-native-cqt
+        run: |
+          python3 -m unittest discover -p 'test_*.py'
+          python3 evidence_io.py
