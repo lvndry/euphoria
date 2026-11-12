@@ -490,10 +490,16 @@ impl LoadedTrack {
         let drained =
             self.tail_input_samples as f64 / self.channel_count as f64 / f64::from(self.input_rate);
         let heard = input + drained - self.delay_seconds() * self.rate;
-        if let Some(deck_loop) = &self.deck_loop
-            && deck_loop.phase == LoopPhase::Replaying
-            && let Some((start, end)) = self.loop_seconds()
+        // First capture has not wrapped yet: its heard position can still
+        // be before the loop while those frames wait in the stretcher.
+        let replaying = self
+            .deck_loop
+            .as_ref()
+            .is_some_and(|deck_loop| deck_loop.phase == LoopPhase::Replaying);
+        if let Some((start, end)) = self.loop_seconds()
+            && replaying
             && heard < start
+            && input >= start
         {
             return heard - start + end;
         }
@@ -589,7 +595,10 @@ impl LoadedTrack {
                 }
             }
         }
-        if let Some(deck_loop) = &mut self.deck_loop
+        // Decoder starvation adds output silence without consuming a frame
+        // of the track. Keep only real track frames in the bar we replay.
+        if self.source.next_frame() > frame
+            && let Some(deck_loop) = &mut self.deck_loop
             && deck_loop.phase == LoopPhase::Capturing
         {
             deck_loop.frames.extend_from_slice(&self.input[first..]);
@@ -773,9 +782,10 @@ impl DeckMix {
         }
         let starting_grid = starting.grid?;
         let grid = leading.grid?;
-        let input_now = leading.input_seconds();
-        // Match the time the leading downbeat is heard against this deck's
-        // travel to its own downbeat, including any initial stretcher delay.
+        let input_now = leading.looped_input_seconds();
+        // The other deck's input reaches its next downbeat after this many
+        // output seconds, and sounds it its own delay later. This deck,
+        // started then, sounds its first frame its own delay later.
         let downbeat = grid.next_downbeat(input_now);
         let until_input = (downbeat - input_now) / leading.rate;
         let held = starting.heard_seconds();
@@ -1475,5 +1485,147 @@ mod tests {
                 eprintln!("  ({analyzed} analyses ran alongside)");
             }
         }
+    }
+    #[test]
+    fn capture_does_not_store_decoder_starvation_as_part_of_a_bar() {
+        let (source, feed) = crate::playback::testing::controlled_source(vec![0.25; 64], 0);
+        let mut track = LoadedTrack::new(
+            source,
+            Some(GridTiming {
+                first_downbeat_seconds: 0.0,
+                bpm: 120.0,
+            }),
+        );
+        track.set_loop(Some(1));
+        for _ in 0..64 + 256 {
+            track.input.clear();
+            track.pull_input_frame();
+        }
+        assert_eq!(track.source.next_frame(), 64);
+        feed.push(64, vec![0.25; 88_200]);
+        for _ in 64..88_200 {
+            track.input.clear();
+            track.pull_input_frame();
+        }
+        let captured = track.deck_loop.as_ref().unwrap();
+        assert_eq!(captured.phase, LoopPhase::Replaying);
+        assert_eq!(
+            captured.frames.len(),
+            88_200,
+            "one bar must contain exactly two seconds of track audio"
+        );
+        assert!(captured.frames.iter().all(|x| *x == 0.25));
+    }
+
+    #[test]
+    fn starting_another_deck_aligns_to_the_replaying_loop_phase() {
+        let scratch = ScratchFolder::new("looped-phase");
+        let a = scratch.0.join("a.wav");
+        let b = scratch.0.join("b.wav");
+        write_click_track(&a, 120.0, 0.5, 60.0);
+        write_click_track(&b, 125.0, 0.25, 60.0);
+        let run = |ag, bg| {
+            let (link, mut mix) = deck_mix();
+            for (deck, path, bpm, first) in
+                [(DeckId::A, &a, 120.0, 0.5), (DeckId::B, &b, 125.0, 0.25)]
+            {
+                link.send(DeckCommand::Load {
+                    deck,
+                    track: prepare_track(
+                        TrackSource::open(path, 0.0).unwrap().patient(),
+                        Some(GridTiming {
+                            first_downbeat_seconds: first,
+                            bpm,
+                        }),
+                    ),
+                });
+            }
+            link.meter(DeckId::A).set_gain(ag);
+            link.meter(DeckId::B).set_gain(bg);
+            link.send(DeckCommand::SetRate {
+                deck: DeckId::B,
+                rate: 0.96,
+            });
+            link.send(DeckCommand::Seek {
+                deck: DeckId::B,
+                seconds: 6.01,
+            });
+            link.send(DeckCommand::Play {
+                deck: DeckId::A,
+                quantize_to: None,
+            });
+            let mut samples = pull(&mut mix, 1.3);
+            link.send(DeckCommand::SetLoop {
+                deck: DeckId::A,
+                bars: Some(1),
+            });
+            samples.extend(pull(&mut mix, 8.0));
+            assert_eq!(
+                mix.decks[0]
+                    .as_ref()
+                    .unwrap()
+                    .deck_loop
+                    .as_ref()
+                    .unwrap()
+                    .phase,
+                LoopPhase::Replaying
+            );
+            link.send(DeckCommand::Play {
+                deck: DeckId::B,
+                quantize_to: Some(DeckId::A),
+            });
+            samples.extend(pull(&mut mix, 16.0));
+            samples
+        };
+        let a_onsets = onsets(&run(1.0, 0.0));
+        let b_onsets = onsets(&run(0.0, 1.0));
+        let errors: Vec<_> = b_onsets
+            .iter()
+            .map(|(at, _)| {
+                a_onsets
+                    .iter()
+                    .map(|(a, _)| (at - a).abs() * 1000.0)
+                    .fold(f64::INFINITY, f64::min)
+            })
+            .collect();
+        let mean = errors.iter().sum::<f64>() / errors.len() as f64;
+        let largest = errors.iter().copied().fold(0.0, f64::max);
+        eprintln!(
+            "looped leader {}beats mean{mean}ms max{largest}ms",
+            errors.len()
+        );
+        assert!(errors.len() > 20);
+        assert!(mean < 5.0);
+        assert!(largest < 10.0);
+    }
+
+    #[test]
+    fn first_loop_capture_does_not_wrap_the_heard_playhead_before_the_start() {
+        let (source, _feed) = crate::playback::testing::controlled_source(vec![0.25; 132_300], 0);
+        let mut track = LoadedTrack::new(
+            source,
+            Some(GridTiming {
+                first_downbeat_seconds: 0.5,
+                bpm: 120.0,
+            }),
+        );
+        track.set_loop(Some(1));
+        track.playing = true;
+        let mut output = vec![0.0; BLOCK_FRAMES * 2];
+        while track.input_seconds() < 0.5 {
+            track.render(&mut output, BLOCK_FRAMES, 1.0);
+        }
+        assert_eq!(
+            track.deck_loop.as_ref().unwrap().phase,
+            LoopPhase::Capturing
+        );
+        let heard = track.heard_seconds();
+        eprintln!(
+            "first capture input{} heard{} delay{}",
+            track.input_seconds(),
+            heard,
+            track.delay_seconds()
+        );
+        assert!(heard < 0.5, "sound has not yet reached the loop start");
     }
 }
