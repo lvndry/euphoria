@@ -375,7 +375,7 @@ def bundle(root, executable, libraries, run_path):
         count_step(steps)
         here = [*chain, (path, Elf(path))]
         for name in here[-1][1].needed:
-            if pathlib.PurePath(name).name in BASE_SYSTEM_LIBRARIES:
+            if name in BASE_SYSTEM_LIBRARIES:
                 continue
             target = resolve(name, here, system)
             if target is None:
@@ -456,6 +456,8 @@ def verify(root, executable):
                     problems.append(f"{path} has the run path {run_path}, outside {root}")
             here = [*loaders, (path, binary)]
             for name in binary.needed:
+                # The bundler reads a path-valued base dependency by its
+                # file name, so the check must do the same.
                 if name in BASE_SYSTEM_LIBRARIES:
                     continue
                 target = resolve(name, here)

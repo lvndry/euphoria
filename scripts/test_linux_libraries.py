@@ -250,6 +250,11 @@ class SyntheticLibraryTests(unittest.TestCase):
         self.assertIsNotNone(libm)
         subprocess.run(["patchelf", "--replace-needed", "libm.so.6", str(libm), str(executable)], check=True)
         subprocess.run([str(executable)], check=True)
+        # The check and the bundler read a path-valued base dependency by its
+        # file name, so the absolute reference is not a problem before
+        # bundling rewrites it. The scratch build's run path still is.
+        problems = linux_libraries.verify(self.root, executable)
+        self.assertTrue(all("libm.so.6" not in problem for problem in problems), problems)
         self.bundle(executable)
         self.assertFalse((self.root / "lib" / "libm.so.6").exists())
         self.assertIn("libm.so.6", linux_libraries.Elf(executable).needed)
