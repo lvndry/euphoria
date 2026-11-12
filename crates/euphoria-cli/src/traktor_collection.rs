@@ -4,7 +4,7 @@
 //! Reads a Traktor collection (`collection.nml`), to find the tracks that
 //! already have cues there, which an export must not touch.
 
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, absolute};
 
 use anyhow::{Context, Result, bail};
 
@@ -167,6 +167,40 @@ pub fn startup_volume_name() -> String {
         })
         .and_then(|entry| entry.file_name().into_string().ok())
         .unwrap_or_else(|| euphoria_core::export::traktor::DEFAULT_STARTUP_VOLUME.to_string())
+}
+
+/// The `collection.nml` files of the Traktor programs installed on this
+/// computer, the collections an export must not be written over when the
+/// user did not pass `--collection`: one per `Traktor <version>` folder in
+/// the user's `Documents/Native Instruments`. The folders Traktor writes
+/// there are named after the program and its version, whatever the
+/// language; any other name is left alone.
+pub fn installed_collections() -> Vec<PathBuf> {
+    let documents = match std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+    {
+        Some(home) => home.join("Documents"),
+        None => return Vec::new(),
+    };
+    let native_instruments = documents.join("Native Instruments");
+    let entries = match std::fs::read_dir(&native_instruments) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    let mut collections = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("Traktor ") {
+            continue;
+        }
+        let collection = entry.path().join("collection.nml");
+        if collection.is_file() {
+            collections.push(absolute(&collection).unwrap_or(collection));
+        }
+    }
+    collections
 }
 
 #[cfg(test)]

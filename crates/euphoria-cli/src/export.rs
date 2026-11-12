@@ -237,6 +237,9 @@ struct ExportRequest<'arguments> {
     beat_grid: bool,
     cues: bool,
     collection: Option<&'arguments Path>,
+    /// The collection files an export must never overwrite: the installed
+    /// collections of the program on this computer.
+    protected_collections: Vec<PathBuf>,
     allow_unmatched_cued_tracks: bool,
     analysis: &'arguments AnalysisOptions,
 }
@@ -256,6 +259,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             collection: arguments.collection.as_deref(),
+            protected_collections: Vec::new(),
             allow_unmatched_cued_tracks: arguments.allow_unmatched_cued_tracks,
             analysis: &arguments.analysis,
         },
@@ -285,6 +289,7 @@ fn export_to_traktor(arguments: &TraktorArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             collection: arguments.collection.as_deref(),
+            protected_collections: traktor_collection::installed_collections(),
             allow_unmatched_cued_tracks: arguments.allow_unmatched_cued_tracks,
             analysis: &arguments.analysis,
         },
@@ -310,7 +315,7 @@ fn export_library(
     check_output_file(&output_file, existing)?;
     let cued_tracks = match request.collection {
         Some(collection) => {
-            check_output_is_not_the_collection(&output_file, collection, program)?;
+            check_output_is_not_a_collection(&output_file, &[collection.to_path_buf()], program)?;
             let cued_tracks = read_cued_tracks(collection)?;
             if !cued_tracks.unmatched.is_empty() && !request.allow_unmatched_cued_tracks {
                 bail!(
@@ -322,6 +327,11 @@ fn export_library(
         }
         None => CuedTracks::default(),
     };
+    // The user's installed collection is protected even without --collection,
+    // so --force never overwrites the real one.
+    if !request.protected_collections.is_empty() {
+        check_output_is_not_a_collection(&output_file, &request.protected_collections, program)?;
+    }
     let already_cued = &cued_tracks.paths;
 
     let playlist = match request.playlist {
@@ -588,21 +598,16 @@ fn unmatched_cued_tracks_message(
     message
 }
 
-/// Fails when `output_file` is the collection file, whatever the spelling
+/// Fails when `output_file` is one of `collections`, whatever the spelling
 /// of either path, so that not even `--force` replaces the user's
-/// collection with the export.
-fn check_output_is_not_the_collection(
+/// collection with the export. A collection that cannot be read is skipped:
+/// the guard is about the file the user is about to overwrite, and a missing
+/// file is not that.
+fn check_output_is_not_a_collection(
     output_file: &Path,
-    collection: &Path,
+    collections: &[PathBuf],
     program: Program,
 ) -> Result<()> {
-    let collection = std::fs::canonicalize(collection).with_context(|| {
-        format!(
-            "cannot read the {} collection {}",
-            program.name(),
-            collection.display()
-        )
-    })?;
     let output = match std::fs::canonicalize(output_file) {
         Ok(output) => output,
         Err(_) => {
@@ -613,13 +618,19 @@ fn check_output_is_not_the_collection(
                 .unwrap_or_else(|_| output_file.to_path_buf())
         }
     };
-    if output == collection {
-        bail!(
-            "the output {} is the {} collection given with --collection; choose \
-             another output file. --force does not change this",
-            output_file.display(),
-            program.name()
-        );
+    for collection in collections {
+        let Ok(collection) = std::fs::canonicalize(collection) else {
+            continue;
+        };
+        if output == collection {
+            bail!(
+                "the output {} is the {} collection in {}; choose another output \
+                 file. --force does not change this",
+                output_file.display(),
+                program.name(),
+                collection.display()
+            );
+        }
     }
     Ok(())
 }

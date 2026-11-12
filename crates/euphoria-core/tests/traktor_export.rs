@@ -770,26 +770,44 @@ fn xml_whitespace_in_file_names_is_preserved() {
 }
 
 #[test]
-fn supplementary_xml_characters_are_preserved_and_metadata_controls_are_removed() {
-    // XML 1.0 Char permits the full supplementary range, including these
-    // discouraged noncharacters: https://www.w3.org/TR/xml/#charsets.
+fn noncharacters_and_c1_controls_are_refused_instead_of_stripped() {
+    // XML 1.0 refuses every plane-ending noncharacter, the U+FFFE and U+FFFF
+    // at the end of each plane, so a file name with one names no file an XML
+    // document can hold: https://www.w3.org/TR/xml/#charsets.
     let file = "name\u{1FFFE}\u{10FFFF}.mp3";
-    let library = one_track(Track {
-        title: Some("Title\u{1}\u{1FFFE}\u{10FFFF}".to_string()),
-        ..Track::new(format!("/Music/{file}"), Duration::from_secs(1))
-    });
-    let text = export(&library, &options());
-    let document = roxmltree::Document::parse(&text).expect("the export is well formed XML 1.0");
-    let entry = document
-        .descendants()
-        .find(|node| node.has_tag_name("ENTRY"))
-        .expect("the track is exported");
-    assert_eq!(entry.attribute("TITLE"), Some("Title\u{1FFFE}\u{10FFFF}"));
-    let location = entry
-        .children()
-        .find(|node| node.has_tag_name("LOCATION"))
-        .expect("the track has a location");
-    assert_eq!(location.attribute("FILE"), Some(file));
+    let mut output = Vec::new();
+    let result = write_nml(
+        &mut output,
+        &one_track(Track::new(format!("/Music/{file}"), Duration::from_secs(1))),
+        &options(),
+    );
+    assert!(matches!(
+        result,
+        Err(EuphoriaError::Export {
+            problem: ExportProblem::PathNotXml,
+            ..
+        })
+    ));
+    assert!(output.is_empty());
+
+    // The C1 controls U+0080 to U+009F are refused the same way, in the
+    // metadata, not only in the path.
+    for title in ["Title\u{80}", "Title\u{9F}", "Title\u{FFFF}"] {
+        let mut output = Vec::new();
+        let result = write_nml(
+            &mut output,
+            &one_track(Track {
+                title: Some(title.to_string()),
+                ..Track::new("/Music/track.mp3", Duration::from_secs(1))
+            }),
+            &options(),
+        );
+        assert!(
+            matches!(result, Err(EuphoriaError::ExportTextNotXml)),
+            "{title:?}: {result:?}"
+        );
+        assert!(output.is_empty());
+    }
 }
 
 #[cfg(unix)]

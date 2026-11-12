@@ -1332,8 +1332,7 @@ fn the_collection_is_never_the_output_even_with_force() {
 
         assert_eq!(refused.status.code(), Some(1), "{}", spelling.display());
         assert!(
-            standard_error(&refused)
-                .contains("is the rekordbox collection given with --collection"),
+            standard_error(&refused).contains("is the rekordbox collection in"),
             "{}",
             standard_error(&refused)
         );
@@ -1697,7 +1696,7 @@ fn traktor_cues_leave_out_tracks_with_cues_of_their_own_in_the_collection() {
 
     assert_eq!(refused.status.code(), Some(1));
     assert!(
-        standard_error(&refused).contains("is the Traktor collection given with --collection"),
+        standard_error(&refused).contains("is the Traktor collection in"),
         "{}",
         standard_error(&refused)
     );

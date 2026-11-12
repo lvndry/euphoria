@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::rekordbox::{
     CueKind, CuePoint, ExistingFile, Library, MAX_FOLDER_DEPTH, PlaylistNode, Track, export_error,
-    push_attribute, tempo_text, write_file,
+    is_xml_character, push_attribute, tempo_text, write_file,
 };
 use crate::error::{EuphoriaError, ExportProblem};
 use crate::key::{Key, Mode};
@@ -57,18 +57,6 @@ pub struct ModifiedTime {
 }
 
 impl ModifiedTime {
-    fn is_valid(self) -> bool {
-        let leap_year = self.year % 4 == 0 && (self.year % 100 != 0 || self.year % 400 == 0);
-        let days = match self.month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            4 | 6 | 9 | 11 => 30,
-            2 if leap_year => 29,
-            2 => 28,
-            _ => return false,
-        };
-        self.day > 0 && self.day <= days && u64::from(self.seconds_of_day) < SECONDS_PER_DAY
-    }
-
     /// The time `moment`, or the Unix epoch for a moment before it.
     pub fn at(moment: SystemTime) -> Self {
         let since_epoch = moment
@@ -88,6 +76,31 @@ impl ModifiedTime {
     /// Now.
     pub fn now() -> Self {
         Self::at(SystemTime::now())
+    }
+
+    /// True when the fields name a date and a moment of that day.
+    pub fn is_valid(self) -> bool {
+        self.month >= 1
+            && self.month <= 12
+            && self.day >= 1
+            && self.day <= Self::days_in(self.year, self.month)
+            && u64::from(self.seconds_of_day) < SECONDS_PER_DAY
+    }
+
+    /// The number of days the month of `year` has.
+    fn days_in(year: i64, month: u32) -> u32 {
+        match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 => {
+                if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+                    29
+                } else {
+                    28
+                }
+            }
+            _ => 0,
+        }
     }
 }
 
@@ -195,6 +208,12 @@ pub fn nml_location(path: &Path, startup_volume: &str) -> Result<NmlLocation, Ex
             .collect();
         match parts.as_slice() {
             ["Volumes", volume, rest @ ..] if !rest.is_empty() => {
+                // The volume is a component of the path, so the same rule as
+                // for the folders applies: a volume named . or .. names no
+                // file on the volume it seems to be on.
+                if matches!(*volume, "." | "..") {
+                    return Err(ExportProblem::NotAbsolutePath);
+                }
                 (volume.to_string(), rest.to_vec())
             }
             _ => (startup_volume.to_string(), parts),
@@ -217,14 +236,9 @@ pub fn nml_location(path: &Path, startup_volume: &str) -> Result<NmlLocation, Ex
         directory,
         file: (*file).to_string(),
     };
-    let xml_character = |character| match character {
-        '\t' | '\n' | '\r' => true,
-        '\0'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}' => false,
-        _ => true,
-    };
     if [&location.volume, &location.directory, &location.file]
         .into_iter()
-        .any(|part| !part.chars().all(xml_character))
+        .any(|part| !part.chars().all(is_xml_character))
     {
         return Err(ExportProblem::PathNotXml);
     }
@@ -260,9 +274,10 @@ pub fn key_from_musical_key_value(value: u8) -> Option<Key> {
 /// already; dj-data-converter does the same. A track with a tempo and a
 /// first beat gets a grid marker at that beat.
 ///
-/// Metadata follows [`super::rekordbox::write_xml`]: characters XML 1.0
-/// cannot represent are removed from titles, comments and other names.
-/// Paths are checked separately and are never changed to remove characters.
+/// Metadata follows [`super::rekordbox::push_attribute`]: a title, comment,
+/// cue name or playlist name that contains characters XML 1.0 cannot
+/// represent refuses the export, instead of being silently changed. Paths
+/// are checked separately and are never changed to remove characters.
 ///
 /// # Errors
 ///
@@ -310,10 +325,10 @@ fn render(library: &Library, options: &TraktorOptions) -> Result<String, Euphori
     let mut document = String::new();
     document.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n");
     document.push_str("<NML");
-    push_attribute(&mut document, "VERSION", NML_VERSION);
+    push_attribute(&mut document, "VERSION", NML_VERSION)?;
     document.push_str(">\n");
     document.push_str("  <COLLECTION");
-    push_attribute(&mut document, "ENTRIES", &library.tracks.len().to_string());
+    push_attribute(&mut document, "ENTRIES", &library.tracks.len().to_string())?;
     document.push_str(">\n");
     for track in &library.tracks {
         let location = nml_location(&track.path, &options.startup_volume)
@@ -330,7 +345,7 @@ fn render(library: &Library, options: &TraktorOptions) -> Result<String, Euphori
     document.push_str("  <PLAYLISTS>\n");
     document.push_str("    <NODE TYPE=\"FOLDER\" NAME=\"$ROOT\">\n");
     document.push_str("      <SUBNODES");
-    push_attribute(&mut document, "COUNT", &library.playlists.len().to_string());
+    push_attribute(&mut document, "COUNT", &library.playlists.len().to_string())?;
     document.push_str(">\n");
     let mut node_path = Vec::new();
     for node in &library.playlists {
@@ -376,47 +391,47 @@ fn push_entry(
         document,
         "MODIFIED_DATE",
         &format!("{}/{}/{}", modified.year, modified.month, modified.day),
-    );
+    )?;
     push_attribute(
         document,
         "MODIFIED_TIME",
         &modified.seconds_of_day.to_string(),
-    );
+    )?;
     if let Some(title) = &track.title {
-        push_attribute(document, "TITLE", title);
+        push_attribute(document, "TITLE", title)?;
     }
     if let Some(artist) = &track.artist {
-        push_attribute(document, "ARTIST", artist);
+        push_attribute(document, "ARTIST", artist)?;
     }
     document.push_str(">\n");
 
     document.push_str("      <LOCATION");
-    push_attribute(document, "DIR", &location.directory);
-    push_attribute(document, "FILE", &location.file);
-    push_attribute(document, "VOLUME", &location.volume);
+    push_attribute(document, "DIR", &location.directory)?;
+    push_attribute(document, "FILE", &location.file)?;
+    push_attribute(document, "VOLUME", &location.volume)?;
     document.push_str("/>\n");
 
     document.push_str("      <INFO");
     let seconds = track.duration.as_secs_f64();
-    push_attribute(document, "PLAYTIME", &format!("{:.0}", seconds.round()));
-    push_attribute(document, "PLAYTIME_FLOAT", &format!("{seconds:.6}"));
+    push_attribute(document, "PLAYTIME", &format!("{:.0}", seconds.round()))?;
+    push_attribute(document, "PLAYTIME_FLOAT", &format!("{seconds:.6}"))?;
     if let Some(key) = track.key {
-        push_attribute(document, "KEY", &options.key_notation.spell(key));
+        push_attribute(document, "KEY", &options.key_notation.spell(key))?;
     }
     if let Some(comment) = &track.comment {
-        push_attribute(document, "COMMENT", comment);
+        push_attribute(document, "COMMENT", comment)?;
     }
     document.push_str("/>\n");
 
     if let Some(tempo) = &tempo {
         document.push_str("      <TEMPO");
-        push_attribute(document, "BPM", tempo);
-        push_attribute(document, "BPM_QUALITY", "100.000000");
+        push_attribute(document, "BPM", tempo)?;
+        push_attribute(document, "BPM_QUALITY", "100.000000")?;
         document.push_str("/>\n");
     }
     if let Some(key) = track.key {
         document.push_str("      <MUSICAL_KEY");
-        push_attribute(document, "VALUE", &musical_key_value(key).to_string());
+        push_attribute(document, "VALUE", &musical_key_value(key).to_string())?;
         document.push_str("/>\n");
     }
 
@@ -427,7 +442,7 @@ fn push_entry(
             CueType::Grid(tempo),
             first_beat,
             -1,
-        );
+        )?;
     }
     for cue_point in cues_to_write(&track.cue_points) {
         let hot_cue = match cue_point.kind {
@@ -440,7 +455,7 @@ fn push_entry(
             CueType::Cue,
             cue_point.time,
             hot_cue,
-        );
+        )?;
     }
     document.push_str("    </ENTRY>\n");
     Ok(())
@@ -470,10 +485,10 @@ fn push_cue(
     cue_type: CueType<'_>,
     start: Duration,
     hot_cue: i16,
-) {
+) -> Result<(), EuphoriaError> {
     document.push_str("      <CUE_V2");
-    push_attribute(document, "NAME", name);
-    push_attribute(document, "DISPL_ORDER", "0");
+    push_attribute(document, "NAME", name)?;
+    push_attribute(document, "DISPL_ORDER", "0")?;
     push_attribute(
         document,
         "TYPE",
@@ -481,19 +496,20 @@ fn push_cue(
             CueType::Cue => "0",
             CueType::Grid(_) => "4",
         },
-    );
-    push_attribute(document, "START", &milliseconds(start));
-    push_attribute(document, "LEN", "0.000000");
-    push_attribute(document, "REPEATS", "-1");
-    push_attribute(document, "HOTCUE", &hot_cue.to_string());
+    )?;
+    push_attribute(document, "START", &milliseconds(start))?;
+    push_attribute(document, "LEN", "0.000000")?;
+    push_attribute(document, "REPEATS", "-1")?;
+    push_attribute(document, "HOTCUE", &hot_cue.to_string())?;
     match cue_type {
         CueType::Cue => document.push_str("/>\n"),
         CueType::Grid(tempo) => {
             document.push_str(">\n        <GRID");
-            push_attribute(document, "BPM", tempo);
+            push_attribute(document, "BPM", tempo)?;
             document.push_str("/>\n      </CUE_V2>\n");
         }
     }
+    Ok(())
 }
 
 fn milliseconds(position: Duration) -> String {
@@ -518,11 +534,11 @@ fn push_playlist_node<'library>(
             }
             document.push_str(&indent);
             document.push_str("<NODE TYPE=\"FOLDER\"");
-            push_attribute(document, "NAME", &folder.name);
+            push_attribute(document, "NAME", &folder.name)?;
             document.push_str(">\n");
             document.push_str(&indent);
             document.push_str("  <SUBNODES");
-            push_attribute(document, "COUNT", &folder.children.len().to_string());
+            push_attribute(document, "COUNT", &folder.children.len().to_string())?;
             document.push_str(">\n");
             node_path.push(&folder.name);
             for child in &folder.children {
@@ -538,13 +554,13 @@ fn push_playlist_node<'library>(
             node_path.pop();
             document.push_str(&indent);
             document.push_str("<NODE TYPE=\"PLAYLIST\"");
-            push_attribute(document, "NAME", &playlist.name);
+            push_attribute(document, "NAME", &playlist.name)?;
             document.push_str(">\n");
             document.push_str(&indent);
             document.push_str("  <PLAYLIST");
-            push_attribute(document, "ENTRIES", &playlist.tracks.len().to_string());
-            push_attribute(document, "TYPE", "LIST");
-            push_attribute(document, "UUID", &uuid);
+            push_attribute(document, "ENTRIES", &playlist.tracks.len().to_string())?;
+            push_attribute(document, "TYPE", "LIST")?;
+            push_attribute(document, "UUID", &uuid)?;
             document.push_str(">\n");
             for path in &playlist.tracks {
                 let primary_key = primary_keys
@@ -552,7 +568,7 @@ fn push_playlist_node<'library>(
                     .ok_or_else(|| export_error(path, ExportProblem::NotInCollection))?;
                 document.push_str(&indent);
                 document.push_str("    <ENTRY><PRIMARYKEY TYPE=\"TRACK\"");
-                push_attribute(document, "KEY", primary_key);
+                push_attribute(document, "KEY", primary_key)?;
                 document.push_str("/></ENTRY>\n");
             }
             document.push_str(&indent);
