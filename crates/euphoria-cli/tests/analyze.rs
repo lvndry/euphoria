@@ -45,6 +45,17 @@ fn analyzes_a_folder_as_json() {
             .iter()
             .any(|ending| path.ends_with(ending));
         assert_eq!(lossless, !lossy, "{track}");
+        if path.contains("alac") {
+            assert_eq!(
+                quality["bit_depth"], 16,
+                "ALAC fixture must report 16-bit depth: {track}"
+            );
+        } else if lossy {
+            assert!(
+                quality["bit_depth"].is_null(),
+                "lossy fixtures have no bit depth: {track}"
+            );
+        }
         assert!(quality["reason"].as_str().is_some(), "{track}");
         let tuning = &track["tuning_cents"];
         let timeline = track["key_timeline"].as_array().expect("a key timeline");
