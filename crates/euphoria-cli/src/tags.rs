@@ -11,8 +11,9 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::tags::{
-    DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, TagWriteOptions, WriteLog, WritePlan,
-    default_write_log_directory, plan_write, undo_last_write_with_observer,
+    DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, SeratoMarkers, SeratoReport,
+    TagWriteOptions, WriteLog, WritePlan, add_serato_markers, default_write_log_directory,
+    plan_write, undo_last_write_with_observer,
 };
 use euphoria_core::{
     CachedBatch, Correction, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
@@ -66,6 +67,11 @@ pub struct WriteArguments {
     /// The DJ program whose tag fields are written.
     #[arg(long, value_enum, default_value_t, value_name = "PROGRAM")]
     preset: PresetChoice,
+    /// Also write each track's cue points and beat grid where Serato DJ
+    /// reads them, in MP3, AIFF, M4A and FLAC files. Cue points and grids
+    /// already in the files are kept. Mixxx and VirtualDJ read them too.
+    #[arg(long)]
+    serato_markers: bool,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -172,6 +178,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     let mut plans: Vec<WritePlan> = Vec::new();
     let mut analyses: Vec<TrackAnalysis> = Vec::new();
     let mut failures: Vec<Failure> = Vec::new();
+    let mut serato_reports: Vec<(PathBuf, SeratoReport)> = Vec::new();
     let mut unchanged_count = 0;
     for result in results {
         // The tags get the values the user set; the cache keeps the
@@ -191,7 +198,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
             None => Correction::default(),
         };
         let planned = result.outcome.and_then(|analysis| {
-            plan_write(
+            let mut plan = plan_write(
                 &result.path,
                 &correction.apply(
                     analysis
@@ -199,8 +206,13 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                         .with_tempo_range(arguments.analysis.tempo_range()),
                 ),
                 &options,
-            )
-            .map(|plan| (plan, analysis))
+            )?;
+            if arguments.serato_markers {
+                let report =
+                    add_serato_markers(&mut plan, &SeratoMarkers::from_analysis(&analysis))?;
+                serato_reports.push((result.path.clone(), report));
+            }
+            Ok((plan, analysis))
         });
         match planned {
             Ok((plan, _)) if plan.is_empty() => unchanged_count += 1,
@@ -221,6 +233,9 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     drop(standard_output);
     let mut standard_error = std::io::stderr().lock();
     output::write_tag_failures(&mut standard_error, &theme, &failures)?;
+    if arguments.serato_markers {
+        output::write_serato_reports(&mut standard_error, &theme, &serato_reports)?;
+    }
     output::write_tag_plan_summary(
         &mut standard_error,
         &theme,

@@ -7,6 +7,7 @@
 //! [`crate::tags::undo`] puts those values back. [`crate::tags::WriteLog`] keeps the backups of a
 //! write on disk, so the write can be undone later by another run.
 
+mod base64;
 mod edit;
 mod flac;
 mod history;
@@ -17,6 +18,7 @@ mod native;
 mod preset;
 mod replace;
 mod riff_info;
+mod serato;
 
 use std::path::{Path, PathBuf};
 
@@ -36,6 +38,11 @@ pub use label::LabelPlacement;
 use mp4::TEMPO as MP4_TEMPO;
 use native::{Purpose, TagFile};
 pub use preset::DjSoftware;
+pub use serato::{
+    GridOutcome, PlacedCue, SERATO_CUE_COLOURS, SERATO_HOT_CUES, SeratoCue, SeratoGrid,
+    SeratoMarkers, SeratoReport, SeratoSkip, add_serato_markers, describe_serato_value,
+    serato_field_name,
+};
 
 const BPM_MATCH_TOLERANCE: f64 = 0.005;
 
