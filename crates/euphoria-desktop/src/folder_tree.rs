@@ -591,9 +591,10 @@ mod tests {
         let started = std::time::Instant::now();
         let tree = tree_of(&library);
         let rows = tree.visible_rows(&everything_expanded(&tree));
-        // Generous, because test machines can be heavily loaded; a quadratic
-        // build takes minutes on this library.
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        // On an M5 this takes 0.4 to 0.9 seconds with the other tests
+        // running, and up to 2.5 with every core busy. The bound is ten times
+        // that; a quadratic build takes minutes on this library.
+        assert!(started.elapsed() < std::time::Duration::from_secs(25));
         assert_eq!(tree.node(tree.roots[0]).unwrap().track_count, 20_000);
         assert!(rows.len() > 400, "{}", rows.len());
     }
@@ -667,9 +668,18 @@ mod tests {
         }) {
             library.record_outcome(Path::new(&file), Err("cannot decode".to_string()));
         }
-        let started = std::time::Instant::now();
-        tree.recount_reviews(library.tracks());
-        let recount_time = started.elapsed();
+        // The shortest of five recounts, so that a moment the test machine
+        // spends on other work does not count. A recount takes about 2 ms
+        // against 0.4 to 2.5 s for a build on an M5, so the margin below is
+        // wide; a pause in the middle of a single recount was its only risk.
+        let recount_time = (0..5)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                tree.recount_reviews(library.tracks());
+                started.elapsed()
+            })
+            .min()
+            .unwrap_or_default();
 
         let fresh = tree_of(&library);
         assert_eq!(tree.nodes, fresh.nodes);

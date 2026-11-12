@@ -74,12 +74,12 @@ pub fn run(arguments: &ShiftArguments) -> Result<ExitCode> {
     // with the user's correction when there is one.
     let files = vec![input.clone()];
     let batch = batch::analyze(&files, &arguments.analysis)?;
-    let corrections = batch::corrections(
+    let user_edits = batch::user_edits(
         &batch.results,
         &arguments.analysis,
         batch::CorrectionCheck::ReadFile,
     )?;
-    let results = batch::corrected(batch.results, &corrections);
+    let results = batch::corrected(batch.results, &user_edits);
     let values = match results.into_iter().next().map(|result| result.outcome) {
         Some(Ok(analysis)) => TagValues::from(&analysis),
         Some(Err(error)) => return Err(with_causes(error)),

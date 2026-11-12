@@ -32,6 +32,8 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 
 Euphoria uses libkeyfinder for key, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
+![How the detected key compares with the annotated key on the 604 previews: exact for 60.6%, a fifth away for 11.3%, the relative key for 6.8%, the parallel key for 5.5% and another key for 15.9%. Exact, a fifth away and the relative key still mix in key.](../images/accuracy/key-outcomes.svg)
+
 ## How the tempo is chosen
 
 Tempo detection runs the stratum-dsp tempogram estimate on its own, without the key analysis that stratum-dsp otherwise computes with it. That estimate finds the pulse of a track well, but it often lands on half the tempo a DJ counts: before any correction, 83 of the 661 previews came out below 70 BPM, where only 3 are labelled that slow, and a 125 BPM house track could be reported as 62.5.
@@ -43,6 +45,8 @@ Euphoria therefore reports every tempo between 90 and 180 BPM. An estimate below
 | Tempogram estimate as it comes | 62.2% | 84.7% | 83 | 0 |
 | Reported between 90 and 180 BPM | 77.6% | 85.5% | 0 | 0 |
 | Full stratum-dsp analysis with its default settings, which Euphoria used before | 59.9% | 84.9% | 26 | 0 |
+
+![Accuracy 1 and Accuracy 2 of each way of choosing the tempo. The estimate as it comes scores 62.2% and 84.7%, placed between 90 and 180 BPM 77.6% and 85.5%, and the full stratum-dsp analysis 59.9% and 84.9%. Placing the tempo in the range raises Accuracy 1 and leaves Accuracy 2 almost where it was.](../images/accuracy/tempo-range.svg)
 
 The price is that a track whose real tempo is below 90 BPM, such as slow hip hop at 85, is reported at double, 170, and one at 180 or above at half. 50 of the 661 previews are labelled below 90 BPM and 6 at 180 or above, and those count as misses in Accuracy 1 above. The harmonic matching can treat half and double tempo as a match for such tracks.
 
@@ -70,6 +74,8 @@ The band edges were set on every other preview in name order and checked on the 
 | Medium | 40% | 57.0% | 67.6% | 78.5% |
 | Low | 20% | 41.0% | 53.0% | 68.9% |
 
+![How often the key is exact on the held out half at each confidence: 74.2% of keys rated high, 57.0% of keys rated medium and 41.0% of keys rated low, against 60.6% of all 604 previews.](../images/accuracy/key-confidence.svg)
+
 On the half the edges were set on, the same bands are right 77.2%, 55.8% and 35.6% of the time. So a key rated high is right about three times in four, and one rated low less than half the time.
 
 The runner up is often the right key. Of the 238 previews whose detected key is wrong, the runner up is the annotated key for 105, so the key or its runner up is right for 78% of the previews. Against the detected key, the runner up is a fifth away for 211 previews, the parallel key (same tonic, other mode) for 196, the relative key for 112 and something else for 85. A fifth away and the relative key are the moves that mix in key, which is why a wrong key so often still sounds right in a mix.
@@ -87,6 +93,8 @@ Bands were set the same way, from the fifths of the first half: low below 0.09, 
 | High | 39% | 97.7% | 82.9% |
 | Medium | 42% | 89.8% | 86.9% |
 | Low | 19% | 62.5% | 57.8% |
+
+![How often the tempo is right modulo octaves on the held out half at each confidence: 97.7% of tempos rated high, 89.8% of tempos rated medium and 62.5% of tempos rated low.](../images/accuracy/tempo-confidence.svg)
 
 On the first half the bands are right modulo octaves 98.5%, 81.2% and 58.8% of the time. Accuracy 1 is not ordered between high and medium on the held out half because its misses are mostly octave errors, which the confidence does not rate: a tempo can be certain and still be counted at double.
 
@@ -239,7 +247,7 @@ Euphoria marks where the sections of a track start, the places a DJ sets cues at
 | Drop | The first bar at full energy after a breakdown. |
 | Outro | The first bar after the last section at full energy, when at least 8 bars follow it. |
 
-A track gets at most 8 cues, one per hot cue pad from A to H. When there would be more, the start, the main section and the outro are kept, and then the earliest breakdowns and drops. `euphoria analyze --json` reports the cues, and `euphoria export rekordbox --beat-grid --cues` writes them; see [the command reference](../reference/cli.md#cue-points).
+A track gets at most 8 cues, one per hot cue pad from A to H. When there would be more, the start, the main section and the outro are kept, and then the earliest breakdowns and drops. `euphoria analyze --json` reports the cues, and `euphoria export rekordbox --beat-grid --cues` writes them; see [the command reference](../reference/cli.md#cue-points). Where a cue is off, move it, or add, rename and delete cues, in the [desktop app](../guides/desktop-app.md#cue-points); your cues then replace these everywhere.
 
 ![The energy rating of a two minute preview, with the cues Euphoria sets on it: Start at 0.2 seconds where the rating is 2 to 3, Main at 15.7 seconds where it rises to 7 and 8, Breakdown at 77.7 seconds where it falls to 1, and Drop at 93.1 seconds where it comes back to 7 and 8.](../images/beat-grid/cues.svg)
 

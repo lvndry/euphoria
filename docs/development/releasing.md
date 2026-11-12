@@ -5,7 +5,7 @@ description: How a release of Euphoria is numbered, built and published.
 
 # Releasing
 
-A release is one button: the **Release** workflow builds the macOS app and the command line tool on GitHub's runners, tags the commit and publishes a GitHub Release with the files. Only the repository owner can run it, and only from `main`.
+A release is one button: the **Release** workflow builds the macOS and Linux apps and command line tools on GitHub's runners, tags the commit and publishes a GitHub Release with the files. Only the repository owner can run it, and only from `main`.
 
 ## Version numbers
 
@@ -42,7 +42,13 @@ The workflow works the number out itself from the date and the existing tags, wi
    - `euphoria-<version>-aarch64-apple-darwin.tar.gz`, with `scripts/release/package-cli.sh`: the command line tool in `bin/`, libkeyfinder and FFTW in `lib/`, the licence, the licences of the vendored Signalsmith libraries in `licenses/`, and the README. It runs from wherever it is unpacked, and a Homebrew formula can install `bin/` and `lib/` as they are.
    - `Euphoria.dmg`, the same disk image under a name without the version.
    - `SHA256SUMS`, the SHA-256 checksum of each file.
-3. **Tag and publish** (Linux runner). Makes the commit `chore(release): <version>` with the same version changes on top of the commit that was built, and checks that its files are exactly those that were built. Tags it `v<version>`, pushes the tag, and publishes the GitHub Release with the files and notes, marked as the latest release.
+3. **Build for Linux** (`ubuntu-22.04`, x86_64), at the same time as the macOS build. Sets the version the same way, installs libkeyfinder from source with `.github/scripts/install-linux-dependencies.sh`, and builds:
+   - `Euphoria-<version>-x86_64.AppImage`, with `scripts/bundle-linux.sh`.
+   - `euphoria-<version>-x86_64-unknown-linux-gnu.tar.gz`, with `scripts/release/package-cli.sh`: the same layout as the macOS tarball, with the run path `$ORIGIN/../lib`.
+   - `Euphoria-x86_64.AppImage`, the same AppImage under a name without the version.
+
+   It then runs `scripts/release/check-linux-packages.sh`, which analyzes a test file with the command line tool in bare Ubuntu 22.04 and Fedora containers and starts the AppImage in an Ubuntu 22.04 container that has only the libraries every desktop has, under a virtual X server, where its window must appear. It reads the oldest glibc the files run on from their symbol versions, for the release notes, and writes the checksums of its files. The runner is the oldest Ubuntu LTS GitHub offers, because a Linux program needs at least the glibc it was built against.
+4. **Tag and publish** (Linux runner). Checks that both builds were made from the same files. Makes the commit `chore(release): <version>` with the same version changes on top of the commit that was built, and checks that its files are exactly those that were built. Tags it `v<version>`, pushes the tag, checks each build's files against its checksums, joins the checksums into one `SHA256SUMS`, and publishes the GitHub Release with the files and notes, marked as the latest release.
 
 The release commit is not pushed to `main`. `main` is protected by a ruleset that requires a pull request for every change, which the workflow's token cannot bypass, and a release should not need one. The tag is not covered by that ruleset, so the workflow pushes only the tag, and the commit is reachable through it. The ruleset needs no change.
 
@@ -55,6 +61,8 @@ Run the workflow again. Nothing has to be cleaned up first:
 - A tag that fails those checks stops the run with the reason. It was not made by this workflow, and the owner decides what to do with it.
 
 A release that is finished in a later month keeps its version: it is the version of the tag.
+
+A release is finished with the files its tag can build. A tag whose files hold `scripts/bundle-linux.sh` needs the Linux files too; an older one, such as `v2026.11.0`, is complete with the macOS files, and finishing it skips the Linux build.
 
 `scripts/release/plan_release.py` makes this choice, and `python3 -m unittest discover -s scripts/release -p 'test_*.py'` tests it together with the version, the manifest changes and the release notes.
 
@@ -70,19 +78,26 @@ python3 scripts/release/release_notes.py --version 2026.11.1 --since v2026.11.0 
 
 ## Download links
 
-Every release has these files:
+Every release has these files (the two Linux ones from the first release after 2026.11.0):
 
 ```
 https://github.com/lvndry/euphoria/releases/download/v<version>/Euphoria-<version>.dmg
 https://github.com/lvndry/euphoria/releases/download/v<version>/euphoria-<version>-aarch64-apple-darwin.tar.gz
+https://github.com/lvndry/euphoria/releases/download/v<version>/Euphoria-<version>-x86_64.AppImage
+https://github.com/lvndry/euphoria/releases/download/v<version>/euphoria-<version>-x86_64-unknown-linux-gnu.tar.gz
 https://github.com/lvndry/euphoria/releases/download/v<version>/SHA256SUMS
 ```
 
-This link always leads to the disk image of the newest release, for the README and a website:
+These links always lead to the disk image and the AppImage of the newest release, for the README and a website:
 
 ```
 https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg
+https://github.com/lvndry/euphoria/releases/latest/download/Euphoria-x86_64.AppImage
 ```
+
+## Linux on x86_64 only
+
+The Linux files are built for x86_64. An arm64 build would work the same way, since `scripts/bundle-linux.sh` pins the AppImage tools for both, but needs an arm64 runner in the workflow. The files need the glibc of Ubuntu 22.04, the release runner, or a newer one; the release notes give the exact version, which `scripts/linux_libraries.py minimum-glibc` reads from the symbol versions the files ask for.
 
 ## Apple Silicon only
 

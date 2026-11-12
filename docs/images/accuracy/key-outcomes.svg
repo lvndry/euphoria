@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="336" viewBox="0 0 800 336" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">What the detected key is, against the annotated one</title>
+<desc id="chart-desc">Horizontal bars of how the key Euphoria detects compares with the annotated key on the 604 GiantSteps Key previews: exact for 60.6%, a fifth away for 11.3%, the relative key for 6.8%, the parallel key for 5.5% and something else for 15.9%. A bracket marks exact, a fifth away and relative as the outcomes that still mix in key.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.bracket { stroke: #52514e; stroke-width: 1.5; fill: none; }
+.connector { stroke: #c3c2b7; stroke-width: 2; fill: none; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis, .connector { stroke: #383835; }
+  .bracket { stroke: #c3c2b7; }
+  .series-fill, .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .ring, .halo { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="335" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">What the detected key is, against the annotated one</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">604 GiantSteps Key previews. The MIREX score counts exact 1.0, a fifth 0.5, relative 0.3, parallel 0.2.</text>
+<line x1="150" y1="92" x2="150" y2="272" class="axis"/>
+<text x="150" y="292" class="tick" text-anchor="middle">0%</text>
+<line x1="290" y1="92" x2="290" y2="272" class="grid"/>
+<text x="290" y="292" class="tick" text-anchor="middle">20%</text>
+<line x1="430" y1="92" x2="430" y2="272" class="grid"/>
+<text x="430" y="292" class="tick" text-anchor="middle">40%</text>
+<line x1="570" y1="92" x2="570" y2="272" class="grid"/>
+<text x="570" y="292" class="tick" text-anchor="middle">60%</text>
+<text x="360" y="316" class="label" text-anchor="middle">Share of the previews</text>
+<text x="136" y="114.5" class="label" text-anchor="end">Exact</text>
+<path class="series-fill" d="M150,100 H570.2 Q574.2,100 574.2,104 V116 Q574.2,120 570.2,120 H150 Z"/>
+<text x="584.2" y="114.5" class="value halo" text-anchor="start">60.6%</text>
+<text x="136" y="150.5" class="label" text-anchor="end">A fifth away</text>
+<path class="series-fill" d="M150,136 H225.1 Q229.1,136 229.1,140 V152 Q229.1,156 225.1,156 H150 Z"/>
+<text x="239.1" y="150.5" class="value halo" text-anchor="start">11.3%</text>
+<text x="136" y="186.5" class="label" text-anchor="end">Relative key</text>
+<path class="series-fill" d="M150,172 H193.6 Q197.6,172 197.6,176 V188 Q197.6,192 193.6,192 H150 Z"/>
+<text x="207.6" y="186.5" class="value halo" text-anchor="start">6.8%</text>
+<text x="136" y="222.5" class="label" text-anchor="end">Parallel key</text>
+<path class="series-fill" d="M150,208 H184.5 Q188.5,208 188.5,212 V224 Q188.5,228 184.5,228 H150 Z"/>
+<text x="198.5" y="222.5" class="value halo" text-anchor="start">5.5%</text>
+<text x="136" y="258.5" class="label" text-anchor="end">Other</text>
+<path class="series-fill" d="M150,244 H257.3 Q261.3,244 261.3,248 V260 Q261.3,264 257.3,264 H150 Z"/>
+<text x="271.3" y="258.5" class="value halo" text-anchor="start">15.9%</text>
+<polyline points="652,100 660,100 660,192 652,192" class="bracket"/>
+<text x="670" y="142" class="label" text-anchor="start">Mixes</text>
+<text x="670" y="159" class="label" text-anchor="start">in key</text>
+</svg>

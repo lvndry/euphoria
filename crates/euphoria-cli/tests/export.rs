@@ -11,11 +11,14 @@ use std::process::Output;
 
 use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
 
-const AUDIO_FIXTURES: [&str; 7] = [
+const AUDIO_FIXTURES: [&str; 10] = [
+    "sine-440hz-mono-alac.m4a",
     "sine-440hz-mono.aiff",
     "sine-440hz-mono.flac",
     "sine-440hz-mono.m4a",
     "sine-440hz-mono.mp3",
+    "sine-440hz-mono.mp4",
+    "sine-440hz-mono.ogg",
     "sine-440hz-mono.wav",
     "sine-440hz-opposite-phase-stereo.flac",
     "sine-440hz-stereo.wav",
@@ -222,7 +225,7 @@ fn exports_every_fixture_with_its_location_key_and_tempo() {
     assert_eq!(
         summary_lines(&exported)[0],
         format!(
-            "Exported 7 tracks in 1 playlist to {}",
+            "Exported 10 tracks in 1 playlist to {}",
             output_file.display()
         )
     );
@@ -317,7 +320,7 @@ fn a_second_run_comes_from_the_cache_and_writes_the_same_file() {
     assert_success(&second_run);
     assert!(!summary_lines(&first_run)[0].contains("from the cache"));
     assert!(
-        summary_lines(&second_run)[0].ends_with("second.xml (7 from the cache)"),
+        summary_lines(&second_run)[0].ends_with("second.xml (10 from the cache)"),
         "{}",
         standard_error(&second_run)
     );
@@ -344,7 +347,7 @@ fn titles_and_artists_come_from_the_tags_of_the_files() {
 
     assert_success(&exported);
     let library = ExportedLibrary::read(&output_file);
-    assert_eq!(library.tracks.len(), 5);
+    assert_eq!(library.tracks.len(), 8);
     for track in &library.tracks {
         assert_eq!(track.name.as_deref(), Some("Low Tide"), "{track:?}");
         assert_eq!(track.artist.as_deref(), Some("Saffron & Co"), "{track:?}");
@@ -417,7 +420,7 @@ fn a_file_that_fails_is_reported_and_the_others_are_exported() {
     );
     assert!(lines[0].contains("unsupported format"), "{errors}");
     assert!(
-        lines[1].starts_with("Exported 7 tracks in 1 playlist to "),
+        lines[1].starts_with("Exported 10 tracks in 1 playlist to "),
         "{errors}"
     );
     assert_eq!(
@@ -708,7 +711,7 @@ fn no_playlists_exports_the_collection_only() {
     assert_success(&exported);
     assert_eq!(
         summary_lines(&exported)[0],
-        format!("Exported 7 tracks to {}", output_file.display())
+        format!("Exported 10 tracks to {}", output_file.display())
     );
     let library = ExportedLibrary::read(&output_file);
     assert_eq!(library.tracks.len(), AUDIO_FIXTURES.len());
@@ -1237,6 +1240,100 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
 }
 
 #[test]
+fn the_cues_the_user_set_replace_the_automatic_ones_in_the_json_and_the_export() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let automatic = analyzed_as_json(&euphoria, music_folder.path());
+    assert_eq!(automatic[0]["cues"][0]["hot_cue"], "A");
+    assert_eq!(automatic[0]["set_by_user"], serde_json::json!([]));
+
+    let edited = vec![
+        euphoria_core::Cue {
+            seconds: 2.25,
+            name: "My drop".to_string(),
+            hot_cue: euphoria_core::HotCue::from_letter('C'),
+        },
+        euphoria_core::Cue {
+            seconds: 10.0,
+            name: "Memory only".to_string(),
+            hot_cue: None,
+        },
+    ];
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .set_edited_cues(&track, Some(&edited))
+        .expect("the cues are kept");
+
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    assert_eq!(
+        analyzed[0]["cues"],
+        serde_json::json!([
+            {"seconds": 2.25, "name": "My drop", "hot_cue": "C"},
+            {"seconds": 10.0, "name": "Memory only", "hot_cue": null},
+        ])
+    );
+    assert_eq!(analyzed[0]["set_by_user"], serde_json::json!(["cues"]));
+
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let empty_collection = output.join("empty-collection.xml");
+    std::fs::write(
+        &empty_collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let cued_collection = output.join("cued-collection.xml");
+    std::fs::write(
+        &cued_collection,
+        format!(
+            "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"1\">\
+             <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
+             <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
+             </TRACK></COLLECTION></DJ_PLAYLISTS>",
+            text(&track)
+        ),
+    )
+    .expect("the collection is written");
+    let export = |name: &str, collection: &Path| {
+        let file = output.join(name);
+        let run = euphoria.run(&[
+            "export",
+            "rekordbox",
+            text(&track),
+            "-o",
+            text(&file),
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(collection),
+        ]);
+        (run, file)
+    };
+
+    let (exported, exported_file) = export("edited.xml", &empty_collection);
+    assert_success(&exported);
+    assert_eq!(
+        exported_cues(&exported_file),
+        [
+            ("My drop".to_string(), "-1".to_string()),
+            ("My drop".to_string(), "2".to_string()),
+            ("Memory only".to_string(), "-1".to_string()),
+        ]
+    );
+
+    let (left_out, left_out_file) = export("left-out.xml", &cued_collection);
+    assert_eq!(left_out.status.code(), Some(1));
+    assert!(
+        standard_error(&left_out).contains("every track already has cues"),
+        "{}",
+        standard_error(&left_out)
+    );
+    assert!(!left_out_file.exists());
+}
+
+#[test]
 fn a_grid_rated_low_is_left_out_and_not_counted() {
     let euphoria = Euphoria::new();
     let music_folder = TemporaryFolder::new();
@@ -1332,8 +1429,7 @@ fn the_collection_is_never_the_output_even_with_force() {
 
         assert_eq!(refused.status.code(), Some(1), "{}", spelling.display());
         assert!(
-            standard_error(&refused)
-                .contains("is the rekordbox collection given with --collection"),
+            standard_error(&refused).contains("is the rekordbox collection in"),
             "{}",
             standard_error(&refused)
         );
@@ -1459,4 +1555,342 @@ fn unmatched_collection_metadata_cannot_rewrite_terminal_messages() {
             .any(|line| line
                 == "error: spoofed by \u{202e} at file://localhost/definitely-absent.mp3")
     );
+}
+
+/// The NML location Traktor would give `path` on a Mac whose startup
+/// volume is `Test HD`.
+fn traktor_key(path: &Path) -> String {
+    let text = text(path);
+    let (volume, rest) = match text.strip_prefix("/Volumes/") {
+        Some(rest) => rest.split_once('/').expect("a volume and a path"),
+        None => ("Test HD", &text[1..]),
+    };
+    let (folders, file) = rest.rsplit_once('/').unwrap_or(("", rest));
+    let mut key = format!("{volume}/:");
+    for folder in folders.split('/').filter(|folder| !folder.is_empty()) {
+        key.push_str(folder);
+        key.push_str("/:");
+    }
+    key.push_str(file);
+    key
+}
+
+fn traktor_entry_key(entry: roxmltree::Node<'_, '_>) -> String {
+    let location = child(entry, "LOCATION");
+    format!(
+        "{}{}{}",
+        location.attribute("VOLUME").expect("a volume"),
+        location.attribute("DIR").expect("a folder"),
+        location.attribute("FILE").expect("a file")
+    )
+}
+
+#[test]
+fn traktor_export_writes_key_tempo_grid_and_a_playlist_per_folder() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let fixture = resolved(&fixtures_directory().join("sine-440hz-mono.flac"));
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path()).join("euphoria.nml");
+
+    let exported = euphoria.run(&[
+        "export",
+        "traktor",
+        text(&resolved(music_folder.path())),
+        text(&fixture),
+        "--beat-grid",
+        "--key-notation",
+        "open-key",
+        "--startup-volume",
+        "Test HD",
+        "-o",
+        text(&output),
+    ]);
+
+    assert_success(&exported);
+    let errors = standard_error(&exported);
+    let lines: Vec<&str> = errors.lines().collect();
+    assert!(lines[0].starts_with("Exported 2 tracks"), "{lines:?}");
+    assert_eq!(
+        lines[1],
+        "Beat grids for 1 of 2 tracks; the others have no clear beat or a grid rated low confidence, so Traktor analyzes them."
+    );
+    assert_eq!(lines[2], "To import it in Traktor:");
+    assert!(lines[5].starts_with("  3. "), "{lines:?}");
+    assert!(lines[6].ends_with("export-to-traktor.md"), "{lines:?}");
+
+    let document = std::fs::read_to_string(&output).expect("the export is read");
+    let xml = roxmltree::Document::parse(&document).expect("the export is well formed XML");
+    let entries: Vec<_> = xml
+        .descendants()
+        .filter(|node| node.has_tag_name("ENTRY") && node.attribute("TITLE").is_some())
+        .collect();
+    let mut entry_keys: Vec<String> = entries
+        .iter()
+        .map(|entry| traktor_entry_key(*entry))
+        .collect();
+    entry_keys.sort();
+    let mut expected_keys = vec![traktor_key(&track), traktor_key(&fixture)];
+    expected_keys.sort();
+    assert_eq!(entry_keys, expected_keys);
+    let entry_for = |path: &Path| {
+        *entries
+            .iter()
+            .find(|entry| traktor_entry_key(**entry) == traktor_key(path))
+            .expect("the track is exported")
+    };
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    let kicks = entry_for(&track);
+    let bpm: f64 = child(kicks, "TEMPO")
+        .attribute("BPM")
+        .expect("a tempo")
+        .parse()
+        .expect("a number");
+    assert!(
+        (bpm - analyzed[0]["beat_grid"]["bpm"]
+            .as_f64()
+            .expect("a grid tempo"))
+        .abs()
+            < 0.006,
+        "{bpm} against {}",
+        analyzed[0]["beat_grid"]
+    );
+    assert!((bpm - 120.0).abs() < 0.05, "{bpm}");
+    let grid = kicks
+        .children()
+        .find(|node| node.has_tag_name("CUE_V2") && node.attribute("TYPE") == Some("4"))
+        .expect("a grid marker");
+    let start_seconds: f64 = grid
+        .attribute("START")
+        .expect("a start")
+        .parse::<f64>()
+        .expect("a number")
+        / 1000.0;
+    let first_downbeat = analyzed[0]["beat_grid"]["first_downbeat_seconds"]
+        .as_f64()
+        .expect("a first downbeat");
+    assert!(
+        (start_seconds - first_downbeat).abs() < 0.001,
+        "{start_seconds} against {first_downbeat}"
+    );
+    assert_eq!(
+        child(grid, "GRID").attribute("BPM"),
+        child(kicks, "TEMPO").attribute("BPM")
+    );
+
+    let sine = entry_for(&fixture);
+    let key_text = child(sine, "INFO").attribute("KEY").expect("a key");
+    let open_key: euphoria_core::Key = key_text.parse().expect("an Open Key code");
+    assert!(
+        key_text.ends_with('m') || key_text.ends_with('d'),
+        "{key_text}"
+    );
+    let value: u8 = child(sine, "MUSICAL_KEY")
+        .attribute("VALUE")
+        .expect("a key value")
+        .parse()
+        .expect("a number");
+    assert_eq!(
+        euphoria_core::export::traktor::key_from_musical_key_value(value),
+        Some(open_key)
+    );
+
+    let playlist_keys: Vec<String> = xml
+        .descendants()
+        .filter(|node| node.has_tag_name("PRIMARYKEY"))
+        .map(|node| node.attribute("KEY").expect("a key").to_string())
+        .collect();
+    let mut playlist_keys = playlist_keys;
+    playlist_keys.sort();
+    assert_eq!(playlist_keys, expected_keys);
+}
+
+#[test]
+fn traktor_cues_leave_out_tracks_with_cues_of_their_own_in_the_collection() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let cued = resolved(music_folder.path()).join("cued.wav");
+    let analyzed_only = resolved(music_folder.path()).join("analyzed.wav");
+    write_kick_track(&cued, 120.0, 0.25);
+    write_kick_track(&analyzed_only, 124.0, 0.1);
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let location = |path: &Path| {
+        let key = traktor_key(path);
+        let (volume, rest) = key.split_once("/:").expect("a volume");
+        let (folders, file) = rest.rsplit_once("/:").expect("a file");
+        format!(
+            "<LOCATION DIR=\"/:{folders}/:\" FILE=\"{file}\" VOLUME=\"{volume}\" VOLUMEID=\"1\"/>"
+        )
+    };
+    let collection = output.join("collection.nml");
+    std::fs::write(
+        &collection,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><NML VERSION=\"20\"><COLLECTION ENTRIES=\"2\">\
+             <ENTRY TITLE=\"Cued\">{}\
+             <CUE_V2 NAME=\"mine\" TYPE=\"0\" START=\"4000.0\" LEN=\"0\" HOTCUE=\"3\"/></ENTRY>\
+             <ENTRY TITLE=\"Analyzed\">{}\
+             <CUE_V2 NAME=\"AutoGrid\" TYPE=\"4\" START=\"100.0\" LEN=\"0\" HOTCUE=\"-1\"><GRID BPM=\"124.0\"/></CUE_V2>\
+             <CUE_V2 NAME=\"AutoGrid\" TYPE=\"0\" START=\"100.0\" LEN=\"0\" HOTCUE=\"0\"/></ENTRY>\
+             </COLLECTION></NML>",
+            location(&cued),
+            location(&analyzed_only)
+        ),
+    )
+    .expect("the collection is written");
+    let file = output.join("cues.nml");
+
+    let exported = euphoria.run(&[
+        "export",
+        "traktor",
+        text(&resolved(music_folder.path())),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+        "--startup-volume",
+        "Test HD",
+        "-o",
+        text(&file),
+    ]);
+    let refused = euphoria.run(&[
+        "export",
+        "traktor",
+        text(&cued),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+        "--force",
+        "-o",
+        text(&collection),
+    ]);
+
+    assert_success(&exported);
+    let errors = standard_error(&exported);
+    assert!(
+        errors.contains("Left out 1 track that already has cues in your Traktor collection"),
+        "{errors}"
+    );
+    let document = std::fs::read_to_string(&file).expect("the export is read");
+    let xml = roxmltree::Document::parse(&document).expect("the export is well formed XML");
+    let entries: Vec<_> = xml
+        .descendants()
+        .filter(|node| node.has_tag_name("ENTRY") && node.attribute("TITLE").is_some())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(traktor_entry_key(entries[0]), traktor_key(&analyzed_only));
+    let hot_cues: Vec<&str> = entries[0]
+        .children()
+        .filter(|node| node.has_tag_name("CUE_V2") && node.attribute("TYPE") == Some("0"))
+        .map(|node| node.attribute("HOTCUE").expect("a hot cue"))
+        .collect();
+    assert_eq!(hot_cues.first(), Some(&"0"), "{document}");
+    assert!(hot_cues.iter().all(|pad| *pad != "-1"), "{document}");
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        standard_error(&refused).contains("is the Traktor collection in"),
+        "{}",
+        standard_error(&refused)
+    );
+    assert!(
+        std::fs::read_to_string(&collection)
+            .expect("the collection is read")
+            .contains("NAME=\"mine\"")
+    );
+}
+
+#[test]
+fn unreadable_saved_cues_are_reported_as_unchecked_edits() {
+    let euphoria = Euphoria::new();
+    let music = TemporaryFolder::new();
+    let track = music.path().join("track.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
+        .expect("the fixture is copied");
+    assert_success(&euphoria.run(&["analyze", "--json", text(&track)]));
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .set_edited_cues(&track, Some(&[]))
+        .expect("only a cue edit is saved");
+    rusqlite::Connection::open(euphoria.cache_path())
+        .expect("the database opens")
+        .execute("UPDATE edited_cues SET cues = 'not json'", [])
+        .expect("the saved cue set is made unreadable");
+    let output = music.path().join("library.xml");
+    let exported = euphoria.run(&["export", "rekordbox", text(&track), "-o", text(&output)]);
+    assert!(!exported.status.success());
+    let errors = standard_error(&exported);
+    assert!(errors.contains("cannot check the saved edits"), "{errors}");
+    assert!(!errors.contains("key or tempo"), "{errors}");
+    assert!(!output.exists(), "the unchecked track is not exported");
+}
+
+#[test]
+fn cues_saved_before_the_analysis_are_kept_within_the_track_on_every_surface() {
+    let euphoria = Euphoria::new();
+    let music = TemporaryFolder::new();
+    let track = music.path().join("track.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
+        .expect("the fixture is copied");
+    // The cache knows no length yet, so both cues are stored.
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .set_edited_cues(
+            &track,
+            Some(&[
+                euphoria_core::Cue {
+                    seconds: 0.5,
+                    name: "In the track".to_string(),
+                    hot_cue: None,
+                },
+                euphoria_core::Cue {
+                    seconds: 999.0,
+                    name: "Past the end".to_string(),
+                    hot_cue: None,
+                },
+            ]),
+        )
+        .expect("the cues are saved");
+
+    // Analyzing records the 1 s length, and the cue past the end is kept
+    // out of the stored set.
+    let json = euphoria.run(&["analyze", "--json", text(&track)]);
+    assert_success(&json);
+    let report = String::from_utf8_lossy(&json.stdout).into_owned();
+    assert!(report.contains("\"In the track\""), "{report}");
+    assert!(!report.contains("\"Past the end\""), "{report}");
+    let stored = euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .edited_cues_for(&track)
+        .expect("the cues are read")
+        .expect("a set is stored");
+    assert_eq!(stored.len(), 1, "{stored:?}");
+
+    // Export shows the same set as the report.
+    let collection = music.path().join("empty-collection.xml");
+    std::fs::write(
+        &collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let output = music.path().join("library.xml");
+    let exported = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&output),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+    ]);
+    assert_success(&exported);
+    let xml = std::fs::read_to_string(&output).expect("the export is read");
+    assert!(xml.contains("In the track"), "{xml}");
+    assert!(!xml.contains("Past the end"), "{xml}");
 }

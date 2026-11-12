@@ -10,8 +10,8 @@ use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, Pixels, SharedString, Stateful, TestSupportExt, Window,
-    div, px,
+    AnyElement, Context, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, SharedString,
+    Stateful, TestSupportExt, Window, div, px,
 };
 
 use crate::app::EuphoriaApp;
@@ -23,9 +23,11 @@ use crate::mixes::compatible_keys;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::by_ear;
+use crate::views::cues;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
+use crate::views::stems;
 use crate::views::track_overview;
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
@@ -58,14 +60,15 @@ enum Room {
 }
 
 impl Room {
-    /// How tall to draw the waveform when `below` is taken under it by the
-    /// energy curve and the key timeline: the usual height in the column,
-    /// and as tall as the strip allows under its heading.
-    fn waveform_height(self, below: f32) -> Pixels {
+    /// How tall to draw the waveform when `others` is taken by the rows
+    /// around it: the cue markers above, the energy curve and the key
+    /// timeline under it. The usual height in the column, and as tall as
+    /// the strip allows under its heading.
+    fn waveform_height(self, others: f32) -> Pixels {
         match self {
             Room::Column => px(WAVEFORM_HEIGHT),
             Room::Strip { inner_height } => {
-                px((inner_height - HEADING_HEIGHT - below).max(SMALLEST_STRIP_WAVEFORM))
+                px((inner_height - HEADING_HEIGHT - others).max(SMALLEST_STRIP_WAVEFORM))
             }
         }
     }
@@ -153,6 +156,7 @@ pub(crate) fn render(
     container
         .child(sized(summary(track, &palette), Some(220.0)))
         .child(sized(statistics(track, app, cx), Some(264.0)))
+        .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
         )
@@ -160,6 +164,9 @@ pub(crate) fn render(
             key_shift::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
         )
         .child(sized(waveform_section(track, app, room, cx), None))
+        .children(
+            cue_section(track, app, room, cx).map(|section| sized(divided(section), Some(280.0))),
+        )
         .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
         .children(quality(track, &palette).map(|section| sized(divided(section), Some(280.0))))
@@ -607,21 +614,54 @@ fn waveform_section(
             )
         })
     });
-    let below = energy
+    let shown_cues = cues::shown_cues(track, app);
+    let duration_seconds = track.duration_seconds().unwrap_or(0.0);
+    let cue_fractions = cues::fractions(&shown_cues, duration_seconds);
+    // The waveform's width as last drawn; the lane is as wide.
+    let lane_width = app
+        .waveform_bounds
+        .get()
+        .map(|bounds| bounds.size.width / px(1.0));
+    // Saved cues can be loaded before a queued track's duration is known.
+    // They have no waveform positions until that analysis arrives.
+    let marker_places = if cue_fractions.is_empty() {
+        Vec::new()
+    } else {
+        cues::marker_places(&shown_cues, &cue_fractions, lane_width)
+    };
+    let cue_lane = (!marker_places.is_empty())
+        .then(|| cues::lane(&shown_cues, duration_seconds, &marker_places, &palette, cx));
+    // The rows other than the waveform, which takes the height left.
+    let others = energy
         .as_ref()
         .map_or(0.0, |_| track_overview::ENERGY_HEIGHT + WAVEFORM_ROW_GAP)
         + key_timeline.as_ref().map_or(0.0, |_| {
             track_overview::KEY_TIMELINE_HEIGHT + WAVEFORM_ROW_GAP
+        })
+        + cue_lane.as_ref().map_or(0.0, |_| {
+            cues::lane_height(&marker_places) + WAVEFORM_ROW_GAP
         });
 
     let scrubber = seek_on_press_and_drag(
-        div().id("waveform").child(waveform(
-            columns,
-            WaveformColours::of(&palette),
-            progress,
-            app.waveform_bounds.clone(),
-            room.waveform_height(below),
-        )),
+        div().id("waveform").child(
+            div()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                        if event.click_count == 2 {
+                            this.add_cue_at_pointer(event.position.x, event.modifiers, cx);
+                        }
+                    }),
+                )
+                .child(waveform(
+                    columns,
+                    WaveformColours::of(&palette),
+                    progress,
+                    cue_fractions,
+                    app.waveform_bounds.clone(),
+                    room.waveform_height(others),
+                )),
+        ),
         &app.waveform_bounds,
         cx,
     )
@@ -640,6 +680,7 @@ fn waveform_section(
                 .child("Waveform")
                 .child(note),
         )
+        .children(cue_lane)
         .child(scrubber)
         .children(energy)
         .children(key_timeline)
@@ -662,6 +703,29 @@ fn waveform_section(
     } else {
         section
     }
+}
+
+/// The cues of an analyzed track. The strip under the table has little
+/// room, so there the list shows once the track has cues or the user's set,
+/// and scrolls within the strip's height.
+fn cue_section(
+    track: &Track,
+    app: &EuphoriaApp,
+    room: Room,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<Div> {
+    track.analysis()?;
+    let list_height = match room {
+        Room::Column => None,
+        Room::Strip { inner_height } => {
+            let track_cues = track.cues();
+            if track_cues.cues.is_empty() && !track_cues.is_edited() {
+                return None;
+            }
+            Some(px((inner_height - HEADING_HEIGHT).max(MIX_ROW_HEIGHT)))
+        }
+    };
+    Some(cues::section(track, app, list_height, cx))
 }
 
 /// The tracks in the library that mix with the selected one.

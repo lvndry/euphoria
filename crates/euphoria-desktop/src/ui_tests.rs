@@ -743,7 +743,9 @@ fn each_theme_puts_the_player_where_its_layout_expects(cx: &mut TestAppContext) 
                     assert!(window.try_find("player-bar").is_none(), "{name:?}");
                     assert!(inspector.contains(&button.center()), "{name:?}");
                     assert!(button.right() <= waveform.left(), "{name:?}");
-                    assert!(waveform.size.width > px(300.0), "{name:?}");
+                    // The stems section shares the strip's width, so the
+                    // waveform keeps what is left of it.
+                    assert!(waveform.size.width > px(240.0), "{name:?}");
                 }
             }
         })
@@ -3987,4 +3989,1105 @@ fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut Te
     );
     cx.update(|cx| view.update(cx, |app, cx| app.reset_key(cx)));
     assert!(is_shown(window, "key-timeline", cx));
+}
+
+/// The core's fixture files as three tracks with keys, tempos, energies,
+/// beat grids and cues: A minor at 120, E minor at 125 and C major at 118.
+fn deck_tracks() -> Vec<DemoTrack> {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    [
+        (
+            "sine-440hz-mono.flac",
+            9,
+            euphoria_core::Mode::Minor,
+            120.0,
+            6,
+        ),
+        (
+            "sine-440hz-mono.mp3",
+            4,
+            euphoria_core::Mode::Minor,
+            125.0,
+            7,
+        ),
+        (
+            "sine-440hz-stereo.wav",
+            0,
+            euphoria_core::Mode::Major,
+            118.0,
+            5,
+        ),
+    ]
+    .into_iter()
+    .map(|(name, tonic, mode, bpm, energy)| DemoTrack {
+        path: fixtures.join(name),
+        outcome: Ok(TrackAnalysis {
+            duration_seconds: 240.0,
+            key: Some(euphoria_core::Key::new(tonic, mode)),
+            bpm: Some(bpm as f32),
+            energy: Some(energy),
+            tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: None,
+            tempo_score_margin: None,
+            beat_grid: Some(euphoria_core::BeatGrid {
+                first_downbeat_seconds: 0.2,
+                bpm,
+                salience: 3.0,
+                drift_seconds: Some(0.005),
+            }),
+            cues: vec![
+                euphoria_core::SectionCue {
+                    seconds: 0.2,
+                    section: euphoria_core::CueSection::Start,
+                },
+                euphoria_core::SectionCue {
+                    seconds: 64.2,
+                    section: euphoria_core::CueSection::Drop,
+                },
+            ],
+            key_timeline: Vec::new(),
+            quality: None,
+        }),
+    })
+    .collect()
+}
+
+fn index_of_track(view: &Entity<EuphoriaApp>, name: &str, cx: &mut TestAppContext) -> usize {
+    cx.update(|cx| {
+        let library = view.read(cx).session.library();
+        library
+            .tracks()
+            .iter()
+            .position(|track| track.path.ends_with(name))
+            .unwrap()
+    })
+}
+
+#[gpui::test]
+fn the_decks_load_a_track_and_suggest_what_mixes_after_it(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    cx.update(|cx| assert!(view.read(cx).decks.is_open));
+
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    click(window, track(flac), cx);
+    click(window, deck_part("deck-load", DeckId::A), cx);
+    let suggested = cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).track_index, Some(flac));
+        assert_eq!(decks.view(DeckId::A).cues.len(), 2);
+        decks
+            .suggestions
+            .iter()
+            .map(|suggestion| suggestion.track_index)
+            .collect::<Vec<_>>()
+    });
+    assert!(suggested.contains(&mp3), "E minor mixes after A minor");
+    assert!(!suggested.contains(&flac), "not the track on deck A");
+
+    click(window, ("suggestion", mp3), cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        let b = decks.view(DeckId::B);
+        assert_eq!(b.track_index, Some(mp3));
+        assert!((b.rate - 0.96).abs() < 1e-9, "B follows A's 120 BPM");
+        assert!((b.heard_bpm().unwrap() - 120.0).abs() < 1e-9);
+    });
+    click(window, "deck-sync", cx);
+    cx.update(|cx| assert_eq!(view.read(cx).decks.view(DeckId::B).rate, 1.0));
+    click(window, "deck-sync", cx);
+    cx.update(|cx| assert!((view.read(cx).decks.view(DeckId::B).rate - 0.96).abs() < 1e-9));
+}
+
+#[gpui::test]
+fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::cue_id;
+    let mut tracks = deck_tracks();
+    for track in &mut tracks {
+        // The audio fixtures last one second; use a cue they can really play.
+        track.outcome.as_mut().unwrap().cues[1].seconds = 0.6;
+    }
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(tracks, Box::new(output.clone()), cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+        })
+    });
+    cx.run_until_parked();
+    click(window, cue_id(DeckId::B, 1), cx);
+    output.pull(0.12);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        let position = decks.position_seconds(DeckId::B);
+        assert!(decks.view(DeckId::B).playing);
+        assert!(
+            (0.6..0.8).contains(&position),
+            "the cue seeks to 0.6s: {position}"
+        );
+    });
+}
+
+#[gpui::test]
+fn the_energy_direction_reorders_the_suggestions(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use euphoria_core::harmony::EnergyDirection;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.load_on_deck(DeckId::A, flac, cx)));
+    let first =
+        |cx: &mut TestAppContext| cx.update(|cx| view.read(cx).decks.suggestions[0].track_index);
+    let up = EnergyDirection::ALL
+        .iter()
+        .position(|direction| *direction == EnergyDirection::Up)
+        .unwrap();
+    let down = EnergyDirection::ALL
+        .iter()
+        .position(|direction| *direction == EnergyDirection::Down)
+        .unwrap();
+    click(window, ("energy-direction", up), cx);
+    assert_eq!(first(cx), mp3, "energy 7 after 6");
+    click(window, ("energy-direction", down), cx);
+    assert_eq!(first(cx), wav, "energy 5 after 6");
+}
+
+#[gpui::test]
+fn the_transport_cues_and_mixer_drive_the_decks(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::{cue_id, deck_part};
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.load_on_deck(DeckId::A, flac, cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+        })
+    });
+    cx.run_until_parked();
+    click(window, deck_part("deck-play", DeckId::A), cx);
+    click(window, cue_id(DeckId::B, 1), cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(decks.view(DeckId::A).playing);
+        assert!(decks.view(DeckId::B).playing, "a cue plays its deck");
+    });
+    click(window, deck_part("deck-play", DeckId::A), cx);
+    click(window, deck_part("deck-keylock", DeckId::B), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.set_crossfader(0.0, cx);
+            app.set_deck_volume(DeckId::A, 0.5, cx);
+        })
+    });
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(!decks.view(DeckId::A).playing);
+        assert!(!decks.view(DeckId::B).keylock);
+        assert_eq!(decks.gains(), [0.5, 0.0]);
+        assert!(decks.load_readout().is_some());
+    });
+    assert!(is_shown(window, "deck-load-readout", cx));
+    click(window, "toggle-decks", cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(!decks.is_open);
+        assert!(
+            !decks.view(DeckId::B).playing,
+            "closing the decks stops them"
+        );
+    });
+}
+
+#[gpui::test]
+fn the_decks_without_an_audio_output_say_so(cx: &mut TestAppContext) {
+    let (window, view) = open_window_on(deck_tracks(), Box::new(NoOutput), cx);
+    click(window, "toggle-decks", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(!app.decks.is_open);
+        assert!(app.notice.is_some());
+    });
+}
+
+#[gpui::test]
+fn suggestions_can_come_from_a_playlist(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    let wav_path = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .track(wav)
+            .unwrap()
+            .path
+            .clone()
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let id = app.session.playlists_mut().create();
+            app.session
+                .playlists_mut()
+                .add_tracks(id, std::slice::from_ref(&wav_path));
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    let suggested = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            view.read(cx)
+                .decks
+                .suggestions
+                .iter()
+                .map(|suggestion| suggestion.track_index)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(suggested(cx).len(), 2, "the whole library");
+    click(window, ("suggestion-scope", 2_usize), cx);
+    assert_eq!(suggested(cx), [wav], "only the playlist's track");
+}
+
+#[gpui::test]
+fn a_deck_does_not_play_or_cue_the_previous_track_while_loading(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let output = RenderedDecks::default();
+    let (_, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_deck_play(DeckId::A, cx)));
+    assert!(
+        output.pull(2.0) > 0.01,
+        "the first load must be open and play before the replacement"
+    );
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.load_on_deck(DeckId::A, wav, cx);
+            assert!(
+                app.decks
+                    .view(DeckId::A)
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| path.ends_with("sine-440hz-stereo.wav")),
+                "the replacement's view is in place while it opens"
+            );
+            app.toggle_deck_play(DeckId::A, cx);
+            assert!(
+                !app.decks.view(DeckId::A).playing,
+                "Play must not start the previous source while the replacement opens"
+            );
+            app.play_deck_cue(DeckId::A, 0, cx);
+            assert!(
+                !app.decks.view(DeckId::A).playing,
+                "a cue must not start the previous source either"
+            );
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_deck_play(DeckId::A, cx);
+            assert!(
+                app.decks.view(DeckId::A).playing,
+                "the replaced source can play once it is open"
+            );
+        })
+    });
+}
+
+#[gpui::test]
+fn shown_deck_suggestions_follow_the_search(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::decks::SuggestionScope;
+    let (_, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+            app.set_suggestion_scope(SuggestionScope::Shown, cx);
+            assert!(!app.decks.suggestions.is_empty());
+            app.query = "nothing-matches-this-query".to_string();
+            app.refresh_visible();
+            assert!(app.visible.is_empty());
+            assert!(
+                app.decks.suggestions.is_empty(),
+                "Tracks shown must exclude filtered-out candidates"
+            );
+        })
+    });
+}
+
+#[gpui::test]
+fn playlist_deck_suggestions_follow_edits_without_showing_the_playlist(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::decks::SuggestionScope;
+    let (_, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+            let id = app.session.playlists_mut().create();
+            app.set_suggestion_scope(SuggestionScope::Playlist(id), cx);
+            let path = app.session.library().track(mp3).unwrap().path.clone();
+            app.add_to_playlist(id, &[path], cx);
+            assert_eq!(
+                app.decks
+                    .suggestions
+                    .iter()
+                    .map(|s| s.track_index)
+                    .collect::<Vec<_>>(),
+                [mp3]
+            );
+            app.delete_playlist(id, cx);
+            assert!(app.decks.suggestions.is_empty());
+        })
+    });
+}
+
+#[gpui::test]
+fn the_player_cannot_start_a_third_track_while_decks_own_the_sound(cx: &mut TestAppContext) {
+    let (_, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.select(flac, cx);
+            app.toggle_decks(cx);
+            app.toggle_playback(cx);
+            assert!(
+                !app.player.offers_pause(),
+                "the normal player must stay paused while decks are open"
+            );
+            app.toggle_decks(cx);
+            app.toggle_playback(cx);
+            assert!(
+                app.player.offers_pause(),
+                "closing the decks releases the normal player"
+            );
+        })
+    });
+}
+
+#[gpui::test]
+fn correcting_a_loaded_decks_tempo_updates_sync_and_discards_its_old_grid(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let (_, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+            app.select(flac, cx);
+            app.accept_bpm(130.0, cx);
+            let a = app.decks.view(DeckId::A);
+            assert_eq!(a.bpm, Some(130.0));
+            assert!(a.grid.is_none());
+            assert!(a.cues.is_empty());
+            assert!((app.decks.view(DeckId::B).rate - 1.04).abs() < 1e-9);
+            app.reset_bpm(cx);
+            assert!(app.decks.view(DeckId::A).grid.is_some());
+            assert_eq!(app.decks.view(DeckId::A).cues.len(), 2);
+            assert!((app.decks.view(DeckId::B).rate - 0.96).abs() < 1e-9);
+        })
+    });
+}
+
+/// Runs the actual deck mixer while retaining the normal output's silent voices.
+#[derive(Clone, Default)]
+struct RenderedDecks(std::rc::Rc<std::cell::RefCell<Option<crate::deck_audio::DeckMix>>>);
+
+impl RenderedDecks {
+    fn pull(&self, seconds: f64) -> f32 {
+        let frames = (seconds * f64::from(crate::deck_audio::MIX_SAMPLE_RATE)) as usize;
+        let mut peak = 0.0_f32;
+        for block in (0..frames).step_by(256) {
+            {
+                let mut mix = self.0.borrow_mut();
+                let mix = mix.as_mut().unwrap();
+                for _ in 0..(frames - block).min(256) * 2 {
+                    peak = peak.max(mix.next().unwrap().abs());
+                }
+            }
+            // Decoding remains asynchronous, exactly as with the real output.
+            std::thread::sleep(std::time::Duration::from_micros(200));
+        }
+        peak
+    }
+}
+
+impl AudioOutput for RenderedDecks {
+    fn play(
+        &mut self,
+        source: crate::playback::TrackSource,
+    ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
+        SilentOutput.play(source)
+    }
+    fn play_reference(
+        &mut self,
+        sound: crate::reference_sound::ReferenceSound,
+    ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
+        SilentOutput.play_reference(sound)
+    }
+    fn play_decks(
+        &mut self,
+        mix: crate::deck_audio::DeckMix,
+    ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
+        *self.0.borrow_mut() = Some(mix);
+        struct Voice(RenderedDecks);
+        impl crate::playback::Voice for Voice {
+            fn pause(&self) {}
+            fn resume(&self) {}
+        }
+        impl Drop for Voice {
+            fn drop(&mut self) {
+                *self.0.0.borrow_mut() = None;
+            }
+        }
+        Ok(Box::new(Voice(self.clone())))
+    }
+}
+
+#[gpui::test]
+fn a_finished_deck_can_play_and_cue_again(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let output = RenderedDecks::default();
+    let (_, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_deck_play(DeckId::A, cx)));
+    assert!(output.pull(2.0) > 0.01);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(100));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert!(
+            !view.read(cx).decks.view(DeckId::A).playing,
+            "EOF must update the transport"
+        )
+    });
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_deck_play(DeckId::A, cx)));
+    cx.run_until_parked();
+    assert!(
+        output.pull(2.0) > 0.01,
+        "Play reopens the exhausted decoder from the start"
+    );
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(100));
+    cx.run_until_parked();
+    cx.update(|cx| view.update(cx, |app, cx| app.play_deck_cue(DeckId::A, 0, cx)));
+    cx.run_until_parked();
+    assert!(
+        output.pull(1.0) > 0.01,
+        "a cue reopens the exhausted decoder at its cue"
+    );
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(100));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_deck_play(DeckId::A, cx);
+            app.toggle_decks(cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(!decks.is_open);
+        assert!(
+            !decks.view(DeckId::A).playing,
+            "a pending reopen cannot restart a closed deck"
+        );
+        assert!(!decks.view(DeckId::A).loading);
+    });
+}
+
+#[gpui::test]
+fn replacing_a_deck_load_cancels_its_abandoned_waveform_work(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let (_, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    let abandoned = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .track(mp3)
+            .unwrap()
+            .path
+            .clone()
+    });
+    let current = cx.update(|cx| {
+        view.read(cx)
+            .session
+            .library()
+            .track(wav)
+            .unwrap()
+            .path
+            .clone()
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, mp3, cx);
+            app.load_on_deck(DeckId::A, wav, cx);
+        })
+    });
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+    }
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(matches!(
+            app.waveform_of(&current),
+            Some(Waveform::Ready(..))
+        ));
+        assert!(
+            app.waveform_of(&abandoned).is_none(),
+            "replaced loads must not keep decoding full tracks"
+        );
+    });
+}
+
+/// Length of the tracks of [`open_cued_library`], in seconds.
+const CUED_TRACK_SECONDS: f32 = 32.0;
+
+/// A fixture file standing for a 32 second track at 120 BPM. With a grid,
+/// beats fall every half second from 0 and bars every two seconds, and
+/// analysis placed a Start cue at 0 and a Drop at 16.
+fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let section_cue = |seconds, section| euphoria_core::SectionCue { seconds, section };
+    DemoTrack {
+        path: fixtures.join(name),
+        outcome: Ok(TrackAnalysis {
+            duration_seconds: CUED_TRACK_SECONDS,
+            key: None,
+            bpm: Some(120.0),
+            energy: None,
+            tuning_cents: None,
+            key_runner_up: None,
+            key_score_margin: None,
+            tempo_estimate: Some(120.0),
+            tempo_score_margin: None,
+            beat_grid: has_grid.then_some(euphoria_core::BeatGrid {
+                first_downbeat_seconds: 0.0,
+                bpm: 120.0,
+                salience: 10.0,
+                drift_seconds: Some(0.001),
+            }),
+            cues: if has_grid {
+                vec![
+                    section_cue(0.0, euphoria_core::CueSection::Start),
+                    section_cue(16.0, euphoria_core::CueSection::Drop),
+                ]
+            } else {
+                Vec::new()
+            },
+            key_timeline: Vec::new(),
+            quality: None,
+        }),
+    }
+}
+
+/// A track with a beat grid and the cues analysis placed on it, selected,
+/// and a track without a grid or cues.
+fn open_cued_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    open_window_on(
+        vec![
+            cued_track("sine-440hz-stereo.wav", true),
+            cued_track("sine-440hz-mono.wav", false),
+        ],
+        Box::new(SilentOutput),
+        cx,
+    )
+}
+
+/// The selected track's cues as (seconds, name, hot cue letter), and
+/// whether the user set them.
+fn selected_cues(
+    view: &Entity<EuphoriaApp>,
+    cx: &mut TestAppContext,
+) -> (Vec<(f64, String, Option<char>)>, bool) {
+    cx.update(|cx| {
+        let cues = view.read(cx).selected_track().unwrap().cues();
+        let listed = cues
+            .cues
+            .iter()
+            .map(|cue| {
+                (
+                    cue.seconds,
+                    cue.name.clone(),
+                    cue.hot_cue.map(|hot_cue| hot_cue.letter()),
+                )
+            })
+            .collect();
+        (listed, cues.is_edited())
+    })
+}
+
+/// Holds or lets go of Shift, as the keyboard would.
+fn hold_shift(window: &mut gpui::Window, is_held: bool, cx: &mut gpui::App) {
+    let modifiers = if is_held {
+        Modifiers::shift()
+    } else {
+        Modifiers::default()
+    };
+    window.dispatch_event(
+        gpui::InputEvent::to_platform_input(gpui::ModifiersChangedEvent {
+            modifiers,
+            capslock: window.capslock(),
+        }),
+        cx,
+    );
+    window.render_frame(cx);
+}
+
+/// Drags cue marker `index` to `fraction` of the way along the waveform.
+fn drag_marker(
+    window: AnyWindowHandle,
+    index: usize,
+    fraction: f32,
+    with_shift: bool,
+    cx: &mut TestAppContext,
+) {
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let pressed_at = window
+            .find(crate::views::cues::marker_id(index))
+            .bounds()
+            .center();
+        let waveform = window.find("waveform").bounds();
+        let released_at = gpui::point(
+            waveform.left() + waveform.size.width * fraction,
+            pressed_at.y,
+        );
+        hold_shift(window, with_shift, cx);
+        window.drag(pressed_at, released_at, cx);
+        hold_shift(window, false, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_cues_show_as_markers_lined_up_with_the_waveform_with_their_hot_cue_letters(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_cued_library(cx);
+    assert_eq!(
+        selected_cues(&view, cx),
+        (
+            vec![
+                (0.0, "Start".to_string(), Some('A')),
+                (16.0, "Drop".to_string(), Some('B')),
+            ],
+            false
+        )
+    );
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        let start = window.find(crate::views::cues::marker_id(0)).bounds();
+        let drop = window.find(crate::views::cues::marker_id(1)).bounds();
+        assert_eq!(start.left(), waveform.left());
+        let middle = waveform.left() + waveform.size.width * 0.5;
+        assert!((drop.left() - middle).abs() < px(1.0), "{drop:?}");
+        assert!(drop.bottom() <= waveform.top());
+        assert!(window.try_find(("cue-row", 1_usize)).is_some());
+        assert!(window.try_find(("cue-row", 2_usize)).is_none());
+        assert!(window.try_find("reset-cues").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn markers_of_cues_close_together_never_overlap_and_stay_above_the_waveform(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_cued_library(cx);
+    let crowded: Vec<euphoria_core::Cue> = euphoria_core::HotCue::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, pad)| euphoria_core::Cue {
+            seconds: 1.0 + index as f64 * 0.5,
+            name: "Breakdown".to_string(),
+            hot_cue: Some(*pad),
+        })
+        .chain(std::iter::once(euphoria_core::Cue {
+            seconds: 31.5,
+            name: "Last".to_string(),
+            hot_cue: None,
+        }))
+        .collect();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.session.set_edited_cues(&path, Some(crowded.clone()));
+        })
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        let lane = window.find("cue-lane").bounds();
+        let markers: Vec<Bounds<gpui::Pixels>> = (0..crowded.len())
+            .map(|index| window.find(crate::views::cues::marker_id(index)).bounds())
+            .collect();
+        // Cues a few pixels apart get a bare tick, which carries no label.
+        let labelled: Vec<&Bounds<gpui::Pixels>> = markers
+            .iter()
+            .filter(|marker| marker.size.width > px(4.0))
+            .collect();
+        assert!(labelled.len() >= 3, "{markers:?}");
+        for (index, marker) in markers.iter().enumerate() {
+            assert!(marker.bottom() <= waveform.top(), "{index}: {marker:?}");
+            assert!(lane.left() <= marker.left() && marker.right() <= lane.right());
+        }
+        for (index, marker) in labelled.iter().enumerate() {
+            for other in &labelled[index + 1..] {
+                assert!(!marker.intersects(other), "{marker:?} overlaps {other:?}");
+            }
+        }
+        assert!(
+            markers.iter().any(|marker| marker.top() > lane.top()),
+            "crowded markers use a second row"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn a_click_on_a_marker_plays_from_its_cue(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    click(window, crate::views::cues::marker_id(0), cx);
+    assert_eq!(player_status(&view, cx), PlayerStatus::Playing);
+
+    click(window, crate::views::cues::marker_id(1), cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.player.position_seconds(), 16.0);
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+    });
+    assert!(!selected_cues(&view, cx).1, "a click changes no cue");
+
+    click(window, ("cue-time", 0_usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).player.position_seconds(), 0.0));
+}
+
+#[gpui::test]
+fn dragging_a_marker_moves_its_cue_onto_a_beat_or_onto_a_bar_with_shift(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    drag_marker(window, 1, 0.3, false, cx);
+    let (cues, is_edited) = selected_cues(&view, cx);
+    assert!(is_edited);
+    assert_eq!(
+        cues[1],
+        (9.5, "Drop".to_string(), Some('B')),
+        "9.6 s lands on the beat at 9.5"
+    );
+    assert_eq!(
+        cx.update(|cx| view.read(cx).player.status().clone()),
+        PlayerStatus::Stopped,
+        "a drag does not play"
+    );
+
+    drag_marker(window, 1, 0.6, true, cx);
+    assert_eq!(
+        selected_cues(&view, cx).0[1].0,
+        20.0,
+        "19.2 s lands on the bar at 20 with Shift held"
+    );
+}
+
+#[gpui::test]
+fn a_double_click_adds_a_cue_on_the_nearest_beat_or_exactly_there_without_a_grid(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_cued_library(cx);
+    let double_click_at = |fraction: f32, cx: &mut TestAppContext| {
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let waveform = window.find("waveform").bounds();
+            window.click_with_options(
+                "waveform",
+                gpui::test::ClickOptions::new()
+                    .with_offset(gpui::point(waveform.size.width * fraction, px(10.0)))
+                    .with_count(2),
+                cx,
+            );
+        })
+        .unwrap();
+        cx.run_until_parked();
+    };
+    double_click_at(0.3, cx);
+    let (cues, is_edited) = selected_cues(&view, cx);
+    assert!(is_edited);
+    assert_eq!(cues[1], (9.5, "Cue 3".to_string(), Some('C')));
+
+    click(window, track(1), cx);
+    assert_eq!(selected_cues(&view, cx), (Vec::new(), false));
+    double_click_at(0.3, cx);
+    let (cues, _) = selected_cues(&view, cx);
+    assert_eq!(cues.len(), 1);
+    assert!(
+        (cues[0].0 - 9.6).abs() < 0.05,
+        "no grid, no snapping: {cues:?}"
+    );
+    assert_ne!(cues[0].0, 9.5);
+}
+
+#[gpui::test]
+fn a_cue_is_added_at_the_playhead_with_the_button_or_the_c_key(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        window.click_at(
+            "waveform",
+            gpui::point(waveform.size.width * 0.25, px(10.0)),
+            cx,
+        );
+    })
+    .unwrap();
+    click(window, "add-cue", cx);
+    let (cues, _) = selected_cues(&view, cx);
+    assert_eq!(cues[1], (8.0, "Cue 3".to_string(), Some('C')));
+
+    cx.update_window(window, |_, window, cx| window.press("c", cx))
+        .unwrap();
+    assert_eq!(selected_cues(&view, cx).0.len(), 4);
+}
+
+#[gpui::test]
+fn a_cue_is_renamed_put_on_another_pad_and_deleted_from_the_list(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    click(window, ("cue-name", 0_usize), cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("cue-name-input").is_some());
+        window.input("Intro", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+
+    click(window, ("cue-hot-cue", 1_usize), cx);
+    click(window, ("cue-hot-cue-choice", 0_usize), cx);
+    let (cues, _) = selected_cues(&view, cx);
+    assert_eq!(cues[0].2, Some('B'), "the cue that held A takes B");
+    assert_eq!(cues[1].2, Some('A'));
+
+    click(window, ("cue-hot-cue", 0_usize), cx);
+    click(window, ("cue-hot-cue-none", 0_usize), cx);
+    assert_eq!(selected_cues(&view, cx).0[0].2, None);
+
+    click(window, ("cue-delete", 0_usize), cx);
+    assert_eq!(
+        selected_cues(&view, cx),
+        (vec![(16.0, "Drop".to_string(), Some('A'))], true)
+    );
+}
+
+#[gpui::test]
+fn edits_are_undone_one_at_a_time_and_reset_brings_back_the_automatic_cues(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_cued_library(cx);
+    let automatic = selected_cues(&view, cx);
+    assert!(!is_shown(window, "undo-cue-edit", cx));
+    click(window, ("cue-delete", 1_usize), cx);
+    click(window, ("cue-delete", 0_usize), cx);
+    assert_eq!(selected_cues(&view, cx), (Vec::new(), true));
+    assert!(is_shown(window, "cues-set-by-you", cx));
+
+    click(window, "undo-cue-edit", cx);
+    assert_eq!(selected_cues(&view, cx).0, automatic.0[..1].to_vec());
+    cx.update_window(window, |_, window, cx| window.press("cmd-z", cx))
+        .unwrap();
+    assert_eq!(selected_cues(&view, cx), automatic);
+    assert!(!is_shown(window, "undo-cue-edit", cx));
+
+    click(window, ("cue-delete", 1_usize), cx);
+    click(window, "reset-cues", cx);
+    assert_eq!(selected_cues(&view, cx), automatic);
+    assert!(!is_shown(window, "reset-cues", cx));
+    click(window, "undo-cue-edit", cx);
+    assert_eq!(
+        selected_cues(&view, cx).0.len(),
+        1,
+        "the reset is undone too"
+    );
+}
+
+#[gpui::test]
+fn a_corrected_tempo_drops_the_automatic_cues_but_keeps_the_users(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_bpm(60.0, cx)));
+    assert_eq!(selected_cues(&view, cx), (Vec::new(), false));
+    assert!(!is_shown(window, crate::views::cues::marker_id(0), cx));
+
+    cx.update(|cx| view.update(cx, |app, cx| app.reset_bpm(cx)));
+    click(window, ("cue-delete", 0_usize), cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_bpm(60.0, cx)));
+    assert_eq!(
+        selected_cues(&view, cx),
+        (vec![(16.0, "Drop".to_string(), Some('B'))], true)
+    );
+}
+
+#[gpui::test]
+fn a_cue_name_commits_when_selecting_another_track(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    click(window, ("cue-name", 0_usize), cx);
+    cx.update_window(window, |_, window, cx| window.input("Intro", cx))
+        .unwrap();
+    click(window, track(1), cx);
+    click(window, track(0), cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+}
+
+#[gpui::test]
+fn a_cue_command_keeps_a_name_typed_before_blurring(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    click(window, ("cue-name", 0_usize), cx);
+    cx.update_window(window, |_, window, cx| window.input("Intro", cx))
+        .unwrap();
+    click(window, "add-cue", cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+    click(window, "undo-cue-edit", cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Intro");
+    click(window, "undo-cue-edit", cx);
+    assert_eq!(selected_cues(&view, cx).0[0].1, "Start");
+}
+
+#[gpui::test]
+fn measuring_a_cue_lane_requests_a_frame_to_finish_its_layout(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    let crowded: Vec<_> = euphoria_core::HotCue::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, pad)| euphoria_core::Cue {
+            seconds: 1.0 + index as f64 * 0.5,
+            name: "Breakdown".to_string(),
+            hot_cue: Some(*pad),
+        })
+        .collect();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.session.set_edited_cues(&path, Some(crowded));
+            app.waveform_bounds.set(None);
+        })
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        assert!(
+            window.simulate_next_frame(cx) > 0,
+            "measuring the waveform must schedule layout with the measured width"
+        );
+        window.render_frame(cx);
+        assert_eq!(
+            window.simulate_next_frame(cx),
+            0,
+            "a stable width needs no redraw loop"
+        );
+        let first = window.find(crate::views::cues::marker_id(0)).bounds();
+        let second = window.find(crate::views::cues::marker_id(1)).bounds();
+        assert!(!first.intersects(&second));
+    })
+    .unwrap();
+    for width in [600, 288] {
+        cx.update(|cx| {
+            view.update(cx, |app, cx| {
+                app.panels.inspector_width = width;
+                cx.notify();
+            })
+        });
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(
+                window.simulate_next_frame(cx) > 0,
+                "a resized waveform must finish its cue layout"
+            );
+            window.render_frame(cx);
+            assert_eq!(window.simulate_next_frame(cx), 0);
+            let markers: Vec<_> = (0..8)
+                .map(|index| window.find(crate::views::cues::marker_id(index)).bounds())
+                .collect();
+            for (index, marker) in markers
+                .iter()
+                .enumerate()
+                .filter(|(_, marker)| marker.size.width > px(4.0))
+            {
+                for other in markers[index + 1..]
+                    .iter()
+                    .filter(|other| other.size.width > px(4.0))
+                {
+                    assert!(!marker.intersects(other), "{marker:?} overlaps {other:?}");
+                }
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn saved_cues_wait_for_analysis_duration_before_drawing_markers(cx: &mut TestAppContext) {
+    let mut track = cued_track("sine-440hz-mono.wav", false);
+    track.outcome = Err("Analysis is not available".to_string());
+    let (window, view) = open_window_on(vec![track], Box::new(SilentOutput), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.session.set_edited_cues(
+                &path,
+                Some(vec![euphoria_core::Cue {
+                    seconds: 1.0,
+                    name: "Saved cue".to_string(),
+                    hot_cue: euphoria_core::HotCue::from_letter('A'),
+                }]),
+            );
+        })
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(window.try_find(crate::views::cues::marker_id(0)).is_none());
+    })
+    .unwrap();
 }

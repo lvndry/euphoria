@@ -35,10 +35,7 @@ impl Cache {
         if !self.has_corrections()? {
             return Ok(None);
         }
-        let content_hash = match self.recorded_content(path)? {
-            Some(content_hash) => content_hash,
-            None => ContentHash::of_file(path).map_err(unreadable(path))?,
-        };
+        let content_hash = self.content_at(path)?;
         self.correction_of(&content_hash)
     }
 
@@ -57,10 +54,7 @@ impl Cache {
     ) -> Result<(), EuphoriaError> {
         // Public fields also allow callers to bypass the constructors.
         correction.with_bpm(correction.bpm)?;
-        let content_hash = match self.recorded_content(path)? {
-            Some(content_hash) => content_hash,
-            None => ContentHash::of_file(path).map_err(unreadable(path))?,
-        };
+        let content_hash = self.content_at(path)?;
         let result = if correction.is_empty() {
             self.connection.execute(
                 "DELETE FROM corrections WHERE content_hash = ?1",
@@ -128,6 +122,15 @@ impl Cache {
             .map_err(cache_error(&self.path))
     }
 
+    /// The content of the file at `path`: the one an analysis recorded
+    /// there, without reading the file, or else the hash of the file.
+    pub(super) fn content_at(&self, path: &Path) -> Result<ContentHash, EuphoriaError> {
+        match self.recorded_content(path)? {
+            Some(content_hash) => Ok(content_hash),
+            None => ContentHash::of_file(path).map_err(unreadable(path)),
+        }
+    }
+
     /// The content an analysis last recorded at `path`, whatever the file
     /// there is now, as before a write replaced it.
     pub(super) fn previous_content(
@@ -151,7 +154,7 @@ impl Cache {
             .map_err(cache_error(&self.path))
     }
 
-    fn has_corrections(&self) -> Result<bool, EuphoriaError> {
+    pub(super) fn has_corrections(&self) -> Result<bool, EuphoriaError> {
         self.connection
             .query_row("SELECT EXISTS (SELECT 1 FROM corrections)", [], |row| {
                 row.get(0)
@@ -159,7 +162,7 @@ impl Cache {
             .map_err(cache_error(&self.path))
     }
 
-    fn correction_of(
+    pub(super) fn correction_of(
         &self,
         content_hash: &ContentHash,
     ) -> Result<Option<Correction>, EuphoriaError> {
@@ -183,7 +186,7 @@ impl Cache {
     }
 }
 
-fn unreadable(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError {
+pub(super) fn unreadable(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError {
     let path = path.to_path_buf();
     move |source| EuphoriaError::Scan {
         path: path.clone(),

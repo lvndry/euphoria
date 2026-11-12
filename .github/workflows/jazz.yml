@@ -581,9 +581,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.jazz/agents" workflows/code-review
-          cp .github/jazz/agents/ci-reviewer.json "$HOME/.jazz/agents/"
+          # The target branch owns review policy, including for older open PRs.
+          git show "$PR_BASE_SHA:.github/jazz/agents/ci-reviewer.json" > "$RUNNER_TEMP/jazz-ci-reviewer.json"
+          git show "$PR_BASE_SHA:.github/jazz/workflows/code-review/WORKFLOW.md" > "$RUNNER_TEMP/jazz-code-review-workflow.md"
+          cp "$RUNNER_TEMP/jazz-ci-reviewer.json" "$HOME/.jazz/agents/ci-reviewer.json"
           sed -e "s/__PR_BASE_SHA__/$PR_BASE_SHA/g" -e "s/__PR_HEAD_SHA__/$PR_HEAD_SHA/g" -e "s|__WORKSPACE__|$WORKSPACE|g" \
-            .github/jazz/workflows/code-review/WORKFLOW.md > workflows/code-review/WORKFLOW.md
+            "$RUNNER_TEMP/jazz-code-review-workflow.md" > workflows/code-review/WORKFLOW.md
 
       - name: Snapshot PR context
         if: steps.head.outputs.superseded != 'true'
@@ -600,7 +603,7 @@ jobs:
           set -uo pipefail
           CONTEXT_FILE=/tmp/jazz-pr-context.json
           if gh pr view "$PR_NUMBER" --repo "$REPO" \
-               --json title,body,labels,comments,reviews \
+               --json title,body,labels,comments,reviews,statusCheckRollup \
                > /tmp/pr-base.json \
              && gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
                   | jq 'add // []' > /tmp/pr-review-comments.json; then
@@ -615,6 +618,22 @@ jobs:
               /tmp/pr-base.json /tmp/pr-review-comments.json > "$CONTEXT_FILE"
           else
             echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$CONTEXT_FILE"
+          fi
+
+      - name: Map changed contracts and their callers
+        if: steps.head.outputs.superseded != 'true'
+        env:
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          # Run the target branch's collector, never the proposed implementation.
+          # Isolated Python also prevents repository modules from shadowing stdlib.
+          collector="$RUNNER_TEMP/jazz-review-collector.py"
+          if ! git show "$PR_BASE_SHA:.github/jazz/workflows/code-review/collect_context.py" > "$collector" ||
+              ! python3 -I "$collector" --root "$GITHUB_WORKSPACE" \
+                --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" > /tmp/jazz-contract-context.json; then
+            # The introducing PR has no collector on its base yet. Review still runs.
+            echo '{"error":"Base collector unavailable; perform manual caller searches."}' > /tmp/jazz-contract-context.json
           fi
 
       - name: Receive the ChatGPT access token
@@ -862,7 +881,7 @@ jobs:
 
             let modelLabel = '';
             try {
-              const agent = JSON.parse(fs.readFileSync('.github/jazz/agents/ci-reviewer.json', 'utf8'));
+              const agent = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/jazz-ci-reviewer.json`, 'utf8'));
               if (agent.config?.llm?.provider && agent.config?.llm?.model) {
                 modelLabel = `\n\n*Model: ${agent.config.llm.provider}/${agent.config.llm.model}*`;
               }
