@@ -15,6 +15,7 @@ mod style;
 mod tag_edit;
 mod tags;
 mod terminal;
+mod traktor_collection;
 mod view;
 
 use std::io::{IsTerminal, Write};

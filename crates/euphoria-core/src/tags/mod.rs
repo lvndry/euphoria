@@ -149,7 +149,8 @@ pub enum KeyNotation {
 }
 
 impl KeyNotation {
-    fn spell(self, key: Key) -> String {
+    /// The key written in this notation.
+    pub fn spell(self, key: Key) -> String {
         match self {
             KeyNotation::Camelot => key.camelot(),
             KeyNotation::Musical => key.short_name(),

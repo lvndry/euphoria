@@ -9,6 +9,8 @@ pub mod m3u;
 pub mod playlists;
 /// The rekordbox XML collection format.
 pub mod rekordbox;
+/// The Traktor collection format, NML.
+pub mod traktor;
 
 pub use assemble::{
     AssembledLibrary, ExportContents, PlaylistLayout, SkippedTrack, UnreadTags, assemble_library,

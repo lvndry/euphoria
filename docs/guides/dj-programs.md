@@ -5,10 +5,13 @@ description: What Euphoria writes for rekordbox, Serato, Traktor, Engine DJ, Vir
 
 # Use Euphoria with your DJ program
 
-Euphoria brings its keys, tempos and energy ratings into a DJ program in one of two ways:
+Euphoria brings its keys, tempos and energy ratings into a DJ program in one of these ways:
 
 - **Tags.** `euphoria tags write --preset <program>` writes them into the files' own tags, which the program reads when it imports a track or reloads its tags. See [write tags into your files](write-tags.md).
 - **rekordbox XML.** `euphoria export rekordbox` writes a library file that rekordbox and Engine DJ can import. Your audio files are not changed. See [export to rekordbox](export-to-rekordbox.md).
+- **Traktor NML.** `euphoria export traktor` writes a collection file that Traktor imports, with beat grids and cue points if you ask. See [export to Traktor](export-to-traktor.md).
+
+[DJ program support](../reference/dj-program-support.md) has a table of what each program receives by each route, and which were tested in the program.
 
 No DJ software vendor publishes which tag fields its program reads. What this page says about each program comes from the program's own manual where it says anything, from the source code of programs that read the same files, from the names stored inside the rekordbox application, and from user reports. Each statement is marked:
 
@@ -114,7 +117,7 @@ What to set in Traktor:
 | Key Text from M4A and FLAC | **Unconfirmed** |
 | Tempo from tags when Traktor's analysis is off | **Unconfirmed** |
 
-Euphoria does not write Traktor's `collection.nml`. Its key numbering, for anyone who builds on it: `MUSICAL_KEY VALUE` 0 to 11 are the major keys from C upwards by semitone, and 12 to 23 the minor keys from C minor, checked against a real Traktor Pro 4 collection. Mixxx's Traktor reader is one semitone off from this.
+For the key in Traktor's own **Key** column, a tempo with decimals, a beat grid and cue points, use `euphoria export traktor`, which writes an NML collection file that Traktor imports with **Import Another Collection**. It never writes your own `collection.nml`. It fills `MUSICAL_KEY`, numbered 0 to 11 for the major keys from C upwards by semitone and 12 to 23 for the minor keys from C minor, checked against a real Traktor Pro 4 collection; Mixxx's Traktor reader is one semitone off from this. **Not tested in Traktor.** See [export to Traktor](export-to-traktor.md).
 
 ## Engine DJ
 
