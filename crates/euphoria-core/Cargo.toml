@@ -24,11 +24,14 @@ stratum-dsp.workspace = true
 symphonia = { workspace = true, features = [
   "mp3",
   "aac",
+  "alac",
   "isomp4",
   "aiff",
   "flac",
   "wav",
   "pcm",
+  "ogg",
+  "vorbis",
   "id3v1",
   "id3v2",
 ] }

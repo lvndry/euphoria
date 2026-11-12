@@ -67,6 +67,10 @@ use crate::theme::ThemeName;
 
 const WINDOW_TITLE: &str = "Euphoria";
 
+/// The name Linux desktops match against `euphoria.desktop`, the launcher
+/// entry the AppImage installs, to show the window with its name and icon.
+const APP_ID: &str = "euphoria";
+
 /// Where the space bar belongs to the player: anywhere in the window but a
 /// text field.
 pub(crate) const SPACE_BAR_CONTEXT: &str = "Library && !Input";
@@ -149,6 +153,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
         }),
         // The toolbar is the title bar: it moves the window itself.
         app_owns_titlebar_drag: true,
+        app_id: Some(APP_ID.into()),
         ..Default::default()
     };
     let theme = settings.theme;

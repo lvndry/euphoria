@@ -111,6 +111,17 @@ pub fn export_examples() -> StyledStr {
     )
 }
 
+pub fn traktor_export_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[(
+            "euphoria export traktor ~/Music/DJ -o euphoria.nml",
+            "A playlist per folder",
+        )],
+        "",
+    )
+}
+
 pub fn cache_examples() -> StyledStr {
     examples(
         "Examples",

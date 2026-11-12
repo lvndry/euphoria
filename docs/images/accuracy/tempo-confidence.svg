@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="292" viewBox="0 0 800 292" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">How often the tempo is right at each confidence</title>
+<desc id="chart-desc">Horizontal bars of how often the tempo is right modulo octaves on the held out half of the GiantSteps Tempo previews, by confidence: 97.7% of the 39% rated high, 89.8% of the 42% rated medium and 62.5% of the 19% rated low.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.bracket { stroke: #52514e; stroke-width: 1.5; fill: none; }
+.connector { stroke: #c3c2b7; stroke-width: 2; fill: none; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis, .connector { stroke: #383835; }
+  .bracket { stroke: #c3c2b7; }
+  .series-fill, .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .ring, .halo { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="291" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">How often the tempo is right at each confidence</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">The held out half of the GiantSteps Tempo previews, right when within 4% at 1/4 to 4 times the tempo.</text>
+<line x1="190" y1="96" x2="190" y2="228" class="axis"/>
+<text x="190" y="248" class="tick" text-anchor="middle">0%</text>
+<line x1="317.5" y1="96" x2="317.5" y2="228" class="grid"/>
+<text x="317.5" y="248" class="tick" text-anchor="middle">25%</text>
+<line x1="445" y1="96" x2="445" y2="228" class="grid"/>
+<text x="445" y="248" class="tick" text-anchor="middle">50%</text>
+<line x1="572.5" y1="96" x2="572.5" y2="228" class="grid"/>
+<text x="572.5" y="248" class="tick" text-anchor="middle">75%</text>
+<line x1="700" y1="96" x2="700" y2="228" class="grid"/>
+<text x="700" y="248" class="tick" text-anchor="middle">100%</text>
+<text x="445" y="272" class="label" text-anchor="middle">Share of previews whose tempo is right modulo octaves</text>
+<text x="176" y="122.5" class="label" text-anchor="end">High, 39% of tracks</text>
+<path class="series-fill" d="M190,108 H684.27 Q688.27,108 688.27,112 V124 Q688.27,128 684.27,128 H190 Z"/>
+<text x="698.27" y="122.5" class="value halo" text-anchor="start">97.7%</text>
+<text x="176" y="166.5" class="label" text-anchor="end">Medium, 42% of tracks</text>
+<path class="series-fill" d="M190,152 H643.98 Q647.98,152 647.98,156 V168 Q647.98,172 643.98,172 H190 Z"/>
+<text x="657.98" y="166.5" class="value halo" text-anchor="start">89.8%</text>
+<text x="176" y="210.5" class="label" text-anchor="end">Low, 19% of tracks</text>
+<path class="series-fill" d="M190,196 H504.75 Q508.75,196 508.75,200 V212 Q508.75,216 504.75,216 H190 Z"/>
+<text x="518.75" y="210.5" class="value halo" text-anchor="start">62.5%</text>
+</svg>

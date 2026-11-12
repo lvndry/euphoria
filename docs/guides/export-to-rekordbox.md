@@ -56,7 +56,7 @@ The playlists in the file mirror the folders you exported, so a library sorted i
 
 ### Titles and artists
 
-Each track's title and artist are read from the file's own tags: ID3 tags in MP3 and AIFF files, Vorbis comments in FLAC, MP4 metadata in M4A, and the `INFO` list in WAV files. A WAV file tagged only with an ID3 chunk is read as having no tags. A track with no title in its tags is given its file name without the extension, so no track arrives nameless.
+Each track's title and artist are read from the file's own tags: ID3 tags in MP3 and AIFF files, Vorbis comments in FLAC and Ogg Vorbis, MP4 metadata in M4A and MP4, and the `INFO` list in WAV files. A WAV file tagged only with an ID3 chunk is read as having no tags. A track with no title in its tags is given its file name without the extension, so no track arrives nameless.
 
 A track whose tags cannot be read at all is still exported with its key and tempo, under its file name and without an artist. The command lists those tracks with the reason, and still exits with status 0.
 

@@ -285,6 +285,8 @@ pub(crate) fn fit_beats(envelope: &OnsetEnvelope, estimate_bpm: f64) -> Option<B
             }
         }
     }
+    // Keep the acceptance floor separate from the returned grid's score.
+    let mut strongest_score = best_score;
     for _ in 0..LINE_FIT_ROUNDS {
         let Some((period, phase)) =
             fitted_to_stretches(&values, envelope.frame_rate, best_period, best_phase)
@@ -292,10 +294,11 @@ pub(crate) fn fit_beats(envelope: &OnsetEnvelope, estimate_bpm: f64) -> Option<B
             break;
         };
         let score = comb(&values, period, phase, 0.0, last);
-        if score < best_score * LINE_FIT_SCORE_SHARE {
+        if score < strongest_score * LINE_FIT_SCORE_SHARE {
             break;
         }
-        (best_score, best_period, best_phase) = (score.max(best_score), period, phase);
+        strongest_score = strongest_score.max(score);
+        (best_score, best_period, best_phase) = (score, period, phase);
     }
     let phase_count = best_period.ceil() as usize;
     let mean_over_phases = (0..phase_count)
@@ -893,6 +896,28 @@ mod tests {
         assert_eq!(detect_beat_grid(&silence, 128.0), None);
         let short = dance_loop(128.0, 1.5, 0.1);
         assert_eq!(detect_beat_grid(&short, 128.0), None);
+    }
+
+    #[test]
+    fn reported_salience_measures_the_returned_grid() {
+        for tempo in [120.0, 127.537, 132.1, 95.0] {
+            let audio = dance_loop(tempo, 40.0, 0.2);
+            let envelope = OnsetEnvelope::of_audio(&audio).unwrap();
+            let fit = fit_beats(&envelope, tempo).unwrap();
+            let values = peaks_only(&envelope.full, envelope.frame_rate);
+            let phases = fit.period_frames.ceil() as usize;
+            let last = values.len() as f64;
+            let mean = (0..phases)
+                .map(|phase| comb(&values, fit.period_frames, phase as f64, 0.0, last))
+                .sum::<f32>()
+                / phases as f32;
+            let actual = comb(&values, fit.period_frames, fit.phase_frames, 0.0, last) / mean;
+            assert!(
+                (fit.salience - actual).abs() < 0.0001,
+                "tempo {tempo}: reported {} but returned grid measures {actual}",
+                fit.salience
+            );
+        }
     }
 
     #[test]

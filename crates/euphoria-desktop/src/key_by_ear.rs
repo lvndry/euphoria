@@ -427,13 +427,25 @@ mod tests {
         };
         has_started.recv().unwrap();
 
-        let before = std::time::Instant::now();
-        writer.queue(path, second);
-        assert_eq!(writer.pending(path), Some(second));
+        // The write holds until the test lets it finish, so an edit that
+        // waited for it would never return. It is queued on its own thread,
+        // and a generous limit on that thread turns such a wait into a
+        // failure instead of a test that hangs.
+        let (queued, has_queued) = std::sync::mpsc::channel();
+        {
+            let writer = writer.clone();
+            std::thread::spawn(move || {
+                writer.queue(path, second);
+                queued.send(()).ok();
+            });
+        }
         assert!(
-            before.elapsed() < std::time::Duration::from_millis(500),
-            "the edit did not wait for the write"
+            has_queued
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .is_ok(),
+            "the edit waited for the write"
         );
+        assert_eq!(writer.pending(path), Some(second));
 
         finish.send(()).unwrap();
         slow.join().unwrap().unwrap();
