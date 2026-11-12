@@ -143,12 +143,31 @@ fn observed_error(root: &Path, actual: &[f32], observation: &Value) -> Result<Va
     } else {
         1
     };
+    let expected_values = shape
+        .iter()
+        .try_fold(components, |count: usize, dimension| {
+            usize::try_from(dimension.as_u64().context("observation dimension")?)
+                .ok()
+                .and_then(|dimension| count.checked_mul(dimension))
+                .context("observation size overflow")
+        })?;
+    ensure!(
+        columns > 0 && expected_values == actual.len() && !actual.is_empty(),
+        "observation shape mismatch"
+    );
     let outer = actual.len() / (columns * components);
     for probe in observation["probes"].as_array().context("probes")? {
         let start = probe["start"].as_u64().context("probe start")? as usize;
         let reference = read_f32(root, &probe["artifact"])?;
+        ensure!(
+            reference.len().is_multiple_of(outer * components),
+            "probe shape mismatch"
+        );
         let width = reference.len() / (outer * components);
-        ensure!(start + width <= columns, "probe outside observation");
+        ensure!(
+            start.checked_add(width).is_some_and(|end| end <= columns),
+            "probe outside observation"
+        );
         let mut selected = Vec::with_capacity(reference.len());
         for row in 0..outer {
             selected.extend_from_slice(
@@ -179,12 +198,19 @@ pub fn features(
         let n = stage["n_fft"].as_u64().context("n_fft")? as usize;
         let hop = stage["hop"].as_u64().context("hop")? as usize;
         let rows = stage["basis_shape"][0].as_u64().context("rows")? as usize;
+        ensure!(n > 0 && hop > 0, "FFT size and hop must be positive");
         let indptr = indices(root, &stage["indptr"])?;
         let indices = indices(root, &stage["indices"])?;
         let basis = complex_values(root, &stage["basis"])?;
         ensure!(
-            indptr.len() == rows + 1 && basis.len() == indices.len(),
+            rows.checked_add(1) == Some(indptr.len()) && basis.len() == indices.len(),
             "CSR dimensions"
+        );
+        ensure!(
+            indptr.first() == Some(&0)
+                && indptr.last() == Some(&basis.len())
+                && indptr.windows(2).all(|pair| pair[0] <= pair[1]),
+            "invalid CSR row pointers"
         );
         let frames = 1 + samples.len() / hop;
         let mut response = vec![Complex::new(0.0f32, 0.0); rows * frames];
@@ -246,6 +272,13 @@ pub fn features(
     let lengths = case["normalization"]["lengths"]
         .as_array()
         .context("lengths")?;
+    ensure!(
+        lengths.len() == 208
+            && lengths.iter().all(|length| length
+                .as_f64()
+                .is_some_and(|value| value.is_finite() && value > 0.0)),
+        "normalization requires 208 positive finite lengths"
+    );
     let mut magnitudes = Vec::with_capacity(192 * frames);
     for bin in 8..200 {
         let scale = lengths[bin].as_f64().context("length")?.sqrt();
@@ -274,6 +307,121 @@ pub fn features(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    struct SyntheticCase {
+        root: std::path::PathBuf,
+        case: Value,
+    }
+    #[cfg(unix)]
+    impl SyntheticCase {
+        fn new() -> Result<Self> {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "cqt-plan-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root)?;
+            let mut result = Self {
+                root,
+                case: json!({}),
+            };
+            let indptr = result.artifact(
+                "indptr",
+                &(0u32..=208).flat_map(u32::to_le_bytes).collect::<Vec<_>>(),
+            )?;
+            let indices = result.artifact("indices", &[0u8; 208 * 4])?;
+            let basis = result.artifact(
+                "basis",
+                &(0..208)
+                    .flat_map(|_| [1.0f32, 0.0])
+                    .flat_map(f32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )?;
+            let response = result.artifact(
+                "response",
+                &(0..208)
+                    .flat_map(|_| [1.0f32, 0.0, 1.0, 0.0, 0.0, 0.0])
+                    .flat_map(f32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )?;
+            result.case = json!({"stages":[{"n_fft":2,"hop":1,"basis_shape":[208,2],"indptr":indptr,"indices":indices,"basis":basis,"response":response}],"resamplings":[],"normalization":{"lengths":vec![1.0;208]}});
+            Ok(result)
+        }
+        fn artifact(&self, name: &str, bytes: &[u8]) -> Result<Value> {
+            fs::write(self.root.join(name), bytes)?;
+            Ok(
+                json!({"path":name,"sha256":drone_native_cached::bytes_sha256(bytes),"bytes":bytes.len()}),
+            )
+        }
+        fn run(&self) -> Result<(Vec<f32>, usize, Value)> {
+            // No resampling is requested, so no symbols from this handle are called.
+            let soxr = Soxr {
+                library: libloading::os::unix::Library::this().into(),
+            };
+            features(&self.root, &self.case, &[1.0, 0.0], &soxr, None, false)
+        }
+    }
+    #[cfg(unix)]
+    impl Drop for SyntheticCase {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn synthetic_centered_impulse_preserves_frames_and_fp16_boundary() -> Result<()> {
+        let fixture = SyntheticCase::new()?;
+        let (core, frames, _) = fixture.run()?;
+        ensure!(frames == 3 && core.len() == 192 * frames);
+        let expected = half::f16::from_f32(2.0f32.ln()).to_f32();
+        ensure!(
+            core.as_chunks::<3>()
+                .0
+                .iter()
+                .all(|row| *row == [expected, expected, 0.0])
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn malformed_captured_plans_return_errors_instead_of_panicking() -> Result<()> {
+        let mut accepted_or_panicked = Vec::new();
+        for invalid in ["hop", "fft", "csr", "lengths", "scale", "observation"] {
+            let mut fixture = SyntheticCase::new()?;
+            match invalid {
+                "hop" => fixture.case["stages"][0]["hop"] = json!(0),
+                "fft" => fixture.case["stages"][0]["n_fft"] = json!(0),
+                "csr" => {
+                    let ptr = (0u32..208)
+                        .chain([209])
+                        .flat_map(u32::to_le_bytes)
+                        .collect::<Vec<_>>();
+                    fixture.case["stages"][0]["indptr"] = fixture.artifact("bad-pointers", &ptr)?;
+                }
+                "lengths" => fixture.case["normalization"]["lengths"] = json!(vec![1.0; 199]),
+                "scale" => fixture.case["normalization"]["lengths"][8] = json!(0),
+                "observation" => {
+                    fixture.case["stages"][0]["response"] =
+                        json!({"sha256":"0".repeat(64),"shape":[208,0],"dtype":"<c8","probes":[]})
+                }
+                _ => unreachable!(),
+            }
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fixture.run()));
+            if !matches!(result, Ok(Err(_))) {
+                accepted_or_panicked.push(invalid);
+            }
+        }
+        ensure!(
+            accepted_or_panicked.is_empty(),
+            "malformed plans did not return errors: {accepted_or_panicked:?}"
+        );
+        Ok(())
+    }
     #[test]
     fn finite_numpy_magnitude_preserves_contract() -> Result<()> {
         ensure!(numpy_finite_magnitude(0.0, -0.0)?.to_bits() == 0);
