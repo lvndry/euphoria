@@ -2,9 +2,9 @@
 resolver = "3"
 members = [
   "crates/euphoria-core",
-  "crates/euphoria-cli",
   "crates/euphoria-bench",
-  "crates/euphoria-desktop",
+  "apps/euphoria-cli",
+  "apps/euphoria-desktop",
 ]
 
 [workspace.package]
