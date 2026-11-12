@@ -58,8 +58,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         })
         .when_some(builder.planned.as_ref(), |page, planned| {
             page.child(summary(app, planned))
-                .child(set_rows(app, planned, cx))
                 .child(set_actions(app, cx))
+                .child(set_rows(app, planned, cx))
         })
         .test_support()
         .into_any_element()
