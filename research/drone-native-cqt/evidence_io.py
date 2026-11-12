@@ -30,8 +30,8 @@ def canonical_gzip(raw: bytes) -> bytes:
 
 def load_json(path: Path) -> dict[str, Any]:
     encoded = path.read_bytes()
+    index = json.loads((path.parent / "index.json").read_bytes())
     if path.suffix == ".gz":
-        index = json.loads((path.parent / "index.json").read_bytes())
         identity = index["compressed_json"][path.name]
         if digest(encoded) != identity["compressed_sha256"]:
             raise ValueError(f"Changed compressed evidence: {path.name}")
@@ -42,6 +42,11 @@ def load_json(path: Path) -> dict[str, Any]:
         ):
             raise ValueError(f"Changed decoded evidence: {path.name}")
     else:
+        expected = index.get("files", {}).get(path.name)
+        if expected is None:
+            raise ValueError(f"Unindexed evidence: {path.name}")
+        if digest(encoded) != expected:
+            raise ValueError(f"Changed plain JSON evidence: {path.name}")
         raw = encoded
     return json.loads(raw)
 

@@ -6,27 +6,41 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
+from evidence_io import load_json
 
 
-def load(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+def validate_case_order(reference: list[dict[str, Any]], cases: list[dict[str, Any]]) -> None:
+    identities = []
+    for rows in (reference, cases):
+        ids = [row.get("id") for row in rows]
+        if any(not isinstance(identity, str) or not identity for identity in ids):
+            raise ValueError("Missing or invalid evidence case identity")
+        if len(set(ids)) != len(ids):
+            raise ValueError("Duplicate evidence case identity")
+        identities.append(ids)
+    if identities[0] != identities[1]:
+        raise ValueError("Report case identities/order differ from the reference")
 
 
 def plot(root: Path) -> None:
-    reference = load(root / "evidence/reference-summary.json")["cases"]
+    reference = load_json(root / "evidence/reference-summary.json")["cases"]
     reports = [
-        ("Experimental WIP", "#b75d28", load(root / "evidence/owner-d8424bf.json")),
+        ("Experimental WIP", "#b75d28", load_json(root / "evidence/owner-d8424bf.json")),
         (
             "Exported CSR + exact-source soxr",
             "#245c8c",
-            load(root / "evidence/exported-d8424bf.json"),
+            load_json(root / "evidence/exported-d8424bf.json"),
         ),
     ]
+    for _, _, report in reports:
+        validate_case_order(reference, report["cases"])
+    # Validate evidence before importing the optional rendering dependency or
+    # creating a figure, so invalid inputs cannot produce a misleading chart.
+    import matplotlib.pyplot as plt
+
     figure, axes = plt.subplots(
         1, 2, figsize=(11.4, 5), layout="constrained", sharey=True
     )

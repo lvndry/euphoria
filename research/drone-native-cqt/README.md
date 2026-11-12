@@ -96,6 +96,9 @@ compression preserves the original JSON bytes (including whitespace/newline).
 Run `python3 -m unittest discover -s research/drone-native-cqt -p 'test_*.py'` to
 check roundtrips, repeatability and rejection of altered evidence. Server
 artifacts and measured source refs remain unchanged by publication packaging.
+Both plotters verify their JSON inputs against that index, including the plain
+nine-case reports. The feasibility plot also requires unique case IDs in the
+same order as its reference, so valid file hashes cannot conceal mispaired rows.
 
 Subsequent runner validation checks captured plan dimensions and accepts a
 manifest basename relative to the working directory. These checks do not
