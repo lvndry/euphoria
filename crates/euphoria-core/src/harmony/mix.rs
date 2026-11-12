@@ -103,7 +103,8 @@ pub enum TempoScaling {
 }
 
 impl TempoScaling {
-    fn factor(self) -> f32 {
+    /// What the candidate's tempo is multiplied by before the comparison.
+    pub fn factor(self) -> f32 {
         match self {
             TempoScaling::Direct => 1.0,
             TempoScaling::HalfTempo => 2.0,
@@ -180,9 +181,12 @@ where
 
             let candidate_bpm = usable_bpm(candidate.bpm());
             let tempo = match (reference_bpm, candidate_bpm) {
-                (Some(reference_bpm), Some(candidate_bpm)) => {
-                    Some(tempo_fit(reference_bpm, candidate_bpm, options)?)
-                }
+                (Some(reference_bpm), Some(candidate_bpm)) => Some(tempo_fit(
+                    reference_bpm,
+                    candidate_bpm,
+                    options.max_tempo_difference_percent,
+                    options.allow_half_and_double_tempo,
+                )?),
                 _ => None,
             };
             let energy_difference = usable_energy(candidate.energy())
@@ -209,18 +213,24 @@ where
     ranked.into_iter().map(|(_, mix_match)| mix_match).collect()
 }
 
-fn usable_bpm(bpm: Option<f32>) -> Option<f32> {
+pub(super) fn usable_bpm(bpm: Option<f32>) -> Option<f32> {
     bpm.filter(|bpm| bpm.is_finite() && *bpm > 0.0)
 }
 
-fn usable_energy(energy: Option<f32>) -> Option<f32> {
+pub(super) fn usable_energy(energy: Option<f32>) -> Option<f32> {
     energy.filter(|energy| energy.is_finite())
 }
 
-/// The closest reading of the candidate tempo that the options allow, or
-/// `None` when even that one is outside the tempo window.
-fn tempo_fit(reference_bpm: f32, candidate_bpm: f32, options: &MixOptions) -> Option<TempoFit> {
-    let scalings: &[TempoScaling] = if options.allow_half_and_double_tempo {
+/// The closest reading of the candidate tempo, at half or double only when
+/// `allow_half_and_double_tempo`, or `None` when even that one is more than
+/// `max_difference_percent` away.
+pub(super) fn tempo_fit(
+    reference_bpm: f32,
+    candidate_bpm: f32,
+    max_difference_percent: f32,
+    allow_half_and_double_tempo: bool,
+) -> Option<TempoFit> {
+    let scalings: &[TempoScaling] = if allow_half_and_double_tempo {
         &[
             TempoScaling::Direct,
             TempoScaling::HalfTempo,
@@ -242,7 +252,7 @@ fn tempo_fit(reference_bpm: f32, candidate_bpm: f32, options: &MixOptions) -> Op
                 .abs()
                 .total_cmp(&second.difference_percent.abs())
         })
-        .filter(|fit| fit.difference_percent.abs() <= options.max_tempo_difference_percent)
+        .filter(|fit| fit.difference_percent.abs() <= max_difference_percent)
 }
 
 fn smoothness_order<Track>(first: &MixMatch<'_, Track>, second: &MixMatch<'_, Track>) -> Ordering {

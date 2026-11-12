@@ -348,7 +348,7 @@ pub fn write_shifted_copy(
     })
 }
 
-fn same_file(first: &Path, second: &Path) -> bool {
+pub(crate) fn same_file(first: &Path, second: &Path) -> bool {
     match (std::fs::canonicalize(first), std::fs::canonicalize(second)) {
         (Ok(first), Ok(second)) => first == second,
         _ => false,
@@ -356,7 +356,7 @@ fn same_file(first: &Path, second: &Path) -> bool {
 }
 
 /// Claims a short name of our own, preserving the extension for tag detection.
-fn create_temporary_file(output: &Path) -> std::io::Result<(File, PathBuf)> {
+pub(crate) fn create_temporary_file(output: &Path) -> std::io::Result<(File, PathBuf)> {
     let extension = output.extension().unwrap_or_default();
     for _ in 0..64 {
         let mut name = std::ffi::OsString::from(format!(
@@ -381,7 +381,11 @@ fn create_temporary_file(output: &Path) -> std::io::Result<(File, PathBuf)> {
     ))
 }
 
-fn install(temporary: &Path, output: &Path, existing: ExistingOutput) -> Result<(), EuphoriaError> {
+pub(crate) fn install(
+    temporary: &Path,
+    output: &Path,
+    existing: ExistingOutput,
+) -> Result<(), EuphoriaError> {
     use crate::export::rekordbox::{ExistingFile, install};
     install(
         temporary,

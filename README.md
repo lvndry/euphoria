@@ -77,6 +77,7 @@ The full documentation is in [docs](docs/index.md):
 - [Cue points and beat grids for Serato](docs/guides/serato-cues.md)
 - [DJ program support](docs/reference/dj-program-support.md)
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
+- [Find and export mashups in the desktop app](docs/guides/mashups.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)
 - [Accuracy](docs/concepts/accuracy.md)
 - [Audio quality](docs/concepts/audio-quality.md)

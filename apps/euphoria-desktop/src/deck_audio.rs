@@ -50,53 +50,79 @@ const RETIRED_CAPACITY: usize = 8;
 const SPENT_LOOPS_CAPACITY: usize = 8;
 
 /// The time stretcher of a deck, the one place that names the stretching
+/// library, so that another binding of the same algorithm is a change to
 /// this type alone. It is the same Signalsmith Stretch the `euphoria`
 /// command line tool compiles, so the binary holds one version of its C++
 /// code, not two.
-struct TimeStretcher(CoreStretch);
+struct TimeStretcher {
+    stretch: CoreStretch,
+    /// The block being stretched, one buffer per channel, allocated once
+    /// so that stretching allocates nothing on the audio thread.
+    input_channels: Vec<Vec<f32>>,
+    output_channels: Vec<Vec<f32>>,
+}
 
 impl TimeStretcher {
     /// A stretcher for `channel_count` interleaved channels mixed at
-    /// [`MIX_SAMPLE_RATE`]. It allocates, so build it off the audio thread.
-    fn new(channel_count: usize) -> Self {
+    /// [`MIX_SAMPLE_RATE`], taking up to `largest_input` frames a block.
+    /// It allocates, so build it off the audio thread.
+    fn new(channel_count: usize, largest_input: usize) -> Self {
         // The channel count is at least one and the mix rate is fixed, so
         // the stretcher can only fail to be created if its buffers are not
         // allocated.
-        Self(
-            CoreStretch::new(channel_count, MIX_SAMPLE_RATE)
+        Self {
+            stretch: CoreStretch::new(channel_count, MIX_SAMPLE_RATE)
                 .expect("a deck stretcher could not be created"),
-        )
+            input_channels: vec![Vec::with_capacity(largest_input); channel_count],
+            output_channels: vec![Vec::with_capacity(BLOCK_FRAMES); channel_count],
+        }
     }
 
     /// Forgets what it holds, as after a jump in the track.
     fn reset(&mut self) {
-        self.0.reset();
+        self.stretch.reset();
     }
 
     /// Multiplies every frequency by `factor`.
     fn set_transpose(&mut self, factor: f32) {
         // The factor is a ratio of sample rates, or one multiplied by a
         // deck rate, so it is a positive finite number.
-        self.0
+        self.stretch
             .set_transpose_factor(factor)
             .expect("a deck transpose could not be applied");
     }
 
     /// Frames of input held before output starts.
     fn input_latency(&self) -> usize {
-        self.0.input_latency()
+        self.stretch.input_latency()
     }
 
     /// Frames of output held back.
     fn output_latency(&self) -> usize {
-        self.0.output_latency()
+        self.stretch.output_latency()
     }
 
-    /// Stretches `input` to fill `output`, both interleaved.
+    /// Stretches `input` to fill `output`, both interleaved, through the
+    /// buffers allocated with the stretcher.
     fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        self.0
-            .process_interleaved(input, output)
+        let channel_count = self.input_channels.len();
+        for (channel, buffer) in self.input_channels.iter_mut().enumerate() {
+            buffer.clear();
+            buffer.extend(input.iter().skip(channel).step_by(channel_count));
+        }
+        let frames = output.len() / channel_count;
+        for buffer in &mut self.output_channels {
+            buffer.clear();
+            buffer.resize(frames, 0.0);
+        }
+        self.stretch
+            .process(&self.input_channels, &mut self.output_channels)
             .expect("a deck block could not be stretched");
+        for (channel, buffer) in self.output_channels.iter().enumerate() {
+            for (frame, sample) in buffer.iter().enumerate() {
+                output[frame * channel_count + channel] = *sample;
+            }
+        }
     }
 }
 
@@ -224,6 +250,8 @@ pub(crate) enum DeckCommand {
     },
     /// Keeps a deck's pitch when its speed changes, or lets it follow.
     SetKeylock { deck: DeckId, keylock: bool },
+    /// Shifts a deck's pitch by `semitones`, on top of key lock.
+    SetShift { deck: DeckId, semitones: i8 },
     /// Loops `bars` bars of a deck from the next downbeat of its grid, or,
     /// with `None`, lets the loop play to its end once more and carries on
     /// from there.
@@ -454,6 +482,8 @@ struct LoadedTrack {
     stretch: TimeStretcher,
     rate: f64,
     keylock: bool,
+    /// Semitones the pitch is shifted by, as for a mashup.
+    shift_semitones: i8,
     /// The transposition last given to the stretcher.
     transpose: f32,
     playing: bool,
@@ -481,7 +511,6 @@ impl LoadedTrack {
     fn new(source: TrackSource, grid: Option<GridTiming>) -> Self {
         let channel_count = usize::from(rodio::Source::channels(&source).get());
         let input_rate = rodio::Source::sample_rate(&source).get();
-        let stretch = TimeStretcher::new(channel_count);
         // The most input a block can take: at the fastest speed, from a
         // file at a higher rate than the mix, and one frame for the
         // fraction carried over.
@@ -489,6 +518,7 @@ impl LoadedTrack {
             / f64::from(MIX_SAMPLE_RATE))
         .ceil() as usize
             + 2;
+        let stretch = TimeStretcher::new(channel_count, largest_input);
         let start_seconds = source.next_frame() as f64 / f64::from(input_rate);
         let mut track = Self {
             source,
@@ -498,6 +528,7 @@ impl LoadedTrack {
             stretch,
             rate: 1.0,
             keylock: true,
+            shift_semitones: 0,
             transpose: 0.0,
             playing: false,
             start_countdown: None,
@@ -523,11 +554,15 @@ impl LoadedTrack {
 
     /// The stretcher keeps the pitch of the input in samples, so a track
     /// recorded at another rate than the mix needs transposing back; with
-    /// key lock off the pitch follows the speed, as on a turntable.
+    /// key lock off the pitch follows the speed, as on a turntable. A key
+    /// shift moves it by its semitones on top.
     fn update_transpose(&mut self) {
         let mut transpose = self.input_rate as f32 / MIX_SAMPLE_RATE as f32;
         if !self.keylock {
             transpose *= self.rate as f32;
+        }
+        if self.shift_semitones != 0 {
+            transpose *= 2_f32.powf(f32::from(self.shift_semitones) / 12.0);
         }
         if (transpose - self.transpose).abs() > f32::EPSILON {
             self.stretch.set_transpose(transpose);
@@ -919,6 +954,11 @@ impl DeckMix {
                     track.keylock = keylock;
                 }
             }
+            DeckCommand::SetShift { deck, semitones } => {
+                if let Some(track) = self.deck_mut(deck) {
+                    track.shift_semitones = semitones;
+                }
+            }
             DeckCommand::SetLoop { deck, bars, frames } => {
                 if let Some(track) = self.deck_mut(deck) {
                     track.set_loop(bars, frames);
@@ -1171,7 +1211,16 @@ mod tests {
     /// on deck B on its fourth downbeat, matched to A's tempo and started on
     /// A's next downbeat, and measures how far B's clicks land from A's.
     fn measure_alignment(a_bpm: f64, b_bpm: f64, b_start: Option<f64>) -> Alignment {
-        let scratch = ScratchFolder::new(&format!("click-{a_bpm}-{b_bpm}"));
+        measure_shifted_alignment(a_bpm, b_bpm, b_start, 0)
+    }
+
+    fn measure_shifted_alignment(
+        a_bpm: f64,
+        b_bpm: f64,
+        b_start: Option<f64>,
+        b_shift: i8,
+    ) -> Alignment {
+        let scratch = ScratchFolder::new(&format!("click-{a_bpm}-{b_bpm}-{b_shift}"));
         let a_path = scratch.0.join("a.wav");
         let b_path = scratch.0.join("b.wav");
         let a_grid = GridTiming {
@@ -1199,6 +1248,10 @@ mod tests {
             link.send(DeckCommand::SetRate {
                 deck: DeckId::B,
                 rate: matching_rate(b_bpm, a_bpm),
+            });
+            link.send(DeckCommand::SetShift {
+                deck: DeckId::B,
+                semitones: b_shift,
             });
             link.send(DeckCommand::Seek {
                 deck: DeckId::B,
@@ -1370,6 +1423,84 @@ mod tests {
             );
             assert!(clicks.len() > 30, "{}", clicks.len());
         }
+    }
+
+    #[test]
+    fn a_key_shifted_deck_stays_on_the_other_decks_beats() {
+        let alignment = measure_shifted_alignment(120.0, 125.0, None, -2);
+        assert!(alignment.mean_milliseconds < 5.0, "{alignment:?}");
+        assert!(alignment.largest_milliseconds < 10.0, "{alignment:?}");
+        assert!(
+            alignment.downbeats_matched * 4 >= alignment.beats - 4,
+            "{alignment:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_shift_moves_a_decks_pitch_while_it_plays() {
+        let scratch = ScratchFolder::new("shift-pitch");
+        let path = scratch.0.join("tone.wav");
+        let rate = 44_100.0;
+        let samples: Vec<i16> = (0..(4.0 * rate) as usize)
+            .map(|index| {
+                (0.5 * (std::f64::consts::TAU * 440.0 * index as f64 / rate).sin()
+                    * f64::from(i16::MAX)) as i16
+            })
+            .collect();
+        let mut bytes = mono_wav_header(samples.len());
+        for sample in samples {
+            bytes.extend(sample.to_le_bytes());
+        }
+        std::fs::write(&path, bytes).unwrap();
+        let (link, mut mix) = deck_mix();
+        let source = TrackSource::open(&path, 0.0).unwrap().patient();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(source, None),
+        });
+        link.send(DeckCommand::SetShift {
+            deck: DeckId::A,
+            semitones: 2,
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        let heard = pull(&mut mix, 3.0);
+        let left: Vec<f32> = heard
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| pair[0])
+            .collect();
+        let middle = &left[left.len() / 3..left.len() * 2 / 3];
+        let crossings = middle
+            .windows(2)
+            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
+            .count();
+        let hertz = crossings as f64 * rate / middle.len() as f64;
+        let expected = 440.0 * 2_f64.powf(2.0 / 12.0);
+        assert!((hertz - expected).abs() < 3.0, "{hertz}");
+    }
+
+    /// The 44 byte header of a mono 16 bit WAV file at 44.1 kHz.
+    fn mono_wav_header(samples: usize) -> Vec<u8> {
+        let rate = 44_100_u32;
+        let data_length = (samples * 2) as u32;
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend((36 + data_length).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(rate.to_le_bytes());
+        bytes.extend((rate * 2).to_le_bytes());
+        bytes.extend(2_u16.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(data_length.to_le_bytes());
+        bytes
     }
 
     #[test]
