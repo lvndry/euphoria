@@ -25,6 +25,11 @@ pub const DEFAULT_ENERGY_TOLERANCE: f32 = 1.0;
 /// [`SetOptions::new`].
 pub const DEFAULT_BEAM_WIDTH: usize = 256;
 
+/// The most usable tracks a pool may hold. The search keeps a cost for
+/// every pair of tracks, so its memory grows with the square of the pool:
+/// 64 MB at this size.
+pub const MAX_POOL_SIZE: usize = 4_000;
+
 /// The key moves [`SetOptions::new`] allows: same, adjacent, relative and
 /// diagonal keys, and the energy boost of two steps up.
 pub const DEFAULT_SET_RELATIONS: [Relation; 5] = [
@@ -137,6 +142,16 @@ pub enum SetError {
     /// No track of the pool has a key, a tempo and an energy.
     #[error("no track of the pool has a key, a tempo and an energy, so there is nothing to order")]
     NothingUsable,
+    /// The pool has more usable tracks than [`MAX_POOL_SIZE`].
+    #[error(
+        "the pool has {size} tracks with a key, a tempo and an energy, more than the {limit} a set can be chosen from; choose a folder or a playlist"
+    )]
+    PoolTooLarge {
+        /// The usable tracks in the pool.
+        size: usize,
+        /// [`MAX_POOL_SIZE`].
+        limit: usize,
+    },
     /// A pin or an order names a track that is not in the pool.
     #[error("the track {track} is not in the pool")]
     PinnedTrackMissing {

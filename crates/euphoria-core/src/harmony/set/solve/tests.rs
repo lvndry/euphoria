@@ -544,3 +544,15 @@ fn a_reordered_set_is_explained_as_given() {
     );
     assert_eq!(evaluate_set(&pool, &[], &options), Err(SetError::NoTracks));
 }
+
+#[test]
+fn a_pool_past_the_limit_is_refused_before_any_search() {
+    let pool = vec![track("8A", 124.0, 5.0); MAX_POOL_SIZE + 1];
+    assert_eq!(
+        build_set(&pool, &options(10, "5")),
+        Err(SetError::PoolTooLarge {
+            size: MAX_POOL_SIZE + 1,
+            limit: MAX_POOL_SIZE
+        })
+    );
+}

@@ -13,19 +13,18 @@ from xml.sax.saxutils import escape
 
 OUTPUT_DIRECTORY = Path(__file__).resolve().parent
 
-# "Planned and actual energy": the curve given with --curve, and for each
-# track of the set the energy the curve asks for and the energy of the
-# track, from the JSON output of the command on that page.
+# "Planned and actual energy": the curve given with --curve, and the energy
+# of each track of the set in order, from the JSON output of the command on
+# that page.
 CURVE_LEVELS = [4, 6, 8, 9, 7, 5]
-TARGET_ENERGY = []
-ACTUAL_ENERGY = []
+ACTUAL_ENERGY = [4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 9, 9, 9, 8, 8, 7, 7, 6, 6, 5]
 
-# "When the curve cannot be met": the same pool with a curve that peaks at
-# 10, which no track of the pool reaches.
+# "When the curve cannot be met": the same pool with a curve that holds 10,
+# which one track of the pool reaches, and the positions, counted from 1,
+# that the command reported as off the curve.
 UNREACHABLE_CURVE_LEVELS = [4, 7, 10, 10, 6]
-UNREACHABLE_TARGET_ENERGY = []
-UNREACHABLE_ACTUAL_ENERGY = []
-UNREACHABLE_OFF_TARGET = []
+UNREACHABLE_ACTUAL_ENERGY = [4, 5, 5, 6, 7, 7, 8, 8, 9, 9, 9, 10, 7, 9, 9, 9, 8, 7, 7, 6]
+UNREACHABLE_OFF_TARGET = [13]
 
 STYLE = """
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
@@ -119,7 +118,7 @@ def curve_chart(title, subtitle, levels, actual, off_target, description):
     width = 800
     height = 380
     plot_left = 64
-    plot_right = 640
+    plot_right = 600
     plot_top = 100
     plot_bottom = 300
     count = len(actual)
@@ -148,7 +147,7 @@ def curve_chart(title, subtitle, levels, actual, off_target, description):
 
     legend_x = plot_right + 24
     body.append(line(legend_x, 112, legend_x + 28, 112, "planned"))
-    body.append(text(legend_x + 36, 116, "Curve drawn", "label"))
+    body.append(text(legend_x + 36, 116, "Curve asked for", "label"))
     body.append(line(legend_x, 140, legend_x + 28, 140, "series-line"))
     body.append(dot(legend_x + 14, 140, "series-fill", 4))
     body.append(text(legend_x + 36, 144, "Set built", "label"))
@@ -170,7 +169,7 @@ def curve_target(levels, index, count):
 def planned_and_actual_chart():
     return curve_chart(
         "Planned and actual energy",
-        f"{len(ACTUAL_ENERGY)} tracks from a folder of melodic house, curve 4,6,8,9,7,5.",
+        f"{len(ACTUAL_ENERGY)} tracks from a folder of 119 melodic house tracks, curve 4,6,8,9,7,5.",
         CURVE_LEVELS,
         ACTUAL_ENERGY,
         [],
@@ -181,7 +180,7 @@ def planned_and_actual_chart():
 def unreachable_chart():
     return curve_chart(
         "A peak the pool cannot reach",
-        "The same folder with a curve that asks for 10, which none of its tracks rates.",
+        "The same folder with a curve that holds 10, which one of its tracks rates.",
         UNREACHABLE_CURVE_LEVELS,
         UNREACHABLE_ACTUAL_ENERGY,
         UNREACHABLE_OFF_TARGET,
@@ -189,8 +188,18 @@ def unreachable_chart():
     )
 
 
-PLANNED_DESCRIPTION = ""
-UNREACHABLE_DESCRIPTION = ""
+PLANNED_DESCRIPTION = (
+    "Line chart of energy against position in a set of 20 tracks. The dashed curve drawn "
+    "rises from 4 to 9 two thirds of the way in and falls to 5. The set built follows it "
+    "within half a point at every track, rising 4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 9, 9, 9 and "
+    "falling 8, 8, 7, 7, 6, 6, 5."
+)
+UNREACHABLE_DESCRIPTION = (
+    "Line chart of energy against position in a set of 20 tracks for a curve that rises "
+    "from 4 to 10, holds 10 for a fifth of the set and lands at 6. The folder has one track "
+    "rated 10 and eight rated 9, so the set reaches 9 and 10 at the top, and track 13 sits "
+    "at 7 where the curve asks for 10, marked as off the curve."
+)
 
 CHARTS = {
     "planned-and-actual.svg": planned_and_actual_chart,

@@ -16,7 +16,7 @@ use crate::output;
 use crate::set::PoolTrack;
 use crate::style::Theme;
 use crate::terminal::Printable;
-use crate::view::{KeyNotationChoice, format_duration, shorten_middle, width_of};
+use crate::view::{KeyNotationChoice, shorten_middle, width_of};
 
 /// The blocks of the curve chart, from the lowest energy to the highest.
 const LEVEL_BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -230,6 +230,19 @@ fn pad(styled: &str, width: usize, column_width: usize, right: bool) -> String {
     }
 }
 
+/// The length of a set: `1:52:10`, or `48:30` under an hour.
+fn set_length(seconds: f32) -> String {
+    let whole_seconds = seconds.max(0.0).round() as u64;
+    let hours = whole_seconds / 3600;
+    let minutes = whole_seconds % 3600 / 60;
+    let rest = whole_seconds % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{rest:02}")
+    } else {
+        format!("{minutes}:{rest:02}")
+    }
+}
+
 /// Positions as people count them, from 1.
 fn counted_position(position: usize) -> usize {
     position + 1
@@ -252,7 +265,7 @@ pub fn write_summary(writer: &mut impl Write, theme: &Theme, view: &SetView<'_>)
         writer,
         "{}, {}. Energy within {:.1} of the curve on average; {rules}.",
         output::counted(plan.tracks.len(), "track", "tracks"),
-        format_duration(view.total_seconds()),
+        set_length(view.total_seconds()),
         plan.mean_energy_error(),
     )?;
 
@@ -611,6 +624,14 @@ pub fn write_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use euphoria_core::{Key, build_set};
+
+    #[test]
+    fn set_lengths_show_hours_once_there_are_any() {
+        assert_eq!(set_length(900.0), "15:00");
+        assert_eq!(set_length(7736.1), "2:08:56");
+        assert_eq!(set_length(3600.0), "1:00:00");
+    }
 
     #[test]
     fn energy_maps_onto_eight_blocks() {
@@ -619,5 +640,128 @@ mod tests {
         assert_eq!(level_block(5.5), '▅');
         assert_eq!(level_block(0.0), '▁');
         assert_eq!(level_block(12.0), '█');
+    }
+
+    fn pool_track(code: &str, bpm: f32, energy: u8, artist: &str, title: &str) -> PoolTrack {
+        PoolTrack {
+            path: PathBuf::from(format!("/music/{title}.flac")),
+            analysis: euphoria_core::TrackAnalysis {
+                duration_seconds: 300.0,
+                key: Some(code.parse::<Key>().unwrap()),
+                bpm: Some(bpm),
+                energy: Some(energy),
+                tuning_cents: None,
+                key_timeline: Vec::new(),
+                quality: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
+                beat_grid: None,
+                cues: Vec::new(),
+            },
+            artist: Some(artist.to_string()),
+            title: Some(title.to_string()),
+        }
+    }
+
+    fn with_set<T>(
+        pool: &[PoolTrack],
+        options: &SetOptions,
+        body: impl FnOnce(&SetView<'_>) -> T,
+    ) -> T {
+        let plan = build_set(pool, options).unwrap();
+        let view = SetView {
+            pool,
+            plan: &plan,
+            options,
+            notation: KeyNotationChoice::Camelot,
+            width: 100,
+        };
+        body(&view)
+    }
+
+    fn first_pool_and_options() -> (Vec<PoolTrack>, SetOptions) {
+        let pool = vec![
+            pool_track("8A", 124.0, 5, "A", "One"),
+            pool_track("9A", 125.0, 6, "B", "Two"),
+            pool_track("9A", 126.0, 7, "C", "Three"),
+        ];
+        let options = SetOptions::new(3, "5,7".parse().unwrap());
+        (pool, options)
+    }
+
+    #[test]
+    fn the_table_lists_each_track_with_its_move_and_the_two_curves() {
+        let (pool, options) = first_pool_and_options();
+        let text = with_set(&pool, &options, |view| {
+            let mut buffer = Vec::new();
+            write_table(&mut buffer, &Theme::PLAIN, view).unwrap();
+            String::from_utf8(buffer).unwrap()
+        });
+        let first_line = text.lines().next().unwrap();
+        assert!(first_line.starts_with("#"));
+        for heading in ["Key", "BPM", "Step", "Move", "Energy", "Target", "Track"] {
+            assert!(first_line.contains(heading));
+        }
+        assert!(text.contains("A - One"));
+        assert!(text.contains("B - Two"));
+        assert!(text.contains("C - Three"));
+        assert!(text.lines().any(|line| line.starts_with("Curve ")));
+        assert!(text.lines().any(|line| line.starts_with("Set   ")));
+        let second_in_table = text
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains("B - Two") || line.contains("C - Three"))
+            .nth(1)
+            .unwrap()
+            .1;
+        assert!(second_in_table.contains("+1.0"));
+    }
+
+    #[test]
+    fn the_summary_says_every_mix_is_clean() {
+        let (pool, options) = first_pool_and_options();
+        let text = with_set(&pool, &options, |view| {
+            let mut buffer = Vec::new();
+            write_summary(&mut buffer, &Theme::PLAIN, view).unwrap();
+            String::from_utf8(buffer).unwrap()
+        });
+        assert!(text.starts_with("3 tracks, 15:00."));
+        assert!(text.contains("every mix in key and within 5 BPM"));
+    }
+
+    #[test]
+    fn tracks_off_the_curve_in_a_row_are_told_together() {
+        let pool = [
+            pool_track("8A", 124.0, 5, "A", "One"),
+            pool_track("8A", 124.0, 5, "B", "Two"),
+            pool_track("8A", 124.0, 5, "C", "Three"),
+            pool_track("8A", 124.0, 5, "D", "Four"),
+        ];
+        let options = SetOptions::new(4, "9".parse().unwrap());
+        let messages = with_set(&pool, &options, deviation_messages);
+        assert_eq!(
+            messages,
+            vec![
+                "tracks 1 to 4 are below the curve by up to 4.0: the pool has nothing closer that mixes in."
+            ]
+        );
+    }
+
+    #[test]
+    fn json_counts_positions_from_one() {
+        let (pool, options) = first_pool_and_options();
+        let value = with_set(&pool, &options, |view| {
+            let mut buffer = Vec::new();
+            write_json(&mut buffer, view, &[]).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&buffer).unwrap()
+        });
+        assert_eq!(value["tracks"][0]["position"], 1);
+        assert_eq!(value["tracks"].as_array().unwrap().len(), 3);
+        assert_eq!(value["transitions"][0]["from"], 1);
+        assert_eq!(value["transitions"][0]["to"], 2);
+        assert_eq!(value["every_transition_clean"], true);
+        assert!(value["deviations"].as_array().unwrap().is_empty());
     }
 }

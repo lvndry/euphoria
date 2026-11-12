@@ -4,8 +4,8 @@
 use std::cmp::Ordering;
 
 use super::{
-    Deviation, LeftOut, MissingFeature, Pin, PinPosition, PlannedTrack, SetError, SetOptions,
-    SetPlan, SetTrack, Transition, normalised_position,
+    Deviation, LeftOut, MAX_POOL_SIZE, MissingFeature, Pin, PinPosition, PlannedTrack, SetError,
+    SetOptions, SetPlan, SetTrack, Transition, normalised_position,
 };
 use crate::harmony::relation::Relation;
 use crate::key::Key;
@@ -80,6 +80,12 @@ pub(super) fn build<Track: SetTrack>(
     }
     if candidates.is_empty() {
         return Err(SetError::NothingUsable);
+    }
+    if candidates.len() > MAX_POOL_SIZE {
+        return Err(SetError::PoolTooLarge {
+            size: candidates.len(),
+            limit: MAX_POOL_SIZE,
+        });
     }
 
     let track_count = options.track_count.min(candidates.len());
