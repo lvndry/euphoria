@@ -166,7 +166,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         results,
         store_error,
         ..
-    } = batch::analyze_in_default_range(&audio_files, &arguments.analysis)?;
+    } = batch::analyze_in_default_range(&audio_files, &arguments.analysis, batch::Display::Stages)?;
     let user_edits = batch::user_edits(
         &results,
         &arguments.analysis,

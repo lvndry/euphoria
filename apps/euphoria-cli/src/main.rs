@@ -303,7 +303,15 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         results,
         cached_count,
         store_error,
-    } = batch::analyze(&audio_files, analysis)?;
+    } = batch::analyze(
+        &audio_files,
+        analysis,
+        if arguments.json {
+            batch::Display::CountOnly
+        } else {
+            batch::Display::Stages
+        },
+    )?;
     let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;

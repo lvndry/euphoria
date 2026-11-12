@@ -73,7 +73,7 @@ pub fn run(arguments: &ShiftArguments) -> Result<ExitCode> {
     // The key of the original, from the cache when it was analyzed before,
     // with the user's correction when there is one.
     let files = vec![input.clone()];
-    let batch = batch::analyze(&files, &arguments.analysis)?;
+    let batch = batch::analyze(&files, &arguments.analysis, batch::Display::Stages)?;
     let user_edits = batch::user_edits(
         &batch.results,
         &arguments.analysis,

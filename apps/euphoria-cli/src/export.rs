@@ -507,7 +507,7 @@ fn export_library(
         results,
         cached_count,
         store_error,
-    } = batch::analyze(&audio_files, request.analysis)?;
+    } = batch::analyze(&audio_files, request.analysis, batch::Display::Stages)?;
     let user_edits =
         batch::user_edits(&results, request.analysis, batch::CorrectionCheck::ReadFile)?;
     let results = batch::corrected(results, &user_edits);
@@ -708,7 +708,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
         results,
         cached_count: _,
         store_error,
-    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    } = batch::analyze(&audio_files, &arguments.analysis, batch::Display::Stages)?;
     let user_edits = batch::user_edits(
         &results,
         &arguments.analysis,
@@ -952,7 +952,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
         results,
         store_error,
         ..
-    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    } = batch::analyze(&audio_files, &arguments.analysis, batch::Display::Stages)?;
     let user_edits = batch::user_edits(
         &results,
         &arguments.analysis,

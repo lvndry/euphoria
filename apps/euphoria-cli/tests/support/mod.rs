@@ -4,6 +4,8 @@
 //! Runs the `euphoria` binary with its data in a folder of its own, so tests
 //! never read or write the cache of the person running them.
 
+pub mod pty;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};

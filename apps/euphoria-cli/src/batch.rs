@@ -56,13 +56,28 @@ impl AnalysisOptions {
     }
 }
 
+/// What a run shows on a terminal while it analyzes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Display {
+    /// A line per file in progress with its stage, under the bar that counts
+    /// files when there is more than one.
+    Stages,
+    /// Only the bar that counts files, so the results on standard output
+    /// are not crossed by stage lines, as for JSON output.
+    CountOnly,
+}
+
 /// Analyzes `audio_files` as the options ask, showing progress on standard
-/// error when it is a terminal: a line per file with the stage it is in,
-/// under a bar that counts files when there is more than one. A cache that
-/// cannot be used is a warning on standard error, and the files are
-/// analyzed without it.
-pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<CachedBatch> {
-    let batch = analyze_in_default_range(audio_files, options)?;
+/// error when it is a terminal: `display` says whether the line per file with
+/// the stage it is in is shown, under a bar that counts files when there is
+/// more than one. A cache that cannot be used is a warning on standard
+/// error, and the files are analyzed without it.
+pub fn analyze(
+    audio_files: &[PathBuf],
+    options: &AnalysisOptions,
+    display: Display,
+) -> Result<CachedBatch> {
+    let batch = analyze_in_default_range(audio_files, options, display)?;
     Ok(in_tempo_range(batch, options.tempo_range))
 }
 
@@ -72,6 +87,7 @@ pub fn analyze(audio_files: &[PathBuf], options: &AnalysisOptions) -> Result<Cac
 pub fn analyze_in_default_range(
     audio_files: &[PathBuf],
     options: &AnalysisOptions,
+    display: Display,
 ) -> Result<CachedBatch> {
     let policy = if options.no_cache {
         None
@@ -110,14 +126,15 @@ pub fn analyze_in_default_range(
     } else {
         MultiProgress::with_draw_target(ProgressDrawTarget::hidden())
     };
-    let count_bar = if is_terminal && audio_files.len() > 1 {
+    let show_stages = is_terminal && display == Display::Stages;
+    let count_bar = if is_terminal && (audio_files.len() > 1 || !show_stages) {
         let count_bar = progress.add(count_bar(audio_files.len()));
         count_bar.enable_steady_tick(std::time::Duration::from_millis(250));
         count_bar
     } else {
         ProgressBar::hidden()
     };
-    let stage_lines = is_terminal.then(|| StageLines::new(progress.clone(), audio_files.len() > 1));
+    let stage_lines = show_stages.then(|| StageLines::new(progress.clone(), audio_files.len() > 1));
     #[cfg(debug_assertions)]
     let _debug_hint = is_terminal.then(|| crate::stages::DebugBuildHint::start(progress.clone()));
 

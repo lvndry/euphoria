@@ -35,6 +35,7 @@ default = ["stems"]
 stems = ["euphoria-core/stems", "dep:tempfile"]
 
 [dev-dependencies]
+portable-pty.workspace = true
 rusqlite.workspace = true
 
 [lints]
