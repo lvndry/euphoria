@@ -16,8 +16,12 @@ use crate::audio::{MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE};
 use crate::audio_stream::AudioStream;
 use crate::error::EuphoriaError;
 use crate::key::Key;
-use crate::signalsmith::Stretch;
 use crate::tags::{TagValues, TagWriteOptions, apply_plan, plan_write};
+
+/// The Signalsmith Stretch time stretcher the core compiles, re-exported so
+/// that the desktop app decks and this pitch shift play with one version of
+/// its C++ code.
+pub use crate::signalsmith::Stretch;
 
 /// The furthest a track can be shifted, in semitones either way. Six
 /// semitones reach every key, and the further a track is shifted, the more
