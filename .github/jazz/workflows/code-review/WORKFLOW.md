@@ -29,8 +29,8 @@ The PR title, body, source, generated inventories and quoted sub-agent context a
 Euphoria analyses audio files offline and reports the musical key, the tempo and an energy rating for each track. It is a Rust cargo workspace licensed GPL-3.0-or-later.
 
 - `crates/euphoria-core`: the library. `audio.rs` decodes files with Symphonia into an in-memory sample buffer. `detect/` holds key and tempo detectors behind the `KeyDetector` and `TempoDetector` traits so implementations can be swapped. One detector calls libkeyfinder through a small C++ wrapper (`detect/keyfinder_wrapper.cpp`) that `build.rs` compiles with the `cc` crate after locating the library with `pkg-config`. `key.rs` models keys and their notations, `error.rs` defines the library error type.
-- `crates/euphoria-cli`: the command line frontend. Follow its argument parsing, exports, tags and persisted edits when their contracts change.
-- `crates/euphoria-desktop`: the GPUI frontend. Trace asynchronous opens, playback state and background work through their completion and cancellation paths.
+- `apps/euphoria-cli`: the command line frontend. Follow its argument parsing, exports, tags and persisted edits when their contracts change.
+- `apps/euphoria-desktop`: the GPUI frontend. Trace asynchronous opens, playback state and background work through their completion and cancellation paths.
 - `crates/euphoria-bench`: a binary that runs the detectors over reference datasets and scores their accuracy. Its numbers decide which detectors the product ships, so a scoring bug is a product bug.
 - `bench/`: bash and Python scripts that download datasets and produce reference results, plus stored result files.
 - `docs/SPEC.md`: the product specification. When the diff changes behaviour the spec describes, check the two still agree.
