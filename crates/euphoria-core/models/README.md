@@ -1,0 +1,33 @@
+# HTDemucs model provenance
+
+`htdemucs.onnx` contains the network graph without learned weights. It is
+embedded in the binary and exported by
+[`export_htdemucs_onnx.py`](../../../scripts/stems/export_htdemucs_onnx.py).
+Its SHA-256 is `7f195e29fdf759bbe6b3a0301daa619e3c8f35f53498154865ed1bb98ebd7d86`.
+
+The graph and Rust transforms are adapted from
+[Demucs](https://github.com/adefossez/demucs). Its code is MIT licensed; the
+complete notice and the distinction below are distributed in
+[`demucs-NOTICE.txt`](../../../licenses/demucs-NOTICE.txt).
+The recorded export environment used Demucs 4.1.0, PyTorch 2.15.0, ONNX 1.23.2,
+NumPy 2.5.4, safetensors 0.8.0 and soundfile 0.14.0. These direct dependencies
+are pinned in [`requirements.txt`](../../../scripts/stems/requirements.txt).
+The original Demucs installation has no recorded VCS commit; no commit is
+inferred from the release version.
+
+The separately downloaded weights are `955717e8.safetensors` from
+[adefossez/HTDemucs at revision cbc8a9b1a87023b7fd74e7b3412e6321c0eab003](https://huggingface.co/adefossez/HTDemucs/tree/cbc8a9b1a87023b7fd74e7b3412e6321c0eab003).
+The expected size is 84,025,440 bytes and the SHA-256 is
+`d9fa14133cfcc034a6758923bb3a8ca9f8dfd0b582134643bbf83f72c17576dd`.
+The downloader verifies that hash on every load.
+
+The code's MIT license does **not** establish a license for the pretrained
+weights. [Upstream describes their license as unclear because of the training
+data](https://github.com/adefossez/demucs#license); the pinned Hugging Face model
+card declares no separate license. Euphoria does not redistribute the weights
+or claim a license grant for them.
+
+Inference runs in segments, but the current API holds the decoded track,
+normalised channels and all four stems in memory. It is not bounded to one
+segment of working audio. End-to-end quality, speed and peak memory with the
+pretrained weights have not been measured here.

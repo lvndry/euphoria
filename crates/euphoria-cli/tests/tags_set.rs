@@ -23,15 +23,23 @@ fn assert_success(output: &Output) {
 /// Copies of the tagged fixtures in every format.
 fn tagged_copies(folder: &TemporaryFolder) -> Vec<PathBuf> {
     let source = fixtures_directory().join("../tagged-fixtures");
-    ["mp3", "wav", "aiff", "m4a", "flac"]
-        .iter()
-        .map(|extension| {
-            let copy = folder.path().join(format!("tagged.{extension}"));
-            std::fs::copy(source.join(format!("tagged.{extension}")), &copy)
-                .expect("the fixture is copied");
-            copy
-        })
-        .collect()
+    [
+        "tagged.mp3",
+        "tagged.wav",
+        "tagged.aiff",
+        "tagged.m4a",
+        "tagged.flac",
+        "tagged.ogg",
+        "tagged-alac.m4a",
+        "tagged.mp4",
+    ]
+    .iter()
+    .map(|name| {
+        let copy = folder.path().join(name);
+        std::fs::copy(source.join(name), &copy).expect("the fixture is copied");
+        copy
+    })
+    .collect()
 }
 
 fn field(path: &Path, field: TagField) -> Option<String> {

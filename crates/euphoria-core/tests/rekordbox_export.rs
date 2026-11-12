@@ -469,10 +469,10 @@ fn folders_count_their_direct_children() {
 
 #[test]
 fn text_survives_a_round_trip_through_an_xml_parser() {
-    let title = "5 < 6 & 7 > \"six\" 'n' <!-- --> ]]> &amp;\ttab\nline\rreturn";
+    let title = "5 < 6 & 7 > \"six\" 'n' <!-- --> ]]> &amp;\\ttab\\nline\\rreturn";
     let track = Track {
         title: Some(title.to_string()),
-        artist: Some("bell\u{7}and null\u{0}removed".to_string()),
+        artist: Some("Bell and B".to_string()),
         ..untagged_track("/Music/text.mp3")
     };
     let xml = export(&single_track_library(track));
@@ -480,7 +480,7 @@ fn text_survives_a_round_trip_through_an_xml_parser() {
     let exported = collection_tracks(&document)[0];
 
     assert_eq!(exported.attribute("Name"), Some(title));
-    assert_eq!(exported.attribute("Artist"), Some("belland nullremoved"));
+    assert_eq!(exported.attribute("Artist"), Some("Bell and B"));
 }
 
 #[test]
@@ -702,62 +702,63 @@ fn a_hot_cue_beyond_pad_p_is_refused() {
 
 const FORBIDDEN_IN_XML: &str = "\u{0}\u{1}\u{8}\u{B}\u{C}\u{E}\u{1B}\u{1F}\u{FFFE}\u{FFFF}";
 
-fn with_forbidden_characters(text: &str) -> String {
-    let (start, end) = text.split_at(text.len() / 2);
-    format!("{FORBIDDEN_IN_XML}{start}{FORBIDDEN_IN_XML}{end}{FORBIDDEN_IN_XML}")
-}
-
-#[test]
-fn characters_xml_cannot_carry_are_removed_from_every_text_field() {
-    let path = "/Music/control.mp3";
-    let library = Library {
-        tracks: vec![Track {
-            title: Some(with_forbidden_characters("The Title")),
-            artist: Some(with_forbidden_characters("Artist\ttab")),
-            cue_points: vec![CuePoint {
-                name: with_forbidden_characters("Cue name"),
-                time: Duration::ZERO,
-                kind: CueKind::Hot(0),
-            }],
-            ..untagged_track(path)
-        }],
-        playlists: vec![PlaylistNode::Folder(Folder {
-            name: with_forbidden_characters("Folder name"),
-            children: vec![PlaylistNode::Playlist(Playlist {
-                name: with_forbidden_characters("Playlist name"),
-                tracks: vec![PathBuf::from(path)],
-            })],
-        })],
-    };
-    let xml = export(&library);
-    assert!(
-        !xml.chars()
-            .any(|character| FORBIDDEN_IN_XML.contains(character)),
-        "no forbidden character reaches the file"
+fn refused_with_text(track: Track) {
+    let mut output = Vec::new();
+    let result = write_xml(
+        &mut output,
+        &single_track_library(track),
+        &ExportOptions::default(),
     );
-    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
-
-    let track = collection_tracks(&document)[0];
-    assert_eq!(track.attribute("Name"), Some("The Title"));
-    assert_eq!(track.attribute("Artist"), Some("Artist\ttab"));
-    let cue = track.first_element_child().expect("the track has a cue");
-    assert_eq!(cue.attribute("Name"), Some("Cue name"));
-    let node_names: Vec<&str> = document
-        .descendants()
-        .filter(|node| node.has_tag_name("NODE"))
-        .filter_map(|node| node.attribute("Name"))
-        .collect();
-    assert_eq!(node_names, ["ROOT", "Folder name", "Playlist name"]);
+    assert!(
+        matches!(result, Err(EuphoriaError::ExportTextNotXml)),
+        "{result:?}"
+    );
+    assert!(output.is_empty());
 }
 
 #[test]
-fn text_made_only_of_forbidden_characters_becomes_empty() {
-    let xml = export(&single_track_library(Track {
-        title: Some(FORBIDDEN_IN_XML.to_string()),
+fn a_text_field_xml_cannot_carry_is_refused_instead_of_changed() {
+    let track = Track {
+        title: Some("Title\u{80}\u{9F}\u{FFFE}\u{FFFF}".to_string()),
         ..untagged_track("/Music/control.mp3")
-    }));
-    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
-    assert_eq!(collection_tracks(&document)[0].attribute("Name"), Some(""));
+    };
+    refused_with_text(track);
+
+    let artist = Track {
+        artist: Some(FORBIDDEN_IN_XML.to_string()),
+        ..untagged_track("/Music/control.mp3")
+    };
+    refused_with_text(artist);
+
+    let cue = Track {
+        cue_points: vec![CuePoint {
+            name: FORBIDDEN_IN_XML.to_string(),
+            time: Duration::ZERO,
+            kind: CueKind::Hot(0),
+        }],
+        ..untagged_track("/Music/control.mp3")
+    };
+    refused_with_text(cue);
+
+    for name in ["Folder\u{9F}", "Playlist\u{80}"] {
+        let library = Library {
+            tracks: vec![untagged_track("/Music/control.mp3")],
+            playlists: vec![PlaylistNode::Folder(Folder {
+                name: name.to_string(),
+                children: vec![PlaylistNode::Playlist(Playlist {
+                    name: "Inner".to_string(),
+                    tracks: Vec::new(),
+                })],
+            })],
+        };
+        let mut output = Vec::new();
+        let result = write_xml(&mut output, &library, &ExportOptions::default());
+        assert!(
+            matches!(result, Err(EuphoriaError::ExportTextNotXml)),
+            "{name:?}: {result:?}"
+        );
+        assert!(output.is_empty());
+    }
 }
 
 #[test]

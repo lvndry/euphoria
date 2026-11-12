@@ -5,9 +5,12 @@
 //! it into elements, taking every colour from the theme.
 
 pub(crate) mod by_ear;
+pub(crate) mod cues;
+pub(crate) mod decks;
 pub(crate) mod empty_state;
 pub(crate) mod inspector;
 pub(crate) mod key_chip;
+pub(crate) mod key_shift;
 pub(crate) mod logo;
 pub(crate) mod notice;
 pub(crate) mod panel_edge;
@@ -15,6 +18,7 @@ pub(crate) mod player;
 pub(crate) mod playlists;
 pub(crate) mod settings_panel;
 pub(crate) mod sidebar;
+pub(crate) mod stems;
 pub(crate) mod tag_editor;
 pub(crate) mod tag_panel;
 pub(crate) mod toolbar;

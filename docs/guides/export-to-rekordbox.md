@@ -56,7 +56,7 @@ The playlists in the file mirror the folders you exported, so a library sorted i
 
 ### Titles and artists
 
-Each track's title and artist are read from the file's own tags: ID3 tags in MP3 and AIFF files, Vorbis comments in FLAC, MP4 metadata in M4A, and the `INFO` list in WAV files. A WAV file tagged only with an ID3 chunk is read as having no tags. A track with no title in its tags is given its file name without the extension, so no track arrives nameless.
+Each track's title and artist are read from the file's own tags: ID3 tags in MP3 and AIFF files, Vorbis comments in FLAC and Ogg Vorbis, MP4 metadata in M4A and MP4, and the `INFO` list in WAV files. A WAV file tagged only with an ID3 chunk is read as having no tags. A track with no title in its tags is given its file name without the extension, so no track arrives nameless.
 
 A track whose tags cannot be read at all is still exported with its key and tempo, under its file name and without an artist. The command lists those tracks with the reason, and still exits with status 0.
 
@@ -74,7 +74,7 @@ For each track:
 | Tempo | When Euphoria found one | The average BPM with two decimals, such as `128.00`. |
 | Energy | When Euphoria rated the track | In the comments, as `Energy 7`. See [energy](../concepts/energy.md). |
 | Beat grid | With `--beat-grid`, when the grid is rated medium or high | The first downbeat and the tempo of the grid, which is then the tempo written. See [beat grids](#beat-grids). |
-| Cue points | With `--cues`, on tracks with a beat grid in the file and no cues in your collection | Memory cues and hot cues A to H named Start, Main, Breakdown, Drop and Outro. See [cue points](#cue-points). |
+| Cue points | With `--cues`, on tracks with no cues in your collection, and a beat grid in the file or cues you edited in the app | Memory cues and hot cues A to H named Start, Main, Breakdown, Drop and Outro, or the cues you edited. See [cue points](#cue-points). |
 
 A track with no key or no tempo has no key or tempo in the file. Euphoria never writes an empty key or a tempo of zero.
 
@@ -117,9 +117,11 @@ To keep the beat grid rekordbox draws itself, export without `--beat-grid`.
 
 ### Cue points
 
-With `--cues`, Euphoria marks where each track's sections start, as described on the [accuracy](../concepts/accuracy.md#cue-points) page: Start, Main, Breakdown, Drop and Outro, at most 8, each on the first beat of a bar at a phrase boundary. Each is written twice, as a memory cue and as a hot cue, on pads from A in order. Only tracks whose beat grid is in the file get cues, since the cues sit on its bars.
+With `--cues`, Euphoria marks where each track's sections start, as described on the [accuracy](../concepts/accuracy.md#cue-points) page: Start, Main, Breakdown, Drop and Outro, at most 8, each on the first beat of a bar at a phrase boundary. Each is written twice, as a memory cue and as a hot cue, on pads from A in order. Only tracks whose beat grid is in the file get these cues, since they sit on its bars.
 
-Euphoria never changes cues you set. `--cues` needs `--collection`, your collection exported from rekordbox with **File > Export Collection in xml format**, and a track that has any cue, hot cue or loop there is left out of the file entirely, so no import of the file can touch its cues:
+To choose the cues yourself, [edit them in the desktop app](desktop-app.md#cue-points) first: move, add, rename or delete them, and pick each one's hot cue pad. A track you edited is exported with your cues in place of the automatic ones: each as a memory cue, and as a hot cue on its pad when you gave it one. Your cues are exported even when the track's beat grid is not in the file, and a track whose cues you all deleted gets none.
+
+Euphoria never changes cues you set in rekordbox, even for a track whose cues you edited in Euphoria. `--cues` needs `--collection`, your collection exported from rekordbox with **File > Export Collection in xml format**, and a track that has any cue, hot cue or loop there is left out of the file entirely, so no import of the file can touch its cues:
 
 ```
 euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml --beat-grid --cues --collection ~/Music/rekordbox-collection.xml

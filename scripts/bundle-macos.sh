@@ -74,6 +74,11 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$frameworks"
 executable="$bundle/Contents/MacOS/Euphoria"
 cp "$binary" "$executable"
 cp "$repository/LICENSE" "$bundle/Contents/Resources/LICENSE"
+# The licences of the C++ libraries compiled into the executable.
+mkdir -p "$bundle/Contents/Resources/licenses"
+cp "$repository/crates/euphoria-core/vendor/signalsmith-stretch/LICENSE.txt" "$bundle/Contents/Resources/licenses/signalsmith-stretch.txt"
+cp "$repository/crates/euphoria-core/vendor/signalsmith-linear/LICENSE.txt" "$bundle/Contents/Resources/licenses/signalsmith-linear.txt"
+cp "$repository/licenses/webpki-root-certs-CDLA-Permissive-2.0.txt" "$repository/licenses/demucs-NOTICE.txt" "$bundle/Contents/Resources/licenses/"
 chmod u+w "$executable"
 
 # Copies every library the executable needs from outside the system into

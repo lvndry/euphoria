@@ -1,0 +1,35 @@
+Demucs / HTDemucs attribution
+
+Euphoria's HTDemucs graph export and transform implementation are adapted
+from Demucs, https://github.com/adefossez/demucs.
+The code is licensed under the MIT License reproduced below.
+
+The separately downloaded pretrained htdemucs weights are published by
+Alexandre Defossez at https://huggingface.co/adefossez/HTDemucs.
+Euphoria uses 955717e8.safetensors from revision
+cbc8a9b1a87023b7fd74e7b3412e6321c0eab003.
+The code license does not establish a license for those weights. Upstream
+states that their license is unclear because of the training data:
+https://github.com/adefossez/demucs#license
+
+MIT License
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

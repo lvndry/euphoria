@@ -5,6 +5,7 @@
 //! progress shown on a terminal and the warning when the cache cannot be
 //! used.
 
+use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -12,8 +13,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use euphoria_core::{
-    AnalysisObserver, Cache, CachePolicy, CachedBatch, EuphoriaError, Progress, TempoRange,
-    Unobserved, analyze_files_cached_observed, analyze_files_observed, default_cache_path,
+    AnalysisObserver, Cache, CachePolicy, CachedBatch, Correction, Cue, EuphoriaError, Progress,
+    TempoRange, TrackCues, Unobserved, analyze_files_cached_observed, analyze_files_observed,
+    default_cache_path,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 
@@ -197,73 +199,99 @@ fn in_tempo_range(mut batch: CachedBatch, range: TempoRange) -> CachedBatch {
     batch
 }
 
-/// The corrections users set, by file, for the files of `results` that
-/// have one. Nothing is read without a cache, with `--no-cache`, or when no
-/// file was ever corrected; a cache that cannot be read gives none.
+/// The corrections and cues users set, by file, for the files of `results`
+/// that have any. Nothing is read without a cache, with `--no-cache`, or
+/// when no file was ever edited; a cache that cannot be read gives none.
 ///
-/// With [`CorrectionCheck::Quick`] a correction that cannot be looked up is
-/// left out, so the detected values are shown. With
+/// With [`CorrectionCheck::Quick`] an edit that cannot be looked up is left
+/// out, so the detected values are shown. With
 /// [`CorrectionCheck::ReadFile`] the file is marked as unchecked instead,
 /// and [`corrected`] turns it into a failure so it is not written or
 /// exported with values the user may have replaced. A cache that cannot be
 /// opened at all gives none, as with `--no-cache`: the analysis already
 /// warned that it runs without the cache.
-pub fn corrections(
+pub fn user_edits(
     results: &[euphoria_core::FileResult],
     options: &AnalysisOptions,
     check: CorrectionCheck,
-) -> Result<Corrections> {
+) -> Result<UserEditsByFile> {
     if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
-        return Ok(Corrections::new());
+        return Ok(UserEditsByFile::new());
     }
     let analyzed = results.iter().filter(|result| result.outcome.is_ok());
     let cache = match (open_cache(), check) {
         (Ok(cache), _) => cache,
         // Showing goes on with the detected values; the analysis already
         // warned that it ran without the cache.
-        (Err(_), CorrectionCheck::Quick) => return Ok(Corrections::new()),
-        (Err(error), CorrectionCheck::ReadFile) => return Err(corrections_unreadable(&error)),
+        (Err(_), CorrectionCheck::Quick) => return Ok(UserEditsByFile::new()),
+        (Err(error), CorrectionCheck::ReadFile) => return Err(edits_unreadable(&error)),
     };
     Ok(analyzed
         .filter_map(|result| {
+            let path = &result.path;
             let looked_up = match check {
-                CorrectionCheck::Quick => cache.correction_for(&result.path),
-                CorrectionCheck::ReadFile => cache.verified_correction_for(&result.path),
+                CorrectionCheck::Quick => Ok(UserEdits {
+                    correction: cache
+                        .correction_for(path)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default(),
+                    cues: cache.edited_cues_for(path).ok().flatten(),
+                }),
+                CorrectionCheck::ReadFile => {
+                    cache
+                        .verified_user_edits_for(path)
+                        .map(|(correction, cues)| UserEdits {
+                            correction: correction.unwrap_or_default(),
+                            cues,
+                        })
+                }
             };
-            match (looked_up, check) {
-                (Ok(correction), _) => {
-                    correction.map(|correction| (result.path.clone(), Ok(correction)))
-                }
-                (Err(_), CorrectionCheck::Quick) => None,
-                (Err(error), CorrectionCheck::ReadFile) => {
-                    Some((result.path.clone(), Err(error.chain())))
-                }
+            match looked_up {
+                Ok(edits) if edits.is_empty() => None,
+                Ok(edits) => Some((path.clone(), Ok(edits))),
+                Err(error) => Some((path.clone(), Err(error.chain()))),
             }
         })
         .collect())
 }
 
 /// Stops a tag write or an export before it starts when the cache exists
-/// but cannot be opened: it may hold keys and tempos the user set, and the
-/// detected values must not be written over them unknowingly.
-pub fn require_readable_corrections(options: &AnalysisOptions) -> Result<()> {
+/// but cannot be opened: it may hold keys, tempos and cues the user set,
+/// and the detected values must not be written over them unknowingly.
+pub fn require_readable_user_edits(options: &AnalysisOptions) -> Result<()> {
     if options.no_cache || !default_cache_path().is_ok_and(|path| path.exists()) {
         return Ok(());
     }
     open_cache()
         .map(|_| ())
-        .map_err(|error| corrections_unreadable(&error))
+        .map_err(|error| edits_unreadable(&error))
 }
 
-fn corrections_unreadable(error: &EuphoriaError) -> anyhow::Error {
+/// The corrections users set, by file, for the views that show only the key
+/// and tempo: a cue the user set does not change what a view draws.
+pub fn corrections(
+    results: &[euphoria_core::FileResult],
+    options: &AnalysisOptions,
+    check: CorrectionCheck,
+) -> Result<Corrections> {
+    let edits = user_edits(results, options, check)?;
+    let corrections: Corrections = edits
+        .into_iter()
+        .map(|(path, edits)| (path, edits.map(|edits| edits.correction)))
+        .collect();
+    Ok(corrections)
+}
+
+fn edits_unreadable(error: &EuphoriaError) -> anyhow::Error {
     anyhow::anyhow!(
-        "{}, so the keys and tempos set in the desktop app cannot be read. Nothing was written. \
-         Pass --no-cache to go on with the detected values instead.",
+        "{}, so the keys, tempos and cues set in the desktop app cannot be read. Nothing was \
+         written. Pass --no-cache to go on with the detected values instead.",
         error.chain()
     )
 }
 
-/// How sure to be that a correction belongs to the file it is applied to.
+/// How sure to be that an edit belongs to the file it is applied to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorrectionCheck {
     /// Trust a file at its recorded path with its recorded size and
@@ -274,23 +302,58 @@ pub enum CorrectionCheck {
     ReadFile,
 }
 
+/// What the user set for one file in the desktop app.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UserEdits {
+    /// The key and tempo the user set, if any.
+    pub correction: Correction,
+    /// The user's cues, which replace those analysis placed, or `None`.
+    pub cues: Option<Vec<Cue>>,
+}
+
+impl UserEdits {
+    /// True when the user set nothing.
+    pub fn is_empty(&self) -> bool {
+        self.correction.is_empty() && self.cues.is_none()
+    }
+
+    /// The cues of the file: the user's when set, or those analysis placed
+    /// in `analysis`, which carries the correction already.
+    pub fn track_cues(&self, analysis: &euphoria_core::TrackAnalysis) -> TrackCues {
+        TrackCues::of(analysis, self.cues.clone())
+    }
+}
+
+/// The edits of a batch, by file, or why a file's could not be checked.
+pub type UserEditsByFile = HashMap<PathBuf, Result<UserEdits, String>>;
+
 /// The corrections of a batch, by file, or why a file's could not be
 /// checked.
-pub type Corrections =
-    std::collections::HashMap<PathBuf, Result<euphoria_core::Correction, String>>;
+pub type Corrections = HashMap<PathBuf, Result<Correction, String>>;
+
+/// The user's cues in `edits`, by file, as an export takes them.
+pub fn edited_cues(edits: &UserEditsByFile) -> HashMap<PathBuf, Vec<Cue>> {
+    edits
+        .iter()
+        .filter_map(|(path, edits)| {
+            let cues = edits.as_ref().ok()?.cues.clone()?;
+            Some((path.clone(), cues))
+        })
+        .collect()
+}
 
 /// The results of a batch with every correction in place of the detected
 /// key and tempo.
 pub fn corrected(
     results: Vec<euphoria_core::FileResult>,
-    corrections: &Corrections,
+    edits: &UserEditsByFile,
 ) -> Vec<euphoria_core::FileResult> {
     results
         .into_iter()
         .map(|mut result| {
-            match (&mut result.outcome, corrections.get(&result.path)) {
-                (Ok(analysis), Some(Ok(correction))) => {
-                    *analysis = correction.apply(analysis.clone());
+            match (&mut result.outcome, edits.get(&result.path)) {
+                (Ok(analysis), Some(Ok(edits))) => {
+                    *analysis = edits.correction.apply(analysis.clone());
                 }
                 (Ok(_), Some(Err(reason))) => {
                     result.outcome = Err(EuphoriaError::CorrectionUnchecked {
@@ -343,9 +406,9 @@ fn count_bar(total: usize) -> ProgressBar {
     progress_bar
 }
 
-/// Writes about how long is left, once enough files have finished for the
-/// estimate to mean something.
-fn write_time_left(state: &ProgressState, writer: &mut dyn std::fmt::Write) {
+/// Writes about how long is left, once enough files or segments have
+/// finished for the estimate to mean something.
+pub fn write_time_left(state: &ProgressState, writer: &mut dyn std::fmt::Write) {
     if state.pos() < 2 || state.pos() >= state.len().unwrap_or(0) {
         return;
     }

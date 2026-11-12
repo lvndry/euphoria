@@ -26,6 +26,12 @@ rayon.workspace = true
 roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile = { workspace = true, optional = true }
+
+[features]
+default = ["stems"]
+# The `stems` command, which links ONNX Runtime.
+stems = ["euphoria-core/stems", "dep:tempfile"]
 
 [dev-dependencies]
 rusqlite.workspace = true

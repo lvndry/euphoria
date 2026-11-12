@@ -34,6 +34,9 @@ pub(crate) enum PlayerRequest {
         path: PathBuf,
         /// Where to start, in seconds from the beginning.
         from_seconds: f32,
+        /// Whether to play the stems of the track, mixed as the player
+        /// hears them, instead of the file itself.
+        with_stems: bool,
         /// Which attempt this is. The output hands it back with its answer.
         attempt: StartAttempt,
     },
@@ -62,6 +65,8 @@ pub(crate) struct Player {
     position_seconds: f32,
     duration_seconds: Option<f32>,
     starts_asked_for: u64,
+    /// The track's stems are separated and can be played in place of it.
+    offers_stems: bool,
 }
 
 impl Default for Player {
@@ -72,6 +77,7 @@ impl Default for Player {
             position_seconds: 0.0,
             duration_seconds: None,
             starts_asked_for: 0,
+            offers_stems: false,
         }
     }
 }
@@ -107,6 +113,18 @@ impl Player {
     /// The length of the track in seconds, when it is known.
     pub(crate) fn duration_seconds(&self) -> Option<f32> {
         self.duration_seconds
+    }
+
+    /// Whether the track's stems are separated and can be played in place
+    /// of the track.
+    pub(crate) fn offers_stems(&self) -> bool {
+        self.offers_stems
+    }
+
+    /// The stems of the track are separated, or they are not: the track
+    /// detail shows and hides its stem switch from this.
+    pub(crate) fn stems_ready(&mut self, ready: bool) {
+        self.offers_stems = ready;
     }
 
     /// How far through the track the position is, from 0.0 to 1.0, when the
@@ -154,7 +172,7 @@ impl Player {
         self.position_seconds = 0.0;
         self.duration_seconds = duration_seconds;
         match path {
-            Some(path) if was_sounding => Some(self.start(path.to_path_buf())),
+            Some(path) if was_sounding => Some(self.start(path.to_path_buf(), self.offers_stems)),
             _ => {
                 self.status = PlayerStatus::Stopped;
                 held_a_voice.then_some(PlayerRequest::Stop)
@@ -182,18 +200,20 @@ impl Player {
                 if self.is_at_the_end() {
                     self.position_seconds = 0.0;
                 }
-                Some(self.start(path))
+                Some(self.start(path, self.offers_stems))
             }
         }
     }
 
-    /// Begins a new attempt to play `path` from the current position.
-    fn start(&mut self, path: PathBuf) -> PlayerRequest {
+    /// Begins a new attempt to play `path` from the current position, in
+    /// `with_stems` the track's stems instead of the track.
+    fn start(&mut self, path: PathBuf, with_stems: bool) -> PlayerRequest {
         self.starts_asked_for += 1;
         self.status = PlayerStatus::Starting;
         PlayerRequest::Start {
             path,
             from_seconds: self.position_seconds,
+            with_stems,
             attempt: StartAttempt(self.starts_asked_for),
         }
     }
@@ -214,6 +234,29 @@ impl Player {
                 Some(PlayerRequest::SeekTo(self.position_seconds))
             }
             PlayerStatus::Starting | PlayerStatus::Stopped | PlayerStatus::Failed(_) => None,
+        }
+    }
+
+    /// A click on a cue: playing goes on from `seconds`, whatever the player
+    /// was doing. Returns the requests for the output, in order.
+    pub(crate) fn play_from(&mut self, seconds: f32) -> Vec<PlayerRequest> {
+        let Some(path) = self.track.clone() else {
+            return Vec::new();
+        };
+        let end = self.duration_seconds.unwrap_or(f32::MAX);
+        self.position_seconds = seconds.clamp(0.0, end);
+        match self.status {
+            PlayerStatus::Playing => vec![PlayerRequest::SeekTo(self.position_seconds)],
+            PlayerStatus::Paused => {
+                self.status = PlayerStatus::Playing;
+                vec![
+                    PlayerRequest::SeekTo(self.position_seconds),
+                    PlayerRequest::Resume,
+                ]
+            }
+            PlayerStatus::Starting | PlayerStatus::Stopped | PlayerStatus::Failed(_) => {
+                vec![self.start(path, self.offers_stems)]
+            }
         }
     }
 
@@ -305,6 +348,7 @@ mod tests {
             Some(PlayerRequest::Start {
                 path: started_path,
                 from_seconds: started_from,
+                with_stems: false,
                 attempt,
             }) => {
                 assert_eq!(started_path, path);
@@ -322,6 +366,62 @@ mod tests {
         let attempt = starts(player.toggle(), first(), 0.0);
         assert!(player.started(attempt, Some(420.0)));
         player
+    }
+
+    /// `request` asks for the stems of `path`.
+    fn stems_request(request: Option<PlayerRequest>, path: &Path) {
+        match request {
+            Some(PlayerRequest::Start {
+                path: started_path,
+                from_seconds: 0.0,
+                with_stems: true,
+                ..
+            }) => assert_eq!(started_path, path),
+            other => panic!("expected stems of {}, got {other:?}", path.display()),
+        }
+    }
+
+    #[test]
+    fn a_track_whose_stems_are_separated_is_started_with_them() {
+        let mut player = playing();
+        assert!(!player.offers_stems());
+
+        player.stems_ready(true);
+        let select = player.select(Some(second()), Some(300.0));
+        let attempt = match select {
+            Some(PlayerRequest::Start {
+                with_stems: true,
+                attempt,
+                ..
+            }) => attempt,
+            other => panic!("expected the stems of the new track, got {other:?}"),
+        };
+        assert!(player.started(attempt, Some(300.0)));
+        stems_request(player.select(Some(first()), Some(420.0)), first());
+
+        player.stems_ready(false);
+        starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+    }
+
+    #[test]
+    fn playing_from_a_cue_starts_jumps_or_resumes_from_there() {
+        let mut player = Player::default();
+        assert!(
+            player.play_from(30.0).is_empty(),
+            "no track, nothing to play"
+        );
+        player.select(Some(first()), Some(420.0));
+        let mut requests = player.play_from(30.0);
+        starts(requests.pop(), first(), 30.0);
+
+        let mut player = playing();
+        assert_eq!(player.play_from(64.0), vec![PlayerRequest::SeekTo(64.0)]);
+        assert_eq!(player.toggle(), Some(PlayerRequest::Pause));
+        assert_eq!(
+            player.play_from(500.0),
+            vec![PlayerRequest::SeekTo(420.0), PlayerRequest::Resume]
+        );
+        assert!(player.is_playing());
     }
 
     #[test]

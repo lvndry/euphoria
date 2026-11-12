@@ -31,7 +31,7 @@ bench/              dataset download script, Essentia reference script, results
 | `library` | Expands files and folders into the audio files to analyze, skipping hidden files. |
 | `analysis` | Analyzes one file, or a batch in parallel with progress callbacks and one result per file. The `_observed` variants also tell an `AnalysisObserver` the stage each file is in and how far decoding has come; the plain functions pass `Unobserved`, whose methods do nothing. |
 | `cache` | Remembers analyses in a SQLite database keyed by a hash of each file's content, and analyzes only the files it does not know, as a batch or one file at a time. |
-| `audio` | Decodes MP3, M4A, FLAC, WAV and AIFF with Symphonia and mixes them to mono. |
+| `audio` | Decodes MP3, AAC and ALAC in MP4, FLAC, Ogg Vorbis, WAV and AIFF with Symphonia and mixes them to mono. |
 | `audio_stream` | Decodes the same formats a packet at a time with their channels kept, with seeking, for playback. |
 | `key` | The `Key` type, Camelot and Open Key codes, and parsing of key names and codes. |
 | `harmony` | How two keys relate (`Relation`) and the ranking of the tracks that mix into another (`mixes_into`). |
@@ -40,6 +40,7 @@ bench/              dataset download script, Essentia reference script, results
 | `tempo_range` | `TempoRange`, the range tempos are reported in, and the half or double tempo offered as an alternative. |
 | `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `track_name` | Reads the title and artist stored in an audio file. |
+| `track_cues` | The cues of a track as a DJ uses them, with names and hot cue pads, and `TrackCues::of`, which gives the user's edited set when there is one and the automatic cues otherwise. The cache keeps edited sets in their own table, like corrections. |
 | `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 

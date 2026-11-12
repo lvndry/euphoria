@@ -61,7 +61,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             "No sign in, no activation and no internet connection, ever.",
             &palette,
         ))
-        .child(fact("Formats", "MP3, M4A, FLAC, WAV and AIFF.", &palette))
+        .child(fact(
+            "Formats",
+            "MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF.",
+            &palette,
+        ))
         .child(fact(
             "Whole folders",
             "Folders are searched all the way down, and each track is analyzed once.",

@@ -86,6 +86,11 @@ RELEASE_FILES_OF_2026_11_0 = {
     "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz",
     "SHA256SUMS",
 }
+LINUX_FILES_OF_2026_11_0 = {
+    "Euphoria-2026.11.0-x86_64.AppImage",
+    "Euphoria-x86_64.AppImage",
+    "euphoria-2026.11.0-x86_64-unknown-linux-gnu.tar.gz",
+}
 
 
 def finished(tag):
@@ -120,8 +125,45 @@ class PlanTests(unittest.TestCase):
 
     def test_a_release_carries_these_files(self):
         self.assertEqual(
-            plan_release.expected_assets("2026.11.0"), RELEASE_FILES_OF_2026_11_0
+            plan_release.expected_assets("2026.11.0"),
+            RELEASE_FILES_OF_2026_11_0 | LINUX_FILES_OF_2026_11_0,
         )
+        self.assertEqual(
+            plan_release.expected_assets("2026.11.0", linux=False),
+            RELEASE_FILES_OF_2026_11_0,
+        )
+
+    def test_a_release_tagged_before_linux_packaging_needs_no_linux_files(self):
+        def macos_only(tag):
+            return {**finished(tag), "assets": sorted(RELEASE_FILES_OF_2026_11_0)}
+
+        self.assertEqual(
+            plan_release.plan(
+                ["v2026.11.0"], macos_only, day("2026-11-20"), lambda tag: False
+            ),
+            ("new", "2026.11.1", "v2026.11.0"),
+        )
+        self.assertEqual(
+            plan_release.plan(
+                ["v2026.11.0"], macos_only, day("2026-11-20"), lambda tag: True
+            ),
+            ("resume", "2026.11.0", ""),
+        )
+
+    def test_the_tag_of_the_first_release_has_no_linux_packaging(self):
+        if subprocess.run(
+            ["git", "-C", str(REPOSITORY), "rev-parse", "--verify", "--quiet",
+             "v2026.11.0^{commit}"],
+            capture_output=True, check=False,
+        ).returncode != 0:  # fmt: skip
+            self.skipTest("the tag v2026.11.0 is not in this clone")
+        original = pathlib.Path.cwd()
+        os.chdir(REPOSITORY)
+        try:
+            self.assertFalse(plan_release.packages_linux("v2026.11.0"))
+            self.assertTrue(plan_release.packages_linux("HEAD"))
+        finally:
+            os.chdir(original)
 
     def test_the_workflow_builds_the_files_a_release_carries(self):
         workflow = (REPOSITORY / ".github" / "workflows" / "release.yml").read_text()
@@ -149,6 +191,23 @@ class PlanTests(unittest.TestCase):
             "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz",
         }
         self.assertEqual(built, RELEASE_FILES_OF_2026_11_0)
+        # The Linux files are built on an x86_64 runner, whose Rust host is
+        # x86_64-unknown-linux-gnu, and bundle-linux.sh names the AppImage by
+        # the machine.
+        bundle = (REPOSITORY / "scripts" / "bundle-linux.sh").read_text()
+        self.assertIn("runs-on: ubuntu-22.04", workflow)
+        self.assertIn('appimage="$output/Euphoria-$version-$architecture.AppImage"', bundle)
+        self.assertIn(
+            'cp "target/release/bundle/Euphoria-$VERSION-x86_64.AppImage" dist/\n',
+            workflow,
+        )
+        self.assertIn(
+            'cp "target/release/bundle/Euphoria-$VERSION-x86_64.AppImage" dist/Euphoria-x86_64.AppImage',
+            workflow,
+        )
+        self.assertIn("sha256sum -- * > SHA256SUMS", workflow)
+        self.assertIn("cat dist-linux/SHA256SUMS >> dist/SHA256SUMS", workflow)
+        self.assertIn('mv "$file" dist/', workflow)
         # Everything in dist/ is published.
         self.assertIn('gh release create "v$VERSION" dist/*', workflow)
         self.assertIn('gh release upload "v$VERSION" dist/* --clobber', workflow)
@@ -396,6 +455,27 @@ class ReleaseNotesTests(unittest.TestCase):
         )
         self.assertIn("It needs a Mac with Apple Silicon.", without)
         self.assertTrue(with_minimum.rstrip().endswith(release_notes.COMPLETE_MARKER))
+
+    def test_the_notes_name_the_minimum_glibc_only_when_given(self):
+        self.commit("feat: a thing (#1)")
+        original = pathlib.Path.cwd()
+        os.chdir(self.folder)
+        try:
+            with_linux = release_notes.notes(
+                "2026.11.1", None, "HEAD", "owner/repository", "15.0", "2.35"
+            )
+            without = release_notes.notes(
+                "2026.11.1", None, "HEAD", "owner/repository", "15.0"
+            )
+        finally:
+            os.chdir(original)
+        self.assertIn("`Euphoria-2026.11.1-x86_64.AppImage`", with_linux)
+        self.assertIn(
+            "`euphoria-2026.11.1-x86_64-unknown-linux-gnu.tar.gz`", with_linux
+        )
+        self.assertIn("with glibc 2.35 or later", with_linux)
+        self.assertNotIn("glibc", without)
+        self.assertTrue(with_linux.rstrip().endswith(release_notes.COMPLETE_MARKER))
 
     def test_only_commits_since_the_previous_tag_are_counted(self):
         self.commit("feat: before (#1)")

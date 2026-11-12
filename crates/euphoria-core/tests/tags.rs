@@ -25,8 +25,8 @@ use lofty::iff::aiff::AiffFile;
 use lofty::iff::wav::WavFile;
 use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst, Mp4File};
 use lofty::mpeg::MpegFile;
-use lofty::ogg::OggPictureStorage;
 use lofty::ogg::tag::VorbisComments;
+use lofty::ogg::{OggPictureStorage, VorbisFile};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::TagExt;
 
@@ -35,7 +35,10 @@ const WAV: &str = "sine-440hz-mono.wav";
 const AIFF: &str = "sine-440hz-mono.aiff";
 const M4A: &str = "sine-440hz-mono.m4a";
 const FLAC: &str = "sine-440hz-mono.flac";
-const ALL_FIXTURES: [&str; 5] = [MP3, WAV, AIFF, M4A, FLAC];
+const OGG: &str = "sine-440hz-mono.ogg";
+const ALAC: &str = "sine-440hz-mono-alac.m4a";
+const MP4: &str = "sine-440hz-mono.mp4";
+const ALL_FIXTURES: [&str; 8] = [MP3, WAV, AIFF, M4A, FLAC, OGG, ALAC, MP4];
 
 const TITLE: &str = "Test Tone";
 const ARTIST: &str = "Sine Wave";
@@ -121,7 +124,7 @@ fn seed(path: &Path) {
             tag.save_to_path(path, WriteOptions::new().use_id3v23(version_3))
                 .expect("the scratch copy can be read and written");
         }
-        "m4a" => {
+        "m4a" | "mp4" => {
             let mut ilst = Ilst::new();
             for (fourcc, value) in [
                 (*b"\xa9nam", TITLE),
@@ -145,7 +148,7 @@ fn seed(path: &Path) {
             ilst.save_to_path(path, WriteOptions::new())
                 .expect("the scratch copy can be read and written");
         }
-        "flac" => {
+        "flac" | "ogg" => {
             let mut comments = VorbisComments::new();
             for (key, value) in [
                 ("TITLE", TITLE),
@@ -205,7 +208,7 @@ fn all_tags(path: &Path) -> String {
                 .expect("the scratch copy can be read and written");
             format!("{:?}", (file.id3v2(), file.text_chunks()))
         }
-        "m4a" => format!(
+        "m4a" | "mp4" => format!(
             "{:?}",
             Mp4File::read_from(&mut file, options)
                 .expect("the scratch copy can be read and written")
@@ -216,6 +219,12 @@ fn all_tags(path: &Path) -> String {
                 .expect("the scratch copy can be read and written");
             format!("{:?}", (file.vorbis_comments(), file.pictures()))
         }
+        "ogg" => format!(
+            "{:?}",
+            VorbisFile::read_from(&mut file, options)
+                .expect("the scratch copy can be read and written")
+                .vorbis_comments()
+        ),
         other => panic!("no tag reader for {other}"),
     }
 }
@@ -233,7 +242,7 @@ fn pictures(path: &Path) -> Vec<Vec<u8>> {
                 _ => None,
             })
             .collect(),
-        "m4a" => Mp4File::read_from(&mut file, options)
+        "m4a" | "mp4" => Mp4File::read_from(&mut file, options)
             .expect("the scratch copy can be read and written")
             .ilst()
             .and_then(Ilst::pictures)
@@ -243,6 +252,13 @@ fn pictures(path: &Path) -> Vec<Vec<u8>> {
             .collect(),
         "flac" => FlacFile::read_from(&mut file, options)
             .expect("the scratch copy can be read and written")
+            .pictures()
+            .iter()
+            .map(|(picture, _)| picture.data().to_vec())
+            .collect(),
+        "ogg" => VorbisFile::read_from(&mut file, options)
+            .expect("the scratch copy can be read and written")
+            .vorbis_comments()
             .pictures()
             .iter()
             .map(|(picture, _)| picture.data().to_vec())
@@ -405,6 +421,24 @@ fn m4a_round_trip() {
 fn flac_round_trip() {
     assert_round_trip(FLAC, true);
     assert_round_trip(FLAC, false);
+}
+
+#[test]
+fn ogg_vorbis_round_trip() {
+    assert_round_trip(OGG, true);
+    assert_round_trip(OGG, false);
+}
+
+#[test]
+fn alac_round_trip() {
+    assert_round_trip(ALAC, true);
+    assert_round_trip(ALAC, false);
+}
+
+#[test]
+fn mp4_round_trip() {
+    assert_round_trip(MP4, true);
+    assert_round_trip(MP4, false);
 }
 
 #[test]
@@ -611,7 +645,7 @@ fn write_user_comment(path: &Path, comment: &str) {
             )));
             tag.save_to_path(path, WriteOptions::new())
         }
-        "m4a" => {
+        "m4a" | "mp4" => {
             let mut ilst = Ilst::new();
             ilst.insert(Atom::new(
                 AtomIdent::Fourcc(*b"\xa9cmt"),
@@ -619,7 +653,7 @@ fn write_user_comment(path: &Path, comment: &str) {
             ));
             ilst.save_to_path(path, WriteOptions::new())
         }
-        "flac" => {
+        "flac" | "ogg" => {
             let mut comments = VorbisComments::new();
             comments.push("COMMENT".to_string(), comment.to_string());
             comments.save_to_path(path, WriteOptions::new())
@@ -682,7 +716,7 @@ fn user_text_that_resembles_a_label_is_kept() {
 
 #[test]
 fn undoing_a_changed_label_brings_back_the_previous_one() {
-    for fixture in [MP3, FLAC] {
+    for fixture in [MP3, FLAC, OGG] {
         let path = scratch_copy(fixture, "label-undo");
         seed(&path);
         let options = label_options(LabelPlacement::CommentStart);
@@ -812,9 +846,11 @@ fn documented_fields(preset: DjSoftware, fixture: &str) -> Vec<&'static str> {
     let keeps_decimals = matches!(preset, DjSoftware::Mixxx | DjSoftware::Generic);
     match fixture {
         MP3 | WAV | AIFF => vec!["TKEY", "TBPM"],
-        M4A if keeps_decimals => vec![M4A_INITIAL_KEY, M4A_KEY, "tmpo", M4A_FREEFORM_BPM],
-        M4A => vec![M4A_INITIAL_KEY, M4A_KEY, "tmpo"],
-        FLAC => vec!["INITIALKEY", "BPM"],
+        M4A | ALAC | MP4 if keeps_decimals => {
+            vec![M4A_INITIAL_KEY, M4A_KEY, "tmpo", M4A_FREEFORM_BPM]
+        }
+        M4A | ALAC | MP4 => vec![M4A_INITIAL_KEY, M4A_KEY, "tmpo"],
+        FLAC | OGG => vec!["INITIALKEY", "BPM"],
         _ => unreachable!("{fixture} is not a fixture"),
     }
 }
@@ -877,13 +913,21 @@ fn only_the_serato_preset_leaves_the_tempo_out_unless_asked() {
 }
 
 #[test]
-fn an_existing_flac_key_field_is_updated_but_never_created() {
-    let without = scratch_copy(FLAC, "flac-key-absent");
-    let with = scratch_copy(FLAC, "flac-key-present");
+fn an_existing_vorbis_key_field_is_updated_but_never_created() {
+    for fixture in [FLAC, OGG] {
+        assert_vorbis_key_field_is_updated_but_never_created(fixture);
+    }
+}
+
+fn assert_vorbis_key_field_is_updated_but_never_created(fixture: &str) {
+    let without = scratch_copy(fixture, "vorbis-key-absent");
+    let with = scratch_copy(fixture, "vorbis-key-present");
     let mut comments = VorbisComments::new();
     comments.push("KEY".to_string(), "5A".to_string());
     comments.push("TEMPO".to_string(), "90".to_string());
-    comments.save_to_path(&with, WriteOptions::new()).unwrap();
+    comments
+        .save_to_path(&with, WriteOptions::new())
+        .expect("the scratch copy can be read and written");
 
     for preset in DjSoftware::ALL {
         let options = TagWriteOptions {
@@ -894,9 +938,10 @@ fn an_existing_flac_key_field_is_updated_but_never_created() {
         assert_eq!(
             changed_fields(&without, &a_minor_at(128.0), &options),
             ["INITIALKEY", "BPM"],
-            "{preset:?}"
+            "{fixture} {preset:?}"
         );
-        let plan = plan_write(&with, &a_minor_at(128.0), &options).unwrap();
+        let plan = plan_write(&with, &a_minor_at(128.0), &options)
+            .expect("the scratch copy can be read and written");
         let changes: Vec<(&str, Option<&str>)> = plan
             .changes()
             .iter()
@@ -910,7 +955,7 @@ fn an_existing_flac_key_field_is_updated_but_never_created() {
                 ("BPM", Some("128")),
                 ("TEMPO", Some("128")),
             ],
-            "{preset:?}"
+            "{fixture} {preset:?}"
         );
     }
 }

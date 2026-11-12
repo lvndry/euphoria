@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,6 +58,9 @@ const MIX_LIMIT: usize = 8;
 /// How often the playhead and the position are brought up to date while a
 /// track plays.
 const PLAYHEAD_INTERVAL: Duration = Duration::from_millis(33);
+
+/// How often the app looks at a separation running on its thread.
+const STEM_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// The sound of the track that is playing or paused.
 struct ActiveVoice {
@@ -135,8 +138,12 @@ pub(crate) struct EuphoriaApp {
     pub(crate) visible: Vec<usize>,
     /// Index into the library of the selected track.
     pub(crate) selected: Option<usize>,
-    /// Tracks that mix with the selected one, smoothest first.
+    /// Tracks that mix with the selected one, smoothest first, in its key
+    /// shifted by `key_shift`.
     pub(crate) mixes: Vec<MixSuggestion>,
+    /// Semitones the selected track is heard and suggested in, away from its
+    /// own key. Back to 0 when another track is selected.
+    pub(crate) key_shift: i8,
     pub(crate) table_scroll: UniformListScrollHandle,
     pub(crate) table_focus: FocusHandle,
     /// A problem to tell the user about, shown until dismissed.
@@ -165,8 +172,16 @@ pub(crate) struct EuphoriaApp {
     pub(crate) output: Box<dyn AudioOutput>,
     /// The reference sounds and the correction editor of the track detail.
     pub(crate) by_ear: crate::key_by_ear::ByEar,
+    /// Separating tracks into stems, and what to hear of the separated ones.
+    pub(crate) stems: crate::stems::StemSession,
+    /// The two decks, their mixer and the tracks to play next.
+    pub(crate) decks: crate::decks::Decks,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
+    /// Moving, adding, renaming and deleting the selected track's cues.
+    pub(crate) cue_editor: crate::cue_editing::CueEditor,
+    /// The field the name of a cue is typed in.
+    pub(crate) cue_name_input: Entity<InputState>,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -252,6 +267,16 @@ impl EuphoriaApp {
                 this.accept_typed_bpm(cx);
             }
         });
+        let cue_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Cue name"));
+        let cue_named = cx.subscribe(
+            &cue_name_input,
+            |this: &mut Self, _, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                    this.finish_renaming_cue(cx);
+                }
+                InputEvent::Change | InputEvent::Focus => {}
+            },
+        );
         let tempo_from_changed = cx.subscribe(&tempo_from_input, range_typed);
         let tempo_to_changed = cx.subscribe(&tempo_to_input, range_typed);
         let mut session = session;
@@ -309,6 +334,7 @@ impl EuphoriaApp {
             visible: Vec::new(),
             selected: None,
             mixes: Vec::new(),
+            key_shift: 0,
             table_scroll: UniformListScrollHandle::new(),
             table_focus: cx.focus_handle(),
             notice,
@@ -323,7 +349,11 @@ impl EuphoriaApp {
             window_focus,
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
+            stems: crate::stems::StemSession::new(crate::stems::model_separation),
+            decks: crate::decks::Decks::default(),
             bpm_input,
+            cue_editor: crate::cue_editing::CueEditor::default(),
+            cue_name_input,
             voice: None,
             start_task: None,
             is_following_playhead: false,
@@ -338,6 +368,7 @@ impl EuphoriaApp {
             _subscriptions: vec![
                 playlist_named,
                 bpm_entered,
+                cue_named,
                 search_changed,
                 quitting,
                 tempo_from_changed,
@@ -604,6 +635,8 @@ impl EuphoriaApp {
                 .filter_map(|index| self.folder_column.label(*index))
                 .map(|label| label.text.as_str()),
         );
+        self.refresh_deck_metadata();
+        self.refresh_suggestions();
     }
 
     /// Works out which columns fit the table in the window as it is now,
@@ -1160,10 +1193,16 @@ impl EuphoriaApp {
         if self.selected == Some(index) {
             return;
         }
+        // Blurring the name field commits the edit. Do it while its
+        // track is still selected: the blur event may arrive after this
+        // selection handler and otherwise lose the pending name.
+        self.finish_renaming_cue(cx);
         // A typed tempo belongs to the track for which the editor opened.
         self.by_ear.is_editing = false;
         self.by_ear.bpm_problem = None;
         self.selected = Some(index);
+        self.key_shift = 0;
+        self.cue_editor.forget_selection();
         self.refresh_mixes();
         self.load_selected_waveform(cx);
         self.point_player_at_selection(cx);
@@ -1184,8 +1223,20 @@ impl EuphoriaApp {
         self.carry_out(request, cx);
     }
 
+    /// Pauses the player when it plays, as when the decks take the sound.
+    pub(crate) fn stop_player(&mut self, cx: &mut Context<'_, Self>) {
+        if self.player.offers_pause() {
+            self.toggle_playback(cx);
+        }
+    }
+
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
+        if self.decks.is_open {
+            self.notice = Some("Close the decks to use the track player.".to_string());
+            cx.notify();
+            return;
+        }
         let request = self.player.toggle();
         self.carry_out(request, cx);
         cx.notify();
@@ -1213,20 +1264,24 @@ impl EuphoriaApp {
     }
 
     /// Passes what the player asked for on to the audio output.
-    fn carry_out(&mut self, request: Option<PlayerRequest>, cx: &mut Context<'_, Self>) {
+    pub(crate) fn carry_out(&mut self, request: Option<PlayerRequest>, cx: &mut Context<'_, Self>) {
         match request {
             None => {}
             Some(PlayerRequest::Start {
                 path,
                 from_seconds,
+                with_stems,
                 attempt,
             }) => {
                 self.voice = None;
+                let semitones = self.key_shift;
+                let opening = if with_stems {
+                    self.open_stems(&path, from_seconds)
+                } else {
+                    TrackSource::open_shifted(&path, from_seconds, semitones)
+                };
                 self.start_task = Some(cx.spawn(async move |this, cx| {
-                    let opened = cx
-                        .background_executor()
-                        .spawn(async move { TrackSource::open(&path, from_seconds) })
-                        .await;
+                    let opened = cx.background_executor().spawn(async move { opening }).await;
                     this.update(cx, |this, cx| this.finish_starting(attempt, opened, cx))
                         .ok();
                 }));
@@ -1269,6 +1324,8 @@ impl EuphoriaApp {
             Ok(source) => {
                 let state = source.state();
                 if self.player.started(attempt, source.duration_seconds()) {
+                    // The control may have changed while the file opened.
+                    state.set_shift(self.key_shift);
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });
@@ -1305,6 +1362,96 @@ impl EuphoriaApp {
         .detach();
     }
 
+    /// The stems of the track at `path`, mixed as the player hears them,
+    /// to be played in place of the track.
+    fn open_stems(&self, path: &Path, from_seconds: f32) -> Result<TrackSource, PlaybackProblem> {
+        let files = self
+            .stems
+            .ready_files(path)
+            .ok_or(PlaybackProblem::FileMissing)?;
+        TrackSource::open_stems(&files, self.stems.mix(), from_seconds)
+    }
+
+    /// The track detail's stem switch changed what is heard: the sound
+    /// follows, by restarting the track when it sounds.
+    pub(crate) fn set_stem_mode(
+        &mut self,
+        mode: crate::stems::StemMode,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if !self.stems.set_mode(mode) {
+            return;
+        }
+        if self.player.offers_pause() {
+            let request = self.player.toggle();
+            self.carry_out(request, cx);
+        }
+        cx.notify();
+    }
+
+    /// The player's track is separated, or it is not: the player starts the
+    /// track again when that changes while it sounds, so that it sounds the
+    /// way the player hears it.
+    pub(crate) fn stems_changed(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(track) = self.selected_track().map(|track| track.path.clone()) else {
+            return;
+        };
+        let ready = self.stems.ready_files(&track).is_some();
+        let was = self.player.offers_stems();
+        self.player.stems_ready(ready);
+        if ready != was && self.player.offers_pause() {
+            let request = self.player.toggle();
+            self.carry_out(request, cx);
+        }
+        self.report_stem_problem(&track);
+        cx.notify();
+    }
+
+    /// Asks the stems of the selected track to be separated, once the app
+    /// has not asked for them yet.
+    pub(crate) fn request_stems(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(track) = self.selected_track() else {
+            return;
+        };
+        let path = track.path.clone();
+        if self.stems.start(&path) {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    let finished = this
+                        .update(cx, |this, _cx| this.stems.poll())
+                        .ok()
+                        .flatten();
+                    if let Some(path) = finished {
+                        this.update(cx, |this, cx| {
+                            if this.player.track() == Some(path.as_path()) {
+                                this.stems_changed(cx);
+                            }
+                        })
+                        .ok();
+                        break;
+                    }
+                    cx.background_executor().timer(STEM_POLL_INTERVAL).await;
+                }
+            })
+            .detach();
+            cx.notify();
+        }
+    }
+
+    /// Tells the user when the stems of the track could not be separated.
+    fn report_stem_problem(&mut self, path: &Path) {
+        if let Some(crate::stems::StemStatus::Failed(problem)) = self.stems.status(path) {
+            self.report(problem.clone());
+        }
+        if let Some(phase) = self
+            .stems
+            .progress()
+            .filter(|_| self.player.track() == Some(path))
+        {
+            self.report(format!("Separating the stems: {}", phase.description()));
+        }
+    }
+
     /// Brings the player up to date with what the sound has done: how far it
     /// has got, whether it reached the end, or what stopped it.
     pub(crate) fn read_playhead(&mut self, cx: &mut Context<'_, Self>) {
@@ -1336,12 +1483,22 @@ impl EuphoriaApp {
         self.select(index, cx);
     }
 
-    /// Asks the core which tracks mix with the selected one.
+    /// Asks the core which tracks mix with the selected one, in its key
+    /// shifted by `key_shift`.
     pub(crate) fn refresh_mixes(&mut self) {
         self.mixes = self
             .selected
-            .map(|selected| suggestions(self.session.library(), selected, MIX_LIMIT))
+            .map(|selected| {
+                suggestions(self.session.library(), selected, self.key_shift, MIX_LIMIT)
+            })
             .unwrap_or_default();
+    }
+
+    /// Gives the playing track the key shift chosen for it.
+    pub(crate) fn apply_key_shift_to_playback(&self) {
+        if let Some(active) = &self.voice {
+            active.state.set_shift(self.key_shift);
+        }
     }
 
     /// Moves the selection up or down the visible rows.
@@ -1538,6 +1695,7 @@ impl EuphoriaApp {
             .map(|track| (track.path.clone(), track.bpm()));
         let Some((path, tempo)) = selected else {
             self.waveform_task = None;
+            self.waveform_task_path = None;
             return;
         };
         if self.waveform_task_path.as_ref() == Some(&path) && self.waveform_task.is_some() {
@@ -1552,10 +1710,56 @@ impl EuphoriaApp {
             );
         if is_decoded {
             self.waveform_task = None;
+            self.waveform_task_path = None;
             return;
         }
         self.waveform_task_path = Some(path.clone());
+        let decode = self.decode_waveform(path.clone(), tempo, cx);
         self.waveform_task = Some(cx.spawn(async move |this, cx| {
+            decode.await;
+            this.update(cx, |this, _| {
+                if this.waveform_task_path.as_ref() == Some(&path) {
+                    this.waveform_task_path = None;
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// The waveform of the track at `path`, when it was read.
+    pub(crate) fn waveform_of(&self, path: &Path) -> Option<&Waveform> {
+        self.waveforms.get(path)
+    }
+
+    /// Loads the waveform of the track on a deck, when it is not loaded
+    /// already.
+    pub(crate) fn load_deck_waveform(
+        &mut self,
+        path: &Path,
+        tempo: Option<f32>,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<Task<()>> {
+        let is_decoded = self.waveforms.touch(path)
+            && matches!(
+                self.waveforms.get(path),
+                Some(Waveform::Ready(_, Some(_))) | Some(Waveform::Unreadable(_))
+            );
+        if is_decoded {
+            None
+        } else {
+            Some(self.decode_waveform(path.to_path_buf(), tempo, cx))
+        }
+    }
+
+    /// Decodes the waveform and the energy curve of the track at `path`
+    /// off the main thread, and keeps them.
+    fn decode_waveform(
+        &mut self,
+        path: PathBuf,
+        tempo: Option<f32>,
+        cx: &mut Context<'_, Self>,
+    ) -> Task<()> {
+        cx.spawn(async move |this, cx| {
             cx.background_executor().timer(WAVEFORM_DELAY).await;
             let marked = this.update(cx, |this, cx| {
                 if !matches!(this.waveforms.get(&path), Some(Waveform::Ready(..))) {
@@ -1585,9 +1789,6 @@ impl EuphoriaApp {
                 .await;
             let shown = this.update(cx, |this, cx| {
                 this.waveforms.insert(path.clone(), waveform);
-                if audio.is_none() {
-                    this.waveform_task_path = None;
-                }
                 cx.notify();
             });
             // The waveform shows first; the energy curve, from the same
@@ -1605,11 +1806,10 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.set_energy(&path, curve);
-                this.waveform_task_path = None;
                 cx.notify();
             })
             .ok();
-        }));
+        })
     }
 }
 
@@ -1644,7 +1844,18 @@ impl Render for EuphoriaApp {
                     .absolute()
                     .size_full(),
                 )
-                .child(views::track_table::render(self, cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .min_h_0()
+                        .child(views::track_table::render(self, cx))
+                        .when(self.decks.is_open, |column| {
+                            column.child(views::decks::render(self, cx))
+                        }),
+                )
                 .child(views::inspector::render(self, window, cx))
                 .child(views::panel_edge::render(self, window, cx));
             div()
@@ -1686,14 +1897,20 @@ impl Render for EuphoriaApp {
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
-                    this.resize_to(event.position, window, cx);
+                    if !this.drag_cue_to(event.position.x, event.modifiers, cx) {
+                        this.resize_to(event.position, window, cx);
+                    }
                 } else {
                     this.finish_resizing(cx);
+                    this.release_cue(cx);
                 }
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.finish_resizing(cx)),
+                cx.listener(|this, _, _, cx| {
+                    this.finish_resizing(cx);
+                    this.release_cue(cx);
+                }),
             )
             .child(views::toolbar::render(self, cx))
             .child(body)
@@ -1755,6 +1972,50 @@ mod waveform_task_tests {
     use gpui::TestAppContext;
 
     use super::*;
+
+    #[gpui::test]
+    fn a_deck_decode_keeps_the_selected_tracks_pending_waveform_task(cx: &mut TestAppContext) {
+        let (_, view) = crate::ui_tests::open_fixture_library(cx);
+        let (next_index, next_path) = cx.update(|cx| {
+            view.update(cx, |app, cx| {
+                let selected = app.selected.unwrap();
+                let others: Vec<usize> = (0..app.session.library().tracks().len())
+                    .filter(|index| *index != selected)
+                    .collect();
+                let deck_track = app.session.library().track(others[0]).unwrap();
+                app.load_deck_waveform(&deck_track.path.clone(), deck_track.bpm(), cx)
+                    .unwrap()
+                    .detach();
+                (
+                    others[1],
+                    app.session.library().track(others[1]).unwrap().path.clone(),
+                )
+            })
+        });
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(90));
+        cx.run_until_parked();
+        cx.update(|cx| view.update(cx, |app, cx| app.select(next_index, cx)));
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let app = view.read(cx);
+            assert_eq!(
+                app.waveform_task_path.as_ref(),
+                Some(&next_path),
+                "the earlier deck decode must not relinquish the selected track's pending task"
+            );
+        });
+        cx.executor().advance_clock(Duration::from_millis(400));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(matches!(
+                view.read(cx).selected_waveform(),
+                Some(Waveform::Ready(_, Some(_)))
+            ))
+        });
+    }
 
     #[gpui::test]
     fn refreshing_after_the_waveform_arrives_keeps_the_pending_energy_task(
