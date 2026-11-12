@@ -91,6 +91,56 @@ pub(super) fn build<Track: SetTrack>(
     Ok(problem.plan(&order, &pins, left_out, cost))
 }
 
+pub(super) fn evaluate<Track: SetTrack>(
+    pool: &[Track],
+    order: &[usize],
+    options: &SetOptions,
+) -> Result<SetPlan, SetError> {
+    if order.is_empty() {
+        return Err(SetError::NoTracks);
+    }
+    let mut candidates = Vec::with_capacity(order.len());
+    for (position, &pool_index) in order.iter().enumerate() {
+        let track = pool
+            .get(pool_index)
+            .ok_or(SetError::PinnedTrackMissing { track: pool_index })?;
+        if order[..position].contains(&pool_index) {
+            return Err(SetError::ConflictingPins {
+                position,
+                track: pool_index,
+            });
+        }
+        let candidate =
+            candidate(pool_index, track).map_err(|missing| SetError::PinnedTrackUnusable {
+                track: pool_index,
+                missing,
+            })?;
+        candidates.push(candidate);
+    }
+    let count = order.len();
+    let fixed = SetOptions {
+        track_count: count,
+        ..options.clone()
+    };
+    let every_position: Vec<(usize, usize)> =
+        (0..count).map(|position| (position, position)).collect();
+    let problem = Problem::new(&candidates, &fixed, count, &every_position);
+    let identity: Vec<usize> = (0..count).collect();
+    let pinned: Vec<(usize, usize)> = options
+        .pins
+        .iter()
+        .filter_map(|pin| {
+            let position = match pin.position {
+                PinPosition::At(position) => position,
+                PinPosition::Last => count - 1,
+            };
+            (order.get(position) == Some(&pin.track)).then_some((position, position))
+        })
+        .collect();
+    let cost = problem.total_cost(&identity);
+    Ok(problem.plan(&identity, &pinned, Vec::new(), cost))
+}
+
 fn candidate<Track: SetTrack>(
     pool_index: usize,
     track: &Track,

@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::harmony::mix::MixTrack;
-use crate::harmony::set::{CurvePreset, DEFAULT_MAX_BPM_STEP, EnergyCurve, build_set};
+use crate::harmony::set::{
+    CurvePreset, DEFAULT_MAX_BPM_STEP, EnergyCurve, build_set, evaluate_set,
+};
 use crate::key::{Key, Mode};
 
 #[derive(Debug, Clone)]
@@ -498,4 +500,47 @@ fn orders_five_hundred_tracks_into_thirty_quickly() {
     if !cfg!(debug_assertions) {
         assert!(elapsed < Duration::from_millis(1_800), "took {elapsed:?}");
     }
+}
+
+#[test]
+fn a_reordered_set_is_explained_as_given() {
+    let pool = library(120, 9);
+    let options = options(10, "4,6,8,9,7,5");
+    let built = build_set(&pool, &options).unwrap();
+    let mut order = order(&built);
+    let again = evaluate_set(&pool, &order, &options).unwrap();
+    assert_eq!(again.tracks, built.tracks);
+    assert_eq!(again.transitions, built.transitions);
+    assert_eq!(again.deviations, built.deviations);
+    assert!((again.cost - built.cost).abs() < 1e-6);
+
+    order.swap(0, 6);
+    let swapped = evaluate_set(&pool, &order, &options).unwrap();
+    assert_eq!(swapped.tracks[0].track, order[0]);
+    assert!(swapped.cost >= built.cost);
+    assert!(
+        swapped
+            .deviations
+            .iter()
+            .any(|deviation| matches!(deviation, Deviation::EnergyOffTarget { .. }))
+    );
+
+    let mut pinned = options.clone();
+    pinned.pins = vec![Pin {
+        track: order[3],
+        position: PinPosition::At(3),
+    }];
+    let explained = evaluate_set(&pool, &order, &pinned).unwrap();
+    let flags: Vec<bool> = explained.tracks.iter().map(|track| track.pinned).collect();
+    assert_eq!(flags.iter().filter(|&&flag| flag).count(), 1);
+    assert!(flags[3]);
+
+    assert_eq!(
+        evaluate_set(&pool, &[order[0], order[0]], &options),
+        Err(SetError::ConflictingPins {
+            position: 1,
+            track: order[0]
+        })
+    );
+    assert_eq!(evaluate_set(&pool, &[], &options), Err(SetError::NoTracks));
 }

@@ -18,5 +18,5 @@ pub use next::{EnergyDirection, next_tracks};
 pub use relation::Relation;
 pub use set::{
     CurvePreset, Deviation, EnergyCurve, LeftOut, MissingFeature, Pin, PinPosition, PlannedTrack,
-    SetError, SetOptions, SetPlan, SetTrack, Transition, build_set,
+    SetError, SetOptions, SetPlan, SetTrack, Transition, build_set, evaluate_set,
 };

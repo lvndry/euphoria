@@ -84,7 +84,7 @@ pub use export::{
 pub use harmony::{
     CurvePreset, Deviation, EnergyCurve, LeftOut, MissingFeature, MixMatch, MixOptions, MixTrack,
     Pin, PinPosition, PlannedTrack, Relation, SetError, SetOptions, SetPlan, SetTrack, TempoFit,
-    TempoScaling, TrackFeatures, Transition, build_set, mixes_into,
+    TempoScaling, TrackFeatures, Transition, build_set, evaluate_set, mixes_into,
 };
 pub use key::{Key, Mode};
 pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};

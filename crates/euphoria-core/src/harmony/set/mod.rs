@@ -137,14 +137,14 @@ pub enum SetError {
     /// No track of the pool has a key, a tempo and an energy.
     #[error("no track of the pool has a key, a tempo and an energy, so there is nothing to order")]
     NothingUsable,
-    /// A pin names a track that is not in the pool.
-    #[error("the pinned track {track} is not in the pool")]
+    /// A pin or an order names a track that is not in the pool.
+    #[error("the track {track} is not in the pool")]
     PinnedTrackMissing {
         /// The index given.
         track: usize,
     },
-    /// A pinned track lacks a key, a tempo or an energy.
-    #[error("the pinned track {track} has no {missing}, so it cannot be placed")]
+    /// A pinned or ordered track lacks a key, a tempo or an energy.
+    #[error("the track {track} has no {missing}, so it cannot be placed")]
     PinnedTrackUnusable {
         /// The index of the track in the pool.
         track: usize,
@@ -159,8 +159,9 @@ pub enum SetError {
         /// The length of the set.
         track_count: usize,
     },
-    /// Two pins share a position or a track.
-    #[error("two pins share position {position} or track {track}")]
+    /// Two pins share a position or a track, or an order names a track
+    /// twice.
+    #[error("track {track} is placed twice, or two tracks at position {position}")]
     ConflictingPins {
         /// The position, counted from 0.
         position: usize,
@@ -368,4 +369,21 @@ pub fn build_set<Track: SetTrack>(
     options: &SetOptions,
 ) -> Result<SetPlan, SetError> {
     solve::build(pool, options)
+}
+
+/// Explains a set in the order given, as indices into `pool`: how each
+/// track meets `options.curve` and how each transition mixes, with the same
+/// deviations as [`build_set`]. Use it after reordering a built set by hand.
+///
+/// `options.track_count` is ignored, since the order sets the length, and a
+/// track counts as pinned when one of `options.pins` puts it where it is.
+/// The plan's `lower_bound` is its own `cost`, since the order is fixed.
+/// A track named twice, missing from the pool, or lacking a key, a tempo or
+/// an energy is an error.
+pub fn evaluate_set<Track: SetTrack>(
+    pool: &[Track],
+    order: &[usize],
+    options: &SetOptions,
+) -> Result<SetPlan, SetError> {
+    solve::evaluate(pool, order, options)
 }
