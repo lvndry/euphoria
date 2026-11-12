@@ -49,6 +49,8 @@ pub enum KeyNotation {
     Camelot,
     /// Short musical names such as "Am", "F#m" or "Db".
     Musical,
+    /// Open Key codes such as "1m".
+    OpenKey,
 }
 
 /// Choices that change what the export contains.
@@ -576,6 +578,7 @@ fn tonality(key: Key, notation: KeyNotation) -> String {
                 Mode::Minor => format!("{tonic}m"),
             }
         }
+        KeyNotation::OpenKey => key.open_key(),
     }
 }
 
