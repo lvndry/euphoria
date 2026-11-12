@@ -31,6 +31,8 @@ pub mod harmony;
 pub mod key;
 /// Finding audio files in folders.
 pub mod library;
+#[cfg(feature = "pitch-shift")]
+pub mod mashup;
 /// Playlists the user builds, kept by the content of their files.
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
