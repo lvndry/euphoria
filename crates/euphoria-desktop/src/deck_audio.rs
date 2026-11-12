@@ -19,7 +19,7 @@
 
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -312,6 +312,9 @@ pub(crate) struct DeckLink {
 impl DeckLink {
     /// Sends a command. A mix that has gone away ignores it.
     pub(crate) fn send(&self, command: DeckCommand) {
+        // Free the return path before waiting for command capacity: the mix
+        // may be waiting for us to reclaim a replaced track.
+        self.drop_retired();
         let loading = match &command {
             DeckCommand::Load { deck, .. } => Some(*deck),
             _ => None,
@@ -507,6 +510,7 @@ impl LoadedTrack {
 pub(crate) struct DeckMix {
     commands: Receiver<DeckCommand>,
     retired: SyncSender<Box<LoadedTrack>>,
+    pending_retired: Option<Box<LoadedTrack>>,
     meters: [Arc<DeckMeter>; 2],
     decks: [Option<Box<LoadedTrack>>; 2],
     block: Vec<f32>,
@@ -532,6 +536,7 @@ pub(crate) fn deck_mix() -> (DeckLink, DeckMix) {
     let mix = DeckMix {
         commands: received,
         retired: retire,
+        pending_retired: None,
         meters,
         decks: [None, None],
         block: vec![0.0; BLOCK_FRAMES * 2],
@@ -545,13 +550,20 @@ impl DeckMix {
         self.decks[deck.index()].as_deref_mut()
     }
 
+    /// Holds a replacement until the window can reclaim it. No further
+    /// commands are consumed while this bounded return slot is occupied.
+    fn retire(&mut self, track: Box<LoadedTrack>) {
+        debug_assert!(self.pending_retired.is_none());
+        self.pending_retired = self.retired.try_send(track).err().map(|error| match error {
+            TrySendError::Full(track) | TrySendError::Disconnected(track) => track,
+        });
+    }
+
     fn apply(&mut self, command: DeckCommand) {
         match command {
             DeckCommand::Load { deck, track } => {
                 if let Some(replaced) = self.decks[deck.index()].replace(track.0) {
-                    // Handed back to be dropped off this thread; dropped
-                    // here only when the window has not taken the last few.
-                    let _ = self.retired.try_send(replaced);
+                    self.retire(replaced);
                 }
                 let meter = &self.meters[deck.index()];
                 meter.finished.store(false, Ordering::Relaxed);
@@ -633,7 +645,13 @@ impl DeckMix {
     }
 
     fn render_block(&mut self) {
-        while let Ok(command) = self.commands.try_recv() {
+        if let Some(track) = self.pending_retired.take() {
+            self.retire(track);
+        }
+        while self.pending_retired.is_none() {
+            let Ok(command) = self.commands.try_recv() else {
+                break;
+            };
             self.apply(command);
         }
         self.block.fill(0.0);
@@ -1050,6 +1068,45 @@ mod tests {
         }
         assert!(link.retired.try_recv().is_ok());
         assert!(link.retired.try_recv().is_err());
+    }
+
+    #[test]
+    fn bursts_return_every_replaced_track_without_losing_later_commands() {
+        let scratch = ScratchFolder::new("retired-burst");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.0, 1.0);
+        for count in [11, COMMAND_CAPACITY - 1] {
+            let (link, mut mix) = deck_mix();
+            let mut identities = Vec::new();
+            for _ in 0..count {
+                let track = prepare_track(TrackSource::open(&path, 0.0).unwrap(), None);
+                identities.push(std::ptr::from_ref(track.0.as_ref()) as usize);
+                link.send(DeckCommand::Load {
+                    deck: DeckId::A,
+                    track,
+                });
+            }
+            link.send(DeckCommand::Play {
+                deck: DeckId::A,
+                quantize_to: None,
+            });
+            let mut retired = Vec::new();
+            for _ in 0..count {
+                mix.render_block();
+                retired.extend(link.retired.try_iter());
+            }
+            let returned: Vec<usize> = retired
+                .iter()
+                .map(|track| std::ptr::from_ref(track.as_ref()) as usize)
+                .collect();
+            assert_eq!(returned, identities[..count - 1], "{count} queued loads");
+            let current = mix.decks[DeckId::A.index()].as_ref().unwrap();
+            assert_eq!(
+                std::ptr::from_ref(current.as_ref()) as usize,
+                identities[count - 1]
+            );
+            assert!(current.playing, "Play follows the final load");
+        }
     }
 
     #[test]

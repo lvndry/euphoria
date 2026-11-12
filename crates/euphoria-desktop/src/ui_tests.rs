@@ -4082,6 +4082,38 @@ fn the_decks_load_a_track_and_suggest_what_mixes_after_it(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::cue_id;
+    let mut tracks = deck_tracks();
+    for track in &mut tracks {
+        // The audio fixtures last one second; use a cue they can really play.
+        track.outcome.as_mut().unwrap().cues[1].seconds = 0.6;
+    }
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(tracks, Box::new(output.clone()), cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+        })
+    });
+    cx.run_until_parked();
+    click(window, cue_id(DeckId::B, 1), cx);
+    output.pull(0.12);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        let position = decks.position_seconds(DeckId::B);
+        assert!(decks.view(DeckId::B).playing);
+        assert!(
+            (0.6..0.8).contains(&position),
+            "the cue seeks to 0.6s: {position}"
+        );
+    });
+}
+
+#[gpui::test]
 fn the_energy_direction_reorders_the_suggestions(cx: &mut TestAppContext) {
     use crate::deck_audio::DeckId;
     use euphoria_core::harmony::EnergyDirection;
