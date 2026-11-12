@@ -641,6 +641,11 @@ impl TagFile {
         matches!(&self.document, Document::Id3(file) if file.info.is_some())
     }
 
+    /// Whether the file is an Ogg Vorbis file.
+    pub(super) fn is_ogg(&self) -> bool {
+        matches!(&self.document, Document::Ogg(_))
+    }
+
     /// The length of the area the tag occupies in the file.
     pub(super) fn tag_length(&self) -> u64 {
         self.document.tag_length()

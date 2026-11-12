@@ -46,6 +46,9 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+/// The most channels [`Stretch::process`] handles without allocating.
+pub const STACK_CHANNELS: usize = 8;
+
 /// One stretcher for a fixed number of channels. Audio is passed one slice
 /// per channel; every channel of a call must hold the same number of
 /// samples.
@@ -118,9 +121,34 @@ impl Stretch {
     }
 
     /// Stretches `inputs` into `outputs`; their lengths set the ratio.
+    /// Up to [`STACK_CHANNELS`] channels, it allocates nothing, so it can
+    /// run on an audio thread.
     pub fn process(&mut self, inputs: &[Vec<f32>], outputs: &mut [Vec<f32>]) -> Result<(), String> {
         let input_samples = self.samples_of(inputs)?;
         let output_samples = self.samples_of(outputs)?;
+        if inputs.len() <= STACK_CHANNELS {
+            let mut input_pointers = [std::ptr::null::<c_float>(); STACK_CHANNELS];
+            let mut output_pointers = [std::ptr::null_mut::<c_float>(); STACK_CHANNELS];
+            for (pointer, channel) in input_pointers.iter_mut().zip(inputs) {
+                *pointer = channel.as_ptr();
+            }
+            for (pointer, channel) in output_pointers.iter_mut().zip(outputs.iter_mut()) {
+                *pointer = channel.as_mut_ptr();
+            }
+            // SAFETY: the first `channel_count` pointers each point to
+            // `input_samples` readable or `output_samples` writable values,
+            // which outlive the call.
+            return status(unsafe {
+                euphoria_stretch_process(
+                    self.raw.as_ptr(),
+                    input_pointers.as_ptr(),
+                    input_samples,
+                    output_pointers.as_ptr(),
+                    output_samples,
+                    self.channel_count(),
+                )
+            });
+        }
         let input_pointers: Vec<*const c_float> =
             inputs.iter().map(|channel| channel.as_ptr()).collect();
         let output_pointers: Vec<*mut c_float> = outputs

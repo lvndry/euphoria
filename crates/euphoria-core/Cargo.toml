@@ -50,6 +50,7 @@ tempfile = { workspace = true, optional = true }
 # An independent reader and writer of tags, to check ours against.
 lofty.workspace = true
 roxmltree.workspace = true
+tempfile.workspace = true
 
 [features]
 default = ["libkeyfinder", "pitch-shift"]

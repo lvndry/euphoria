@@ -9,9 +9,11 @@
 
 use std::f32::consts::FRAC_PI_2;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use euphoria_core::harmony::{EnergyDirection, MixOptions, Relation, next_tracks_favoring};
+use euphoria_core::stems::StemFiles;
 use euphoria_core::{SectionCue, TrackAnalysis};
 use gpui::{Context, Task};
 
@@ -20,7 +22,8 @@ use crate::deck_audio::{
     DeckCommand, DeckId, DeckLink, GridTiming, deck_mix, matching_rate, prepare_track,
 };
 use crate::library::Track;
-use crate::playback::{TrackSource, Voice};
+use crate::mashup::{DeckSetup, MashupIdea, StemLibrary};
+use crate::playback::{StemMix, TrackSource, Voice};
 use crate::playlists::PlaylistId;
 use crate::views::waveform::SeenBounds;
 
@@ -57,6 +60,16 @@ pub(crate) struct DeckView {
     pub(crate) loop_bars: Option<u32>,
     /// Why the track could not be loaded, when it could not.
     pub(crate) problem: Option<String>,
+    /// Semitones the deck's pitch is shifted by.
+    pub(crate) shift_semitones: i8,
+    /// The stems of the track, when it has been separated.
+    pub(crate) stem_files: Option<StemFiles>,
+    /// True while the deck plays the track's stems in place of the track.
+    pub(crate) use_stems: bool,
+    /// The level of each stem, in the order of `Stem::ALL`, from 0 to 1.
+    pub(crate) stem_levels: [f32; 4],
+    /// The stem levels, shared with the sound.
+    pub(crate) stem_mix: Arc<StemMix>,
 }
 
 impl DeckView {
@@ -65,6 +78,7 @@ impl DeckView {
             rate: 1.0,
             keylock: true,
             volume: 1.0,
+            stem_levels: [1.0; 4],
             ..Self::default()
         }
     }
@@ -104,6 +118,16 @@ pub(crate) enum SuggestionScope {
     Playlist(PlaylistId),
 }
 
+/// What the list under the decks suggests for deck B.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum DeckMode {
+    /// Tracks to play after deck A's.
+    #[default]
+    NextTrack,
+    /// Tracks to layer over deck A's.
+    Mashup,
+}
+
 /// A track that would mix well after the one on deck A.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct NextTrack {
@@ -130,6 +154,15 @@ pub(crate) struct Decks {
     pub(crate) direction: EnergyDirection,
     pub(crate) scope: SuggestionScope,
     pub(crate) suggestions: Vec<NextTrack>,
+    pub(crate) mode: DeckMode,
+    /// The tracks that layer over deck A's, best first.
+    pub(crate) ideas: Vec<MashupIdea>,
+    /// The idea on deck B, as the arrows step through them.
+    pub(crate) idea_index: Option<usize>,
+    /// The stems found in the cache, and how they sound.
+    pub(crate) stem_library: StemLibrary,
+    /// Where each deck's stem faders were last drawn.
+    pub(crate) stem_fader_bounds: [[SeenBounds; 4]; 2],
     /// Counts loads, so a file opened after another was asked for is
     /// dropped.
     load_generation: [u64; 2],
@@ -155,6 +188,11 @@ impl Default for Decks {
             direction: EnergyDirection::Same,
             scope: SuggestionScope::Library,
             suggestions: Vec::new(),
+            mode: DeckMode::NextTrack,
+            ideas: Vec::new(),
+            idea_index: None,
+            stem_library: StemLibrary::default(),
+            stem_fader_bounds: Default::default(),
             load_generation: [0, 0],
             is_refreshing: false,
             waveform_tasks: [None, None],
@@ -171,7 +209,7 @@ impl Decks {
         &self.views[index(deck)]
     }
 
-    fn view_mut(&mut self, deck: DeckId) -> &mut DeckView {
+    pub(crate) fn view_mut(&mut self, deck: DeckId) -> &mut DeckView {
         &mut self.views[index(deck)]
     }
 
@@ -221,7 +259,7 @@ impl Decks {
         ))
     }
 
-    fn send(&self, command: DeckCommand) {
+    pub(crate) fn send(&self, command: DeckCommand) {
         if let Some(link) = &self.link {
             link.send(command);
         }
@@ -352,10 +390,26 @@ impl EuphoriaApp {
         track_index: usize,
         cx: &mut Context<'_, Self>,
     ) {
+        self.load_on_deck_with(deck, track_index, DeckSetup::default(), cx);
+    }
+
+    /// Puts the track at `track_index` on `deck` as [`Self::load_on_deck`]
+    /// does, shifted and with its stems as `setup` says.
+    pub(crate) fn load_on_deck_with(
+        &mut self,
+        deck: DeckId,
+        track_index: usize,
+        setup: DeckSetup,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(track) = self.session.library().track(track_index) else {
             return;
         };
         let path = track.path.clone();
+        let stem_files = self
+            .stems
+            .ready_files(&path)
+            .or_else(|| self.decks.stem_library.files(&path));
         let view = self.decks.view_mut(deck);
         view.playing = false;
         view.track_index = Some(track_index);
@@ -364,6 +418,14 @@ impl EuphoriaApp {
         view.refresh_track(track);
         view.problem = None;
         view.rate = 1.0;
+        view.shift_semitones = setup.shift_semitones;
+        view.use_stems = setup.stem_levels.is_some() && stem_files.is_some();
+        view.stem_levels = setup.stem_levels.unwrap_or([1.0; 4]);
+        view.stem_files = stem_files;
+        // A new mix for the new source: the old one may still be heard
+        // fading out on the audio thread.
+        view.stem_mix = Arc::new(StemMix::default());
+        crate::mashup::apply_stem_levels(view);
         self.decks.send(DeckCommand::Pause(deck));
         self.decks.waveform_tasks[index(deck)] = self.load_deck_waveform(&path, track.bpm(), cx);
         if deck == DeckId::A {
@@ -373,7 +435,7 @@ impl EuphoriaApp {
         self.open_deck_source(deck, 0.0, false, cx);
     }
 
-    fn open_deck_source(
+    pub(crate) fn open_deck_source(
         &mut self,
         deck: DeckId,
         seconds: f64,
@@ -394,6 +456,13 @@ impl EuphoriaApp {
             return;
         }
         let grid = self.decks.view(deck).grid;
+        let stems = self
+            .decks
+            .view(deck)
+            .use_stems
+            .then(|| self.decks.view(deck).stem_files.clone())
+            .flatten();
+        let stem_mix = Arc::clone(&self.decks.view(deck).stem_mix);
         cx.spawn(async move |this, cx| {
             let opened_path = path.clone();
             // The file is opened, and the deck's stretcher built, here and
@@ -401,7 +470,11 @@ impl EuphoriaApp {
             let opened = cx
                 .background_executor()
                 .spawn(async move {
-                    TrackSource::open(&opened_path, seconds as f32).map(|source| {
+                    let source = match stems {
+                        Some(files) => TrackSource::open_stems(&files, stem_mix, seconds as f32),
+                        None => TrackSource::open(&opened_path, seconds as f32),
+                    };
+                    source.map(|source| {
                         let duration = source.duration_seconds();
                         (duration, prepare_track(source, grid))
                     })
@@ -430,6 +503,10 @@ impl EuphoriaApp {
                         this.decks.send(DeckCommand::SetRate {
                             deck,
                             rate: view.rate,
+                        });
+                        this.decks.send(DeckCommand::SetShift {
+                            deck,
+                            semitones: view.shift_semitones,
                         });
                         if play {
                             this.start_deck(deck);
@@ -470,7 +547,7 @@ impl EuphoriaApp {
         cx.notify();
     }
 
-    fn start_deck(&mut self, deck: DeckId) {
+    pub(crate) fn start_deck(&mut self, deck: DeckId) {
         let other_plays = self.decks.view(deck.other()).playing;
         self.decks.view_mut(deck).playing = true;
         self.decks.send(DeckCommand::Play {
@@ -637,22 +714,10 @@ impl EuphoriaApp {
         }
     }
 
-    /// Works out the tracks that mix best after the one on deck A.
-    pub(crate) fn refresh_suggestions(&mut self) {
-        if !self.decks.is_open {
-            return;
-        }
+    /// The library indexes of the tracks the suggestions come from.
+    pub(crate) fn suggestion_indexes(&self) -> Vec<usize> {
         let library = self.session.library();
-        let Some(playing) = self
-            .decks
-            .view(DeckId::A)
-            .track_index
-            .and_then(|index| library.track(index))
-        else {
-            self.decks.suggestions.clear();
-            return;
-        };
-        let indexes: Vec<usize> = match self.decks.scope {
+        match self.decks.scope {
             SuggestionScope::Library => (0..library.tracks().len()).collect(),
             SuggestionScope::Shown => self.visible.clone(),
             SuggestionScope::Playlist(id) => self
@@ -667,7 +732,30 @@ impl EuphoriaApp {
                         .collect()
                 })
                 .unwrap_or_default(),
+        }
+    }
+
+    /// Works out the tracks that mix best after the one on deck A, or that
+    /// layer over it in mashup mode.
+    pub(crate) fn refresh_suggestions(&mut self) {
+        if !self.decks.is_open {
+            return;
+        }
+        if self.decks.mode == DeckMode::Mashup {
+            self.refresh_mashup_ideas();
+            return;
+        }
+        let library = self.session.library();
+        let Some(playing) = self
+            .decks
+            .view(DeckId::A)
+            .track_index
+            .and_then(|index| library.track(index))
+        else {
+            self.decks.suggestions.clear();
+            return;
         };
+        let indexes = self.suggestion_indexes();
         let candidates: Vec<&Track> = indexes
             .iter()
             .filter_map(|index| library.track(*index))
@@ -705,7 +793,7 @@ impl EuphoriaApp {
     }
 
     /// Draws the decks again while one plays, so their positions move.
-    fn follow_decks(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn follow_decks(&mut self, cx: &mut Context<'_, Self>) {
         if self.decks.is_refreshing {
             return;
         }

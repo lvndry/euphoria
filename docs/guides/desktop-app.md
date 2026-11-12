@@ -169,6 +169,12 @@ Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsm
 
 With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
 
+### Mashup mode
+
+**Mashup** above the list under the decks swaps the tracks to play next for tracks that layer over deck A, with a key shift and stems for each, and **Export mashup…** renders the pair to a WAV file.
+
+See [Mashups](mashups.md).
+
 ## The waveform
 
 The waveform shows the whole track from left to right, and its colours show what is sounding:

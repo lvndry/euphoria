@@ -117,6 +117,8 @@ What to set in Serato:
 | Key and tempo from WAV | Not read: Serato's staff said WAV holds no tags for Serato. |
 | Whether a key written as `8A` or `1m` is converted for display and Key Sync | **Unconfirmed**. **Original Tag** always shows it. |
 
+For cue points and a beat grid, add `--serato-markers`: Euphoria writes them into the fields Serato keeps in the file, and keeps every cue and grid the file already has. **Not tested in Serato.** See [cue points and beat grids for Serato](serato-cues.md).
+
 ## Traktor
 
 `--preset traktor` writes the fields above. With `--key-notation open-key` the key is written as Traktor writes its own, such as `1m`.
