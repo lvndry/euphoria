@@ -26,6 +26,10 @@ actions!(
         UndoTagWrite,
         /// Opens the tag editor for the selected tracks.
         EditTags,
+        /// Adds a cue to the selected track at the playhead.
+        AddCueAtPlayhead,
+        /// Undoes the latest edit of the selected track's cues.
+        UndoCueEdit,
         /// Opens the settings.
         OpenSettings,
         /// Shows the two decks, or hides them.

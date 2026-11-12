@@ -525,7 +525,7 @@ mod tests {
         );
         assert_eq!(left_out.len(), 1);
         assert!(
-            left_out[0].reason.contains("was corrected"),
+            left_out[0].reason.contains("cannot check the saved edits"),
             "{}",
             left_out[0].reason
         );

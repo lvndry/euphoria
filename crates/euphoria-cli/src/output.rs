@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::tags::WritePlan;
 use euphoria_core::{
-    BeatGrid, Confidence, Correction, EuphoriaError, FileResult, Key, KeySection,
-    SUPPORTED_EXTENSIONS, SectionCue, SkippedTrack, TempoRange, UnreadTags,
+    BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeySection, SUPPORTED_EXTENSIONS,
+    SkippedTrack, TempoRange, UnreadTags,
 };
 use serde::Serialize;
 
-use crate::batch::Corrections;
+use crate::batch::{UserEdits, UserEditsByFile};
 use crate::export::Program;
 use crate::style::Theme;
 use crate::tags::Failure;
@@ -128,7 +128,7 @@ struct JsonTrack<'result> {
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
     /// The values the user set by hand, which replace the detected ones:
-    /// "key", "bpm" or both.
+    /// any of "key", "bpm" and "cues".
     set_by_user: Vec<&'static str>,
     error: Option<String>,
 }
@@ -136,14 +136,17 @@ struct JsonTrack<'result> {
 #[derive(Serialize)]
 struct JsonCue {
     seconds: f64,
-    name: &'static str,
+    name: String,
+    /// The hot cue pad, "A" to "H", or `None` for a memory cue only.
+    hot_cue: Option<String>,
 }
 
-impl From<SectionCue> for JsonCue {
-    fn from(cue: SectionCue) -> Self {
+impl From<Cue> for JsonCue {
+    fn from(cue: Cue) -> Self {
         Self {
             seconds: round_to_thousandths(cue.seconds),
-            name: cue.section.name(),
+            name: cue.name,
+            hot_cue: cue.hot_cue.map(|hot_cue| hot_cue.to_string()),
         }
     }
 }
@@ -234,42 +237,50 @@ pub fn write_json(
     writer: &mut impl Write,
     results: &[FileResult],
     range: TempoRange,
-    corrections: &Corrections,
+    user_edits: &UserEditsByFile,
 ) -> io::Result<()> {
+    let no_edits = UserEdits::default();
     let tracks: Vec<JsonTrack<'_>> = results
         .iter()
         .map(|result| match &result.outcome {
-            Ok(analysis) => JsonTrack {
-                path: &result.path,
-                duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
-                key: analysis
-                    .key
-                    .map(|key| JsonKey::rated(key, analysis.key_confidence())),
-                runner_up_key: analysis.key_runner_up.map(JsonKey::from),
-                bpm: analysis.bpm.map(round_to_tenths),
-                bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
-                bpm_alternative: analysis
-                    .bpm
-                    .and_then(|bpm| range.alternative(bpm))
-                    .map(round_to_tenths),
-                energy: analysis.energy,
-                tuning_cents: analysis.tuning_cents.map(round_to_tenths),
-                key_timeline: analysis
-                    .key_timeline
-                    .iter()
-                    .map(JsonKeySection::from)
-                    .collect(),
-                beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
-                cues: analysis.cues.iter().copied().map(JsonCue::from).collect(),
-                quality: analysis.quality.as_ref().map(JsonQuality::from),
-                needs_review: Some(analysis.needs_review()),
-                set_by_user: set_by_user(
-                    corrections
-                        .get(&result.path)
-                        .and_then(|looked_up| looked_up.as_ref().ok()),
-                ),
-                error: None,
-            },
+            Ok(analysis) => {
+                let edits = user_edits
+                    .get(&result.path)
+                    .and_then(|looked_up| looked_up.as_ref().ok())
+                    .unwrap_or(&no_edits);
+                JsonTrack {
+                    path: &result.path,
+                    duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
+                    key: analysis
+                        .key
+                        .map(|key| JsonKey::rated(key, analysis.key_confidence())),
+                    runner_up_key: analysis.key_runner_up.map(JsonKey::from),
+                    bpm: analysis.bpm.map(round_to_tenths),
+                    bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
+                    bpm_alternative: analysis
+                        .bpm
+                        .and_then(|bpm| range.alternative(bpm))
+                        .map(round_to_tenths),
+                    energy: analysis.energy,
+                    tuning_cents: analysis.tuning_cents.map(round_to_tenths),
+                    key_timeline: analysis
+                        .key_timeline
+                        .iter()
+                        .map(JsonKeySection::from)
+                        .collect(),
+                    beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
+                    cues: edits
+                        .track_cues(analysis)
+                        .cues
+                        .into_iter()
+                        .map(JsonCue::from)
+                        .collect(),
+                    quality: analysis.quality.as_ref().map(JsonQuality::from),
+                    needs_review: Some(analysis.needs_review()),
+                    set_by_user: set_by_user(edits),
+                    error: None,
+                }
+            }
             Err(error) => JsonTrack {
                 path: &result.path,
                 duration_seconds: None,
@@ -294,17 +305,17 @@ pub fn write_json(
     writeln!(writer)
 }
 
-/// The values of `correction` the user set, as JSON names them.
-fn set_by_user(correction: Option<&Correction>) -> Vec<&'static str> {
-    let Some(correction) = correction else {
-        return Vec::new();
-    };
+/// The values the user set in `edits`, as JSON names them.
+fn set_by_user(edits: &UserEdits) -> Vec<&'static str> {
     let mut names = Vec::new();
-    if correction.key.is_some() {
+    if edits.correction.key.is_some() {
         names.push("key");
     }
-    if correction.bpm.is_some() {
+    if edits.correction.bpm.is_some() {
         names.push("bpm");
+    }
+    if edits.cues.is_some() {
+        names.push("cues");
     }
     names
 }
@@ -317,7 +328,7 @@ fn set_by_user(correction: Option<&Correction>) -> Vec<&'static str> {
 pub fn write_plain_table(
     writer: &mut impl Write,
     results: &[FileResult],
-    corrections: &Corrections,
+    user_edits: &UserEditsByFile,
 ) -> io::Result<()> {
     let header = [
         "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
@@ -326,9 +337,10 @@ pub fn write_plain_table(
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
-            let correction = corrections
+            let correction = user_edits
                 .get(&result.path)
-                .and_then(|looked_up| looked_up.as_ref().ok());
+                .and_then(|looked_up| looked_up.as_ref().ok())
+                .map(|edits| edits.correction);
             let key_letter = match correction.and_then(|correction| correction.key) {
                 Some(_) => "U",
                 None => confidence_letter(analysis.key_confidence()),
@@ -714,7 +726,10 @@ pub fn write_cue_summary(
         counted(track_count, "track", "tracks")
     )?;
     if with_cues < track_count {
-        write!(writer, "; tracks without a beat grid in the file get none")?;
+        write!(
+            writer,
+            "; tracks without a beat grid in the file get none, unless you edited their cues in the app"
+        )?;
     }
     writeln!(writer, ".")
 }
@@ -1029,7 +1044,7 @@ fn round_to_tenths(value: f32) -> f32 {
 mod tests {
     use std::path::PathBuf;
 
-    use euphoria_core::{Mode, TrackAnalysis};
+    use euphoria_core::{Correction, Mode, SectionCue, TrackAnalysis};
 
     use super::*;
 
@@ -1112,7 +1127,12 @@ mod tests {
     }
 
     fn write_json_in_default_range(writer: &mut Vec<u8>, results: &[FileResult]) -> io::Result<()> {
-        write_json(writer, results, TempoRange::DEFAULT, &Corrections::new())
+        write_json(
+            writer,
+            results,
+            TempoRange::DEFAULT,
+            &UserEditsByFile::new(),
+        )
     }
 
     fn summary(results: &[FileResult], narrowing: &Narrowing) -> String {
@@ -1193,7 +1213,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
 -                 -       -  -/-   -        1:00  music/intro.wav
 ";
         assert_eq!(
-            render(|writer, results| write_plain_table(writer, results, &Corrections::new())),
+            render(|writer, results| write_plain_table(writer, results, &UserEditsByFile::new())),
             expected
         );
     }
@@ -1201,21 +1221,73 @@ Key             BPM  Energy  Conf  Quality  Time  File
     #[test]
     fn values_the_user_set_are_marked_in_the_table_and_the_json() {
         let results = sample_results();
-        let mut corrections = Corrections::new();
-        corrections.insert(
+        let mut user_edits = UserEditsByFile::new();
+        user_edits.insert(
             results[0].path.clone(),
-            Ok(Correction::of_bpm(85.0).unwrap()),
+            Ok(UserEdits {
+                correction: Correction::of_bpm(85.0).unwrap(),
+                cues: None,
+            }),
         );
         let mut table = Vec::new();
-        write_plain_table(&mut table, &results, &corrections).unwrap();
+        write_plain_table(&mut table, &results, &user_edits).unwrap();
         let table = String::from_utf8(table).unwrap();
         assert!(table.contains("H/U"), "{table}");
 
         let mut json = Vec::new();
-        write_json(&mut json, &results, TempoRange::DEFAULT, &corrections).unwrap();
+        write_json(&mut json, &results, TempoRange::DEFAULT, &user_edits).unwrap();
         let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
         assert_eq!(json[0]["set_by_user"], serde_json::json!(["bpm"]));
         assert_eq!(json[1]["set_by_user"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn the_json_lists_the_users_cues_in_place_of_the_automatic_ones() {
+        let mut results = sample_results();
+        if let Ok(analysis) = &mut results[1].outcome {
+            analysis.cues = vec![SectionCue {
+                seconds: 0.5,
+                section: euphoria_core::CueSection::Start,
+            }];
+        }
+        let json_of = |user_edits: &UserEditsByFile| {
+            let mut json = Vec::new();
+            write_json(&mut json, &results, TempoRange::DEFAULT, user_edits).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&json).unwrap()
+        };
+        assert_eq!(
+            json_of(&UserEditsByFile::new())[1]["cues"],
+            serde_json::json!([{"seconds": 0.5, "name": "Start", "hot_cue": "A"}])
+        );
+
+        let mut user_edits = UserEditsByFile::new();
+        user_edits.insert(
+            results[1].path.clone(),
+            Ok(UserEdits {
+                correction: Correction::default(),
+                cues: Some(vec![
+                    Cue {
+                        seconds: 40.0,
+                        name: "Vocal".to_string(),
+                        hot_cue: None,
+                    },
+                    Cue {
+                        seconds: 8.25,
+                        name: "Intro".to_string(),
+                        hot_cue: euphoria_core::HotCue::from_letter('D'),
+                    },
+                ]),
+            }),
+        );
+        let json = json_of(&user_edits);
+        assert_eq!(
+            json[1]["cues"],
+            serde_json::json!([
+                {"seconds": 8.25, "name": "Intro", "hot_cue": "D"},
+                {"seconds": 40.0, "name": "Vocal", "hot_cue": null},
+            ])
+        );
+        assert_eq!(json[1]["set_by_user"], serde_json::json!(["cues"]));
     }
 
     #[test]

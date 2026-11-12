@@ -40,6 +40,7 @@ bench/              dataset download script, Essentia reference script, results
 | `tempo_range` | `TempoRange`, the range tempos are reported in, and the half or double tempo offered as an alternative. |
 | `energy` | The energy rating from 1 to 10, the features behind it and the energy curve. |
 | `track_name` | Reads the title and artist stored in an audio file. |
+| `track_cues` | The cues of a track as a DJ uses them, with names and hot cue pads, and `TrackCues::of`, which gives the user's edited set when there is one and the automatic cues otherwise. The cache keeps edited sets in their own table, like corrections. |
 | `export` | Builds a library from analysis results, mirrors folders as a playlist tree, and writes it for other DJ software, starting with rekordbox XML. |
 | `error` | `EuphoriaError`, the single error type returned by the library. |
 

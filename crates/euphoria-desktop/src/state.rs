@@ -32,6 +32,8 @@ pub(crate) struct Scan {
     pub(crate) cached: HashMap<PathBuf, TrackAnalysis>,
     /// The keys and tempos the user set for those files.
     pub(crate) corrections: HashMap<PathBuf, euphoria_core::Correction>,
+    /// The cues the user set for those files.
+    pub(crate) edited_cues: HashMap<PathBuf, Vec<euphoria_core::Cue>>,
     /// One message for each path that could not be read.
     pub(crate) problems: Vec<String>,
 }
@@ -55,14 +57,30 @@ pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
         }
     }
     if let Some(cache) = cache {
-        for file in &scan.files {
+        scan.files.retain(|file| {
+            match cache.edited_cues_for(file) {
+                Ok(Some(cues)) => {
+                    scan.edited_cues.insert(file.clone(), cues);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    // An unread saved set must not become an editable automatic set.
+                    scan.problems.push(format!(
+                        "cannot read saved cues for {}: {}",
+                        file.display(),
+                        error.chain()
+                    ));
+                    return false;
+                }
+            }
             if let Some(analysis) = cache.stored_analysis(file) {
                 scan.cached.insert(file.clone(), analysis);
             }
             if let Ok(Some(correction)) = cache.correction_for(file) {
                 scan.corrections.insert(file.clone(), correction);
             }
-        }
+            true
+        });
     }
     scan
 }
@@ -297,11 +315,17 @@ impl Session {
                     self.library.record_outcome(&file, Ok(analysis));
                     self.cached_count += 1;
                 }
-                None => files_to_analyze.push(file),
+                None => files_to_analyze.push(file.clone()),
             }
-        }
-        for (file, correction) in scan.corrections {
-            self.library.set_correction(&file, correction);
+            // A scan can finish after an edit in the window. Only new
+            // tracks need its snapshot; existing tracks already hold the
+            // current edits, including resets to the automatic values.
+            if let Some(correction) = scan.corrections.remove(&file) {
+                self.library.set_correction(&file, correction);
+            }
+            if let Some(cues) = scan.edited_cues.remove(&file) {
+                self.library.set_edited_cues(&file, Some(cues));
+            }
         }
         let queued = files_to_analyze.len();
         self.progress.enqueue(queued);
@@ -315,6 +339,14 @@ impl Session {
     /// off the main thread.
     pub(crate) fn set_correction(&mut self, path: &Path, correction: euphoria_core::Correction) {
         self.library.set_correction(path, correction);
+    }
+
+    /// Sets the cues the user chose for the track at `path`, or goes back to
+    /// the automatic ones with `None`, in the library at once. Keeping them
+    /// in the cache is [`CachedAnalyzer::set_edited_cues`], off the main
+    /// thread.
+    pub(crate) fn set_edited_cues(&mut self, path: &Path, cues: Option<Vec<euphoria_core::Cue>>) {
+        self.library.set_edited_cues(path, cues);
     }
 
     /// Shows every tempo in `range`, without analyzing anything again.
@@ -589,6 +621,161 @@ mod tests {
             reopened.analysis().is_some(),
             "the analysis came from the cache"
         );
+    }
+
+    #[test]
+    fn a_late_scan_does_not_replace_cues_edited_or_reset_since_it_started() {
+        let path = PathBuf::from("/tracks/edited.wav");
+        let cue = |name: &str| euphoria_core::Cue {
+            seconds: 0.5,
+            name: name.to_string(),
+            hot_cue: None,
+        };
+        for current in [Some(vec![cue("New edit")]), None] {
+            let mut session = Session::start(None).unwrap();
+            let mut track = crate::demo::tracks(1).remove(0);
+            track.path = path.clone();
+            session.add_demo_tracks(vec![track]);
+            let mut pending = Scan {
+                files: vec![path.clone()],
+                ..Scan::default()
+            };
+            pending
+                .edited_cues
+                .insert(path.clone(), vec![cue("Before")]);
+
+            session.set_edited_cues(&path, current.clone());
+            session.add(pending);
+
+            assert_eq!(
+                session.library().track_by_path(&path).unwrap().edited_cues,
+                current
+            );
+        }
+    }
+
+    #[test]
+    fn a_late_scan_does_not_replace_a_correction_edited_or_reset_since_it_started() {
+        let path = PathBuf::from("/tracks/corrected.wav");
+        for current in [
+            euphoria_core::Correction::of_bpm(90.0).unwrap(),
+            euphoria_core::Correction::default(),
+        ] {
+            let mut session = Session::start(None).unwrap();
+            let mut track = crate::demo::tracks(1).remove(0);
+            track.path = path.clone();
+            session.add_demo_tracks(vec![track]);
+            let mut pending = Scan {
+                files: vec![path.clone()],
+                ..Scan::default()
+            };
+            pending.corrections.insert(
+                path.clone(),
+                euphoria_core::Correction::of_bpm(120.0).unwrap(),
+            );
+
+            session.set_correction(&path, current);
+            session.add(pending);
+
+            assert_eq!(
+                session.library().track_by_path(&path).unwrap().correction,
+                current
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_saved_cues_are_reported_and_retried_without_replacing_edits() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let folder = TemporaryFolder::new("unreadable-cues");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let mine = vec![euphoria_core::Cue {
+            seconds: 0.5,
+            name: "Mine".to_string(),
+            hot_cue: None,
+        }];
+        {
+            let cache = folder.open_cache();
+            cache.analyze_file(&track).unwrap();
+            cache.set_edited_cues(&track, Some(&mine)).unwrap();
+        }
+        let cache_path = folder.0.join("analysis-cache.sqlite3");
+        euphoria_core::clear_cache(&cache_path).unwrap();
+        let cache = folder.open_cache();
+        assert!(cache.stored_analysis(&track).is_none());
+        assert_eq!(cache.edited_cues_for(&track).unwrap(), Some(mine.clone()));
+        let unreadable_scan = || {
+            let permissions = std::fs::metadata(&track).unwrap().permissions();
+            std::fs::set_permissions(&track, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let found = scan(std::slice::from_ref(&track), Some(&cache));
+            std::fs::set_permissions(&track, permissions).unwrap();
+            found
+        };
+
+        let failed = unreadable_scan();
+        assert_eq!(failed.problems.len(), 1, "{failed:?}");
+        assert!(failed.problems[0].contains(&track.display().to_string()));
+        assert!(failed.files.is_empty());
+        let mut session = Session::start(Some(cache.clone())).unwrap();
+        assert_eq!(session.add(failed), 0);
+        assert!(session.library().track_by_path(&track).is_none());
+
+        let retried = scan(std::slice::from_ref(&track), Some(&cache));
+        assert!(retried.problems.is_empty());
+        assert_eq!(retried.edited_cues.get(&track), Some(&mine));
+        assert_eq!(session.add(retried), 1);
+        wait_until_idle(&mut session);
+        assert_eq!(
+            session.library().track_by_path(&track).unwrap().cues().cues,
+            mine
+        );
+        assert_eq!(cache.edited_cues_for(&track).unwrap(), Some(mine));
+
+        let current = vec![euphoria_core::Cue {
+            seconds: 0.75,
+            name: "Current edit".to_string(),
+            hot_cue: None,
+        }];
+        session.set_edited_cues(&track, Some(current.clone()));
+        euphoria_core::clear_cache(&cache_path).unwrap();
+        let failed = unreadable_scan();
+        assert_eq!(failed.problems.len(), 1);
+        assert_eq!(session.add(failed), 0);
+        assert_eq!(
+            session.library().track_by_path(&track).unwrap().cues().cues,
+            current
+        );
+    }
+
+    #[test]
+    fn cues_kept_in_the_cache_come_back_on_the_next_launch() {
+        let folder = TemporaryFolder::new("edited-cues");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let cues = vec![euphoria_core::Cue {
+            seconds: 0.5,
+            name: "Mine".to_string(),
+            hot_cue: euphoria_core::HotCue::from_letter('D'),
+        }];
+        {
+            let cache = folder.open_cache();
+            let mut session = Session::start(Some(cache.clone())).unwrap();
+            session.add(scan(std::slice::from_ref(&folder.0), Some(&cache)));
+            wait_until_idle(&mut session);
+            cache.set_edited_cues(&track, Some(&cues)).unwrap();
+        }
+
+        let cache = folder.open_cache();
+        let found = scan(std::slice::from_ref(&folder.0), Some(&cache));
+        assert_eq!(found.edited_cues.get(&track), Some(&cues));
+        let mut session = Session::start(Some(cache)).unwrap();
+        session.add(found);
+        let reopened = session.library().tracks()[0].cues();
+        assert!(reopened.is_edited());
+        assert_eq!(reopened.cues, cues);
     }
 
     #[test]

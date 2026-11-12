@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::{Confidence, Correction, Key, TempoRange, TrackAnalysis};
+use euphoria_core::{
+    BeatGrid, Confidence, Correction, Cue, Key, TempoRange, TrackAnalysis, TrackCues,
+};
 
 use crate::camelot::CamelotPosition;
 use crate::folder_tree::FolderColumn;
@@ -49,6 +51,9 @@ pub(crate) struct Track {
     pub(crate) status: TrackStatus,
     /// The key and tempo the user set, which win over the detected ones.
     pub(crate) correction: Correction,
+    /// The cues the user set, which replace those analysis placed, even
+    /// when empty. `None` keeps the automatic cues.
+    pub(crate) edited_cues: Option<Vec<Cue>>,
     file_name_lowercase: String,
     title_lowercase: String,
     artist_lowercase: Option<String>,
@@ -81,6 +86,7 @@ impl Track {
             folder,
             status: TrackStatus::Queued,
             correction: Correction::default(),
+            edited_cues: None,
         }
     }
 
@@ -129,6 +135,33 @@ impl Track {
     /// The tempo analysis found, whatever the user set.
     pub(crate) fn detected_bpm(&self) -> Option<f32> {
         self.analysis().and_then(|analysis| analysis.bpm)
+    }
+
+    /// Where the beats and bars fall, while the tempo is the detected one:
+    /// the grid was fitted to that tempo, and a tempo the user set has none.
+    pub(crate) fn beat_grid(&self) -> Option<BeatGrid> {
+        self.analysis()
+            .and_then(|analysis| analysis.beat_grid)
+            .filter(|_| self.correction.bpm.is_none())
+    }
+
+    /// The cues of the track: the user's set when there is one, and
+    /// otherwise those analysis placed on the grid of the detected tempo.
+    /// A user's cue past the end of the analyzed track is left out, the
+    /// same rule as [`TrackCues::of`]; until the track has an analysis
+    /// every cue of the set is shown, to be dropped once the length is
+    /// known.
+    pub(crate) fn cues(&self) -> TrackCues {
+        let duration = self
+            .analysis()
+            .map(|analysis| f64::from(analysis.duration_seconds));
+        match (&self.edited_cues, self.analysis()) {
+            (Some(edited), _) => TrackCues::within(edited.clone(), duration.unwrap_or(f64::NAN)),
+            (None, Some(analysis)) if self.correction.bpm.is_none() => {
+                TrackCues::automatic(&analysis.cues)
+            }
+            (None, _) => TrackCues::automatic(&[]),
+        }
     }
 
     /// The length in seconds, once the track is analyzed.
@@ -311,6 +344,13 @@ impl Library {
         self.tracks.get(index)
     }
 
+    /// The track of the file at `path`.
+    pub(crate) fn track_by_path(&self, path: &Path) -> Option<&Track> {
+        self.index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get(*index))
+    }
+
     /// The index of the track for the file at `path`.
     pub(crate) fn index_of(&self, path: &Path) -> Option<usize> {
         self.index_by_path.get(path).copied()
@@ -415,6 +455,22 @@ impl Library {
         if track.needs_review() {
             self.review_count += 1;
         }
+        self.revision += 1;
+        true
+    }
+
+    /// Sets the cues the user chose for the track at `path`; `None` goes
+    /// back to the cues analysis placed. Returns false when the file is not
+    /// in the library.
+    pub(crate) fn set_edited_cues(&mut self, path: &Path, cues: Option<Vec<Cue>>) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        track.edited_cues = cues.map(|cues| TrackCues::edited(cues).cues);
         self.revision += 1;
         true
     }
@@ -1472,5 +1528,36 @@ mod tests {
             elapsed < std::time::Duration::from_secs(3),
             "10,000 tracks took {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn a_user_cue_past_the_end_is_hidden_once_the_track_is_analyzed() {
+        let mut library = Library::default();
+        let path = Path::new("/music/techno/Undertow.wav");
+        let cues = vec![
+            Cue {
+                seconds: 12.0,
+                name: "Intro".to_string(),
+                hot_cue: Some(euphoria_core::HotCue::from_letter('A').unwrap()),
+            },
+            Cue {
+                seconds: 999.0,
+                name: "Past the end".to_string(),
+                hot_cue: None,
+            },
+        ];
+
+        // Without an analysis the length is unknown and every cue of the
+        // set is shown.
+        library.add_files(vec![path.to_path_buf()]);
+        library.set_edited_cues(path, Some(cues.clone()));
+        let track = library.track_by_path(path).unwrap();
+        assert_eq!(track.cues().cues, cues);
+
+        // The analysis records the length, and the cue past the end of the
+        // 370 s track is left out, the same rule as TrackCues::of.
+        library.record_outcome(path, Ok(analysis(None, None, 370.0)));
+        let shown = library.track_by_path(path).unwrap().cues().cues;
+        assert_eq!(shown, cues[..1].to_vec());
     }
 }

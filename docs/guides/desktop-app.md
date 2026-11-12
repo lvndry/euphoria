@@ -179,6 +179,22 @@ The three are drawn on top of one another, bass at the back, each as tall as tha
 
 The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
 
+### Cue points
+
+A row of markers above the waveform shows the track's cues, each at its place on the waveform with its hot cue letter and its name, for example "A Start" and "B Drop", and a line in the accent colour runs down the waveform at each one. When analysis places [automatic cues](../concepts/accuracy.md#cue-points), the track starts with them on the bars of its beat grid, on hot cue pads from A in order. Click a marker to play from its cue.
+
+To change the cues:
+
+- Drag a marker to move its cue. It lands on the nearest beat of the beat grid, or on the nearest first beat of a bar while you hold Shift. A track without a beat grid, or with a [tempo you set](#check-the-key-by-ear-and-correct-it), has no grid to snap to, and a cue stays where you drop it.
+- Double click the waveform to add a cue there, or click **Add at playhead** in the **Cues** list under the waveform, or press C, to add one where playing is. A new cue is called "Cue" and a number, lands on the nearest beat like a moved one, and takes the first free hot cue pad. A ninth cue, with every pad from A to H taken, is a memory cue only.
+- In the **Cues** list, click a name to rename the cue, and press Return to keep the new name. Click the letter before it to put the cue on another pad from A to H, or on none for a memory cue only: a cue already on that pad takes the one the cue leaves. Click the time to play from the cue, and the cross to delete it.
+- **Undo**, or Command Z when no text field has the keyboard, takes back the last change to the selected track's cues, one at a time. **Playback > Undo Cue Edit** does the same.
+- **Reset to automatic cues** forgets your cues and brings back the ones analysis placed. It can be undone too.
+
+The first change makes the track's cues yours: the list says **by you**, and your set replaces the automatic one wherever cues are used, deleting every cue included. In `euphoria analyze --json` its `cues` are yours and `set_by_user` lists `"cues"`, and [`euphoria export rekordbox --cues`](export-to-rekordbox.md#cue-points) exports them. Your cues are kept in the [analysis cache](../reference/cli.md#corrections) apart from the analyses, like corrections: analyzing a track again, a new version of Euphoria analyzing everything again, or `euphoria cache clear` never loses them, and they follow a file that was moved, renamed or had its tags written. A [tempo you set](#check-the-key-by-ear-and-correct-it) drops the automatic cues, which sit on the grid of the detected tempo, but keeps yours.
+
+In the Deck theme the list sits in the strip beside the waveform once the track has cues, and scrolls when they do not fit.
+
 ### Energy over time
 
 Under the waveform, across the same width, a row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of about 4 seconds, as tall as the rating. Breakdowns show as low bars and drops as a jump back to full height, right under the part of the waveform they belong to. Silent stretches have no bar. The playhead runs through the curve too, and the part already played is fainter. The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
@@ -340,7 +356,7 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 ## Not there yet
 
 - On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend.
-- Editing cue points: the decks show and play the cues analysis places, but they cannot be moved or added yet.
+- Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
 - Filters for key and tempo ranges.

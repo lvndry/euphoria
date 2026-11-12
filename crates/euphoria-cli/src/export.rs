@@ -358,15 +358,15 @@ fn export_library(
 
     // Before the analysis, which can take hours, and before anything is
     // written.
-    batch::require_readable_corrections(request.analysis)?;
+    batch::require_readable_user_edits(request.analysis)?;
     let CachedBatch {
         results,
         cached_count,
         store_error,
     } = batch::analyze(&audio_files, request.analysis)?;
-    let corrections =
-        batch::corrections(&results, request.analysis, batch::CorrectionCheck::ReadFile)?;
-    let results = batch::corrected(results, &corrections);
+    let user_edits =
+        batch::user_edits(&results, request.analysis, batch::CorrectionCheck::ReadFile)?;
+    let results = batch::corrected(results, &user_edits);
 
     let loose_playlist_name = output_file
         .file_stem()
@@ -395,6 +395,7 @@ fn export_library(
         ExportContents {
             beat_grid: request.beat_grid,
             cues: request.cues,
+            edited_cues: batch::edited_cues(&user_edits),
         },
     );
     // A track that has cues of its own is left out of the file, so that no

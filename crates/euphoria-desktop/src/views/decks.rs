@@ -408,6 +408,7 @@ fn waveform_with_grid(
             columns,
             WaveformColours::of(&palette),
             progress,
+            Vec::new(),
             bounds.clone(),
             px(DECK_WAVEFORM_HEIGHT),
         ))

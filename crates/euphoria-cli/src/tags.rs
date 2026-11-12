@@ -155,13 +155,13 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     }
     // Before the analysis, which can take hours, and before anything is
     // written.
-    batch::require_readable_corrections(&arguments.analysis)?;
+    batch::require_readable_user_edits(&arguments.analysis)?;
     let CachedBatch {
         results,
         store_error,
         ..
     } = batch::analyze_in_default_range(&audio_files, &arguments.analysis)?;
-    let corrections = batch::corrections(
+    let user_edits = batch::user_edits(
         &results,
         &arguments.analysis,
         batch::CorrectionCheck::ReadFile,
@@ -176,8 +176,8 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     for result in results {
         // The tags get the values the user set; the cache keeps the
         // analysis as detected, so a correction can still be reset.
-        let correction = match corrections.get(&result.path) {
-            Some(Ok(correction)) => *correction,
+        let correction = match user_edits.get(&result.path) {
+            Some(Ok(edits)) => edits.correction,
             Some(Err(reason)) => {
                 failures.push(Failure {
                     error: EuphoriaError::CorrectionUnchecked {
