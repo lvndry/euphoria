@@ -10,6 +10,7 @@ Euphoria brings its keys, tempos and energy ratings into a DJ program in one of 
 - **Tags.** `euphoria tags write --preset <program>` writes them into the files' own tags, which the program reads when it imports a track or reloads its tags. See [write tags into your files](write-tags.md).
 - **rekordbox XML.** `euphoria export rekordbox` writes a library file that rekordbox and Engine DJ can import. Your audio files are not changed. See [export to rekordbox](export-to-rekordbox.md).
 - **Traktor NML.** `euphoria export traktor` writes a collection file that Traktor imports, with beat grids and cue points if you ask. See [export to Traktor](export-to-traktor.md).
+- **Engine DJ library.** `euphoria export engine` writes key, tempo, beat grid and cues into the tracks of your Engine DJ library, after saving a copy. See [export to Engine DJ](export-to-engine-dj.md).
 - **VirtualDJ database.** `euphoria export virtualdj` writes key, tempo, beat grid, cues and energy into the songs of your VirtualDJ database, after saving a copy. See [export to VirtualDJ](export-to-virtualdj.md).
 
 [DJ program support](../reference/dj-program-support.md) has a table of what each program receives by each route, and which were tested in the program.

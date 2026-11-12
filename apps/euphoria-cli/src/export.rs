@@ -11,6 +11,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand, ValueEnum};
+use euphoria_core::export::engine::{
+    EngineOptions, EngineTrack, library_database, preview_library_update, update_library,
+};
 use euphoria_core::export::rekordbox::{
     ExistingFile, ExportOptions, KeyNotation, Library, PlaylistNode, write_xml_file,
 };
@@ -46,6 +49,10 @@ pub enum ExportTarget {
     /// of every track, and a playlist per folder.
     #[command(after_help = crate::help::traktor_export_examples())]
     Traktor(TraktorArguments),
+    /// Write the key, tempo, beat grid and cues of every track into the
+    /// tracks of your Engine DJ library, after saving a copy of it.
+    #[command(after_help = crate::help::engine_export_examples())]
+    Engine(EngineArguments),
     /// Write the key, tempo, beat grid, cues and energy of every track into
     /// the songs of your VirtualDJ database, after saving a copy of it.
     #[command(name = "virtualdj", after_help = crate::help::virtualdj_export_examples())]
@@ -168,6 +175,65 @@ pub struct TraktorArguments {
     analysis: AnalysisOptions,
 }
 
+#[derive(Debug, Args)]
+pub struct EngineArguments {
+    /// Audio files, or folders to search recursively.
+    #[arg(required_unless_present = "playlist", conflicts_with = "playlist")]
+    paths: Vec<PathBuf>,
+    /// Export the tracks of a playlist built in the desktop app, by name,
+    /// in place of files and folders.
+    #[arg(long, value_name = "NAME")]
+    playlist: Option<String>,
+    /// Your Engine Library folder. Music/Engine Library in your home folder
+    /// unless given; give the Engine Library folder of a drive for the
+    /// tracks on it.
+    #[arg(long, value_name = "FOLDER")]
+    library: Option<PathBuf>,
+    /// Where the key and energy label, such as "8A - Energy 7", goes in the
+    /// comment. The comment you wrote is kept.
+    #[arg(long, value_enum, default_value_t, value_name = "WHERE")]
+    label: EngineLabelChoice,
+    /// How the key is written in the label. Engine DJ's Key column uses the
+    /// notation set in its preferences.
+    #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
+    key_notation: TraktorKeyNotationChoice,
+    /// Write each track's beat grid, except grids rated low confidence, on
+    /// tracks Engine DJ has analysed.
+    #[arg(long)]
+    beat_grid: bool,
+    /// Write cues where each track's sections start, as hot cues 1 to 8, on
+    /// tracks Engine DJ has analysed. A track with hot cues of its own in
+    /// Engine DJ keeps them and gets none.
+    #[arg(long, requires = "beat_grid")]
+    cues: bool,
+    /// Check the library and show what would change, writing nothing.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum EngineLabelChoice {
+    /// In front of the comment.
+    #[default]
+    CommentStart,
+    /// After the comment.
+    CommentEnd,
+    /// Nowhere: the energy is not written.
+    None,
+}
+
+impl From<EngineLabelChoice> for LabelPlacement {
+    fn from(choice: EngineLabelChoice) -> Self {
+        match choice {
+            EngineLabelChoice::CommentStart => LabelPlacement::CommentStart,
+            EngineLabelChoice::CommentEnd => LabelPlacement::CommentEnd,
+            EngineLabelChoice::None => LabelPlacement::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 enum TraktorKeyNotationChoice {
     /// Camelot codes such as 8A.
@@ -277,6 +343,7 @@ pub fn run(target: ExportTarget) -> Result<ExitCode> {
     match target {
         ExportTarget::Rekordbox(arguments) => export_to_rekordbox(&arguments),
         ExportTarget::Traktor(arguments) => export_to_traktor(&arguments),
+        ExportTarget::Engine(arguments) => export_to_engine(&arguments),
         ExportTarget::Virtualdj(arguments) => export_to_virtualdj(&arguments),
         ExportTarget::M3u8(arguments) => export_to_m3u8(&arguments),
     }
@@ -287,6 +354,7 @@ pub fn run(target: ExportTarget) -> Result<ExitCode> {
 pub enum Program {
     Rekordbox,
     Traktor,
+    Engine,
     VirtualDj,
 }
 
@@ -296,6 +364,7 @@ impl Program {
         match self {
             Program::Rekordbox => "rekordbox",
             Program::Traktor => "Traktor",
+            Program::Engine => "Engine DJ",
             Program::VirtualDj => "VirtualDJ",
         }
     }
@@ -799,6 +868,266 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     })
 }
 
+fn default_engine_library() -> Option<PathBuf> {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")?
+    } else {
+        std::env::var_os("HOME")?
+    };
+    let library = PathBuf::from(home).join("Music").join("Engine Library");
+    library.is_dir().then_some(library)
+}
+
+/// Whether Engine DJ is running on this computer, or `None` when that
+/// cannot be checked.
+fn engine_is_running() -> Option<bool> {
+    if cfg!(windows) {
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq Engine DJ.exe", "/NH"])
+            .output()
+            .ok()?;
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .to_lowercase()
+                .contains("engine dj.exe"),
+        )
+    } else {
+        let output = std::process::Command::new("pgrep")
+            .args(["-x", "Engine DJ"])
+            .output()
+            .ok()?;
+        Some(output.status.success())
+    }
+}
+
+fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
+    let library = match &arguments.library {
+        Some(folder) => std::path::absolute(folder)
+            .with_context(|| format!("cannot use {} as the library", folder.display()))?,
+        None => default_engine_library().ok_or_else(|| {
+            anyhow!(
+                "no Engine Library folder was found in your Music folder; give it with --library"
+            )
+        })?,
+    };
+    let database = library_database(&library);
+    if !database.is_file() {
+        bail!(
+            "{} has no Database2/m.db, so it is not an Engine DJ 2 or later library",
+            library.display()
+        );
+    }
+    if !arguments.dry_run {
+        match engine_is_running() {
+            Some(true) => bail!(
+                "Engine DJ is running. Writing its library while it is open can damage it. \
+                 Close Engine DJ and export again."
+            ),
+            Some(false) => {}
+            None => eprintln!(
+                "warning: could not check whether Engine DJ is running; close it before exporting"
+            ),
+        }
+    }
+    // Checked before the analysis, which can take hours on a large library.
+    preview_library_update(&database, &[], &EngineOptions::default()).map_err(with_causes)?;
+
+    let playlist = match &arguments.playlist {
+        Some(name) => Some(find_playlist(name, arguments.analysis.uses_cache())?),
+        None => None,
+    };
+    let audio_files = match &playlist {
+        Some(playlist) => playlist.files.clone(),
+        None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
+    };
+    if let Some(playlist) = &playlist {
+        write_missing_files(&playlist.missing)?;
+    }
+    if audio_files.is_empty() {
+        bail!("no audio files found, so nothing was exported");
+    }
+
+    batch::require_readable_user_edits(&arguments.analysis)?;
+    let CachedBatch {
+        results,
+        store_error,
+        ..
+    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    let user_edits = batch::user_edits(
+        &results,
+        &arguments.analysis,
+        batch::CorrectionCheck::ReadFile,
+    )?;
+    let results = batch::corrected(results, &user_edits);
+    let energies: HashMap<PathBuf, u8> = results
+        .iter()
+        .filter_map(|result| {
+            let energy = result.outcome.as_ref().ok()?.energy?;
+            Some((result.path.clone(), energy))
+        })
+        .collect();
+    let AssembledLibrary {
+        library: assembled,
+        skipped,
+        unread_tags,
+    } = assemble_library_with(
+        results,
+        PlaylistLayout::CollectionOnly,
+        ExportContents {
+            beat_grid: arguments.beat_grid,
+            cues: arguments.cues,
+            edited_cues: batch::edited_cues(&user_edits),
+        },
+    );
+    let tracks: Vec<EngineTrack<'_>> = assembled
+        .tracks
+        .iter()
+        .map(|track| EngineTrack {
+            track,
+            energy: energies.get(&track.path).copied(),
+        })
+        .collect();
+    let options = EngineOptions {
+        label: arguments.label.into(),
+        label_notation: arguments.key_notation.into(),
+    };
+    let now = ModifiedTime::now();
+    let backup = library
+        .parent()
+        .unwrap_or(&library)
+        .join(format!(
+            "Engine Library backup by Euphoria {:04}-{:02}-{:02} {:05}",
+            now.year, now.month, now.day, now.seconds_of_day
+        ))
+        .join("Database2")
+        .join("m.db");
+    let update = if tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else if arguments.dry_run {
+        preview_library_update(&database, &tracks, &options).map_err(with_causes)
+    } else {
+        update_library(&database, &backup, &tracks, &options).map_err(with_causes)
+    };
+
+    let mut standard_error = std::io::stderr().lock();
+    let theme = Theme::stderr();
+    output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
+    let update = update?;
+    output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
+    let schema = update
+        .schema
+        .map(|schema| format!(" (schema {schema})"))
+        .unwrap_or_default();
+    let updated = output::counted(update.updated.len(), "track", "tracks");
+    if update.updated.is_empty() {
+        writeln!(
+            standard_error,
+            "No track is in {}, so nothing was written.",
+            Printable(database.display())
+        )?;
+    } else if arguments.dry_run {
+        writeln!(
+            standard_error,
+            "Dry run: {updated} of {}{schema} would be updated; nothing was written.",
+            Printable(database.display())
+        )?;
+    } else {
+        writeln!(
+            standard_error,
+            "Updated {updated} in {}{schema}",
+            Printable(database.display())
+        )?;
+        writeln!(
+            standard_error,
+            "Saved the library database as it was to {}",
+            Printable(backup.display())
+        )?;
+    }
+    if !update.not_in_library.is_empty() {
+        const LISTED: usize = 10;
+        writeln!(
+            standard_error,
+            "{} not in this library, so not updated:",
+            output::counted(update.not_in_library.len(), "track is", "tracks are")
+        )?;
+        for path in update.not_in_library.iter().take(LISTED) {
+            writeln!(standard_error, "  {}", Printable(path.display()))?;
+        }
+        if update.not_in_library.len() > LISTED {
+            writeln!(
+                standard_error,
+                "  and {} more",
+                update.not_in_library.len() - LISTED
+            )?;
+        }
+        writeln!(
+            standard_error,
+            "Add them to Engine DJ and let it analyse them, or give the library of their \
+             drive with --library, and export again."
+        )?;
+    }
+    if !update.not_analysed.is_empty() {
+        writeln!(
+            standard_error,
+            "{} Engine DJ has not analysed got no beat grid or cues; analyse them in Engine DJ \
+             and export again.",
+            output::counted(update.not_analysed.len(), "track", "tracks")
+        )?;
+    }
+    if arguments.beat_grid {
+        let not_analysed: HashSet<&PathBuf> = update.not_analysed.iter().collect();
+        let with_grid = assembled
+            .tracks
+            .iter()
+            .filter(|track| {
+                track.first_beat.is_some()
+                    && update.updated.contains(&track.path)
+                    && !not_analysed.contains(&track.path)
+            })
+            .count();
+        output::write_beat_grid_summary(
+            &mut standard_error,
+            with_grid,
+            update.updated.len(),
+            Program::Engine,
+        )?;
+    }
+    if arguments.cues {
+        if !update.kept_own_cues.is_empty() {
+            writeln!(
+                standard_error,
+                "Kept the hot cues of {} that have hot cues in Engine DJ.",
+                output::counted(update.kept_own_cues.len(), "track", "tracks")
+            )?;
+        }
+        if update.cues_left_out > 0 {
+            writeln!(
+                standard_error,
+                "Left out {} on no pad from 1 to 8: Engine DJ has eight hot cues and no \
+                 memory cues.",
+                output::counted(update.cues_left_out, "cue", "cues")
+            )?;
+        }
+    }
+    if !skipped.is_empty() {
+        output::write_skipped_summary(&mut standard_error, skipped.len())?;
+    }
+    if !arguments.dry_run && !update.updated.is_empty() {
+        output::write_import_steps(&mut standard_error, &theme, Program::Engine)?;
+    }
+
+    if let Some(store_error) = store_error {
+        return Err(with_causes(store_error).context("some results were not saved to the cache"));
+    }
+    Ok(if update.updated.is_empty() || !skipped.is_empty() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
 fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
     let output_file = std::path::absolute(&arguments.output)
         .with_context(|| format!("cannot use {} as the output", arguments.output.display()))?;
@@ -910,6 +1239,7 @@ fn unmatched_cued_tracks_message(
     let source = match program {
         Program::Rekordbox => "Export the collection from rekordbox on this computer",
         Program::Traktor => "Use the collection of Traktor on this computer",
+        Program::Engine => "Use the library of Engine DJ on this computer",
         Program::VirtualDj => "Use the database of VirtualDJ on this computer",
     };
     message.push_str(&format!(
