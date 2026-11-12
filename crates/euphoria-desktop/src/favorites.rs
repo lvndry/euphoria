@@ -11,7 +11,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use euphoria_core::{ContentHash, FavoriteTransition, PlaylistEntry, StoredFavorites};
+use euphoria_core::{
+    ContentHash, EuphoriaError, FavoriteTransition, PlaylistEntry, StoredFavorites,
+};
 
 use crate::playlists::PlaylistRewrite;
 
@@ -72,12 +74,14 @@ impl Favorites {
 
     /// The favorites to keep, with the content of every track that has one:
     /// those already known and those `content_of` works out. A favorite
-    /// whose content cannot be worked out, such as a file that has gone
-    /// before it was ever read, is left out of what is kept.
+    /// whose file has gone before it was ever read, for which `content_of`
+    /// gives `None`, is left out of what is kept. An error from
+    /// `content_of`, such as a file that is there but cannot be read, stops
+    /// the save, so the favorites kept before are not replaced by fewer.
     pub(crate) fn stored_with_contents(
         &mut self,
-        mut content_of: impl FnMut(&Path) -> Option<ContentHash>,
-    ) -> StoredFavorites {
+        mut content_of: impl FnMut(&Path) -> Result<Option<ContentHash>, EuphoriaError>,
+    ) -> Result<StoredFavorites, EuphoriaError> {
         let unknown: HashSet<PathBuf> = self
             .paths()
             .filter(|path| !self.contents.contains_key(*path))
@@ -86,7 +90,7 @@ impl Favorites {
         let mut unknown: Vec<PathBuf> = unknown.into_iter().collect();
         unknown.sort();
         for path in unknown {
-            if let Some(content) = content_of(&path) {
+            if let Some(content) = content_of(&path)? {
                 self.contents.insert(path, content);
             }
         }
@@ -96,7 +100,7 @@ impl Favorites {
                 path: path.clone(),
             })
         };
-        StoredFavorites {
+        Ok(StoredFavorites {
             tracks: self.tracks.iter().filter_map(entry).collect(),
             transitions: self
                 .transitions
@@ -109,7 +113,7 @@ impl Favorites {
                     })
                 })
                 .collect(),
-        }
+        })
     }
 
     /// Every path a favorite holds, a path once for each place it is in.
@@ -360,20 +364,24 @@ mod tests {
         favorites.set_note(&path("a"), &path("b"), "on the break");
         favorites.toggle_transition(&path("gone"), &path("a"));
         let mut reads = Vec::new();
-        let stored = favorites.stored_with_contents(|asked| {
-            reads.push(asked.to_path_buf());
-            (!asked.ends_with("gone.mp3")).then(|| fake_content(reads.len() as u8))
-        });
+        let stored = favorites
+            .stored_with_contents(|asked| {
+                reads.push(asked.to_path_buf());
+                Ok((!asked.ends_with("gone.mp3")).then(|| fake_content(reads.len() as u8)))
+            })
+            .unwrap();
         reads.sort();
         assert_eq!(reads, [path("a"), path("b"), path("gone")]);
         assert_eq!(stored.tracks.len(), 1, "the file that has gone is left out");
         assert_eq!(stored.transitions.len(), 1);
 
         let mut asked_again = Vec::new();
-        favorites.stored_with_contents(|asked| {
-            asked_again.push(asked.to_path_buf());
-            None
-        });
+        favorites
+            .stored_with_contents(|asked| {
+                asked_again.push(asked.to_path_buf());
+                Ok(None)
+            })
+            .unwrap();
         assert_eq!(
             asked_again,
             [path("gone")],
@@ -384,6 +392,24 @@ mod tests {
         assert_eq!(reloaded.tracks(), [path("a")]);
         let transition = reloaded.transition(&path("a"), &path("b")).unwrap();
         assert_eq!(transition.note.as_deref(), Some("on the break"));
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_stops_the_save_instead_of_dropping_it() {
+        let mut favorites = Favorites::default();
+        favorites.toggle_stars(&[path("a"), path("unreadable")]);
+        let saved = favorites.stored_with_contents(|asked| {
+            if asked.ends_with("unreadable.mp3") {
+                Err(EuphoriaError::Open {
+                    path: asked.to_path_buf(),
+                    source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+                })
+            } else {
+                Ok(Some(fake_content(1)))
+            }
+        });
+        assert!(saved.is_err());
+        assert_eq!(favorites.tracks(), [path("a"), path("unreadable")]);
     }
 
     #[test]

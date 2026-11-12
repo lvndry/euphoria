@@ -320,11 +320,8 @@ impl EuphoriaApp {
             let saved = cx
                 .background_executor()
                 .spawn(async move {
-                    let stored = snapshot.stored_with_contents(|path| {
-                        PlaylistEntry::for_file(path, cache.as_deref())
-                            .ok()
-                            .map(|entry| entry.content)
-                    });
+                    let stored = snapshot
+                        .stored_with_contents(|path| content_for_saving(path, cache.as_deref()))?;
                     saver
                         .save(&stored, revision, rewrite_epoch)
                         .map(|()| snapshot.known_contents())
@@ -585,6 +582,19 @@ impl PlaylistExport {
             }
         }
     }
+}
+
+/// The content of the file at `path`, to keep a playlist or a favorite by,
+/// or `None` when the file is not there. A file that is there but cannot be
+/// read is an error, so that what was kept before is not replaced.
+pub(crate) fn content_for_saving(
+    path: &Path,
+    cache: Option<&euphoria_core::CachedAnalyzer>,
+) -> Result<Option<euphoria_core::ContentHash>, euphoria_core::EuphoriaError> {
+    if matches!(path.try_exists(), Ok(false)) {
+        return Ok(None);
+    }
+    PlaylistEntry::for_file(path, cache).map(|entry| Some(entry.content))
 }
 
 /// The playlist's name with the characters a file name cannot hold left

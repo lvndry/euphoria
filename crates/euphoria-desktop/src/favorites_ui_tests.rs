@@ -212,7 +212,7 @@ fn a_transition_marked_on_the_decks_comes_first_and_keeps_its_note(cx: &mut Test
     });
 
     click(window, ("deck-star", 1_usize), cx);
-    assert_eq!(starred(&view, cx), [to.clone()]);
+    assert_eq!(starred(&view, cx), std::slice::from_ref(&to));
 
     click(window, "deck-transition", cx);
     assert_eq!(

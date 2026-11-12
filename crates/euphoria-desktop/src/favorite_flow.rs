@@ -11,14 +11,13 @@
 
 use std::path::{Path, PathBuf};
 
-use euphoria_core::PlaylistEntry;
 use gpui::{Context, Window};
 
 use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
 use crate::favorites::FAVORITES_NAME;
 use crate::library::LibraryFilter;
-use crate::playlist_flow::PlaylistFormat;
+use crate::playlist_flow::{PlaylistFormat, content_for_saving};
 
 impl EuphoriaApp {
     /// Shows the starred tracks, in the order they were starred.
@@ -181,11 +180,8 @@ impl EuphoriaApp {
             let saved = cx
                 .background_executor()
                 .spawn(async move {
-                    let stored = snapshot.stored_with_contents(|path| {
-                        PlaylistEntry::for_file(path, cache.as_deref())
-                            .ok()
-                            .map(|entry| entry.content)
-                    });
+                    let stored = snapshot
+                        .stored_with_contents(|path| content_for_saving(path, cache.as_deref()))?;
                     saver
                         .save_favorites(&stored, revision, rewrite_epoch)
                         .map(|()| snapshot.known_contents())

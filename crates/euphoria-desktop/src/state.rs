@@ -278,7 +278,7 @@ impl Session {
         self.playlists = Playlists::from_stored(stored);
         let mut store = store;
         if moved {
-            store.save(&self.playlists.stored_with_contents(|_| None))?;
+            store.save(&self.playlists.stored_with_contents(|_| Ok(None))?)?;
         }
         let mut favorites = store.load_favorites()?;
         let favorites_moved = self
@@ -565,7 +565,8 @@ mod tests {
         saver.register(&session.playlists, &session.favorites);
         let fresh = session
             .playlists
-            .stored_with_contents(|path| Some(ContentHash::of_file(path).unwrap()));
+            .stored_with_contents(|path| Ok(Some(ContentHash::of_file(path).unwrap())))
+            .unwrap();
         saver.save(&fresh, 3, epoch).unwrap();
         session.playlists.follow_rewrite_history(&saver.rewrites());
         assert_eq!(session.playlists.content_of(&path), Some(before));
