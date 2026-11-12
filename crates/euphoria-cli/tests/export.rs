@@ -1239,6 +1239,54 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_symlinked_track_is_left_out_when_the_collection_lists_its_target() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let real_folder = TemporaryFolder::new();
+    let real = resolved(real_folder.path()).join("kicks.wav");
+    write_kick_track(&real, 120.0, 0.25);
+    let music = resolved(music_folder.path());
+    let link = music.join("linked.wav");
+    std::os::unix::fs::symlink(&real, &link).expect("the link is created");
+
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let collection = output.join("collection.xml");
+    std::fs::write(
+        &collection,
+        format!(
+            "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"1\">\
+             <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
+             <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
+             </TRACK></COLLECTION></DJ_PLAYLISTS>",
+            text(&real)
+        ),
+    )
+    .expect("the collection is written");
+
+    let file = output.join("export.xml");
+    let export = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&music),
+        "-o",
+        text(&file),
+        "--beat-grid",
+        "--cues",
+        "--collection",
+        text(&collection),
+    ]);
+    assert_eq!(export.status.code(), Some(1));
+    assert!(
+        standard_error(&export).contains("every track already has cues"),
+        "{}",
+        standard_error(&export)
+    );
+    assert!(!file.exists());
+}
+
 #[test]
 fn the_cues_the_user_set_replace_the_automatic_ones_in_the_json_and_the_export() {
     let euphoria = Euphoria::new();
