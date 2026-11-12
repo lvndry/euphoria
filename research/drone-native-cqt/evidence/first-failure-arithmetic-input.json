@@ -1,0 +1,399 @@
+{
+  "format": "k10-cqt-first-failure-arithmetic-input-v1",
+  "id": "beatport:3662506",
+  "frames": 646,
+  "expected_features": {
+    "fp16_mismatch_rate": 4.837461300309598e-05,
+    "fp16_mismatches": 6,
+    "max_abs": 0.0009765625,
+    "rms": 3.1399167878683377e-06,
+    "values": 124032
+  },
+  "original_reference_sha256": "da3e8726c797765ca684ca9f12716721b10f3d24df93c08885ba58a90afae926",
+  "original_native_report_sha256": "8f14293e225c4528d5765819346ff0e39f6bb2bf1b22a547f44eb6cdaa43fc51",
+  "pcm_sha256": "01f39cb2b231af2f75a6af1ef83dc2b339121ae196952d0ea2b37a9ce697ce94",
+  "producer_source_sha256": "441c6f6d099509d35e9b1a358b20b80c768dedc36fd16b65b0e4b9301be10e99",
+  "source_identity": {
+    "features": {
+      "path": "/home/lysk-admin/drone-experiments/native-cqt-20261111-v1/drone-source-1452f4c/drone/features.py",
+      "function_sha256": "a51141297c439981e2eba3a428e8840498b715f55146ac61343053df5c2df441",
+      "file_sha256": "f2fcc1a23a0b587ae870aeec8d47365c5685023fcfec3f98a7a6793613de340b"
+    },
+    "decode": {
+      "path": "/home/lysk-admin/drone-experiments/native-cqt-20261111-v1/drone-source-1452f4c/drone/features.py",
+      "function_sha256": "d9d84ad55daaf62126b5695d4faf26138c2cf52eb1f3c703bc7b4e735ba65a34",
+      "file_sha256": "f2fcc1a23a0b587ae870aeec8d47365c5685023fcfec3f98a7a6793613de340b"
+    },
+    "read_wav": {
+      "path": "/home/lysk-admin/drone-experiments/native-cqt-20261111-v1/drone-source-1452f4c/drone/features.py",
+      "function_sha256": "7aa8e8840535157e731210acf34852ef6dee5d8dc85952c6e787497e7a92c252",
+      "file_sha256": "f2fcc1a23a0b587ae870aeec8d47365c5685023fcfec3f98a7a6793613de340b"
+    },
+    "cqt": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/librosa/core/constantq.py",
+      "function_sha256": "ed47c6d1a9197bfe4c006ac32e2cc248f997d864b74b30c4e207358ec3b4bf9b",
+      "file_sha256": "807360060570ad3e2e3a0d25d33b820a700ad749c6debf465d70afecd18e8557"
+    },
+    "vqt": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/librosa/core/constantq.py",
+      "function_sha256": "317f74082ea7462cc2c0572165caa45e3eefeade9230671199c99489be712a5b",
+      "file_sha256": "807360060570ad3e2e3a0d25d33b820a700ad749c6debf465d70afecd18e8557"
+    },
+    "filter_fft": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/librosa/core/constantq.py",
+      "function_sha256": "e12d1d5482bb2e6bb02bb7e91ebdddfa4b16342e837dd381c7afc6026897a9cb",
+      "file_sha256": "807360060570ad3e2e3a0d25d33b820a700ad749c6debf465d70afecd18e8557"
+    },
+    "response": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/librosa/core/constantq.py",
+      "function_sha256": "50becf65e5dfc993f37a64f41873aec786b98a7a7a6f2b2f0653c4af3b89278c",
+      "file_sha256": "807360060570ad3e2e3a0d25d33b820a700ad749c6debf465d70afecd18e8557"
+    },
+    "stft": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/librosa/core/spectrum.py",
+      "function_sha256": "3fc6fb9df3fcff3af1ae38e08ad573064d155eefcb368b9d41e7f512777789b8",
+      "file_sha256": "8cbb16a69d6546a5dbc0b831621eaf1b54e691c5179d5561db69633644be3875"
+    },
+    "resample": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/librosa/core/audio.py",
+      "function_sha256": "d228ff69743d6112d90f5f6c6d15e600ec7547491847fe048bab50d765a4b138",
+      "file_sha256": "aa52f9d62e5e642d4a14cdd9c517c8ca19927ab156f31d08b8f3c0ab2fbd9dde"
+    },
+    "soxr_resample": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/soxr/__init__.py",
+      "function_sha256": "44aed2a622b158822ed5681820b0fb437b732bb3799a5233d01149d4fd54e2e0",
+      "file_sha256": "2e21a93cadd4bdc56654ec6b213e6e6fa7707be0f9bd7ee789f1112f289ca377"
+    }
+  },
+  "runtime": {
+    "numpy_version": "2.5.4",
+    "numpy_git_revision": "a3d0ef1df045b858e68115001fdabc930bb3b68c",
+    "numpy_binary": {
+      "path": "/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/numpy/_core/_multiarray_umath.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "b185dfe64b07180bedc7c15fb2735b0d0f4f4e09eb9c15bd8e67f74568aebcbf"
+    },
+    "cpu_features": {
+      "MMX": true,
+      "SSE": true,
+      "SSE2": true,
+      "SSE3": true,
+      "SSSE3": true,
+      "SSE41": true,
+      "POPCNT": true,
+      "SSE42": true,
+      "X86_V2": true,
+      "AVX": true,
+      "F16C": true,
+      "XOP": false,
+      "FMA4": false,
+      "FMA3": true,
+      "AVX2": true,
+      "LAHF": true,
+      "CX16": true,
+      "MOVBE": true,
+      "BMI": true,
+      "BMI2": true,
+      "LZCNT": true,
+      "GFNI": true,
+      "VPCLMULQDQ": true,
+      "VAES": true,
+      "X86_V3": true,
+      "AVX512F": true,
+      "AVX512CD": true,
+      "AVX512ER": false,
+      "AVX512PF": false,
+      "AVX5124FMAPS": false,
+      "AVX5124VNNIW": false,
+      "AVX512VPOPCNTDQ": true,
+      "AVX512VL": true,
+      "AVX512BW": true,
+      "AVX512DQ": true,
+      "AVX512VNNI": true,
+      "AVX512IFMA": true,
+      "AVX512VBMI": true,
+      "AVX512VBMI2": true,
+      "AVX512BITALG": true,
+      "AVX512FP16": false,
+      "AVX512BF16": true,
+      "AVX512_KNL": false,
+      "AVX512_KNM": false,
+      "AVX512_SKX": true,
+      "X86_V4": true,
+      "AVX512_CLX": true,
+      "AVX512_CNL": true,
+      "AVX512_ICL": true,
+      "AVX512_SPR": false,
+      "VSX": false,
+      "VSX2": false,
+      "VSX3": false,
+      "VSX4": false,
+      "VX": false,
+      "VXE": false,
+      "VXE2": false,
+      "NEON": false,
+      "NEON_FP16": false,
+      "NEON_VFPV4": false,
+      "ASIMD": false,
+      "FPHP": false,
+      "ASIMDHP": false,
+      "ASIMDDP": false,
+      "ASIMDFHM": false,
+      "SVE": false,
+      "RVV": false,
+      "LSX": false
+    },
+    "cpu_baseline": [
+      "X86_V2"
+    ],
+    "cpu_dispatch": [
+      "X86_V3",
+      "X86_V4",
+      "AVX512_ICL",
+      "AVX512_SPR"
+    ],
+    "ufunc_dispatch": {
+      "absolute": {
+        "??": {
+          "current": "X86_V4",
+          "available": "X86_V4 X86_V3 baseline(X86_V2)"
+        },
+        "bb": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "BB": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "hh": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "HH": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "ii": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "II": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "ll": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "LL": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "qq": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "QQ": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "ee": {
+          "current": "X86_V3",
+          "available": "X86_V3 baseline(X86_V2)"
+        },
+        "ff": {
+          "current": "baseline(X86_V2)",
+          "available": "baseline(X86_V2)"
+        },
+        "dd": {
+          "current": "baseline(X86_V2)",
+          "available": "baseline(X86_V2)"
+        },
+        "Ff": {
+          "current": "X86_V4",
+          "available": "X86_V4 X86_V3 baseline(X86_V2)"
+        },
+        "Dd": {
+          "current": "X86_V4",
+          "available": "X86_V4 X86_V3 baseline(X86_V2)"
+        }
+      },
+      "log1p": {
+        "ee": {
+          "current": "X86_V4",
+          "available": "AVX512_SPR X86_V4 baseline(X86_V2)"
+        },
+        "ff": {
+          "current": "X86_V4",
+          "available": "X86_V4 baseline(X86_V2)"
+        },
+        "dd": {
+          "current": "X86_V4",
+          "available": "X86_V4 baseline(X86_V2)"
+        }
+      }
+    },
+    "numpy_build": {
+      "Compilers": {
+        "c": {
+          "name": "gcc",
+          "linker": "ld.bfd",
+          "version": "14.2.1",
+          "commands": "cc"
+        },
+        "cython": {
+          "name": "cython",
+          "linker": "cython",
+          "version": "3.3.0",
+          "commands": "cython"
+        },
+        "c++": {
+          "name": "gcc",
+          "linker": "ld.bfd",
+          "version": "14.2.1",
+          "commands": "c++"
+        }
+      },
+      "Machine Information": {
+        "host": {
+          "cpu": "x86_64",
+          "family": "x86_64",
+          "endian": "little",
+          "system": "linux"
+        },
+        "build": {
+          "cpu": "x86_64",
+          "family": "x86_64",
+          "endian": "little",
+          "system": "linux"
+        }
+      },
+      "Build Dependencies": {
+        "blas": {
+          "name": "scipy-openblas",
+          "found": true,
+          "version": "0.3.34.106.0",
+          "detection method": "pkgconfig",
+          "include directory": "/opt/_internal/cpython-3.12.13/lib/python3.12/site-packages/scipy_openblas64/include",
+          "lib directory": "/opt/_internal/cpython-3.12.13/lib/python3.12/site-packages/scipy_openblas64/lib",
+          "openblas configuration": "OpenBLAS 0.3.34.106.0  USE64BITINT DYNAMIC_ARCH NO_AFFINITY SkylakeX MAX_THREADS=64",
+          "pc file directory": "/project/.openblas"
+        },
+        "lapack": {
+          "name": "scipy-openblas",
+          "found": true,
+          "version": "0.3.34.106.0",
+          "detection method": "pkgconfig",
+          "include directory": "/opt/_internal/cpython-3.12.13/lib/python3.12/site-packages/scipy_openblas64/include",
+          "lib directory": "/opt/_internal/cpython-3.12.13/lib/python3.12/site-packages/scipy_openblas64/lib",
+          "openblas configuration": "OpenBLAS 0.3.34.106.0  USE64BITINT DYNAMIC_ARCH NO_AFFINITY SkylakeX MAX_THREADS=64",
+          "pc file directory": "/project/.openblas"
+        }
+      },
+      "Python Information": {
+        "path": "/tmp/build-env-ptu49_tp/bin/python",
+        "version": "3.12"
+      },
+      "SIMD Extensions": {
+        "baseline": [
+          "X86_V2"
+        ],
+        "found": [
+          "X86_V3",
+          "X86_V4",
+          "AVX512_ICL"
+        ],
+        "not found": [
+          "AVX512_SPR"
+        ]
+      }
+    },
+    "numpy_runtime": "[{'numpy_version': '2.5.4',\n  'python': '3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]',\n  'uname': uname_result(system='Linux', node='lysk-server', release='6.14.0-37-generic', version='#37~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Thu Nov 20 10:25:38 UTC 2', machine='x86_64')},\n {'simd_extensions': {'baseline': ['X86_V2'],\n                      'found': ['X86_V3', 'X86_V4', 'AVX512_ICL'],\n                      'not_found': ['AVX512_SPR']}},\n {'ignore_floating_point_errors_in_matmul': False},\n {'architecture': 'SkylakeX',\n  'filepath': '/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/scipy.libs/libscipy_openblas-5f890258.so',\n  'internal_api': 'openblas',\n  'num_threads': 1,\n  'prefix': 'libscipy_openblas',\n  'threading_layer': 'pthreads',\n  'user_api': 'blas',\n  'version': '0.3.31.dev'},\n {'architecture': 'SkylakeX',\n  'filepath': '/home/lysk-admin/drone/.venv/lib/python3.12/site-packages/numpy.libs/libscipy_openblas64_-f48b354e.so',\n  'internal_api': 'openblas',\n  'num_threads': 1,\n  'prefix': 'libscipy_openblas',\n  'threading_layer': 'pthreads',\n  'user_api': 'blas',\n  'version': '0.3.34.106.0'}]\n",
+    "glibc_version": "2.39",
+    "math_libraries": {
+      "/usr/lib/x86_64-linux-gnu/libc.so.6": "3a15d66867d83762c7f2f1e37359cb8f6c5743edb369c65285cb0b1c4f7498bf",
+      "/usr/lib/x86_64-linux-gnu/libm.so.6": "fce00b6f25f459cf4ae0b7fae4257909a1a8a86f9149e7c029a5d617baf1ccd0"
+    },
+    "source_urls": [
+      "https://raw.githubusercontent.com/numpy/numpy/v2.5.4/numpy/_core/src/umath/loops_unary_complex.dispatch.c.src",
+      "https://raw.githubusercontent.com/numpy/numpy/v2.5.4/numpy/_core/src/umath/loops_umath_fp.dispatch.c.src"
+    ]
+  },
+  "array_layout": {
+    "coefficients_strides": [
+      8,
+      1664
+    ],
+    "coefficients_c_contiguous": false,
+    "coefficients_f_contiguous": true,
+    "magnitude_strides": [
+      4,
+      832
+    ],
+    "logged_strides": [
+      4,
+      832
+    ]
+  },
+  "pre": {
+    "path": "cases/first-failure/arithmetic.pre",
+    "dtype": "<c8",
+    "shape": [
+      192,
+      646
+    ],
+    "sha256": "50ebe07c3e0f26af2c8d78352dfafbb5321c927870dde38c647aec2c6ac8581a",
+    "bytes": 992256
+  },
+  "normalized": {
+    "path": "cases/first-failure/arithmetic.normalized",
+    "dtype": "<c8",
+    "shape": [
+      192,
+      646
+    ],
+    "sha256": "19992b2e37af06400c01ecdd675fa3d2164de9f57034559c8c6e81b034c7a754",
+    "bytes": 992256
+  },
+  "magnitude": {
+    "path": "cases/first-failure/arithmetic.magnitude",
+    "dtype": "<f4",
+    "shape": [
+      192,
+      646
+    ],
+    "sha256": "c3c0daa88ef420180d021083f001aef39fc2e5254b7ad891d8fcfbe39edd7029",
+    "bytes": 496128
+  },
+  "logged": {
+    "path": "cases/first-failure/arithmetic.logged",
+    "dtype": "<f4",
+    "shape": [
+      192,
+      646
+    ],
+    "sha256": "d181bda5635ad370a787bcaa2e55e935d7d6988f7b64eae29725cdabb8fc9d40",
+    "bytes": 496128
+  },
+  "reference": {
+    "path": "cases/first-failure/arithmetic.reference",
+    "dtype": "<f4",
+    "shape": [
+      192,
+      646
+    ],
+    "sha256": "d7860c7b850d08407e9bd96cddfb2b92b099435e9ef680f696f5fe0d65075f1e",
+    "bytes": 496128
+  },
+  "lengths": {
+    "path": "cases/first-failure/arithmetic.lengths",
+    "dtype": "<f8",
+    "shape": [
+      192
+    ],
+    "sha256": "e5234c09c941de27b0047a7ad8c3c8c7a03279b2fb3b4ce94ebf3d61d96ec8be",
+    "bytes": 1536
+  },
+  "reobserved_all_responses_exact": true,
+  "reobserved_all_resamplers_exact": true
+}
