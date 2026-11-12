@@ -40,6 +40,10 @@ class PackagedLicenseTests(unittest.TestCase):
             target = self.repo / "crates/euphoria-core/vendor" / library / "LICENSE.txt"
             target.parent.mkdir(parents=True)
             shutil.copyfile(REPOSITORY / target.relative_to(self.repo), target)
+        for name in ("webpki-root-certs-CDLA-Permissive-2.0.txt", "demucs-NOTICE.txt"):
+            target = self.repo / "licenses" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY / "licenses" / name, target)
         (self.repo / "scripts/macos_libraries.py").write_text(
             "import sys\nif sys.argv[1] == 'minimum-macos': print('11.0')\n"
         )

@@ -97,7 +97,7 @@ fetch "https://github.com/AppImage/type2-runtime/releases/download/$runtime_rele
   "$runtime" "$runtime_checksum"
 
 if [ "$build" = yes ]; then
-  cargo build --release --locked -p euphoria --manifest-path "$repository/Cargo.toml"
+  cargo build --release --locked -p euphoria-desktop --manifest-path "$repository/Cargo.toml"
 fi
 
 rm -rf "$appdir"
