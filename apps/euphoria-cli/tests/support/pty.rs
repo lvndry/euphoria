@@ -8,10 +8,19 @@ use std::io::Read;
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
-/// Runs `command` in a pseudo terminal and returns every byte the terminal
-/// wrote, progress included.
+/// A command's terminal output and the status it exited with.
 #[allow(dead_code)]
-pub fn capture(command: &std::process::Command) -> String {
+pub struct Terminal {
+    /// Every byte the terminal wrote, progress included.
+    pub output: String,
+    /// Whether the command exited successfully.
+    pub succeeded: bool,
+}
+
+/// Runs `command` in a pseudo terminal and returns what it wrote and how it
+/// exited.
+#[allow(dead_code)]
+pub fn capture(command: &std::process::Command) -> Terminal {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -40,6 +49,9 @@ pub fn capture(command: &std::process::Command) -> String {
     drop(pair.slave);
     let mut terminal_output = Vec::new();
     let _ = terminal.read_to_end(&mut terminal_output);
-    let _ = child.wait();
-    String::from_utf8_lossy(&terminal_output).into_owned()
+    let status = child.wait().expect("the command's status is reported");
+    Terminal {
+        output: String::from_utf8_lossy(&terminal_output).into_owned(),
+        succeeded: status.exit_code() == 0,
+    }
 }

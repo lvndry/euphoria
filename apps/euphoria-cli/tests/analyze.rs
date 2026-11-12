@@ -318,14 +318,20 @@ fn a_terminal_shows_the_stage_but_json_shows_only_the_bar() {
 
     // A terminal gets a line per file with the stage it is in.
     let terminal = with_terminal(&["analyze", "--no-cache", fixture]);
-    assert!(terminal.contains("decoding"), "{terminal:?}");
+    assert!(terminal.succeeded, "analyze failed: {:?}", terminal.output);
+    assert!(
+        terminal.output.contains("decoding"),
+        "{:?}",
+        terminal.output
+    );
 
     // JSON goes to standard output, so stage lines would cross it: JSON only
     // gets the bar that counts files.
     let json = with_terminal(&["analyze", "--json", "--no-cache", fixture]);
-    assert!(!json.contains("decoding"), "{json:?}");
-    assert!(!json.contains("finding the"), "{json:?}");
-    assert!(json.contains("Analyzing"), "{json:?}");
+    assert!(json.succeeded, "analyze --json failed: {:?}", json.output);
+    assert!(!json.output.contains("decoding"), "{:?}", json.output);
+    assert!(!json.output.contains("finding the"), "{:?}", json.output);
+    assert!(json.output.contains("Analyzing"), "{:?}", json.output);
 }
 
 fn run_with_environment(arguments: &[&str], variables: &[(&str, &str)]) -> std::process::Output {
