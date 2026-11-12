@@ -18,7 +18,9 @@ const GRID_CUE_TYPE: &str = "4";
 const AUTOMATIC_CUE_NAME: &str = "AutoGrid";
 
 /// Reads the collection at `path`. `startup_volume` is the name of the Mac
-/// volume that holds paths outside `/Volumes`.
+/// volume that holds paths outside `/Volumes`. The document is parsed into
+/// a DOM at once, so memory follows the collection's size; only the
+/// cue-bearing entries survive the parse.
 pub fn tracks_with_cues(path: &Path, startup_volume: &str) -> Result<CuedTracks> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read the Traktor collection {}", path.display()))?;
@@ -91,16 +93,16 @@ fn parse(text: &str, startup_volume: &str) -> Result<Vec<(Option<PathBuf>, Strin
 /// markers and the `AutoGrid` hot cue Traktor sets on a grid marker when it
 /// analyzes a track.
 fn has_cues_of_its_own(entry: roxmltree::Node<'_, '_>) -> bool {
-    let cues: Vec<roxmltree::Node<'_, '_>> = entry
+    let grid_starts: Vec<&str> = entry
         .children()
         .filter(|node| node.has_tag_name("CUE_V2"))
-        .collect();
-    let grid_starts: Vec<&str> = cues
-        .iter()
         .filter(|cue| cue.attribute("TYPE") == Some(GRID_CUE_TYPE))
         .filter_map(|cue| cue.attribute("START"))
         .collect();
-    cues.iter().any(|cue| {
+    entry.children().any(|cue| {
+        if !cue.has_tag_name("CUE_V2") {
+            return false;
+        }
         let is_grid = cue.attribute("TYPE") == Some(GRID_CUE_TYPE);
         let is_automatic = cue.attribute("NAME") == Some(AUTOMATIC_CUE_NAME)
             && cue.attribute("TYPE") == Some("0")
