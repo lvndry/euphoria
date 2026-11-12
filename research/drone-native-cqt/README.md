@@ -69,3 +69,16 @@ uv run --script research/drone-native-cqt/plot_results.py
 [the upstream Python wrapper notice](LICENSE-python-soxr). The task-local source
 archive also contains libsoxr and its component notices. No dynamic product bundle
 or legal distribution conclusion is established here.
+
+The complete fixed376 result and arithmetic ablation are now in `REPORT.md`.
+Only FMA+SVML passes both its nine-case and full376 gates on the tested Linux
+host. The source freezes are Drone `2ac6364` and Euphoria `2f87e2c`; current report
+and CI commits do not relabel those measured sources.
+
+[The exact historical two-arm launcher](evidence/candidate2-launch.sh) records
+all supervisor arguments, paths, thread/affinity settings, the separately
+recorded process exit and the authorized06:00UTC deadline. Its original output
+paths are immutable. Reproduction needs a new output directory and a declared
+execution window; retain the old evidence. The supervisor supplies
+`--numpy-magnitude` to both arms and the hash-checked `--math-library` only to the
+SVML arm. FMA-only's failed status remains part of the experiment.
