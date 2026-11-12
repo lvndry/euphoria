@@ -100,7 +100,7 @@ Then build Euphoria:
 ```
 git clone https://github.com/lvndry/euphoria.git
 cd euphoria
-cargo install --path crates/euphoria-cli
+cargo install --path apps/euphoria-cli
 ```
 
 This puts the `euphoria` command in `~/.cargo/bin`, which the Rust installer adds to your `PATH`.
@@ -140,7 +140,7 @@ sudo apt-get install build-essential cmake pkg-config libfftw3-dev
 git clone https://github.com/lvndry/euphoria.git
 cd euphoria
 ./.github/scripts/install-libkeyfinder.sh
-cargo install --path crates/euphoria-cli
+cargo install --path apps/euphoria-cli
 ```
 
 ### The desktop app on Linux
@@ -150,7 +150,7 @@ The app also needs the libraries its window toolkit, GPUI, links against for X11
 ```
 sudo apt-get install libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev \
   libx11-xcb-dev libxkbcommon-x11-dev libclang-dev
-cargo build --release -p euphoria
+cargo build --release -p euphoria-desktop
 ./target/release/euphoria-desktop
 ```
 
