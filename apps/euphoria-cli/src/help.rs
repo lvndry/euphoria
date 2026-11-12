@@ -175,6 +175,23 @@ pub fn traktor_export_examples() -> StyledStr {
     )
 }
 
+pub fn virtualdj_export_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria export virtualdj ~/Music/DJ --dry-run",
+                "See what would change",
+            ),
+            (
+                "euphoria export virtualdj ~/Music/DJ --beat-grid --cues",
+                "Write grids and hot cues too",
+            ),
+        ],
+        "",
+    )
+}
+
 pub fn cache_examples() -> StyledStr {
     examples(
         "Examples",
