@@ -530,7 +530,7 @@ mod tests {
     use crate::library::TrackStatus;
 
     fn fixtures_folder() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures")
     }
 
     /// A folder under the system's temporary folder, deleted when dropped.
