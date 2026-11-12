@@ -122,9 +122,15 @@ pub(crate) fn changed(cues: &[Cue], change: CueChange) -> Option<Vec<Cue>> {
             let hot_cue = HotCue::ALL
                 .into_iter()
                 .find(|pad| cues.iter().all(|cue| cue.hot_cue != Some(*pad)));
+            let mut number = cues.len() + 1;
+            let mut name = format!("Cue {number}");
+            while cues.iter().any(|cue| cue.name == name) {
+                number += 1;
+                name = format!("Cue {number}");
+            }
             changed.push(Cue {
                 seconds,
-                name: format!("Cue {}", cues.len() + 1),
+                name,
                 hot_cue,
             });
         }
@@ -575,6 +581,16 @@ mod tests {
             .collect();
         let added = changed(&every_pad, CueChange::Add { seconds: 50.0 }).unwrap();
         assert_eq!(added[8].hot_cue, None, "a ninth cue is a memory cue");
+    }
+
+    #[test]
+    fn adding_after_deleting_does_not_reuse_a_name_still_in_use() {
+        let first = changed(&[], CueChange::Add { seconds: 1.0 }).unwrap();
+        let second = changed(&first, CueChange::Add { seconds: 2.0 }).unwrap();
+        let remaining = changed(&second, CueChange::Delete { index: 0 }).unwrap();
+        let added = changed(&remaining, CueChange::Add { seconds: 3.0 }).unwrap();
+        assert_eq!(added[0].name, "Cue 2");
+        assert_eq!(added[1].name, "Cue 3");
     }
 
     #[test]

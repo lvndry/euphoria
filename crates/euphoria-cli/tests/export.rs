@@ -1803,3 +1803,28 @@ fn traktor_cues_leave_out_tracks_with_cues_of_their_own_in_the_collection() {
             .contains("NAME=\"mine\"")
     );
 }
+
+#[test]
+fn unreadable_saved_cues_are_reported_as_unchecked_edits() {
+    let euphoria = Euphoria::new();
+    let music = TemporaryFolder::new();
+    let track = music.path().join("track.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
+        .expect("the fixture is copied");
+    assert_success(&euphoria.run(&["analyze", "--json", text(&track)]));
+    euphoria_core::Cache::open(&euphoria.cache_path())
+        .expect("the cache opens")
+        .set_edited_cues(&track, Some(&[]))
+        .expect("only a cue edit is saved");
+    rusqlite::Connection::open(euphoria.cache_path())
+        .expect("the database opens")
+        .execute("UPDATE edited_cues SET cues = 'not json'", [])
+        .expect("the saved cue set is made unreadable");
+    let output = music.path().join("library.xml");
+    let exported = euphoria.run(&["export", "rekordbox", text(&track), "-o", text(&output)]);
+    assert!(!exported.status.success());
+    let errors = standard_error(&exported);
+    assert!(errors.contains("cannot check the saved edits"), "{errors}");
+    assert!(!errors.contains("key or tempo"), "{errors}");
+    assert!(!output.exists(), "the unchecked track is not exported");
+}

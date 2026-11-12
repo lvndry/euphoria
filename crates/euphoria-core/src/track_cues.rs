@@ -180,13 +180,19 @@ pub fn check_cues(cues: &[Cue]) -> Result<(), EuphoriaError> {
 }
 
 /// Checks that `cues` can be kept for a track `duration_seconds` long: as
-/// [`check_cues`] does, and with every cue within the track.
+/// [`check_cues`] does, with a finite, nonnegative duration and every cue
+/// within the track.
 ///
 /// # Errors
 ///
 /// [`EuphoriaError::InvalidCues`] saying what is wrong.
 pub fn check_cues_within(cues: &[Cue], duration_seconds: f64) -> Result<(), EuphoriaError> {
     check_cues(cues)?;
+    if !duration_seconds.is_finite() || duration_seconds < 0.0 {
+        return Err(EuphoriaError::InvalidCues {
+            reason: "the track duration must be a finite, nonnegative number of seconds",
+        });
+    }
     if cues.iter().any(|cue| cue.seconds > duration_seconds) {
         return Err(EuphoriaError::InvalidCues {
             reason: "a cue must be within the track",
@@ -206,6 +212,17 @@ mod tests {
             name: name.to_string(),
             hot_cue: hot_cue.and_then(HotCue::from_letter),
         }
+    }
+
+    #[test]
+    fn a_known_track_duration_must_be_finite_and_nonnegative() {
+        let cues = [cue(12.0, "Drop", None)];
+        for duration in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0] {
+            assert!(check_cues_within(&cues, duration).is_err(), "{duration}");
+            assert!(check_cues_within(&[], duration).is_err(), "{duration}");
+        }
+        assert!(check_cues_within(&[], 0.0).is_ok());
+        assert!(check_cues_within(&[cue(0.0, "Start", None)], 0.0).is_ok());
     }
 
     fn analysis_with_cues() -> TrackAnalysis {

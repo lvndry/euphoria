@@ -216,10 +216,10 @@ pub enum EuphoriaError {
         /// What went wrong, usually the database library's own error.
         source: ErrorSource,
     },
-    /// Whether the user corrected the file's key or tempo could not be
-    /// checked, so the file is left out of a tag write or an export rather
-    /// than given the detected values against the user's choice.
-    #[error("cannot check whether the key or tempo of {path} was corrected, so it was left out")]
+    /// The user's saved key, tempo or cue edits could not be checked, so
+    /// the file is left out of a tag write or an export rather than given
+    /// the detected values against the user's choice.
+    #[error("cannot check the saved edits for {path}, so it was left out")]
     CorrectionUnchecked {
         /// The audio file.
         path: PathBuf,

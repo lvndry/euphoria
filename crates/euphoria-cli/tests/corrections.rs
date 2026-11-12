@@ -143,7 +143,7 @@ fn a_correction_that_cannot_be_checked_leaves_the_file_out_of_tags_and_exports()
     let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
     assert!(!written.status.success());
     assert!(
-        standard_error(&written).contains("was corrected, so it was left out"),
+        standard_error(&written).contains("cannot check the saved edits"),
         "{}",
         standard_error(&written)
     );
@@ -159,7 +159,7 @@ fn a_correction_that_cannot_be_checked_leaves_the_file_out_of_tags_and_exports()
     ]);
     assert!(!export.status.success());
     assert!(
-        standard_error(&export).contains("was corrected, so it was left out"),
+        standard_error(&export).contains("cannot check the saved edits"),
         "{}",
         standard_error(&export)
     );
