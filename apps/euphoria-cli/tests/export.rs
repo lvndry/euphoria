@@ -817,6 +817,11 @@ fn key_notation_chooses_how_keys_are_written() {
         Some("A")
     );
 
+    assert_eq!(
+        tonality(&["--key-notation", "open-key"]).as_deref(),
+        Some("4d")
+    );
+
     let unknown = euphoria.run(&[
         "export",
         "rekordbox",
@@ -824,10 +829,10 @@ fn key_notation_chooses_how_keys_are_written() {
         "-o",
         "unused.xml",
         "--key-notation",
-        "open-key",
+        "other",
     ]);
     assert_eq!(unknown.status.code(), Some(2));
-    assert!(standard_error(&unknown).contains("possible values: camelot, musical"));
+    assert!(standard_error(&unknown).contains("possible values: camelot, musical, open-key"));
 }
 
 #[test]

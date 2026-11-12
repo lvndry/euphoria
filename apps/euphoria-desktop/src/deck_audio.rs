@@ -46,6 +46,9 @@ const COMMAND_CAPACITY: usize = 64;
 /// How many replaced tracks can wait to be dropped by the window.
 const RETIRED_CAPACITY: usize = 8;
 
+/// How many spent loop buffers can wait to be dropped by the window.
+const SPENT_LOOPS_CAPACITY: usize = 8;
+
 /// The time stretcher of a deck, the one place that names the stretching
 /// this type alone. It is the same Signalsmith Stretch the `euphoria`
 /// command line tool compiles, so the binary holds one version of its C++
@@ -223,6 +226,63 @@ pub(crate) enum DeckCommand {
     SetKeylock { deck: DeckId, keylock: bool },
     /// Shifts a deck's pitch by `semitones`, on top of key lock.
     SetShift { deck: DeckId, semitones: i8 },
+    /// Loops `bars` bars of a deck from the next downbeat of its grid, or,
+    /// with `None`, lets the loop play to its end once more and carries on
+    /// from there.
+    /// `frames` holds the loop's samples as it plays the first time, so it
+    /// is allocated by the window, at its full size, and not on the audio
+    /// thread: [`DeckLink::set_loop`] builds it.
+    SetLoop {
+        deck: DeckId,
+        bars: Option<u32>,
+        frames: Vec<f32>,
+    },
+}
+
+/// Room for the samples of a loop of `bars` bars of `grid` in a track of
+/// `channel_count` channels at `input_rate`, empty without a loop.
+fn loop_buffer(
+    bars: Option<u32>,
+    grid: Option<GridTiming>,
+    input_rate: u32,
+    channel_count: usize,
+) -> Vec<f32> {
+    match (bars, grid) {
+        (Some(bars), Some(grid)) if bars > 0 && input_rate > 0 && channel_count > 0 => {
+            let frames =
+                (f64::from(bars) * grid.bar_seconds() * f64::from(input_rate)).ceil() as usize + 2;
+            Vec::with_capacity(frames * channel_count)
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Where a loop is in its life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopPhase {
+    /// The deck has not reached the loop's first frame yet.
+    Waiting,
+    /// The deck plays the loop for the first time, keeping its frames.
+    Capturing,
+    /// The deck plays the kept frames over and over; the track itself waits
+    /// at the loop's end.
+    Replaying,
+}
+
+/// A loop of whole bars on a deck. Its frames are kept the first time they
+/// play, so every repeat is the same samples and joins the next without a
+/// gap, and leaving the loop at its end carries on with the track exactly
+/// where it waits.
+struct DeckLoop {
+    start_frame: u64,
+    end_frame: u64,
+    phase: LoopPhase,
+    frames: Vec<f32>,
+    /// The next sample of `frames` to play while replaying.
+    read: usize,
+    /// True once asked to leave: the loop plays to its end, then the track
+    /// goes on.
+    is_leaving: bool,
 }
 
 /// What one deck is doing, for the window to read.
@@ -245,6 +305,13 @@ pub(crate) struct DeckMeter {
     mixed_frames: AtomicU64,
     /// Frames of silence the decoder could not fill in time.
     starved_frames: AtomicU64,
+    /// The loop's start and end in seconds into the track, as f64 bits,
+    /// NaN without a loop.
+    loop_start_bits: AtomicU64,
+    loop_end_bits: AtomicU64,
+    /// The loaded track's sample rate and channels, to size a loop.
+    input_rate: AtomicU32,
+    channel_count: AtomicU32,
 }
 
 impl DeckMeter {
@@ -298,6 +365,13 @@ impl DeckMeter {
         busy / (frames as f64 / f64::from(MIX_SAMPLE_RATE))
     }
 
+    /// The deck's loop, in seconds into the track, while it has one.
+    pub(crate) fn loop_seconds(&self) -> Option<(f64, f64)> {
+        let start = f64::from_bits(self.loop_start_bits.load(Ordering::Relaxed));
+        let end = f64::from_bits(self.loop_end_bits.load(Ordering::Relaxed));
+        (start.is_finite() && end.is_finite()).then_some((start, end))
+    }
+
     /// Frames of silence played because the decoder fell behind.
     pub(crate) fn starved_frames(&self) -> u64 {
         self.starved_frames.load(Ordering::Relaxed)
@@ -321,6 +395,8 @@ pub(crate) struct DeckLink {
     /// Tracks the mix took off its decks, to be dropped here and not on the
     /// audio thread.
     retired: Receiver<Box<LoadedTrack>>,
+    /// The samples of loops the decks are done with, dropped here too.
+    spent_loops: Receiver<Vec<f32>>,
 }
 
 impl DeckLink {
@@ -346,9 +422,23 @@ impl DeckLink {
         self.drop_retired();
     }
 
-    /// Drops the tracks the mix took off its decks.
+    /// Drops the tracks the mix took off its decks, and their loops.
     pub(crate) fn drop_retired(&self) {
         while self.retired.try_recv().is_ok() {}
+        while self.spent_loops.try_recv().is_ok() {}
+    }
+
+    /// Loops `bars` bars of `deck` from its next downbeat on `grid`, the
+    /// grid the deck has, or leaves the loop with `None`.
+    pub(crate) fn set_loop(&self, deck: DeckId, bars: Option<u32>, grid: Option<GridTiming>) {
+        let meter = self.meter(deck);
+        let frames = loop_buffer(
+            bars,
+            grid,
+            meter.input_rate.load(Ordering::Relaxed),
+            meter.channel_count.load(Ordering::Relaxed) as usize,
+        );
+        self.send(DeckCommand::SetLoop { deck, bars, frames });
     }
 
     /// What `deck` is doing.
@@ -383,6 +473,12 @@ struct LoadedTrack {
     tail_output_frames: usize,
     has_rendered: bool,
     start_seconds: f64,
+    deck_loop: Option<DeckLoop>,
+    /// The samples of loops the deck is done with, until the mix hands
+    /// them to the window. The mix applies no command while one waits, so
+    /// one comes from a command and at most one more from the loop ending
+    /// as it plays.
+    spent_loops: [Option<Vec<f32>>; 2],
 }
 
 impl LoadedTrack {
@@ -418,6 +514,8 @@ impl LoadedTrack {
             tail_output_frames: 0,
             has_rendered: false,
             start_seconds,
+            deck_loop: None,
+            spent_loops: [None, None],
         };
         track.update_transpose();
         track
@@ -458,17 +556,178 @@ impl LoadedTrack {
         self.source.next_frame() as f64 / f64::from(self.input_rate)
     }
 
-    /// The position heard now, in seconds into the track.
+    /// The position heard now, in seconds into the track. In a loop it
+    /// moves back to the loop's start with each repeat, a moment after the
+    /// input does.
     fn heard_seconds(&self) -> f64 {
-        let input = self.input_seconds();
+        let input = self.looped_input_seconds();
         if !self.has_rendered {
             return input;
         }
         let drained =
             self.tail_input_samples as f64 / self.channel_count as f64 / f64::from(self.input_rate);
-        (input + drained - self.delay_seconds() * self.rate)
-            .max(self.start_seconds)
-            .min(input)
+        let heard = input + drained - self.delay_seconds() * self.rate;
+        // First capture has not wrapped yet: its heard position can still
+        // be before the loop while those frames wait in the stretcher.
+        let replaying = self
+            .deck_loop
+            .as_ref()
+            .is_some_and(|deck_loop| deck_loop.phase == LoopPhase::Replaying);
+        if let Some((start, end)) = self.loop_seconds()
+            && replaying
+            && heard < start
+            && input >= start
+        {
+            return heard - start + end;
+        }
+        heard.max(self.start_seconds).min(input)
+    }
+
+    /// Puts aside the samples of a loop, so they are not freed on the audio
+    /// thread.
+    fn spend(&mut self, frames: Vec<f32>) {
+        if frames.capacity() == 0 {
+            return;
+        }
+        if let Some(slot) = self.spent_loops.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(frames);
+        } else {
+            debug_assert!(false, "a third spent loop while two wait");
+        }
+    }
+
+    fn holds_spent_loops(&self) -> bool {
+        self.spent_loops.iter().any(Option::is_some)
+    }
+
+    fn end_loop(&mut self) {
+        if let Some(deck_loop) = self.deck_loop.take() {
+            self.spend(deck_loop.frames);
+        }
+    }
+
+    /// Starts a loop of `bars` bars at the next downbeat of the grid,
+    /// keeping its samples in `frames`, or leaves the loop. Does nothing on
+    /// a track without a grid.
+    fn set_loop(&mut self, bars: Option<u32>, mut frames: Vec<f32>) {
+        frames.clear();
+        match bars {
+            Some(bars) if bars > 0 => {
+                let Some(grid) = self.grid else {
+                    self.spend(frames);
+                    return;
+                };
+                self.end_loop();
+                let start = grid.next_downbeat(self.input_seconds());
+                let end = start + f64::from(bars) * grid.bar_seconds();
+                let rate = f64::from(self.input_rate);
+                self.deck_loop = Some(DeckLoop {
+                    start_frame: (start * rate).round() as u64,
+                    end_frame: (end * rate).round() as u64,
+                    phase: LoopPhase::Waiting,
+                    frames,
+                    read: 0,
+                    is_leaving: false,
+                });
+            }
+            _ => {
+                self.spend(frames);
+                match &mut self.deck_loop {
+                    Some(deck_loop) if deck_loop.phase == LoopPhase::Replaying => {
+                        deck_loop.is_leaving = true;
+                    }
+                    _ => self.end_loop(),
+                }
+            }
+        }
+    }
+
+    /// The loop in seconds into the track, while there is one.
+    fn loop_seconds(&self) -> Option<(f64, f64)> {
+        let deck_loop = self.deck_loop.as_ref()?;
+        let rate = f64::from(self.input_rate);
+        Some((
+            deck_loop.start_frame as f64 / rate,
+            deck_loop.end_frame as f64 / rate,
+        ))
+    }
+
+    /// The input position, inside the loop while it replays.
+    fn looped_input_seconds(&self) -> f64 {
+        match &self.deck_loop {
+            Some(deck_loop) if deck_loop.phase == LoopPhase::Replaying => {
+                let frame = deck_loop.start_frame + (deck_loop.read / self.channel_count) as u64;
+                frame as f64 / f64::from(self.input_rate)
+            }
+            _ => self.input_seconds(),
+        }
+    }
+
+    /// Takes the next input frame, from the loop's kept frames while it
+    /// replays and from the track otherwise, onto `input`.
+    fn pull_input_frame(&mut self) {
+        let channels = self.channel_count;
+        if let Some(deck_loop) = &mut self.deck_loop
+            && deck_loop.phase == LoopPhase::Replaying
+        {
+            self.input
+                .extend_from_slice(&deck_loop.frames[deck_loop.read..deck_loop.read + channels]);
+            deck_loop.read += channels;
+            if deck_loop.read >= deck_loop.frames.len() {
+                deck_loop.read = 0;
+                if deck_loop.is_leaving {
+                    self.end_loop();
+                }
+            }
+            return;
+        }
+        let frame = self.source.next_frame();
+        if let Some(deck_loop) = &mut self.deck_loop
+            && deck_loop.phase == LoopPhase::Waiting
+            && frame >= deck_loop.start_frame
+        {
+            if frame == deck_loop.start_frame {
+                deck_loop.phase = LoopPhase::Capturing;
+            } else {
+                // The deck jumped past the loop's start.
+                self.end_loop();
+            }
+        }
+        let first = self.input.len();
+        for _ in 0..channels {
+            match self.source.next() {
+                Some(sample) => self.input.push(sample),
+                None => {
+                    self.tail_input_samples += 1;
+                    self.input.push(0.0);
+                }
+            }
+        }
+        if self.tail_input_samples > 0 {
+            // The track ended before the loop was whole.
+            self.end_loop();
+        }
+        // Decoder starvation adds output silence without consuming a frame
+        // of the track. Keep only real track frames in the bar we replay.
+        if self.source.next_frame() > frame
+            && let Some(deck_loop) = &mut self.deck_loop
+            && deck_loop.phase == LoopPhase::Capturing
+        {
+            // The buffer was sized for the loop; never grow it here.
+            if deck_loop.frames.len() + channels <= deck_loop.frames.capacity() {
+                deck_loop.frames.extend_from_slice(&self.input[first..]);
+            }
+            let is_full = deck_loop.frames.len() + channels > deck_loop.frames.capacity();
+            if self.source.next_frame() >= deck_loop.end_frame || is_full {
+                deck_loop.end_frame =
+                    deck_loop.start_frame + (deck_loop.frames.len() / channels) as u64;
+                deck_loop.phase = LoopPhase::Replaying;
+                deck_loop.read = 0;
+                if deck_loop.frames.is_empty() {
+                    self.end_loop();
+                }
+            }
+        }
     }
 
     /// Mixes `frames` frames of this deck into `mix`, stereo, at `gain`.
@@ -493,14 +752,8 @@ impl LoadedTrack {
         let channels = self.channel_count;
         self.input.clear();
         let draining_output = self.tail_input_samples >= self.stretch.input_latency() * channels;
-        for _ in 0..input_frames * channels {
-            match self.source.next() {
-                Some(sample) => self.input.push(sample),
-                None => {
-                    self.tail_input_samples += 1;
-                    self.input.push(0.0);
-                }
-            }
+        for _ in 0..input_frames {
+            self.pull_input_frame();
         }
         self.output.clear();
         self.output.resize(frames * channels, 0.0);
@@ -532,6 +785,7 @@ pub(crate) struct DeckMix {
     commands: Receiver<DeckCommand>,
     retired: SyncSender<Box<LoadedTrack>>,
     pending_retired: Option<Box<LoadedTrack>>,
+    spent_loops: SyncSender<Vec<f32>>,
     meters: [Arc<DeckMeter>; 2],
     decks: [Option<Box<LoadedTrack>>; 2],
     block: Vec<f32>,
@@ -542,22 +796,31 @@ pub(crate) struct DeckMix {
 pub(crate) fn deck_mix() -> (DeckLink, DeckMix) {
     let (commands, received) = sync_channel(COMMAND_CAPACITY);
     let (retire, retired) = sync_channel(RETIRED_CAPACITY);
+    let (spend, spent_loops) = sync_channel(SPENT_LOOPS_CAPACITY);
     let meters = [
         Arc::new(DeckMeter::default()),
         Arc::new(DeckMeter::default()),
     ];
     for meter in &meters {
         meter.set_gain(1.0);
+        meter
+            .loop_start_bits
+            .store(f64::NAN.to_bits(), Ordering::Relaxed);
+        meter
+            .loop_end_bits
+            .store(f64::NAN.to_bits(), Ordering::Relaxed);
     }
     let link = DeckLink {
         commands,
         meters: meters.clone(),
         retired,
+        spent_loops,
     };
     let mix = DeckMix {
         commands: received,
         retired: retire,
         pending_retired: None,
+        spent_loops: spend,
         meters,
         decks: [None, None],
         block: vec![0.0; BLOCK_FRAMES * 2],
@@ -580,6 +843,32 @@ impl DeckMix {
         });
     }
 
+    /// Hands the samples of a loop `deck` is done with to the window, or
+    /// keeps them for the next block when it has not taken the last few.
+    fn hand_back_spent_loop(&mut self, deck: DeckId) {
+        let Some(track) = self.decks[deck.index()].as_deref_mut() else {
+            return;
+        };
+        for slot in &mut track.spent_loops {
+            if let Some(frames) = slot.take()
+                && let Err(TrySendError::Full(frames) | TrySendError::Disconnected(frames)) =
+                    self.spent_loops.try_send(frames)
+            {
+                *slot = Some(frames);
+            }
+        }
+    }
+
+    /// True while a deck keeps the samples of a loop the window has not
+    /// taken yet. No command is applied meanwhile, so none can end another
+    /// loop with nowhere to keep it.
+    fn holds_spent_loops(&self) -> bool {
+        self.decks
+            .iter()
+            .flatten()
+            .any(|track| track.holds_spent_loops())
+    }
+
     fn apply(&mut self, command: DeckCommand) {
         match command {
             DeckCommand::Load { deck, track } => {
@@ -587,6 +876,12 @@ impl DeckMix {
                     self.retire(replaced);
                 }
                 let meter = &self.meters[deck.index()];
+                if let Some(track) = &self.decks[deck.index()] {
+                    meter.input_rate.store(track.input_rate, Ordering::Relaxed);
+                    meter
+                        .channel_count
+                        .store(track.channel_count as u32, Ordering::Relaxed);
+                }
                 meter.finished.store(false, Ordering::Relaxed);
                 *meter.problem.lock().unwrap_or_else(PoisonError::into_inner) = None;
                 meter.pending_load.store(false, Ordering::Release);
@@ -607,6 +902,7 @@ impl DeckMix {
             }
             DeckCommand::Seek { deck, seconds } => {
                 if let Some(track) = self.deck_mut(deck) {
+                    track.end_loop();
                     track.source.state().seek_to(seconds as f32);
                     track.stretch.reset();
                     track.input_fraction = 0.0;
@@ -637,6 +933,11 @@ impl DeckMix {
                     track.shift_semitones = semitones;
                 }
             }
+            DeckCommand::SetLoop { deck, bars, frames } => {
+                if let Some(track) = self.deck_mut(deck) {
+                    track.set_loop(bars, frames);
+                }
+            }
         }
     }
 
@@ -652,9 +953,10 @@ impl DeckMix {
         }
         let starting_grid = starting.grid?;
         let grid = leading.grid?;
-        let input_now = leading.input_seconds();
-        // Match the time the leading downbeat is heard against this deck's
-        // travel to its own downbeat, including any initial stretcher delay.
+        let input_now = leading.looped_input_seconds();
+        // The other deck's input reaches its next downbeat after this many
+        // output seconds, and sounds it its own delay later. This deck,
+        // started then, sounds its first frame its own delay later.
         let downbeat = grid.next_downbeat(input_now);
         let until_input = (downbeat - input_now) / leading.rate;
         let held = starting.heard_seconds();
@@ -674,11 +976,17 @@ impl DeckMix {
         if let Some(track) = self.pending_retired.take() {
             self.retire(track);
         }
-        while self.pending_retired.is_none() {
+        for deck in DeckId::BOTH {
+            self.hand_back_spent_loop(deck);
+        }
+        while self.pending_retired.is_none() && !self.holds_spent_loops() {
             let Ok(command) = self.commands.try_recv() else {
                 break;
             };
             self.apply(command);
+            for deck in DeckId::BOTH {
+                self.hand_back_spent_loop(deck);
+            }
         }
         self.block.fill(0.0);
         for deck in DeckId::BOTH {
@@ -716,6 +1024,16 @@ impl DeckMix {
             meter
                 .waiting
                 .store(track.start_countdown.is_some(), Ordering::Relaxed);
+            let (loop_start, loop_end) = track.loop_seconds().unwrap_or((f64::NAN, f64::NAN));
+            meter
+                .loop_start_bits
+                .store(loop_start.to_bits(), Ordering::Relaxed);
+            meter
+                .loop_end_bits
+                .store(loop_end.to_bits(), Ordering::Relaxed);
+        }
+        for deck in DeckId::BOTH {
+            self.hand_back_spent_loop(deck);
         }
         self.next_sample = 0;
     }
@@ -993,6 +1311,94 @@ mod tests {
         }
     }
 
+    /// The clicks heard, with whether each is a downbeat, then the meter's
+    /// loop and position while the loop ran.
+    type LoopRun = (Vec<(f64, bool)>, Option<(f64, f64)>, f64);
+
+    /// Plays a click track at 120 BPM, loops `bars` bars from its next
+    /// downbeat, then leaves the loop, and returns the clicks heard with the
+    /// meter's loop and position while it ran.
+    fn loop_run(bars: u32) -> LoopRun {
+        let scratch = ScratchFolder::new(&format!("loop-{bars}"));
+        let path = scratch.0.join("a.wav");
+        write_click_track(&path, 120.0, 0.5, 60.0);
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(
+                TrackSource::open(&path, 0.0).unwrap().patient(),
+                Some(GridTiming {
+                    first_downbeat_seconds: 0.5,
+                    bpm: 120.0,
+                }),
+            ),
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        let mut samples = pull(&mut mix, 1.3);
+        link.set_loop(
+            DeckId::A,
+            Some(bars),
+            Some(GridTiming {
+                first_downbeat_seconds: 0.5,
+                bpm: 120.0,
+            }),
+        );
+        samples.extend(pull(&mut mix, 9.0));
+        let looped = link.meter(DeckId::A).loop_seconds();
+        let position = link.meter(DeckId::A).position_seconds();
+        link.set_loop(
+            DeckId::A,
+            None,
+            Some(GridTiming {
+                first_downbeat_seconds: 0.5,
+                bpm: 120.0,
+            }),
+        );
+        samples.extend(pull(&mut mix, 6.0));
+        (onsets(&samples), looped, position)
+    }
+
+    #[test]
+    fn a_loop_repeats_its_bars_without_a_gap_and_carries_on_when_left() {
+        for bars in [1, 2] {
+            let (clicks, looped, position) = loop_run(bars);
+            let (start, end) = looped.expect("the loop is on the meter");
+            assert!((start - 2.5).abs() < 1e-3, "the next downbeat: {start}");
+            assert!((end - (2.5 + 2.0 * f64::from(bars))).abs() < 1e-3, "{end}");
+            assert!(
+                (start..=end).contains(&position),
+                "while looping the deck stays in the loop: {position}"
+            );
+            let gaps: Vec<f64> = clicks
+                .windows(2)
+                .map(|pair| pair[1].0 - pair[0].0)
+                .collect();
+            let largest_error = gaps
+                .iter()
+                .map(|gap| (gap - 0.5).abs() * 1_000.0)
+                .fold(0.0, f64::max);
+            eprintln!(
+                "{bars} bar loop: {} clicks, every gap 500 ms within {largest_error:.3} ms",
+                clicks.len()
+            );
+            assert!(largest_error < 1.0, "{bars}: {largest_error} ms");
+            let downbeats: Vec<usize> = clicks
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, is_downbeat))| *is_downbeat)
+                .map(|(index, _)| index)
+                .collect();
+            assert!(
+                downbeats.windows(2).all(|pair| pair[1] - pair[0] == 4),
+                "a downbeat every fourth click, through every repeat"
+            );
+            assert!(clicks.len() > 30, "{}", clicks.len());
+        }
+    }
+
     #[test]
     fn a_key_shifted_deck_stays_on_the_other_decks_beats() {
         let alignment = measure_shifted_alignment(120.0, 125.0, None, -2);
@@ -1231,6 +1637,139 @@ mod tests {
     }
 
     #[test]
+    fn a_loop_keeps_its_samples_in_the_buffer_the_window_gave_and_hands_it_back() {
+        let scratch = ScratchFolder::new("loop-buffer");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.5, 8.0);
+        let grid = Some(GridTiming {
+            first_downbeat_seconds: 0.5,
+            bpm: 120.0,
+        });
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), grid),
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        mix.render_block();
+        link.set_loop(DeckId::A, Some(1), grid);
+        mix.render_block();
+        let given = {
+            let deck_loop = mix.decks[0].as_ref().unwrap().deck_loop.as_ref().unwrap();
+            (
+                deck_loop.frames.as_ptr() as usize,
+                deck_loop.frames.capacity(),
+            )
+        };
+        assert!(given.1 >= 88_200, "room for a bar at 44.1 kHz: {}", given.1);
+        pull(&mut mix, 4.0);
+        let deck_loop = mix.decks[0].as_ref().unwrap().deck_loop.as_ref().unwrap();
+        assert_eq!(deck_loop.phase, LoopPhase::Replaying);
+        assert_eq!(deck_loop.frames.len(), 88_200);
+        assert_eq!(
+            (
+                deck_loop.frames.as_ptr() as usize,
+                deck_loop.frames.capacity()
+            ),
+            given,
+            "captured without growing"
+        );
+        link.set_loop(DeckId::A, Some(2), grid);
+        mix.render_block();
+        let spent: Vec<Vec<f32>> = link.spent_loops.try_iter().collect();
+        assert_eq!(spent.len(), 1);
+        assert_eq!(spent[0].as_ptr() as usize, given.0);
+    }
+
+    #[test]
+    fn loops_ended_while_the_window_is_slow_wait_for_it_and_none_is_freed_here() {
+        let scratch = ScratchFolder::new("loop-backpressure");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.5, 8.0);
+        let grid = Some(GridTiming {
+            first_downbeat_seconds: 0.5,
+            bpm: 120.0,
+        });
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), grid),
+        });
+        mix.render_block();
+        for bars in [1, 2, 4] {
+            link.commands
+                .send(DeckCommand::SetLoop {
+                    deck: DeckId::A,
+                    bars: Some(bars),
+                    frames: loop_buffer(Some(bars), grid, 44_100, 1),
+                })
+                .unwrap();
+        }
+        for _ in 0..SPENT_LOOPS_CAPACITY {
+            mix.spent_loops.try_send(Vec::with_capacity(1)).unwrap();
+        }
+        for _ in 0..4 {
+            mix.render_block();
+        }
+        let track = mix.decks[0].as_ref().unwrap();
+        assert!(track.holds_spent_loops(), "the 1 bar loop waits");
+        assert_eq!(
+            track.loop_seconds().map(|(start, end)| end - start),
+            Some(4.0),
+            "the 2 bar loop plays and the 4 bar loop waits"
+        );
+        let mut returned: Vec<usize> = Vec::new();
+        for _ in 0..4 {
+            returned.extend(link.spent_loops.try_iter().map(|frames| frames.capacity()));
+            mix.render_block();
+        }
+        returned.extend(link.spent_loops.try_iter().map(|frames| frames.capacity()));
+        let loops: Vec<usize> = returned
+            .into_iter()
+            .filter(|capacity| *capacity > 1)
+            .collect();
+        assert_eq!(loops, [88_202, 176_402], "the 1 and 2 bar loops come back");
+        let track = mix.decks[0].as_ref().unwrap();
+        assert!(!track.holds_spent_loops());
+        assert_eq!(
+            track.loop_seconds().map(|(start, end)| end - start),
+            Some(8.0)
+        );
+    }
+
+    #[test]
+    fn a_loop_the_track_ends_inside_is_dropped_and_the_deck_finishes() {
+        let scratch = ScratchFolder::new("loop-past-end");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.5, 1.5);
+        let grid = Some(GridTiming {
+            first_downbeat_seconds: 0.5,
+            bpm: 120.0,
+        });
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), grid),
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        mix.render_block();
+        link.set_loop(DeckId::A, Some(1), grid);
+        mix.render_block();
+        assert!(link.meter(DeckId::A).loop_seconds().is_some());
+        pull(&mut mix, 3.0);
+        assert_eq!(link.meter(DeckId::A).loop_seconds(), None);
+        assert!(link.meter(DeckId::A).is_finished());
+        let spent: Vec<Vec<f32>> = link.spent_loops.try_iter().collect();
+        assert_eq!(spent.len(), 1, "its buffer goes back to the window");
+    }
+
+    #[test]
     fn a_tempo_out_of_reach_gives_the_nearest_speed_a_deck_plays() {
         assert_eq!(reachable_rate(3.0), MAX_RATE);
         assert_eq!(reachable_rate(0.1), MIN_RATE);
@@ -1411,5 +1950,153 @@ mod tests {
                 eprintln!("  ({analyzed} analyses ran alongside)");
             }
         }
+    }
+    #[test]
+    fn capture_does_not_store_decoder_starvation_as_part_of_a_bar() {
+        let (source, feed) = crate::playback::testing::controlled_source(vec![0.25; 64], 0);
+        let mut track = LoadedTrack::new(
+            source,
+            Some(GridTiming {
+                first_downbeat_seconds: 0.0,
+                bpm: 120.0,
+            }),
+        );
+        let frames = loop_buffer(Some(1), track.grid, track.input_rate, track.channel_count);
+        track.set_loop(Some(1), frames);
+        for _ in 0..64 + 256 {
+            track.input.clear();
+            track.pull_input_frame();
+        }
+        assert_eq!(track.source.next_frame(), 64);
+        feed.push(64, vec![0.25; 88_200]);
+        for _ in 64..88_200 {
+            track.input.clear();
+            track.pull_input_frame();
+        }
+        let captured = track.deck_loop.as_ref().unwrap();
+        assert_eq!(captured.phase, LoopPhase::Replaying);
+        assert_eq!(
+            captured.frames.len(),
+            88_200,
+            "one bar must contain exactly two seconds of track audio"
+        );
+        assert!(captured.frames.iter().all(|x| *x == 0.25));
+    }
+
+    #[test]
+    fn starting_another_deck_aligns_to_the_replaying_loop_phase() {
+        let scratch = ScratchFolder::new("looped-phase");
+        let a = scratch.0.join("a.wav");
+        let b = scratch.0.join("b.wav");
+        write_click_track(&a, 120.0, 0.5, 60.0);
+        write_click_track(&b, 125.0, 0.25, 60.0);
+        let run = |ag, bg| {
+            let (link, mut mix) = deck_mix();
+            for (deck, path, bpm, first) in
+                [(DeckId::A, &a, 120.0, 0.5), (DeckId::B, &b, 125.0, 0.25)]
+            {
+                link.send(DeckCommand::Load {
+                    deck,
+                    track: prepare_track(
+                        TrackSource::open(path, 0.0).unwrap().patient(),
+                        Some(GridTiming {
+                            first_downbeat_seconds: first,
+                            bpm,
+                        }),
+                    ),
+                });
+            }
+            link.meter(DeckId::A).set_gain(ag);
+            link.meter(DeckId::B).set_gain(bg);
+            link.send(DeckCommand::SetRate {
+                deck: DeckId::B,
+                rate: 0.96,
+            });
+            link.send(DeckCommand::Seek {
+                deck: DeckId::B,
+                seconds: 6.01,
+            });
+            link.send(DeckCommand::Play {
+                deck: DeckId::A,
+                quantize_to: None,
+            });
+            let mut samples = pull(&mut mix, 1.3);
+            link.set_loop(
+                DeckId::A,
+                Some(1),
+                Some(GridTiming {
+                    first_downbeat_seconds: 0.5,
+                    bpm: 120.0,
+                }),
+            );
+            samples.extend(pull(&mut mix, 8.0));
+            assert_eq!(
+                mix.decks[0]
+                    .as_ref()
+                    .unwrap()
+                    .deck_loop
+                    .as_ref()
+                    .unwrap()
+                    .phase,
+                LoopPhase::Replaying
+            );
+            link.send(DeckCommand::Play {
+                deck: DeckId::B,
+                quantize_to: Some(DeckId::A),
+            });
+            samples.extend(pull(&mut mix, 16.0));
+            samples
+        };
+        let a_onsets = onsets(&run(1.0, 0.0));
+        let b_onsets = onsets(&run(0.0, 1.0));
+        let errors: Vec<_> = b_onsets
+            .iter()
+            .map(|(at, _)| {
+                a_onsets
+                    .iter()
+                    .map(|(a, _)| (at - a).abs() * 1000.0)
+                    .fold(f64::INFINITY, f64::min)
+            })
+            .collect();
+        let mean = errors.iter().sum::<f64>() / errors.len() as f64;
+        let largest = errors.iter().copied().fold(0.0, f64::max);
+        eprintln!(
+            "looped leader {}beats mean{mean}ms max{largest}ms",
+            errors.len()
+        );
+        assert!(errors.len() > 20);
+        assert!(mean < 5.0);
+        assert!(largest < 10.0);
+    }
+
+    #[test]
+    fn first_loop_capture_does_not_wrap_the_heard_playhead_before_the_start() {
+        let (source, _feed) = crate::playback::testing::controlled_source(vec![0.25; 132_300], 0);
+        let mut track = LoadedTrack::new(
+            source,
+            Some(GridTiming {
+                first_downbeat_seconds: 0.5,
+                bpm: 120.0,
+            }),
+        );
+        let frames = loop_buffer(Some(1), track.grid, track.input_rate, track.channel_count);
+        track.set_loop(Some(1), frames);
+        track.playing = true;
+        let mut output = vec![0.0; BLOCK_FRAMES * 2];
+        while track.input_seconds() < 0.5 {
+            track.render(&mut output, BLOCK_FRAMES, 1.0);
+        }
+        assert_eq!(
+            track.deck_loop.as_ref().unwrap().phase,
+            LoopPhase::Capturing
+        );
+        let heard = track.heard_seconds();
+        eprintln!(
+            "first capture input{} heard{} delay{}",
+            track.input_seconds(),
+            heard,
+            track.delay_seconds()
+        );
+        assert!(heard < 0.5, "sound has not yet reached the loop start");
     }
 }
