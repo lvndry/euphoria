@@ -211,51 +211,51 @@ fn stored_text(cues: &[Cue]) -> serde_json::Result<String> {
     serde_json::to_string(&stored)
 }
 
-/// Reconciles the stored cues of every content whose length `analysis` is
-/// now recorded, keeping each set within the track with the same rule
-/// [`TrackCues::of`] applies on read, so no consumer can serve or export a
-/// cue past the end of a track the cache has measured. Runs in the
-/// transaction that records the analysis. A duration that is not a positive
-/// number of seconds is no measurement, and the sets are left as stored.
+/// Reconciles the stored cues of the content `analysis` describes, keeping
+/// them within the track with the same rule [`TrackCues::of`] applies on
+/// read, so no consumer can serve or export a cue past the end of a track
+/// the cache has measured. Runs in the transaction that records the
+/// analysis. A duration that is not a positive number of seconds is no
+/// measurement, and the set is left as stored.
+///
+/// Only the set stored under `content_hash` is touched: another track's
+/// analysis says nothing about this one's length.
 ///
 /// # Errors
 ///
 /// As [`Cache::edited_cues_of`].
 pub(crate) fn reconcile_stored_cues_to_analysis(
     connection: &rusqlite::Connection,
+    content_hash: &ContentHash,
     analysis: &TrackAnalysis,
 ) -> rusqlite::Result<()> {
     let end = f64::from(analysis.duration_seconds);
     if !(end.is_finite() && end > 0.0) {
         return Ok(());
     }
-    let hashes: Vec<Vec<u8>> = connection
-        .prepare(
-            "SELECT DISTINCT content_hash FROM edited_cues
-             WHERE content_hash IN (SELECT content_hash FROM analyses)",
-        )?
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    for content_hash in hashes {
-        let stored: String = connection.query_row(
+    let stored: Option<String> = connection
+        .query_row(
             "SELECT cues FROM edited_cues WHERE content_hash = ?1",
-            params![content_hash],
+            params![content_hash.as_bytes()],
             |row| row.get(0),
+        )
+        .optional()?;
+    let Some(stored) = stored else {
+        return Ok(());
+    };
+    let Some(cues) = parse_stored(&stored) else {
+        // The set is reported to the user as unread when it is read back,
+        // so it is left as stored here.
+        return Ok(());
+    };
+    let Ok(current) = stored_text(&TrackCues::within(cues, end).cues) else {
+        return Ok(());
+    };
+    if current != stored {
+        connection.execute(
+            "UPDATE edited_cues SET cues = ?2 WHERE content_hash = ?1",
+            params![content_hash.as_bytes(), current],
         )?;
-        let Some(cues) = parse_stored(&stored) else {
-            // The set is reported to the user as unread when it is read
-            // back, so it is left as stored here.
-            continue;
-        };
-        let Ok(current) = stored_text(&TrackCues::within(cues, end).cues) else {
-            continue;
-        };
-        if current != stored {
-            connection.execute(
-                "UPDATE edited_cues SET cues = ?2 WHERE content_hash = ?1",
-                params![content_hash, current],
-            )?;
-        }
     }
     Ok(())
 }
@@ -394,6 +394,44 @@ mod tests {
         assert_eq!(
             cache.track_cues_for(&track, &analysis()).unwrap().cues,
             stored
+        );
+    }
+
+    #[test]
+    fn recording_one_tracks_length_does_not_truncate_another_tracks_cues() {
+        let folder = TemporaryFolder::new();
+        let short = folder.path().join("short.mp3");
+        std::fs::write(&short, b"short audio").unwrap();
+        let long = folder.path().join("long.mp3");
+        std::fs::write(&long, b"long audio").unwrap();
+        let mut cache = open(&folder);
+
+        let mut short_analysis = analysis();
+        short_analysis.duration_seconds = 100.0;
+        let mut long_analysis = analysis();
+        long_analysis.duration_seconds = 300.0;
+        cache.record_retagged_file(&short, &short_analysis).unwrap();
+        cache.record_retagged_file(&long, &long_analysis).unwrap();
+
+        let short_cues = [Cue {
+            seconds: 50.0,
+            name: "Short end".to_string(),
+            hot_cue: None,
+        }];
+        let long_cues = [Cue {
+            seconds: 200.0,
+            name: "Long end".to_string(),
+            hot_cue: None,
+        }];
+        cache.set_edited_cues(&short, Some(&short_cues)).unwrap();
+        cache.set_edited_cues(&long, Some(&long_cues)).unwrap();
+
+        // Recording the shorter track's analysis again must not clamp the
+        // longer track's cues to the shorter track's length.
+        cache.record_retagged_file(&short, &short_analysis).unwrap();
+        assert_eq!(
+            cache.edited_cues_for(&long).unwrap(),
+            Some(long_cues.to_vec())
         );
     }
 
