@@ -17,6 +17,7 @@ It is an open alternative to paid harmonic mixing tools such as Mixed In Key.
 - Measures how far a track is tuned from A = 440 Hz and follows its key over time, both in the JSON output.
 - Analyzes whole folders from the command line, as a table or as JSON.
 - Exports keys, tempos, energy ratings and a playlist per folder to rekordbox, with `euphoria export rekordbox`.
+- Orders a folder or playlist into a set that follows an energy curve you choose, with every mix in key and small tempo steps, with `euphoria set build`.
 - Exports keys, tempos, beat grids, cues and playlists to a Traktor NML collection, with `euphoria export traktor`. Importing it in Traktor has not yet been tested.
 - Writes key, tempo and energy into the tags of your files, with `euphoria tags write`. Every change is shown first, nothing else in the file changes, and `euphoria tags undo` puts the old tags back.
 - Reads MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF.
@@ -27,7 +28,7 @@ Exports for Serato and Engine DJ are in development.
 ## Where to start
 
 - New here: [install Euphoria](getting-started/installation.md), then follow the [quick start](getting-started/quick-start.md).
-- Preparing a set: [analyze your library](guides/analyze-your-library.md).
+- Preparing a set: [analyze your library](guides/analyze-your-library.md), then [build a set along an energy curve](guides/build-a-set.md).
 - Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
 - Using Traktor: [export to Traktor](guides/export-to-traktor.md).
 - Using Serato: [cue points and beat grids for Serato](guides/serato-cues.md).
