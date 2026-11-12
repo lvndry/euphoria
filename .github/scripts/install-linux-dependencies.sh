@@ -2,7 +2,7 @@
 # Copyright 2026 The Euphoria contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Installs the packages the Linux build needs, then libkeyfinder. The package
+# Installs the packages the Linux build and packaging need, then libkeyfinder. The package
 # mirrors are sometimes unreachable for a minute, so each network step is
 # retried with a growing pause before the job is failed.
 set -euo pipefail
@@ -37,5 +37,15 @@ update_package_lists() {
 }
 
 retry update_package_lists
-retry sudo apt-get install -y -o Acquire::Retries=3 cmake libfftw3-dev pkg-config
+# cmake, FFTW and pkg-config build libkeyfinder and the core. The desktop app
+# adds the libraries GPUI's X11 and Wayland back ends and cpal's ALSA output
+# link against, and libclang for the bindings of the time stretcher. patchelf
+# and rsvg-convert package the AppImage.
+packages=(
+  cmake libfftw3-dev pkg-config
+  libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev
+  libx11-xcb-dev libxkbcommon-x11-dev libclang-dev
+  patchelf librsvg2-bin
+)
+retry sudo apt-get install -y -o Acquire::Retries=3 "${packages[@]}"
 retry "$(dirname "$0")/install-libkeyfinder.sh"

@@ -327,4 +327,4 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
 - Filters for key and tempo ranges.
-- Linux and Windows builds: the app is only built and tested on macOS so far.
+- Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.
