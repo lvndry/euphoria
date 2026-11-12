@@ -54,6 +54,10 @@ pub(crate) struct Track {
     /// The cues the user set, which replace those analysis placed, even
     /// when empty. `None` keeps the automatic cues.
     pub(crate) edited_cues: Option<Vec<Cue>>,
+    /// The beat grid as analysis fitted it, before any tempo range was
+    /// applied. Every range projects this one, so changing the range back
+    /// and forth never moves the first downbeat.
+    canonical_beat_grid: Option<BeatGrid>,
     file_name_lowercase: String,
     title_lowercase: String,
     artist_lowercase: Option<String>,
@@ -87,6 +91,7 @@ impl Track {
             status: TrackStatus::Queued,
             correction: Correction::default(),
             edited_cues: None,
+            canonical_beat_grid: None,
         }
     }
 
@@ -427,8 +432,14 @@ impl Library {
             self.review_count -= 1;
         }
         track.status = match outcome {
-            Ok(analysis) => TrackStatus::Analyzed(analysis.with_tempo_range(self.tempo_range)),
-            Err(reason) => TrackStatus::Failed(reason),
+            Ok(analysis) => {
+                track.canonical_beat_grid = analysis.beat_grid;
+                TrackStatus::Analyzed(analysis.with_tempo_range(self.tempo_range))
+            }
+            Err(reason) => {
+                track.canonical_beat_grid = None;
+                TrackStatus::Failed(reason)
+            }
         };
         if track.needs_review() {
             self.review_count += 1;
@@ -491,7 +502,7 @@ impl Library {
             if let TrackStatus::Analyzed(analysis) = &mut track.status {
                 // The same as `with_tempo_range`, in place, so the rest of
                 // the analysis, such as its key timeline, is not copied.
-                analysis.bpm = analysis.tempo_in(range);
+                analysis.set_tempo_range_from(track.canonical_beat_grid, range);
             }
         }
         self.revision += 1;
@@ -1029,8 +1040,19 @@ mod tests {
         ];
         library.add_files(paths.map(PathBuf::from).to_vec());
         let estimates = [87.0, 124.0, 150.0, 61.5];
+        let mut originals = Vec::new();
         for (path, estimate) in paths.iter().zip(estimates) {
-            library.record_outcome(Path::new(path), Ok(rated(0.02, estimate, 0.6)));
+            let mut analysis = rated(0.02, estimate, 0.6);
+            analysis.beat_grid = Some(BeatGrid {
+                // Far enough into the first bar that doubling the tempo
+                // wraps it, which a projection of a projection would lose.
+                first_downbeat_seconds: 2.0,
+                bpm: f64::from(estimate),
+                salience: 5.0,
+                drift_seconds: None,
+            });
+            originals.push(analysis.clone());
+            library.record_outcome(Path::new(path), Ok(analysis));
         }
         let mut no_estimate = analysis(Some("A minor"), Some(95.0), 300.0);
         no_estimate.key_timeline = vec![euphoria_core::KeySection {
@@ -1038,19 +1060,25 @@ mod tests {
             end_seconds: 300.0,
             key: "A minor".parse().unwrap(),
         }];
+        originals.push(no_estimate.clone());
         library.add_files(vec![PathBuf::from("/music/e.mp3")]);
         library.record_outcome(Path::new("/music/e.mp3"), Ok(no_estimate.clone()));
 
+        // A round trip back to a range must give the grid a single
+        // projection from the analysis as stored would.
         for range in [
+            TempoRange::DEFAULT,
             TempoRange::new(70.0, 140.0).unwrap(),
             TempoRange::new(120.0, 200.0).unwrap(),
             TempoRange::DEFAULT,
+            TempoRange::new(70.0, 140.0).unwrap(),
         ] {
             library.set_tempo_range(range);
-            for track in library.tracks() {
+            for (track, original) in library.tracks().iter().zip(&originals) {
                 let analysis = track.analysis().unwrap();
-                let expected = analysis.clone().with_tempo_range(range);
+                let expected = original.clone().with_tempo_range(range);
                 assert_eq!(analysis.bpm, expected.bpm, "{range}");
+                assert_eq!(analysis.beat_grid, expected.beat_grid, "{range}");
             }
         }
         let kept = library.tracks()[4].analysis().unwrap();

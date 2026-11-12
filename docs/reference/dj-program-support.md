@@ -17,7 +17,7 @@ Euphoria hands its analysis to a DJ program in one of three ways: a library file
 | rekordbox | [Tags](../guides/write-tags.md), `euphoria tags write --preset rekordbox` | Yes | Not read by rekordbox | No | No | In the comment | **Yes** (rekordbox 7.2.19) |
 | Traktor Pro | [Traktor NML](../guides/export-to-traktor.md), `euphoria export traktor` | Yes, Key and Key Text columns | Yes, six decimals | Yes, `--beat-grid` | Yes, hot cues 1 to 8, `--cues` | In the comment | **No** |
 | Traktor Pro | Tags, `--preset traktor` | Key Text column only | Unconfirmed | No | No | In the comment | **No** |
-| Serato DJ | Tags, `--preset serato` | Yes | Only with `--tempo` | No | No | In the comment | **No** |
+| Serato DJ | Tags, `--preset serato`, with [`--serato-markers`](../guides/serato-cues.md) for cues and grid | Yes | Only with `--tempo` | With `--serato-markers` | With `--serato-markers`, hot cues 1 to 8, merged with yours | In the comment | **No** |
 | Engine DJ | Tags, `--preset engine-dj` | Yes | Unconfirmed | No | No | In the comment | **No** |
 | Engine DJ | rekordbox XML, through Engine's Import Assistant | Unconfirmed | Unconfirmed | Yes, by Engine's guide | Hot cues, by Engine's guide | Unconfirmed | **No** |
 | VirtualDJ | [database.xml](../guides/export-to-virtualdj.md), `euphoria export virtualdj` | Yes, `Key` of `Tags` and `Scan` | Yes, six decimals of seconds per beat | Yes, `--beat-grid` | Yes, hot cues 1 to 8, `--cues` | In the comment or grouping | **No** |

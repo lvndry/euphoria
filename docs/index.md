@@ -33,9 +33,11 @@ Exports for Serato and Engine DJ are in development.
 - Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
 - Using Traktor: [export to Traktor](guides/export-to-traktor.md).
 - Using VirtualDJ: [export to VirtualDJ](guides/export-to-virtualdj.md).
+- Using Serato: [cue points and beat grids for Serato](guides/serato-cues.md).
 - Which DJ program gets what: [DJ program support](reference/dj-program-support.md).
 - Want the key and energy inside the files, for any DJ software: [write tags into your files](guides/write-tags.md), then [set up your DJ program](guides/dj-programs.md).
 - Prefer a window to a terminal: [desktop app](guides/desktop-app.md).
+- Layering two tracks: [mashups](guides/mashups.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Curious what the energy number means: [energy rating](concepts/energy.md).
 - Wondering whether your files are good enough to play loud: [audio quality](concepts/audio-quality.md).

@@ -43,7 +43,7 @@ const ENERGY_COLUMN: usize = 6;
 
 /// A library of made up tracks whose files do not exist, with an audio
 /// output that makes no sound.
-fn open_library(
+pub(crate) fn open_library(
     track_count: usize,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
@@ -88,7 +88,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
     .collect()
 }
 
-fn open_window_on(
+pub(crate) fn open_window_on(
     tracks: Vec<DemoTrack>,
     output: Box<dyn AudioOutput>,
     cx: &mut TestAppContext,
@@ -99,7 +99,7 @@ fn open_window_on(
 
 /// The fixture library in a window of `window_size`, opened with `settings`
 /// as if they had been remembered, and saving to `settings_path` when given.
-fn open_window_with(
+pub(crate) fn open_window_with(
     tracks: Vec<DemoTrack>,
     output: Box<dyn AudioOutput>,
     settings: Settings,
@@ -151,7 +151,7 @@ fn open_arranged(
     )
 }
 
-fn track(index: usize) -> (&'static str, usize) {
+pub(crate) fn track(index: usize) -> (&'static str, usize) {
     ("track", index)
 }
 
@@ -1756,7 +1756,11 @@ fn open_taggable_files(
     (window, view)
 }
 
-fn click(window: AnyWindowHandle, id: impl Into<gpui::ElementId>, cx: &mut TestAppContext) {
+pub(crate) fn click(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) {
     let id = id.into();
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
@@ -3224,7 +3228,7 @@ fn deleting_the_playlist_on_show_goes_back_to_all_tracks(cx: &mut TestAppContext
 
 /// Scratch copies of the test files in a window that keeps its playlists
 /// in a real store in the scratch folder.
-fn open_with_playlist_store(
+pub(crate) fn open_with_playlist_store(
     name: &str,
     cx: &mut TestAppContext,
 ) -> (
@@ -3684,7 +3688,7 @@ fn selected_key_and_bpm(
     })
 }
 
-fn is_shown(
+pub(crate) fn is_shown(
     window: AnyWindowHandle,
     id: impl Into<gpui::ElementId>,
     cx: &mut TestAppContext,
@@ -3996,7 +4000,7 @@ fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut Te
 
 /// The core's fixture files as three tracks with keys, tempos, energies,
 /// beat grids and cues: A minor at 120, E minor at 125 and C major at 118.
-fn deck_tracks() -> Vec<DemoTrack> {
+pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
     let fixtures =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
@@ -4058,7 +4062,11 @@ fn deck_tracks() -> Vec<DemoTrack> {
     .collect()
 }
 
-fn index_of_track(view: &Entity<EuphoriaApp>, name: &str, cx: &mut TestAppContext) -> usize {
+pub(crate) fn index_of_track(
+    view: &Entity<EuphoriaApp>,
+    name: &str,
+    cx: &mut TestAppContext,
+) -> usize {
     cx.update(|cx| {
         let library = view.read(cx).session.library();
         library
@@ -4106,6 +4114,65 @@ fn the_decks_load_a_track_and_suggest_what_mixes_after_it(cx: &mut TestAppContex
     cx.update(|cx| assert_eq!(view.read(cx).decks.view(DeckId::B).rate, 1.0));
     click(window, "deck-sync", cx);
     cx.update(|cx| assert!((view.read(cx).decks.view(DeckId::B).rate - 0.96).abs() < 1e-9));
+}
+
+#[gpui::test]
+fn mashup_mode_steps_through_layering_ideas_with_their_key_shift(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    click(window, track(flac), cx);
+    click(window, deck_part("deck-load", DeckId::A), cx);
+    click(window, ("deck-mode", 1_usize), cx);
+    let ideas = cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.mode, crate::decks::DeckMode::Mashup);
+        decks
+            .ideas
+            .iter()
+            .map(|idea| (idea.track_index, idea.key.shift_semitones))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        ideas,
+        [(wav, 0), (mp3, 0)],
+        "C major is A minor's relative and E minor its neighbour"
+    );
+    assert!(is_shown(window, ("mashup-idea", wav), cx));
+
+    click(window, "mashup-next", cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.idea_index, Some(0));
+        assert_eq!(decks.view(DeckId::B).track_index, Some(wav));
+    });
+    click(window, "mashup-next", cx);
+    click(window, "mashup-next", cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.idea_index, Some(0), "the arrows wrap around");
+    });
+
+    click(window, deck_part("deck-shift-up", DeckId::A), cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).shift_semitones, 1);
+        let wav_idea = decks
+            .ideas
+            .iter()
+            .find(|idea| idea.track_index == wav)
+            .expect("C major still layers after a shift");
+        assert_eq!(
+            wav_idea.key.shift_semitones, 1,
+            "deck A in B flat minor asks for D flat major on deck B"
+        );
+    });
+    click(window, ("deck-mode", 0_usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).decks.mode, crate::decks::DeckMode::NextTrack));
 }
 
 #[gpui::test]

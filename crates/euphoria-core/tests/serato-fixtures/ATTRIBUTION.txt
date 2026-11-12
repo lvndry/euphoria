@@ -1,0 +1,9 @@
+These files are fields that Serato DJ wrote into audio files: Serato
+Markers2, Serato Markers_ and Serato BeatGrid, for MP3 (ID3 GEOB data),
+M4A (freeform atom text) and FLAC (Vorbis comment text).
+
+They come from the Mixxx project's test data, src/test/serato/data, at
+commit 20f2c218ae1b762ac39fd76ff408c8428056f4f7:
+https://github.com/mixxxdj/mixxx/tree/20f2c218ae1b762ac39fd76ff408c8428056f4f7/src/test/serato/data
+
+Mixxx is licensed under the GNU General Public License, version 2 or later.

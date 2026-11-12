@@ -83,6 +83,14 @@ pub(crate) struct EuphoriaApp {
     pub(crate) playlist: Option<PlaylistId>,
     /// The place in the playlist on show of each track in it, from 1.
     pub(crate) playlist_positions: HashMap<usize, usize>,
+    /// True while the table shows the starred tracks, in the order they
+    /// were starred, in place of the library.
+    pub(crate) showing_favorites: bool,
+    /// The marked transition, from one track into another, whose note is
+    /// being typed.
+    pub(crate) editing_transition_note: Option<(PathBuf, PathBuf)>,
+    /// The field the note of a transition is typed in.
+    pub(crate) transition_note_input: Entity<InputState>,
     /// The playlist whose name is being typed.
     pub(crate) renaming_playlist: Option<PlaylistId>,
     /// The field the name of a playlist is typed in.
@@ -261,6 +269,18 @@ impl EuphoriaApp {
                 InputEvent::Change | InputEvent::Focus => {}
             },
         );
+        let transition_note_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("How this transition goes, where to mix in")
+        });
+        let transition_noted = cx.subscribe(
+            &transition_note_input,
+            |this: &mut Self, _, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                    this.finish_editing_transition_note(cx);
+                }
+                InputEvent::Change | InputEvent::Focus => {}
+            },
+        );
         let bpm_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
         let bpm_entered = cx.subscribe(&bpm_input, |this: &mut Self, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
@@ -298,6 +318,9 @@ impl EuphoriaApp {
             filter: LibraryFilter::AllTracks,
             folder: settings.folder_tree.selected.clone(),
             playlist: None,
+            showing_favorites: false,
+            editing_transition_note: None,
+            transition_note_input,
             playlist_positions: HashMap::new(),
             renaming_playlist: None,
             playlist_name_input,
@@ -367,6 +390,7 @@ impl EuphoriaApp {
             folder_column_basis: None,
             _subscriptions: vec![
                 playlist_named,
+                transition_noted,
                 bpm_entered,
                 cue_named,
                 search_changed,
@@ -612,13 +636,19 @@ impl EuphoriaApp {
                     .collect()
             })
             .unwrap_or_default();
-        self.visible = match playlist {
-            Some(playlist) => library.playlist_rows(
-                &playlist.tracks,
-                &self.query,
-                self.sort_order,
-                &self.folder_column,
-            ),
+        if playlist.is_some() {
+            self.showing_favorites = false;
+        }
+        let favorites = self
+            .showing_favorites
+            .then(|| self.session.favorites().tracks());
+        self.visible = match playlist
+            .map(|playlist| playlist.tracks.as_slice())
+            .or(favorites)
+        {
+            Some(paths) => {
+                library.playlist_rows(paths, &self.query, self.sort_order, &self.folder_column)
+            }
             None => library.visible_tracks(
                 self.filter,
                 self.folder.as_deref(),
@@ -1076,6 +1106,7 @@ impl EuphoriaApp {
     /// Shows every track of every folder.
     pub(crate) fn show_all_tracks(&mut self, cx: &mut Context<'_, Self>) {
         self.playlist = None;
+        self.showing_favorites = false;
         self.filter = LibraryFilter::AllTracks;
         self.folder = None;
         self.refresh_visible();
@@ -1086,6 +1117,7 @@ impl EuphoriaApp {
     /// Shows only the tracks that need review, within the folder on show.
     pub(crate) fn show_tracks_needing_review(&mut self, cx: &mut Context<'_, Self>) {
         self.playlist = None;
+        self.showing_favorites = false;
         self.filter = LibraryFilter::NeedsReview;
         self.refresh_visible();
         cx.notify();
@@ -1095,6 +1127,7 @@ impl EuphoriaApp {
     /// re-encoded, within the folder on show.
     pub(crate) fn show_tracks_with_quality_to_check(&mut self, cx: &mut Context<'_, Self>) {
         self.playlist = None;
+        self.showing_favorites = false;
         self.filter = LibraryFilter::QualityToCheck;
         self.refresh_visible();
         cx.notify();
@@ -1103,6 +1136,7 @@ impl EuphoriaApp {
     /// Shows every track in the folder at `path` and the folders inside it.
     pub(crate) fn show_folder(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
         self.playlist = None;
+        self.showing_favorites = false;
         self.filter = LibraryFilter::AllTracks;
         self.folder = Some(path);
         self.refresh_visible();
@@ -1426,6 +1460,12 @@ impl EuphoriaApp {
                             if this.player.track() == Some(path.as_path()) {
                                 this.stems_changed(cx);
                             }
+                            this.decks.stem_library.recheck(&path);
+                            if this.decks.is_open
+                                && this.decks.mode == crate::decks::DeckMode::Mashup
+                            {
+                                this.scan_for_stems(cx);
+                            }
                         })
                         .ok();
                         break;
@@ -1489,7 +1529,13 @@ impl EuphoriaApp {
         self.mixes = self
             .selected
             .map(|selected| {
-                suggestions(self.session.library(), selected, self.key_shift, MIX_LIMIT)
+                suggestions(
+                    self.session.library(),
+                    self.session.favorites(),
+                    selected,
+                    self.key_shift,
+                    MIX_LIMIT,
+                )
             })
             .unwrap_or_default();
     }

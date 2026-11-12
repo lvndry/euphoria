@@ -67,6 +67,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 - **All tracks** shows the whole library.
 - **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
+- **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** is a placeholder and always shows 0.
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
@@ -168,6 +169,12 @@ Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsm
 
 With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
 
+### Mashup mode
+
+**Mashup** above the list under the decks swaps the tracks to play next for tracks that layer over deck A, with a key shift and stems for each, and **Export mashup…** renders the pair to a WAV file.
+
+See [Mashups](mashups.md).
+
 ## The waveform
 
 The waveform shows the whole track from left to right, and its colours show what is sounding:
@@ -205,6 +212,39 @@ Under the waveform, across the same width, a row of bars shows the [energy curve
 ### Key changes
 
 When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
+
+## Favorites
+
+Star the tracks you reach for, and mark the transitions you know work: a track into another that you tried on the decks or played out and want to find again.
+
+### Star a track
+
+- In the table, the star sits before the title. It shows on the row under the pointer, and stays on a starred track. Click it to star the track or take the star off; the click does not change the selection.
+- Press F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. F types a letter when a text field has the keyboard.
+- The right click menu of a row has **Star** or **Remove star**, for the selected tracks.
+- The star at the top of the inspector, beside the track's name, stars the selected track.
+- Each deck has a star beside its track's name.
+
+**Favorites** in the sidebar shows the starred tracks, in the order you starred them. Search and sorting work there as in a playlist.
+
+### Favorite transitions
+
+A favorite transition is one track into another: playing the second after the first mixes well. It has a direction, so a transition from A into B is not one from B into A, since a mix that works one way often does not work the other (an energy lift played backwards is a drop).
+
+- On the decks, with a track on each, **Save transition A → B** under the decks marks the transition from deck A into deck B. Click it again to take the mark off. Once it is marked, click **Add a note** beside it to write how the mix goes, for example where to bring the second track in, and press Return. An empty note takes the note away.
+- In **Mixes well with** in the inspector, the star at the start of a row marks the transition from the selected track into that one.
+
+Marked transitions come first in **Mixes well with**, in the order you marked them, with a filled star, and their note shows when the pointer rests on the row. A marked transition is listed there even when its keys do not mix by the rules, since you found that they do; its relation then reads **Your mix**.
+
+In **Next on deck B**, a marked transition out of the track on deck A moves up the ranking: it counts as much as four steps of key relation, so a mix you know beats one that is only smoother on paper, unless its tempo or energy is far off. A filled star marks it. It still has to mix in key and tempo to be suggested there.
+
+### Export your favorites
+
+Over the starred tracks, **Export to rekordbox** and **Export M3U8** ask where to save them and write them as a playlist named Favorites, in the order you starred them, the same way a [playlist export](#export-a-playlist) does. The line also counts your favorite transitions. Transitions and their notes are not part of the export: rekordbox XML and M3U8 have no place for them.
+
+### Where favorites are kept
+
+Favorites are kept with the playlists in `playlists.sqlite3`, so clearing the analysis cache never touches them. Like a playlist entry, each starred track and each side of a transition is kept by the content of its file and the path it was last seen at: a favorite survives a move or a rename once the app has seen the file in its new place, and follows Euphoria's own tag writes and undo, the way corrections and edited cues do.
 
 ## Write tags
 
@@ -309,7 +349,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) explains. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
@@ -359,6 +399,7 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 ## Not there yet
 
 - On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
+- Rating favorites (more than one star), and exporting favorite transitions with their notes.
 - Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.

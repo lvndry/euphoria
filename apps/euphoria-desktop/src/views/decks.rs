@@ -15,16 +15,17 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
-use crate::decks::{DeckView, SuggestionScope};
+use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
 use crate::player::fraction_along;
 use crate::theme::Palette;
 use crate::track_overview::EnergyCurve;
+use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::tag_panel::choice_button;
-use crate::views::track_overview;
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
+use crate::views::{mashup, track_overview};
 use crate::waveforms::Waveform;
 
 /// Height of a deck's waveform.
@@ -60,12 +61,16 @@ pub(crate) fn cue_id(deck: DeckId, cue_index: usize) -> (&'static str, usize) {
 
 /// Makes `strip` a control a press or a drag sets to the pointer's place
 /// along it, from 0 at its left edge to 1 at its right.
-fn press_and_drag(
+fn press_and_drag<Set>(
     strip: Stateful<Div>,
     seen_bounds: &SeenBounds,
     cx: &mut Context<'_, EuphoriaApp>,
-    set: fn(&mut EuphoriaApp, f32, &mut Context<'_, EuphoriaApp>),
-) -> Stateful<Div> {
+    set: Set,
+) -> Stateful<Div>
+where
+    Set: Fn(&mut EuphoriaApp, f32, &mut Context<'_, EuphoriaApp>) + Clone + 'static,
+{
+    let set_on_drag = set.clone();
     let on_press = seen_bounds.clone();
     let on_drag = seen_bounds.clone();
     let along = |bounds: &SeenBounds, x: gpui::Pixels| {
@@ -92,20 +97,23 @@ fn press_and_drag(
             if event.pressed_button == Some(MouseButton::Left)
                 && let Some(fraction) = along(&on_drag, event.position.x)
             {
-                set(this, fraction, cx);
+                set_on_drag(this, fraction, cx);
             }
         }))
 }
 
 /// A horizontal fader at `value`, from 0 to 1.
-fn fader(
+pub(crate) fn fader<Set>(
     id: impl Into<gpui::ElementId>,
     value: f32,
     seen_bounds: &SeenBounds,
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
-    set: fn(&mut EuphoriaApp, f32, &mut Context<'_, EuphoriaApp>),
-) -> AnyElement {
+    set: Set,
+) -> AnyElement
+where
+    Set: Fn(&mut EuphoriaApp, f32, &mut Context<'_, EuphoriaApp>) + Clone + 'static,
+{
     let bounds = seen_bounds.clone();
     let track = div()
         .id(id)
@@ -163,7 +171,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .child(mixer(app, cx))
                 .child(deck(app, DeckId::B, cx).test_support()),
         )
-        .child(suggestions(app, cx))
+        .child(match app.decks.mode {
+            DeckMode::NextTrack => suggestions(app, cx),
+            DeckMode::Mashup => mashup::ideas(app, cx),
+        })
+        .children(favorites::deck_transition(app, cx))
 }
 
 fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
@@ -232,6 +244,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .font_weight(FontWeight::MEDIUM)
                 .child(title),
         )
+        .children(favorites::deck_star(app, deck, cx))
         .children(tempo.map(|tempo| {
             let out_of_reach = view.tempo_out_of_reach;
             div()
@@ -380,6 +393,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .child(waveform_area)
         .children(energy)
         .child(div().flex().flex_wrap().gap(px(4.0)).children(cues))
+        .child(mashup::deck_controls(app, deck, cx))
         .children(view.problem.clone().map(|problem| {
             div()
                 .text_size(SMALL_TEXT_SIZE)
@@ -544,8 +558,7 @@ fn mixer(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
 fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let decks = &app.decks;
-    let library = app.session.library();
-    let directions = EnergyDirection::ALL
+    let directions: Vec<_> = EnergyDirection::ALL
         .iter()
         .enumerate()
         .map(|(index, direction)| {
@@ -558,9 +571,32 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             )
             .on_click(cx.listener(move |this, _, _, cx| this.set_energy_direction(direction, cx)))
             .test_support()
-        });
+        })
+        .collect();
+    let scopes = scope_buttons(app, cx);
+    let heading = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(6.0))
+        .children(mashup::mode_buttons(app, cx))
+        .child(section_label("Next on deck B", &palette))
+        .child(div().flex_1())
+        .children(directions)
+        .child(div().w(px(8.0)))
+        .children(scopes);
+    suggestion_rows(app, heading, cx)
+}
+
+/// The choices of where suggestions come from.
+pub(crate) fn scope_buttons(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Vec<AnyElement> {
+    let palette = app.theme.palette;
+    let decks = &app.decks;
     let playlists = app.session.playlists().all();
-    let scopes = [
+    [
         (SuggestionScope::Library, "Whole library".to_string()),
         (SuggestionScope::Shown, "Tracks shown".to_string()),
     ]
@@ -584,17 +620,15 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         )
         .on_click(cx.listener(move |this, _, _, cx| this.set_suggestion_scope(scope, cx)))
         .test_support()
-    });
-    let heading = div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .gap(px(6.0))
-        .child(section_label("Next on deck B", &palette))
-        .child(div().flex_1())
-        .children(directions)
-        .child(div().w(px(8.0)))
-        .children(scopes);
+        .into_any_element()
+    })
+    .collect()
+}
+
+fn suggestion_rows(app: &EuphoriaApp, heading: Div, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let palette = app.theme.palette;
+    let decks = &app.decks;
+    let library = app.session.library();
 
     let hover_background = palette.raised;
     let rows = decks.suggestions.iter().filter_map(|suggestion| {
@@ -624,6 +658,20 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .rounded(px(4.0))
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover_background))
+                .child(
+                    div()
+                        .id(("suggestion-favorite", track_index))
+                        .w(px(14.0))
+                        .flex_shrink_0()
+                        .when(suggestion.is_favorite, |mark| {
+                            mark.child(favorites::star_icon(true, &palette)).tooltip(
+                                |window, cx| {
+                                    Tooltip::new("A transition you marked as a favorite")
+                                        .build(window, cx)
+                                },
+                            )
+                        }),
+                )
                 .child(
                     div().w(px(38.0)).flex_shrink_0().children(
                         track
