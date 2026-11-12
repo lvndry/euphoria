@@ -43,7 +43,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let counts = app.sidebar_counts();
     let hover_background = palette.raised;
 
-    let in_library = app.playlist.is_none() && !app.showing_favorites;
+    let in_library = app.playlist.is_none() && !app.set_builder.is_open && !app.showing_favorites;
     let favorites_are_current = app.playlist.is_none() && app.showing_favorites;
     let all_tracks_is_current =
         in_library && app.filter == LibraryFilter::AllTracks && app.folder.is_none();
@@ -127,6 +127,16 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             row("Missing files", Some(0), false, &palette)
                 .id("missing-files")
                 .opacity(0.6),
+        )
+        .child(
+            row("Set builder", None, app.set_builder.is_open, &palette)
+                .id("set-builder-entry")
+                .cursor_pointer()
+                .when(!app.set_builder.is_open, |row| {
+                    row.hover(move |style| style.bg(hover_background.opacity(0.6)))
+                })
+                .on_click(cx.listener(|this, _, _, cx| this.open_set_builder(cx)))
+                .test_support(),
         )
         .child(
             section_label("Folders", &palette)
@@ -221,7 +231,7 @@ fn folder_row(
     let palette = app.theme.palette;
     let node_index = *app.folder_rows.get(row_index)?;
     let node = app.folder_tree.node(node_index)?;
-    let is_current = app.folder.as_ref() == Some(&node.path);
+    let is_current = app.folder.as_ref() == Some(&node.path) && !app.set_builder.is_open;
     let is_expanded = app.expanded_folders.contains(&node.path);
     let hover_background = palette.raised;
     let full_path: SharedString = node.path.to_string_lossy().into_owned().into();

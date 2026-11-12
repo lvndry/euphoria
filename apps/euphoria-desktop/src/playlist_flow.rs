@@ -55,6 +55,7 @@ pub(crate) type ExportOutcome = Result<String, String>;
 impl EuphoriaApp {
     /// Shows the tracks of the playlist in its order.
     pub(crate) fn show_playlist(&mut self, id: PlaylistId, cx: &mut Context<'_, Self>) {
+        self.close_set_builder();
         if self.session.playlists().get(id).is_none() {
             return;
         }

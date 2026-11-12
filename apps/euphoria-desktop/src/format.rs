@@ -11,6 +11,21 @@ pub(crate) fn duration(seconds: f32) -> String {
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
 }
 
+/// A length that may run past an hour, for example "1:53:50", or "48:30"
+/// under an hour.
+pub(crate) fn long_duration(seconds: f32) -> String {
+    let whole_seconds = seconds.max(0.0).round() as u64;
+    let hours = whole_seconds / 3600;
+    if hours == 0 {
+        return duration(seconds);
+    }
+    format!(
+        "{hours}:{:02}:{:02}",
+        whole_seconds % 3600 / 60,
+        whole_seconds % 60
+    )
+}
+
 /// The time of a cue as minutes and seconds to a tenth, for example
 /// "1:02.5".
 pub(crate) fn cue_time(seconds: f64) -> String {
@@ -110,6 +125,12 @@ pub(crate) fn quality_details(report: &QualityReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_durations_show_hours_once_there_are_any() {
+        assert_eq!(long_duration(2_910.0), "48:30");
+        assert_eq!(long_duration(6_830.0), "1:53:50");
+    }
 
     #[test]
     fn quality_details_name_what_the_verdict_rests_on() {
