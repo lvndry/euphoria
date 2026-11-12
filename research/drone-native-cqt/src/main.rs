@@ -80,6 +80,14 @@ fn diagnostics(actual: &[f32], reference: &[f32]) -> Result<Value> {
         json!({"max_abs":maximum,"rms":(squares/actual.len() as f64).sqrt(),"fp16_mismatches":changed,"values":actual.len(),"fp16_mismatch_rate":changed as f64/actual.len() as f64}),
     )
 }
+fn artifact_root(manifest: &Path) -> Result<&Path> {
+    let root = manifest.parent().context("golden root")?;
+    Ok(if root.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        root
+    })
+}
 fn main() -> Result<()> {
     let args = Args::parse();
     ensure!(!args.output.exists(), "immutable output exists");
@@ -148,7 +156,7 @@ fn main() -> Result<()> {
         .as_deref()
         .map(plan::NumpyMath::new)
         .transpose()?;
-    let root = args.manifest.parent().context("golden root")?;
+    let root = artifact_root(&args.manifest)?;
     let cases = manifest["cases"].as_array().context("cases")?;
     if args.single_case {
         ensure!(cases.len() == 1, "exactly one expansion case required");
@@ -227,6 +235,35 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn basename_manifest_reads_artifacts_from_its_working_directory() -> Result<()> {
+        const CHILD: &str = "CQT_BASENAME_READER_CHILD";
+        let bytes = 1.0f32.to_le_bytes();
+        if std::env::var_os(CHILD).is_some() {
+            let artifact = json!({"path":"pcm","sha256":bytes_sha256(&bytes),"bytes":4});
+            ensure!(read_f32(artifact_root(Path::new("manifest.json"))?, &artifact)? == [1.0]);
+            return Ok(());
+        }
+        let root = std::env::temp_dir().join(format!("cqt-basename-{}", std::process::id()));
+        fs::create_dir(&root)?;
+        fs::write(root.join("pcm"), bytes)?;
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "tests::basename_manifest_reads_artifacts_from_its_working_directory",
+            ])
+            .env(CHILD, "1")
+            .current_dir(&root)
+            .output()?;
+        fs::remove_dir_all(root)?;
+        ensure!(
+            output.status.success(),
+            "basename reader failed: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(())
+    }
     #[test]
     fn diagnostics_preserve_half_mismatches_and_finites() -> Result<()> {
         let result = diagnostics(&[0., 1.], &[0., 1.001])?;

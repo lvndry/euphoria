@@ -68,7 +68,12 @@ fn main() -> Result<()> {
     let args = Args::parse();
     ensure!(!args.output.exists(), "immutable output exists");
     let input: Value = serde_json::from_slice(&fs::read(&args.input)?)?;
-    let root = args.input.parent().context("root")?;
+    let parent = args.input.parent().context("root")?;
+    let root = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
     let frames = input["frames"].as_u64().context("frames")? as usize;
     let pre = floats(root, &input["pre"])?;
     let normalized = floats(root, &input["normalized"])?;
