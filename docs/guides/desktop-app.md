@@ -255,6 +255,22 @@ Tracks not analyzed yet are left out of a rekordbox export, and the app says how
 
 Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [data folder](#what-the-app-remembers). Each track is kept by the content of its file, like a remembered result, together with its path. A file moved or renamed is found again once the app or `euphoria analyze` has seen it in its new place, and only when the file there holds the same content. Euphoria's own tag writes and undo keep playlist identity in step with the rewritten file; an unverified external replacement is still left out of exports. Playlists live in their own file so that clearing or deleting the cache never touches them. The command line lists them with [`euphoria playlists`](../reference/cli.md#euphoria-playlists) and exports one by name.
 
+## Build a set
+
+**Set builder** in the sidebar opens a page that orders tracks into a set along an energy curve, with every mix in a compatible key and small tempo steps. It is the same search as [`euphoria set build`](build-a-set.md), which explains how it chooses.
+
+1. **Draw the curve.** Drag across the chart: higher is more energy, from 1 at the bottom to 10 at the top. The stroke is smoothed when you let go. **Warm up**, **Peak time** and **Journey** put a preset curve back.
+2. **Choose the pool.** All tracks, one of the folders you added, or a playlist. The pool starts as what the library showed when you opened the page.
+3. **Set the length** with **−** and **+**, from 2 to 60 tracks, then **Build set**.
+
+The chart then draws the energy of each track of the set over the curve, with tracks more than a point away in red. Under it, a summary gives the length of the set, how close it follows the curve and whether every mix keeps the rules, then one line for each place it falls short. Each row of the set shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
+
+- **Lock** keeps a track where it is. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
+- The arrows move a track one place, and **Remove** takes it out. The set is explained again at once: the moves, the steps and the curve follow your order.
+- **Save as playlist** keeps the set as a playlist named after its curve, such as "Set: Journey, 20 tracks", in the sidebar with the others. **Export M3U8…** saves it first if needed, then asks where to write the file.
+
+A pool with more than 4,000 tracks that have a key, a tempo and an energy is refused: choose a folder or a playlist.
+
 ## Edit tags
 
 Select one track or thousands and click **Edit tags** in the toolbar, or choose **Tags > Edit Tags…** (Command I), to edit their title, artist, album, genre, year, track number, comment, grouping, key and BPM fields.

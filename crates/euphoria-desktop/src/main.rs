@@ -33,6 +33,9 @@ mod playlist_flow;
 mod playlists;
 mod progress;
 mod reference_sound;
+mod set_builder;
+#[cfg(test)]
+mod set_builder_ui_tests;
 mod settings;
 mod state;
 mod stems;

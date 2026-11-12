@@ -43,7 +43,7 @@ const ENERGY_COLUMN: usize = 6;
 
 /// A library of made up tracks whose files do not exist, with an audio
 /// output that makes no sound.
-fn open_library(
+pub(crate) fn open_library(
     track_count: usize,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
@@ -1755,7 +1755,11 @@ fn open_taggable_files(
     (window, view)
 }
 
-fn click(window: AnyWindowHandle, id: impl Into<gpui::ElementId>, cx: &mut TestAppContext) {
+pub(crate) fn click(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) {
     let id = id.into();
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
@@ -3681,7 +3685,7 @@ fn selected_key_and_bpm(
     })
 }
 
-fn is_shown(
+pub(crate) fn is_shown(
     window: AnyWindowHandle,
     id: impl Into<gpui::ElementId>,
     cx: &mut TestAppContext,

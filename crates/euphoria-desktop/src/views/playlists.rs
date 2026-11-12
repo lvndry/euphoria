@@ -155,7 +155,7 @@ fn playlist_row(
 ) -> AnyElement {
     let palette = app.theme.palette;
     let id = playlist.id;
-    let is_current = app.playlist == Some(id);
+    let is_current = app.playlist == Some(id) && !app.set_builder.is_open;
     let hover_background = palette.raised;
     let name: SharedString = playlist.name.clone().into();
     let drag_name = name.clone();
