@@ -39,6 +39,11 @@ pub struct StemFiles {
 }
 
 impl StemFiles {
+    /// The stem files in `directory`, named as the cache names them.
+    pub fn in_directory(directory: PathBuf) -> Self {
+        Self { directory }
+    }
+
     /// The 16 bit stereo WAV file of `stem`, at 44.1 kHz.
     pub fn path(&self, stem: Stem) -> PathBuf {
         self.directory.join(format!("{}.wav", stem.name()))
@@ -93,14 +98,21 @@ impl StemCache {
     /// The stems of the track with content `hash`, when they are cached.
     /// Marks them as just used.
     pub fn lookup(&self, hash: &ContentHash) -> Option<StemFiles> {
-        let directory = self.entry_directory(hash);
-        let files = StemFiles { directory };
-        let complete = Stem::ALL.iter().all(|stem| files.path(*stem).is_file());
-        if !complete {
-            return None;
-        }
+        let files = self.cached(hash)?;
         let _ = mark_used(&files.directory);
         Some(files)
+    }
+
+    /// The stems of the track with content `hash`, when they are cached,
+    /// without marking them as used: for checking which tracks have stems.
+    pub fn cached(&self, hash: &ContentHash) -> Option<StemFiles> {
+        let files = StemFiles {
+            directory: self.entry_directory(hash),
+        };
+        Stem::ALL
+            .iter()
+            .all(|stem| files.path(*stem).is_file())
+            .then_some(files)
     }
 
     /// Writes `stems` as the stems of the track with content `hash`, then
