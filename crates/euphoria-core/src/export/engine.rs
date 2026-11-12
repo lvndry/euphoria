@@ -28,8 +28,8 @@ use std::path::{Component, Path, PathBuf};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use super::engine_blobs::{
-    BeatData, QuickCue, QuickCues, TrackData, compress, constant_beat_grid, decompress,
-    EMPTY_QUICK_CUE_OFFSET, QUICK_CUE_COUNT,
+    BeatData, EMPTY_QUICK_CUE_OFFSET, QUICK_CUE_COUNT, QuickCue, QuickCues, TrackData, compress,
+    constant_beat_grid, decompress,
 };
 use super::rekordbox::{CueKind, Track};
 use crate::error::EuphoriaError;
@@ -238,18 +238,28 @@ pub fn update_library(
     let mut connection = open(database, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(|error| refuse(database, format!("it cannot be locked for writing ({error})")))?;
+        .map_err(|error| {
+            refuse(
+                database,
+                format!("it cannot be locked for writing ({error})"),
+            )
+        })?;
     if check_schema(&transaction, database)? != schema {
-        return Err(refuse(database, "it changed while the export ran".to_string()));
+        return Err(refuse(
+            database,
+            "it changed while the export ran".to_string(),
+        ));
     }
     for row in &plan.rows {
-        apply(&transaction, row).map_err(|error| {
-            refuse(database, format!("a track could not be updated ({error})"))
-        })?;
+        apply(&transaction, row)
+            .map_err(|error| refuse(database, format!("a track could not be updated ({error})")))?;
     }
-    transaction
-        .commit()
-        .map_err(|error| refuse(database, format!("the changes could not be saved ({error})")))?;
+    transaction.commit().map_err(|error| {
+        refuse(
+            database,
+            format!("the changes could not be saved ({error})"),
+        )
+    })?;
     let quick_check: String = connection
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .map_err(|error| refuse(database, format!("it could not be checked ({error})")))?;
@@ -324,11 +334,14 @@ fn check_schema(connection: &Connection, database: &Path) -> Result<SchemaVersio
     if *id != 1 {
         return Err(fail(format!("its Information row has id {id}, not 1")));
     }
-    let version = [major, minor, patch]
-        .map(|part| u32::try_from(*part).ok());
+    let version = [major, minor, patch].map(|part| u32::try_from(*part).ok());
     let schema = match version {
         [Some(major), Some(minor), Some(patch)] => SchemaVersion::new(major, minor, patch),
-        _ => return Err(fail(format!("its schema version {major}.{minor}.{patch} is not valid"))),
+        _ => {
+            return Err(fail(format!(
+                "its schema version {major}.{minor}.{patch} is not valid"
+            )));
+        }
     };
     if !SUPPORTED_SCHEMAS.contains(&schema) {
         return Err(fail(format!(
@@ -341,7 +354,9 @@ fn check_schema(connection: &Connection, database: &Path) -> Result<SchemaVersio
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .map_err(|error| fail(format!("its journal mode cannot be read ({error})")))?;
     if journal_mode.eq_ignore_ascii_case("wal") {
-        return Err(fail("it uses a write-ahead log, which Engine DJ does not".to_string()));
+        return Err(fail(
+            "it uses a write-ahead log, which Engine DJ does not".to_string(),
+        ));
     }
     for (table, columns) in [
         ("Track", REQUIRED_TRACK_COLUMNS.as_slice()),
@@ -492,7 +507,11 @@ fn plan(
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
-            .map_err(|error| fail(format!("the performance data of {stored_path} cannot be read ({error})")))?;
+            .map_err(|error| {
+                fail(format!(
+                    "the performance data of {stored_path} cannot be read ({error})"
+                ))
+            })?;
         let row = row_update(
             track_id,
             comment.as_deref(),
@@ -623,16 +642,21 @@ fn row_update(
                     }
                 }
             }
-            let (adjusted_main_cue, is_main_cue_adjusted, default_main_cue, extra) =
-                match existing {
-                    Some(existing) => (
-                        existing.adjusted_main_cue,
-                        existing.is_main_cue_adjusted,
-                        existing.default_main_cue,
-                        existing.extra,
-                    ),
-                    None => (EMPTY_QUICK_CUE_OFFSET, 0, EMPTY_QUICK_CUE_OFFSET, Vec::new()),
-                };
+            let (adjusted_main_cue, is_main_cue_adjusted, default_main_cue, extra) = match existing
+            {
+                Some(existing) => (
+                    existing.adjusted_main_cue,
+                    existing.is_main_cue_adjusted,
+                    existing.default_main_cue,
+                    existing.extra,
+                ),
+                None => (
+                    EMPTY_QUICK_CUE_OFFSET,
+                    0,
+                    EMPTY_QUICK_CUE_OFFSET,
+                    Vec::new(),
+                ),
+            };
             update.quick_cues = Some(compress(
                 &QuickCues {
                     cues,
@@ -745,11 +769,18 @@ mod tests {
             (23, "Dm"),
         ];
         for (value, name) in expected {
-            let key: Key = name.parse().unwrap();
+            let spelled = match name.strip_suffix('m') {
+                Some(tonic) => format!("{tonic} minor"),
+                None => format!("{name} major"),
+            };
+            let key: Key = spelled.parse().unwrap();
             assert_eq!(engine_key_value(key), value, "{name}");
         }
         for value in 0..24 {
-            assert_eq!(engine_key_value(key_from_engine_value(value).unwrap()), value);
+            assert_eq!(
+                engine_key_value(key_from_engine_value(value).unwrap()),
+                value
+            );
         }
         assert_eq!(key_from_engine_value(24), None);
         assert_eq!(key_from_engine_value(-1), None);
