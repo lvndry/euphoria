@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn earlier_timelines_are_recomputed_after_the_timeline_rule_changes() {
-        for previous_version in [6, 7] {
+        for previous_version in [6, 7, 8] {
             let mut library = Library::new();
             let track = library.add_track("track.wav", "a track");
             let current_version = library.cache.analyzer_version.clone();

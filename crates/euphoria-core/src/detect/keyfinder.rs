@@ -42,20 +42,21 @@ const HOPS_PER_WINDOW: usize = 8;
 /// does not change, other keys beat the key of the track by up to 0.02 per
 /// window for half a minute. On synthesized chord progressions that move to
 /// another key, the new key wins by 0.04 to 0.05 per window when it is a
-/// fifth away and 0.2 when it is distant. The margin of 0.025 is the
-/// largest step of 0.005 with which a move a fifth away lasting three
-/// windows at the end of a track still shows. A section in the middle pays
-/// for entering and leaving, so the same lead needs more windows. Checked
-/// on the GiantSteps previews
-/// against the earlier rule, which followed the best key from window to
-/// window with a penalty of 0.1: previews with more than one section fell
-/// from 4.3% to 1.0% on the half the setting was chosen on and from 5.3% to
-/// 1.0% on the other half, and none lost the key of the track, which 1.0%
-/// did before.
+/// fifth away and 0.2 when it is distant.
+///
+/// The setting was chosen on every other GiantSteps preview in name order,
+/// among those with which a move a fifth away, 0.045 per window, still
+/// shows over the minimum length: the lowest share of previews with more
+/// than one section, and of those, the one that leaves that move the most
+/// to spare. With it, 0.7% of the first half and 1.0% of the held out half
+/// have more than one section, against 4.3% and 5.3% under the earlier rule,
+/// which followed the
+/// best key from window to window with a penalty of 0.1, and none leaves out
+/// the key of the track, which 1.0% did.
 const CHANGE_RULES: ChangeRules = ChangeRules {
-    per_window_margin: 0.025,
-    change_penalty: 0.05,
-    minimum_windows: 3,
+    per_window_margin: 0.03,
+    section_cost: 0.03,
+    minimum_windows: 4,
 };
 
 /// The smallest tuning offset the tuning correction acts on, in cents.
@@ -537,6 +538,30 @@ mod tests {
 
         assert_eq!(reading.key, Some(key("C major")));
         assert_eq!(reading.timeline.len(), 1, "{:?}", reading.timeline);
+    }
+
+    #[test]
+    fn a_move_a_fifth_away_in_the_middle_of_a_track_shows_as_one_at_the_end_does() {
+        let mut samples = chord_progression(key("C major"), 0.0, 40.0);
+        // A section in the middle shares a window with the music on each
+        // side, so it needs a few seconds more than one at the end.
+        samples.extend(chord_progression(key("G major"), 0.0, 36.0));
+        samples.extend(chord_progression(key("C major"), 0.0, 40.0));
+        let audio = buffer(samples);
+
+        let reading = KeyFinderDetector.read_key(&audio).unwrap();
+
+        assert_eq!(reading.key, Some(key("C major")));
+        let keys: Vec<Key> = reading.timeline.iter().map(|section| section.key).collect();
+        assert_eq!(
+            keys,
+            [key("C major"), key("G major"), key("C major")],
+            "{:?}",
+            reading.timeline
+        );
+        let middle = reading.timeline[1];
+        assert!((middle.start_seconds - 40.0).abs() < 8.0, "{middle:?}");
+        assert!((middle.end_seconds - 76.0).abs() < 8.0, "{middle:?}");
     }
 
     #[test]
