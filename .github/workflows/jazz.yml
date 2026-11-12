@@ -617,6 +617,19 @@ jobs:
             echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$CONTEXT_FILE"
           fi
 
+      - name: Map changed contracts and their callers
+        if: steps.head.outputs.superseded != 'true'
+        env:
+          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          # Isolated Python prevents repository modules from shadowing the standard library.
+          if ! python3 -I .github/jazz/workflows/code-review/collect_context.py \
+              --root "$GITHUB_WORKSPACE" --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" \
+              > /tmp/jazz-contract-context.json; then
+            echo '{"error":"Contract inventory unavailable; perform manual caller searches."}' > /tmp/jazz-contract-context.json
+          fi
+
       - name: Receive the ChatGPT access token
         # Opens the token chatgpt-token sealed for this run and leaves it in a private file for
         # the next step, which reads and deletes it before Jazz starts. The key never reaches a
