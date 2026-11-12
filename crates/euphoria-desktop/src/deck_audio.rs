@@ -750,7 +750,7 @@ mod tests {
     impl ScratchFolder {
         fn new(name: &str) -> Self {
             static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let number = NEXT.fetch_add(1, Ordering::Relaxed);
             let folder = std::env::temp_dir().join(format!(
                 "euphoria-decks-{name}-{}-{number}",
                 std::process::id()
