@@ -1,8 +1,3 @@
 # macOS needs an app bundle to show the desktop name in the Dock and menus.
 [target.'cfg(target_os = "macos")']
 runner = "scripts/run-macos.py"
-
-# ONNX Runtime (pyke.io prebuilt) requires the macOS 15 SDK; keep the
-# deployment target in sync so the linker doesn't warn about version gaps.
-[target.aarch64-apple-darwin]
-rustflags = ["-C", "macosx-deployment-target=15.0"]
