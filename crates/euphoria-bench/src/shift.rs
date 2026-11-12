@@ -130,14 +130,15 @@ fn render(outcomes: &[Outcome]) -> String {
     );
     let _ = writeln!(
         report,
-        "| Shift | Shifted key detected | A fifth away | Relative | Parallel | Other | Still the original key | Tempo kept | Same length |"
+        "| Shift | Exact shifted key | A fifth away | Relative | Parallel | Other | No key detected | Still the original key | Tempo kept | Same length |"
     );
     let _ = writeln!(
         report,
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     );
     for (index, semitones) in SHIFTS.iter().enumerate() {
         let mut counts = [0_usize; 5];
+        let mut missing = 0;
         let mut unchanged = 0;
         for outcome in &with_key {
             let original = outcome
@@ -156,7 +157,7 @@ fn render(outcomes: &[Outcome]) -> String {
                         unchanged += 1;
                     }
                 }
-                None => counts[4] += 1,
+                None => missing += 1,
             }
         }
         let with_tempo: Vec<&Outcome> = outcomes
@@ -178,12 +179,13 @@ fn render(outcomes: &[Outcome]) -> String {
             .count();
         let _ = writeln!(
             report,
-            "| {semitones:+} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {semitones:+} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             share(counts[0], with_key.len()),
             share(counts[1], with_key.len()),
             share(counts[2], with_key.len()),
             share(counts[3], with_key.len()),
             share(counts[4], with_key.len()),
+            share(missing, with_key.len()),
             share(unchanged, with_key.len()),
             share(tempo_kept, with_tempo.len()),
             share(same_length, outcomes.len()),
@@ -191,7 +193,7 @@ fn render(outcomes: &[Outcome]) -> String {
     }
     let _ = writeln!(
         report,
-        "\nThe key columns compare the key detected after shifting with the key detected before, moved by the shift. The tempo is kept when it is within 0.5% of the tempo detected before."
+        "\nThe key columns compare the key detected after shifting with the key detected before, moved by the shift. Their percentages use the previews with an original key detected; Other means a detected key with none of the listed relations, and No key detected means the shifted key was missing. The tempo is kept when it is within 0.5% of the tempo detected before."
     );
     report
 }
@@ -244,6 +246,32 @@ mod tests {
     }
 
     #[test]
+    fn report_distinguishes_exact_wrong_and_missing_key_detections() {
+        let original = Key::new(0, Mode::Major);
+        let outcomes: Vec<_> = [
+            Some(original.transposed(1)),
+            Some(original.transposed(3)),
+            None,
+        ]
+        .into_iter()
+        .map(|key| Outcome {
+            original_key: Some(original),
+            original_tempo: None,
+            shifted: vec![(key, None, true); SHIFTS.len()],
+        })
+        .collect();
+        let report = render(&outcomes);
+        assert!(report.contains("| Exact shifted key |"), "{report}");
+        assert!(report.contains("| No key detected |"), "{report}");
+        assert!(
+            report.contains(
+                "| +1 | 33.3% | 0.0% | 0.0% | 0.0% | 33.3% | 33.3% | 0.0% | - | 100.0% |"
+            ),
+            "{report}"
+        );
+    }
+
+    #[test]
     fn a_shifted_key_is_compared_with_the_original_moved_by_the_shift() {
         let a_minor = Key::new(9, Mode::Minor);
         let outcome = Outcome {
@@ -264,17 +292,22 @@ mod tests {
         let report = render(&[outcome]);
 
         assert!(
-            report.contains("| +1 | 100.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% | 100.0% |"),
+            report.contains(
+                "| +1 | 100.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% | 100.0% |"
+            ),
             "{report}"
         );
         assert!(
-            report
-                .contains("| +2 | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% | 100.0% | 100.0% | 100.0% |"),
+            report.contains(
+                "| +2 | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% | 0.0% | 100.0% | 100.0% | 100.0% |"
+            ),
             "{report}"
         );
         assert!(report.contains("| -3 | 0.0% | 100.0% |"), "{report}");
         assert!(
-            report.contains("| +6 | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% | 0.0% | 0.0% | 0.0% |"),
+            report.contains(
+                "| +6 | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% | 0.0% | 0.0% | 0.0% |"
+            ),
             "{report}"
         );
     }
