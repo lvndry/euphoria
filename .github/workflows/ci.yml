@@ -16,11 +16,6 @@ env:
   RUST_BACKTRACE: 1
   # Debug info bloats the cache without helping CI.
   CARGO_PROFILE_DEV_DEBUG: 0
-  # Link the ONNX Runtime the Linux jobs install into /usr/local/lib, which
-  # runs on 22.04's libstdc++, instead of the one ort downloads, which
-  # needs a newer C++ runtime (install-linux-dependencies.sh).
-  ORT_LIB_PATH: /usr/local/lib
-  ORT_PREFER_DYNAMIC_LINK: "1"
 
 jobs:
   changes:
@@ -197,9 +192,26 @@ jobs:
         with:
           # Do not restore native objects built against a newer Ubuntu ABI.
           key: ${{ matrix.system.runner }}
-      - name: Unit tests
+      - name: Unit tests on macOS
+        if: runner.os == 'macOS'
         run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
-      - name: Audio decoding and detector integration tests
+      - name: Unit tests on Linux
+        if: runner.os == 'Linux'
+        env:
+          # Link the ONNX Runtime install-linux-dependencies.sh puts into
+          # /usr/local/lib, which runs on 22.04's libstdc++, instead of the
+          # one ort downloads, which needs a newer C++ runtime.
+          ORT_LIB_PATH: /usr/local/lib
+          ORT_PREFER_DYNAMIC_LINK: "1"
+        run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
+      - name: Audio decoding and detector integration tests on macOS
+        if: runner.os == 'macOS'
+        run: cargo test ${{ matrix.system.packages }} --test '*' --locked
+      - name: Audio decoding and detector integration tests on Linux
+        if: runner.os == 'Linux'
+        env:
+          ORT_LIB_PATH: /usr/local/lib
+          ORT_PREFER_DYNAMIC_LINK: "1"
         run: cargo test ${{ matrix.system.packages }} --test '*' --locked
       - name: Core tests without libkeyfinder
         run: cargo test -p euphoria-core --no-default-features --locked
@@ -241,6 +253,12 @@ jobs:
     # Match the oldest clean runtime used by the debug-package smoke test.
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    env:
+      # Link the ONNX Runtime install-linux-dependencies.sh puts into
+      # /usr/local/lib, which runs on 22.04's libstdc++, instead of the one
+      # ort downloads, which needs a newer C++ runtime.
+      ORT_LIB_PATH: /usr/local/lib
+      ORT_PREFER_DYNAMIC_LINK: "1"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -280,6 +298,12 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    env:
+      # Link the ONNX Runtime install-linux-dependencies.sh puts into
+      # /usr/local/lib, which runs on 22.04's libstdc++, instead of the one
+      # ort downloads, which needs a newer C++ runtime.
+      ORT_LIB_PATH: /usr/local/lib
+      ORT_PREFER_DYNAMIC_LINK: "1"
     steps:
       - uses: actions/checkout@v7
         with:
