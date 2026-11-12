@@ -50,53 +50,79 @@ const RETIRED_CAPACITY: usize = 8;
 const SPENT_LOOPS_CAPACITY: usize = 8;
 
 /// The time stretcher of a deck, the one place that names the stretching
+/// library, so that another binding of the same algorithm is a change to
 /// this type alone. It is the same Signalsmith Stretch the `euphoria`
 /// command line tool compiles, so the binary holds one version of its C++
 /// code, not two.
-struct TimeStretcher(CoreStretch);
+struct TimeStretcher {
+    stretch: CoreStretch,
+    /// The block being stretched, one buffer per channel, allocated once
+    /// so that stretching allocates nothing on the audio thread.
+    input_channels: Vec<Vec<f32>>,
+    output_channels: Vec<Vec<f32>>,
+}
 
 impl TimeStretcher {
     /// A stretcher for `channel_count` interleaved channels mixed at
-    /// [`MIX_SAMPLE_RATE`]. It allocates, so build it off the audio thread.
-    fn new(channel_count: usize) -> Self {
+    /// [`MIX_SAMPLE_RATE`], taking up to `largest_input` frames a block.
+    /// It allocates, so build it off the audio thread.
+    fn new(channel_count: usize, largest_input: usize) -> Self {
         // The channel count is at least one and the mix rate is fixed, so
         // the stretcher can only fail to be created if its buffers are not
         // allocated.
-        Self(
-            CoreStretch::new(channel_count, MIX_SAMPLE_RATE)
+        Self {
+            stretch: CoreStretch::new(channel_count, MIX_SAMPLE_RATE)
                 .expect("a deck stretcher could not be created"),
-        )
+            input_channels: vec![Vec::with_capacity(largest_input); channel_count],
+            output_channels: vec![Vec::with_capacity(BLOCK_FRAMES); channel_count],
+        }
     }
 
     /// Forgets what it holds, as after a jump in the track.
     fn reset(&mut self) {
-        self.0.reset();
+        self.stretch.reset();
     }
 
     /// Multiplies every frequency by `factor`.
     fn set_transpose(&mut self, factor: f32) {
         // The factor is a ratio of sample rates, or one multiplied by a
         // deck rate, so it is a positive finite number.
-        self.0
+        self.stretch
             .set_transpose_factor(factor)
             .expect("a deck transpose could not be applied");
     }
 
     /// Frames of input held before output starts.
     fn input_latency(&self) -> usize {
-        self.0.input_latency()
+        self.stretch.input_latency()
     }
 
     /// Frames of output held back.
     fn output_latency(&self) -> usize {
-        self.0.output_latency()
+        self.stretch.output_latency()
     }
 
-    /// Stretches `input` to fill `output`, both interleaved.
+    /// Stretches `input` to fill `output`, both interleaved, through the
+    /// buffers allocated with the stretcher.
     fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        self.0
-            .process_interleaved(input, output)
+        let channel_count = self.input_channels.len();
+        for (channel, buffer) in self.input_channels.iter_mut().enumerate() {
+            buffer.clear();
+            buffer.extend(input.iter().skip(channel).step_by(channel_count));
+        }
+        let frames = output.len() / channel_count;
+        for buffer in &mut self.output_channels {
+            buffer.clear();
+            buffer.resize(frames, 0.0);
+        }
+        self.stretch
+            .process(&self.input_channels, &mut self.output_channels)
             .expect("a deck block could not be stretched");
+        for (channel, buffer) in self.output_channels.iter().enumerate() {
+            for (frame, sample) in buffer.iter().enumerate() {
+                output[frame * channel_count + channel] = *sample;
+            }
+        }
     }
 }
 
@@ -485,7 +511,6 @@ impl LoadedTrack {
     fn new(source: TrackSource, grid: Option<GridTiming>) -> Self {
         let channel_count = usize::from(rodio::Source::channels(&source).get());
         let input_rate = rodio::Source::sample_rate(&source).get();
-        let stretch = TimeStretcher::new(channel_count);
         // The most input a block can take: at the fastest speed, from a
         // file at a higher rate than the mix, and one frame for the
         // fraction carried over.
@@ -493,6 +518,7 @@ impl LoadedTrack {
             / f64::from(MIX_SAMPLE_RATE))
         .ceil() as usize
             + 2;
+        let stretch = TimeStretcher::new(channel_count, largest_input);
         let start_seconds = source.next_frame() as f64 / f64::from(input_rate);
         let mut track = Self {
             source,
