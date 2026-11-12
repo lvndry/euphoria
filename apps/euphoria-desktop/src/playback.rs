@@ -13,7 +13,7 @@
 use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -200,17 +200,22 @@ impl VoiceState {
 /// back, short enough to feel instant and long enough not to click.
 const STEM_FADE_SECONDS: f32 = 0.01;
 
-/// Which stems are heard, shared between the window, which changes it, and
-/// the audio thread, which follows it within a few milliseconds.
+/// Which stems are heard and how loud, shared between the window, which
+/// changes it, and the audio thread, which follows it within a few
+/// milliseconds.
 #[derive(Debug)]
 pub(crate) struct StemMix {
     audible: AtomicU8,
+    /// The level of each stem from 0 to 1, as f32 bits, in the order of
+    /// [`Stem::ALL`].
+    levels: [AtomicU32; 4],
 }
 
 impl Default for StemMix {
     fn default() -> Self {
         Self {
             audible: AtomicU8::new(StemMix::ALL_AUDIBLE),
+            levels: std::array::from_fn(|_| AtomicU32::new(1.0_f32.to_bits())),
         }
     }
 }
@@ -228,12 +233,20 @@ impl StemMix {
         self.audible.store(mask, Ordering::Relaxed);
     }
 
-    pub(crate) fn gain(&self, layer: usize) -> f32 {
-        if self.audible.load(Ordering::Relaxed) & (1 << layer) != 0 {
-            1.0
-        } else {
-            0.0
+    /// Sets how loud `stem` plays when heard, from 0 to 1.
+    pub(crate) fn set_level(&self, stem: Stem, level: f32) {
+        if let Some(index) = Stem::ALL.iter().position(|each| *each == stem) {
+            self.levels[index].store(level.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
         }
+    }
+
+    pub(crate) fn gain(&self, layer: usize) -> f32 {
+        if self.audible.load(Ordering::Relaxed) & (1 << layer) == 0 {
+            return 0.0;
+        }
+        self.levels
+            .get(layer)
+            .map_or(0.0, |level| f32::from_bits(level.load(Ordering::Relaxed)))
     }
 }
 

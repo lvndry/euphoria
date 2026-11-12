@@ -24,6 +24,7 @@ mod format;
 mod key_by_ear;
 mod key_shift;
 mod library;
+mod mashup;
 mod mixes;
 mod panels;
 mod peaks;

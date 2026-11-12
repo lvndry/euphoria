@@ -1426,6 +1426,12 @@ impl EuphoriaApp {
                             if this.player.track() == Some(path.as_path()) {
                                 this.stems_changed(cx);
                             }
+                            this.decks.stem_library.recheck(&path);
+                            if this.decks.is_open
+                                && this.decks.mode == crate::decks::DeckMode::Mashup
+                            {
+                                this.scan_for_stems(cx);
+                            }
                         })
                         .ok();
                         break;

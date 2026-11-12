@@ -37,12 +37,12 @@ pub fn profile_stems(files: &StemFiles) -> Result<StemProfile, EuphoriaError> {
         readers.push(StemWav::open(&files.path(stem))?);
     }
     let mut measure = Measure::new();
-    let mut windows: Vec<Vec<f32>> = vec![Vec::with_capacity(WINDOW_FRAMES); Stem::ALL.len()];
+    let mut windows: Vec<Vec<Vec<f32>>> = vec![Vec::new(); Stem::ALL.len()];
     loop {
         let mut any = false;
         for (reader, window) in readers.iter_mut().zip(&mut windows) {
-            reader.read_mono(window, WINDOW_FRAMES)?;
-            any |= !window.is_empty();
+            reader.read_channels(window, WINDOW_FRAMES)?;
+            any |= window.iter().any(|channel| !channel.is_empty());
         }
         if !any {
             break;
@@ -65,6 +65,15 @@ impl StemWav {
         if spec.sample_format != hound::SampleFormat::Int || spec.bits_per_sample != 16 {
             return Err(wav_error(path, hound::Error::Unsupported));
         }
+        if spec.sample_rate != STEMS_SAMPLE_RATE {
+            return Err(EuphoriaError::StemFiles {
+                path: path.to_path_buf(),
+                source: std::io::Error::other(format!(
+                    "the stem is at {} Hz, not the {STEMS_SAMPLE_RATE} Hz stems are kept at",
+                    spec.sample_rate
+                )),
+            });
+        }
         Ok(Self {
             path: path.to_path_buf(),
             channels: usize::from(spec.channels.max(1)),
@@ -72,25 +81,31 @@ impl StemWav {
         })
     }
 
-    /// Reads up to `frames` frames, averaging the channels, into `mono`.
-    fn read_mono(&mut self, mono: &mut Vec<f32>, frames: usize) -> Result<(), EuphoriaError> {
-        mono.clear();
-        let channels = self.channels;
-        let scale = 1.0 / (32_768.0 * channels as f32);
+    /// Reads up to `frames` frames into `channels`, one buffer per
+    /// channel, so that channels in opposite phase do not cancel.
+    fn read_channels(
+        &mut self,
+        channels: &mut Vec<Vec<f32>>,
+        frames: usize,
+    ) -> Result<(), EuphoriaError> {
+        let count = self.channels;
+        channels.resize_with(count, Vec::new);
+        channels.iter_mut().for_each(Vec::clear);
         let mut samples = self.reader.samples::<i16>();
         'frames: for _ in 0..frames {
-            let mut sum = 0.0;
-            for channel in 0..channels {
+            for channel in channels.iter_mut() {
                 match samples.next() {
-                    Some(sample) => {
-                        sum += f32::from(sample.map_err(|error| wav_error(&self.path, error))?)
-                    }
-                    None if channel == 0 => break 'frames,
-                    None => break,
+                    Some(sample) => channel.push(
+                        f32::from(sample.map_err(|error| wav_error(&self.path, error))?) / 32_768.0,
+                    ),
+                    None => break 'frames,
                 }
             }
-            mono.push(sum * scale);
         }
+        let complete = channels.iter().map(Vec::len).min().unwrap_or(0);
+        channels
+            .iter_mut()
+            .for_each(|channel| channel.truncate(complete));
         Ok(())
     }
 }
@@ -144,31 +159,47 @@ impl Measure {
         }
     }
 
-    fn add_window(&mut self, windows: &[Vec<f32>]) {
-        let length = windows.iter().map(Vec::len).max().unwrap_or(0);
+    /// Adds one window of every stem, each as one buffer per channel.
+    /// Levels and spectra are summed over the channels as powers.
+    fn add_window(&mut self, windows: &[Vec<Vec<f32>>]) {
+        let length = windows
+            .iter()
+            .flat_map(|channels| channels.iter().map(Vec::len))
+            .max()
+            .unwrap_or(0);
         if length == 0 {
             return;
         }
         self.windows += 1;
         let energies: Vec<f64> = windows
             .iter()
-            .map(|window| window.iter().map(|sample| f64::from(sample * sample)).sum())
+            .map(|channels| {
+                let total: f64 = channels
+                    .iter()
+                    .flat_map(|channel| channel.iter())
+                    .map(|sample| f64::from(sample * sample))
+                    .sum();
+                total / channels.len().max(1) as f64
+            })
             .collect();
         let all: f64 = energies.iter().sum();
         let level = |energy: f64| (energy / length as f64).sqrt() as f32;
         let all_level = level(all);
-        for (stem, window) in windows.iter().enumerate() {
+        for (stem, channels) in windows.iter().enumerate() {
             self.energy[stem] += energies[stem];
             let stem_level = level(energies[stem]);
             if stem_level < SILENCE_LEVEL || stem_level < all_level * ACTIVE_LEVEL_RATIO {
                 continue;
             }
             self.active_windows[stem] += 1;
-            self.add_spectrum(stem, window);
+            for channel in channels {
+                self.add_spectrum(stem, channel);
+            }
         }
     }
 
-    /// Adds the octave energies of the middle of `window` to `stem`'s.
+    /// Adds the octave energies of the middle of `window`, one channel, to
+    /// `stem`'s.
     fn add_spectrum(&mut self, stem: usize, window: &[f32]) {
         let start = window.len().saturating_sub(SPECTRUM_FRAMES) / 2;
         for (index, value) in self.spectrum.iter_mut().enumerate() {
@@ -313,6 +344,58 @@ mod tests {
         assert_eq!(profile.vocals.share, 0.0);
         assert_eq!(profile.vocals.bands, [0.0; STEM_BANDS]);
         assert!(!profile.has_vocals());
+    }
+
+    #[test]
+    fn a_stem_in_opposite_phase_left_and_right_still_counts() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = write_stems(
+            directory.path(),
+            4,
+            [
+                (Some(120.0), (0.0, 1.0)),
+                (Some(60.0), (0.0, 1.0)),
+                (Some(500.0), (0.0, 1.0)),
+                (None, (0.0, 1.0)),
+            ],
+        );
+        let frames = 4 * STEMS_SAMPLE_RATE as usize;
+        let mut interleaved = vec![0.0; frames * 2];
+        for frame in 0..frames {
+            let time = frame as f32 / STEMS_SAMPLE_RATE as f32;
+            let sample = 0.3 * (std::f32::consts::TAU * 2_000.0 * time).sin();
+            interleaved[frame * 2] = sample;
+            interleaved[frame * 2 + 1] = -sample;
+        }
+        write_wav(
+            &files.path(Stem::Vocals),
+            &interleaved,
+            2,
+            STEMS_SAMPLE_RATE,
+        )
+        .unwrap();
+        let profile = profile_stems(&files).unwrap();
+        assert!((profile.vocals.active_fraction - 1.0).abs() < 1e-6);
+        assert_eq!(strongest_band(&profile.vocals), 5);
+        assert!(profile.vocals.share > 0.2, "{}", profile.vocals.share);
+    }
+
+    #[test]
+    fn a_stem_at_another_rate_is_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = write_stems(
+            directory.path(),
+            1,
+            [
+                (Some(120.0), (0.0, 1.0)),
+                (Some(60.0), (0.0, 1.0)),
+                (Some(500.0), (0.0, 1.0)),
+                (None, (0.0, 1.0)),
+            ],
+        );
+        write_wav(&files.path(Stem::Other), &[0.0; 96_000], 2, 48_000).unwrap();
+        let refused = profile_stems(&files).unwrap_err();
+        assert!(refused.chain().contains("48000 Hz"), "{}", refused.chain());
     }
 
     #[test]

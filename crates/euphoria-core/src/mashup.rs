@@ -79,49 +79,90 @@ pub struct WrittenMashup {
 
 /// Renders `layers` together, stereo and interleaved at
 /// [`MASHUP_SAMPLE_RATE`], until the last layer ends, or for `seconds` when
-/// given. Nothing is turned down: samples may exceed full scale.
+/// given. Nothing is turned down: samples may exceed full scale. The whole
+/// mix is held in memory; [`write_mashup`] renders a block at a time.
 pub fn render_mashup(
     layers: &[MashupLayer],
     seconds: Option<f64>,
 ) -> Result<Vec<f32>, EuphoriaError> {
-    let limit = seconds.map(|seconds| (seconds.max(0.0) * f64::from(MASHUP_SAMPLE_RATE)) as usize);
-    let mut voices = layers
-        .iter()
-        .map(LayerVoice::open)
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut mix: Vec<f32> = Vec::new();
-    let mut block = vec![0.0; BLOCK_FRAMES * CHANNELS];
-    loop {
-        let rendered = mix.len() / CHANNELS;
-        let frames = match limit {
-            Some(limit) if rendered >= limit => break,
-            Some(limit) => BLOCK_FRAMES.min(limit - rendered),
-            None => BLOCK_FRAMES,
-        };
-        if limit.is_none() && voices.iter().all(LayerVoice::is_finished) {
-            break;
-        }
-        let block = &mut block[..frames * CHANNELS];
-        block.fill(0.0);
-        for voice in &mut voices {
-            voice.render(block)?;
-        }
+    let mut renderer = Renderer::new(layers, seconds)?;
+    let mut mix = Vec::new();
+    while let Some(block) = renderer.next_block()? {
         mix.extend_from_slice(block);
     }
-    if limit.is_none() {
-        let end_frame = voices
-            .iter()
-            .filter_map(LayerVoice::end_frame)
-            .max()
-            .unwrap_or(0);
-        mix.truncate(end_frame * CHANNELS);
-    }
+    mix.truncate(renderer.length_frames() * CHANNELS);
     Ok(mix)
+}
+
+/// Mixes the layers a block at a time.
+struct Renderer {
+    voices: Vec<LayerVoice>,
+    limit: Option<usize>,
+    rendered: usize,
+    block: Vec<f32>,
+}
+
+impl Renderer {
+    fn new(layers: &[MashupLayer], seconds: Option<f64>) -> Result<Self, EuphoriaError> {
+        if let Some(seconds) = seconds
+            && !(seconds.is_finite() && seconds >= 0.0)
+        {
+            return Err(mashup_error(
+                Path::new(""),
+                format!("a length of {seconds} seconds is not a length"),
+            ));
+        }
+        Ok(Self {
+            voices: layers
+                .iter()
+                .map(LayerVoice::open)
+                .collect::<Result<Vec<_>, _>>()?,
+            limit: seconds.map(|seconds| (seconds * f64::from(MASHUP_SAMPLE_RATE)) as usize),
+            rendered: 0,
+            block: vec![0.0; BLOCK_FRAMES * CHANNELS],
+        })
+    }
+
+    /// The next block of the mix, or `None` at the end. The last block may
+    /// run past the end; [`Renderer::length_frames`] says where it is.
+    fn next_block(&mut self) -> Result<Option<&[f32]>, EuphoriaError> {
+        let frames = match self.limit {
+            Some(limit) if self.rendered >= limit => return Ok(None),
+            Some(limit) => BLOCK_FRAMES.min(limit - self.rendered),
+            None if self.voices.iter().all(LayerVoice::is_finished) => return Ok(None),
+            None => BLOCK_FRAMES,
+        };
+        let block = &mut self.block[..frames * CHANNELS];
+        block.fill(0.0);
+        for voice in &mut self.voices {
+            voice.render(block)?;
+        }
+        self.rendered += frames;
+        Ok(Some(&self.block[..frames * CHANNELS]))
+    }
+
+    /// Frames in the whole mix, once every block is rendered.
+    fn length_frames(&self) -> usize {
+        match self.limit {
+            Some(limit) => limit.min(self.rendered),
+            None => self
+                .voices
+                .iter()
+                .filter_map(LayerVoice::end_frame)
+                .max()
+                .unwrap_or(0)
+                .min(self.rendered),
+        }
+    }
 }
 
 /// Renders `layers` as [`render_mashup`] does and writes them to `output`
 /// as a 24 bit stereo WAV file, turned down as a whole when the mix would
 /// go above [`MASHUP_CEILING`].
+///
+/// The mix is rendered a block at a time into a spool file next to
+/// `output`, then read back, turned down when needed and encoded, so memory
+/// stays the same whatever the length.
 ///
 /// No file of a layer is written to: an `output` that is one of them is an
 /// error. The file is written under a temporary name next to `output` and
@@ -140,37 +181,65 @@ pub fn write_mashup(
             ));
         }
     }
-    let mut mix = render_mashup(layers, seconds)?;
-    let peak = mix
-        .iter()
-        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
-    let gain = if peak > MASHUP_CEILING {
-        MASHUP_CEILING / peak
-    } else {
-        1.0
-    };
-    if gain < 1.0 {
-        mix.iter_mut().for_each(|sample| *sample *= gain);
-    }
-    let (file, temporary) =
-        create_temporary_file(output).map_err(|source| EuphoriaError::ExportFile {
-            path: output.to_path_buf(),
-            source,
-        })?;
-    let written = write_wav(file, &mix).map_err(|error| mashup_error(output, error.to_string()));
-    let installed = written.and_then(|()| install(&temporary, output, existing));
-    if let Err(error) = installed {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
-    }
-    Ok(WrittenMashup {
+    let mut renderer = Renderer::new(layers, seconds)?;
+    let file_error = |source| EuphoriaError::ExportFile {
         path: output.to_path_buf(),
-        frames: (mix.len() / CHANNELS) as u64,
-        gain,
-    })
+        source,
+    };
+    let (spool_file, spool) = create_temporary_file(output).map_err(file_error)?;
+    let result = (|| {
+        let peak = spool_mix(&mut renderer, spool_file).map_err(file_error)?;
+        let frames = renderer.length_frames();
+        let gain = if peak > MASHUP_CEILING {
+            MASHUP_CEILING / peak
+        } else {
+            1.0
+        };
+        let (file, temporary) = create_temporary_file(output).map_err(file_error)?;
+        let written = write_wav(file, &spool, frames, gain)
+            .map_err(|error| mashup_error(output, error.to_string()));
+        let installed = written.and_then(|()| install(&temporary, output, existing));
+        if let Err(error) = installed {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error);
+        }
+        Ok(WrittenMashup {
+            path: output.to_path_buf(),
+            frames: frames as u64,
+            gain,
+        })
+    })();
+    let _ = std::fs::remove_file(&spool);
+    result
 }
 
-fn write_wav(file: std::fs::File, mix: &[f32]) -> Result<(), hound::Error> {
+/// Writes every block of the mix to `spool` as raw f32 samples and returns
+/// the peak of the samples within the mix's length.
+fn spool_mix(renderer: &mut Renderer, spool: std::fs::File) -> std::io::Result<f32> {
+    use std::io::Write;
+    let mut writer = BufWriter::new(spool);
+    let mut peaks = Vec::new();
+    while let Some(block) = renderer.next_block().map_err(std::io::Error::other)? {
+        let mut block_peak = 0.0_f32;
+        for sample in block {
+            block_peak = block_peak.max(sample.abs());
+            writer.write_all(&sample.to_le_bytes())?;
+        }
+        peaks.push(block_peak);
+    }
+    writer.flush()?;
+    // The last block can run past the end with silence only, so every
+    // block's peak counts.
+    Ok(peaks.into_iter().fold(0.0, f32::max))
+}
+
+fn write_wav(
+    file: std::fs::File,
+    spool: &Path,
+    frames: usize,
+    gain: f32,
+) -> Result<(), hound::Error> {
+    use std::io::Read;
     let spec = hound::WavSpec {
         channels: CHANNELS as u16,
         sample_rate: MASHUP_SAMPLE_RATE,
@@ -178,8 +247,12 @@ fn write_wav(file: std::fs::File, mix: &[f32]) -> Result<(), hound::Error> {
         sample_format: hound::SampleFormat::Int,
     };
     let mut writer = hound::WavWriter::new(BufWriter::new(file), spec)?;
+    let mut reader = std::io::BufReader::new(std::fs::File::open(spool)?);
     let full_scale = f32::from(1_u16 << 15) * 256.0 - 1.0;
-    for sample in mix {
+    let mut bytes = [0_u8; 4];
+    for _ in 0..frames * CHANNELS {
+        reader.read_exact(&mut bytes)?;
+        let sample = f32::from_le_bytes(bytes) * gain;
         writer.write_sample((sample.clamp(-1.0, 1.0) * full_scale).round() as i32)?;
     }
     writer.finalize()
@@ -221,6 +294,15 @@ impl LayerReader {
         let mut sample_rate = None;
         for (path, level) in sources {
             let mut stream = AudioStream::open(path)?;
+            let channels = stream.channel_count().get();
+            if usize::from(channels) > CHANNELS {
+                return Err(mashup_error(
+                    path,
+                    format!(
+                        "it has {channels} channels; a mashup layer is mono or stereo, so mix it down first"
+                    ),
+                ));
+            }
             let rate = stream.sample_rate().get();
             if *sample_rate.get_or_insert(rate) != rate {
                 return Err(mashup_error(
@@ -296,12 +378,8 @@ struct LayerVoice {
 
 impl LayerVoice {
     fn open(layer: &MashupLayer) -> Result<Self, EuphoriaError> {
-        let first_path = layer
-            .audio
-            .paths()
-            .next()
-            .unwrap_or(Path::new(""))
-            .to_path_buf();
+        let first = layer.audio.paths().next().unwrap_or(Path::new(""));
+        let first_path = first.to_path_buf();
         let failure = |reason: String| mashup_error(&first_path, reason);
         let (slowest, fastest) = MASHUP_RATE_RANGE;
         if !(slowest..=fastest).contains(&layer.rate) {
@@ -317,21 +395,21 @@ impl LayerVoice {
             )));
         }
         let mut reader = LayerReader::open(&layer.audio, layer.start_seconds)?;
-        let mut stretch = Stretch::new(CHANNELS, MASHUP_SAMPLE_RATE).map_err(&failure)?;
+        let mut stretch = Stretch::new(CHANNELS, MASHUP_SAMPLE_RATE).map_err(failure)?;
         // The stretcher keeps the pitch in samples, so a file at another
         // rate than the mix is transposed back as well as shifted.
         let rate_correction =
             12.0 * (f64::from(reader.sample_rate) / f64::from(MASHUP_SAMPLE_RATE)).log2();
         stretch
             .set_transpose_semitones(f32::from(layer.shift_semitones) + rate_correction as f32)
-            .map_err(&failure)?;
+            .map_err(failure)?;
         let speed = layer.rate * f64::from(reader.sample_rate) / f64::from(MASHUP_SAMPLE_RATE);
         let mut preroll = Vec::new();
         let preroll_frames = stretch.input_latency();
         let sounding = reader.read(&mut preroll, preroll_frames)?;
         stretch
             .seek(&deinterleave(&preroll, CHANNELS), speed)
-            .map_err(&failure)?;
+            .map_err(failure)?;
         let start_latency = stretch.output_latency();
         let mut voice = Self {
             reader,
@@ -458,7 +536,8 @@ mod tests {
     fn onsets(mix: &[f32]) -> Vec<f64> {
         let mut found = Vec::new();
         let mut quiet = usize::MAX;
-        for (frame, pair) in mix.chunks_exact(2).enumerate() {
+        let (frames, _) = mix.as_chunks::<2>();
+        for (frame, pair) in frames.iter().enumerate() {
             if pair[0].abs() > 0.1 {
                 if quiet > 2_000 {
                     found.push(frame as f64 / f64::from(MASHUP_SAMPLE_RATE));
@@ -473,7 +552,7 @@ mod tests {
 
     /// The frequency of the left channel, from its rising zero crossings.
     fn frequency(mix: &[f32]) -> f64 {
-        let left: Vec<f32> = mix.chunks_exact(2).map(|pair| pair[0]).collect();
+        let left: Vec<f32> = mix.as_chunks::<2>().0.iter().map(|pair| pair[0]).collect();
         let middle = &left[left.len() / 4..left.len() * 3 / 4];
         let crossings = middle
             .windows(2)
@@ -594,10 +673,71 @@ mod tests {
         let refused = write_mashup(&loud, None, &track, ExistingOutput::Replace);
         assert!(matches!(refused, Err(EuphoriaError::Mashup { .. })));
         assert_eq!(std::fs::read(&track).unwrap(), before);
-        assert!(matches!(
-            write_mashup(&loud, None, &output, ExistingOutput::Keep),
-            Err(_)
-        ));
+        assert!(write_mashup(&loud, None, &output, ExistingOutput::Keep).is_err());
+    }
+
+    #[test]
+    fn a_layer_ends_where_its_track_does_from_any_start_and_speed() {
+        let folder = tempfile::tempdir().unwrap();
+        let short = folder.path().join("short.wav");
+        write_mono(&short, 44_100, &tone(44_100, 300.0, 1.0));
+        for (start, rate, expected) in
+            [(0.25, 1.0, 33_075), (0.25, 0.5, 66_150), (0.5, 2.0, 11_025)]
+        {
+            let mix = render_mashup(&[layer(&short, start, rate)], None).unwrap();
+            let frames = (mix.len() / 2) as i64;
+            assert!((frames - expected).abs() <= 1, "{start} {rate}: {frames}");
+        }
+    }
+
+    #[test]
+    fn surround_layers_and_endless_lengths_are_refused() {
+        let folder = tempfile::tempdir().unwrap();
+        let surround = folder.path().join("surround.wav");
+        let spec = hound::WavSpec {
+            channels: 3,
+            sample_rate: 44_100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&surround, spec).unwrap();
+        for _ in 0..44_100 * 3 {
+            writer.write_sample(1_000_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let refused = render_mashup(&[layer(&surround, 0.0, 1.0)], None);
+        assert!(
+            matches!(&refused, Err(EuphoriaError::Mashup { reason, .. }) if reason.contains("3 channels")),
+            "{refused:?}"
+        );
+        let stereo = folder.path().join("tone.wav");
+        write_mono(&stereo, 44_100, &tone(44_100, 440.0, 0.5));
+        for endless in [f64::INFINITY, f64::NAN, -1.0] {
+            assert!(render_mashup(&[layer(&stereo, 0.0, 1.0)], Some(endless)).is_err());
+        }
+    }
+
+    #[test]
+    fn writing_leaves_no_spool_or_partial_file_behind() {
+        let folder = tempfile::tempdir().unwrap();
+        let track = folder.path().join("track.wav");
+        write_mono(&track, 44_100, &tone(44_100, 440.0, 1.0));
+        let output = folder.path().join("mashup.wav");
+        let written = write_mashup(
+            &[layer(&track, 0.0, 1.0)],
+            None,
+            &output,
+            ExistingOutput::Keep,
+        )
+        .unwrap();
+        assert_eq!(written.gain, 1.0);
+        assert!((written.frames as i64 - 44_100).abs() <= 1);
+        let mut names: Vec<String> = std::fs::read_dir(folder.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["mashup.wav", "track.wav"]);
     }
 
     #[test]

@@ -221,6 +221,8 @@ pub(crate) enum DeckCommand {
     },
     /// Keeps a deck's pitch when its speed changes, or lets it follow.
     SetKeylock { deck: DeckId, keylock: bool },
+    /// Shifts a deck's pitch by `semitones`, on top of key lock.
+    SetShift { deck: DeckId, semitones: i8 },
 }
 
 /// What one deck is doing, for the window to read.
@@ -364,6 +366,8 @@ struct LoadedTrack {
     stretch: TimeStretcher,
     rate: f64,
     keylock: bool,
+    /// Semitones the pitch is shifted by, as for a mashup.
+    shift_semitones: i8,
     /// The transposition last given to the stretcher.
     transpose: f32,
     playing: bool,
@@ -402,6 +406,7 @@ impl LoadedTrack {
             stretch,
             rate: 1.0,
             keylock: true,
+            shift_semitones: 0,
             transpose: 0.0,
             playing: false,
             start_countdown: None,
@@ -425,11 +430,15 @@ impl LoadedTrack {
 
     /// The stretcher keeps the pitch of the input in samples, so a track
     /// recorded at another rate than the mix needs transposing back; with
-    /// key lock off the pitch follows the speed, as on a turntable.
+    /// key lock off the pitch follows the speed, as on a turntable. A key
+    /// shift moves it by its semitones on top.
     fn update_transpose(&mut self) {
         let mut transpose = self.input_rate as f32 / MIX_SAMPLE_RATE as f32;
         if !self.keylock {
             transpose *= self.rate as f32;
+        }
+        if self.shift_semitones != 0 {
+            transpose *= 2_f32.powf(f32::from(self.shift_semitones) / 12.0);
         }
         if (transpose - self.transpose).abs() > f32::EPSILON {
             self.stretch.set_transpose(transpose);
@@ -621,6 +630,11 @@ impl DeckMix {
             DeckCommand::SetKeylock { deck, keylock } => {
                 if let Some(track) = self.deck_mut(deck) {
                     track.keylock = keylock;
+                }
+            }
+            DeckCommand::SetShift { deck, semitones } => {
+                if let Some(track) = self.deck_mut(deck) {
+                    track.shift_semitones = semitones;
                 }
             }
         }
@@ -853,7 +867,16 @@ mod tests {
     /// on deck B on its fourth downbeat, matched to A's tempo and started on
     /// A's next downbeat, and measures how far B's clicks land from A's.
     fn measure_alignment(a_bpm: f64, b_bpm: f64, b_start: Option<f64>) -> Alignment {
-        let scratch = ScratchFolder::new(&format!("click-{a_bpm}-{b_bpm}"));
+        measure_shifted_alignment(a_bpm, b_bpm, b_start, 0)
+    }
+
+    fn measure_shifted_alignment(
+        a_bpm: f64,
+        b_bpm: f64,
+        b_start: Option<f64>,
+        b_shift: i8,
+    ) -> Alignment {
+        let scratch = ScratchFolder::new(&format!("click-{a_bpm}-{b_bpm}-{b_shift}"));
         let a_path = scratch.0.join("a.wav");
         let b_path = scratch.0.join("b.wav");
         let a_grid = GridTiming {
@@ -881,6 +904,10 @@ mod tests {
             link.send(DeckCommand::SetRate {
                 deck: DeckId::B,
                 rate: matching_rate(b_bpm, a_bpm),
+            });
+            link.send(DeckCommand::SetShift {
+                deck: DeckId::B,
+                semitones: b_shift,
             });
             link.send(DeckCommand::Seek {
                 deck: DeckId::B,
@@ -964,6 +991,84 @@ mod tests {
                 "B's downbeats land on A's"
             );
         }
+    }
+
+    #[test]
+    fn a_key_shifted_deck_stays_on_the_other_decks_beats() {
+        let alignment = measure_shifted_alignment(120.0, 125.0, None, -2);
+        assert!(alignment.mean_milliseconds < 5.0, "{alignment:?}");
+        assert!(alignment.largest_milliseconds < 10.0, "{alignment:?}");
+        assert!(
+            alignment.downbeats_matched * 4 >= alignment.beats - 4,
+            "{alignment:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_shift_moves_a_decks_pitch_while_it_plays() {
+        let scratch = ScratchFolder::new("shift-pitch");
+        let path = scratch.0.join("tone.wav");
+        let rate = 44_100.0;
+        let samples: Vec<i16> = (0..(4.0 * rate) as usize)
+            .map(|index| {
+                (0.5 * (std::f64::consts::TAU * 440.0 * index as f64 / rate).sin()
+                    * f64::from(i16::MAX)) as i16
+            })
+            .collect();
+        let mut bytes = mono_wav_header(samples.len());
+        for sample in samples {
+            bytes.extend(sample.to_le_bytes());
+        }
+        std::fs::write(&path, bytes).unwrap();
+        let (link, mut mix) = deck_mix();
+        let source = TrackSource::open(&path, 0.0).unwrap().patient();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(source, None),
+        });
+        link.send(DeckCommand::SetShift {
+            deck: DeckId::A,
+            semitones: 2,
+        });
+        link.send(DeckCommand::Play {
+            deck: DeckId::A,
+            quantize_to: None,
+        });
+        let heard = pull(&mut mix, 3.0);
+        let left: Vec<f32> = heard
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| pair[0])
+            .collect();
+        let middle = &left[left.len() / 3..left.len() * 2 / 3];
+        let crossings = middle
+            .windows(2)
+            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
+            .count();
+        let hertz = crossings as f64 * rate / middle.len() as f64;
+        let expected = 440.0 * 2_f64.powf(2.0 / 12.0);
+        assert!((hertz - expected).abs() < 3.0, "{hertz}");
+    }
+
+    /// The 44 byte header of a mono 16 bit WAV file at 44.1 kHz.
+    fn mono_wav_header(samples: usize) -> Vec<u8> {
+        let rate = 44_100_u32;
+        let data_length = (samples * 2) as u32;
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend((36 + data_length).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(rate.to_le_bytes());
+        bytes.extend((rate * 2).to_le_bytes());
+        bytes.extend(2_u16.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(data_length.to_le_bytes());
+        bytes
     }
 
     #[test]

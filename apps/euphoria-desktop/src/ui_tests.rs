@@ -4109,6 +4109,65 @@ fn the_decks_load_a_track_and_suggest_what_mixes_after_it(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn mashup_mode_steps_through_layering_ideas_with_their_key_shift(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    click(window, track(flac), cx);
+    click(window, deck_part("deck-load", DeckId::A), cx);
+    click(window, ("deck-mode", 1_usize), cx);
+    let ideas = cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.mode, crate::decks::DeckMode::Mashup);
+        decks
+            .ideas
+            .iter()
+            .map(|idea| (idea.track_index, idea.key.shift_semitones))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        ideas,
+        [(wav, 0), (mp3, 0)],
+        "C major is A minor's relative and E minor its neighbour"
+    );
+    assert!(is_shown(window, ("mashup-idea", wav), cx));
+
+    click(window, "mashup-next", cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.idea_index, Some(0));
+        assert_eq!(decks.view(DeckId::B).track_index, Some(wav));
+    });
+    click(window, "mashup-next", cx);
+    click(window, "mashup-next", cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.idea_index, Some(0), "the arrows wrap around");
+    });
+
+    click(window, deck_part("deck-shift-up", DeckId::A), cx);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).shift_semitones, 1);
+        let wav_idea = decks
+            .ideas
+            .iter()
+            .find(|idea| idea.track_index == wav)
+            .expect("C major still layers after a shift");
+        assert_eq!(
+            wav_idea.key.shift_semitones, 1,
+            "deck A in B flat minor asks for D flat major on deck B"
+        );
+    });
+    click(window, ("deck-mode", 0_usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).decks.mode, crate::decks::DeckMode::NextTrack));
+}
+
+#[gpui::test]
 fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
     use crate::deck_audio::DeckId;
     use crate::views::decks::cue_id;
