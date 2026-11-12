@@ -212,15 +212,15 @@ impl Decks {
         }
     }
 
-    /// The volume after each fader and the crossfader. Both decks stay at
-    /// full gain in the middle; toward either end the other fades out.
+    /// The volume after each fader and the crossfader. The crossfader is an
+    /// equal-power law: each deck's gain is the fade the other gets, so the
+    /// total power stays put while the mix moves. At the middle both play at
+    /// 71 percent; a deck at the near end plays at full.
     pub(crate) fn gains(&self) -> [f32; 2] {
         let position = self.crossfader.clamp(0.0, 1.0);
-        let a = (position * FRAC_PI_2).cos() * std::f32::consts::SQRT_2;
-        let b = (position * FRAC_PI_2).sin() * std::f32::consts::SQRT_2;
         [
-            self.views[0].volume * a.min(1.0),
-            self.views[1].volume * b.min(1.0),
+            self.views[0].volume * (position * FRAC_PI_2).cos(),
+            self.views[1].volume * (position * FRAC_PI_2).sin(),
         ]
     }
 
@@ -709,20 +709,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_crossfader_keeps_both_decks_full_at_center_and_the_faders_scale_it() {
+    fn the_crossfader_trades_equal_power_between_the_decks() {
         let mut decks = Decks::default();
         let gains = decks.gains();
-        assert!((gains[0] - 1.0).abs() < 1e-6 && (gains[1] - 1.0).abs() < 1e-6);
+        let middle = std::f32::consts::FRAC_1_SQRT_2;
+        assert!((gains[0] - middle).abs() < 1e-6 && (gains[1] - middle).abs() < 1e-6);
         decks.crossfader = 0.0;
         assert_eq!(decks.gains(), [1.0, 0.0]);
         decks.crossfader = 1.0;
         let gains = decks.gains();
         assert!(gains[0].abs() < 1e-6 && (gains[1] - 1.0).abs() < 1e-6);
+        // The sum of the squared gains never rises above the sum of the
+        // fader settings, whatever the position.
+        for position in (0..=10).map(|step| step as f32 / 10.0) {
+            decks.crossfader = position;
+            let gains = decks.gains();
+            let power = gains[0] * gains[0] + gains[1] * gains[1];
+            assert!((power - 1.0).abs() < 1e-5, "{position}: {gains:?}");
+        }
         decks.crossfader = 0.25;
         decks.views[0].volume = 0.5;
         let gains = decks.gains();
-        assert!((gains[0] - 0.5).abs() < 1e-6, "{gains:?}");
-        assert!(gains[1] > 0.5 && gains[1] < 1.0, "{gains:?}");
+        assert!(
+            (gains[0] - 0.5 * (0.25 * FRAC_PI_2).cos()).abs() < 1e-6,
+            "{gains:?}"
+        );
+        // The crossfader only fades: no deck rises above its fader setting.
+        assert!(
+            gains[0] <= decks.views[0].volume + 1e-6 && gains[1] <= 1.0 + 1e-6,
+            "{gains:?}"
+        );
     }
 
     #[test]
