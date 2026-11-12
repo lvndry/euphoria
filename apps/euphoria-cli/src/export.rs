@@ -190,6 +190,8 @@ enum KeyNotationChoice {
     Camelot,
     /// Musical names such as Am.
     Musical,
+    /// Open Key codes such as 1m.
+    OpenKey,
 }
 
 impl From<KeyNotationChoice> for KeyNotation {
@@ -197,6 +199,7 @@ impl From<KeyNotationChoice> for KeyNotation {
         match choice {
             KeyNotationChoice::Camelot => KeyNotation::Camelot,
             KeyNotationChoice::Musical => KeyNotation::Musical,
+            KeyNotationChoice::OpenKey => KeyNotation::OpenKey,
         }
     }
 }

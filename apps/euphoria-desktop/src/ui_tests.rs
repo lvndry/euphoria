@@ -4141,6 +4141,81 @@ fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_loop_button_loops_the_deck_and_pressed_again_leaves_it(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::{deck_part, loop_id};
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(!is_shown(
+        window,
+        deck_part("deck-loop-region", DeckId::A),
+        cx
+    ));
+    click(window, deck_part("deck-play", DeckId::A), cx);
+    output.pull(0.05);
+    click(window, loop_id(DeckId::A, 1), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(decks.is_looping(DeckId::A, 1));
+        assert!(!decks.is_looping(DeckId::A, 2));
+        let (start, end) = decks.loop_seconds(DeckId::A).unwrap();
+        assert!(
+            (start - 0.2).abs() < 1e-3,
+            "from the next downbeat: {start}"
+        );
+        assert!((end - 2.2).abs() < 1e-3, "one bar at 120 BPM: {end}");
+    });
+    assert!(is_shown(
+        window,
+        deck_part("deck-loop-region", DeckId::A),
+        cx
+    ));
+    click(window, loop_id(DeckId::A, 1), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).loop_bars, None);
+        assert!(!decks.is_looping(DeckId::A, 1));
+    });
+}
+
+#[gpui::test]
+fn a_deck_without_a_beat_grid_does_not_loop(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::loop_id;
+    let mut tracks = deck_tracks();
+    for track in &mut tracks {
+        track.outcome.as_mut().unwrap().beat_grid = None;
+    }
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(tracks, Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    click(window, loop_id(DeckId::A, 4), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).loop_bars, None);
+        assert_eq!(decks.loop_seconds(DeckId::A), None);
+    });
+}
+
+#[gpui::test]
 fn the_energy_direction_reorders_the_suggestions(cx: &mut TestAppContext) {
     use crate::deck_audio::DeckId;
     use euphoria_core::harmony::EnergyDirection;
