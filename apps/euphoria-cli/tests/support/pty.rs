@@ -5,6 +5,7 @@
 //! believes it is on a terminal and shows its progress.
 
 use std::io::Read;
+use std::sync::{Arc, Mutex};
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
@@ -18,7 +19,8 @@ pub struct Terminal {
 }
 
 /// Runs `command` in a pseudo terminal and returns what it wrote and how it
-/// exited.
+/// exited. A reader thread keeps draining the terminal while the command
+/// runs, so no progress is lost at the end.
 #[allow(dead_code)]
 pub fn capture(command: &std::process::Command) -> Terminal {
     let pty_system = native_pty_system();
@@ -42,16 +44,32 @@ pub fn capture(command: &std::process::Command) -> Terminal {
         .spawn_command(builder)
         .expect("the command starts");
 
-    let mut terminal = pair
+    let terminal = pair
         .master
         .try_clone_reader()
         .expect("the terminal reader clones");
+    let collected = Arc::new(Mutex::new(Vec::new()));
+    let reader = {
+        let collected = Arc::clone(&collected);
+        std::thread::spawn(move || {
+            let mut terminal = terminal;
+            let mut buffer = [0u8; 4096];
+            loop {
+                match terminal.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => collected
+                        .lock()
+                        .expect("the output lock")
+                        .extend_from_slice(&buffer[..read]),
+                }
+            }
+        })
+    };
     drop(pair.slave);
-    let mut terminal_output = Vec::new();
-    let _ = terminal.read_to_end(&mut terminal_output);
     let status = child.wait().expect("the command's status is reported");
+    reader.join().expect("the reader thread finishes");
     Terminal {
-        output: String::from_utf8_lossy(&terminal_output).into_owned(),
+        output: String::from_utf8_lossy(&collected.lock().expect("the output lock")).into_owned(),
         succeeded: status.exit_code() == 0,
     }
 }
