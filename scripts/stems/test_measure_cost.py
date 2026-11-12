@@ -26,6 +26,16 @@ class PeakResidentBytesTests(unittest.TestCase):
                     cost.peak_resident_bytes(stderr, system)
 
 
+class ProcessorSecondsTests(unittest.TestCase):
+    def test_adds_user_and_system_time_on_both_systems(self):
+        darwin = "        1.23 real         4.56 user         0.78 sys\n"
+        self.assertAlmostEqual(cost.processor_seconds(darwin, "Darwin"), 5.34)
+        linux = "\tUser time (seconds): 4.56\n\tSystem time (seconds): 0.78\n"
+        self.assertAlmostEqual(cost.processor_seconds(linux, "Linux"), 5.34)
+        with self.assertRaises(SystemExit):
+            cost.processor_seconds("nothing", "Linux")
+
+
 class DurationTests(unittest.TestCase):
     def test_invalid_durations_are_refused_before_running_anything(self):
         for duration in ["0", "-5", "nan", "inf"]:
