@@ -15,6 +15,8 @@ rust-version.workspace = true
 [dependencies]
 blake3.workspace = true
 ebur128.workspace = true
+flacenc.workspace = true
+hound.workspace = true
 rayon.workspace = true
 rusqlite.workspace = true
 rustfft.workspace = true
@@ -49,9 +51,13 @@ lofty.workspace = true
 roxmltree.workspace = true
 
 [features]
-default = ["libkeyfinder"]
+default = ["libkeyfinder", "pitch-shift"]
 # Key detection through libkeyfinder, a C++ library found with pkg-config.
 libkeyfinder = ["dep:cc", "dep:pkg-config"]
+# Changing the key of a track with Signalsmith Stretch, a C++ library vendored
+# in vendor/ and compiled with the crate: it needs a C++ compiler but not
+# libclang.
+pitch-shift = ["dep:cc"]
 # Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
 # which is linked statically and adds tens of megabytes to the binary.
 stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]

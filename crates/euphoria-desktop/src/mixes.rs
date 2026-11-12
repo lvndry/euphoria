@@ -36,11 +36,34 @@ pub(crate) struct MixSuggestion {
     pub(crate) tempo_difference_percent: Option<f32>,
 }
 
-/// The tracks in the library that mix with the track at `selected_index`,
-/// smoothest first as the core ranks them, at most `limit` of them.
+/// A track as it would be with its key shifted, for finding what it mixes
+/// with in that key. The tempo and energy do not change with the key.
+struct Shifted<'track> {
+    track: &'track Track,
+    semitones: i8,
+}
+
+impl MixTrack for Shifted<'_> {
+    fn key(&self) -> Option<Key> {
+        self.track.key().map(|key| key.transposed(self.semitones))
+    }
+
+    fn bpm(&self) -> Option<f32> {
+        self.track.bpm()
+    }
+
+    fn energy(&self) -> Option<f32> {
+        self.track.energy().map(f32::from)
+    }
+}
+
+/// The tracks in the library that mix with the track at `selected_index`
+/// with its key shifted by `semitones`, smoothest first as the core ranks
+/// them, at most `limit` of them.
 pub(crate) fn suggestions(
     library: &Library,
     selected_index: usize,
+    semitones: i8,
     limit: usize,
 ) -> Vec<MixSuggestion> {
     let Some(selected) = library.track(selected_index) else {
@@ -50,7 +73,11 @@ pub(crate) fn suggestions(
         .tracks()
         .iter()
         .filter(|candidate| candidate.path != selected.path);
-    mixes_into(selected, candidates, &MixOptions::default())
+    let shifted = Shifted {
+        track: selected,
+        semitones,
+    };
+    mixes_into(&shifted, candidates, &MixOptions::default())
         .into_iter()
         .take(limit)
         .filter_map(|mix| {
@@ -113,6 +140,24 @@ mod tests {
     }
 
     #[test]
+    fn a_shifted_key_is_suggested_with_the_tracks_of_that_key() {
+        let library = library_of(&[
+            ("selected", "A minor", 124.0),
+            ("in a minor", "A minor", 124.0),
+            ("in b minor", "B minor", 124.0),
+        ]);
+        let names = |semitones: i8| -> Vec<String> {
+            suggestions(&library, 0, semitones, 10)
+                .iter()
+                .map(|mix| library.tracks()[mix.track_index].file_name.clone())
+                .collect()
+        };
+        assert_eq!(names(0), ["in a minor.flac"]);
+        // Two semitones up, A minor becomes B minor.
+        assert_eq!(names(2), ["in b minor.flac"]);
+    }
+
+    #[test]
     fn suggests_tracks_in_compatible_keys_and_leaves_out_the_selected_one() {
         let library = library_of(&[
             ("selected", "A minor", 124.0),
@@ -122,7 +167,7 @@ mod tests {
             ("clashing", "Eb minor", 124.0),
             ("too fast", "A minor", 150.0),
         ]);
-        let suggested = suggestions(&library, 0, 10);
+        let suggested = suggestions(&library, 0, 0, 10);
         let names: Vec<&str> = suggested
             .iter()
             .map(|mix| library.tracks()[mix.track_index].file_name.as_str())
@@ -158,7 +203,7 @@ mod tests {
                 }),
             );
         }
-        let names: Vec<&str> = suggestions(&library, 0, 10)
+        let names: Vec<&str> = suggestions(&library, 0, 0, 10)
             .iter()
             .map(|mix| library.tracks()[mix.track_index].file_name.as_str())
             .collect();
@@ -172,8 +217,8 @@ mod tests {
             ("first", "A minor", 124.0),
             ("second", "A minor", 124.0),
         ]);
-        assert_eq!(suggestions(&library, 0, 1).len(), 1);
-        assert!(suggestions(&library, 99, 10).is_empty());
+        assert_eq!(suggestions(&library, 0, 0, 1).len(), 1);
+        assert!(suggestions(&library, 99, 0, 10).is_empty());
     }
 
     #[test]
@@ -181,7 +226,7 @@ mod tests {
         let mut library = library_of(&[("other", "A minor", 124.0)]);
         library.add_files(vec![PathBuf::from("/music/pending.flac")]);
         let pending = library.index_of(Path::new("/music/pending.flac")).unwrap();
-        assert!(suggestions(&library, pending, 10).is_empty());
+        assert!(suggestions(&library, pending, 0, 10).is_empty());
     }
 
     #[test]

@@ -45,6 +45,13 @@ impl Key {
         }
     }
 
+    /// The same mode with the tonic `semitones` higher, or lower when
+    /// negative: the key of the track after shifting its pitch by that much.
+    pub fn transposed(&self, semitones: i8) -> Self {
+        let tonic = (i16::from(self.tonic) + i16::from(semitones)).rem_euclid(12);
+        Self::new(tonic as u8, self.mode)
+    }
+
     /// Pitch class of the tonic, 0 (C) to 11 (B).
     pub fn tonic(&self) -> u8 {
         self.tonic

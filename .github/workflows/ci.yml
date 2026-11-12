@@ -100,6 +100,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
+      # cargo deny cannot see vendored C++, so its files are checked against
+      # the tags and checksums recorded when it was vendored.
+      - name: Vendored Signalsmith libraries match VENDORED.md
+        run: python3 scripts/vendor_signalsmith.py check
 
   python:
     name: Release and benchmark script tests
@@ -112,6 +116,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Vendored library updater regressions
+        run: uv run --no-project --python 3.12 python -m unittest scripts/test_vendor_signalsmith.py
       - name: Release scripts
         run: uv run --no-project --python 3.12 python -m unittest discover -s scripts/release -p 'test_*.py'
       - name: Benchmark scripts
