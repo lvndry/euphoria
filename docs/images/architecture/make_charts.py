@@ -8,7 +8,8 @@ Run it with any Python 3 from the repository root:
 
     python3 docs/images/architecture/make_charts.py
 
-The crates and their dependencies come from the Cargo.toml of each crate, and
+The crates, their folders and their dependencies come from the workspace
+Cargo.toml and the Cargo.toml of each crate, and
 the modules from crates/euphoria-core/src/lib.rs. Change them and the data
 below together.
 """
@@ -18,13 +19,14 @@ from xml.sax.saxutils import escape
 
 OUTPUT_DIRECTORY = Path(__file__).resolve().parent
 
-# The workspace members that depend on euphoria-core, what each is, and the
-# main libraries each adds, from its Cargo.toml.
+# The workspace members that depend on euphoria-core, the folder each lives
+# in, what each is, and the main libraries each adds, from its Cargo.toml.
 FRONT_ENDS = [
-    ("euphoria-cli", "The euphoria command", "clap, indicatif, Rayon"),
-    ("euphoria-desktop", "The desktop app", "GPUI, rodio, Rayon"),
-    ("euphoria-bench", "Accuracy benchmark, not shipped", "cpu-time, Rayon"),
+    ("euphoria-cli", "apps/euphoria-cli", "The euphoria command", "clap, indicatif, Rayon"),
+    ("euphoria-desktop", "apps/euphoria-desktop", "The desktop app", "GPUI, rodio, Rayon"),
+    ("euphoria-bench", "crates/euphoria-bench", "Accuracy benchmark, not shipped", "cpu-time, Rayon"),
 ]
+CORE_FOLDER = "crates/euphoria-core"
 
 # The public modules of crates/euphoria-core/src/lib.rs, except error,
 # grouped by what they do.
@@ -128,19 +130,25 @@ def crates_diagram():
     title = "The crates of the workspace"
     body = [
         text(margin, 36, title, "title"),
-        text(margin, 58, "Every front end depends on euphoria-core and none depends on another.", "subtitle"),
+        text(
+            margin,
+            58,
+            "Apps live in apps/, libraries and tools in crates/. Every front end depends on euphoria-core only.",
+            "subtitle",
+        ),
     ]
 
     front_top = 84
-    front_height = 72
+    front_height = 90
     front_width = (width - 2 * margin - gap * (len(FRONT_ENDS) - 1)) / len(FRONT_ENDS)
     core_top = front_top + front_height + 40
-    for index, (name, purpose, libraries) in enumerate(FRONT_ENDS):
+    for index, (name, folder, purpose, libraries) in enumerate(FRONT_ENDS):
         left = margin + index * (front_width + gap)
         body.append(box(left, front_top, front_width, front_height))
         body.append(text(left + 16, front_top + 26, name, "name"))
-        body.append(text(left + 16, front_top + 46, purpose, "label"))
-        body.append(text(left + 16, front_top + 63, libraries, "small"))
+        body.append(text(left + 16, front_top + 44, folder, "module"))
+        body.append(text(left + 16, front_top + 64, purpose, "label"))
+        body.append(text(left + 16, front_top + 81, libraries, "small"))
         body.append(arrow_down(left + front_width / 2, front_top + front_height, core_top - 2))
 
     longest_group = max(len(modules) for _, modules in CORE_MODULE_GROUPS)
@@ -149,6 +157,7 @@ def crates_diagram():
     body.append(box(margin, core_top, core_width, core_height, "core"))
     body.append(text(margin + 16, core_top + 26, "euphoria-core", "name"))
     body.append(text(margin + 136, core_top + 26, "All product logic. No user interface, prints nothing.", "label"))
+    body.append(text(margin + core_width - 16, core_top + 26, CORE_FOLDER, "module", anchor="end"))
     column_width = (core_width - 32) / len(CORE_MODULE_GROUPS)
     for index, (group, modules) in enumerate(CORE_MODULE_GROUPS):
         column_left = margin + 16 + index * column_width
@@ -178,12 +187,12 @@ def crates_diagram():
         body.append(text(left + 12, top + 40, purpose, "small"))
 
     height = container_top + container_height + 24
-    front_end_names = ", ".join(name for name, _, _ in FRONT_ENDS)
+    front_end_names = ", ".join(f"{name} in {folder}" for name, folder, _, _ in FRONT_ENDS)
     module_lines = "; ".join(f"{group}: {', '.join(modules)}" for group, modules in CORE_MODULE_GROUPS)
     library_names = ", ".join(name for name, _ in CORE_LIBRARIES)
     description = (
         f"Three crates, {front_end_names}, each point down to euphoria-core, and none to another. "
-        f"euphoria-core holds all product logic in its modules. {module_lines}. "
+        f"euphoria-core, in {CORE_FOLDER}, holds all product logic in its modules. {module_lines}. "
         f"Its main libraries are {library_names}; libkeyfinder, a C++ library, is drawn dashed because "
         "it is behind the optional libkeyfinder feature, on by default."
     )

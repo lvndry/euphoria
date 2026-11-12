@@ -160,6 +160,7 @@ Two decks under the table let you try a transition before the set: **Decks** in 
 - **Play** starts a deck, and **Pause** holds it. When the other deck is playing, playback is scheduled so their upcoming downbeats line up. It starts from the selected position and may wait additional bars to align them; the button says so while it waits. A cue button plays from that cue with the same alignment.
 - **Sync to A**, on by default, plays deck B at deck A's tempo: a track at 125 BPM next to one at 120 plays at 96 percent of its speed. A track counted at half or double tempo is matched at that tempo. **Key lock**, on by default, keeps a deck's pitch when its speed changes; off, the pitch follows the speed as on a turntable. The deck shows its own tempo and the tempo heard, such as 125.0 → 120.0 BPM.
 - **The mixer** has a volume fader for each deck and a crossfader between them. The crossfader moves equal power from one deck to the other: at the middle both play at about 71 percent, and a deck at the near end of the fader plays at full. Use the deck faders to balance the combined level. Under the mixer, the share of one core each deck takes and any frames the decoders could not fill in time are shown, for checking that playback keeps up.
+- **Loop bars** 1, 2, 4, 8 and 16 loop that many bars of a deck from its next downbeat. The loop is marked on the waveform, and the lit button shows the length. The deck keeps the samples of the loop's first pass and plays them again, so every repeat is the same sound and joins the next on the beat, with no gap. Press the lit button again to leave: the loop plays to its end once more and the track carries on from there, still on the beat. Another length starts a new loop at the next downbeat. Moving the deck, playing a cue or loading a track ends the loop. Looping needs the track's beat grid, so a track whose tempo you corrected by hand does not loop.
 
 Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
 
@@ -373,7 +374,7 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 
 ## Not there yet
 
-- On the decks: loops, mashups of more than two tracks, favorite transitions, nudging and pitch bend.
+- On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
 - Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.

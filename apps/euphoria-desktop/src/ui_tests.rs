@@ -59,7 +59,8 @@ pub(crate) fn open_fixture_library(
 }
 
 fn fixture_tracks() -> Vec<DemoTrack> {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
         "sine-440hz-mono.flac",
         "sine-440hz-mono.mp3",
@@ -2178,9 +2179,10 @@ fn writing_and_undoing_tags_on_bench_clips_restores_every_byte(cx: &mut TestAppC
 
 #[gpui::test]
 fn titles_and_artists_are_read_from_the_tags_off_the_main_thread(cx: &mut TestAppContext) {
-    let tagged =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/tagged-fixtures");
-    let untagged = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let tagged = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/euphoria-core/tests/tagged-fixtures");
+    let untagged =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     let paths = vec![
         tagged.join("tagged.mp3"),
         tagged.join("tagged.flac"),
@@ -2414,7 +2416,8 @@ fn fitting_a_column_measures_each_distinct_text_once(cx: &mut TestAppContext) {
 /// One fixture track that changes key: A minor for its first 40 seconds,
 /// silence, then E minor from 50 seconds to its end at 100.
 fn track_changing_key() -> DemoTrack {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     DemoTrack {
         path: fixtures.join("sine-440hz-mono.flac"),
         outcome: Ok(TrackAnalysis {
@@ -3998,7 +4001,8 @@ fn a_corrected_key_hides_the_detected_key_timeline_until_it_is_reset(cx: &mut Te
 /// The core's fixture files as three tracks with keys, tempos, energies,
 /// beat grids and cues: A minor at 120, E minor at 125 and C major at 118.
 fn deck_tracks() -> Vec<DemoTrack> {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
         (
             "sine-440hz-mono.flac",
@@ -4137,6 +4141,81 @@ fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
             (0.6..0.8).contains(&position),
             "the cue seeks to 0.6s: {position}"
         );
+    });
+}
+
+#[gpui::test]
+fn a_loop_button_loops_the_deck_and_pressed_again_leaves_it(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::{deck_part, loop_id};
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(!is_shown(
+        window,
+        deck_part("deck-loop-region", DeckId::A),
+        cx
+    ));
+    click(window, deck_part("deck-play", DeckId::A), cx);
+    output.pull(0.05);
+    click(window, loop_id(DeckId::A, 1), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert!(decks.is_looping(DeckId::A, 1));
+        assert!(!decks.is_looping(DeckId::A, 2));
+        let (start, end) = decks.loop_seconds(DeckId::A).unwrap();
+        assert!(
+            (start - 0.2).abs() < 1e-3,
+            "from the next downbeat: {start}"
+        );
+        assert!((end - 2.2).abs() < 1e-3, "one bar at 120 BPM: {end}");
+    });
+    assert!(is_shown(
+        window,
+        deck_part("deck-loop-region", DeckId::A),
+        cx
+    ));
+    click(window, loop_id(DeckId::A, 1), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).loop_bars, None);
+        assert!(!decks.is_looping(DeckId::A, 1));
+    });
+}
+
+#[gpui::test]
+fn a_deck_without_a_beat_grid_does_not_loop(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::loop_id;
+    let mut tracks = deck_tracks();
+    for track in &mut tracks {
+        track.outcome.as_mut().unwrap().beat_grid = None;
+    }
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(tracks, Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+        })
+    });
+    cx.run_until_parked();
+    click(window, loop_id(DeckId::A, 4), cx);
+    output.pull(0.05);
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).loop_bars, None);
+        assert_eq!(decks.loop_seconds(DeckId::A), None);
     });
 }
 
@@ -4592,7 +4671,8 @@ const CUED_TRACK_SECONDS: f32 = 32.0;
 /// beats fall every half second from 0 and bars every two seconds, and
 /// analysis placed a Start cue at 0 and a Drop at 16.
 fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../euphoria-core/tests/fixtures");
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     let section_cue = |seconds, section| euphoria_core::SectionCue { seconds, section };
     DemoTrack {
         path: fixtures.join(name),
