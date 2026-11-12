@@ -219,23 +219,25 @@ impl StemSeparator {
             })?;
         drop(bytes);
         let environment = environment()?;
-        let mut builder = Session::builder(&environment)
+        let builder = Session::builder(&environment)
             .map_err(runtime_error("cannot start ONNX Runtime"))?
             // The ort crate otherwise lets ONNX Runtime pick the most power
             // efficient device, which on a Mac is Core ML: there this model
             // needs about 16 GB and its stems are wrong.
             .with_auto_device(ort::session::builder::AutoDevicePolicy::PreferCPU)
-            .and_then(|builder| builder.with_intra_threads(separation_threads()))
-            // ONNX Runtime's memory pattern and CPU arena keep the peak of
-            // every intermediate tensor allocated; without them a segment
-            // needs about 2 GB less.
-            .and_then(|builder| builder.with_memory_pattern(false))
-            .and_then(|builder| {
-                builder.with_execution_providers([ort::ep::CPU::default()
-                    .with_arena_allocator(false)
-                    .build()])
-            })
-            .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
+            .map_err(runtime_error("cannot start ONNX Runtime"))?;
+        let builder = builder
+            .with_intra_threads(separation_threads())
+            .map_err(runtime_error("cannot start ONNX Runtime"))?;
+        // ONNX Runtime's memory pattern and CPU arena keep the peak of
+        // every intermediate tensor allocated; without them a segment
+        // needs about 2 GB less.
+        let builder = builder
+            .with_memory_pattern(false)
+            .map_err(runtime_error("cannot start ONNX Runtime"))?;
+        let mut builder = builder
+            .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(false).build()])
+            .map_err(runtime_error("cannot start ONNX Runtime"))?;
         for tensor in tensors {
             let value = Tensor::from_array((tensor.shape, tensor.values))
                 .map_err(runtime_error("cannot hold the weights"))?;
