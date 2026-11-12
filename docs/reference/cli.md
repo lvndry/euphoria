@@ -429,6 +429,37 @@ Warmup  (9 tracks)
 
 Playlists are kept in `playlists.sqlite3` beside the [cache](#where-the-cache-is-stored), each track by the content of its file and its last path, so `euphoria cache clear` leaves them as they are.
 
+## euphoria set build
+
+Orders tracks from a pool into a set that follows an energy curve, with every transition an allowed key move and a small tempo step.
+
+```
+euphoria set build [OPTIONS] <FOLDER|PLAYLIST>...
+```
+
+The pool is folders or audio files, searched as `euphoria analyze` searches them, or the name of a playlist built in the desktop app when the one argument is not a path. Tracks are analyzed first or read from the cache, with your corrections applied. The [guide](../guides/build-a-set.md) explains the curve, the rules and how the set is chosen.
+
+| Option | Meaning |
+| --- | --- |
+| `--curve <CURVE>` | Energy levels from 1 to 10 separated by commas, spread evenly over the set, or a preset: `warm-up`, `peak-time`, `journey` (the default). |
+| `--tracks <COUNT>` | The length of the set. Defaults to 20. |
+| `--minutes <MINUTES>` | The length of the set in minutes, turned into a count by the median track length of the pool. |
+| `--first <FILE>`, `--last <FILE>` | Open or close the set with this track, which joins the pool if it is not in it. |
+| `--max-bpm-step <BPM>` | The largest tempo change between two tracks. Defaults to 5. |
+| `--moves <MOVES>` | The key moves allowed, separated by commas: `same`, `adjacent`, `relative`, `diagonal`, `energy-boost`, `mood-change`, `semitone-boost`. Defaults to the first five. |
+| `--allow-artist-repeats` | Let two tracks by the same artist follow each other. |
+| `--json` | Print JSON instead of the table. |
+| `--m3u <FILE>` | Also write the set as an M3U8 playlist. `--force` replaces an existing file. |
+| `--key-notation <NOTATION>` | How keys are shown in the table. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output gets a table, one track per line, with the key move and tempo step from the track before, the energy and the energy the curve asks for, then two rows of blocks that draw the curve and the set. Standard error gets a summary and a `warning:` for each place the set falls short of the curve or breaks a rule.
+
+The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
+
+The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
+
 ## euphoria tags write
 
 Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.
