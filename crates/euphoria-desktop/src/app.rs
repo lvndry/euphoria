@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,6 +58,9 @@ const MIX_LIMIT: usize = 8;
 /// How often the playhead and the position are brought up to date while a
 /// track plays.
 const PLAYHEAD_INTERVAL: Duration = Duration::from_millis(33);
+
+/// How often the app looks at a separation running on its thread.
+const STEM_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// The sound of the track that is playing or paused.
 struct ActiveVoice {
@@ -165,6 +168,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) output: Box<dyn AudioOutput>,
     /// The reference sounds and the correction editor of the track detail.
     pub(crate) by_ear: crate::key_by_ear::ByEar,
+    /// Separating tracks into stems, and what to hear of the separated ones.
+    pub(crate) stems: crate::stems::StemSession,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
     voice: Option<ActiveVoice>,
@@ -323,6 +328,7 @@ impl EuphoriaApp {
             window_focus,
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
+            stems: crate::stems::StemSession::new(crate::stems::model_separation),
             bpm_input,
             voice: None,
             start_task: None,
@@ -1219,14 +1225,17 @@ impl EuphoriaApp {
             Some(PlayerRequest::Start {
                 path,
                 from_seconds,
+                with_stems,
                 attempt,
             }) => {
                 self.voice = None;
+                let opening = if with_stems {
+                    self.open_stems(&path, from_seconds)
+                } else {
+                    TrackSource::open(&path, from_seconds)
+                };
                 self.start_task = Some(cx.spawn(async move |this, cx| {
-                    let opened = cx
-                        .background_executor()
-                        .spawn(async move { TrackSource::open(&path, from_seconds) })
-                        .await;
+                    let opened = cx.background_executor().spawn(async move { opening }).await;
                     this.update(cx, |this, cx| this.finish_starting(attempt, opened, cx))
                         .ok();
                 }));
@@ -1303,6 +1312,96 @@ impl EuphoriaApp {
             }
         })
         .detach();
+    }
+
+    /// The stems of the track at `path`, mixed as the player hears them,
+    /// to be played in place of the track.
+    fn open_stems(&self, path: &Path, from_seconds: f32) -> Result<TrackSource, PlaybackProblem> {
+        let files = self
+            .stems
+            .ready_files(path)
+            .ok_or(PlaybackProblem::FileMissing)?;
+        TrackSource::open_stems(&files, self.stems.mix(), from_seconds)
+    }
+
+    /// The track detail's stem switch changed what is heard: the sound
+    /// follows, by restarting the track when it sounds.
+    pub(crate) fn set_stem_mode(
+        &mut self,
+        mode: crate::stems::StemMode,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if !self.stems.set_mode(mode) {
+            return;
+        }
+        if self.player.offers_pause() {
+            let request = self.player.toggle();
+            self.carry_out(request, cx);
+        }
+        cx.notify();
+    }
+
+    /// The player's track is separated, or it is not: the player starts the
+    /// track again when that changes while it sounds, so that it sounds the
+    /// way the player hears it.
+    pub(crate) fn stems_changed(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(track) = self.selected_track().map(|track| track.path.clone()) else {
+            return;
+        };
+        let ready = self.stems.ready_files(&track).is_some();
+        let was = self.player.offers_stems();
+        self.player.stems_ready(ready);
+        if ready != was && self.player.offers_pause() {
+            let request = self.player.toggle();
+            self.carry_out(request, cx);
+        }
+        self.report_stem_problem(&track);
+        cx.notify();
+    }
+
+    /// Asks the stems of the selected track to be separated, once the app
+    /// has not asked for them yet.
+    pub(crate) fn request_stems(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(track) = self.selected_track() else {
+            return;
+        };
+        let path = track.path.clone();
+        if self.stems.start(&path) {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    let finished = this
+                        .update(cx, |this, _cx| this.stems.poll())
+                        .ok()
+                        .flatten();
+                    if let Some(path) = finished {
+                        this.update(cx, |this, cx| {
+                            if this.player.track() == Some(path.as_path()) {
+                                this.stems_changed(cx);
+                            }
+                        })
+                        .ok();
+                        break;
+                    }
+                    cx.background_executor().timer(STEM_POLL_INTERVAL).await;
+                }
+            })
+            .detach();
+            cx.notify();
+        }
+    }
+
+    /// Tells the user when the stems of the track could not be separated.
+    fn report_stem_problem(&mut self, path: &Path) {
+        if let Some(crate::stems::StemStatus::Failed(problem)) = self.stems.status(path) {
+            self.report(problem.clone());
+        }
+        if let Some(phase) = self
+            .stems
+            .progress()
+            .filter(|_| self.player.track() == Some(path))
+        {
+            self.report(format!("Separating the stems: {}", phase.description()));
+        }
     }
 
     /// Brings the player up to date with what the sound has done: how far it

@@ -31,6 +31,7 @@ mod progress;
 mod reference_sound;
 mod settings;
 mod state;
+mod stems;
 mod tag_editor;
 mod tag_flow;
 mod tag_settings;

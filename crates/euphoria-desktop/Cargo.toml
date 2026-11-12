@@ -17,7 +17,7 @@ name = "euphoria-desktop"
 path = "src/main.rs"
 
 [dependencies]
-euphoria-core.workspace = true
+euphoria-core = { workspace = true, features = ["stems"] }
 gpui.workspace = true
 rayon.workspace = true
 rodio.workspace = true
