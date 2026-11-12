@@ -174,16 +174,20 @@ fn header_body(packet: &[u8], kind: u8) -> Option<&[u8]> {
 impl OggVorbisFile {
     /// Reads the three header packets of the Ogg Vorbis stream that starts
     /// the file. Refuses more than 128 MiB of headers, 4096 header pages,
-    /// or 65,536 comments, so both packet payloads and per-entry allocations
-    /// have explicit limits.
-    pub(super) fn load(file: &mut File) -> Result<Self, ErrorSource> {
-        Self::load_with_limits(file, MAX_HEADER_BYTES, MAX_HEADER_PAGES)
+    /// or 65,536 comments, so both packet payloads and per-entry
+    /// allocations have explicit limits. With `full_stream`, walks the
+    /// pages after the headers too, to find what would stop the rest of
+    /// the file being carried over unchanged when the headers are
+    /// rewritten; a plain read does not need the walk.
+    pub(super) fn load(file: &mut File, full_stream: bool) -> Result<Self, ErrorSource> {
+        Self::load_with_limits(file, MAX_HEADER_BYTES, MAX_HEADER_PAGES, full_stream)
     }
 
     fn load_with_limits(
         file: &mut File,
         max_header_bytes: u64,
         max_header_pages: usize,
+        full_stream: bool,
     ) -> Result<Self, ErrorSource> {
         let mut problem = None;
         let mut packets: Vec<Vec<u8>> = Vec::new();
@@ -283,7 +287,7 @@ impl OggVorbisFile {
         if comment_end.first().is_none_or(|framing| framing & 1 == 0) {
             problem = Some("its Vorbis comment header is damaged");
         }
-        if let Some(serial_number) = serial_number {
+        if let Some(serial_number) = serial_number.filter(|_| full_stream) {
             problem = problem.or(later_page_problem(file, offset, serial_number)?);
         }
         Ok(Self {
@@ -565,7 +569,7 @@ mod tests {
         ));
         std::fs::write(&path, &bytes).unwrap();
         let mut file = File::open(&path).unwrap();
-        let result = OggVorbisFile::load_with_limits(&mut file, bytes_limit, page_limit);
+        let result = OggVorbisFile::load_with_limits(&mut file, bytes_limit, page_limit, false);
         let error = result.unwrap_err();
         assert!(error.to_string().contains("header limit"), "{error}");
         assert!(std::io::Seek::stream_position(&mut file).unwrap() < bytes.len() as u64);
@@ -585,11 +589,12 @@ mod tests {
 
     #[test]
     fn valid_headers_are_accepted_at_both_limits() {
-        let original = OggVorbisFile::load(&mut fixture()).unwrap();
+        let original = OggVorbisFile::load(&mut fixture(), true).unwrap();
         let limited = OggVorbisFile::load_with_limits(
             &mut fixture(),
             original.pages_end,
             original.pages.len() + 1,
+            true,
         )
         .unwrap();
         assert_eq!(limited, original);

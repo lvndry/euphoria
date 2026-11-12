@@ -409,7 +409,7 @@ fn has_mpeg_audio(file: &mut File, start: u64) -> Result<bool, ErrorSource> {
 }
 
 impl Document {
-    fn load(file: &mut File) -> Result<Self, ErrorSource> {
+    fn load(file: &mut File, full_stream: bool) -> Result<Self, ErrorSource> {
         let mut beginning = [0; PROBE_LENGTH];
         let mut read = 0;
         file.seek(SeekFrom::Start(0))?;
@@ -425,7 +425,7 @@ impl Document {
             return Err(unsupported());
         }
         if ogg::is_ogg(beginning) {
-            return Ok(Self::Ogg(OggVorbisFile::load(file)?));
+            return Ok(Self::Ogg(OggVorbisFile::load(file, full_stream)?));
         }
 
         let after_id3 = flac::stream_start(beginning)?;
@@ -572,10 +572,13 @@ impl TagFile {
             path: path.to_path_buf(),
             source,
         })?;
-        let document = Document::load(&mut file).map_err(|source| EuphoriaError::TagRead {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        let document =
+            Document::load(&mut file, purpose != Purpose::Reading).map_err(|source| {
+                EuphoriaError::TagRead {
+                    path: path.to_path_buf(),
+                    source,
+                }
+            })?;
         let metadata = file.metadata().map_err(|source| EuphoriaError::Open {
             path: path.to_path_buf(),
             source,
@@ -788,7 +791,7 @@ impl TagFile {
     fn check_source_is_unchanged(&self, target: &Path) -> Result<(), ErrorSource> {
         let mut current = File::open(target)?;
         let is_unchanged = current.metadata()?.len() == self.file_length
-            && Document::load(&mut current)? == self.loaded;
+            && Document::load(&mut current, true)? == self.loaded;
         if is_unchanged {
             Ok(())
         } else {
@@ -811,7 +814,7 @@ impl TagFile {
             return Err(refusal("data outside the tag would change"));
         }
         let unreadable = || refusal("the rewritten tag would not be readable");
-        let written = Document::load(copy).map_err(|_| unreadable())?;
+        let written = Document::load(copy, true).map_err(|_| unreadable())?;
         if written.problem().is_some() {
             return Err(unreadable());
         }
