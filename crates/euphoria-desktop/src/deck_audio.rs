@@ -470,9 +470,11 @@ struct LoadedTrack {
     has_rendered: bool,
     start_seconds: f64,
     deck_loop: Option<DeckLoop>,
-    /// The samples of a loop the deck is done with, until the mix hands
-    /// them to the window.
-    spent_loop: Option<Vec<f32>>,
+    /// The samples of loops the deck is done with, until the mix hands
+    /// them to the window. The mix applies no command while one waits, so
+    /// one comes from a command and at most one more from the loop ending
+    /// as it plays.
+    spent_loops: [Option<Vec<f32>>; 2],
 }
 
 impl LoadedTrack {
@@ -508,7 +510,7 @@ impl LoadedTrack {
             has_rendered: false,
             start_seconds,
             deck_loop: None,
-            spent_loop: None,
+            spent_loops: [None, None],
         };
         track.update_transpose();
         track
@@ -575,9 +577,18 @@ impl LoadedTrack {
     /// Puts aside the samples of a loop, so they are not freed on the audio
     /// thread.
     fn spend(&mut self, frames: Vec<f32>) {
-        if frames.capacity() > 0 && self.spent_loop.is_none() {
-            self.spent_loop = Some(frames);
+        if frames.capacity() == 0 {
+            return;
         }
+        if let Some(slot) = self.spent_loops.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(frames);
+        } else {
+            debug_assert!(false, "a third spent loop while two wait");
+        }
+    }
+
+    fn holds_spent_loops(&self) -> bool {
+        self.spent_loops.iter().any(Option::is_some)
     }
 
     fn end_loop(&mut self) {
@@ -825,12 +836,24 @@ impl DeckMix {
         let Some(track) = self.decks[deck.index()].as_deref_mut() else {
             return;
         };
-        if let Some(frames) = track.spent_loop.take()
-            && let Err(TrySendError::Full(frames) | TrySendError::Disconnected(frames)) =
-                self.spent_loops.try_send(frames)
-        {
-            track.spent_loop = Some(frames);
+        for slot in &mut track.spent_loops {
+            if let Some(frames) = slot.take()
+                && let Err(TrySendError::Full(frames) | TrySendError::Disconnected(frames)) =
+                    self.spent_loops.try_send(frames)
+            {
+                *slot = Some(frames);
+            }
         }
+    }
+
+    /// True while a deck keeps the samples of a loop the window has not
+    /// taken yet. No command is applied meanwhile, so none can end another
+    /// loop with nowhere to keep it.
+    fn holds_spent_loops(&self) -> bool {
+        self.decks
+            .iter()
+            .flatten()
+            .any(|track| track.holds_spent_loops())
     }
 
     fn apply(&mut self, command: DeckCommand) {
@@ -935,7 +958,10 @@ impl DeckMix {
         if let Some(track) = self.pending_retired.take() {
             self.retire(track);
         }
-        while self.pending_retired.is_none() {
+        for deck in DeckId::BOTH {
+            self.hand_back_spent_loop(deck);
+        }
+        while self.pending_retired.is_none() && !self.holds_spent_loops() {
             let Ok(command) = self.commands.try_recv() else {
                 break;
             };
@@ -946,7 +972,6 @@ impl DeckMix {
         }
         self.block.fill(0.0);
         for deck in DeckId::BOTH {
-            self.hand_back_spent_loop(deck);
             let meter = Arc::clone(&self.meters[deck.index()]);
             let Some(track) = self.decks[deck.index()].as_mut() else {
                 meter.playing.store(false, Ordering::Relaxed);
@@ -1548,6 +1573,62 @@ mod tests {
         let spent: Vec<Vec<f32>> = link.spent_loops.try_iter().collect();
         assert_eq!(spent.len(), 1);
         assert_eq!(spent[0].as_ptr() as usize, given.0);
+    }
+
+    #[test]
+    fn loops_ended_while_the_window_is_slow_wait_for_it_and_none_is_freed_here() {
+        let scratch = ScratchFolder::new("loop-backpressure");
+        let path = scratch.0.join("track.wav");
+        write_click_track(&path, 120.0, 0.5, 8.0);
+        let grid = Some(GridTiming {
+            first_downbeat_seconds: 0.5,
+            bpm: 120.0,
+        });
+        let (link, mut mix) = deck_mix();
+        link.send(DeckCommand::Load {
+            deck: DeckId::A,
+            track: prepare_track(TrackSource::open(&path, 0.0).unwrap().patient(), grid),
+        });
+        mix.render_block();
+        for bars in [1, 2, 4] {
+            link.commands
+                .send(DeckCommand::SetLoop {
+                    deck: DeckId::A,
+                    bars: Some(bars),
+                    frames: loop_buffer(Some(bars), grid, 44_100, 1),
+                })
+                .unwrap();
+        }
+        for _ in 0..SPENT_LOOPS_CAPACITY {
+            mix.spent_loops.try_send(Vec::with_capacity(1)).unwrap();
+        }
+        for _ in 0..4 {
+            mix.render_block();
+        }
+        let track = mix.decks[0].as_ref().unwrap();
+        assert!(track.holds_spent_loops(), "the 1 bar loop waits");
+        assert_eq!(
+            track.loop_seconds().map(|(start, end)| end - start),
+            Some(4.0),
+            "the 2 bar loop plays and the 4 bar loop waits"
+        );
+        let mut returned: Vec<usize> = Vec::new();
+        for _ in 0..4 {
+            returned.extend(link.spent_loops.try_iter().map(|frames| frames.capacity()));
+            mix.render_block();
+        }
+        returned.extend(link.spent_loops.try_iter().map(|frames| frames.capacity()));
+        let loops: Vec<usize> = returned
+            .into_iter()
+            .filter(|capacity| *capacity > 1)
+            .collect();
+        assert_eq!(loops, [88_202, 176_402], "the 1 and 2 bar loops come back");
+        let track = mix.decks[0].as_ref().unwrap();
+        assert!(!track.holds_spent_loops());
+        assert_eq!(
+            track.loop_seconds().map(|(start, end)| end - start),
+            Some(8.0)
+        );
     }
 
     #[test]
