@@ -1278,6 +1278,8 @@ impl EuphoriaApp {
             Ok(source) => {
                 let state = source.state();
                 if self.player.started(attempt, source.duration_seconds()) {
+                    // The control may have changed while the file opened.
+                    state.set_shift(self.key_shift);
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });
