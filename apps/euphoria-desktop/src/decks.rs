@@ -11,7 +11,7 @@ use std::f32::consts::FRAC_PI_2;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use euphoria_core::harmony::{EnergyDirection, MixOptions, Relation, next_tracks};
+use euphoria_core::harmony::{EnergyDirection, MixOptions, Relation, next_tracks_favoring};
 use euphoria_core::{SectionCue, TrackAnalysis};
 use gpui::{Context, Task};
 
@@ -111,6 +111,8 @@ pub(crate) struct NextTrack {
     pub(crate) relation: Relation,
     pub(crate) tempo_difference_percent: Option<f32>,
     pub(crate) energy_difference: Option<f32>,
+    /// True when the user marked the transition from deck A into it.
+    pub(crate) is_favorite: bool,
 }
 
 /// The decks, their mixer and the suggestions.
@@ -675,11 +677,18 @@ impl EuphoriaApp {
             allow_half_and_double_tempo: true,
             ..MixOptions::default()
         };
-        self.decks.suggestions = next_tracks(
+        let favorites = self.session.favorites();
+        let is_favorite = |candidate: &&Track| {
+            favorites
+                .transition(&playing.path, &candidate.path)
+                .is_some()
+        };
+        self.decks.suggestions = next_tracks_favoring(
             playing,
             candidates.iter().copied(),
             &options,
             self.decks.direction,
+            |candidate| is_favorite(&candidate),
         )
         .into_iter()
         .take(SUGGESTION_LIMIT)
@@ -689,6 +698,7 @@ impl EuphoriaApp {
                 relation: mix.relation,
                 tempo_difference_percent: mix.tempo.map(|tempo| tempo.difference_percent),
                 energy_difference: mix.energy_difference,
+                is_favorite: is_favorite(&mix.track),
             })
         })
         .collect();

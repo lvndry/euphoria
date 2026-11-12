@@ -11,12 +11,13 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::{
-    CachedAnalyzer, EntryCheck, EuphoriaError, PlaylistStore, StoredPlaylist, TrackAnalysis,
-    locate_moved_files,
+    CachedAnalyzer, EntryCheck, EuphoriaError, PlaylistStore, StoredFavorites, StoredPlaylist,
+    TrackAnalysis, locate_moved_files,
 };
 
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
 use crate::demo::DemoTrack;
+use crate::favorites::Favorites;
 use crate::library::Library;
 use crate::playlists::{PlaylistRewrite, Playlists};
 use crate::progress::AnalysisProgress;
@@ -95,6 +96,7 @@ pub(crate) struct Session {
     cached_count: usize,
     cache_problem: Option<String>,
     playlists: Playlists,
+    favorites: Favorites,
     playlist_saver: Option<PlaylistSaver>,
 }
 
@@ -105,6 +107,8 @@ pub(crate) struct PlaylistSaver {
     /// The revision of the playlists last written, so a slow save of older
     /// playlists never overwrites a newer one.
     saved_revision: Arc<AtomicU64>,
+    /// The revision of the favorites last written, as for the playlists.
+    saved_favorites_revision: Arc<AtomicU64>,
     rewrites: Arc<Mutex<Vec<PlaylistRewrite>>>,
     registered: Arc<Mutex<HashMap<PathBuf, Option<euphoria_core::ContentHash>>>>,
 }
@@ -112,7 +116,7 @@ pub(crate) struct PlaylistSaver {
 impl PlaylistSaver {
     /// Registers the live paths before hashing or saving them off-thread,
     /// including new entries not yet present in the database.
-    pub(crate) fn register(&self, playlists: &Playlists) {
+    pub(crate) fn register(&self, playlists: &Playlists, favorites: &Favorites) {
         *self
             .registered
             .lock()
@@ -121,7 +125,37 @@ impl PlaylistSaver {
             .iter()
             .flat_map(|playlist| &playlist.tracks)
             .map(|path| (path.clone(), playlists.content_of(path)))
+            .chain(
+                favorites
+                    .paths()
+                    .map(|path| (path.clone(), favorites.content_of(path))),
+            )
             .collect();
+    }
+
+    /// Keeps `favorites`, made at `revision`, unless newer ones were kept
+    /// already.
+    pub(crate) fn save_favorites(
+        &self,
+        favorites: &StoredFavorites,
+        revision: u64,
+        rewrite_epoch: usize,
+    ) -> Result<(), EuphoriaError> {
+        let mut store = self.store.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.saved_favorites_revision.load(Ordering::Relaxed) >= revision {
+            return Ok(());
+        }
+        let mut favorites = favorites.clone();
+        let rewrites = self.rewrites.lock().unwrap_or_else(PoisonError::into_inner);
+        for entry in favorites.entries_mut() {
+            for rewrite in rewrites.iter().skip(rewrite_epoch) {
+                rewrite.apply(entry);
+            }
+        }
+        store.save_favorites(&favorites)?;
+        self.saved_favorites_revision
+            .store(revision, Ordering::Relaxed);
+        Ok(())
     }
 
     pub(crate) fn rewrites(&self) -> Vec<PlaylistRewrite> {
@@ -228,6 +262,7 @@ impl Session {
             cached_count: 0,
             cache_problem: None,
             playlists: Playlists::default(),
+            favorites: Favorites::default(),
             playlist_saver: None,
         })
     }
@@ -243,11 +278,21 @@ impl Session {
         self.playlists = Playlists::from_stored(stored);
         let mut store = store;
         if moved {
-            store.save(&self.playlists.stored_with_contents(|_| None))?;
+            store.save(&self.playlists.stored_with_contents(|_| Ok(None))?)?;
         }
+        let mut favorites = store.load_favorites()?;
+        let favorites_moved = self
+            .cache
+            .as_deref()
+            .is_some_and(|cache| favorites.locate_moved_files(Some(cache), EntryCheck::Quick));
+        if favorites_moved {
+            store.save_favorites(&favorites)?;
+        }
+        self.favorites = Favorites::from_stored(favorites);
         let saver = PlaylistSaver {
             store: Arc::new(Mutex::new(store)),
             saved_revision: Arc::new(AtomicU64::new(0)),
+            saved_favorites_revision: Arc::new(AtomicU64::new(0)),
             rewrites: Arc::default(),
             registered: Arc::default(),
         };
@@ -263,6 +308,16 @@ impl Session {
     /// The playlists, to change. The caller saves them afterwards.
     pub(crate) fn playlists_mut(&mut self) -> &mut Playlists {
         &mut self.playlists
+    }
+
+    /// The starred tracks and marked transitions.
+    pub(crate) fn favorites(&self) -> &Favorites {
+        &self.favorites
+    }
+
+    /// The favorites, to change. The caller saves them afterwards.
+    pub(crate) fn favorites_mut(&mut self) -> &mut Favorites {
+        &mut self.favorites
     }
 
     /// Where playlists are kept, when they are.
@@ -440,7 +495,7 @@ mod tests {
             .unwrap();
         session.playlists = Playlists::from_stored(stored.clone());
         let saver = session.playlist_saver().unwrap();
-        saver.register(&session.playlists);
+        saver.register(&session.playlists, &session.favorites);
         let stale_contents = session.playlists.known_contents();
         std::fs::write(&path, b"after metadata edit").unwrap();
         let after = ContentHash::of_file(&path).unwrap();
@@ -507,10 +562,11 @@ mod tests {
             .playlists
             .add_tracks(id, std::slice::from_ref(&path));
         let epoch = saver.rewrites().len();
-        saver.register(&session.playlists);
+        saver.register(&session.playlists, &session.favorites);
         let fresh = session
             .playlists
-            .stored_with_contents(|path| Some(ContentHash::of_file(path).unwrap()));
+            .stored_with_contents(|path| Ok(Some(ContentHash::of_file(path).unwrap())))
+            .unwrap();
         saver.save(&fresh, 3, epoch).unwrap();
         session.playlists.follow_rewrite_history(&saver.rewrites());
         assert_eq!(session.playlists.content_of(&path), Some(before));

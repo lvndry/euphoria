@@ -43,7 +43,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let counts = app.sidebar_counts();
     let hover_background = palette.raised;
 
-    let in_library = app.playlist.is_none();
+    let in_library = app.playlist.is_none() && !app.showing_favorites;
+    let favorites_are_current = app.playlist.is_none() && app.showing_favorites;
     let all_tracks_is_current =
         in_library && app.filter == LibraryFilter::AllTracks && app.folder.is_none();
     let needs_review_is_current = in_library && app.filter == LibraryFilter::NeedsReview;
@@ -105,6 +106,21 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 row.hover(move |style| style.bg(hover_background.opacity(0.6)))
             })
             .on_click(cx.listener(|this, _, _, cx| this.show_tracks_with_quality_to_check(cx)))
+            .test_support(),
+        )
+        .child(
+            row(
+                "Favorites",
+                Some(app.session.favorites().tracks().len()),
+                favorites_are_current,
+                &palette,
+            )
+            .id("favorites")
+            .cursor_pointer()
+            .when(!favorites_are_current, |row| {
+                row.hover(move |style| style.bg(hover_background.opacity(0.6)))
+            })
+            .on_click(cx.listener(|this, _, _, cx| this.show_favorites(cx)))
             .test_support(),
         )
         .child(

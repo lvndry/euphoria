@@ -14,6 +14,13 @@ icon_assets!(ExtraIcons, [Music]);
 /// Path of the music note icon shown where a track has no artwork.
 pub(crate) const MUSIC_ICON_PATH: &str = "icons/music.svg";
 
+/// Path of the outlined star of a track or transition that is not a
+/// favorite.
+pub(crate) const STAR_ICON_PATH: &str = "icons/star.svg";
+
+/// Path of the filled star of a favorite.
+pub(crate) const STAR_FILLED_ICON_PATH: &str = "icons/star-fill.svg";
+
 /// Every icon the app can draw.
 pub(crate) struct AppAssets;
 
@@ -38,7 +45,13 @@ mod tests {
 
     #[test]
     fn serves_the_extra_icons_and_the_component_icons() {
-        for path in [MUSIC_ICON_PATH, "icons/search.svg", "icons/folder.svg"] {
+        for path in [
+            MUSIC_ICON_PATH,
+            STAR_ICON_PATH,
+            STAR_FILLED_ICON_PATH,
+            "icons/search.svg",
+            "icons/folder.svg",
+        ] {
             let icon = AppAssets.load(path).unwrap();
             assert!(icon.is_some_and(|bytes| !bytes.is_empty()), "{path}");
         }
