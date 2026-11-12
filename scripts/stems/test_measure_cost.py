@@ -1,6 +1,10 @@
 """Unit tests for measure_cost parsing helpers, without running euphoria."""
 
+import contextlib
+import io
+import sys
 import unittest
+from unittest.mock import patch
 
 import measure_cost as cost
 
@@ -20,6 +24,24 @@ class PeakResidentBytesTests(unittest.TestCase):
             with self.subTest(system=system):
                 with self.assertRaises(SystemExit):
                     cost.peak_resident_bytes(stderr, system)
+
+
+class DurationTests(unittest.TestCase):
+    def test_invalid_durations_are_refused_before_running_anything(self):
+        for duration in ["0", "-5", "nan", "inf"]:
+            with self.subTest(duration=duration):
+                argv = [
+                    "measure_cost.py",
+                    "--binary", "/nonexistent/euphoria",
+                    "--audio", "/nonexistent/track.wav",
+                    "--weights", "/nonexistent/weights",
+                    "--duration-seconds", duration,
+                ]
+                with patch.object(sys, "argv", argv), patch.object(cost.subprocess, "run") as run:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        with self.assertRaises(SystemExit):
+                            cost.main()
+                    run.assert_not_called()
 
 
 class TimeCommandTests(unittest.TestCase):

@@ -432,14 +432,17 @@ impl CachedSeparator {
         path: &Path,
         observer: &dyn SeparationObserver,
     ) -> Result<StemFiles, EuphoriaError> {
-        let hash = ContentHash::of_file(path).map_err(|source| EuphoriaError::Open {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if let Some(files) = self.cache.lookup(&hash) {
+        let content_hash = || {
+            ContentHash::of_file(path).map_err(|source| EuphoriaError::Open {
+                path: path.to_path_buf(),
+                source,
+            })
+        };
+        if let Some(files) = self.cache.lookup(&content_hash()?) {
             return Ok(files);
         }
         let _turn = self.cache.separation_turn(observer)?;
+        let hash = content_hash()?;
         if let Some(files) = self.cache.lookup(&hash) {
             return Ok(files);
         }
@@ -452,12 +455,7 @@ impl CachedSeparator {
         self.cache.store_streamed(&hash, left.len(), |sink| {
             separator.separate_into(&left, &right, observer, sink)?;
             observer.stage(SeparationStage::Saving);
-            let current_hash =
-                ContentHash::of_file(path).map_err(|source| EuphoriaError::Open {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
-            if current_hash != hash {
+            if content_hash()? != hash {
                 return Err(EuphoriaError::Separation {
                     reason: format!(
                         "{} changed while it was being separated; try again",

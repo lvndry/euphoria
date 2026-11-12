@@ -8,6 +8,7 @@ audio, and the peak resident memory of the child process.
 
 import argparse
 import json
+import math
 import os
 import platform
 import shutil
@@ -54,8 +55,15 @@ def main() -> None:
     parser.add_argument("--audio", type=Path, required=True, help="audio file to separate")
     parser.add_argument("--weights", type=Path, required=True, help="already downloaded weights file")
     parser.add_argument("--duration-seconds", type=float, required=True, help="length of the audio in seconds")
-    parser.add_argument("--threads", type=int, default=None, help="set EUPHORIA_STEMS_THREADS for the child")
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="set EUPHORIA_STEMS_THREADS for the child; without it the child uses its default",
+    )
     arguments = parser.parse_args()
+    if not math.isfinite(arguments.duration_seconds) or arguments.duration_seconds <= 0:
+        parser.error("--duration-seconds must be a positive number of seconds")
 
     system = platform.system()
     with tempfile.TemporaryDirectory() as scratch:
@@ -68,6 +76,7 @@ def main() -> None:
 
         child_environment = dict(os.environ)
         child_environment["EUPHORIA_DATA_DIR"] = str(workspace / "data")
+        child_environment.pop("EUPHORIA_STEMS_THREADS", None)
         if arguments.threads is not None:
             child_environment["EUPHORIA_STEMS_THREADS"] = str(arguments.threads)
 
