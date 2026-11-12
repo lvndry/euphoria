@@ -5,6 +5,10 @@
 pub mod assemble;
 /// The corrections the user made, as JSON Lines for training a model.
 pub mod corrections;
+/// Updating the tracks of an Engine DJ library database.
+pub mod engine;
+/// The blobs of performance data in an Engine DJ library.
+pub mod engine_blobs;
 /// The extended M3U playlist format.
 pub mod m3u;
 /// Mirroring folders on disk as a playlist tree.

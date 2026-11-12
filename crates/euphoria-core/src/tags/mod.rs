@@ -11,7 +11,7 @@ mod edit;
 mod flac;
 mod history;
 mod id3v2;
-mod label;
+pub(crate) mod label;
 mod mp4;
 mod native;
 mod ogg;

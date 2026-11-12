@@ -18,6 +18,7 @@ ebur128.workspace = true
 flacenc.workspace = true
 hound.workspace = true
 rayon.workspace = true
+flate2.workspace = true
 rusqlite.workspace = true
 rustfft.workspace = true
 serde.workspace = true

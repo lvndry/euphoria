@@ -36,6 +36,7 @@ roxmltree = "0.21.2"
 same-file = "1.0.6"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 ebur128 = "0.1.11"
+flate2 = "1.1.11"
 rustfft = "6.4.1"
 stratum-dsp = "1.0.0"
 symphonia = { version = "0.6.1", default-features = false }
