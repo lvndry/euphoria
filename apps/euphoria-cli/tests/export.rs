@@ -1894,3 +1894,190 @@ fn cues_saved_before_the_analysis_are_kept_within_the_track_on_every_surface() {
     assert!(xml.contains("In the track"), "{xml}");
     assert!(!xml.contains("Past the end"), "{xml}");
 }
+
+/// An Engine DJ 5.0 library in its own folder holding `track`, analysed by
+/// Engine DJ at 44.1 kHz, and the path of its database.
+fn engine_library(track: &Path) -> (TemporaryFolder, PathBuf, PathBuf) {
+    use euphoria_core::export::engine_blobs::{
+        EMPTY_QUICK_CUE_OFFSET, QuickCue, QuickCues, TrackData, compress,
+    };
+    let folder = TemporaryFolder::new();
+    let library = resolved(folder.path()).join("Engine Library");
+    let database = library.join("Database2").join("m.db");
+    std::fs::create_dir_all(database.parent().expect("a folder")).expect("the folder is made");
+    let schema = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/euphoria-core/tests/fixtures/engine/engine-desktop-5.0.0-m.db.sql"),
+    )
+    .expect("the schema is read");
+    let connection = rusqlite::Connection::open(&database).expect("the library opens");
+    connection
+        .execute_batch(&schema)
+        .expect("the library is built");
+    let relative = pathdiff(track, &library);
+    connection
+        .execute(
+            "INSERT INTO Track (path, filename, length, bpm, bpmAnalyzed, isAnalyzed, isAvailable) VALUES (?1, 'kicks.wav', 30, 100, 100.0, 1, 1)",
+            [&relative],
+        )
+        .expect("the track is added");
+    let track_id = connection.last_insert_rowid();
+    let track_data = TrackData {
+        sample_rate: 44_100.0,
+        samples: 44_100 * 30,
+        key: 0,
+        average_loudness: [0.5; 3],
+        extra: Vec::new(),
+    };
+    let quick_cues = QuickCues {
+        cues: (0..8)
+            .map(|_| QuickCue {
+                label: String::new(),
+                sample_offset: EMPTY_QUICK_CUE_OFFSET,
+                colour: [0; 4],
+            })
+            .collect(),
+        adjusted_main_cue: EMPTY_QUICK_CUE_OFFSET,
+        is_main_cue_adjusted: 0,
+        default_main_cue: EMPTY_QUICK_CUE_OFFSET,
+        extra: Vec::new(),
+    };
+    connection
+        .execute(
+            "UPDATE PerformanceData SET trackData = ?1, quickCues = ?2 WHERE trackId = ?3",
+            rusqlite::params![
+                compress(&track_data.encode()),
+                compress(&quick_cues.encode()),
+                track_id
+            ],
+        )
+        .expect("the performance data is set");
+    (folder, library, database)
+}
+
+/// `path` relative to `base`, both absolute, with `..` where they part.
+fn pathdiff(path: &Path, base: &Path) -> String {
+    let path_parts: Vec<_> = path.components().collect();
+    let base_parts: Vec<_> = base.components().collect();
+    let shared = path_parts
+        .iter()
+        .zip(&base_parts)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut relative = PathBuf::new();
+    for _ in shared..base_parts.len() {
+        relative.push("..");
+    }
+    for part in &path_parts[shared..] {
+        relative.push(part);
+    }
+    relative.to_string_lossy().into_owned()
+}
+
+fn engine_backups(library: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(library.parent().expect("a folder"))
+        .expect("the folder is read")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| {
+            path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .starts_with("Engine Library backup by Euphoria")
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn engine_writes_key_tempo_and_grid_and_keeps_a_backup() {
+    use euphoria_core::export::engine_blobs::{BeatData, decompress};
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_folder, library, database) = engine_library(&track);
+
+    let exported = euphoria.run(&[
+        "export",
+        "engine",
+        "--library",
+        text(&library),
+        "--beat-grid",
+        text(&track),
+    ]);
+
+    assert_success(&exported);
+    let connection = rusqlite::Connection::open(&database).expect("the library opens");
+    let (bpm, beat_data): (f64, Vec<u8>) = connection
+        .query_row(
+            "SELECT bpmAnalyzed, beatData FROM Track JOIN PerformanceData ON Track.id = PerformanceData.trackId",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the track is read");
+    assert!((bpm - 120.0).abs() < 0.05, "{bpm}");
+    let beat_data =
+        BeatData::decode(&decompress(&beat_data).expect("it inflates")).expect("it decodes");
+    assert_eq!(beat_data.adjusted_grid[0].beat_number, -4);
+    let backups = engine_backups(&library);
+    assert_eq!(backups.len(), 1, "{backups:?}");
+    assert!(backups[0].join("Database2").join("m.db").is_file());
+    assert!(standard_error(&exported).contains("Updated 1 track in"));
+}
+
+#[test]
+fn engine_dry_run_writes_nothing() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_folder, library, database) = engine_library(&track);
+    let before = std::fs::read(&database).expect("the library is read");
+
+    let dry_run = euphoria.run(&[
+        "export",
+        "engine",
+        "--library",
+        text(&library),
+        "--dry-run",
+        text(&track),
+    ]);
+
+    assert_success(&dry_run);
+    assert!(standard_error(&dry_run).contains("Dry run: 1 track"));
+    assert_eq!(
+        std::fs::read(&database).expect("the library is read"),
+        before
+    );
+    assert!(engine_backups(&library).is_empty());
+}
+
+#[test]
+fn engine_refuses_an_unknown_schema_before_analysing() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_folder, library, database) = engine_library(&track);
+    rusqlite::Connection::open(&database)
+        .and_then(|connection| {
+            connection.execute("UPDATE Information SET schemaVersionMinor = 9", [])
+        })
+        .expect("the version is changed");
+    let before = std::fs::read(&database).expect("the library is read");
+
+    let exported = euphoria.run(&[
+        "export",
+        "engine",
+        "--library",
+        text(&library),
+        text(&track),
+    ]);
+
+    assert!(!exported.status.success());
+    assert!(standard_error(&exported).contains("schema version 3.9.2"));
+    assert_eq!(
+        std::fs::read(&database).expect("the library is read"),
+        before
+    );
+    assert!(engine_backups(&library).is_empty());
+}

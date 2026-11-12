@@ -380,6 +380,10 @@ fn check_schema(connection: &Connection, database: &Path) -> Result<SchemaVersio
     Ok(schema)
 }
 
+/// The `trackData`, `beatData` and `quickCues` blobs of a track, each
+/// `None` when the column is NULL.
+type PerformanceBlobs = (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>);
+
 /// The new values of one row of `Track` and its performance data.
 #[derive(Debug)]
 struct RowUpdate {
@@ -500,7 +504,7 @@ fn plan(
         if plan.matched[index] {
             continue;
         }
-        let performance: Option<(Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)> = connection
+        let performance: Option<PerformanceBlobs> = connection
             .query_row(
                 "SELECT trackData, beatData, quickCues FROM PerformanceData WHERE trackId = ?1",
                 params![track_id],
@@ -531,7 +535,7 @@ fn plan(
 fn row_update(
     track_id: i64,
     comment: Option<&str>,
-    performance: Option<(Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)>,
+    performance: Option<PerformanceBlobs>,
     entry: EngineTrack<'_>,
     options: &EngineOptions,
     plan: &mut Plan,

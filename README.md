@@ -22,6 +22,7 @@ Available now:
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos, beat grids, cues and playlists; importing it in Traktor has not yet been tested
+- `euphoria export engine`, which writes keys, tempos, beat grids and hot cues into the tracks of your Engine DJ library after saving a copy; not yet tested in Engine DJ
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, `euphoria tags set`, which edits title, artist, genre and other fields across many files with find and replace, and `euphoria tags undo`, which puts the old tags back byte for byte
 - MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF
 - A desktop app for macOS, downloadable below: see the [desktop app guide](docs/guides/desktop-app.md)
@@ -71,7 +72,7 @@ The full documentation is in [docs](docs/index.md):
 
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
-- [Export to rekordbox](docs/guides/export-to-rekordbox.md) and [to Traktor](docs/guides/export-to-traktor.md)
+- [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to Engine DJ](docs/guides/export-to-engine-dj.md)
 - [DJ program support](docs/reference/dj-program-support.md)
 - [Use Euphoria with your DJ program](docs/guides/dj-programs.md)
 - [Keys and the Camelot wheel](docs/concepts/keys-and-camelot.md)

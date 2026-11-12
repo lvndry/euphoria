@@ -14,8 +14,8 @@ use euphoria_core::export::engine::{
     preview_library_update, update_library,
 };
 use euphoria_core::export::engine_blobs::{
-    BeatData, EMPTY_QUICK_CUE_OFFSET, QuickCue, QuickCues, TrackData, compress,
-    constant_beat_grid, decompress,
+    BeatData, EMPTY_QUICK_CUE_OFFSET, QuickCue, QuickCues, TrackData, compress, constant_beat_grid,
+    decompress,
 };
 use euphoria_core::export::rekordbox::{CueKind, CuePoint, Track};
 use euphoria_core::{Key, Mode};
@@ -26,8 +26,14 @@ const SAMPLES: i64 = 44_100 * 300;
 
 /// Each fixture and the schema version Engine DJ wrote in it.
 const SCHEMAS: [(&str, SchemaVersion); 4] = [
-    ("engine-desktop-2.0.0-m.db.sql", SchemaVersion::new(2, 18, 0)),
-    ("engine-desktop-4.0.1-m.db.sql", SchemaVersion::new(2, 21, 2)),
+    (
+        "engine-desktop-2.0.0-m.db.sql",
+        SchemaVersion::new(2, 18, 0),
+    ),
+    (
+        "engine-desktop-4.0.1-m.db.sql",
+        SchemaVersion::new(2, 21, 2),
+    ),
     ("engine-desktop-4.3.0-m.db.sql", SchemaVersion::new(3, 0, 1)),
     ("engine-desktop-5.0.0-m.db.sql", SchemaVersion::new(3, 0, 2)),
 ];
@@ -233,7 +239,11 @@ fn an_analysed_track_gets_key_tempo_grid_cues_and_label() {
         .unwrap_or_else(|error| panic!("{schema_file}: {error}"));
 
         assert_eq!(update.schema, Some(version), "{schema_file}");
-        assert_eq!(update.updated, vec![tracks[0].path.clone()], "{schema_file}");
+        assert_eq!(
+            update.updated,
+            vec![tracks[0].path.clone()],
+            "{schema_file}"
+        );
         assert_eq!(
             library.track_row(track_id),
             (1, 128, 128.0, "8A - Energy 7 - my note".to_string()),
@@ -424,9 +434,12 @@ fn a_dry_run_writes_nothing() {
         let before = std::fs::read(&library.database).expect("the database is read");
         let tracks = [exported_track(library.track_path("a.mp3"))];
 
-        let update =
-            preview_library_update(&library.database, &entries(&tracks), &EngineOptions::default())
-                .expect("the preview");
+        let update = preview_library_update(
+            &library.database,
+            &entries(&tracks),
+            &EngineOptions::default(),
+        )
+        .expect("the preview");
 
         assert_eq!(update.updated, vec![tracks[0].path.clone()]);
         assert_eq!(
@@ -461,17 +474,26 @@ fn assert_refused(library: &Library, tracks: &[Track], why: &str) {
 #[test]
 fn unknown_schema_versions_are_refused() {
     let changes = [
-        ("a newer schema", "UPDATE Information SET schemaVersionMinor = 99"),
+        (
+            "a newer schema",
+            "UPDATE Information SET schemaVersionMinor = 99",
+        ),
         (
             "two information rows",
             "INSERT INTO Information (uuid, schemaVersionMajor, schemaVersionMinor, schemaVersionPatch) VALUES ('x', 3, 0, 2)",
         ),
-        ("an information row with id 2", "UPDATE Information SET id = 2"),
+        (
+            "an information row with id 2",
+            "UPDATE Information SET id = 2",
+        ),
     ];
     for (why, change) in changes {
         let library = Library::new("engine-desktop-5.0.0-m.db.sql");
         library.add_track("a.mp3", true);
-        library.connection().execute_batch(change).expect("the change");
+        library
+            .connection()
+            .execute_batch(change)
+            .expect("the change");
         let tracks = [exported_track(library.track_path("a.mp3"))];
         assert_refused(&library, &tracks, why);
     }
@@ -517,7 +539,10 @@ fn an_existing_backup_is_never_replaced() {
         result,
         Err(EuphoriaError::ExportDestinationExists { .. })
     ));
-    assert_eq!(std::fs::read_to_string(&backup).expect("the backup"), "keep");
+    assert_eq!(
+        std::fs::read_to_string(&backup).expect("the backup"),
+        "keep"
+    );
     assert_eq!(
         std::fs::read(&library.database).expect("the database is read"),
         before
@@ -550,8 +575,8 @@ fn key_numbers_match_libdjinterop() {
     let keys = [
         "C major", "A minor", "G major", "E minor", "D major", "B minor", "A major", "F# minor",
         "E major", "C# minor", "B major", "G# minor", "F# major", "Eb minor", "Db major",
-        "Bb minor", "Ab major", "F minor", "Eb major", "C minor", "Bb major", "G minor",
-        "F major", "D minor",
+        "Bb minor", "Ab major", "F minor", "Eb major", "C minor", "Bb major", "G minor", "F major",
+        "D minor",
     ];
     for (value, name) in keys.into_iter().enumerate() {
         let key: Key = name.parse().expect("a key");

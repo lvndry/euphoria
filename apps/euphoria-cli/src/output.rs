@@ -789,6 +789,13 @@ pub const TRAKTOR_IMPORT_STEPS: [&str; 3] = [
     "Choose this file. Lock the beat grid or untick BPM before analyzing these tracks.",
 ];
 
+/// What to do in Engine DJ after its library was updated.
+pub const ENGINE_IMPORT_STEPS: [&str; 3] = [
+    "Start Engine DJ. The key, tempo and comment show in the collection.",
+    "Sync the library to your drives as usual; a drive's own library is not changed by this export.",
+    "To undo, close Engine DJ and put the backup in place of Database2/m.db.",
+];
+
 /// Writes how to bring an exported file into the program, and where the
 /// full guide is.
 pub fn write_import_steps(
@@ -799,8 +806,14 @@ pub fn write_import_steps(
     let (steps, guide): (&[&str], &str) = match program {
         Program::Rekordbox => (&REKORDBOX_IMPORT_STEPS, "export-to-rekordbox.md"),
         Program::Traktor => (&TRAKTOR_IMPORT_STEPS, "export-to-traktor.md"),
+        Program::Engine => (&ENGINE_IMPORT_STEPS, "export-to-engine-dj.md"),
     };
-    writeln!(writer, "To import it in {}:", program.name())?;
+    match program {
+        Program::Engine => writeln!(writer, "In {}:", program.name())?,
+        Program::Rekordbox | Program::Traktor => {
+            writeln!(writer, "To import it in {}:", program.name())?;
+        }
+    }
     for (number, step) in steps.iter().enumerate() {
         writeln!(writer, "  {}. {step}", number + 1)?;
     }
