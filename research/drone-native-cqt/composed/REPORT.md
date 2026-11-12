@@ -1,11 +1,18 @@
-# Native CQT composition and Apple M5 portability
+# Native CQT composition and cross-platform CPU portability
 
 ## Problem and result
 
 A cached-feature benchmark does not establish that a native frontend preserves
 the released classifier, nor measure its memory cost. This study composes the
 captured CQT frontend with the unchanged full and chunked ONNX paths, and tests
-whether the platform math works on Apple M5 without x86 SVML.
+whether the platform math transfers to an Apple M5 CPU without x86 SVML.
+The M5 is a test host, not a hardware requirement for Drone or Euphoria.
+
+The expanded Mac diagnostic now covers all **376 public tracks**, composed from
+disjoint 305- and 71-case phases. Strict logit qualification failed: native full
+and chunk each passed 375/376 against the actual Mac reference. All six comparison
+families nevertheless had **zero argmax disagreements**. The original tolerances
+remain unchanged; no Mac timing or promotion followed.
 
 On Linux, the new compute-only API passed nine goldens and all **376 public
 validation tracks**. Every FP16-roundtripped core hash matched the canonical
@@ -160,6 +167,139 @@ exit 0 before 08:00 UTC. An earlier detached launch was cleaned up before any st
 existed; its empty log and absent PID were investigated, and the retained session
 is the authoritative execution record.
 
+## Mac376 problem and prospective method
+
+The nine-case diagnostic was too small to establish portability on real recordings.
+The expansion reused the fixed 376 public inputs, unchanged released model,
+actual Mac Python CQT, prepared native full/chunk APIs, and canonical Linux
+cores/logits. It used no key labels, private audio, truncation, new tolerances or
+performance measurements. This is a numerical portability study, not an accuracy
+evaluation. Each comparison requires 24 finite logits,
+`abs(delta) ≤ 1e-5 + 1e-5*abs(reference)`, and unchanged argmax.
+
+Each track was transported alone: exact S16-derived PCM and the already
+FP16-roundtripped canonical core were packed losslessly as int16 and FP16, then
+reconstructed with independent SHA checks. This introduces no new quantization.
+Each track used a fresh worker; the actual prepared and timed API source versions
+were bound prospectively. The new reporting executable uses explicit byte RSS;
+the earlier KiB erratum remains confined to its historical evidence.
+
+Three prospective stages remain distinct:
+
+| Stage | Terminal outcome | Reported coverage | Resource evidence |
+| --- | --- | ---: | --- |
+| v2 `dc575ba` | Controlled SIGINT: supervision overhead made completion implausible | 11/376; excluded from final composition | Last complete checkpoint: 326.53 CPU s, 299.43 wall s |
+| v3 `92bc825` | Fixed 1,800 CPU-second resource stop | 305/376, indices 0–304 | Trigger 1,800.213 CPU s; terminal 1,810.651 s including cleanup/reaping |
+| v4 `2a546f8` | Complete remainder; exit 1 because strict numerical gates failed | 71/71, indices 305–375 | 554.711/600 CPU s, 531.486 wall s; sampled peak 1,340,243,968 bytes |
+
+V2 was not silently restarted. V3 changed only supervisor sampling: process trees
+at approximately 0.1 seconds, disk scans at approximately 1 second, with fresh
+boundary checks. It preserved numerical worker/transport/native code. V4 was a
+new finite protocol for the exact reported complement, chosen independently of
+pass/fail. It retained the v3 resource failure and counted no reported case twice.
+V3 worker 305 completed but was not appended before the cap check; its original
+orphan evidence remains separate. V4 explicitly recomputed that ID. All six gate
+records and three core hashes matched its original orphan exactly. Only the v4
+outcome enters the final 305 + 71 composition.
+
+V4 reused the proven nine only after numerical source, executable, model/library,
+input and stable runtime identities matched. Mac CPU limits were 1,800 seconds
+for v3 and 600 for v4; each phase retained 2 GiB sampled tree RSS and 2 GiB combined
+logical disk across all old/new Mac roots. Server limits remained 400 CPU seconds,
+1 GiB sampled RSS and 512 MiB new-root disk, on CPUs 14–15/env1. V4 server
+consumed 63.399 CPU seconds and peaked at 419,065,856 bytes. All owned processes
+terminated and the four protected vLLM process start identities were unchanged.
+These are diagnostic costs, **not inference timings**, and sampled RSS is not an
+instantaneous allocation guarantee.
+
+## Mac376 results
+
+The exact-disjoint verifier checked the full ordered union, raw native vectors,
+input/core witnesses and all six original gates. Complete diagnostic coverage
+was achieved; **strict portability qualification failed**.
+
+| Comparison | Strict passes | Failed logit elements | Argmax disagreements |
+| --- | ---: | ---: | ---: |
+| Native full / actual Mac reference | 375/376 | 1 | 0 |
+| Native chunk / actual Mac reference | 375/376 | 1 | 0 |
+| Actual Mac frontend / canonical Linux | 348/376 | 47 | 0 |
+| Native full / canonical Linux | 350/376 | 39 | 0 |
+| Native chunk / canonical Linux | 350/376 | 39 | 0 |
+| Canonical Linux core: Mac ORT / Linux ORT | 376/376 | 0 | 0 |
+
+![All six Mac376 comparisons with unchanged strict gates](mac376-diagnostic.png)
+
+Thirty-three distinct tracks failed at least one logit gate. The native-versus-Mac
+failure is `fmak:091711`, G-major component: reference −0.2216097116, full error
+1.5899539e-5 versus allowed 1.2216097e-5 (ratio 1.3015). This is not simply a
+near-zero-reference issue. The worst frontend gate ratio was 2.5943; the largest
+Mac/Linux frontend absolute error was 3.8147e-5. Of 126 reference elements with
+absolute value ≤0.1, five failed Mac/Linux and six failed each native/Linux
+comparison; none failed native/Mac. All seven elements with absolute reference
+≤0.01 passed. These post-hoc buckets describe errors and do not alter acceptance.
+
+All six families retained the same argmax on all 376 tracks. The
+[root-observed certificate and independent receipt](evidence/mac376-index.json)
+also check a stronger arithmetic statement about these saved pairs. For reference
+logits r, observed logits a and reference winner w, define e_i = |a_i − r_i|.
+Every competitor j has positive slack
+`r_w − r_j − e_w − e_j`; the minimum across all cases/families is
+**0.0010512024**. The independent receipt exactly recomputed all claimed fields.
+This uses observed errors, not a bound on future errors, and establishes neither
+unseen-input stability nor key-label accuracy. It does not relax the failed gates.
+
+![Observed-pair error and margin-certificate summaries](mac376-observed-margins.png)
+
+The figure compares each family’s extrema across tracks; its endpoints need not
+come from the same track. It does not draw a per-track unseen-error bound.
+
+All nine stages’ CSR bases, indices and indptr arrays were byte-identical between
+Mac and Linux for every track. Exactly three normalization lengths differed by
+one float64 ULP. These witnesses narrow the numerical differences; they do not
+prove that changing normalization, kernels or a particular math routine would
+fix any failure. No such intervention was measured.
+
+## Mac376 evidence and reproduction
+
+The [Mac376 index](evidence/mac376-index.json) binds a deterministic gzip bundle
+with exact decoded/original-file SHA256 values. It retains all 376 raw native
+reports and complete saved comparison vectors, stage terminal reports/configs,
+source text, root certificates and the original independent receipt bytes.
+Compact CSR/normalization witnesses retain every original Mac-manifest hash;
+representative full manifests include the native/Mac failing case. Larger PCM,
+CSR arrays and complete per-track plan artifacts remain unchanged in their
+original owned roots; this publication does not copy an audio corpus.
+
+Frozen Drone execution sources are `dc575ba4095f0bfe17f0f5ef18d6c42a4c538ae6`,
+`92bc825399a593a99fd0c9480a845619969fa8e7` and
+`2a546f88ea84f9d34baeae0b1b09ce6e06979c29`; Euphoria/native source is
+`7b0186261eccfbab1f54c21fe3212030e83eda78`. The native executable SHA is
+`9a5b7fc9887e7cf160a95614d26b86f2e65df98d837260177c16ca95841893ad`.
+The original combined diagnostic SHA remains
+`e3055e34852ed1e2fab9e5ad6b697ea008d970bd65c9091b3eb0940f1247bd1f`;
+compression and this publication do not reattribute its identity.
+
+```sh
+# Saved metadata/vector arithmetic only: no model, audio or ML runtime needed.
+python3 research/drone-native-cqt/composed/summarize_mac376.py
+python3 -m unittest discover -s research/drone-native-cqt/composed -p 'test_*.py'
+uv run --script research/drone-native-cqt/composed/plot_mac376.py
+```
+
+For an artifact-level replay in the retained frozen v4 source and original roots:
+
+```sh
+python -m tools.cqt_mac376_remainder combine \
+  --proof /tmp/euphoria-native-cqt-mac376-v4/remainder-proof.json \
+  --config /tmp/euphoria-native-cqt-mac376-v4/qualification-configs/mac.json \
+  --report /tmp/euphoria-native-cqt-mac376-v4/qualification/report.json \
+  --output /tmp/mac376-rechecked-disjoint.json
+```
+
+This command reads saved artifacts and performs no audio or model work. The
+publication verifier independently recomputes gates/certificates and checks the
+retained original native report vectors.
+
 ## Decision and limits
 
 The prepared Linux frontend→full/chunked API is qualified on the fixed 376 public
@@ -167,8 +307,17 @@ tracks, and its 20-case FMAK performance improvement is measured. Preserve both
 paths and prefer chunked inference for long inputs. The complete frontend still
 materializes PCM and CQT arrays, so production memory requires further work.
 
-The Mac nine-case result justifies proposing the same 376-case expansion and
-conditional performance measurement under a new window. It does not establish
-376-case Mac parity, production integration, decoder parity for a different decoder,
-or key-label accuracy. No final-result cache, Euphoria production key detector,
+The Mac expansion now has complete **disjoint diagnostic coverage**, not a
+successful single 376-case run. Strict logit gates failed despite zero observed
+argmax disagreements. No Mac timing or promotion followed. Ordinary-PC deployment
+remains the product goal; neither an M5 nor the research GPU is an inference
+requirement. These data establish neither other-PC parity nor production readiness.
+
+The composed proof starts from pinned FFmpeg-produced 22,050 Hz S16-derived PCM;
+decode is outside the timing region. It does not qualify Euphoria
+Symphonia/mixdown/resampling on original files, and Drone inputs must not silently
+inherit libkeyfinder tuning correction. Public full-length house/deep/melodic-house
+accuracy, calibrated Drone confidence, bounded warm sessions, and engine/model
+cache identity require separate evidence. Existing libkeyfinder confidence
+thresholds cannot be applied to softmax top1-minus-top2 margins without calibration. No final-result cache, Euphoria production key detector,
 default dependency/MSRV, model weights or training changed.
