@@ -180,21 +180,17 @@ fn observed_error(root: &Path, actual: &[f32], observation: &Value) -> Result<Va
     Ok(json!({"full_hash_equal":exact,"probes":probes}))
 }
 
-pub fn features(
-    root: &Path,
-    case: &Value,
-    pcm: &[f32],
-    soxr: &Soxr,
-    math: Option<&NumpyMath>,
-    numpy_magnitude: bool,
-) -> Result<(Vec<f32>, usize, Value)> {
-    let stages = case["stages"].as_array().context("stages")?;
-    let resampling = case["resamplings"].as_array().context("resamples")?;
-    let mut samples = pcm.to_vec();
-    let mut responses: Vec<Vec<Complex<f32>>> = Vec::new();
-    let mut diagnostics = Vec::new();
-    let mut planner = FftPlanner::<f64>::new();
-    for (stage_index, stage) in stages.iter().enumerate() {
+struct StageKernel {
+    n: usize,
+    hop: usize,
+    rows: usize,
+    indptr: Vec<usize>,
+    indices: Vec<usize>,
+    basis: Vec<Complex<f32>>,
+    fft: std::sync::Arc<dyn rustfft::Fft<f64>>,
+}
+impl StageKernel {
+    fn load(root: &Path, stage: &Value, planner: &mut FftPlanner<f64>) -> Result<Self> {
         let n = stage["n_fft"].as_u64().context("n_fft")? as usize;
         let hop = stage["hop"].as_u64().context("hop")? as usize;
         let rows = stage["basis_shape"][0].as_u64().context("rows")? as usize;
@@ -212,9 +208,32 @@ pub fn features(
                 && indptr.windows(2).all(|pair| pair[0] <= pair[1]),
             "invalid CSR row pointers"
         );
+
+        ensure!(
+            stage["basis_shape"][1].as_u64() == Some((n / 2 + 1) as u64),
+            "CSR spectrum dimensions"
+        );
+        ensure!(
+            indices.iter().all(|&index| index <= n / 2),
+            "CSR spectrum index"
+        );
+        let fft = planner.plan_fft_forward(n);
+        Ok(Self {
+            n,
+            hop,
+            rows,
+            indptr,
+            indices,
+            basis,
+            fft,
+        })
+    }
+    fn response(&self, samples: &[f32]) -> Result<(usize, Vec<Complex<f32>>)> {
+        let (n, hop, rows) = (self.n, self.hop, self.rows);
+        let (indptr, indices, basis) = (&self.indptr, &self.indices, &self.basis);
         let frames = 1 + samples.len() / hop;
         let mut response = vec![Complex::new(0.0f32, 0.0); rows * frames];
-        let fft = planner.plan_fft_forward(n);
+        let fft = &self.fft;
         let mut buffer = vec![Complex::new(0.0, 0.0); n];
         for frame in 0..frames {
             for (offset, value) in buffer.iter_mut().enumerate() {
@@ -246,61 +265,171 @@ pub fn features(
                 response[row * frames + frame] = sum;
             }
         }
-        // Top-to-bottom stages: each stage prepends its rows, final lowest
-        // partial octave keeps its highest rows (librosa __trim_stack).
-        let response_components: Vec<f32> = response.iter().flat_map(|v| [v.re, v.im]).collect();
-        diagnostics.push(json!({"stage":stage_index,"response":observed_error(root,&response_components,&stage["response"])?}));
-        let mut stage_rows = Vec::new();
-        for row in 0..rows {
-            stage_rows.push(response[row * frames..(row + 1) * frames].to_vec());
+
+        Ok((frames, response))
+    }
+}
+
+type Observer<'a> = dyn for<'b> FnMut(Intermediate<'b>) -> Result<()> + 'a;
+
+pub enum Intermediate<'a> {
+    Response(usize, &'a [Complex<f32>]),
+    Resampled(usize, &'a [f32]),
+}
+
+/// Prevalidated invariant kernels; compute does no evidence file/hash/JSON work.
+pub struct PreparedPlan {
+    stages: Vec<StageKernel>,
+    halve_after: Vec<bool>,
+    lengths: Vec<f64>,
+}
+impl PreparedPlan {
+    pub fn load(root: &Path, case: &Value) -> Result<Self> {
+        let stages = case["stages"].as_array().context("stages")?;
+        ensure!(!stages.is_empty(), "empty frontend plan");
+        let resampling = case["resamplings"].as_array().context("resamplings")?;
+        let mut planner = FftPlanner::<f64>::new();
+        let mut kernels = Vec::new();
+        let mut halve_after = vec![false; stages.len()];
+        for stage in stages {
+            kernels.push(StageKernel::load(root, stage, &mut planner)?);
         }
-        stage_rows.extend(responses);
-        responses = stage_rows;
-        if let Some(resample) = resampling
+        for resample in resampling {
+            let after =
+                usize::try_from(resample["after_stage"].as_u64().context("resample stage")?)?;
+            ensure!(
+                after < stages.len() && !halve_after[after],
+                "invalid/duplicate resample stage"
+            );
+            ensure!(
+                resample["orig_sr"] == 2.0
+                    && resample["target_sr"] == 1.0
+                    && resample["scale"] == true
+                    && resample["fix"] == true
+                    && resample["res_type"] == "soxr_hq",
+                "unexpected resampling contract"
+            );
+            halve_after[after] = true;
+        }
+        let lengths = case["normalization"]["lengths"]
+            .as_array()
+            .context("lengths")?
             .iter()
-            .find(|r| r["after_stage"].as_u64() == Some(stage_index as u64))
-        {
-            samples = soxr.halve(&samples)?;
-            diagnostics.push(json!({"after_stage":stage_index,"resample":observed_error(root,&samples,&resample["output"])?}));
+            .map(|v| v.as_f64().context("normalization length"))
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            lengths.len() == 208 && lengths.iter().all(|v| v.is_finite() && *v > 0.0),
+            "normalization requires 208 positive finite lengths"
+        );
+        Ok(Self {
+            stages: kernels,
+            halve_after,
+            lengths,
+        })
+    }
+    pub fn compute(
+        &self,
+        pcm: &[f32],
+        soxr: &Soxr,
+        math: Option<&NumpyMath>,
+        numpy_magnitude: bool,
+    ) -> Result<(Vec<f32>, usize)> {
+        self.run(pcm, soxr, math, numpy_magnitude, None)
+    }
+    fn run(
+        &self,
+        pcm: &[f32],
+        soxr: &Soxr,
+        math: Option<&NumpyMath>,
+        numpy_magnitude: bool,
+        mut observe: Option<&mut Observer<'_>>,
+    ) -> Result<(Vec<f32>, usize)> {
+        ensure!(
+            !pcm.is_empty() && pcm.iter().all(|v| v.is_finite()),
+            "invalid PCM"
+        );
+        let mut samples = pcm.to_vec();
+        let mut responses = Vec::new();
+        for (index, stage) in self.stages.iter().enumerate() {
+            let (frames, response) = stage.response(&samples)?;
+            if let Some(observer) = observe.as_mut() {
+                observer(Intermediate::Response(index, &response))?;
+            }
+            let mut stage_rows = Vec::new();
+            for row in 0..stage.rows {
+                stage_rows.push(response[row * frames..(row + 1) * frames].to_vec());
+            }
+            stage_rows.extend(responses);
+            responses = stage_rows;
+            if self.halve_after[index] {
+                samples = soxr.halve(&samples)?;
+                if let Some(observer) = observe.as_mut() {
+                    observer(Intermediate::Resampled(index, &samples))?;
+                }
+            }
         }
-    }
-    ensure!(responses.len() >= 208, "response bins");
-    if responses.len() > 208 {
-        responses.drain(0..responses.len() - 208);
-    }
-    let frames = responses.iter().map(Vec::len).min().context("responses")?;
-    let lengths = case["normalization"]["lengths"]
-        .as_array()
-        .context("lengths")?;
-    ensure!(
-        lengths.len() == 208
-            && lengths.iter().all(|length| length
-                .as_f64()
-                .is_some_and(|value| value.is_finite() && value > 0.0)),
-        "normalization requires 208 positive finite lengths"
-    );
-    let mut magnitudes = Vec::with_capacity(192 * frames);
-    for bin in 8..200 {
-        let scale = lengths[bin].as_f64().context("length")?.sqrt();
-        for value in &responses[bin][..frames] {
-            let re = (f64::from(value.re) / scale) as f32;
-            let im = (f64::from(value.im) / scale) as f32;
-            magnitudes.push(if numpy_magnitude || math.is_some() {
-                numpy_finite_magnitude(re, im)?
-            } else {
-                re.hypot(im)
-            });
+        ensure!(responses.len() >= 208, "response bins");
+        if responses.len() > 208 {
+            responses.drain(0..responses.len() - 208);
         }
+        let frames = responses.iter().map(Vec::len).min().context("responses")?;
+        let lengths = &self.lengths;
+        let mut magnitudes = Vec::with_capacity(192 * frames);
+        for bin in 8..200 {
+            let scale = lengths[bin].sqrt();
+            for value in &responses[bin][..frames] {
+                let re = (f64::from(value.re) / scale) as f32;
+                let im = (f64::from(value.im) / scale) as f32;
+                magnitudes.push(if numpy_magnitude || math.is_some() {
+                    numpy_finite_magnitude(re, im)?
+                } else {
+                    re.hypot(im)
+                });
+            }
+        }
+        let logged = if let Some(math) = math {
+            math.log1p(&magnitudes)?
+        } else {
+            magnitudes.iter().map(|value| value.ln_1p()).collect()
+        };
+        let core = logged
+            .into_iter()
+            .map(|value| half::f16::from_f32(value).to_f32())
+            .collect();
+
+        Ok((core, frames))
     }
-    let logged = if let Some(math) = math {
-        math.log1p(&magnitudes)?
-    } else {
-        magnitudes.iter().map(|value| value.ln_1p()).collect()
+}
+
+pub fn features(
+    root: &Path,
+    case: &Value,
+    pcm: &[f32],
+    soxr: &Soxr,
+    math: Option<&NumpyMath>,
+    numpy_magnitude: bool,
+) -> Result<(Vec<f32>, usize, Value)> {
+    let plan = PreparedPlan::load(root, case)?;
+    let mut diagnostics = Vec::new();
+    let mut observer = |observation: Intermediate<'_>| -> Result<()> {
+        match observation {
+            Intermediate::Response(index, response) => {
+                let components: Vec<f32> = response.iter().flat_map(|v| [v.re, v.im]).collect();
+                diagnostics.push(json!({"stage":index,"response":observed_error(root,&components,&case["stages"][index]["response"])?}));
+            }
+            Intermediate::Resampled(index, samples) => {
+                let entry = case["resamplings"]
+                    .as_array()
+                    .context("resamplings")?
+                    .iter()
+                    .find(|entry| entry["after_stage"].as_u64() == Some(index as u64))
+                    .context("resample observation")?;
+                diagnostics.push(json!({"after_stage":index,"resample":observed_error(root,samples,&entry["output"])?}));
+            }
+        }
+        Ok(())
     };
-    let core = logged
-        .into_iter()
-        .map(|value| half::f16::from_f32(value).to_f32())
-        .collect();
+    let (core, frames) = plan.run(pcm, soxr, math, numpy_magnitude, Some(&mut observer))?;
     Ok((core, frames, json!({"resamplings":diagnostics})))
 }
 
@@ -387,6 +516,21 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    #[cfg(unix)]
+    fn prepared_compute_matches_instrumented_core_on_reuse() -> Result<()> {
+        let fixture = SyntheticCase::new()?;
+        let (expected, frames, _) = fixture.run()?;
+        let plan = PreparedPlan::load(&fixture.root, &fixture.case)?;
+        let soxr = Soxr {
+            library: libloading::os::unix::Library::this().into(),
+        };
+        for _ in 0..2 {
+            let (actual, actual_frames) = plan.compute(&[1.0, 0.0], &soxr, None, false)?;
+            ensure!(actual == expected && actual_frames == frames);
+        }
+        Ok(())
+    }
     #[test]
     #[cfg(unix)]
     fn malformed_captured_plans_return_errors_instead_of_panicking() -> Result<()> {
