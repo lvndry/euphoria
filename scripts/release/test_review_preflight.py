@@ -63,6 +63,41 @@ class ReviewPreflightTests(unittest.TestCase):
             else:
                 self.assertIn("manual caller searches", context["error"])
 
+    def test_reviewer_policy_and_model_come_from_the_target_branch(self):
+        with tempfile.TemporaryDirectory(prefix="review policy ") as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            self.git(root, "init", "-q")
+            self.git(root, "config", "user.email", "fixture@example.invalid")
+            self.git(root, "config", "user.name", "Review fixture")
+            self.git(root, "config", "commit.gpgsign", "false")
+            agent = root / ".github/jazz/agents/ci-reviewer.json"
+            policy = root / ".github/jazz/workflows/code-review/WORKFLOW.md"
+            agent.parent.mkdir(parents=True)
+            policy.parent.mkdir(parents=True)
+            selected = {"id": "ci-reviewer", "config": {"llm": {"provider": "base", "model": "deployed"}}}
+            agent.write_text(json.dumps(selected))
+            policy.write_text("deployed __PR_BASE_SHA__ __PR_HEAD_SHA__ __WORKSPACE__")
+            base = self.commit(root)
+            agent.write_text('{"config":{"llm":{"model":"proposed"}}}')
+            policy.write_text("proposed policy must not govern this review")
+            head = self.commit(root)
+            step = WORKFLOW.read_text().split("      - name: Setup Jazz agent and workflow\n", 1)[1]
+            block = step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
+            script = "\n".join(line[10:] for line in block.splitlines() if line.strip())
+            private_home = Path(temporary) / "owned config"
+            script = script.replace("$HOME", str(private_home))
+            result = subprocess.run(
+                ["bash", "-eu", "-c", script], cwd=root,
+                env={**os.environ, "PR_BASE_SHA": base, "PR_HEAD_SHA": head,
+                     "WORKSPACE": str(root), "RUNNER_TEMP": temporary},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads((private_home / ".jazz/agents/ci-reviewer.json").read_text()), selected)
+            self.assertEqual(json.loads((Path(temporary) / "jazz-ci-reviewer.json").read_text()), selected)
+            self.assertEqual((root / "workflows/code-review/WORKFLOW.md").read_text(), f"deployed {base} {head} {root}")
+
     def test_proposed_script_is_not_executed(self):
         self.check_case(True)
 
