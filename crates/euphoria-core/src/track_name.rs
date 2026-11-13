@@ -8,10 +8,21 @@ use std::path::Path;
 use symphonia::core::meta::{MetadataRevision, StandardTag, Tag};
 
 use crate::error::{DecodeFailure, EuphoriaError};
+use crate::key::Key;
 
 /// Longer `INFO` values are skipped. Real titles and artist names are far
 /// shorter, and the size field of a damaged file can claim gigabytes.
 const LONGEST_INFO_VALUE: u32 = 4096;
+
+/// The `INFO` values that store a title, an artist and a key.
+const TITLE_ID: [u8; 4] = *b"INAM";
+const ARTIST_ID: [u8; 4] = *b"IART";
+const KEY_ID: [u8; 4] = *b"IPRE";
+
+/// The raw names under which file formats store a key, from the most to the
+/// least specific. ID3 calls it TKEY, MP4 `com.apple.iTunes:initialkey`,
+/// Vorbis comments `INITIALKEY` and WAV `IPRE`.
+const KEY_FIELD_NAMES: [&str; 3] = ["initialkey", "key", "tkey"];
 
 /// What a file's own tags say about the track.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -20,16 +31,22 @@ pub struct TrackName {
     pub title: Option<String>,
     /// The artist, or `None` when the file has none.
     pub artist: Option<String>,
+    /// The key the file's tags already carry, or `None` when the file has
+    /// none or its text is not a key this app understands.
+    pub key: Option<Key>,
 }
 
-/// Reads the title and artist stored in an audio file, without decoding its
-/// audio.
+/// Reads the title, artist and key stored in an audio file, without decoding
+/// its audio.
 ///
 /// Reads ID3v2 and ID3v1 tags (MP3, and the ID3 chunk of AIFF files), Vorbis
 /// comments (FLAC), MP4 metadata (M4A) and the `INFO` list of WAV files. An
 /// ID3 chunk in a WAV file is not read. When a file carries several kinds of
 /// tags, the first one in the file that has the value wins. A value that is
-/// empty or only white space counts as missing.
+/// empty or only white space counts as missing. The key field is parsed with
+/// [`Key::parse_file_key`], so a tempo that follows the key, as in
+/// "8A 114", is ignored and a value the app cannot read is reported as
+/// missing.
 ///
 /// # Errors
 ///
@@ -48,7 +65,7 @@ pub fn read_track_name(path: &Path) -> Result<TrackName, EuphoriaError> {
             break;
         }
     }
-    if tags.title.is_none() || tags.artist.is_none() {
+    if tags.title.is_none() || tags.artist.is_none() || tags.key.is_none() {
         fill_from_wav_info_list(&mut tags, path)?;
     }
     Ok(tags)
@@ -66,18 +83,40 @@ fn fill_from_revision(tags: &mut TrackName, revision: &MetadataRevision) {
 }
 
 fn fill_from_tag(tags: &mut TrackName, tag: &Tag) {
-    let (slot, value) = match &tag.std {
-        Some(StandardTag::TrackTitle(title)) => (&mut tags.title, title),
-        Some(StandardTag::Artist(artist)) => (&mut tags.artist, artist),
-        _ => return,
-    };
-    fill_slot(slot, value);
+    if let Some(StandardTag::TrackTitle(title)) = &tag.std {
+        fill_slot(&mut tags.title, title);
+    }
+    if let Some(StandardTag::Artist(artist)) = &tag.std {
+        fill_slot(&mut tags.artist, artist);
+    }
+    if tags.key.is_none() {
+        if let Some(StandardTag::InitialKey(key)) = &tag.std {
+            fill_key(&mut tags.key, key);
+        } else if let Some(text) = raw_key_text(tag) {
+            fill_key(&mut tags.key, &text);
+        }
+    }
+}
+
+/// The raw name under which a file format stores its key, when this tag
+/// carries one.
+fn raw_key_text(tag: &Tag) -> Option<String> {
+    KEY_FIELD_NAMES
+        .iter()
+        .any(|field| tag.raw.key.eq_ignore_ascii_case(field))
+        .then(|| tag.raw.value.to_string())
 }
 
 fn fill_slot(slot: &mut Option<String>, value: &str) {
     let value = value.trim();
     if slot.is_none() && !value.is_empty() {
         *slot = Some(value.to_string());
+    }
+}
+
+fn fill_key(slot: &mut Option<Key>, value: &str) {
+    if slot.is_none() {
+        *slot = Key::parse_file_key(value);
     }
 }
 
@@ -135,18 +174,24 @@ fn read_info_values(
     while unread >= 8 {
         let (value_id, value_size) = read_chunk_header(reader)?;
         unread -= 8 + padded(value_size);
-        let slot = match &value_id {
-            b"INAM" if value_size <= LONGEST_INFO_VALUE => &mut tags.title,
-            b"IART" if value_size <= LONGEST_INFO_VALUE => &mut tags.artist,
-            _ => {
-                reader.seek(SeekFrom::Current(padded(value_size)))?;
-                continue;
+        let value_is_long = value_size > LONGEST_INFO_VALUE;
+        if (value_id == TITLE_ID || value_id == ARTIST_ID || value_id == KEY_ID)
+            && !value_is_long
+        {
+            let mut value = vec![0_u8; padded(value_size) as usize];
+            reader.read_exact(&mut value)?;
+            value.truncate(value_size as usize);
+            let text = info_text(&value);
+            if value_id == TITLE_ID {
+                fill_slot(&mut tags.title, &text);
+            } else if value_id == ARTIST_ID {
+                fill_slot(&mut tags.artist, &text);
+            } else {
+                fill_key(&mut tags.key, &text);
             }
-        };
-        let mut value = vec![0_u8; padded(value_size) as usize];
-        reader.read_exact(&mut value)?;
-        value.truncate(value_size as usize);
-        fill_slot(slot, &info_text(&value));
+            continue;
+        }
+        reader.seek(SeekFrom::Current(padded(value_size)))?;
     }
     Ok(())
 }
@@ -233,6 +278,7 @@ mod tests {
             TrackName {
                 title: Some("Low Tide".to_string()),
                 artist: Some("Saffron".to_string()),
+                ..Default::default()
             }
         );
     }
@@ -259,6 +305,7 @@ mod tests {
         let mut tags = TrackName {
             title: Some("From ID3".to_string()),
             artist: None,
+            ..Default::default()
         };
         read_wav_info_list(&mut tags, &mut Cursor::new(file)).unwrap();
         assert_eq!(tags.title.as_deref(), Some("From ID3"));
@@ -283,5 +330,37 @@ mod tests {
         let tags = tags_of(file);
         assert_eq!(tags.artist.as_deref(), Some("Saffron"));
         assert_eq!(tags.title, None);
+    }
+
+    #[test]
+    fn an_info_list_key_is_read_and_parsed() {
+        let file = wav(&[info_list(&[
+            chunk(b"INAM", b"Low Tide\0"),
+            chunk(b"IPRE", b"8A 114\0"),
+        ])]);
+        let tags = tags_of(file);
+        assert_eq!(
+            tags.key,
+            Some(Key::parse_file_key("8A").unwrap())
+        );
+    }
+
+    #[test]
+    fn a_blank_info_list_key_counts_as_missing() {
+        let file = wav(&[info_list(&[chunk(b"IPRE", b"  \0")])]);
+        assert_eq!(tags_of(file).key, None);
+    }
+
+    #[test]
+    fn an_unreadable_info_list_key_counts_as_missing() {
+        let file = wav(&[info_list(&[chunk(b"IPRE", b"no key here\0")])]);
+        assert_eq!(tags_of(file).key, None);
+    }
+
+    #[test]
+    fn an_oversized_info_list_key_is_skipped() {
+        let oversized = vec![b'a'; LONGEST_INFO_VALUE as usize + 1];
+        let file = wav(&[info_list(&[chunk(b"IPRE", &oversized)])]);
+        assert_eq!(tags_of(file).key, None);
     }
 }

@@ -131,6 +131,51 @@ impl Key {
             Mode::Minor => Key::new(major_tonic + 9, mode),
         })
     }
+
+    /// Parses the key field of an audio file into a key, tolerating the
+    /// notations programs write there. A tempo that follows the key, as in
+    /// "8A 114", is dropped, and a short musical name such as "Bmin" is
+    /// read as B minor. Returns `None` when the text is empty or not a
+    /// key this app understands.
+    pub fn parse_file_key(text: &str) -> Option<Self> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if let Some(first) = words.first().copied() {
+            let lower = first.to_ascii_lowercase();
+            if let Some(name) = lower.strip_suffix("min") {
+                return format!("{name} minor").parse().ok();
+            }
+            if let Some(name) = lower.strip_suffix("maj") {
+                return format!("{name} major").parse().ok();
+            }
+        }
+        match words.len() {
+            // A bare key.
+            1 => words[0].parse().ok(),
+            // "8A 114" or "A minor": a key with a tempo after it.
+            2 => {
+                if let Some(key) = words[0].parse().ok() {
+                    return Some(key);
+                }
+                Self::parse_two_word_key(words[0], words[1])
+            }
+            // "A minor 114": the key in two words, a tempo after it.
+            3 => Self::parse_two_word_key(words[0], words[1]),
+            _ => None,
+        }
+    }
+
+    /// Parses "A minor" and "A min" alike: the second word is the mode, a
+    /// tempo or a short mode name.
+    fn parse_two_word_key(note: &str, second: &str) -> Option<Self> {
+        let mode = second.to_ascii_lowercase();
+        if let Some(name) = mode.strip_suffix("min") {
+            return format!("{note} {name} minor").parse().ok();
+        }
+        if let Some(name) = mode.strip_suffix("maj") {
+            return format!("{note} {name} major").parse().ok();
+        }
+        format!("{note} {second}").parse().ok()
+    }
 }
 
 impl fmt::Display for Key {
@@ -256,6 +301,33 @@ mod tests {
         ];
         for (tonic, mode, name) in expectations {
             assert_eq!(Key::new(tonic, mode).to_string(), name);
+        }
+    }
+
+    #[test]
+    fn file_key_fields_are_read_in_their_written_notation() {
+        let a_minor = Key::new(9, Mode::Minor);
+        let expectations = [
+            ("8A", a_minor),
+            ("8a 114", a_minor),
+            ("8A 114bpm", a_minor),
+            ("A minor", a_minor),
+            ("a minor 114", a_minor),
+            ("Amin", a_minor),
+            ("A min", a_minor),
+            ("1m", a_minor),
+        ];
+        for (text, key) in expectations {
+            assert_eq!(Key::parse_file_key(text), Some(key), "{text}");
+        }
+        let c_major = Key::new(0, Mode::Major);
+        assert_eq!(Key::parse_file_key("8B"), Some(c_major));
+        assert_eq!(Key::parse_file_key("Cmaj 122"), Some(c_major));
+        assert_eq!(Key::parse_file_key("Eb minor"), Some(Key::new(3, Mode::Minor)));
+        assert_eq!(Key::parse_file_key("b min"), Some(Key::new(11, Mode::Minor)));
+        let unparseable = ["", "   ", "unknown", "8A something 114"];
+        for text in unparseable {
+            assert_eq!(Key::parse_file_key(text), None, "{text}");
         }
     }
 
