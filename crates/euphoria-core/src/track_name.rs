@@ -142,10 +142,10 @@ fn fill_key(slot: &mut Option<TagKey>, value: &str) {
     if has_key {
         return;
     }
-    if let Some(tag_key) = TagKey::from_text(value) {
-        if slot.is_none() || tag_key.key.is_some() {
-            *slot = Some(tag_key);
-        }
+    if let Some(tag_key) = TagKey::from_text(value)
+        && (slot.is_none() || tag_key.key.is_some())
+    {
+        *slot = Some(tag_key);
     }
 }
 
