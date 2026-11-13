@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use super::checks::{CheckError, Result};
 
 const LOCATION_PREFIX: &str = "file://localhost";
 
@@ -27,10 +27,18 @@ pub struct CuedTracks {
 
 /// Reads the collection at `path`.
 pub fn tracks_with_cues(path: &Path) -> Result<CuedTracks> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("cannot read the rekordbox collection {}", path.display()))?;
-    let cued = parse(&text)
-        .with_context(|| format!("cannot read the rekordbox collection {}", path.display()))?;
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        CheckError::new(
+            format!("cannot read the rekordbox collection {}", path.display()),
+            error,
+        )
+    })?;
+    let cued = parse(&text).map_err(|error| {
+        error.context(format!(
+            "cannot read the rekordbox collection {}",
+            path.display()
+        ))
+    })?;
     let mut tracks = CuedTracks::default();
     for track in cued {
         let found = track
@@ -57,14 +65,17 @@ struct CuedTrack {
 }
 
 fn parse(text: &str) -> Result<Vec<CuedTrack>> {
-    let document = roxmltree::Document::parse(text).context("it is not well formed XML")?;
+    let document = roxmltree::Document::parse(text)
+        .map_err(|error| CheckError::new("it is not well formed XML", error))?;
     let root = document.root_element();
     let Some(collection) = root
         .has_tag_name("DJ_PLAYLISTS")
         .then(|| root.children().find(|node| node.has_tag_name("COLLECTION")))
         .flatten()
     else {
-        bail!("it is not a rekordbox XML collection: it has no DJ_PLAYLISTS and COLLECTION");
+        return Err(CheckError::message(
+            "it is not a rekordbox XML collection: it has no DJ_PLAYLISTS and COLLECTION",
+        ));
     };
     let tracks = collection
         .children()
