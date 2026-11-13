@@ -40,6 +40,8 @@ pub mod mashup;
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// The beat grid a DJ fixed in rekordbox, read from the collection XML.
+pub mod rekordbox_grid;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
