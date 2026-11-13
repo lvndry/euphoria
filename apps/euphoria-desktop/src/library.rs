@@ -30,6 +30,30 @@ pub(crate) enum TrackStatus {
     Analyzed(TrackAnalysis),
     /// The core could not analyze the file; the text says why.
     Failed(String),
+    /// The file is no longer where it was: moved, deleted, or on a drive
+    /// that is not connected.
+    Missing,
+}
+
+/// Why a file has no analysis.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum TrackFailure {
+    /// The file is no longer there.
+    Missing,
+    /// The file is there but could not be analyzed; the text says why.
+    Failed(String),
+}
+
+impl From<String> for TrackFailure {
+    fn from(reason: String) -> Self {
+        TrackFailure::Failed(reason)
+    }
+}
+
+impl From<&str> for TrackFailure {
+    fn from(reason: &str) -> Self {
+        TrackFailure::Failed(reason.to_string())
+    }
 }
 
 /// One audio file in the library, with the text the table shows for it.
@@ -119,8 +143,16 @@ impl Track {
     pub(crate) fn analysis(&self) -> Option<&TrackAnalysis> {
         match &self.status {
             TrackStatus::Analyzed(analysis) => Some(analysis),
-            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Failed(_) => None,
+            TrackStatus::Queued
+            | TrackStatus::Analyzing
+            | TrackStatus::Failed(_)
+            | TrackStatus::Missing => None,
         }
+    }
+
+    /// True when the file is no longer where it was.
+    pub(crate) fn is_missing(&self) -> bool {
+        self.status == TrackStatus::Missing
     }
 
     /// The key of the track: the one the user set, or the detected one.
@@ -217,7 +249,7 @@ impl Track {
                     && analysis.tempo_confidence() == Some(Confidence::Low);
                 doubtful_key || doubtful_tempo
             }
-            TrackStatus::Queued | TrackStatus::Analyzing => false,
+            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => false,
         }
     }
 
@@ -226,7 +258,10 @@ impl Track {
     pub(crate) fn failure(&self) -> Option<&str> {
         match &self.status {
             TrackStatus::Failed(reason) => Some(reason),
-            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Analyzed(_) => None,
+            TrackStatus::Queued
+            | TrackStatus::Analyzing
+            | TrackStatus::Analyzed(_)
+            | TrackStatus::Missing => None,
         }
     }
 
@@ -313,6 +348,8 @@ pub(crate) enum LibraryFilter {
     NeedsReview,
     /// Tracks with a low bit rate, or likely made from a lower quality file.
     QualityToCheck,
+    /// Tracks whose file is no longer where it was.
+    Missing,
 }
 
 /// How many tracks are in each state.
@@ -324,6 +361,8 @@ pub(crate) struct LibraryCounts {
     pub(crate) needs_review: usize,
     /// Tracks with a low bit rate, or likely made from a lower quality file.
     pub(crate) quality_to_check: usize,
+    /// Tracks whose file is no longer where it was.
+    pub(crate) missing: usize,
 }
 
 /// Every track the user has added, in the order they were added.
@@ -340,8 +379,9 @@ pub(crate) struct Library {
 }
 
 impl Library {
-    /// The tracks, in the order they were added. A track keeps its index for
-    /// as long as the library lives.
+    /// The tracks, in the order they were added. A track keeps its index
+    /// until a track before it is removed, which bumps
+    /// [`Library::structure_revision`].
     pub(crate) fn tracks(&self) -> &[Track] {
         &self.tracks
     }
@@ -399,6 +439,84 @@ impl Library {
         added
     }
 
+    /// Adds tracks for files that are no longer there, such as those of a
+    /// playlist whose file was deleted, so they can be located or removed.
+    /// Returns how many were not in the library yet.
+    pub(crate) fn add_missing(&mut self, files: impl IntoIterator<Item = PathBuf>) -> usize {
+        let added = self.add_files(files.into_iter().collect());
+        for file in &added {
+            if let Some(index) = self.index_by_path.get(file) {
+                self.tracks[*index].status = TrackStatus::Missing;
+            }
+        }
+        added.len()
+    }
+
+    /// Queues a missing track again, once its file is back. Returns false
+    /// when the file is not in the library or its track is not missing.
+    pub(crate) fn revive(&mut self, path: &Path) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        if !track.is_missing() {
+            return false;
+        }
+        track.status = TrackStatus::Queued;
+        self.revision += 1;
+        true
+    }
+
+    /// Points the missing track of `old` at `new`, where its file is now,
+    /// keeping the key, tempo and cues the user set. The track stays missing
+    /// until [`Library::revive`] queues it. Returns false when `old` is not
+    /// a missing track or `new` is already in the library.
+    pub(crate) fn relink(&mut self, old: &Path, new: PathBuf) -> bool {
+        if self.index_by_path.contains_key(&new) {
+            return false;
+        }
+        let Some(index) = self.index_by_path.get(old).copied() else {
+            return false;
+        };
+        if !self.tracks[index].is_missing() {
+            return false;
+        }
+        let mut relinked = Track::new(new.clone());
+        relinked.status = TrackStatus::Missing;
+        relinked.correction = self.tracks[index].correction;
+        relinked.edited_cues = self.tracks[index].edited_cues.take();
+        self.tracks[index] = relinked;
+        self.index_by_path.remove(old);
+        self.index_by_path.insert(new, index);
+        self.revision += 1;
+        self.structure_revision += 1;
+        true
+    }
+
+    /// Takes the track of `path` out of the library. The tracks after it
+    /// move up one index. Returns false when the file is not in the
+    /// library.
+    pub(crate) fn remove(&mut self, path: &Path) -> bool {
+        let Some(index) = self.index_by_path.remove(path) else {
+            return false;
+        };
+        let removed = self.tracks.remove(index);
+        if removed.needs_review() {
+            self.review_count -= 1;
+        }
+        for later_index in self.index_by_path.values_mut() {
+            if *later_index > index {
+                *later_index -= 1;
+            }
+        }
+        self.revision += 1;
+        self.structure_revision += 1;
+        true
+    }
+
     /// Marks a queued track as being analyzed now. Returns false when the
     /// file is not in the library or is no longer queued.
     pub(crate) fn mark_analyzing(&mut self, path: &Path) -> bool {
@@ -421,7 +539,7 @@ impl Library {
     pub(crate) fn record_outcome(
         &mut self,
         path: &Path,
-        outcome: Result<TrackAnalysis, String>,
+        outcome: Result<TrackAnalysis, TrackFailure>,
     ) -> bool {
         let Some(track) = self
             .index_by_path
@@ -438,9 +556,13 @@ impl Library {
                 track.canonical_beat_grid = analysis.beat_grid;
                 TrackStatus::Analyzed(analysis.with_tempo_range(self.tempo_range))
             }
-            Err(reason) => {
+            Err(TrackFailure::Failed(reason)) => {
                 track.canonical_beat_grid = None;
                 TrackStatus::Failed(reason)
+            }
+            Err(TrackFailure::Missing) => {
+                track.canonical_beat_grid = None;
+                TrackStatus::Missing
             }
         };
         if track.needs_review() {
@@ -547,6 +669,11 @@ impl Library {
             total: self.tracks.len(),
             needs_review: self.review_count,
             quality_to_check: self.quality_to_check_in(None),
+            missing: self
+                .tracks
+                .iter()
+                .filter(|track| track.is_missing())
+                .count(),
         }
     }
 
@@ -584,6 +711,7 @@ impl Library {
                 LibraryFilter::AllTracks => true,
                 LibraryFilter::NeedsReview => track.needs_review(),
                 LibraryFilter::QualityToCheck => track.has_quality_to_check(),
+                LibraryFilter::Missing => track.is_missing(),
             })
             .filter(|(_, track)| folder.is_none_or(|folder| track.path.starts_with(folder)))
             .filter(|(_, track)| track.matches(&query_lowercase))
@@ -765,7 +893,7 @@ mod tests {
         }
         library.record_outcome(
             Path::new("/music/techno/broken.mp3"),
-            Err("cannot decode".to_string()),
+            Err("cannot decode".into()),
         );
         library
     }
@@ -1234,6 +1362,7 @@ mod tests {
                 total: 6,
                 needs_review: 1,
                 quality_to_check: 0,
+                missing: 0,
             }
         );
         library.record_outcome(
@@ -1241,7 +1370,7 @@ mod tests {
             Ok(analysis(None, None, 1.0)),
         );
         assert_eq!(library.counts().needs_review, 0);
-        assert!(!library.record_outcome(Path::new("/not/in/library.mp3"), Err(String::new())));
+        assert!(!library.record_outcome(Path::new("/not/in/library.mp3"), Err("".into())));
     }
 
     #[test]

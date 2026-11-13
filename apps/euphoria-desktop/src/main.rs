@@ -38,6 +38,7 @@ mod playlist_flow;
 mod playlists;
 mod progress;
 mod reference_sound;
+mod relink_flow;
 mod reveal;
 mod set_builder;
 #[cfg(test)]

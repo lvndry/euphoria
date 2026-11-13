@@ -157,6 +157,8 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
     } else if app.filter == LibraryFilter::NeedsReview {
         "Nothing to review: every key and tempo is rated medium or high, and every file was \
          analyzed"
+    } else if app.filter == LibraryFilter::Missing {
+        "No missing files: every track is where it was"
     } else if app.filter == LibraryFilter::QualityToCheck {
         "No tracks with a low bit rate or likely re-encoded"
     } else {
@@ -181,6 +183,8 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
         (LibraryFilter::NeedsReview, None) => "Needs review".into(),
         (LibraryFilter::AllTracks, Some(folder)) => folder.into(),
         (LibraryFilter::NeedsReview, Some(folder)) => format!("Needs review in {folder}").into(),
+        (LibraryFilter::Missing, None) => "Missing files".into(),
+        (LibraryFilter::Missing, Some(folder)) => format!("Missing files in {folder}").into(),
         (LibraryFilter::QualityToCheck, None) => "Quality to check".into(),
         (LibraryFilter::QualityToCheck, Some(folder)) => {
             format!("Quality to check in {folder}").into()
@@ -442,9 +446,12 @@ fn row(
     let is_starred = app.session.favorites().is_starred(&track.path);
     // The item that opens the file in the file manager only makes sense
     // when the row is the whole selection, like the drag does it.
+    let revealable = reveal::revealable(track_index, app.selected, &app.marked);
     let menu_state = TrackMenuState {
         is_starred,
-        revealable: reveal::revealable(track_index, app.selected, &app.marked),
+        revealable: revealable && !track.is_missing(),
+        locatable: revealable && track.is_missing(),
+        is_missing: track.is_missing(),
     };
     let cells: Vec<AnyElement> = app
         .table_layout
@@ -597,6 +604,7 @@ fn cell_contents(
             .children(track.artist.clone())
             .into_any_element(),
         ColumnId::Key => match (&track.status, track.key()) {
+            (TrackStatus::Missing, _) => status_text("Missing", palette.danger, true),
             (_, Some(key)) => key_chip(&key, theme, app.display.key_notation).into_any_element(),
             (TrackStatus::Queued, _) => status_text("Queued", palette.text_tertiary, false),
             (TrackStatus::Analyzing, _) => status_text("Analyzing", palette.accent, true),

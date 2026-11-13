@@ -276,6 +276,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         TrackStatus::Queued => "queued",
         TrackStatus::Analyzing => "analyzing",
         TrackStatus::Failed(_) => "not analyzed",
+        TrackStatus::Missing => "file missing",
         TrackStatus::Analyzed(_) => "not detected",
     };
     let analysis = track.analysis();
@@ -602,6 +603,7 @@ fn waveform_section(
         (_, TrackStatus::Queued) => (None, "Waiting for analysis".into()),
         (_, TrackStatus::Analyzing) => (None, "Analyzing now".into()),
         (_, TrackStatus::Failed(_)) => (None, "Not available".into()),
+        (_, TrackStatus::Missing) => (None, "The file is missing".into()),
         (Some(Waveform::Reading) | None, TrackStatus::Analyzed(_)) => {
             (None, "Reading audio".into())
         }
@@ -946,6 +948,23 @@ fn status(track: &Track, palette: &Palette) -> Option<Div> {
                         .text_color(palette.text_secondary)
                         .child(reason.clone()),
                 ),
+        ),
+        TrackStatus::Missing => Some(
+            section
+                .child(section_label("File", palette))
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(palette.danger)
+                        .child("This file is missing"),
+                )
+                .child(div().text_color(palette.text_secondary).child(format!(
+                    "It is no longer at {}. It was moved, deleted, or is on a drive that is \
+                     not connected. Right click the track and choose Locate\u{2026} to point \
+                     Euphoria at where it is now, or Remove from Library. Its playlists, \
+                     favorites and edited cues are kept until it is removed.",
+                    track.path.display()
+                ))),
         ),
     }
 }

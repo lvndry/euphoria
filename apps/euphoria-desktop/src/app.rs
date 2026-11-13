@@ -158,6 +158,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans_in_progress: usize,
+    /// Remembered folders that are not there now, such as one on a drive
+    /// that is not connected. They stay remembered, to be looked for again
+    /// at the next launch.
+    pub(crate) unavailable_folders: Vec<PathBuf>,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
     /// Whether the sidebar is folded and how large the track detail is.
@@ -364,6 +368,7 @@ impl EuphoriaApp {
             table_focus: cx.focus_handle(),
             notice,
             scans_in_progress: 0,
+            unavailable_folders: Vec::new(),
             toolbar_drag_armed: false,
             panels: settings.panels,
             resizing: None,
@@ -517,8 +522,16 @@ impl EuphoriaApp {
         if problems.is_empty() && found.files.is_empty() {
             problems.push("No audio files found there.".to_string());
         }
+        for folder in std::mem::take(&mut found.unavailable_folders) {
+            if !self.unavailable_folders.contains(&folder) {
+                self.unavailable_folders.push(folder);
+            }
+        }
         let found_files = found.files.clone();
         self.session.add(found);
+        let library_folders = self.session.library().folders();
+        self.unavailable_folders
+            .retain(|folder| !library_folders.contains(folder));
         self.read_track_names(found_files, cx);
         self.refresh_visible();
         if self.scans_in_progress == 0 {
@@ -540,7 +553,7 @@ impl EuphoriaApp {
 
     /// Shows a problem in the notice strip, after any that is already there
     /// so that an earlier one is not lost.
-    fn report(&mut self, problem: String) {
+    pub(crate) fn report(&mut self, problem: String) {
         self.notice = Some(match self.notice.take() {
             Some(earlier) => format!("{earlier} {problem}"),
             None => problem,
@@ -1091,6 +1104,7 @@ impl EuphoriaApp {
                 .session
                 .library()
                 .quality_to_check_in(self.folder.as_deref()),
+            missing: counts.missing,
         }
     }
 
@@ -1720,8 +1734,10 @@ impl EuphoriaApp {
         let settings_path = self.settings_path.as_ref()?;
         let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
         expanded.sort();
+        let mut folders = self.session.library().folders().to_vec();
+        folders.extend(self.unavailable_folders.iter().cloned());
         let settings = Settings {
-            folders: self.session.library().folders().to_vec(),
+            folders,
             theme: self.theme.name,
             panels: self.panels,
             folder_tree: FolderTreeMemory {

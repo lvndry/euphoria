@@ -12,13 +12,13 @@ use crate::error::EuphoriaError;
 /// How a file picked for a missing track compares with the track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelinkMatch {
-    /// The file holds the same audio the track held.
-    SameAudio,
+    /// The file holds the same audio the track held, this content.
+    SameAudio(ContentHash),
     /// The file holds other audio.
     OtherAudio,
     /// What the track held was never recorded, so there is nothing to
-    /// compare the file with.
-    NothingToCompare,
+    /// compare the file with. The file holds this content.
+    NothingToCompare(ContentHash),
 }
 
 /// Compares the file at `candidate` with `expected`, the content a missing
@@ -45,8 +45,8 @@ pub fn check_relink(
         }
     })?;
     Ok(match expected {
-        None => RelinkMatch::NothingToCompare,
-        Some(expected) if *expected == found => RelinkMatch::SameAudio,
+        None => RelinkMatch::NothingToCompare(found),
+        Some(expected) if *expected == found => RelinkMatch::SameAudio(found),
         Some(_) => RelinkMatch::OtherAudio,
     })
 }
@@ -67,7 +67,7 @@ pub fn find_in_folder(
                 && candidate.is_file()
                 && matches!(
                     check_relink(Some(content), &candidate),
-                    Ok(RelinkMatch::SameAudio)
+                    Ok(RelinkMatch::SameAudio(_))
                 ))
             .then(|| (old_path.clone(), candidate))
         })
@@ -111,7 +111,7 @@ mod tests {
 
         assert!(matches!(
             check_relink(Some(&content), &track),
-            Ok(RelinkMatch::SameAudio)
+            Ok(RelinkMatch::SameAudio(_))
         ));
         assert!(matches!(
             check_relink(Some(&content), &other),
@@ -119,7 +119,7 @@ mod tests {
         ));
         assert!(matches!(
             check_relink(None, &other),
-            Ok(RelinkMatch::NothingToCompare)
+            Ok(RelinkMatch::NothingToCompare(_))
         ));
         assert!(matches!(
             check_relink(Some(&content), &folder.0.join("gone.mp3")),

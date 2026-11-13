@@ -339,6 +339,43 @@ impl Playlists {
         added
     }
 
+    /// Points every playlist entry of the missing file `old` at `new`, where
+    /// the same audio, `content`, is now. Returns whether any entry moved.
+    pub(crate) fn relink(&mut self, old: &Path, new: &Path, content: ContentHash) -> bool {
+        if !self
+            .items
+            .iter()
+            .any(|playlist| playlist.tracks.iter().any(|path| path == old))
+        {
+            return false;
+        }
+        self.follow_rewrites(&[PlaylistRewrite {
+            path: new.to_path_buf(),
+            before: content,
+            after: content,
+            paths: HashMap::from([(old.to_path_buf(), new.to_path_buf())]),
+        }]);
+        self.revision += 1;
+        true
+    }
+
+    /// Takes `paths` out of every playlist. Returns whether any playlist
+    /// held one of them.
+    pub(crate) fn forget(&mut self, paths: &[PathBuf]) -> bool {
+        let forgotten: HashSet<&PathBuf> = paths.iter().collect();
+        let mut changed = false;
+        for playlist in &mut self.items {
+            let before = playlist.tracks.len();
+            playlist.tracks.retain(|path| !forgotten.contains(path));
+            changed |= playlist.tracks.len() != before;
+        }
+        if changed {
+            self.revision += 1;
+            self.forget_unreferenced_contents();
+        }
+        changed
+    }
+
     /// Takes `paths` out of the playlist.
     pub(crate) fn remove_tracks(&mut self, id: PlaylistId, paths: &[PathBuf]) {
         let removed: HashSet<&PathBuf> = paths.iter().collect();
