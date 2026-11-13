@@ -10,6 +10,53 @@ use crate::key::Key;
 /// accepts.
 pub const DEFAULT_MAX_TEMPO_DIFFERENCE_PERCENT: f32 = 6.0;
 
+/// A closed range of tempo in beats per minute, both ends included.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BpmRange {
+    /// The slowest tempo in the range, in beats per minute.
+    pub slowest: f32,
+    /// The fastest tempo in the range, in beats per minute.
+    pub fastest: f32,
+}
+
+impl BpmRange {
+    /// A range from `slowest` to `fastest`, inclusive at both ends. `None`
+    /// when the ends do not make a range.
+    pub fn new(slowest: f32, fastest: f32) -> Option<Self> {
+        (slowest.is_finite() && fastest.is_finite() && slowest <= fastest)
+            .then_some(Self { slowest, fastest })
+    }
+
+    /// True when `bpm` lies in the range, both ends included.
+    pub fn contains(self, bpm: f32) -> bool {
+        self.slowest <= bpm && bpm <= self.fastest
+    }
+}
+
+/// A closed range of energy on the scale the tracks are rated on, both ends
+/// included.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnergyRange {
+    /// The lowest energy in the range.
+    pub lowest: f32,
+    /// The highest energy in the range.
+    pub highest: f32,
+}
+
+impl EnergyRange {
+    /// A range from `lowest` to `highest`, inclusive at both ends. `None`
+    /// when the ends do not make a range.
+    pub fn new(lowest: f32, highest: f32) -> Option<Self> {
+        (lowest.is_finite() && highest.is_finite() && lowest <= highest)
+            .then_some(Self { lowest, highest })
+    }
+
+    /// True when `energy` lies in the range, both ends included.
+    pub fn contains(self, energy: f32) -> bool {
+        self.lowest <= energy && energy <= self.highest
+    }
+}
+
 /// What the ranking needs to know about a track. Front ends implement this
 /// for their own track type.
 pub trait MixTrack {
@@ -75,6 +122,16 @@ pub struct MixOptions {
     /// Whether a candidate at about half or double the reference tempo counts
     /// as a tempo match.
     pub allow_half_and_double_tempo: bool,
+    /// The tempo of the candidates in beats per minute, or `None` for any
+    /// tempo. A candidate's own tempo must lie in the range; one without a
+    /// tempo is left out, as it cannot be checked. The pool is narrowed
+    /// before the tempo window, so a range wider than the window keeps
+    /// more than the window's edge does.
+    pub bpm_range: Option<BpmRange>,
+    /// The energy of the candidates, on the scale the tracks are rated on,
+    /// or `None` for any energy. A candidate's energy must lie in the
+    /// range; one without an energy is left out of a pool narrowed to one.
+    pub energy_range: Option<EnergyRange>,
 }
 
 impl Default for MixOptions {
@@ -85,6 +142,8 @@ impl Default for MixOptions {
             relations: vec![Relation::Same, Relation::Adjacent, Relation::Relative],
             max_tempo_difference_percent: DEFAULT_MAX_TEMPO_DIFFERENCE_PERCENT,
             allow_half_and_double_tempo: false,
+            bpm_range: None,
+            energy_range: None,
         }
     }
 }
@@ -140,13 +199,16 @@ pub struct MixMatch<'candidates, Track> {
 
 /// Returns the candidates that mix into `reference`, smoothest mix first.
 ///
-/// A candidate is kept when its key has one of the relations in
-/// [`MixOptions::relations`] to the reference key and its tempo is within
+/// A candidate is kept when it lies in the pool the options narrow to
+/// ([`MixOptions::bpm_range`] and [`MixOptions::energy_range`], when named),
+/// when its key has one of the relations in [`MixOptions::relations`] to the
+/// reference key, and when its tempo is within
 /// [`MixOptions::max_tempo_difference_percent`] of the reference tempo.
 /// Candidates without a key are left out. Candidates without a tempo are
 /// kept, since the tempo cannot rule them out, and so is every candidate with
-/// a compatible key when the reference has no tempo. The result is empty when
-/// the reference has no key.
+/// a compatible key when the reference has no tempo, unless the pool is
+/// narrowed to a range that asks for a value the candidate lacks. The result
+/// is empty when the reference has no key.
 ///
 /// The order is: candidates with a tempo before those without, then by
 /// relation from smoothest to boldest, then direct tempo matches before half
@@ -173,6 +235,7 @@ where
 
     let mut ranked: Vec<(bool, MixMatch<'candidates, Candidate>)> = candidates
         .into_iter()
+        .filter(|candidate| pool_fits(candidate, options.bpm_range, options.energy_range))
         .filter_map(|candidate| {
             let relation = reference_key.relation_to(&candidate.key()?)?;
             if !options.relations.contains(&relation) {
@@ -211,6 +274,22 @@ where
             .then_with(|| smoothness_order(first, second))
     });
     ranked.into_iter().map(|(_, mix_match)| mix_match).collect()
+}
+
+/// True when `track` lies in the pool the caller narrows to: its tempo
+/// in `bpm_range` and its energy in `energy_range`, when a range is named.
+/// A candidate that lacks the value a range asks for is out of the pool.
+pub(super) fn pool_fits<Track: MixTrack + ?Sized>(
+    track: &Track,
+    bpm_range: Option<BpmRange>,
+    energy_range: Option<EnergyRange>,
+) -> bool {
+    let bpm_fits = bpm_range
+        .is_none_or(|range| usable_bpm(track.bpm()).is_some_and(|bpm| range.contains(bpm)));
+    let energy_fits = energy_range.is_none_or(|range| {
+        usable_energy(track.energy()).is_some_and(|energy| range.contains(energy))
+    });
+    bpm_fits && energy_fits
 }
 
 pub(super) fn usable_bpm(bpm: Option<f32>) -> Option<f32> {
@@ -793,5 +872,124 @@ mod tests {
         let matches = mixes_into(&candidates[1], borrowed, &MixOptions::default());
         assert!(std::ptr::eq(matches[0].track, &candidates[1]));
         assert!(std::ptr::eq(matches[1].track, &candidates[0]));
+    }
+
+    fn tracked(title: &'static str, code: &str, bpm: f32, energy: Option<f32>) -> LibraryTrack {
+        LibraryTrack {
+            title,
+            key: Some(code.parse().unwrap()),
+            bpm: Some(bpm),
+            energy,
+        }
+    }
+
+    #[test]
+    fn defaults_keep_every_candidate_the_options_do_not_narrow() {
+        let options = MixOptions::default();
+        assert!(options.bpm_range.is_none());
+        assert!(options.energy_range.is_none());
+        let candidates = [tracked("no energy", "8A", 120.0, None)];
+        assert_eq!(
+            titles(&mixes_into(&reference("8A", 120.0), &candidates, &options)),
+            ["no energy"]
+        );
+    }
+
+    #[test]
+    fn a_tempo_range_keeps_only_the_candidates_in_it() {
+        let options = MixOptions {
+            bpm_range: Some(BpmRange::new(118.0, 122.0).unwrap()),
+            ..MixOptions::default()
+        };
+        let candidates = [
+            track("slow", "8A", 112.0),
+            track("in range", "8A", 120.0),
+            track("fast", "8A", 128.0),
+            track("at the edge", "8A", 122.0),
+        ];
+        let matches = mixes_into(&reference("8A", 120.0), &candidates, &options);
+        assert_eq!(titles(&matches), ["in range", "at the edge"]);
+    }
+
+    #[test]
+    fn a_tempo_range_leaves_out_a_candidate_without_a_tempo() {
+        let options = MixOptions {
+            bpm_range: Some(BpmRange::new(100.0, 140.0).unwrap()),
+            ..MixOptions::default()
+        };
+        let reference = TrackFeatures {
+            key: Some("8A".parse().unwrap()),
+            bpm: None,
+            energy: None,
+        };
+        let candidates = [
+            track("has tempo", "8A", 120.0),
+            LibraryTrack {
+                title: "no tempo",
+                key: Some("8A".parse().unwrap()),
+                bpm: None,
+                energy: None,
+            },
+        ];
+        let matches = mixes_into(&reference, &candidates, &options);
+        assert_eq!(titles(&matches), ["has tempo"]);
+    }
+
+    #[test]
+    fn a_tempo_range_wider_than_the_window_keeps_everything_the_window_does() {
+        let options = MixOptions {
+            max_tempo_difference_percent: 2.0,
+            bpm_range: Some(BpmRange::new(90.0, 160.0).unwrap()),
+            ..MixOptions::default()
+        };
+        let candidates = [
+            track("in both", "8A", 119.0),
+            track("out of the window", "8A", 110.0),
+        ];
+        let matches = mixes_into(&reference("8A", 120.0), &candidates, &options);
+        assert_eq!(titles(&matches), ["in both"]);
+    }
+
+    #[test]
+    fn an_energy_range_keeps_only_the_candidates_in_it() {
+        let options = MixOptions {
+            energy_range: Some(EnergyRange::new(5.0, 8.0).unwrap()),
+            ..MixOptions::default()
+        };
+        let candidates = [
+            tracked("low", "8A", 120.0, Some(4.0)),
+            tracked("in range", "8A", 120.0, Some(7.0)),
+            tracked("high", "8A", 120.0, Some(9.0)),
+            tracked("no energy", "8A", 120.0, None),
+        ];
+        let matches = mixes_into(&reference("8A", 120.0), &candidates, &options);
+        assert_eq!(titles(&matches), ["in range"]);
+    }
+
+    #[test]
+    fn ranges_apply_before_the_relations_and_the_window() {
+        let options = MixOptions {
+            relations: vec![Relation::Same],
+            bpm_range: Some(BpmRange::new(115.0, 125.0).unwrap()),
+            energy_range: Some(EnergyRange::new(1.0, 10.0).unwrap()),
+            ..MixOptions::default()
+        };
+        let candidates = [
+            tracked("fits", "8A", 120.0, Some(5.0)),
+            tracked("wrong key", "7A", 120.0, Some(5.0)),
+            tracked("wrong tempo", "8A", 130.0, Some(5.0)),
+            tracked("no energy", "8A", 120.0, None),
+        ];
+        let matches = mixes_into(&reference("8A", 120.0), &candidates, &options);
+        assert_eq!(titles(&matches), ["fits"]);
+    }
+
+    #[test]
+    fn range_ends_are_inclusive_and_bad_ends_make_no_range() {
+        assert!(BpmRange::new(120.0, 120.0).unwrap().contains(120.0));
+        assert_eq!(BpmRange::new(125.0, 120.0), None);
+        assert_eq!(BpmRange::new(f32::NAN, 120.0), None);
+        assert!(EnergyRange::new(1.0, 10.0).unwrap().contains(1.0));
+        assert_eq!(EnergyRange::new(10.0, 1.0), None);
     }
 }

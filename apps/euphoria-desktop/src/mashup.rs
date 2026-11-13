@@ -17,8 +17,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
 use euphoria_core::harmony::{
-    KeyFit, Layering, MashupOptions, MashupReason, MashupTrack, MixTrack, Side, StemProfile,
-    TempoFit, mashups_for,
+    KeyFit, Layering, MashupReason, MashupTrack, MixTrack, Side, StemProfile, TempoFit, mashups_for,
 };
 use euphoria_core::mashup::{LayerAudio, MashupLayer, write_mashup};
 use euphoria_core::shift::ExistingOutput;
@@ -258,11 +257,13 @@ impl EuphoriaApp {
             shift_semitones: deck_a.shift_semitones,
             profile: stems.profile(&chosen.path),
         };
+        let filter = &self.decks.filter;
         let candidates: Vec<Layerable<'_>> = self
             .suggestion_indexes()
             .into_iter()
             .filter_map(|index| library.track(index))
             .filter(|candidate| candidate.path != chosen.path)
+            .filter(|candidate| filter.genre_fits(candidate.genre()))
             .map(|track| Layerable {
                 track,
                 shift_semitones: 0,
@@ -274,20 +275,20 @@ impl EuphoriaApp {
             .idea_index
             .and_then(|position| self.decks.ideas.get(position))
             .map(|idea| idea.track_index);
-        let ideas: Vec<MashupIdea> =
-            mashups_for(&reference, &candidates, &MashupOptions::default())
-                .into_iter()
-                .take(IDEA_LIMIT)
-                .filter_map(|found| {
-                    Some(MashupIdea {
-                        track_index: library.index_of(&found.track.track.path)?,
-                        key: found.key,
-                        tempo: found.tempo,
-                        layering: found.layering,
-                        reasons: found.reasons(),
-                    })
+        let options = filter.mashup_options();
+        let ideas: Vec<MashupIdea> = mashups_for(&reference, &candidates, &options)
+            .into_iter()
+            .take(IDEA_LIMIT)
+            .filter_map(|found| {
+                Some(MashupIdea {
+                    track_index: library.index_of(&found.track.track.path)?,
+                    key: found.key,
+                    tempo: found.tempo,
+                    layering: found.layering,
+                    reasons: found.reasons(),
                 })
-                .collect();
+            })
+            .collect();
         self.decks.idea_index =
             previous.and_then(|track| ideas.iter().position(|idea| idea.track_index == track));
         self.decks.ideas = ideas;

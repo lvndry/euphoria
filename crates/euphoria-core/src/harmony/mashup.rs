@@ -19,7 +19,8 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use super::mix::{
-    MixTrack, TempoFit, TempoScaling, TrackFeatures, tempo_fit, usable_bpm, usable_energy,
+    BpmRange, EnergyRange, MixTrack, TempoFit, TempoScaling, TrackFeatures, pool_fits, tempo_fit,
+    usable_bpm, usable_energy,
 };
 use super::relation::Relation;
 use crate::key::Key;
@@ -133,6 +134,14 @@ pub struct MashupOptions {
     /// Whether a candidate at about half or double the reference tempo
     /// counts.
     pub allow_half_and_double_tempo: bool,
+    /// The tempo of the candidates in beats per minute, or `None` for any
+    /// tempo. A candidate's own tempo must lie in the range; one without a
+    /// tempo is left out, as it cannot be checked.
+    pub bpm_range: Option<BpmRange>,
+    /// The energy of the candidates, on the scale the tracks are rated on,
+    /// or `None` for any energy. A candidate's energy must lie in the
+    /// range; one without an energy is left out of a pool narrowed to one.
+    pub energy_range: Option<EnergyRange>,
 }
 
 impl Default for MashupOptions {
@@ -144,6 +153,8 @@ impl Default for MashupOptions {
             max_key_shift: DEFAULT_MAX_KEY_SHIFT,
             max_tempo_difference_percent: DEFAULT_MASHUP_TEMPO_PERCENT,
             allow_half_and_double_tempo: true,
+            bpm_range: None,
+            energy_range: None,
         }
     }
 }
@@ -435,6 +446,7 @@ where
 
     let mut ranked: Vec<MashupMatch<'candidates, Candidate>> = candidates
         .into_iter()
+        .filter(|candidate| pool_fits(candidate, options.bpm_range, options.energy_range))
         .filter_map(|candidate| {
             let key = key_fit(&reference_key, &candidate.key()?, options)?;
             let tempo = tempo_fit(
@@ -862,5 +874,62 @@ mod tests {
         assert_eq!(ranked[0].key.shift_semitones, 0);
         let reason = ranked[0].reasons()[0].describe(Key::open_key);
         assert_eq!(reason, "2m is next to A's key, sharing six of seven notes");
+    }
+
+    fn separated(code: &str, bpm: Option<f32>, energy: Option<f32>) -> Separated {
+        Separated {
+            features: TrackFeatures {
+                key: Some(code.parse().unwrap()),
+                bpm,
+                energy,
+            },
+            profile: None,
+        }
+    }
+
+    #[test]
+    fn a_tempo_range_keeps_only_the_candidates_in_it() {
+        let chosen = track("8A", 124.0);
+        let candidates = [
+            separated("8A", Some(118.0), Some(6.0)),
+            separated("8A", Some(126.0), Some(6.0)),
+            separated("8A", Some(140.0), Some(6.0)),
+        ];
+        let options = MashupOptions {
+            bpm_range: Some(BpmRange::new(115.0, 130.0).unwrap()),
+            ..MashupOptions::default()
+        };
+        let ranked = mashups_for(&chosen, &candidates, &options);
+        assert_eq!(
+            keys(&ranked),
+            [("8A".to_string(), 0), ("8A".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn an_energy_range_keeps_only_the_candidates_in_it() {
+        let chosen = separated("8A", Some(124.0), Some(6.0));
+        let candidates = [
+            separated("8A", Some(124.0), Some(4.0)),
+            separated("8A", Some(124.0), Some(8.0)),
+            separated("8A", Some(124.0), None),
+        ];
+        let options = MashupOptions {
+            energy_range: Some(EnergyRange::new(5.0, 10.0).unwrap()),
+            ..MashupOptions::default()
+        };
+        let ranked = mashups_for(&chosen, &candidates, &options);
+        assert_eq!(keys(&ranked), [("8A".to_string(), 0)]);
+    }
+
+    #[test]
+    fn the_pool_ranges_are_open_when_the_options_do_not_name_them() {
+        let chosen = separated("8A", Some(124.0), None);
+        let candidates = [separated("8A", Some(124.0), None)];
+        let options = MashupOptions::default();
+        assert!(options.bpm_range.is_none());
+        assert!(options.energy_range.is_none());
+        let ranked = mashups_for(&chosen, &candidates, &options);
+        assert_eq!(keys(&ranked), [("8A".to_string(), 0)]);
     }
 }
