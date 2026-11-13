@@ -169,8 +169,8 @@ fn carry_user_edits(
         return Ok(());
     }
     connection.execute(
-        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
-         SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
+        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at, energy)
+         SELECT ?2, key, bpm, corrected_at, energy FROM corrections WHERE content_hash = ?1",
         params![from.as_bytes(), to.as_bytes()],
     )?;
     connection.execute(
@@ -308,6 +308,8 @@ mod tests {
         let before = ContentHash::of_file(&path).unwrap();
         let correction = crate::Correction::of_key(Key::new(4, Mode::Minor))
             .with_bpm(Some(87.0))
+            .unwrap()
+            .with_energy(Some(8))
             .unwrap();
         let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
         cache.set_correction(&path, &correction).unwrap();
