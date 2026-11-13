@@ -301,21 +301,35 @@ fn playlist_menu(
     )
 }
 
+/// What a row's menu can do, from the row's selection.
+#[derive(Copy, Clone)]
+pub(crate) struct TrackMenuState {
+    /// The row's track is starred.
+    pub(crate) is_starred: bool,
+    /// The row is the whole selection, so the file manager can open it.
+    pub(crate) revealable: bool,
+}
+
 /// The menu of the table's rows: add the selection to a playlist, make a
-/// playlist of it, or take it out of the playlist on show.
+/// playlist of it, take it out of the playlist on show, or open the row's
+/// file in the file manager.
 pub(crate) fn track_menu(
     menu: PopupMenu,
     app: &WeakEntity<EuphoriaApp>,
     playlists: &[(PlaylistId, String)],
     shown_playlist: Option<PlaylistId>,
-    is_starred: bool,
+    state: TrackMenuState,
     window: &mut Window,
     cx: &mut Context<'_, PopupMenu>,
 ) -> PopupMenu {
     let menu = menu
         .item(
-            PopupMenuItem::new(if is_starred { "Remove star" } else { "Star" })
-                .on_click(on_app(app, |this, _, cx| this.toggle_star_on_selection(cx))),
+            PopupMenuItem::new(if state.is_starred {
+                "Remove star"
+            } else {
+                "Star"
+            })
+            .on_click(on_app(app, |this, _, cx| this.toggle_star_on_selection(cx))),
         )
         .separator();
     let targets: Vec<(PlaylistId, String)> = playlists
@@ -345,7 +359,7 @@ pub(crate) fn track_menu(
                 this.create_playlist_from_selection(window, cx)
             })),
     );
-    if shown_playlist.is_some() {
+    let menu = if shown_playlist.is_some() {
         menu.separator()
             .item(PopupMenuItem::new("Remove from playlist").on_click(on_app(
                 app,
@@ -353,6 +367,14 @@ pub(crate) fn track_menu(
                     this.remove_selection_from_playlist(cx);
                 },
             )))
+    } else {
+        menu
+    };
+    if state.revealable {
+        menu.separator().item(
+            PopupMenuItem::new(crate::reveal::reveal_label())
+                .on_click(on_app(app, |this, _, _| this.reveal_selected_track())),
+        )
     } else {
         menu
     }

@@ -26,7 +26,7 @@ use crate::playlists::PlaylistId;
 use crate::theme::Palette;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
-use crate::views::playlists::{DragLabel, track_menu};
+use crate::views::playlists::{DragLabel, TrackMenuState, track_menu};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 use gpui::component::menu::ContextMenuExt;
 
@@ -439,6 +439,12 @@ fn row(
         .collect();
     let shown_playlist = app.playlist;
     let is_starred = app.session.favorites().is_starred(&track.path);
+    // The item that opens the file in the file manager only makes sense
+    // when the row is the whole selection, like the drag does it.
+    let menu_state = TrackMenuState {
+        is_starred,
+        revealable: app.selected == Some(track_index) && app.marked.len() <= 1,
+    };
     let cells: Vec<AnyElement> = app
         .table_layout
         .columns()
@@ -508,7 +514,7 @@ fn row(
                     &app_handle,
                     &playlists,
                     shown_playlist,
-                    is_starred,
+                    menu_state,
                     window,
                     cx,
                 )
