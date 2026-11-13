@@ -16,7 +16,7 @@ use crate::deck_audio::DeckId;
 use crate::decks::DeckMode;
 use crate::format;
 use crate::mashup::{INSTRUMENTAL_ONLY, VOCALS_ONLY};
-use crate::views::decks::{deck_part, filter_controls, fader, scope_buttons};
+use crate::views::decks::{deck_part, fader, filter_controls, scope_buttons};
 use crate::views::key_chip::key_chip;
 use crate::views::tag_panel::choice_button;
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};

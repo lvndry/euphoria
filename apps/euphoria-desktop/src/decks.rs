@@ -13,7 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use euphoria_core::harmony::{
-    BpmRange, EnergyDirection, EnergyRange, MixOptions, Relation, next_tracks_favoring,
+    BpmRange, EnergyDirection, EnergyRange, MashupOptions, MixOptions, Relation,
+    next_tracks_favoring,
 };
 use euphoria_core::stems::StemFiles;
 use euphoria_core::{SectionCue, TrackAnalysis};
@@ -116,40 +117,22 @@ pub(crate) enum SuggestionScope {
     /// The tracks the table shows: the folder or playlist on show,
     /// filtered by the search.
     Shown,
+    /// The starred tracks.
+    Favorites,
     /// The tracks of a playlist.
     Playlist(PlaylistId),
 }
 
-/// Which key relations the suggestions count.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum RelationFilter {
-    /// The relations the core counts by default.
-    #[default]
-    Default,
-    /// Every relation the engine supports, smoothest to boldest.
-    All,
-}
-
-impl RelationFilter {
-    /// The relations this filter counts, or `None` for the core's default.
-    pub(crate) fn relations(self) -> Option<&'static [Relation]> {
-        match self {
-            RelationFilter::Default => None,
-            RelationFilter::All => Some(&Relation::ALL),
-        }
-    }
-
-}
-
-/// The pool the suggestions are chosen from, set on the suggestions surface.
+/// The pool the suggestions are chosen from, set above the suggestions.
 /// `None` fields leave the pool open, as the defaults do.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub(crate) struct SuggestionFilter {
     /// The furthest the candidate's tempo may be from deck A's, in percent.
     /// `None` keeps the core's window.
     pub(crate) tempo_window_percent: Option<f32>,
     /// The key relations that count. `None` keeps the core's defaults.
-    pub(crate) relations: RelationFilter,
+    pub(crate) relations: Option<Vec<Relation>>,
     /// The lowest energy a candidate may have, on the 1 to 10 scale.
     pub(crate) energy_min: Option<f32>,
     /// The highest energy a candidate may have.
@@ -158,50 +141,177 @@ pub(crate) struct SuggestionFilter {
     pub(crate) bpm_min: Option<f32>,
     /// The fastest tempo a candidate may have.
     pub(crate) bpm_max: Option<f32>,
-    /// The genre a candidate's genre must hold, lower case.
+    /// Text the candidate's genre must contain, in any case.
     pub(crate) genre: Option<String>,
 }
 
 impl SuggestionFilter {
-    /// The energy of the candidates, when both ends are set; either end on
-    /// its own leaves the energy open.
+    /// The energy of the candidates, when both ends are set.
     pub(crate) fn energy_range(&self) -> Option<EnergyRange> {
-        let lowest = self.energy_min?;
-        let highest = self.energy_max?;
-        EnergyRange::new(lowest, highest)
+        EnergyRange::new(self.energy_min?, self.energy_max?)
     }
 
-    /// The tempo of the candidates, when both ends are set; either end on
-    /// its own leaves the tempo open.
+    /// The tempo of the candidates, when both ends are set.
     pub(crate) fn bpm_range(&self) -> Option<BpmRange> {
-        let slowest = self.bpm_min?;
-        let fastest = self.bpm_max?;
-        BpmRange::new(slowest, fastest)
+        BpmRange::new(self.bpm_min?, self.bpm_max?)
     }
 
-    /// True when `energy` lies in the set ends. A candidate without an
-    /// energy is out of a pool narrowed by one.
-    pub(crate) fn energy_fits(&self, energy: Option<f32>) -> bool {
-        let Some(energy) = energy else {
-            return false;
-        };
-        self.energy_min.is_none_or(|lowest| energy >= lowest)
-            && self.energy_max.is_none_or(|highest| energy <= highest)
+    /// The key relations that count, or `defaults` when none were chosen.
+    pub(crate) fn relations_or(&self, defaults: &[Relation]) -> Vec<Relation> {
+        self.relations.clone().unwrap_or_else(|| defaults.to_vec())
     }
 
-    /// True when the candidate's `genre` holds the filter's genre, ignoring
-    /// case and surrounding white space. A candidate without a genre is out
-    /// of a pool narrowed by one.
+    /// Counts `relation` when it is not counted, and stops counting it when
+    /// it is, starting from `defaults` when none were chosen. The last
+    /// relation counted stays, so the suggestions never go empty for want
+    /// of a key move.
+    pub(crate) fn toggle_relation(&mut self, relation: Relation, defaults: &[Relation]) {
+        let mut relations = self.relations_or(defaults);
+        if let Some(position) = relations.iter().position(|counted| *counted == relation) {
+            if relations.len() == 1 {
+                return;
+            }
+            relations.remove(position);
+        } else {
+            relations.push(relation);
+            relations.sort();
+        }
+        self.relations = Some(relations);
+    }
+
+    /// True when the candidate's `genre` contains the filter's genre,
+    /// ignoring case. A candidate without a genre is out of a pool narrowed
+    /// by one.
     pub(crate) fn genre_fits(&self, genre: Option<&str>) -> bool {
         let Some(wanted) = self
             .genre
             .as_deref()
             .map(str::trim)
-            .filter(|genre| !genre.is_empty())
+            .filter(|wanted| !wanted.is_empty())
         else {
             return true;
         };
-        genre.map_or(false, |have| have.trim().eq_ignore_ascii_case(wanted))
+        let wanted = wanted.to_lowercase();
+        genre.is_some_and(|genre| genre.to_lowercase().contains(&wanted))
+    }
+
+    /// This filter with the fields of `typed` in place of its own, and the
+    /// first problem met reading them. A field that does not read, or a
+    /// range with one end missing, leaves that part of the pool open.
+    pub(crate) fn with_typed(&self, typed: &TypedFilter) -> (SuggestionFilter, Option<String>) {
+        let mut problems = Vec::new();
+        let tempo_window_percent = match number(&typed.tempo_window) {
+            Typed::Empty => None,
+            Typed::Number(percent) if percent > 0.0 => Some(percent),
+            Typed::Number(_) | Typed::Unreadable => {
+                problems.push("The tempo window is a number of percent above zero.");
+                None
+            }
+        };
+        let (bpm_min, bpm_max) = typed_range(
+            &typed.bpm_from,
+            &typed.bpm_to,
+            |slowest, fastest| 0.0 < slowest && slowest <= fastest,
+            "The tempo range is two tempos in beats per minute, slowest first.",
+            &mut problems,
+        );
+        let (energy_min, energy_max) = typed_range(
+            &typed.energy_from,
+            &typed.energy_to,
+            |lowest, highest| 1.0 <= lowest && lowest <= highest && highest <= 10.0,
+            "The energy range is two numbers from 1 to 10, lowest first.",
+            &mut problems,
+        );
+        let genre = Some(typed.genre.trim())
+            .filter(|genre| !genre.is_empty())
+            .map(str::to_string);
+        let filter = SuggestionFilter {
+            tempo_window_percent,
+            bpm_min,
+            bpm_max,
+            energy_min,
+            energy_max,
+            genre,
+            relations: self.relations.clone(),
+        };
+        (filter, problems.first().map(|problem| problem.to_string()))
+    }
+
+    /// The options for the next track suggestions.
+    pub(crate) fn mix_options(&self) -> MixOptions {
+        let defaults = MixOptions::default();
+        MixOptions {
+            allow_half_and_double_tempo: true,
+            max_tempo_difference_percent: self
+                .tempo_window_percent
+                .unwrap_or(defaults.max_tempo_difference_percent),
+            relations: self.relations_or(&defaults.relations),
+            bpm_range: self.bpm_range(),
+            energy_range: self.energy_range(),
+        }
+    }
+
+    /// The options for the mashup ideas.
+    pub(crate) fn mashup_options(&self) -> MashupOptions {
+        let defaults = MashupOptions::default();
+        MashupOptions {
+            max_tempo_difference_percent: self
+                .tempo_window_percent
+                .unwrap_or(defaults.max_tempo_difference_percent),
+            relations: self.relations_or(&defaults.relations),
+            bpm_range: self.bpm_range(),
+            energy_range: self.energy_range(),
+            ..defaults
+        }
+    }
+}
+
+/// The pool fields as typed above the suggestions.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct TypedFilter {
+    pub(crate) tempo_window: String,
+    pub(crate) bpm_from: String,
+    pub(crate) bpm_to: String,
+    pub(crate) energy_from: String,
+    pub(crate) energy_to: String,
+    pub(crate) genre: String,
+}
+
+enum Typed {
+    Empty,
+    Number(f32),
+    Unreadable,
+}
+
+fn number(text: &str) -> Typed {
+    let text = text.trim();
+    if text.is_empty() {
+        return Typed::Empty;
+    }
+    match text.parse::<f32>() {
+        Ok(value) if value.is_finite() => Typed::Number(value),
+        _ => Typed::Unreadable,
+    }
+}
+
+fn typed_range(
+    from: &str,
+    to: &str,
+    is_range: impl Fn(f32, f32) -> bool,
+    problem: &'static str,
+    problems: &mut Vec<&'static str>,
+) -> (Option<f32>, Option<f32>) {
+    match (number(from), number(to)) {
+        (Typed::Empty, Typed::Empty) => (None, None),
+        (Typed::Number(low), Typed::Number(high)) if is_range(low, high) => (Some(low), Some(high)),
+        (Typed::Empty, _) | (_, Typed::Empty) => {
+            problems.push("Type both ends of a range, or leave both empty.");
+            (None, None)
+        }
+        _ => {
+            problems.push(problem);
+            (None, None)
+        }
     }
 }
 
@@ -272,9 +382,24 @@ impl Decks {
     /// The decks with the suggestions pool the settings named, instead of
     /// the open one.
     pub(crate) fn with_filter(filter: SuggestionFilter) -> Self {
-        let mut decks = Self::default();
-        decks.filter = filter;
-        decks
+        Self {
+            filter,
+            ..Self::default()
+        }
+    }
+
+    /// The key relations the suggestions in the current mode count when
+    /// none were chosen.
+    pub(crate) fn default_relations(&self) -> Vec<Relation> {
+        match self.mode {
+            DeckMode::NextTrack => MixOptions::default().relations,
+            DeckMode::Mashup => MashupOptions::default().relations,
+        }
+    }
+
+    /// The key relations the suggestions in the current mode count.
+    pub(crate) fn counted_relations(&self) -> Vec<Relation> {
+        self.filter.relations_or(&self.default_relations())
     }
 }
 
@@ -824,6 +949,13 @@ impl EuphoriaApp {
         match self.decks.scope {
             SuggestionScope::Library => (0..library.tracks().len()).collect(),
             SuggestionScope::Shown => self.visible.clone(),
+            SuggestionScope::Favorites => self
+                .session
+                .favorites()
+                .tracks()
+                .iter()
+                .filter_map(|path| library.index_of(path))
+                .collect(),
             SuggestionScope::Playlist(id) => self
                 .session
                 .playlists()
@@ -860,27 +992,14 @@ impl EuphoriaApp {
             return;
         };
         let indexes = self.suggestion_indexes();
-        let filter = self.decks.filter.clone();
+        let filter = &self.decks.filter;
         let candidates: Vec<&Track> = indexes
             .iter()
             .filter_map(|index| library.track(*index))
             .filter(|candidate| candidate.path != playing.path)
-            .filter(|candidate| filter.energy_fits(candidate.energy().map(|energy| energy as f32)))
             .filter(|candidate| filter.genre_fits(candidate.genre()))
             .collect();
-        let options = MixOptions {
-            allow_half_and_double_tempo: true,
-            max_tempo_difference_percent: filter
-                .tempo_window_percent
-                .unwrap_or(MixOptions::default().max_tempo_difference_percent),
-            relations: filter
-                .relations
-                .relations()
-                .map(|relations| relations.to_vec())
-                .unwrap_or_else(|| MixOptions::default().relations),
-            bpm_range: filter.bpm_range(),
-            ..MixOptions::default()
-        };
+        let options = filter.mix_options();
         let favorites = self.session.favorites();
         let is_favorite = |candidate: &&Track| {
             favorites

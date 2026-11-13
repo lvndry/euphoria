@@ -412,7 +412,8 @@ impl Session {
     /// Takes the titles and artists read from the files' tags.
     pub(crate) fn set_track_names(&mut self, names: Vec<(PathBuf, euphoria_core::TrackName)>) {
         for (path, name) in names {
-            self.library.set_names(&path, name.title, name.artist, name.genre);
+            self.library
+                .set_names(&path, name.title, name.artist, name.genre);
         }
     }
 

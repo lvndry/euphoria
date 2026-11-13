@@ -875,7 +875,6 @@ mod tests {
         let reason = ranked[0].reasons()[0].describe(Key::open_key);
         assert_eq!(reason, "2m is next to A's key, sharing six of seven notes");
     }
-}
 
     fn separated(code: &str, bpm: Option<f32>, energy: Option<f32>) -> Separated {
         Separated {
@@ -901,7 +900,10 @@ mod tests {
             ..MashupOptions::default()
         };
         let ranked = mashups_for(&chosen, &candidates, &options);
-        assert_eq!(keys(&ranked), [("8A".to_string(), 0), ("8A".to_string(), 0)]);
+        assert_eq!(
+            keys(&ranked),
+            [("8A".to_string(), 0), ("8A".to_string(), 0)]
+        );
     }
 
     #[test]
@@ -922,11 +924,12 @@ mod tests {
 
     #[test]
     fn the_pool_ranges_are_open_when_the_options_do_not_name_them() {
-        let chosen = separated("8A", None, None);
-        let candidates = [separated("8A", None, None)];
+        let chosen = separated("8A", Some(124.0), None);
+        let candidates = [separated("8A", Some(124.0), None)];
         let options = MashupOptions::default();
         assert!(options.bpm_range.is_none());
         assert!(options.energy_range.is_none());
         let ranked = mashups_for(&chosen, &candidates, &options);
         assert_eq!(keys(&ranked), [("8A".to_string(), 0)]);
     }
+}

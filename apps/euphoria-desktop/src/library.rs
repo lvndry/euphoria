@@ -106,12 +106,7 @@ impl Track {
     }
 
     /// Takes the title, artist and genre from the file's tags.
-    fn set_names(
-        &mut self,
-        title: Option<String>,
-        artist: Option<String>,
-        genre: Option<String>,
-    ) {
+    fn set_names(&mut self, title: Option<String>, artist: Option<String>, genre: Option<String>) {
         self.title_lowercase = title.as_deref().unwrap_or(&self.file_name).to_lowercase();
         self.artist_lowercase = artist.as_deref().map(str::to_lowercase);
         self.tag_title = title;
@@ -829,12 +824,7 @@ mod tests {
             Some("Marine Layer".to_string()),
             Some("Deep House".to_string()),
         ));
-        assert!(!library.set_names(
-            Path::new("/nowhere.mp3"),
-            None,
-            None,
-            None
-        ));
+        assert!(!library.set_names(Path::new("/nowhere.mp3"), None, None, None));
         let track = &library.tracks()[0];
         assert_eq!(track.title(), "Low Tide (Extended Mix)");
         assert_eq!(track.artist.as_deref(), Some("Marine Layer"));

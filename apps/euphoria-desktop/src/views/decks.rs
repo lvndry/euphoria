@@ -5,10 +5,10 @@
 //! waveform, beat grid, cues, energy and transport, the mixer between them,
 //! and the tracks to play next under them.
 
-use euphoria_core::harmony::EnergyDirection;
+use euphoria_core::harmony::{EnergyDirection, Relation};
+use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::component::input::Input;
 use gpui::{
     AnyElement, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
     SharedString, Stateful, TestSupportExt, div, px, relative,
@@ -16,7 +16,7 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
-use crate::decks::{DeckMode, DeckView, RelationFilter, SuggestionScope};
+use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
 use crate::player::fraction_along;
 use crate::theme::Palette;
@@ -592,33 +592,31 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
 
 /// The pool the suggestions are chosen from: the tempo window, the key
 /// relations, the energy and tempo of the candidates and their genre.
-pub(crate) fn filter_controls(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Vec<AnyElement> {
+pub(crate) fn filter_controls(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Vec<AnyElement> {
     let palette = app.theme.palette;
     let decks = &app.decks;
-    let filter = &decks.filter;
     let mut controls = Vec::new();
-    let relation_buttons: Vec<AnyElement> = [
-        (RelationFilter::Default, "Smooth keys"),
-        (RelationFilter::All, "All keys"),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, (chosen, label))| {
-        choice_button(
-            ("suggestion-relations", index),
-            label,
-            filter.relations == chosen,
-            &palette,
-        )
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.decks.filter.relations = chosen;
-            this.refresh_suggestions();
-            cx.notify();
-        }))
-        .test_support()
-        .into_any_element()
-    })
-    .collect();
+    let counted = decks.counted_relations();
+    let relation_buttons: Vec<AnyElement> = Relation::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(index, relation)| {
+            choice_button(
+                ("suggestion-relation", index),
+                relation.label(),
+                counted.contains(&relation),
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_suggestion_relation(relation, cx);
+            }))
+            .test_support()
+            .into_any_element()
+        })
+        .collect();
     let mut window = div()
         .flex()
         .items_center()
@@ -716,6 +714,7 @@ pub(crate) fn scope_buttons(
     [
         (SuggestionScope::Library, "Whole library".to_string()),
         (SuggestionScope::Shown, "Tracks shown".to_string()),
+        (SuggestionScope::Favorites, "Favorites".to_string()),
     ]
     .into_iter()
     .chain(playlists.iter().map(|playlist| {
@@ -742,7 +741,12 @@ pub(crate) fn scope_buttons(
     .collect()
 }
 
-fn suggestion_rows(app: &EuphoriaApp, heading: Div, filters: Vec<AnyElement>, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn suggestion_rows(
+    app: &EuphoriaApp,
+    heading: Div,
+    filters: Vec<AnyElement>,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Div {
     let palette = app.theme.palette;
     let decks = &app.decks;
     let library = app.session.library();

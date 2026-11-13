@@ -186,7 +186,6 @@ pub(crate) struct EuphoriaApp {
     pub(crate) decks: crate::decks::Decks,
     /// The curve, pool and set of the set builder page.
     pub(crate) set_builder: crate::set_builder::SetBuilder,
-    /// The tempo the user types to correct the selected track's.
     /// The furthest the suggestions' tempo may be from deck A's, as typed.
     pub(crate) filter_window_input: Entity<InputState>,
     /// The slowest tempo the suggestions may have, as typed.
@@ -199,6 +198,7 @@ pub(crate) struct EuphoriaApp {
     pub(crate) filter_energy_to_input: Entity<InputState>,
     /// The genre the suggestions must carry, as typed.
     pub(crate) filter_genre_input: Entity<InputState>,
+    /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
     /// Moving, adding, renaming and deleting the selected track's cues.
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
@@ -295,17 +295,12 @@ impl EuphoriaApp {
                 InputEvent::Change | InputEvent::Focus => {}
             },
         );
-        let filter_window_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("6"));
-        let filter_bpm_from_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("118"));
-        let filter_bpm_to_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("128"));
-        let filter_energy_from_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("1"));
+        let filter_window_input = cx.new(|cx| InputState::new(window, cx).placeholder("6"));
+        let filter_bpm_from_input = cx.new(|cx| InputState::new(window, cx).placeholder("118"));
+        let filter_bpm_to_input = cx.new(|cx| InputState::new(window, cx).placeholder("128"));
+        let filter_energy_from_input = cx.new(|cx| InputState::new(window, cx).placeholder("1"));
         let filter_energy_to_input = cx.new(|cx| InputState::new(window, cx).placeholder("10"));
-        let filter_genre_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("e.g. house"));
+        let filter_genre_input = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. house"));
         let filter_typed = |this: &mut Self,
                             _: Entity<InputState>,
                             event: &InputEvent,
@@ -314,12 +309,11 @@ impl EuphoriaApp {
                 this.apply_suggestion_filter_inputs(cx);
             }
         };
-        let filter_window_changed = cx.subscribe(&filter_window_input, filter_typed.clone());
-        let filter_bpm_from_changed = cx.subscribe(&filter_bpm_from_input, filter_typed.clone());
-        let filter_bpm_to_changed = cx.subscribe(&filter_bpm_to_input, filter_typed.clone());
-        let filter_energy_from_changed =
-            cx.subscribe(&filter_energy_from_input, filter_typed.clone());
-        let filter_energy_to_changed = cx.subscribe(&filter_energy_to_input, filter_typed.clone());
+        let filter_window_changed = cx.subscribe(&filter_window_input, filter_typed);
+        let filter_bpm_from_changed = cx.subscribe(&filter_bpm_from_input, filter_typed);
+        let filter_bpm_to_changed = cx.subscribe(&filter_bpm_to_input, filter_typed);
+        let filter_energy_from_changed = cx.subscribe(&filter_energy_from_input, filter_typed);
+        let filter_energy_to_changed = cx.subscribe(&filter_energy_to_input, filter_typed);
         let filter_genre_changed = cx.subscribe(&filter_genre_input, filter_typed);
         let bpm_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
         let bpm_entered = cx.subscribe(&bpm_input, |this: &mut Self, _, event: &InputEvent, cx| {
@@ -413,9 +407,7 @@ impl EuphoriaApp {
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
-            decks: crate::decks::Decks::with_filter(
-                settings.suggestion_filter.clone(),
-            ),
+            decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
             set_builder: crate::set_builder::SetBuilder::default(),
             filter_window_input,
             filter_bpm_from_input,
@@ -480,9 +472,7 @@ impl EuphoriaApp {
                     cx: &mut Context<'_, Self>| {
             input.update(cx, |input, cx| {
                 input.set_value(
-                    value
-                        .map(|value| format!("{value:.0}"))
-                        .unwrap_or_default(),
+                    value.map(|value| format!("{value:.0}")).unwrap_or_default(),
                     window,
                     cx,
                 );
@@ -496,14 +486,15 @@ impl EuphoriaApp {
         );
         fill(&self.filter_bpm_from_input, filter.bpm_min, window, cx);
         fill(&self.filter_bpm_to_input, filter.bpm_max, window, cx);
-        fill(&self.filter_energy_from_input, filter.energy_min, window, cx);
+        fill(
+            &self.filter_energy_from_input,
+            filter.energy_min,
+            window,
+            cx,
+        );
         fill(&self.filter_energy_to_input, filter.energy_max, window, cx);
         self.filter_genre_input.update(cx, |input, cx| {
-            input.set_value(
-                filter.genre.clone().unwrap_or_default(),
-                window,
-                cx,
-            );
+            input.set_value(filter.genre.clone().unwrap_or_default(), window, cx);
         });
     }
 
@@ -1102,93 +1093,47 @@ impl EuphoriaApp {
         }
     }
 
-    /// Narrows the suggestions to the pool typed on the suggestions
-    /// surface: the tempo window, the energy and tempo ranges and the
-    /// genre. A range is open when both ends are empty, or when its ends
-    /// do not make a range: the problem is then shown, and the range is
-    /// left open. The pool is saved with the rest of the settings when it
-    /// changes.
+    /// Narrows the suggestions to the pool typed above them: the tempo
+    /// window, the tempo and energy ranges and the genre. A field that does
+    /// not read is left open and its problem shown. The pool is saved with
+    /// the rest of the settings when it changes.
     pub(crate) fn apply_suggestion_filter_inputs(&mut self, cx: &mut Context<'_, Self>) {
-        let ends = |from: &Entity<InputState>,
-                    to: &Entity<InputState>,
-                    cx: &mut Context<'_, Self>|
-         -> (String, String) {
-            (
-                from.read(cx).value().trim().to_string(),
-                to.read(cx).value().trim().to_string(),
-            )
+        let typed = |input: &Entity<InputState>| input.read(cx).value().to_string();
+        let typed = crate::decks::TypedFilter {
+            tempo_window: typed(&self.filter_window_input),
+            bpm_from: typed(&self.filter_bpm_from_input),
+            bpm_to: typed(&self.filter_bpm_to_input),
+            energy_from: typed(&self.filter_energy_from_input),
+            energy_to: typed(&self.filter_energy_to_input),
+            genre: typed(&self.filter_genre_input),
         };
-        let number = |text: &str| text.parse::<f32>().ok().filter(|value| value.is_finite());
-        let mut problem: Option<String> = None;
-        let mut window = None;
-        let window_text = self.filter_window_input.read(cx).value().trim();
-        if !window_text.is_empty() {
-            match number(window_text) {
-                Some(value) if value > 0.0 => window = Some(value),
-                _ => problem =
-                    Some("The tempo window is a number above zero, in percent.".to_string()),
-            }
-        }
-        let (bpm_from, bpm_to) = ends(
-            &self.filter_bpm_from_input,
-            &self.filter_bpm_to_input,
-            cx,
-        );
-        let (bpm_min, bpm_max) = if bpm_from.is_empty() && bpm_to.is_empty() {
-            (None, None)
-        } else if bpm_from.is_empty() || bpm_to.is_empty() {
-            problem = Some("Type both ends of a tempo range, or leave both empty.".to_string());
-            (None, None)
-        } else {
-            match (number(&bpm_from), number(&bpm_to)) {
-                (Some(lowest), Some(highest)) => (Some(lowest), Some(highest)),
-                _ => {
-                    problem = Some("The tempo range is two numbers, in beats per minute.".to_string());
-                    (None, None)
-                }
-            }
-        };
-        let (energy_from, energy_to) = ends(
-            &self.filter_energy_from_input,
-            &self.filter_energy_to_input,
-            cx,
-        );
-        let (energy_min, energy_max) = if energy_from.is_empty() && energy_to.is_empty() {
-            (None, None)
-        } else if energy_from.is_empty() || energy_to.is_empty() {
-            problem = Some("Type both ends of an energy range, or leave both empty.".to_string());
-            (None, None)
-        } else {
-            match (number(&energy_from), number(&energy_to)) {
-                (Some(lowest), Some(highest))
-                    if (1.0..=10.0).contains(&lowest)
-                        && (1.0..=10.0).contains(&highest)
-                        && lowest <= highest =>
-                {
-                    (Some(lowest), Some(highest))
-                }
-                _ => {
-                    problem = Some("The energy range is two numbers from 1 to 10, lowest first.".to_string());
-                    (None, None)
-                }
-            }
-        };
-        let genre_text = self.filter_genre_input.read(cx).value().trim();
-        let genre = (!genre_text.is_empty()).then(|| genre_text.to_string());
-        let filter = crate::decks::SuggestionFilter {
-            tempo_window_percent: window,
-            bpm_min,
-            bpm_max,
-            energy_min,
-            energy_max,
-            genre,
-            ..self.decks.filter.clone()
-        };
+        let (filter, problem) = self.decks.filter.with_typed(&typed);
+        let problem_changed = problem != self.decks.filter_problem;
+        self.decks.filter_problem = problem;
         if filter == self.decks.filter {
+            if problem_changed {
+                cx.notify();
+            }
             return;
         }
         self.decks.filter = filter;
-        self.decks.filter_problem = problem;
+        self.suggestion_filter_changed(cx);
+    }
+
+    /// Counts `relation` in the suggestions when it is not counted, and
+    /// stops counting it when it is.
+    pub(crate) fn toggle_suggestion_relation(
+        &mut self,
+        relation: euphoria_core::harmony::Relation,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let defaults = self.decks.default_relations();
+        self.decks.filter.toggle_relation(relation, &defaults);
+        self.suggestion_filter_changed(cx);
+    }
+
+    /// Ranks the suggestions again for the changed pool and remembers it.
+    fn suggestion_filter_changed(&mut self, cx: &mut Context<'_, Self>) {
         self.refresh_suggestions();
         if let Some(problem) = self.save_settings() {
             self.report(problem);

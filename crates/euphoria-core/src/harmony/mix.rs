@@ -23,10 +23,8 @@ impl BpmRange {
     /// A range from `slowest` to `fastest`, inclusive at both ends. `None`
     /// when the ends do not make a range.
     pub fn new(slowest: f32, fastest: f32) -> Option<Self> {
-        (slowest.is_finite() && fastest.is_finite() && slowest <= fastest).then_some(Self {
-            slowest,
-            fastest,
-        })
+        (slowest.is_finite() && fastest.is_finite() && slowest <= fastest)
+            .then_some(Self { slowest, fastest })
     }
 
     /// True when `bpm` lies in the range, both ends included.
@@ -49,10 +47,8 @@ impl EnergyRange {
     /// A range from `lowest` to `highest`, inclusive at both ends. `None`
     /// when the ends do not make a range.
     pub fn new(lowest: f32, highest: f32) -> Option<Self> {
-        (lowest.is_finite() && highest.is_finite() && lowest <= highest).then_some(Self {
-            lowest,
-            highest,
-        })
+        (lowest.is_finite() && highest.is_finite() && lowest <= highest)
+            .then_some(Self { lowest, highest })
     }
 
     /// True when `energy` lies in the range, both ends included.
@@ -279,7 +275,8 @@ where
     });
     ranked.into_iter().map(|(_, mix_match)| mix_match).collect()
 }
-/// True when `candidate` lies in the pool the caller narrows to: its tempo
+
+/// True when `track` lies in the pool the caller narrows to: its tempo
 /// in `bpm_range` and its energy in `energy_range`, when a range is named.
 /// A candidate that lacks the value a range asks for is out of the pool.
 pub(super) fn pool_fits<Track: MixTrack + ?Sized>(
@@ -287,25 +284,13 @@ pub(super) fn pool_fits<Track: MixTrack + ?Sized>(
     bpm_range: Option<BpmRange>,
     energy_range: Option<EnergyRange>,
 ) -> bool {
-    if let Some(range) = bpm_range {
-        let Some(bpm) = usable_bpm(track.bpm()) else {
-            return false;
-        };
-        if !range.contains(bpm) {
-            return false;
-        }
-    }
-    if let Some(range) = energy_range {
-        let Some(energy) = usable_energy(track.energy()) else {
-            return false;
-        };
-        if !range.contains(energy) {
-            return false;
-        }
-    }
-    true
+    let bpm_fits = bpm_range
+        .is_none_or(|range| usable_bpm(track.bpm()).is_some_and(|bpm| range.contains(bpm)));
+    let energy_fits = energy_range.is_none_or(|range| {
+        usable_energy(track.energy()).is_some_and(|energy| range.contains(energy))
+    });
+    bpm_fits && energy_fits
 }
-
 
 pub(super) fn usable_bpm(bpm: Option<f32>) -> Option<f32> {
     bpm.filter(|bpm| bpm.is_finite() && *bpm > 0.0)
@@ -957,7 +942,10 @@ mod tests {
             bpm_range: Some(BpmRange::new(90.0, 160.0).unwrap()),
             ..MixOptions::default()
         };
-        let candidates = [track("in both", "8A", 119.0), track("out of the window", "8A", 110.0)];
+        let candidates = [
+            track("in both", "8A", 119.0),
+            track("out of the window", "8A", 110.0),
+        ];
         let matches = mixes_into(&reference("8A", 120.0), &candidates, &options);
         assert_eq!(titles(&matches), ["in both"]);
     }
