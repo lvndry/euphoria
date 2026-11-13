@@ -19,13 +19,14 @@ mod stages;
 mod stems;
 mod style;
 mod tag_edit;
+mod tag_key;
 mod tags;
 mod terminal;
 mod traktor_collection;
 mod view;
 
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
@@ -41,6 +42,7 @@ use crate::corrections::CorrectionsCommand;
 use crate::export::ExportTarget;
 use crate::output::Narrowing;
 use crate::style::{ColorChoice, Theme};
+use crate::tag_key::TagKeys;
 use crate::tags::TagsCommand;
 use crate::view::{KeyNotationChoice, ViewOptions};
 
@@ -148,8 +150,9 @@ struct AnalyzeArguments {
     /// terminal is always shown this way.
     #[arg(long)]
     detail: bool,
-    /// List only the tracks whose key or tempo is rated low confidence,
-    /// and the files that could not be analyzed.
+    /// List only the tracks whose key or tempo is rated low confidence or
+    /// whose tags name another key, and the files that could not be
+    /// analyzed.
     #[arg(long)]
     needs_review: bool,
     /// List only the tracks with one of these sound qualities, separated by
@@ -316,6 +319,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
+    let tag_keys = TagKeys::read(&results, &user_edits);
     let analyzed_count = results.len();
 
     let verdicts: Vec<QualityVerdict> = arguments
@@ -323,8 +327,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         .iter()
         .map(|choice| choice.verdict())
         .collect();
-    let is_listed = |analysis: &TrackAnalysis| {
-        (!arguments.needs_review || analysis.needs_review())
+    let is_listed = |path: &Path, analysis: &TrackAnalysis| {
+        (!arguments.needs_review
+            || analysis.needs_review()
+            || tag_keys.conflict(path, analysis).is_some())
             && (verdicts.is_empty()
                 || analysis
                     .quality
@@ -336,7 +342,12 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         verdicts: verdicts.clone(),
         shown_count: results
             .iter()
-            .filter(|result| result.outcome.as_ref().is_ok_and(is_listed))
+            .filter(|result| {
+                result
+                    .outcome
+                    .as_ref()
+                    .is_ok_and(|analysis| is_listed(&result.path, analysis))
+            })
             .count(),
     };
     let failure_count = results
@@ -391,6 +402,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                 &standard_error_theme,
                 &results,
                 &narrowing,
+                &tag_keys,
             )?;
         }
     }
@@ -400,7 +412,12 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
 
     let listed_results: Vec<FileResult> = results
         .into_iter()
-        .filter(|result| result.outcome.as_ref().map_or(true, is_listed))
+        .filter(|result| {
+            result
+                .outcome
+                .as_ref()
+                .map_or(true, |analysis| is_listed(&result.path, analysis))
+        })
         .collect();
     let standard_output_theme = Theme::stdout();
     let mut standard_output = std::io::stdout().lock();
@@ -410,6 +427,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &listed_results,
             analysis.tempo_range(),
             &user_edits,
+            &tag_keys,
         )?,
         Layout::PlainTable => {
             output::write_plain_table(&mut standard_output, &listed_results, &user_edits)?
@@ -420,6 +438,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &listed_results,
             &view_options,
             &corrections,
+            &tag_keys,
         )?,
         Layout::Detail => {
             let mut first = true;
@@ -438,6 +457,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                         corrections
                             .get(&result.path)
                             .and_then(|looked_up| looked_up.as_ref().ok()),
+                        tag_keys.get(&result.path),
                     )?;
                 }
             }
