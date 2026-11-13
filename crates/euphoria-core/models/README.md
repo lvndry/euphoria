@@ -3,7 +3,7 @@
 `htdemucs.onnx` contains the network graph without learned weights. It is
 embedded in the binary and exported by
 [`export_htdemucs_onnx.py`](../../../scripts/stems/export_htdemucs_onnx.py).
-Its SHA-256 is `7f195e29fdf759bbe6b3a0301daa619e3c8f35f53498154865ed1bb98ebd7d86`.
+Its SHA-256 is `b69d128b976899d71a1f3293130adafb6ed0b2b25adc02804105ef6819e1147d`.
 
 The graph and Rust transforms are adapted from
 [Demucs](https://github.com/adefossez/demucs). Its code is MIT licensed; the

@@ -18,6 +18,10 @@ use crate::error::{ErrorSource, EuphoriaError};
 /// `scripts/stems/export_htdemucs_onnx.py`.
 pub(crate) const GRAPH: &[u8] = include_bytes!("../../models/htdemucs.onnx");
 
+/// The SHA-256 of [`GRAPH`], as recorded in `models/README.md`.
+pub(crate) const GRAPH_SHA256: &str =
+    "b69d128b976899d71a1f3293130adafb6ed0b2b25adc02804105ef6819e1147d";
+
 /// Where the weights are downloaded from: the `htdemucs` model as its
 /// author publishes it on Hugging Face, pinned to one revision.
 pub const WEIGHTS_URL: &str = "https://huggingface.co/adefossez/HTDemucs/resolve/cbc8a9b1a87023b7fd74e7b3412e6321c0eab003/955717e8.safetensors";
@@ -215,6 +219,11 @@ mod tests {
                 .windows(b"htdemucs.weights".len())
                 .any(|window| window == b"htdemucs.weights")
         );
+    }
+
+    #[test]
+    fn the_graph_is_the_recorded_export() {
+        assert_eq!(sha256_hex(GRAPH), GRAPH_SHA256);
     }
 
     #[test]
