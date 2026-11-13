@@ -1138,4 +1138,144 @@ mod tests {
         assert_eq!(decks.views[1].heard_bpm(), Some(60.0));
         assert!(decks.views[1].tempo_out_of_reach);
     }
+
+    fn typed(fields: &[(&str, &str)]) -> TypedFilter {
+        let mut typed = TypedFilter::default();
+        for (field, value) in fields {
+            let slot = match *field {
+                "tempo_window" => &mut typed.tempo_window,
+                "bpm_from" => &mut typed.bpm_from,
+                "bpm_to" => &mut typed.bpm_to,
+                "energy_from" => &mut typed.energy_from,
+                "energy_to" => &mut typed.energy_to,
+                "genre" => &mut typed.genre,
+                other => panic!("no field {other}"),
+            };
+            *slot = value.to_string();
+        }
+        typed
+    }
+
+    #[test]
+    fn typed_ranges_fill_the_filter() {
+        let (filter, problem) = SuggestionFilter::default().with_typed(&typed(&[
+            ("tempo_window", "4"),
+            ("bpm_from", "118"),
+            ("bpm_to", "128"),
+            ("energy_from", "5"),
+            ("energy_to", "8"),
+            ("genre", " House "),
+        ]));
+        assert_eq!(problem, None);
+        assert_eq!(filter.tempo_window_percent, Some(4.0));
+        assert_eq!(filter.bpm_range(), BpmRange::new(118.0, 128.0));
+        assert_eq!(filter.energy_range(), EnergyRange::new(5.0, 8.0));
+        assert_eq!(filter.genre.as_deref(), Some("House"));
+    }
+
+    #[test]
+    fn empty_fields_leave_the_pool_open() {
+        assert_eq!(
+            SuggestionFilter::default().with_typed(&TypedFilter::default()),
+            (SuggestionFilter::default(), None)
+        );
+    }
+
+    #[test]
+    fn fields_that_do_not_read_say_so_and_stay_open() {
+        for fields in [
+            &[("bpm_from", "120")][..],
+            &[("bpm_from", "130"), ("bpm_to", "120")],
+            &[("energy_from", "0"), ("energy_to", "11")],
+            &[("energy_from", "8"), ("energy_to", "5")],
+            &[("tempo_window", "0")],
+            &[("tempo_window", "fast")],
+        ] {
+            let (filter, problem) = SuggestionFilter::default().with_typed(&typed(fields));
+            assert!(problem.is_some(), "{fields:?}");
+            assert_eq!(filter, SuggestionFilter::default(), "{fields:?}");
+        }
+    }
+
+    #[test]
+    fn typing_keeps_the_chosen_relations() {
+        let chosen = SuggestionFilter {
+            relations: Some(vec![Relation::Same]),
+            ..SuggestionFilter::default()
+        };
+        let (filter, _) = chosen.with_typed(&TypedFilter::default());
+        assert_eq!(filter.relations, Some(vec![Relation::Same]));
+    }
+
+    #[test]
+    fn toggling_a_relation_starts_from_the_defaults_and_keeps_the_last() {
+        let defaults = MixOptions::default().relations;
+        let mut filter = SuggestionFilter::default();
+        filter.toggle_relation(Relation::EnergyBoost, &defaults);
+        assert_eq!(
+            filter.relations,
+            Some(vec![
+                Relation::Same,
+                Relation::Adjacent,
+                Relation::Relative,
+                Relation::EnergyBoost
+            ])
+        );
+        for relation in [
+            Relation::Adjacent,
+            Relation::Relative,
+            Relation::EnergyBoost,
+        ] {
+            filter.toggle_relation(relation, &defaults);
+        }
+        assert_eq!(filter.relations, Some(vec![Relation::Same]));
+        filter.toggle_relation(Relation::Same, &defaults);
+        assert_eq!(filter.relations, Some(vec![Relation::Same]));
+    }
+
+    #[test]
+    fn a_genre_matches_part_of_the_tag_in_any_case() {
+        let filter = SuggestionFilter {
+            genre: Some("house".to_string()),
+            ..SuggestionFilter::default()
+        };
+        assert!(filter.genre_fits(Some("Deep House")));
+        assert!(!filter.genre_fits(Some("Techno")));
+        assert!(!filter.genre_fits(None));
+        assert!(SuggestionFilter::default().genre_fits(None));
+    }
+
+    #[test]
+    fn the_filter_reaches_the_core_options() {
+        let filter = SuggestionFilter {
+            tempo_window_percent: Some(3.0),
+            bpm_min: Some(120.0),
+            bpm_max: Some(124.0),
+            energy_min: Some(4.0),
+            energy_max: Some(6.0),
+            relations: Some(vec![Relation::Same]),
+            genre: None,
+        };
+        let mix = filter.mix_options();
+        assert_eq!(mix.max_tempo_difference_percent, 3.0);
+        assert_eq!(mix.relations, [Relation::Same]);
+        assert_eq!(mix.bpm_range, BpmRange::new(120.0, 124.0));
+        assert_eq!(mix.energy_range, EnergyRange::new(4.0, 6.0));
+        assert!(mix.allow_half_and_double_tempo);
+        let mashup = filter.mashup_options();
+        assert_eq!(mashup.max_tempo_difference_percent, 3.0);
+        assert_eq!(mashup.relations, [Relation::Same]);
+        assert_eq!(mashup.bpm_range, BpmRange::new(120.0, 124.0));
+        assert_eq!(mashup.energy_range, EnergyRange::new(4.0, 6.0));
+        let open = SuggestionFilter::default();
+        assert_eq!(
+            open.mix_options().relations,
+            MixOptions::default().relations
+        );
+        assert_eq!(
+            open.mashup_options().max_tempo_difference_percent,
+            MashupOptions::default().max_tempo_difference_percent
+        );
+        assert_eq!(open.mix_options().bpm_range, None);
+    }
 }
