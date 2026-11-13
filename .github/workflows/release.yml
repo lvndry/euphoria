@@ -381,3 +381,11 @@ jobs:
               --title "Euphoria $VERSION" \
               --notes-file "$RUNNER_TEMP/notes.md"
           fi
+
+  homebrew:
+    name: Publish to Homebrew
+    needs: [prepare, publish]
+    if: needs.publish.result == 'success'
+    uses: ./.github/workflows/publish-homebrew.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}

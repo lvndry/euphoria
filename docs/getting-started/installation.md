@@ -5,7 +5,23 @@ description: Install Euphoria on macOS or Linux.
 
 # Installation
 
-On a Mac with Apple Silicon, or a 64-bit Intel or AMD PC running Linux, download the app and the command line tool from the [releases page](https://github.com/lvndry/euphoria/releases). To build the newest code, build from source, which takes a few minutes. Homebrew packages are on the way.
+On a Mac with Apple Silicon, install the app or the command line tool with [Homebrew](#install-with-homebrew), or download them from the [releases page](https://github.com/lvndry/euphoria/releases). On a 64-bit Intel or AMD PC running Linux, download the app and the command line tool from the releases page. To build the newest code, build from source, which takes a few minutes.
+
+## Install with Homebrew
+
+The command line tool, for a Mac with Apple Silicon:
+
+```
+brew install lvndry/euphoria/euphoria
+```
+
+The app:
+
+```
+brew install --cask lvndry/euphoria/euphoria
+```
+
+The tap, [lvndry/homebrew-euphoria](https://github.com/lvndry/homebrew-euphoria), is updated after each release. A Homebrew install runs the app like a downloaded one: open it the first time as described [below](#opening-the-app-for-the-first-time).
 
 ## Download for macOS
 
