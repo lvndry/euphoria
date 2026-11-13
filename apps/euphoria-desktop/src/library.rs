@@ -46,6 +46,8 @@ pub(crate) struct Track {
     pub(crate) artist: Option<String>,
     /// The key field of the file's tags, once read, when it has one.
     pub(crate) tag_key: Option<TagKey>,
+    /// The genre in the file's tags, once read.
+    pub(crate) genre: Option<String>,
     /// The file extension in upper case, for example "FLAC".
     pub(crate) format: String,
     /// The name of the folder holding the file.
@@ -87,6 +89,7 @@ impl Track {
             file_name_lowercase: file_name.to_lowercase(),
             title_lowercase: file_name.to_lowercase(),
             artist_lowercase: None,
+            genre: None,
             path,
             tag_title: None,
             artist: None,
@@ -106,7 +109,7 @@ impl Track {
         self.tag_title.as_deref().unwrap_or(&self.file_name)
     }
 
-    /// Takes the title, artist and key field from the file's tags.
+    /// Takes the title, artist, genre and key field from the file's tags.
     fn set_names(&mut self, name: TrackName) {
         self.title_lowercase = name
             .title
@@ -117,6 +120,12 @@ impl Track {
         self.tag_title = name.title;
         self.artist = name.artist;
         self.tag_key = name.key;
+        self.genre = name.genre;
+    }
+
+    /// The genre in the file's tags, once read.
+    pub(crate) fn genre(&self) -> Option<&str> {
+        self.genre.as_deref()
     }
 
     /// True while the track has no result yet: queued or being analyzed.
@@ -550,7 +559,7 @@ impl Library {
         self.structure_revision
     }
 
-    /// Takes the title, artist and key field of the track at `path` from
+    /// Takes the title, artist, genre and key field of the track at `path` from
     /// its tags. Returns false when the file is not in the library.
     pub(crate) fn set_names(&mut self, path: &Path, name: TrackName) -> bool {
         let Some(track) = self
@@ -740,7 +749,7 @@ mod tests {
         TrackName {
             title,
             artist,
-            key: None,
+            ..TrackName::default()
         }
     }
 
@@ -848,15 +857,19 @@ mod tests {
         assert_eq!(library.tracks()[0].title(), "Low Tide.aiff");
         assert!(library.set_names(
             Path::new("/music/house/Low Tide.aiff"),
-            tag_names(
-                Some("Low Tide (Extended Mix)".to_string()),
-                Some("Marine Layer".to_string())
-            ),
+            TrackName {
+                genre: Some("Deep House".to_string()),
+                ..tag_names(
+                    Some("Low Tide (Extended Mix)".to_string()),
+                    Some("Marine Layer".to_string()),
+                )
+            },
         ));
         assert!(!library.set_names(Path::new("/nowhere.mp3"), tag_names(None, None)));
         let track = &library.tracks()[0];
         assert_eq!(track.title(), "Low Tide (Extended Mix)");
         assert_eq!(track.artist.as_deref(), Some("Marine Layer"));
+        assert_eq!(track.genre.as_deref(), Some("Deep House"));
         assert_eq!(track.file_name, "Low Tide.aiff");
     }
 

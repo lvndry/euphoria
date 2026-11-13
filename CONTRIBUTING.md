@@ -36,12 +36,22 @@ Then:
 cargo test --workspace
 ```
 
+## Formatting on commit
+
+Turn on the repository's pre-commit hook once per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+It formats the Rust and TOML files you stage, with rustfmt and [taplo](https://taplo.tamasfe.dev), and adds the result to the commit, so you never run `cargo fmt` by hand. A file that also has unstaged changes is left as it is; if its staged part is not formatted, the commit stops and says which file to stage again.
+
 ## Before opening a pull request
 
 Run the same checks as CI:
 
 ```
-cargo fmt --all
+cargo fmt --all  # done for you by the pre-commit hook
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```

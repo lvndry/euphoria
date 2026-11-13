@@ -178,7 +178,21 @@ Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsm
 
 ### Next on deck B
 
-With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
+With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown**, **Favorites** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, the tracks you starred, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
+
+### Narrow the suggestions
+
+Above the list, a row of controls narrows the tracks the suggestions are chosen from. They apply to **Next on deck B** and to the [mashup ideas](mashups.md) alike, take effect as you type, and are kept for the next launch.
+
+- **Key moves.** A button per move chooses which ones count: **Same key**, **Adjacent**, **Relative**, **Diagonal**, **Energy boost**, **Mood change** and **Semitone boost**. A lit button counts. Same key, Adjacent and Relative are lit until you change them, and the last lit button stays lit, so there is always a move to suggest. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) shows where each move goes on the wheel.
+- **Tempo window.** How far a track's tempo may be from deck A's, in percent. Empty keeps 6 percent for mixing and 8 percent for mashups.
+- **Tempo from ... to ... BPM.** Only tracks whose own tempo lies in the range, both ends included. While a range is set, a track without a detected tempo is left out, since it cannot be checked.
+- **Energy from ... to ... of 10.** The same for the energy rating. It decides which tracks are in the pool; **Energy down**, **Same energy** and **Energy up** still order what is left.
+- **Genre.** Only tracks whose genre tag contains the text, in any case, so "house" keeps Deep House and Tech House. While the field has text, a track without a genre tag is left out.
+
+A range needs both ends. A field that does not read, such as one end of a range on its own or an energy of 11, shows what is wrong in red and leaves that part of the pool open until it reads.
+
+**Mixes well with** in the inspector does not use these controls: it keeps the three smoothest key moves and the 6 percent window.
 
 ### Mashup mode
 

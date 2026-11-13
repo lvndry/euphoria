@@ -217,6 +217,14 @@ mod tests {
         );
     }
 
+    /// The SHA-256 of [`GRAPH`], as recorded in `models/README.md`.
+    const GRAPH_SHA256: &str = "b69d128b976899d71a1f3293130adafb6ed0b2b25adc02804105ef6819e1147d";
+
+    #[test]
+    fn the_graph_is_the_recorded_export() {
+        assert_eq!(sha256_hex(GRAPH), GRAPH_SHA256);
+    }
+
     #[test]
     fn hashes_are_written_in_lowercase_hex() {
         assert_eq!(

@@ -35,10 +35,12 @@ pub struct TrackName {
     /// empty. A field whose text is not a key is kept with no key, so that
     /// it can be reported.
     pub key: Option<TagKey>,
+    /// The genre, or `None` when the file has none.
+    pub genre: Option<String>,
 }
 
-/// Reads the title, artist and key stored in an audio file, without decoding
-/// its audio.
+/// Reads the title, artist, genre and key stored in an audio file, without
+/// decoding its audio.
 ///
 /// Reads ID3v2 and ID3v1 tags (MP3, and the ID3 chunk of AIFF files), Vorbis
 /// comments (FLAC), MP4 metadata (M4A) and the `INFO` list of WAV files. Of the
@@ -112,6 +114,9 @@ fn fill_from_tag(tags: &mut TrackName, tag: &Tag) {
     }
     if let Some(StandardTag::Artist(artist)) = &tag.std {
         fill_slot(&mut tags.artist, artist);
+    }
+    if let Some(StandardTag::Genre(genre)) = &tag.std {
+        fill_slot(&mut tags.genre, genre);
     }
     if let Some(StandardTag::InitialKey(key)) = &tag.std {
         fill_key(&mut tags.key, key);

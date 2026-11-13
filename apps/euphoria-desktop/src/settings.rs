@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::columns::ColumnWidths;
+use crate::decks::SuggestionFilter;
 use crate::display_settings::DisplaySettings;
 use crate::panels::Panels;
 use crate::tag_settings::TagSettings;
@@ -39,7 +40,7 @@ pub(crate) enum SettingsError {
 }
 
 /// The settings kept between launches.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Settings {
     /// The folders the user added, in the order they were added.
@@ -56,6 +57,9 @@ pub(crate) struct Settings {
     pub(crate) tags: TagSettings,
     /// How keys and tempos are shown.
     pub(crate) display: DisplaySettings,
+    /// The pool the mix suggestions are chosen from, set on the
+    /// suggestions surface.
+    pub(crate) suggestion_filter: SuggestionFilter,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -184,6 +188,7 @@ mod tests {
                 key_notation: NotationChoice::OpenKey,
                 tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
             },
+            suggestion_filter: SuggestionFilter::default(),
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -207,6 +212,7 @@ mod tests {
             column_widths: ColumnWidths::default(),
             tags: TagSettings::default(),
             display: DisplaySettings::default(),
+            suggestion_filter: SuggestionFilter::default(),
         })
         .unwrap();
         assert_eq!(
@@ -218,7 +224,8 @@ mod tests {
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
                 r#""label":"comment-start","write_tempo":true},"#,
                 r#""display":{"key_notation":"camelot","#,
-                r#""tempo_range":{"slowest":90,"fastest":180}}}"#
+                r#""tempo_range":{"slowest":90,"fastest":180}},"#,
+                r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null}}"#
             )
         );
     }

@@ -9,13 +9,15 @@ Mashup mode in the desktop app's decks finds tracks that work layered on top of 
 
 ## Open mashup mode
 
-Open the decks (**Decks** in the toolbar, **View > Decks** or Command Shift D), load a track on deck A, and click **Mashup** above the list under the decks (**Mix** goes back to the tracks to play next). The list is titled **Layer over deck A**. **Whole library**, **Tracks shown** and a button per playlist choose where ideas come from, as for the mix suggestions.
+Open the decks (**Decks** in the toolbar, **View > Decks** or Command Shift D), load a track on deck A, and click **Mashup** above the list under the decks (**Mix** goes back to the tracks to play next). The list is titled **Layer over deck A**. **Whole library**, **Tracks shown**, **Favorites** and a button per playlist choose where ideas come from, as for the mix suggestions. The key moves, tempo window, tempo and energy ranges and genre above the list narrow the ideas the same way; see [Narrow the suggestions](desktop-app.md#narrow-the-suggestions).
 
 ## How ideas are found
 
 ### Key
 
 Two layered tracks sound together for the whole mashup, so the key has to fit more closely than for a mix: only the same key, the relative key (same notes, minor and major swapped, such as 8A and 8B) and the adjacent keys (one step on the Camelot wheel, sharing six of seven notes, such as 7A and 9A) count. When a track is not in one of those keys, deck B's pitch can be shifted by up to two semitones, without changing its tempo, to bring it there. The idea says which shift, for example "Shift B down 2 semitones: 10A becomes 8A, the same key as A". A smaller shift is preferred, since every shift changes the sound a little.
+
+The key move buttons above the list change which moves count, adding bolder ones such as the diagonal or the energy boost, or leaving some out. A shift then aims for any counted move.
 
 ![A grid of the 24 keys for a track in 8A. Without a shift, 7A, 8A, 9A and 8B layer. One semitone reaches 1A, 2A, 3A, 4A, 12A, 1B and 3B; two semitones reach 5A, 6A, 10A, 11A, 6B and 10B. 2B, 4B, 5B, 7B, 9B, 11B and 12B do not layer.](../images/mashup/shift-reach.svg)
 
