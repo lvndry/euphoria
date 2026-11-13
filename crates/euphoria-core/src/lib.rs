@@ -25,13 +25,18 @@ pub mod energy;
 pub mod error;
 /// Writing analysis results in the formats of other DJ software.
 pub mod export;
-/// Key relations and ranking of the tracks that mix into another.
+/// Starred tracks and marked transitions, kept with the playlists.
+pub mod favorites;
+/// Key relations, ranking of the tracks that mix into another, and sets
+/// ordered along an energy curve.
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
 pub mod key;
 pub mod key_engine;
 /// Finding audio files in folders.
 pub mod library;
+#[cfg(feature = "pitch-shift")]
+pub mod mashup;
 /// Playlists the user builds, kept by the content of their files.
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
@@ -82,8 +87,11 @@ pub use export::{
     playlist_count, playlists_from_folders, render_corrections_jsonl, render_m3u8,
     write_corrections_file, write_m3u8_file,
 };
+pub use favorites::{FavoriteTransition, StoredFavorites};
 pub use harmony::{
-    MixMatch, MixOptions, MixTrack, Relation, TempoFit, TempoScaling, TrackFeatures, mixes_into,
+    CurvePreset, Deviation, EnergyCurve, LeftOut, MissingFeature, MixMatch, MixOptions, MixTrack,
+    Pin, PinPosition, PlannedTrack, Relation, SetError, SetOptions, SetPlan, SetTrack, TempoFit,
+    TempoScaling, TrackFeatures, Transition, build_set, evaluate_set, mixes_into,
 };
 pub use key::{Key, Mode};
 pub use key_engine::{KeyEngine, KeySource, key_engine, set_key_engine};

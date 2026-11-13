@@ -4,6 +4,7 @@
 //! A safe wrapper around Signalsmith Stretch, the time stretcher and pitch
 //! shifter vendored in `vendor/` and reached through `signalsmith_shim.cpp`.
 
+use crate::shift::{deinterleave, interleave};
 use std::ffi::{c_double, c_float, c_int};
 use std::ptr::NonNull;
 
@@ -15,6 +16,7 @@ struct RawStretch {
 unsafe extern "C" {
     fn euphoria_stretch_new(channels: c_int, sample_rate: c_float) -> *mut RawStretch;
     fn euphoria_stretch_free(stretch: *mut RawStretch);
+    fn euphoria_stretch_reset(stretch: *mut RawStretch);
     fn euphoria_stretch_input_latency(stretch: *const RawStretch) -> c_int;
     fn euphoria_stretch_output_latency(stretch: *const RawStretch) -> c_int;
     fn euphoria_stretch_set_transpose_semitones(
@@ -44,10 +46,13 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+/// The most channels [`Stretch::process`] handles without allocating.
+pub const STACK_CHANNELS: usize = 8;
+
 /// One stretcher for a fixed number of channels. Audio is passed one slice
 /// per channel; every channel of a call must hold the same number of
 /// samples.
-pub(crate) struct Stretch {
+pub struct Stretch {
     raw: NonNull<RawStretch>,
     channels: usize,
 }
@@ -59,7 +64,7 @@ unsafe impl Send for Stretch {}
 impl Stretch {
     /// A stretcher with Signalsmith's default settings for `channels`
     /// channels at `sample_rate`.
-    pub(crate) fn new(channels: usize, sample_rate: u32) -> Result<Self, String> {
+    pub fn new(channels: usize, sample_rate: u32) -> Result<Self, String> {
         let count = c_int::try_from(channels)
             .ok()
             .filter(|count| *count > 0)
@@ -72,26 +77,34 @@ impl Stretch {
     }
 
     /// Samples per channel the stretcher needs before its first output.
-    pub(crate) fn input_latency(&self) -> usize {
+    pub fn input_latency(&self) -> usize {
         // SAFETY: `raw` is a live stretcher created by the shim.
         usize::try_from(unsafe { euphoria_stretch_input_latency(self.raw.as_ptr()) }).unwrap_or(0)
     }
 
     /// Samples per channel by which the output trails the input.
-    pub(crate) fn output_latency(&self) -> usize {
+    pub fn output_latency(&self) -> usize {
         // SAFETY: `raw` is a live stretcher created by the shim.
         usize::try_from(unsafe { euphoria_stretch_output_latency(self.raw.as_ptr()) }).unwrap_or(0)
     }
 
+    /// Multiplies every frequency by `factor`, leaving the formants alone.
+    pub fn set_transpose_factor(&mut self, factor: f32) -> Result<(), String> {
+        // SAFETY: `raw` is a live stretcher created by the shim.
+        status(unsafe {
+            euphoria_stretch_set_transpose_semitones(self.raw.as_ptr(), 12.0 * factor.log2())
+        })
+    }
+
     /// Moves every pitch by `semitones`.
-    pub(crate) fn set_transpose_semitones(&mut self, semitones: f32) -> Result<(), String> {
+    pub fn set_transpose_semitones(&mut self, semitones: f32) -> Result<(), String> {
         // SAFETY: `raw` is a live stretcher created by the shim.
         status(unsafe { euphoria_stretch_set_transpose_semitones(self.raw.as_ptr(), semitones) })
     }
 
     /// Gives the stretcher audio that comes before what it processes next,
     /// without producing output.
-    pub(crate) fn seek(&mut self, inputs: &[Vec<f32>], playback_rate: f64) -> Result<(), String> {
+    pub fn seek(&mut self, inputs: &[Vec<f32>], playback_rate: f64) -> Result<(), String> {
         let samples = self.samples_of(inputs)?;
         let pointers: Vec<*const c_float> = inputs.iter().map(|channel| channel.as_ptr()).collect();
         // SAFETY: one pointer per channel, each to `samples` readable values,
@@ -108,13 +121,34 @@ impl Stretch {
     }
 
     /// Stretches `inputs` into `outputs`; their lengths set the ratio.
-    pub(crate) fn process(
-        &mut self,
-        inputs: &[Vec<f32>],
-        outputs: &mut [Vec<f32>],
-    ) -> Result<(), String> {
+    /// Up to [`STACK_CHANNELS`] channels, it allocates nothing, so it can
+    /// run on an audio thread.
+    pub fn process(&mut self, inputs: &[Vec<f32>], outputs: &mut [Vec<f32>]) -> Result<(), String> {
         let input_samples = self.samples_of(inputs)?;
         let output_samples = self.samples_of(outputs)?;
+        if inputs.len() <= STACK_CHANNELS {
+            let mut input_pointers = [std::ptr::null::<c_float>(); STACK_CHANNELS];
+            let mut output_pointers = [std::ptr::null_mut::<c_float>(); STACK_CHANNELS];
+            for (pointer, channel) in input_pointers.iter_mut().zip(inputs) {
+                *pointer = channel.as_ptr();
+            }
+            for (pointer, channel) in output_pointers.iter_mut().zip(outputs.iter_mut()) {
+                *pointer = channel.as_mut_ptr();
+            }
+            // SAFETY: the first `channel_count` pointers each point to
+            // `input_samples` readable or `output_samples` writable values,
+            // which outlive the call.
+            return status(unsafe {
+                euphoria_stretch_process(
+                    self.raw.as_ptr(),
+                    input_pointers.as_ptr(),
+                    input_samples,
+                    output_pointers.as_ptr(),
+                    output_samples,
+                    self.channel_count(),
+                )
+            });
+        }
         let input_pointers: Vec<*const c_float> =
             inputs.iter().map(|channel| channel.as_ptr()).collect();
         let output_pointers: Vec<*mut c_float> = outputs
@@ -136,7 +170,7 @@ impl Stretch {
     }
 
     /// Writes what the stretcher still holds into `outputs`.
-    pub(crate) fn flush(&mut self, outputs: &mut [Vec<f32>]) -> Result<(), String> {
+    pub fn flush(&mut self, outputs: &mut [Vec<f32>]) -> Result<(), String> {
         let output_samples = self.samples_of(outputs)?;
         let pointers: Vec<*mut c_float> = outputs
             .iter_mut()
@@ -152,6 +186,29 @@ impl Stretch {
                 self.channel_count(),
             )
         })
+    }
+
+    /// Forgets what it holds, as after a jump in the track.
+    pub fn reset(&mut self) {
+        // SAFETY: `raw` is a live stretcher created by the shim.
+        unsafe { euphoria_stretch_reset(self.raw.as_ptr()) }
+    }
+
+    /// Stretches one block of interleaved `input` into interleaved
+    /// `output`; the longer side sets the ratio the other is stretched to.
+    pub fn process_interleaved(&mut self, input: &[f32], output: &mut [f32]) -> Result<(), String> {
+        if !input.len().is_multiple_of(self.channels) || !output.len().is_multiple_of(self.channels)
+        {
+            return Err("an interleaved block ends mid-frame".to_string());
+        }
+        let inputs = deinterleave(input, self.channels);
+        let mut outputs = vec![vec![0.0; output.len() / self.channels]; self.channels];
+        let status = self.process(&inputs, &mut outputs);
+        if status.is_ok() {
+            let mixed = interleave(&outputs);
+            output.copy_from_slice(&mixed);
+        }
+        status
     }
 
     fn channel_count(&self) -> c_int {

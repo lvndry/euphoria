@@ -5,7 +5,23 @@ description: Install Euphoria on macOS or Linux.
 
 # Installation
 
-On a Mac with Apple Silicon, or a 64-bit Intel or AMD PC running Linux, download the app and the command line tool from the [releases page](https://github.com/lvndry/euphoria/releases). To build the newest code, build from source, which takes a few minutes. Homebrew packages are on the way.
+On a Mac with Apple Silicon, install the app or the command line tool with [Homebrew](#install-with-homebrew), or download them from the [releases page](https://github.com/lvndry/euphoria/releases). On a 64-bit Intel or AMD PC running Linux, download the app and the command line tool from the releases page. To build the newest code, build from source, which takes a few minutes.
+
+## Install with Homebrew
+
+The command line tool, for a Mac with Apple Silicon:
+
+```
+brew install lvndry/euphoria/euphoria
+```
+
+The app:
+
+```
+brew install --cask lvndry/euphoria/euphoria
+```
+
+The tap, [lvndry/homebrew-euphoria](https://github.com/lvndry/homebrew-euphoria), is updated after each release. A Homebrew install runs the app like a downloaded one: open it the first time as described [below](#opening-the-app-for-the-first-time).
 
 ## Download for macOS
 
@@ -100,7 +116,7 @@ Then build Euphoria:
 ```
 git clone https://github.com/lvndry/euphoria.git
 cd euphoria
-cargo install --path crates/euphoria-cli
+cargo install --path apps/euphoria-cli
 ```
 
 This puts the `euphoria` command in `~/.cargo/bin`, which the Rust installer adds to your `PATH`.
@@ -140,7 +156,7 @@ sudo apt-get install build-essential cmake pkg-config libfftw3-dev
 git clone https://github.com/lvndry/euphoria.git
 cd euphoria
 ./.github/scripts/install-libkeyfinder.sh
-cargo install --path crates/euphoria-cli
+cargo install --path apps/euphoria-cli
 ```
 
 ### The desktop app on Linux
@@ -150,7 +166,7 @@ The app also needs the libraries its window toolkit, GPUI, links against for X11
 ```
 sudo apt-get install libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev \
   libx11-xcb-dev libxkbcommon-x11-dev libclang-dev
-cargo build --release -p euphoria
+cargo build --release -p euphoria-desktop
 ./target/release/euphoria-desktop
 ```
 

@@ -88,14 +88,15 @@ The Euphoria library, in `euphoria_core::export::rekordbox`, can write hot cues 
 
 ### Key notation
 
-rekordbox recognises both notations and shows keys in the format chosen in **Preferences > View** (tested in rekordbox 7). With **Display key information on the database** it shows the text exactly as the file gives it, so the notation still matters there. Choose it when the file is exported, with `--key-notation`:
+rekordbox recognises Camelot and musical keys and shows them in the format chosen in **Preferences > View** (tested in rekordbox 7). Open Key codes are written as text; whether rekordbox converts them to its chosen format has not been tested. With **Display key information on the database** it shows the text exactly as the file gives it, so the notation still matters there. Choose it when the file is exported, with `--key-notation`:
 
 | Notation | Option | A minor | F sharp minor | D flat major |
 | --- | --- | --- | --- | --- |
 | Camelot (default) | `--key-notation camelot` | `8A` | `11A` | `3B` |
 | Musical | `--key-notation musical` | `Am` | `F#m` | `Db` |
+| Open Key | `--key-notation open-key` | `1m` | `4m` | `8d` |
 
-See [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) for how the two relate.
+See [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) for how the notations relate.
 
 ### Characters that are removed
 

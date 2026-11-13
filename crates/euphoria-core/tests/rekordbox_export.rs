@@ -373,6 +373,37 @@ fn key_notation_chooses_the_tonality_text() {
 }
 
 #[test]
+fn open_key_notation_writes_the_open_key_code() {
+    let expectations = [
+        (Key::new(9, Mode::Minor), "1m"),
+        (Key::new(0, Mode::Major), "1d"),
+        (Key::new(6, Mode::Minor), "4m"),
+        (Key::new(6, Mode::Major), "7d"),
+        (Key::new(1, Mode::Minor), "5m"),
+        (Key::new(8, Mode::Minor), "6m"),
+        (Key::new(10, Mode::Major), "11d"),
+    ];
+    for (key, open_key) in expectations {
+        let library = single_track_library(Track {
+            key: Some(key),
+            ..untagged_track("/Music/keyed.mp3")
+        });
+        let xml = export_with(
+            &library,
+            &ExportOptions {
+                key_notation: KeyNotation::OpenKey,
+            },
+        );
+        let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+        assert_eq!(
+            collection_tracks(&document)[0].attribute("Tonality"),
+            Some(open_key),
+            "{key} as OpenKey"
+        );
+    }
+}
+
+#[test]
 fn a_comment_is_written_and_left_out_when_there_is_none() {
     let library = single_track_library(Track {
         comment: Some("Energy 7 & \"rising\"".to_string()),

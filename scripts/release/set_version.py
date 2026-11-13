@@ -19,6 +19,7 @@ import pathlib
 import re
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
+PACKAGE_FOLDERS = ("apps", "crates")
 VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 
@@ -36,7 +37,10 @@ def set_version(root, version):
         raise SystemExit(f"{version!r} is not a version such as 2026.11.0")
 
     package_names = []
-    for manifest in sorted((root / "crates").glob("*/Cargo.toml")):
+    manifests = [
+        path for folder in PACKAGE_FOLDERS for path in (root / folder).glob("*/Cargo.toml")
+    ]
+    for manifest in sorted(manifests):
         text = manifest.read_text(encoding="utf-8")
         name = re.search(r'^\[package\]\nname = "([^"]+)"', text, flags=re.MULTILINE)
         if not name:

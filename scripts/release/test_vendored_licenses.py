@@ -26,7 +26,7 @@ class PackagedLicenseTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY / relative, target)
         for package in ("euphoria-cli", "euphoria-desktop"):
-            manifest = self.repo / "crates" / package / "Cargo.toml"
+            manifest = self.repo / "apps" / package / "Cargo.toml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text('version = "0.1.0"\n')
         for name in ("LICENSE", "README.md"):
@@ -40,6 +40,10 @@ class PackagedLicenseTests(unittest.TestCase):
             target = self.repo / "crates/euphoria-core/vendor" / library / "LICENSE.txt"
             target.parent.mkdir(parents=True)
             shutil.copyfile(REPOSITORY / target.relative_to(self.repo), target)
+        for name in ("webpki-root-certs-CDLA-Permissive-2.0.txt", "demucs-NOTICE.txt"):
+            target = self.repo / "licenses" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY / "licenses" / name, target)
         (self.repo / "scripts/macos_libraries.py").write_text(
             "import sys\nif sys.argv[1] == 'minimum-macos': print('11.0')\n"
         )

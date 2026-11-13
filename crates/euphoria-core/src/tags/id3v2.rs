@@ -5,11 +5,18 @@
 //! Only the frame a caller names is ever decoded or encoded; every other
 //! frame goes back into the tag unchanged.
 
+use super::base64;
 use crate::error::ErrorSource;
 
 /// The comment frame. Only the comment with an empty description is read
 /// or written; described comments belong to other programs.
 pub(super) const COMMENT: &str = "COMM";
+/// The start of the field name of a general encapsulated object, followed
+/// by the object's description, such as `GEOB:Serato Markers2`. Its value is
+/// the object's data in base64.
+pub(super) const OBJECT_PREFIX: &str = "GEOB:";
+const OBJECT_FRAME: &str = "GEOB";
+const OBJECT_MIME_TYPE: &[u8] = b"application/octet-stream";
 
 pub(super) const HEADER_LENGTH: usize = 10;
 const DEFAULT_VERSION: u8 = 3;
@@ -275,6 +282,9 @@ impl Id3Tag {
     }
 
     fn native_name<'a>(&self, field: &'a str) -> &'a str {
+        if field.starts_with(OBJECT_PREFIX) {
+            return OBJECT_FRAME;
+        }
         if self.version != 2 {
             return field;
         }
@@ -300,6 +310,17 @@ impl Id3Tag {
 
     /// The index of the frame `field` names.
     pub(super) fn position(&self, field: &str) -> Option<usize> {
+        if let Some(description) = field.strip_prefix(OBJECT_PREFIX) {
+            if self.version == 2 {
+                return None;
+            }
+            return self.frames.iter().position(|frame| {
+                frame.starts_with(OBJECT_FRAME.as_bytes())
+                    && self.is_stored_plainly(frame)
+                    && split_object(self.content(frame))
+                        .is_some_and(|object| object.description == description)
+            });
+        }
         let name = self.native_name(field).as_bytes();
         self.frames.iter().position(|frame| {
             frame.starts_with(name)
@@ -323,6 +344,10 @@ impl Id3Tag {
             return Err(format!("{field} is compressed, encrypted or unsynchronised").into());
         }
         let content = self.content(frame);
+        if field.starts_with(OBJECT_PREFIX) {
+            let object = split_object(content).ok_or("the object frame is damaged")?;
+            return Ok(Some(base64::encode(&content[object.data_start..], true)));
+        }
         let Some((encoding, text)) = content.split_first() else {
             return Ok(Some(String::new()));
         };
@@ -360,6 +385,39 @@ impl Id3Tag {
             .is_some_and(|frame| !self.is_stored_plainly(frame))
         {
             return Err(format!("{field} is compressed, encrypted or unsynchronised").into());
+        }
+        if let Some(description) = field.strip_prefix(OBJECT_PREFIX) {
+            if self.version == 2 {
+                return Err("an ID3v2.2 tag cannot hold this object".into());
+            }
+            let data = base64::decode(value.as_bytes())
+                .ok_or_else(|| format!("the value of {field} is not base64"))?;
+            let mut content = match existing.as_deref() {
+                Some(frame) => {
+                    let content = self.content(frame);
+                    let object = split_object(content).ok_or("the object frame is damaged")?;
+                    content[..object.data_start].to_vec()
+                }
+                None => {
+                    if !description.is_ascii() {
+                        return Err(format!("{description:?} is not an ASCII description").into());
+                    }
+                    let mut header = vec![LATIN1];
+                    header.extend(OBJECT_MIME_TYPE);
+                    header.push(0);
+                    header.push(0);
+                    header.extend(description.as_bytes());
+                    header.push(0);
+                    header
+                }
+            };
+            content.extend(data);
+            let frame = self.build_frame(field, existing.as_deref(), &content)?;
+            match position {
+                Some(index) => self.frames[index] = frame,
+                None => self.frames.push(frame),
+            }
+            return Ok(());
         }
         let existing_content = existing.as_deref().map(|frame| self.content(frame));
         let existing_encoding = existing_content.and_then(|content| content.first().copied());
@@ -400,7 +458,11 @@ impl Id3Tag {
             let header_length = self.frame_header_length();
             let is_whole_frame = raw.starts_with(name)
                 && raw.len() >= header_length
-                && self.frame_size(raw, 0) == Some(raw.len() - header_length);
+                && self.frame_size(raw, 0) == Some(raw.len() - header_length)
+                && field.strip_prefix(OBJECT_PREFIX).is_none_or(|description| {
+                    split_object(&raw[header_length..])
+                        .is_some_and(|object| object.description == description)
+                });
             if !is_whole_frame {
                 return Err(format!("the saved bytes are not a {field} frame").into());
             }
@@ -506,6 +568,36 @@ impl Id3Tag {
         }
         Ok(tag)
     }
+}
+
+struct ObjectParts {
+    description: String,
+    data_start: usize,
+}
+
+/// Finds the description of a general encapsulated object and where its
+/// data starts, after the encoding, the MIME type, the file name and the
+/// description.
+fn split_object(content: &[u8]) -> Option<ObjectParts> {
+    let encoding = *content.first()?;
+    let mime_end = 1 + content[1..].iter().position(|byte| *byte == 0)?;
+    let terminator = terminator(encoding);
+    let text_end = |start: usize| -> Option<usize> {
+        let rest = content.get(start..)?;
+        let step = terminator.len();
+        (0..rest.len())
+            .step_by(step)
+            .find(|offset| rest[*offset..].starts_with(terminator))
+            .map(|offset| start + offset)
+    };
+    let file_name_start = mime_end + 1;
+    let file_name_end = text_end(file_name_start)?;
+    let description_start = file_name_end + terminator.len();
+    let description_end = text_end(description_start)?;
+    Some(ObjectParts {
+        description: decode_text(encoding, &content[description_start..description_end]),
+        data_start: description_end + terminator.len(),
+    })
 }
 
 struct CommentParts {

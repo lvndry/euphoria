@@ -204,7 +204,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
-`key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only when that key is clearly stronger over at least three windows with evidence, about 22 seconds of audio. Silent gaps remain empty, but windows in the same key on either side count together toward this minimum. Entering and leaving another key each carry a cost, so a brief change in the middle needs stronger or longer evidence than one at the end. On dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
+`key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only for a stretch of at least about 30 seconds, with no silence in it, where that key is clearly stronger, so on dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
 
 `beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
 
@@ -264,7 +264,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | --- | --- |
 | `-o`, `--output <FILE>` | The file to write. Required. |
 | `--force` | Replace the output file if it exists. Without it, an existing file is an error and nothing is analyzed. |
-| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`. |
+| `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. |
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
@@ -373,6 +373,49 @@ It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the 
 
 Each track has its location as volume, folders and file, its title and artist from its tags, its duration, its key in `INFO KEY` and `MUSICAL_KEY`, its tempo, and its energy rating as the comment `Energy 7`. A path that is not valid Unicode cannot be written in the file and is an error. Two paths that name the same file to Traktor, such as `/a.mp3` and `/Volumes/Macintosh HD/a.mp3`, are an error too.
 
+## euphoria export engine
+
+Analyzes audio files and writes the results into the tracks of your Engine DJ library, `Engine Library/Database2/m.db`, after saving a copy of it. [Export to Engine DJ](../guides/export-to-engine-dj.md) explains what is written, what is kept and why it is safe to the extent it is. **Not tested in Engine DJ.**
+
+```
+euphoria export engine [OPTIONS] <PATHS>...
+euphoria export engine [OPTIONS] --playlist <NAME>
+```
+
+Tracks are matched by the path Engine DJ stores. It refuses to write while Engine DJ is running, when a journal holds an unfinished write, and for a schema version other than 2.18.0 to 3.0.2 (Engine DJ 2.0 to 5.0). These checks run before the analysis.
+
+| Option | Effect |
+| --- | --- |
+| `--library <FOLDER>` | The `Engine Library` folder. `Music/Engine Library` in your home folder when not given. |
+| `--label <WHERE>` | Where the key and energy label goes in the comment: `comment-start` (the default), `comment-end` or `none`. |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. |
+| `--beat-grid` | A constant grid from each track's first downbeat, on tracks Engine DJ has analysed, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
+| `--dry-run` | Checks the library and says what would change, writing nothing. |
+
+The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library or a file could not be analyzed.
+## euphoria export virtualdj
+
+Analyzes audio files and writes the results into the songs of your VirtualDJ `database.xml`, after saving a copy of it. [Export to VirtualDJ](../guides/export-to-virtualdj.md) explains what is written and kept. **Not tested in VirtualDJ.**
+
+```
+euphoria export virtualdj [OPTIONS] <PATHS>...
+euphoria export virtualdj [OPTIONS] --playlist <NAME>
+```
+
+Songs are matched by path, and only songs the database holds are changed. Every other byte of the file is kept. It refuses to write while VirtualDJ is running.
+
+| Option | Effect |
+| --- | --- |
+| `--database <FILE>` | The `database.xml` to update. Found in your home folder when not given; tracks on another drive are in `VirtualDJ/database.xml` on that drive. |
+| `--label <WHERE>` | Where the key and energy label goes: `comment-start` (the default), `comment-end`, `grouping` or `none`. The text already there is kept. |
+| `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. The `Key` attributes are musical names, which VirtualDJ shows in its own notation. |
+| `--beat-grid` | The grid anchor at each track's first downbeat, except grids rated low confidence. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
+| `--dry-run` | Says what would change and writes nothing. |
+
+The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database or a file could not be analyzed.
+
 ## euphoria export m3u8
 
 Writes a playlist built in the desktop app as an M3U8 file, the playlist format nearly every DJ and music program opens: Serato, Traktor, Engine DJ, VirtualDJ, Mixxx and music players.
@@ -409,6 +452,37 @@ Warmup  (9 tracks)
 
 Playlists are kept in `playlists.sqlite3` beside the [cache](#where-the-cache-is-stored), each track by the content of its file and its last path, so `euphoria cache clear` leaves them as they are.
 
+## euphoria set build
+
+Orders tracks from a pool into a set that follows an energy curve, with every transition an allowed key move and a small tempo step.
+
+```
+euphoria set build [OPTIONS] <FOLDER|PLAYLIST>...
+```
+
+The pool is folders or audio files, searched as `euphoria analyze` searches them, or the name of a playlist built in the desktop app when the one argument is not a path. Tracks are analyzed first or read from the cache, with your corrections applied. The [guide](../guides/build-a-set.md) explains the curve, the rules and how the set is chosen.
+
+| Option | Meaning |
+| --- | --- |
+| `--curve <CURVE>` | Energy levels from 1 to 10 separated by commas, spread evenly over the set, or a preset: `warm-up`, `peak-time`, `journey` (the default). |
+| `--tracks <COUNT>` | The length of the set. Defaults to 20. |
+| `--minutes <MINUTES>` | The length of the set in minutes, turned into a count by the median track length of the pool. |
+| `--first <FILE>`, `--last <FILE>` | Open or close the set with this track, which joins the pool if it is not in it. |
+| `--max-bpm-step <BPM>` | The largest tempo change between two tracks. Defaults to 5. |
+| `--moves <MOVES>` | The key moves allowed, separated by commas: `same`, `adjacent`, `relative`, `diagonal`, `energy-boost`, `mood-change`, `semitone-boost`. Defaults to the first five. |
+| `--allow-artist-repeats` | Let two tracks by the same artist follow each other. |
+| `--json` | Print JSON instead of the table. |
+| `--m3u <FILE>` | Also write the set as an M3U8 playlist. `--force` replaces an existing file. |
+| `--key-notation <NOTATION>` | How keys are shown in the table. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output gets a table, one track per line, with the key move and tempo step from the track before, the energy and the energy the curve asks for, then two rows of blocks that draw the curve and the set. Standard error gets a summary and a `warning:` for each place the set falls short of the curve or breaks a rule.
+
+The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
+
+The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
+
 ## euphoria tags write
 
 Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.
@@ -443,6 +517,7 @@ hint: To put the old tags back, run `euphoria tags undo`.
 | `--tempo` | Write the tempo with the `serato` preset, which leaves it out otherwise. Cannot be combined with `--no-tempo`. |
 | `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start` (the default), `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. |
 | `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
+| `--serato-markers` | Also write each track's cue points and beat grid where Serato DJ reads them, in MP3, AIFF, M4A and FLAC files, keeping every cue and grid the files already have. Not tested in Serato. See [cue points and beat grids for Serato](../guides/serato-cues.md). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -541,6 +616,65 @@ Each restored file is listed on standard output and is byte for byte what it was
 A file whose tags changed after the write is not restored, so that the later change is not lost. It is listed on standard error with the reason, the other files are restored, and the command exits with status 1. The backup of such a file is kept, and running the command again tries it again. An earlier write cannot be undone while such a file remains.
 
 A write that was interrupted can be undone as well. Files it had not changed yet are counted in the summary as not changed by the write.
+
+## euphoria shift
+
+Writes a copy of a track in another key, with the same tempo. The pitch moves by up to 6 semitones either way while every beat stays where it was. The copy is a 24 bit WAV or FLAC file tagged with the new key, and the original is never changed.
+
+```
+euphoria shift [OPTIONS] -s <N> -o <FILE> <FILE>
+```
+
+```
+$ euphoria shift -s 2 track.flac -o "track (+2).flac"
+Shifted up 2 semitones, from 8A A minor to 9A B minor, to /Users/you/Music/track (+2).flac
+```
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<FILE>` | The track to shift. It is only read, never changed. |
+| `-s`, `--semitones <N>` | How many semitones to move the key, from -6 to 6: 2 moves A minor to B minor, -3 moves it to F# minor. A shift of 0 is an error, since nothing would be written. |
+| `-o`, `--output <FILE>` | The file to write, ending in .wav or .flac. Required. |
+| `--force` | Replace the output file if it exists. |
+| `--key-notation <NOTATION>` | How the shifted key is written into the copy's tags: `camelot` (the default), `musical` or `open-key`. |
+| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `--no-cache` | Analyze the track without reading or updating the [cache](#the-analysis-cache). |
+| `--reanalyze` | Analyze the track again and replace its cached result. Cannot be combined with `--no-cache`. |
+| `--tempo-range <SLOWEST-FASTEST>` | The range tempos are reported in, `90-180` by default, as for [`euphoria analyze`](#options). |
+
+The key of the original comes from the [cache](#the-analysis-cache) when the track was analyzed before, with the key you [corrected](#corrections) when there is one.
+
+On success, one line goes to standard error: how far the track moved, its key before and after, and where the copy is. The command exits with status 0 when the file is written. It exits with status 1 with a message on standard error when the shift is 0 semitones, the file is not audio Euphoria reads, the output does not end in `.wav` or `.flac`, the output exists without `--force`, or the analysis fails.
+
+## euphoria stems
+
+Separates a track into vocals, drums, bass and the rest, with the Demucs htdemucs model, and writes one WAV file per stem. The model, 84 MB, is downloaded the first time. Separation runs on this computer.
+
+```
+euphoria stems [OPTIONS] -o <DIR> <FILE>
+```
+
+```
+$ euphoria stems track.flac --output stems
+Drums   /Users/you/Music/stems/drums.wav
+Bass    /Users/you/Music/stems/bass.wav
+Other   /Users/you/Music/stems/other.wav
+Vocals  /Users/you/Music/stems/vocals.wav
+```
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<FILE>` | The audio file to separate. |
+| `-o`, `--output <DIR>` | The folder to write the stems to, created when missing. Required. |
+| `--force` | Replace stem files already in the folder. |
+
+The stems are written as `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav`, 16 bit stereo WAV files at 44.1 kHz. Each one is listed on standard output with its path, and standard error gets a note: how long the separation took, or that the stems came from the cache. Separated tracks are cached, so separating the same track again is instant.
+
+The command exits with status 0 when the stems are written. It exits with status 1 with a message on standard error when the file is not there, a stem file already exists in the folder without `--force`, an output would replace the input file, or the model download or the separation fails.
 
 ## euphoria corrections export
 

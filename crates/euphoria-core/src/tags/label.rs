@@ -37,7 +37,7 @@ pub enum LabelPlacement {
 
 /// The label for a key and an energy rating, or `None` when there is
 /// neither.
-pub(super) fn label_text(
+pub(crate) fn label_text(
     key: Option<Key>,
     energy: Option<u8>,
     notation: KeyNotation,
@@ -210,7 +210,7 @@ pub(super) fn join_labels(leading: Option<&str>, own: &str, trailing: Option<&st
 /// The new contents of a field that holds `existing`: the user's own text
 /// with `label` in front of it or after it. A label that an earlier write
 /// left there is taken out first, so the field never holds two.
-pub(super) fn with_label(label: &str, existing: Option<&str>, at_end: bool) -> String {
+pub(crate) fn with_label(label: &str, existing: Option<&str>, at_end: bool) -> String {
     let existing = existing.unwrap_or_default();
     let (leading, trailing) = if at_end {
         (Recognise::WithEnergy, Recognise::Any)

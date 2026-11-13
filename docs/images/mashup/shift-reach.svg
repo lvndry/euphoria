@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="292" viewBox="0 0 820 292" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Which keys layer over a track in 8A</title>
+<desc id="chart-desc">Grid of the 24 keys for a track in 8A, minors in the top row and majors in the bottom row. Blue cells layer: without a shift 7A, 8A, 9A and 8B; one semitone reaches 1A, 2A, 3A, 4A, 12A, 1B and 3B; two semitones reach 5A, 6A, 10A, 11A, 6B and 10B. The grey cells, 2B, 4B, 5B, 7B, 9B, 11B and 12B, are more than two semitones away and do not layer. 8A, the chosen track, has a dark outline and an A in its corner.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.fill-0 { fill: #2a78d6; fill-opacity: 0.88; }
+.fill-1 { fill: #2a78d6; fill-opacity: 0.55; }
+.fill-2 { fill: #2a78d6; fill-opacity: 0.28; }
+.fill-3 { fill: #e1e0d9; }
+.chosen { stroke: #0b0b0b; stroke-width: 2.5; }
+.on-strong { fill: #ffffff; }
+.on-weak { fill: #0b0b0b; }
+.corner { font-size: 10px; font-weight: 600; fill: #ffffff; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value, .on-weak { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .fill-0, .fill-1, .fill-2 { fill: #3987e5; }
+  .fill-3 { fill: #2c2c2a; }
+  .chosen { stroke: #f0efec; }
+}
+</style>
+<rect x="0.5" y="0.5" width="819" height="291" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Which keys layer over a track in 8A</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Shift needed on deck B to reach the same, relative or adjacent key, at most two semitones.</text>
+<rect x="27" y="92" width="62" height="54" rx="6" class="fill-1"/>
+<text x="58" y="114" class="value on-strong" text-anchor="middle">1A</text>
+<text x="58" y="133" class="on-strong" text-anchor="middle">+1</text>
+<rect x="91" y="92" width="62" height="54" rx="6" class="fill-1"/>
+<text x="122" y="114" class="value on-strong" text-anchor="middle">2A</text>
+<text x="122" y="133" class="on-strong" text-anchor="middle">−1</text>
+<rect x="155" y="92" width="62" height="54" rx="6" class="fill-1"/>
+<text x="186" y="114" class="value on-strong" text-anchor="middle">3A</text>
+<text x="186" y="133" class="on-strong" text-anchor="middle">−1</text>
+<rect x="219" y="92" width="62" height="54" rx="6" class="fill-1"/>
+<text x="250" y="114" class="value on-strong" text-anchor="middle">4A</text>
+<text x="250" y="133" class="on-strong" text-anchor="middle">−1</text>
+<rect x="283" y="92" width="62" height="54" rx="6" class="fill-2"/>
+<text x="314" y="114" class="value on-weak" text-anchor="middle">5A</text>
+<text x="314" y="133" class="on-weak" text-anchor="middle">+2</text>
+<rect x="347" y="92" width="62" height="54" rx="6" class="fill-2"/>
+<text x="378" y="114" class="value on-weak" text-anchor="middle">6A</text>
+<text x="378" y="133" class="on-weak" text-anchor="middle">+2</text>
+<rect x="411" y="92" width="62" height="54" rx="6" class="fill-0"/>
+<text x="442" y="114" class="value on-strong" text-anchor="middle">7A</text>
+<text x="442" y="133" class="on-strong" text-anchor="middle">no shift</text>
+<rect x="475" y="92" width="62" height="54" rx="6" class="fill-0 chosen"/>
+<text x="506" y="114" class="value on-strong" text-anchor="middle">8A</text>
+<text x="506" y="133" class="on-strong" text-anchor="middle">no shift</text>
+<text x="532" y="105" class="corner" text-anchor="end">A</text>
+<rect x="539" y="92" width="62" height="54" rx="6" class="fill-0"/>
+<text x="570" y="114" class="value on-strong" text-anchor="middle">9A</text>
+<text x="570" y="133" class="on-strong" text-anchor="middle">no shift</text>
+<rect x="603" y="92" width="62" height="54" rx="6" class="fill-2"/>
+<text x="634" y="114" class="value on-weak" text-anchor="middle">10A</text>
+<text x="634" y="133" class="on-weak" text-anchor="middle">−2</text>
+<rect x="667" y="92" width="62" height="54" rx="6" class="fill-2"/>
+<text x="698" y="114" class="value on-weak" text-anchor="middle">11A</text>
+<text x="698" y="133" class="on-weak" text-anchor="middle">−2</text>
+<rect x="731" y="92" width="62" height="54" rx="6" class="fill-1"/>
+<text x="762" y="114" class="value on-strong" text-anchor="middle">12A</text>
+<text x="762" y="133" class="on-strong" text-anchor="middle">+1</text>
+<rect x="27" y="156" width="62" height="54" rx="6" class="fill-1"/>
+<text x="58" y="178" class="value on-strong" text-anchor="middle">1B</text>
+<text x="58" y="197" class="on-strong" text-anchor="middle">+1</text>
+<rect x="91" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="122" y="178" class="value on-weak" text-anchor="middle">2B</text>
+<text x="122" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="155" y="156" width="62" height="54" rx="6" class="fill-1"/>
+<text x="186" y="178" class="value on-strong" text-anchor="middle">3B</text>
+<text x="186" y="197" class="on-strong" text-anchor="middle">−1</text>
+<rect x="219" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="250" y="178" class="value on-weak" text-anchor="middle">4B</text>
+<text x="250" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="283" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="314" y="178" class="value on-weak" text-anchor="middle">5B</text>
+<text x="314" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="347" y="156" width="62" height="54" rx="6" class="fill-2"/>
+<text x="378" y="178" class="value on-weak" text-anchor="middle">6B</text>
+<text x="378" y="197" class="on-weak" text-anchor="middle">+2</text>
+<rect x="411" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="442" y="178" class="value on-weak" text-anchor="middle">7B</text>
+<text x="442" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="475" y="156" width="62" height="54" rx="6" class="fill-0"/>
+<text x="506" y="178" class="value on-strong" text-anchor="middle">8B</text>
+<text x="506" y="197" class="on-strong" text-anchor="middle">no shift</text>
+<rect x="539" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="570" y="178" class="value on-weak" text-anchor="middle">9B</text>
+<text x="570" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="603" y="156" width="62" height="54" rx="6" class="fill-2"/>
+<text x="634" y="178" class="value on-weak" text-anchor="middle">10B</text>
+<text x="634" y="197" class="on-weak" text-anchor="middle">−2</text>
+<rect x="667" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="698" y="178" class="value on-weak" text-anchor="middle">11B</text>
+<text x="698" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="731" y="156" width="62" height="54" rx="6" class="fill-3"/>
+<text x="762" y="178" class="value on-weak" text-anchor="middle">12B</text>
+<text x="762" y="197" class="on-weak" text-anchor="middle">no fit</text>
+<rect x="175" y="234" width="14" height="14" rx="6" class="fill-0"/>
+<text x="197" y="245.5" class="label" text-anchor="start">No shift</text>
+<rect x="251" y="234" width="14" height="14" rx="6" class="fill-1"/>
+<text x="273" y="245.5" class="label" text-anchor="start">1 semitone</text>
+<rect x="347" y="234" width="14" height="14" rx="6" class="fill-2"/>
+<text x="369" y="245.5" class="label" text-anchor="start">2 semitones</text>
+<rect x="449" y="234" width="14" height="14" rx="6" class="fill-3"/>
+<text x="471" y="245.5" class="label" text-anchor="start">Does not layer</text>
+</svg>

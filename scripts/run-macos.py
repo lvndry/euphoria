@@ -61,7 +61,7 @@ def main():
         }))
         iconset = Path(temporary) / "AppIcon.iconset"
         iconset.mkdir()
-        artwork = Path(__file__).resolve().parents[1] / "crates/euphoria-desktop/assets/dock-icon.png"
+        artwork = Path(__file__).resolve().parents[1] / "apps/euphoria-desktop/assets/dock-icon.png"
         shutil.copyfile(artwork, iconset / "icon_512x512@2x.png")
         subprocess.run(["iconutil", "--convert", "icns", "--output",
                         str(resources / "AppIcon.icns"), str(iconset)], check=True)

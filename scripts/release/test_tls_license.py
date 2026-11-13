@@ -26,7 +26,7 @@ class PackagedStemLicenseTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY / relative, target)
         for package in ("euphoria-cli", "euphoria-desktop"):
-            manifest = self.repo / "crates" / package / "Cargo.toml"
+            manifest = self.repo / "apps" / package / "Cargo.toml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text('version = "0.1.0"\n')
         for name in ("LICENSE", "README.md"):
@@ -39,6 +39,10 @@ class PackagedStemLicenseTests(unittest.TestCase):
         for library in LIBRARIES:
             target = self.repo / "licenses" / f"{library}.txt"
             target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY / target.relative_to(self.repo), target)
+        for library in ("signalsmith-stretch", "signalsmith-linear"):
+            target = self.repo / "crates/euphoria-core/vendor" / library / "LICENSE.txt"
+            target.parent.mkdir(parents=True)
             shutil.copyfile(REPOSITORY / target.relative_to(self.repo), target)
         (self.repo / "scripts/macos_libraries.py").write_text(
             "import sys\nif sys.argv[1] == 'minimum-macos': print('11.0')\n"

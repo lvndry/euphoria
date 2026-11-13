@@ -5,18 +5,21 @@ description: How the Euphoria code base is organized.
 
 # Architecture
 
-Euphoria is a Cargo workspace. All product logic lives in one library crate, and every front end is a thin crate on top of it.
+Euphoria is a Cargo workspace. All product logic lives in one library crate, and every front end is a thin crate on top of it. `apps/` holds what people run, and `crates/` holds the libraries the apps share and the developer tools built on them.
 
 ```
-crates/
-  euphoria-core/       the library: decoding, detection, energy, library scanning, the analysis cache
+apps/
   euphoria-cli/        the `euphoria` command line tool
   euphoria-desktop/    the desktop app
+crates/
+  euphoria-core/       the library: decoding, detection, energy, library scanning, the analysis cache
   euphoria-bench/      accuracy benchmark, not shipped to users
 bench/              dataset download script, Essentia reference script, results
 ```
 
-![Three crates, euphoria-cli, euphoria-desktop and euphoria-bench, each depend on euphoria-core and none on another. euphoria-core holds every module of product logic, grouped as finding and decoding files, analyzing them, and keeping and sharing the results, and builds on libkeyfinder for key (optional, C++), stratum-dsp for tempo, Symphonia for decoding, rusqlite and blake3 for the cache, and ebur128 and rustfft for loudness and spectra.](../images/architecture/crates.svg)
+A new app gets its own folder in `apps/`. Logic that two apps need moves into a library in `crates/`, never into one app for the other to depend on.
+
+![Three crates, euphoria-cli and euphoria-desktop in apps/ and euphoria-bench in crates/, each depend on euphoria-core and none on another. euphoria-core holds every module of product logic, grouped as finding and decoding files, analyzing them, and keeping and sharing the results, and builds on libkeyfinder for key (optional, C++), stratum-dsp for tempo, Symphonia for decoding, rusqlite and blake3 for the cache, and ebur128 and rustfft for loudness and spectra.](../images/architecture/crates.svg)
 
 ## Rules between crates
 
@@ -61,7 +64,7 @@ Parses arguments with clap, runs `cache::analyze_files_cached` (or `analysis::an
 
 ## euphoria-desktop
 
-The `euphoria-desktop` package lives in `crates/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
+The `euphoria-desktop` package lives in `apps/euphoria-desktop` and builds the `euphoria-desktop` executable. The CLI package remains `euphoria-cli` and builds the `euphoria` command.
 
 The desktop app, built with GPUI and the gpui-component library. It asks the core for the audio files under each added folder, fills in the ones `cache::CachedAnalyzer` already knows, analyzes the rest through it on a Rayon pool of at most 4 workers so that each row fills in as its file finishes, and asks `harmony` which tracks mix with the selected one. To play a track it reads an `AudioStream` from the core a packet at a time, on a thread that decodes about a second ahead, and hands the decoded samples to the system audio output through rodio. The first sound never waits for the whole file, and the audio output never waits for the disk or the decoder. State that needs no window (the library, sorting and searching, progress, the player, waveform bands, settings, themes) is in plain modules with unit tests; the views only draw it. It contains no analysis logic and no harmonic rules.
 

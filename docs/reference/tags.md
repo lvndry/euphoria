@@ -187,6 +187,20 @@ A WAV file has two places for a comment: the ID3 chunk, which most tag editors a
 
 RIFF INFO has no field for the key or the tempo, so those stay in the ID3 chunk only. For rekordbox, the [rekordbox XML export](../guides/export-to-rekordbox.md) carries them for WAV files.
 
+### Serato cue points and beat grid
+
+Only with `euphoria tags write --serato-markers`. Euphoria writes these fields where Serato DJ reads them. It writes nothing for WAV or Ogg Vorbis files, or for ID3v2.2 tags. **Not tested in Serato.** [Cue points and beat grids for Serato](../guides/serato-cues.md) explains how your own cues are kept.
+
+| Data | ID3v2 (MP3, AIFF) | MP4 | Vorbis comments (FLAC) |
+| --- | --- | --- | --- |
+| Cue points | `GEOB` frame `Serato Markers2` | `----:com.serato.dj:markersv2` | `SERATO_MARKERS_V2` |
+| Beat grid | `GEOB` frame `Serato BeatGrid` | `----:com.serato.dj:beatgrid` | `SERATO_BEATGRID` |
+| First five cues, older copy | `GEOB` frame `Serato Markers_`, when the file has one | `----:com.serato.dj:markers`, added when missing | None |
+
+- In the preview, these fields are named `Serato cue points`, `Serato beat grid` and `Serato cue points, older copy`. Their values are described instead of being shown as stored, for example `cue points 1 Start at 0:00.146, 2 Drop at 1:03.500`.
+- Every entry the field already holds keeps its bytes: cue points, loops, flips, the track colour and the grid lock. Euphoria's cues are added on free pads only, and a beat grid already in the file is never replaced.
+- Undo puts each of these fields back byte for byte, like every other field.
+
 ## How well each field is confirmed
 
 DJ software vendors do not publish the exact fields their programs read. [Use Euphoria with your DJ program](../guides/dj-programs.md) gives, for each program, what is confirmed, what is only reported, and what is unconfirmed, along with what to set in the program. In short:
