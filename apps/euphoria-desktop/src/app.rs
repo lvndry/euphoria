@@ -210,9 +210,9 @@ pub(crate) struct EuphoriaApp {
     /// The library's structure revision the folder tree was built from,
     /// and the revision its failure counts were last brought up to date at.
     folder_tree_revisions: Option<(u64, u64)>,
-    /// What the Folder column was worked out for: how many tracks and
-    /// folders the library had, and the folder on show.
-    folder_column_basis: Option<(usize, usize, Option<PathBuf>)>,
+    /// What the Folder column was worked out for: the library's structure
+    /// revision and the folder on show.
+    folder_column_basis: Option<(u64, Option<PathBuf>)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -622,11 +622,7 @@ impl EuphoriaApp {
             }
         }
         self.folder_tree_revisions = Some(revisions);
-        let basis = (
-            library.tracks().len(),
-            library.folders().len(),
-            self.folder.clone(),
-        );
+        let basis = (library.structure_revision(), self.folder.clone());
         if self.folder_column_basis.as_ref() != Some(&basis) {
             self.folder_column =
                 FolderColumn::new(library.tracks(), library.folders(), self.folder.as_deref());

@@ -638,8 +638,8 @@ impl Library {
         self.revision
     }
 
-    /// A number that changes only when a folder or a track is added, not
-    /// when a result comes in.
+    /// A number that changes only when a folder or a track is added,
+    /// removed or relinked, not when a result comes in.
     pub(crate) fn structure_revision(&self) -> u64 {
         self.structure_revision
     }
