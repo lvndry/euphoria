@@ -217,7 +217,7 @@ mod tests {
                 r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
-                r#""label":"comment-start","write_tempo":true},"#,
+                r#""label":"comment-start","write_tempo":true,"write_cue_markers":false},"#,
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}}}"#
             )

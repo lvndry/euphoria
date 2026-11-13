@@ -287,7 +287,7 @@ fn preview_contents(
 }
 
 /// What the write will do with the settings in use, in one sentence.
-fn settings_sentence(settings: &TagSettings) -> String {
+pub(crate) fn settings_sentence(settings: &TagSettings) -> String {
     format!(
         "Keys in {}, the energy label {}, the tempo {}, the cue markers {}. Nothing is written \
          until you confirm.",
@@ -497,7 +497,7 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
 
 /// A value of `field` as the preview shows it: "(none)" for a field the
 /// file lacks, and Serato's data as the cues or grid it holds.
-fn shown_value(field: &str, value: Option<&str>) -> String {
+pub(crate) fn shown_value(field: &str, value: Option<&str>) -> String {
     match value {
         None => "(none)".to_string(),
         Some(value) => describe_serato_value(field, value).unwrap_or_else(|| value.to_string()),

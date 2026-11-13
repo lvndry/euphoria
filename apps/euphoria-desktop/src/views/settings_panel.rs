@@ -255,6 +255,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     ),
                     &palette,
                 ))
+                .test_support()
                 )
                 .child(
                     div()
