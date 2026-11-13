@@ -4,6 +4,10 @@
 embedded in the binary and exported by
 [`export_htdemucs_onnx.py`](../../../scripts/stems/export_htdemucs_onnx.py).
 Its SHA-256 is `b69d128b976899d71a1f3293130adafb6ed0b2b25adc02804105ef6819e1147d`.
+The export computes the cross transformer's attention one head at a
+time, which gives the same output up to float rounding and needs less
+memory; two exports with the pinned environment below give this exact
+file, and a test checks the embedded graph against this hash.
 
 The graph and Rust transforms are adapted from
 [Demucs](https://github.com/adefossez/demucs). Its code is MIT licensed; the
@@ -27,7 +31,7 @@ data](https://github.com/adefossez/demucs#license); the pinned Hugging Face mode
 card declares no separate license. Euphoria does not redistribute the weights
 or claim a license grant for them.
 
-Inference runs in segments, but the current API holds the decoded track,
-normalised channels and all four stems in memory. It is not bounded to one
-segment of working audio. End-to-end quality, speed and peak memory with the
-pretrained weights have not been measured here.
+Inference runs in segments of 7.8 seconds and writes the stems to disk
+as each segment is blended, so memory does not grow with the length of
+the track. Quality against the reference Python Demucs, speed and peak
+memory are measured in [the stems page](../../../docs/concepts/stems.md).

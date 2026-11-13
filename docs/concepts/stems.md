@@ -43,22 +43,25 @@ The song is also published without its vocals, so the mix minus the instrumental
 
 ## Requirements and cost
 
-Measured with [`scripts/stems/measure_cost.py`](https://github.com/lvndry/euphoria/blob/main/scripts/stems/measure_cost.py) on a 6 minute track (two copies of the song above), on a MacBook with an Apple M5 (10 cores) and 24 GB of memory, shared with other work while it ran.
+Measured with [`scripts/stems/measure_cost.py`](https://github.com/lvndry/euphoria/blob/main/scripts/stems/measure_cost.py) on a 6 minute track (two copies of the song above), on a MacBook with an Apple M5 (10 cores) and 24 GB of memory. Before and after are the same runs back to back; before is the graph that computed all eight attention heads at once, after is the current graph, which computes them one at a time.
 
-| Threads | Time per minute of audio | Processor time per minute of audio | Peak memory |
-| --- | --- | --- | --- |
-| 9 (default: every core but one) | 18 to 25 s | 72 to 75 s | 2.9 GB |
-| 4 | 22 s | 54 s | 3.1 GB |
-| 2 | 30 s | 44 s | 3.1 GB |
+| Threads | Graph | Time per minute of audio | Processor time per minute of audio | Peak memory |
+| --- | --- | --- | --- | --- |
+| 9 (default: every core but one) | before | 17.2 s | 72 s | 2.99 GB |
+| 9 (default: every core but one) | after | 15.4 s | 66 s | 2.53 GB |
+| 2 | before | 19.8 s | 34 s | 2.86 GB |
+| 2 | after | 18.9 s | 31 s | 2.48 GB |
 
-- **Memory does not grow with the track.** Stems are written to disk segment by segment, so a 60 second clip peaked at 3.1 GB and the 6 minute track at about 3 GB. Almost all of it is ONNX Runtime working on one 7.8 second segment.
+The stems are the same either way: against Demucs both graphs score the SDR shown above on every stem.
+
+- **Memory does not grow with the track.** Stems are written to disk segment by segment, so a 60 second clip peaked at 2.4 GB and the 6 minute track at 2.5 GB. Almost all of it is ONNX Runtime working on one 7.8 second segment and the model's weights.
 - **The app stays responsive.** One core is left free by default. While a separation ran, a test thread asking to wake every 5 ms was late by at most 12 ms (5 ms in 99 cases out of 100), the same as with no separation running. Set `EUPHORIA_STEMS_THREADS` to use fewer cores.
 - **One separation at a time.** A second separation, from another window or command, waits for the first instead of loading the model twice.
 - **Disk:** the model is 84 MB; stems take about 42 MB per minute of audio (four 16 bit stereo WAV files at 44.1 kHz), so the 5 GB cache holds about two hours of separated music.
 
 ### On an 8 GB laptop
 
-Separation needs about 3 GB of free memory on top of what is already open. On an 8 GB Mac with a browser and DJ software open it will still finish, but macOS will compress or swap other apps' memory while it runs, so close what you can, separate tracks while preparing rather than during a set, and let it run one track at a time. Expect roughly 30 seconds per minute of audio on a recent Apple Silicon laptop; this estimate is not measured on such a machine.
+Separation needs about 2.5 GB of free memory on top of what is already open. On an 8 GB Mac with a browser and DJ software open it will still finish, but macOS will compress or swap other apps' memory while it runs, so close what you can, separate tracks while preparing rather than during a set, and let it run one track at a time. Expect roughly 20 to 30 seconds per minute of audio on a recent Apple Silicon laptop; this estimate is not measured on such a machine.
 
 ### Other computers
 
