@@ -38,6 +38,7 @@ mod playlist_flow;
 mod playlists;
 mod progress;
 mod reference_sound;
+mod reveal;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
@@ -67,9 +68,9 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, BuildSet, EditTags, FocusSearch, OpenSetBuilder, OpenSettings,
-    Quit, ResetColumnWidths, SelectAllTracks, ToggleDecks, ToggleFavorite, TogglePlayback,
-    ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme,
-    UsePaperTheme, UseSlateTheme, WriteTags,
+    Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, ToggleDecks, ToggleFavorite,
+    TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
+    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -213,6 +214,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("c", AddCueAtPlayhead, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("f", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("cmd-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
         KeyBinding::new("cmd-i", EditTags, None),
@@ -231,6 +233,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-o", AddFolder, None),
         #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("ctrl-f", FocusSearch, None),
     ]);
 
@@ -268,6 +271,9 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     });
     register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
         view.reset_column_widths(cx);
+    });
+    register_view_command::<RevealTrack>(view, cx, |view, _| {
+        view.reveal_selected_track();
     });
 
     let weak_view = view.downgrade();
@@ -365,6 +371,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
             MenuItem::action("Star or Unstar Selection", ToggleFavorite),
+            MenuItem::action(reveal::reveal_label(), RevealTrack),
             MenuItem::separator(),
             MenuItem::action("Reset Column Widths", ResetColumnWidths),
             MenuItem::separator(),

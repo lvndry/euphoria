@@ -1,0 +1,171 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Revealing a file in the file manager: the command each platform runs and
+//! the app's action that starts it for the selected track.
+
+use std::collections::HashSet;
+use std::ffi::OsString;
+use std::path::Path;
+
+use crate::app::EuphoriaApp;
+
+/// The file manager's command and arguments that reveal `path`. On macOS,
+/// `open -R` selects the file in Finder; on Windows, Explorer opens its
+/// folder; on Linux, the folder that holds it is opened, as there is no
+/// standard reveal.
+pub(crate) fn reveal_command(path: &Path) -> (OsString, Vec<OsString>) {
+    #[cfg(target_os = "macos")]
+    {
+        (
+            OsString::from("open"),
+            vec![OsString::from("-R"), path.as_os_str().to_os_string()],
+        )
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let folder = path.parent().unwrap_or_else(|| Path::new("."));
+        (
+            OsString::from("explorer"),
+            vec![folder.as_os_str().to_os_string()],
+        )
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let folder = path.parent().unwrap_or_else(|| Path::new("."));
+        (
+            OsString::from("xdg-open"),
+            vec![folder.as_os_str().to_os_string()],
+        )
+    }
+}
+
+/// The label of the menu item that reveals a file, named after this
+/// platform's file manager.
+pub(crate) fn reveal_label() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "Open in Finder"
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "Open in File Manager"
+    }
+}
+
+/// True when the row at `track_index` may be revealed: it must be the row
+/// the selection points at and nothing else may be marked, so a multi-track
+/// selection never points the file manager at one of its files.
+pub(crate) fn revealable(
+    track_index: usize,
+    selected: Option<usize>,
+    marked: &HashSet<usize>,
+) -> bool {
+    selected == Some(track_index) && marked.len() <= 1
+}
+
+/// Starts the command that reveals `path` in the file manager, logging the
+/// problem when it cannot be started.
+pub(crate) fn reveal(path: &Path) {
+    let (program, arguments) = reveal_command(path);
+    if let Err(problem) = std::process::Command::new(&program)
+        .args(&arguments)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        eprintln!("could not open {path:?} in the file manager: {problem}");
+    }
+}
+
+impl EuphoriaApp {
+    /// Opens the selected track in the file manager, refusing to point it at
+    /// one file of a multi-track selection, as the row menu does.
+    pub(crate) fn reveal_selected_track(&self) {
+        let Some(index) = self.selected else {
+            return;
+        };
+        if !revealable(index, self.selected, &self.marked) {
+            return;
+        }
+        let Some(track) = self.session.library().track(index) else {
+            return;
+        };
+        reveal(&track.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_command_reveals_the_file() {
+        let (program, arguments) = reveal_command(Path::new("/music/demo/track.mp3"));
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program, "open");
+            assert_eq!(
+                arguments,
+                vec![
+                    OsString::from("-R"),
+                    OsString::from("/music/demo/track.mp3")
+                ]
+            );
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(program, "explorer");
+            assert_eq!(arguments, vec![OsString::from("/music/demo")]);
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            assert_eq!(program, "xdg-open");
+            assert_eq!(arguments, vec![OsString::from("/music/demo")]);
+        }
+    }
+
+    #[test]
+    fn the_label_names_the_file_manager() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(reveal_label(), "Open in Finder");
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(reveal_label(), "Open in File Manager");
+    }
+    /// The action does not reveal when nothing is selected, or when the
+    /// selection spans several tracks, so it can sit in the View menu next
+    /// to the selection actions.
+    #[gpui::test]
+    fn revealing_without_a_selection_is_a_no_op(cx: &mut gpui::TestAppContext) {
+        let (_, app) = crate::ui_tests::open_library(0, cx);
+        cx.update(|cx| {
+            let app = app.read(cx);
+            assert_eq!(app.selected, None);
+            assert!(app.marked.is_empty());
+            app.reveal_selected_track();
+            // The same guard the row menu shows: with several tracks marked
+            // the action reveals none of them.
+            let multi = [0usize, 2].into_iter().collect();
+            assert!(!revealable(0, Some(0), &multi));
+        });
+    }
+
+    #[test]
+    fn the_menu_item_only_shows_for_the_whole_selection() {
+        let none: HashSet<usize> = HashSet::new();
+        let two = [3usize, 5].into_iter().collect();
+        let alone = [3usize].into_iter().collect();
+        // The selected row reveals, alone or unmarked.
+        assert!(revealable(3, Some(3), &none));
+        assert!(revealable(3, Some(3), &alone));
+        // Another row in the same selection does not.
+        assert!(!revealable(5, Some(3), &none));
+        assert!(!revealable(5, Some(3), &alone));
+        // A multi-marked selection hides reveal even for the selected row.
+        assert!(!revealable(3, Some(3), &two));
+        assert!(!revealable(5, Some(3), &two));
+        // Nothing selected hides reveal everywhere.
+        assert!(!revealable(0, None, &none));
+    }
+}
