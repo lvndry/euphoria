@@ -309,6 +309,31 @@ fn piped_output_has_no_progress_lines() {
     }
 }
 
+#[test]
+fn a_terminal_shows_the_stage_but_json_shows_only_the_bar() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let fixture = fixture.to_str().expect("UTF-8 path");
+    let euphoria = Euphoria::new();
+    let with_terminal = |arguments: &[&str]| support::pty::capture(&euphoria.command(arguments));
+
+    // A terminal gets a line per file with the stage it is in.
+    let terminal = with_terminal(&["analyze", "--no-cache", fixture]);
+    assert!(terminal.succeeded, "analyze failed: {:?}", terminal.output);
+    assert!(
+        terminal.output.contains("decoding"),
+        "{:?}",
+        terminal.output
+    );
+
+    // JSON goes to standard output, so stage lines would cross it: JSON only
+    // gets the bar that counts files.
+    let json = with_terminal(&["analyze", "--json", "--no-cache", fixture]);
+    assert!(json.succeeded, "analyze --json failed: {:?}", json.output);
+    assert!(!json.output.contains("decoding"), "{:?}", json.output);
+    assert!(!json.output.contains("finding the"), "{:?}", json.output);
+    assert!(json.output.contains("Analyzing"), "{:?}", json.output);
+}
+
 fn run_with_environment(arguments: &[&str], variables: &[(&str, &str)]) -> std::process::Output {
     let euphoria = Euphoria::new();
     let mut command = euphoria.command(arguments);

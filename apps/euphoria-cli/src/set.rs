@@ -224,7 +224,7 @@ fn build(arguments: &BuildArguments) -> Result<ExitCode> {
         results,
         cached_count,
         store_error,
-    } = batch::analyze(&audio_files, &arguments.analysis)?;
+    } = batch::analyze(&audio_files, &arguments.analysis, batch::Display::Stages)?;
     let user_edits =
         batch::user_edits(&results, &arguments.analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
