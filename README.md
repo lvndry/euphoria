@@ -34,7 +34,13 @@ In development: an export for Serato DJ.
 
 ## Install
 
-On a Mac with Apple Silicon and macOS 15 or later:
+On a Mac with Apple Silicon and macOS 15 or later, with [Homebrew](https://brew.sh):
+
+```
+brew install --cask lvndry/euphoria/euphoria
+```
+
+or download the newest release instead:
 
 1. [Download Euphoria](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), the newest release.
 2. Open the disk image and drag Euphoria onto Applications.

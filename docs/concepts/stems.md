@@ -28,11 +28,42 @@ Stems are saved by the content of the file, so separating the same track again i
 
 ## How close it is to Demucs
 
-QUALITY_SECTION
+Euphoria's stems were compared with the reference Python Demucs package (version 4.1.0, the same weights, without random shifts, the setting Euphoria matches) on a 60 second excerpt of ["Let's Pretend"](https://archive.org/details/josh-woodward-lets-pretend) by Josh Woodward, licensed CC BY 4.0, from the Internet Archive. The comparison is made by [`scripts/stems/compare_with_demucs.py`](https://github.com/lvndry/euphoria/blob/main/scripts/stems/compare_with_demucs.py).
+
+| Stem | SDR against Demucs | Correlation |
+| --- | --- | --- |
+| Drums | 76.8 dB | 1.000 |
+| Bass | 80.6 dB | 1.000 |
+| Other | 76.7 dB | 1.000 |
+| Vocals | 82.3 dB | 1.000 |
+
+An SDR (signal to distortion ratio) near 80 dB means the difference from Demucs is about 80 dB below the stem itself, around the level of the 16 bit rounding of the WAV files, so Euphoria gives the same stems as Demucs.
+
+The song is also published without its vocals, so the mix minus the instrumental gives a rough reference for the vocals. Against it both Euphoria and Demucs score 8.4 dB SDR. This is the model's own quality on one song, not a benchmark, and the reference is rough because the two files are separate MP3 encodings.
 
 ## Requirements and cost
 
-COST_SECTION
+Measured with [`scripts/stems/measure_cost.py`](https://github.com/lvndry/euphoria/blob/main/scripts/stems/measure_cost.py) on a 6 minute track (two copies of the song above), on a MacBook with an Apple M5 (10 cores) and 24 GB of memory, shared with other work while it ran.
+
+| Threads | Time per minute of audio | Processor time per minute of audio | Peak memory |
+| --- | --- | --- | --- |
+| 9 (default: every core but one) | 18 to 25 s | 72 to 75 s | 2.9 GB |
+| 4 | 22 s | 54 s | 3.1 GB |
+| 2 | 30 s | 44 s | 3.1 GB |
+
+- **Memory does not grow with the track.** Stems are written to disk segment by segment, so a 60 second clip peaked at 3.1 GB and the 6 minute track at about 3 GB. Almost all of it is ONNX Runtime working on one 7.8 second segment.
+- **The app stays responsive.** One core is left free by default. While a separation ran, a test thread asking to wake every 5 ms was late by at most 12 ms (5 ms in 99 cases out of 100), the same as with no separation running. Set `EUPHORIA_STEMS_THREADS` to use fewer cores.
+- **One separation at a time.** A second separation, from another window or command, waits for the first instead of loading the model twice.
+- **Disk:** the model is 84 MB; stems take about 42 MB per minute of audio (four 16 bit stereo WAV files at 44.1 kHz), so the 5 GB cache holds about two hours of separated music.
+
+### On an 8 GB laptop
+
+Separation needs about 3 GB of free memory on top of what is already open. On an 8 GB Mac with a browser and DJ software open it will still finish, but macOS will compress or swap other apps' memory while it runs, so close what you can, separate tracks while preparing rather than during a set, and let it run one track at a time. Expect roughly 30 seconds per minute of audio on a recent Apple Silicon laptop; this estimate is not measured on such a machine.
+
+### Other computers
+
+- Intel Macs and Windows: no release is built for them yet, and stems need ONNX Runtime builds that Euphoria does not have for Intel Macs.
+- Linux (64-bit Intel or AMD): stems are built in and tested in CI. Speed on an older processor has not been measured; expect it to be several times slower than above, since separation is processor bound.
 
 ## Limits
 
