@@ -225,7 +225,7 @@ mod tests {
                 r#""label":"comment-start","write_tempo":true},"#,
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
-                r#""suggestion_filter":{"tempo_window_percent":null,"relations":"Default","energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null}}"#
+                r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null}}"#
             )
         );
     }
