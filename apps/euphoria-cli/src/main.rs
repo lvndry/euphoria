@@ -115,8 +115,9 @@ enum Command {
         long_about = "Separate a track into vocals, drums, bass and the rest, with the Demucs \
                       htdemucs model, and write one WAV file per stem.\n\n\
                       The model, 84 MB, is downloaded the first time. Separation runs on this \
-                      computer and takes about a minute for a track of a few minutes. The stems \
-                      are saved, so separating the same track again is instant.",
+                      computer, about 20 to 30 seconds per minute of audio on a recent Mac, \
+                      and needs about 3 GB of free memory. The stems are saved, so separating \
+                      the same track again is instant.",
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
