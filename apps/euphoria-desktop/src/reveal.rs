@@ -63,6 +63,7 @@ pub(crate) fn revealable(
 ) -> bool {
     selected == Some(track_index) && marked.len() <= 1
 }
+
 /// Starts the command that reveals `path` in the file manager, logging the
 /// problem when it cannot be started.
 pub(crate) fn reveal(path: &Path) {
@@ -79,9 +80,16 @@ pub(crate) fn reveal(path: &Path) {
 }
 
 impl EuphoriaApp {
-    /// Opens the selected track in the file manager.
+    /// Opens the selected track in the file manager, refusing to point it at
+    /// one file of a multi-track selection, as the row menu does.
     pub(crate) fn reveal_selected_track(&self) {
-        let Some(track) = self.selected_track() else {
+        let Some(index) = self.selected else {
+            return;
+        };
+        if !revealable(index, self.selected, &self.marked) {
+            return;
+        }
+        let Some(track) = self.session.library().track(index) else {
             return;
         };
         reveal(&track.path);
@@ -125,16 +133,21 @@ mod tests {
         #[cfg(not(target_os = "macos"))]
         assert_eq!(reveal_label(), "Open in File Manager");
     }
-
-    /// The action does not touch the state when nothing is selected, so it
-    /// can sit in the View menu next to the selection actions.
+    /// The action does not reveal when nothing is selected, or when the
+    /// selection spans several tracks, so it can sit in the View menu next
+    /// to the selection actions.
     #[gpui::test]
     fn revealing_without_a_selection_is_a_no_op(cx: &mut gpui::TestAppContext) {
         let (_, app) = crate::ui_tests::open_library(0, cx);
         cx.update(|cx| {
             let app = app.read(cx);
             assert_eq!(app.selected, None);
+            assert!(app.marked.is_empty());
             app.reveal_selected_track();
+            // The same guard the row menu shows: with several tracks marked
+            // the action reveals none of them.
+            let multi = [0usize, 2].into_iter().collect();
+            assert!(!revealable(0, Some(0), &multi));
         });
     }
 
