@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(analyzer.stored_analysis(&missing), None);
         assert!(matches!(
             analyzer.analyze_file(&missing),
-            Err(EuphoriaError::Scan { .. })
+            Err(EuphoriaError::Missing { .. })
         ));
     }
 

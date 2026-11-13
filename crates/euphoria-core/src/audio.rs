@@ -227,9 +227,17 @@ pub(crate) fn decode_mono_observed(
 /// Opens a file and finds the reader for its container. Tags met on the way
 /// are kept in the reader's metadata.
 pub(crate) fn open_format(path: &Path) -> Result<Box<dyn FormatReader>, EuphoriaError> {
-    let file = File::open(path).map_err(|source| EuphoriaError::Open {
-        path: path.to_path_buf(),
-        source,
+    let file = File::open(path).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            EuphoriaError::Missing {
+                path: path.to_path_buf(),
+            }
+        } else {
+            EuphoriaError::Open {
+                path: path.to_path_buf(),
+                source,
+            }
+        }
     })?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
 
