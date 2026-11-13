@@ -19,6 +19,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import next_version
+import publish_homebrew
 import plan_release
 import release_notes
 import set_version
@@ -486,6 +487,43 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertIn("After", notes)
         self.assertNotIn("Before", notes)
         self.assertIn("compare/v2026.11.0...v2026.11.1", notes)
+
+
+class PublishHomebrewTests(unittest.TestCase):
+    def test_the_checksums_are_parsed_by_name(self):
+        self.assertEqual(
+            publish_homebrew.parse_checksums(
+                "ab12  Euphoria-2026.11.0.dmg\n"
+                "cd34  euphoria-2026.11.0-aarch64-apple-darwin.tar.gz\n"
+            ),
+            {
+                "Euphoria-2026.11.0.dmg": "ab12",
+                "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz": "cd34",
+            },
+        )
+
+    def test_the_formula_points_at_the_release(self):
+        formula = publish_homebrew.render_formula("2026.11.0", "ab" * 32)
+        self.assertIn(
+            "url \"https://github.com/lvndry/euphoria/releases/download/v2026.11.0/"
+            "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz\"",
+            formula,
+        )
+        self.assertIn('sha256 "' + "ab" * 32 + '"', formula)
+        self.assertIn("license \"GPL-3.0-or-later\"", formula)
+        self.assertIn("depends_on macos: :ventura", formula)
+        # The checksum is the one of the release, not of a latest alias.
+        self.assertNotIn("releases/latest/download", formula)
+
+    def test_the_cask_points_at_the_release(self):
+        cask = publish_homebrew.render_cask("2026.11.0", "cd" * 32)
+        self.assertIn('version "2026.11.0"', cask)
+        self.assertIn('sha256 "' + "cd" * 32 + '"', cask)
+        self.assertIn(
+            "url \"https://github.com/lvndry/euphoria/releases/download/v"
+            "#{version}/Euphoria-#{version}.dmg\"",
+            cask,
+        )
 
 
 if __name__ == "__main__":

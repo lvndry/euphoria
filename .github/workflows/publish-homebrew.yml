@@ -1,0 +1,65 @@
+name: Publish to Homebrew
+
+# Regenerates the Homebrew formula of the command line tool and the cask of
+# the app for a published version of Euphoria, and pushes them to the tap
+# lvndry/homebrew-euphoria. The Release workflow calls it after each release;
+# it can also be run by hand from the Actions tab, with the version to
+# publish, to republish one. It reads only the files of the GitHub Release,
+# so it runs from any commit.
+# The tap is public, because brew fetches taps over public https. The
+# workflow's token pushes to it, because the repository's default token
+# writes to every repository of the same owner; no other token is stored.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to publish, such as 2026.11.0
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+# No `permissions:` block on purpose: the token must write to the tap
+# repository, not only to this one, and the repository's default token
+# writes to every repository of the same owner.
+concurrency:
+  group: homebrew
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Regenerate the formula and the cask, and push the tap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      TAP: lvndry/homebrew-euphoria
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Clone the tap
+        run: |
+          git clone --quiet --depth 1 \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/$TAP.git" \
+            "$RUNNER_TEMP/tap"
+      - name: Write the formula and the cask of the release
+        run: python3 scripts/release/publish_homebrew.py "$VERSION" "$RUNNER_TEMP/tap"
+      - name: Push the tap
+        run: |
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "The tap already holds Euphoria $VERSION."
+          else
+            git commit --quiet --message "chore: Euphoria $VERSION"
+            git push --quiet origin HEAD
+            echo "Pushed the formula and the cask of Euphoria $VERSION to the tap."
+          fi
