@@ -6,10 +6,9 @@ name: Publish to Homebrew
 # it can also be run by hand from the Actions tab, with the version to
 # publish, to republish one. It reads only the files of the GitHub Release,
 # so it runs from any commit.
-#
 # The tap is public, because brew fetches taps over public https. The
-# GITHUB_TOKEN pushes to it, because it can write to every repository of the
-# same owner; no other token is stored.
+# workflow's token pushes to it, because the repository's default token
+# writes to every repository of the same owner; no other token is stored.
 
 on:
   workflow_dispatch:
@@ -24,9 +23,9 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
-
+# No `permissions:` block on purpose: the token must write to the tap
+# repository, not only to this one, and the repository's default token
+# writes to every repository of the same owner.
 concurrency:
   group: homebrew
   cancel-in-progress: false
