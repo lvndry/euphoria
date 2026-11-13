@@ -19,6 +19,7 @@
 //! field: [`add_serato_markers`] adds field changes to a [`WritePlan`].
 //! Cues the file already has are never removed or moved.
 
+use std::fmt;
 use std::time::Duration;
 
 use super::native::{Purpose, TagFile};
@@ -26,6 +27,7 @@ use super::{FieldChange, TagFormat, WritePlan, base64};
 use crate::analysis::TrackAnalysis;
 use crate::confidence::Confidence;
 use crate::error::EuphoriaError;
+use crate::track_cues::Cue;
 
 /// The number of hot cue pads Serato DJ shows by default.
 pub const SERATO_HOT_CUES: u8 = 8;
@@ -79,6 +81,18 @@ impl SeratoMarkers {
     /// takes them: a grid rated low confidence is left out, and so are the
     /// cues, which sit on its bars.
     pub fn from_analysis(analysis: &TrackAnalysis) -> Self {
+        Self::of_cues(analysis, None)
+    }
+
+    /// The cues and beat grid of a track as a DJ uses them: `edited_cues` is
+    /// the set the user set, which wins over the cues analysis placed in
+    /// `analysis` even when it is empty, and otherwise analysis places them.
+    /// Pass `analysis` with the correction applied: a corrected tempo drops
+    /// the cues analysis placed, which sit on the grid of the detected
+    /// tempo, but never the user's. A grid rated low confidence is left
+    /// out, and so are the cues, which sit on its bars. A cue without a hot
+    /// cue pad is a memory cue only and is not a Serato cue point.
+    pub fn of_cues(analysis: &TrackAnalysis, edited_cues: Option<Vec<Cue>>) -> Self {
         let Some(grid) = analysis
             .beat_grid
             .filter(|grid| grid.confidence() != Confidence::Low)
@@ -88,17 +102,32 @@ impl SeratoMarkers {
                 beat_grid: None,
             };
         };
-        Self {
-            cues: analysis
+        let cues = match edited_cues {
+            Some(cues) => cues
+                .iter()
+                .filter_map(|cue| {
+                    let pad = cue.hot_cue?.pad();
+                    Some(SeratoCue::of(
+                        Duration::try_from_secs_f64(cue.seconds).ok()?,
+                        cue.name.clone(),
+                        Some(pad),
+                    ))
+                })
+                .collect(),
+            None => analysis
                 .cues
                 .iter()
                 .filter_map(|cue| {
-                    Some(SeratoCue {
-                        name: cue.section.name().to_string(),
-                        position: Duration::try_from_secs_f64(cue.seconds).ok()?,
-                    })
+                    Some(SeratoCue::of(
+                        Duration::try_from_secs_f64(cue.seconds).ok()?,
+                        cue.section.name().to_string(),
+                        None,
+                    ))
                 })
                 .collect(),
+        };
+        Self {
+            cues,
             beat_grid: Duration::try_from_secs_f64(grid.first_downbeat_seconds)
                 .ok()
                 .map(|first_beat| SeratoGrid {
@@ -116,6 +145,21 @@ pub struct SeratoCue {
     pub name: String,
     /// Where it is, from the start of the track.
     pub position: Duration,
+    /// The hot cue pad the cue is on, or `None` when the caller did not ask
+    /// for one: the writer then takes the next pad in order.
+    pub pad: Option<u8>,
+}
+
+impl SeratoCue {
+    /// A cue at `position`, named `name`, on pad `pad` when the caller asks
+    /// for one.
+    pub fn of(position: Duration, name: String, pad: Option<u8>) -> Self {
+        Self {
+            name,
+            position,
+            pad,
+        }
+    }
 }
 
 /// A beat grid with a constant tempo.
@@ -177,6 +221,25 @@ pub enum SeratoSkip {
     },
 }
 
+impl fmt::Display for SeratoSkip {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Wav => formatter
+                .write_str("no Serato cues or grid: Serato reads none from WAV tags"),
+            Self::Ogg => formatter.write_str(
+                "no Serato cues or grid: Serato's layout in Ogg files is not known well enough to write",
+            ),
+            Self::OldId3 => formatter
+                .write_str("no Serato cues or grid: its ID3v2.2 tag cannot hold them"),
+            Self::Unreadable { field, reason } => write!(
+                formatter,
+                "no Serato cues or grid: its {} could not be read ({reason}), so it is left as it is",
+                serato_field_name(field).unwrap_or(field)
+            ),
+        }
+    }
+}
+
 /// What [`add_serato_markers`] did with one file, so it can be told to the
 /// user.
 #[derive(Debug, Clone, PartialEq)]
@@ -213,6 +276,39 @@ impl SeratoReport {
         self.placed.iter().any(|cue| cue.pad != cue.wanted_pad)
             || !self.no_free_pad.is_empty()
             || matches!(self.grid, GridOutcome::KeptYours { .. })
+    }
+
+    /// One sentence for each thing the user should know: why nothing was
+    /// written for Serato, a cue moved to another pad or left out, or a
+    /// grid of yours kept. Empty when everything went where it was meant to.
+    pub fn notes(&self) -> Vec<String> {
+        let mut notes: Vec<String> = self.skipped.iter().map(ToString::to_string).collect();
+        for cue in &self.placed {
+            if cue.pad != cue.wanted_pad {
+                notes.push(format!(
+                    "{} went to pad {}, since pad {} holds a cue of yours",
+                    if cue.name.is_empty() {
+                        "a cue"
+                    } else {
+                        &cue.name
+                    },
+                    cue.pad + 1,
+                    cue.wanted_pad + 1
+                ));
+            }
+        }
+        if !self.no_free_pad.is_empty() {
+            notes.push(format!(
+                "{} left out: every pad holds a cue of yours",
+                self.no_free_pad.join(", ")
+            ));
+        }
+        if let GridOutcome::KeptYours { position, bpm } = self.grid {
+            notes.push(format!(
+                "your Serato beat grid ({bpm:.2} BPM from {position:.3} s) is kept, not replaced"
+            ));
+        }
+        notes
     }
 }
 
@@ -459,12 +555,15 @@ pub fn add_serato_markers(
     }
     report.kept = existing_cues.len();
 
-    for (wanted_pad, cue) in (0..SERATO_HOT_CUES).zip(&markers.cues) {
+    for (index, cue) in markers.cues.iter().enumerate() {
         let position = u32::try_from(cue.position.as_millis()).unwrap_or(u32::MAX);
         if taken_positions.contains(&position) {
             report.already_there += 1;
             continue;
         }
+        // A cue the caller set on a pad keeps it when that pad is free;
+        // one the analysis placed takes the next pad in order.
+        let wanted_pad = cue.pad.unwrap_or(u8::try_from(index).unwrap_or(u8::MAX));
         let pad = if taken[usize::from(wanted_pad)] {
             taken.iter().position(|is_taken| !is_taken)
         } else {

@@ -7,11 +7,14 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use euphoria_core::detect::{BeatGrid, CueSection, SectionCue};
 use euphoria_core::tags::{
     GridOutcome, LabelPlacement, SeratoCue, SeratoGrid, SeratoMarkers, SeratoReport, SeratoSkip,
     TagValues, TagWriteOptions, WritePlan, add_serato_markers, apply_plan, describe_serato_value,
     plan_write, undo,
 };
+use euphoria_core::track_cues::{Cue, HotCue};
+use euphoria_core::{Key, TrackAnalysis};
 
 const FORMATS: [&str; 4] = [
     "sine-440hz-mono.mp3",
@@ -61,10 +64,7 @@ fn empty_plan(path: &Path) -> WritePlan {
 }
 
 fn cue(name: &str, milliseconds: u64) -> SeratoCue {
-    SeratoCue {
-        name: name.to_string(),
-        position: Duration::from_millis(milliseconds),
-    }
+    SeratoCue::of(Duration::from_millis(milliseconds), name.to_string(), None)
 }
 
 fn euphoria_markers() -> SeratoMarkers {
@@ -342,6 +342,118 @@ fn an_m4a_file_gets_the_older_copy_serato_reads_its_first_cues_from() {
         .find(|change| change.field == "----:com.serato.dj:markers")
         .and_then(|change| describe_serato_value(&change.field, change.new.as_deref()?));
     assert_eq!(older.as_deref(), Some("3 of the first 5 cue points"));
+}
+
+fn analysis_with_grid() -> TrackAnalysis {
+    TrackAnalysis {
+        duration_seconds: 300.0,
+        key: Some("A minor".parse::<Key>().expect("a key name")),
+        bpm: Some(120.0),
+        energy: Some(6),
+        tuning_cents: None,
+        key_timeline: Vec::new(),
+        quality: None,
+        key_runner_up: None,
+        key_score_margin: None,
+        tempo_estimate: Some(120.0),
+        tempo_score_margin: Some(0.5),
+        beat_grid: Some(BeatGrid {
+            first_downbeat_seconds: 0.146,
+            bpm: 120.0,
+            salience: 10.0,
+            drift_seconds: None,
+        }),
+        cues: vec![
+            SectionCue {
+                seconds: 0.146,
+                section: CueSection::Start,
+            },
+            SectionCue {
+                seconds: 63.5,
+                section: CueSection::Drop,
+            },
+        ],
+    }
+}
+
+#[test]
+fn the_cues_a_user_set_win_over_the_analysis_and_keep_their_pads() {
+    let folder = scratch("user-cues");
+    for fixture in FORMATS {
+        let path = copy_fixture(&folder, fixture);
+        let original = std::fs::read(&path).expect("the copy is read");
+        let analysis = analysis_with_grid();
+        let edited = vec![
+            Cue {
+                seconds: 30.25,
+                name: "My break".to_string(),
+                hot_cue: Some(HotCue::from_pad(2).expect("pad C")),
+            },
+            Cue {
+                seconds: 5.0,
+                name: "memory only".to_string(),
+                hot_cue: None,
+            },
+        ];
+        let markers = SeratoMarkers::of_cues(&analysis, Some(edited));
+        assert_eq!(
+            markers.cues,
+            vec![SeratoCue::of(
+                Duration::from_millis(30_250),
+                "My break".to_string(),
+                Some(2)
+            )],
+            "{fixture}: a memory cue is no cue point, the rest are the analysis'"
+        );
+
+        let (plan, report) = write(&path, &markers);
+        assert_eq!(report.skipped, None, "{fixture}");
+        assert_eq!(
+            report
+                .placed
+                .iter()
+                .map(|cue| (cue.name.as_str(), cue.pad))
+                .collect::<Vec<_>>(),
+            [("My break", 2)],
+            "{fixture}: the user's pad is kept, not the next free one"
+        );
+        let backup = apply_plan(&plan).expect("the plan is written");
+
+        // Read back: the same markers are already there, so a second write
+        // changes nothing.
+        let (again, second) = write(&path, &markers);
+        assert!(again.is_empty(), "{fixture}: {:?}", again.changes());
+        assert_eq!(second.already_there, 1, "{fixture}");
+        assert_eq!(second.grid, GridOutcome::AlreadyThere, "{fixture}");
+
+        undo(&backup).expect("the write is undone");
+        assert_eq!(
+            std::fs::read(&path).expect("the file is read"),
+            original,
+            "{fixture} is not identical after undo"
+        );
+    }
+}
+
+#[test]
+fn the_analysis_cues_are_written_when_the_user_has_not_set_any() {
+    let analysis = analysis_with_grid();
+    let markers = SeratoMarkers::of_cues(&analysis, None);
+    assert_eq!(
+        markers.cues,
+        vec![
+            SeratoCue::of(Duration::from_millis(146), "Start".to_string(), None),
+            SeratoCue::of(Duration::from_millis(63_500), "Drop".to_string(), None)
+        ]
+    );
+
+    // A grid rated low confidence carries nothing.
+    let mut low_analysis = analysis;
+    low_analysis.beat_grid = Some(BeatGrid {
+        salience: 5.0,
+        ..low_analysis.beat_grid.expect("a grid")
+    });
+    assert!(SeratoMarkers::of_cues(&low_analysis, None).cues.is_empty());
 }
 
 #[test]
