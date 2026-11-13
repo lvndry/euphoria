@@ -145,6 +145,7 @@ pub(super) fn cached_or_analyzed(
     path: &Path,
     snapshot: &Snapshot,
     analyze: impl Fn(&Path) -> Result<TrackAnalysis, EuphoriaError>,
+) -> Result<(TrackAnalysis, Origin, Option<CacheWrite>), EuphoriaError> {
     let unreadable = |source| EuphoriaError::Scan {
         path: path.to_path_buf(),
         source,
@@ -184,7 +185,6 @@ pub(super) fn cached_or_analyzed(
     Ok((analysis, origin, Some(write)))
 }
 
-
 /// The error for reading a file that is not there: a missing file when it
 /// is gone, an unreadable one otherwise. A file the cache has relocated to
 /// another path is read where it moved to, so this only says the file is
@@ -192,7 +192,9 @@ pub(super) fn cached_or_analyzed(
 fn missing_or_scan(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError + '_ {
     move |source| {
         if source.kind() == std::io::ErrorKind::NotFound {
-            EuphoriaError::Missing { path: path.to_path_buf() }
+            EuphoriaError::Missing {
+                path: path.to_path_buf(),
+            }
         } else {
             EuphoriaError::Scan {
                 path: path.to_path_buf(),
@@ -468,10 +470,12 @@ mod tests {
         std::fs::remove_file(&track).unwrap();
         let second_run = library.analyze(std::slice::from_ref(&track));
 
-        assert!(matches!(
-            second_run.results[0].outcome,
-            Err(EuphoriaError::Missing { path } if path == track)
-        ));
+        let missing = second_run.results[0]
+            .outcome
+            .as_ref()
+            .err()
+            .and_then(EuphoriaError::missing_path);
+        assert_eq!(missing, Some(track.as_path()));
         // The file is gone, so the analyzer is not run for it.
         assert_eq!(library.analyzer.runs(), 1);
         // The stored analysis is kept, so the track is found again if the
@@ -482,7 +486,6 @@ mod tests {
         assert_eq!(third_run.cached_count, 1);
         assert_eq!(library.analyzer.runs(), 1);
     }
-
 
     #[test]
     fn an_analysis_from_another_analyzer_version_is_ignored_and_replaced() {
