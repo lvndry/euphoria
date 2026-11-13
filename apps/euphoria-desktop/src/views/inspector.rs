@@ -6,6 +6,7 @@
 //! or as a strip under the table, depending on the theme's layout.
 
 use euphoria_core::Confidence;
+use euphoria_core::harmony::Relation;
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
@@ -17,9 +18,10 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
+use crate::decks::{SuggestionFilter, SuggestionScope};
 use crate::format;
 use crate::library::{Track, TrackStatus};
-use crate::mixes::compatible_keys;
+use crate::mixes::keys_related_by;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::by_ear;
@@ -162,7 +164,10 @@ pub(crate) fn render(
             Some(220.0),
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
-        .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
+        .children(
+            key_wheel(track, theme, &app.decks.filter.mix_options().relations)
+                .map(|section| sized(divided(section), Some(220.0))),
+        )
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
@@ -770,6 +775,8 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
         return None;
     }
 
+    let is_narrowed = app.decks.filter != SuggestionFilter::default()
+        || app.decks.scope != SuggestionScope::Library;
     let shown_count = room.mix_count(app.mixes.len());
     let rows: Vec<Stateful<Div>> = app
         .mixes
@@ -869,8 +876,14 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
             .when(rows.is_empty(), |section| {
                 section.child(
                     div()
+                        .id("mixes-empty")
                         .text_color(palette.text_tertiary)
-                        .child("No track in the library mixes with this one yet."),
+                        .child(if is_narrowed {
+                            "No track in the suggestion pool mixes with this one. Widen the controls above the decks' suggestions."
+                        } else {
+                            "No track in the library mixes with this one yet."
+                        })
+                        .test_support(),
                 )
             })
             .children(rows),
@@ -878,7 +891,7 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
 }
 
 /// The Camelot wheel, in themes that show it, for a track with a key.
-fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
+fn key_wheel(track: &Track, theme: &AppTheme, relations: &[Relation]) -> Option<Div> {
     if !theme.shows_wheel {
         return None;
     }
@@ -893,7 +906,9 @@ fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
                 key.camelot(),
                 emphasis_for(
                     CamelotPosition::of(&key),
-                    compatible_keys(&key).iter().map(CamelotPosition::of),
+                    keys_related_by(&key, relations)
+                        .iter()
+                        .map(CamelotPosition::of),
                 ),
                 palette,
             ))

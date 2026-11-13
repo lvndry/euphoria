@@ -162,6 +162,7 @@ impl EuphoriaApp {
     /// their content is not known yet.
     pub(crate) fn save_favorites(&mut self, cx: &mut Context<'_, Self>) {
         self.refresh_suggestions();
+        self.refresh_mixes();
         let Some(saver) = self.session.playlist_saver() else {
             return;
         };

@@ -906,6 +906,7 @@ impl EuphoriaApp {
     ) {
         self.decks.scope = scope;
         self.refresh_suggestions();
+        self.refresh_mixes();
         cx.notify();
     }
 
