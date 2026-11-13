@@ -23,6 +23,7 @@ use crate::format;
 use crate::library::{LibraryFilter, NOT_FOUND, Track, TrackStatus};
 use crate::playlist_flow::DraggedTracks;
 use crate::playlists::PlaylistId;
+use crate::reveal;
 use crate::theme::Palette;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
@@ -443,7 +444,7 @@ fn row(
     // when the row is the whole selection, like the drag does it.
     let menu_state = TrackMenuState {
         is_starred,
-        revealable: app.selected == Some(track_index) && app.marked.len() <= 1,
+        revealable: reveal::revealable(track_index, app.selected, &app.marked),
     };
     let cells: Vec<AnyElement> = app
         .table_layout

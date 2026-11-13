@@ -4,6 +4,7 @@
 //! Revealing a file in the file manager: the command each platform runs and
 //! the app's action that starts it for the selected track.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::Path;
 
@@ -52,6 +53,16 @@ pub(crate) fn reveal_label() -> &'static str {
     }
 }
 
+/// True when the row at `track_index` may be revealed: it must be the row
+/// the selection points at and nothing else may be marked, so a multi-track
+/// selection never points the file manager at one of its files.
+pub(crate) fn revealable(
+    track_index: usize,
+    selected: Option<usize>,
+    marked: &HashSet<usize>,
+) -> bool {
+    selected == Some(track_index) && marked.len() <= 1
+}
 /// Starts the command that reveals `path` in the file manager, logging the
 /// problem when it cannot be started.
 pub(crate) fn reveal(path: &Path) {
@@ -125,5 +136,23 @@ mod tests {
             assert_eq!(app.selected, None);
             app.reveal_selected_track();
         });
+    }
+
+    #[test]
+    fn the_menu_item_only_shows_for_the_whole_selection() {
+        let none: HashSet<usize> = HashSet::new();
+        let two = [3usize, 5].into_iter().collect();
+        let alone = [3usize].into_iter().collect();
+        // The selected row reveals, alone or unmarked.
+        assert!(revealable(3, Some(3), &none));
+        assert!(revealable(3, Some(3), &alone));
+        // Another row in the same selection does not.
+        assert!(!revealable(5, Some(3), &none));
+        assert!(!revealable(5, Some(3), &alone));
+        // A multi-marked selection hides reveal even for the selected row.
+        assert!(!revealable(3, Some(3), &two));
+        assert!(!revealable(5, Some(3), &two));
+        // Nothing selected hides reveal everywhere.
+        assert!(!revealable(0, None, &none));
     }
 }
