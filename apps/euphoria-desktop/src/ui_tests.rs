@@ -3370,7 +3370,7 @@ fn edits_after_a_playlist_was_saved_are_all_kept(cx: &mut TestAppContext) {
 }
 
 /// Types `text` into the field `id`, replacing what it holds.
-fn type_into(
+pub(crate) fn type_into(
     window: AnyWindowHandle,
     id: impl Into<gpui::ElementId>,
     text: &str,
