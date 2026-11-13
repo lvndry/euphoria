@@ -258,11 +258,14 @@ impl EuphoriaApp {
             shift_semitones: deck_a.shift_semitones,
             profile: stems.profile(&chosen.path),
         };
+        let filter = self.decks.filter.clone();
         let candidates: Vec<Layerable<'_>> = self
             .suggestion_indexes()
             .into_iter()
             .filter_map(|index| library.track(index))
             .filter(|candidate| candidate.path != chosen.path)
+            .filter(|candidate| filter.energy_fits(candidate.energy().map(|energy| energy as f32)))
+            .filter(|candidate| filter.genre_fits(candidate.genre()))
             .map(|track| Layerable {
                 track,
                 shift_semitones: 0,
@@ -274,10 +277,22 @@ impl EuphoriaApp {
             .idea_index
             .and_then(|position| self.decks.ideas.get(position))
             .map(|idea| idea.track_index);
-        let ideas: Vec<MashupIdea> =
-            mashups_for(&reference, &candidates, &MashupOptions::default())
-                .into_iter()
-                .take(IDEA_LIMIT)
+        let options = MashupOptions {
+            relations: filter
+                .relations
+                .relations()
+                .map(|relations| relations.to_vec())
+                .unwrap_or_else(|| MashupOptions::default().relations),
+            max_tempo_difference_percent: filter
+                .tempo_window_percent
+                .unwrap_or(MashupOptions::default().max_tempo_difference_percent),
+            bpm_range: filter.bpm_range(),
+            energy_range: filter.energy_range(),
+            ..MashupOptions::default()
+        };
+        let ideas: Vec<MashupIdea> = mashups_for(&reference, &candidates, &options)
+            .into_iter()
+            .take(IDEA_LIMIT)
                 .filter_map(|found| {
                     Some(MashupIdea {
                         track_index: library.index_of(&found.track.track.path)?,

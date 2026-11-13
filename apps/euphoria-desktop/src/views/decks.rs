@@ -8,6 +8,7 @@
 use euphoria_core::harmony::EnergyDirection;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
+use gpui::component::input::Input;
 use gpui::{
     AnyElement, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
     SharedString, Stateful, TestSupportExt, div, px, relative,
@@ -15,7 +16,7 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
-use crate::decks::{DeckMode, DeckView, SuggestionScope};
+use crate::decks::{DeckMode, DeckView, RelationFilter, SuggestionScope};
 use crate::format;
 use crate::player::fraction_along;
 use crate::theme::Palette;
@@ -585,7 +586,123 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .children(directions)
         .child(div().w(px(8.0)))
         .children(scopes);
-    suggestion_rows(app, heading, cx)
+    let filters = filter_controls(app, cx);
+    suggestion_rows(app, heading, filters, cx)
+}
+
+/// The pool the suggestions are chosen from: the tempo window, the key
+/// relations, the energy and tempo of the candidates and their genre.
+pub(crate) fn filter_controls(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Vec<AnyElement> {
+    let palette = app.theme.palette;
+    let decks = &app.decks;
+    let filter = &decks.filter;
+    let mut controls = Vec::new();
+    let relation_buttons: Vec<AnyElement> = [
+        (RelationFilter::Default, "Smooth keys"),
+        (RelationFilter::All, "All keys"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (chosen, label))| {
+        choice_button(
+            ("suggestion-relations", index),
+            label,
+            filter.relations == chosen,
+            &palette,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.decks.filter.relations = chosen;
+            this.refresh_suggestions();
+            cx.notify();
+        }))
+        .test_support()
+        .into_any_element()
+    })
+    .collect();
+    let mut window = div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child("Tempo window")
+        .child("within");
+    window = window.child(
+        div()
+            .w(px(48.0))
+            .child(Input::new(&app.filter_window_input).id("suggestion-window")),
+    );
+    window = window.child("percent");
+    let mut beat_row = div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child("Tempo")
+        .child("from");
+    beat_row = beat_row.child(
+        div()
+            .w(px(48.0))
+            .child(Input::new(&app.filter_bpm_from_input).id("suggestion-tempo-from")),
+    );
+    beat_row = beat_row.child("to");
+    beat_row = beat_row.child(
+        div()
+            .w(px(48.0))
+            .child(Input::new(&app.filter_bpm_to_input).id("suggestion-tempo-to")),
+    );
+    beat_row = beat_row.child("beats");
+    let mut energy_row = div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child("Energy")
+        .child("from");
+    energy_row = energy_row.child(
+        div()
+            .w(px(32.0))
+            .child(Input::new(&app.filter_energy_from_input).id("suggestion-energy-from")),
+    );
+    energy_row = energy_row.child("to");
+    energy_row = energy_row.child(
+        div()
+            .w(px(32.0))
+            .child(Input::new(&app.filter_energy_to_input).id("suggestion-energy-to")),
+    );
+    energy_row = energy_row.child("of 10");
+    let mut genre_row = div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child("Genre");
+    genre_row = genre_row.child(
+        div()
+            .w(px(96.0))
+            .child(Input::new(&app.filter_genre_input).id("suggestion-genre")),
+    );
+    if let Some(problem) = &decks.filter_problem {
+        let problem = problem.clone();
+        controls.push(
+            div()
+                .id("suggestion-filter-problem")
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.danger)
+                .child(problem)
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    controls.extend(relation_buttons);
+    controls.push(window.into_any_element());
+    controls.push(beat_row.into_any_element());
+    controls.push(energy_row.into_any_element());
+    controls.push(genre_row.into_any_element());
+    controls
 }
 
 /// The choices of where suggestions come from.
@@ -625,7 +742,7 @@ pub(crate) fn scope_buttons(
     .collect()
 }
 
-fn suggestion_rows(app: &EuphoriaApp, heading: Div, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn suggestion_rows(app: &EuphoriaApp, heading: Div, filters: Vec<AnyElement>, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let decks = &app.decks;
     let library = app.session.library();
@@ -720,7 +837,19 @@ fn suggestion_rows(app: &EuphoriaApp, heading: Div, cx: &mut Context<'_, Euphori
     } else {
         None
     };
-    div().flex().flex_col().gap(px(4.0)).child(heading).child(
+    let mut root = div().flex().flex_col().gap(px(4.0)).child(heading);
+    if !filters.is_empty() {
+        root = root.child(
+            div()
+                .id("suggestion-filters")
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.0))
+                .children(filters),
+        );
+    }
+    root.child(
         div()
             .id("deck-suggestions")
             .flex()

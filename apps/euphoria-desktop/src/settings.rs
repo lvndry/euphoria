@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::columns::ColumnWidths;
+use crate::decks::SuggestionFilter;
 use crate::display_settings::DisplaySettings;
 use crate::panels::Panels;
 use crate::tag_settings::TagSettings;
@@ -39,7 +40,7 @@ pub(crate) enum SettingsError {
 }
 
 /// The settings kept between launches.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Settings {
     /// The folders the user added, in the order they were added.
@@ -56,6 +57,9 @@ pub(crate) struct Settings {
     pub(crate) tags: TagSettings,
     /// How keys and tempos are shown.
     pub(crate) display: DisplaySettings,
+    /// The pool the mix suggestions are chosen from, set on the
+    /// suggestions surface.
+    pub(crate) suggestion_filter: SuggestionFilter,
 }
 
 /// What the sidebar's folder tree looked like.

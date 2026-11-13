@@ -19,7 +19,8 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use super::mix::{
-    MixTrack, TempoFit, TempoScaling, TrackFeatures, tempo_fit, usable_bpm, usable_energy,
+    BpmRange, EnergyRange, MixTrack, TempoFit, TempoScaling, TrackFeatures, pool_fits, tempo_fit,
+    usable_bpm, usable_energy,
 };
 use super::relation::Relation;
 use crate::key::Key;
@@ -133,6 +134,14 @@ pub struct MashupOptions {
     /// Whether a candidate at about half or double the reference tempo
     /// counts.
     pub allow_half_and_double_tempo: bool,
+    /// The tempo of the candidates in beats per minute, or `None` for any
+    /// tempo. A candidate's own tempo must lie in the range; one without a
+    /// tempo is left out, as it cannot be checked.
+    pub bpm_range: Option<BpmRange>,
+    /// The energy of the candidates, on the scale the tracks are rated on,
+    /// or `None` for any energy. A candidate's energy must lie in the
+    /// range; one without an energy is left out of a pool narrowed to one.
+    pub energy_range: Option<EnergyRange>,
 }
 
 impl Default for MashupOptions {
@@ -144,6 +153,8 @@ impl Default for MashupOptions {
             max_key_shift: DEFAULT_MAX_KEY_SHIFT,
             max_tempo_difference_percent: DEFAULT_MASHUP_TEMPO_PERCENT,
             allow_half_and_double_tempo: true,
+            bpm_range: None,
+            energy_range: None,
         }
     }
 }
@@ -435,6 +446,7 @@ where
 
     let mut ranked: Vec<MashupMatch<'candidates, Candidate>> = candidates
         .into_iter()
+        .filter(|candidate| pool_fits(candidate, options.bpm_range, options.energy_range))
         .filter_map(|candidate| {
             let key = key_fit(&reference_key, &candidate.key()?, options)?;
             let tempo = tempo_fit(
