@@ -21,6 +21,10 @@ pub struct Terminal {
 /// Runs `command` in a pseudo terminal and returns what it wrote and how it
 /// exited. A reader thread keeps draining the terminal while the command
 /// runs, so no progress is lost at the end.
+///
+/// The child declares the pseudo terminal as `TERM`, the same way a login
+/// session would: a terminal with no `TERM` is treated as a dumb terminal,
+/// and the progress of the command stays hidden even though it is on one.
 #[allow(dead_code)]
 pub fn capture(command: &std::process::Command) -> Terminal {
     let pty_system = native_pty_system();
@@ -36,6 +40,7 @@ pub fn capture(command: &std::process::Command) -> Terminal {
     let mut argv = vec![command.get_program().to_os_string()];
     argv.extend(command.get_args().map(std::ffi::OsStr::to_os_string));
     let mut builder = CommandBuilder::from_argv(argv);
+    builder.env("TERM", "xterm-256color");
     for (name, value) in command.get_envs() {
         builder.env(name, value.unwrap_or_default());
     }
