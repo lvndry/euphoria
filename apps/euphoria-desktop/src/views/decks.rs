@@ -650,7 +650,7 @@ pub(crate) fn filter_controls(
             .w(px(48.0))
             .child(Input::new(&app.filter_bpm_to_input).id("suggestion-tempo-to")),
     );
-    beat_row = beat_row.child("beats");
+    beat_row = beat_row.child("BPM");
     let mut energy_row = div()
         .flex()
         .items_center()
