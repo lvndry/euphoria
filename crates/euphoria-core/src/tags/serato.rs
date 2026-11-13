@@ -27,7 +27,7 @@ use super::{FieldChange, TagFormat, WritePlan, base64};
 use crate::analysis::TrackAnalysis;
 use crate::confidence::Confidence;
 use crate::error::EuphoriaError;
-use crate::track_cues::Cue;
+use crate::track_cues::{Cue, TrackCues};
 
 /// The number of hot cue pads Serato DJ shows by default.
 pub const SERATO_HOT_CUES: u8 = 8;
@@ -88,22 +88,19 @@ impl SeratoMarkers {
     /// the set the user set, which wins over the cues analysis placed in
     /// `analysis` even when it is empty, and otherwise analysis places them.
     /// Pass `analysis` with the correction applied: a corrected tempo drops
-    /// the cues analysis placed, which sit on the grid of the detected
-    /// tempo, but never the user's. A grid rated low confidence is left
-    /// out, and so are the cues, which sit on its bars. A cue without a hot
-    /// cue pad is a memory cue only and is not a Serato cue point.
+    /// the grid and the cues analysis placed, which sit on the grid of the
+    /// detected tempo, but never the user's. A grid rated low confidence is
+    /// left out, and so are the cues analysis placed on its bars. The
+    /// user's cues are written with or without a grid, except a cue past
+    /// the end of the track and a memory cue, on no hot cue pad, which is
+    /// not a Serato cue point.
     pub fn of_cues(analysis: &TrackAnalysis, edited_cues: Option<Vec<Cue>>) -> Self {
-        let Some(grid) = analysis
+        let grid = analysis
             .beat_grid
-            .filter(|grid| grid.confidence() != Confidence::Low)
-        else {
-            return Self {
-                cues: Vec::new(),
-                beat_grid: None,
-            };
-        };
+            .filter(|grid| grid.confidence() != Confidence::Low);
         let cues = match edited_cues {
-            Some(cues) => cues
+            Some(cues) => TrackCues::within(cues, f64::from(analysis.duration_seconds))
+                .cues
                 .iter()
                 .filter_map(|cue| {
                     let pad = cue.hot_cue?.pad();
@@ -114,7 +111,7 @@ impl SeratoMarkers {
                     ))
                 })
                 .collect(),
-            None => analysis
+            None if grid.is_some() => analysis
                 .cues
                 .iter()
                 .filter_map(|cue| {
@@ -125,15 +122,18 @@ impl SeratoMarkers {
                     ))
                 })
                 .collect(),
+            None => Vec::new(),
         };
         Self {
             cues,
-            beat_grid: Duration::try_from_secs_f64(grid.first_downbeat_seconds)
-                .ok()
-                .map(|first_beat| SeratoGrid {
-                    first_beat,
-                    bpm: grid.bpm,
-                }),
+            beat_grid: grid.and_then(|grid| {
+                Duration::try_from_secs_f64(grid.first_downbeat_seconds)
+                    .ok()
+                    .map(|first_beat| SeratoGrid {
+                        first_beat,
+                        bpm: grid.bpm,
+                    })
+            }),
         }
     }
 }
@@ -283,6 +283,19 @@ impl SeratoReport {
     /// grid of yours kept. Empty when everything went where it was meant to.
     pub fn notes(&self) -> Vec<String> {
         let mut notes: Vec<String> = self.skipped.iter().map(ToString::to_string).collect();
+        if self.skipped.is_none() && self.grid == GridOutcome::NotAsked {
+            let has_cues =
+                !self.placed.is_empty() || self.already_there > 0 || !self.no_free_pad.is_empty();
+            notes.push(
+                if has_cues {
+                    "no Serato beat grid: it has none rated medium or high, or you set its tempo"
+                } else {
+                    "no Serato cues or grid: it has no beat grid rated medium or high, or you \
+                     set its tempo, and no cues of yours on a pad"
+                }
+                .to_string(),
+            );
+        }
         for cue in &self.placed {
             if cue.pad != cue.wanted_pad {
                 notes.push(format!(
@@ -555,7 +568,12 @@ pub fn add_serato_markers(
     }
     report.kept = existing_cues.len();
 
-    for (index, cue) in markers.cues.iter().enumerate() {
+    for (index, cue) in markers
+        .cues
+        .iter()
+        .take(usize::from(SERATO_HOT_CUES))
+        .enumerate()
+    {
         let position = u32::try_from(cue.position.as_millis()).unwrap_or(u32::MAX);
         if taken_positions.contains(&position) {
             report.already_there += 1;
@@ -564,7 +582,7 @@ pub fn add_serato_markers(
         // A cue the caller set on a pad keeps it when that pad is free;
         // one the analysis placed takes the next pad in order.
         let wanted_pad = cue.pad.unwrap_or(u8::try_from(index).unwrap_or(u8::MAX));
-        let pad = if taken[usize::from(wanted_pad)] {
+        let pad = if taken.get(usize::from(wanted_pad)).copied().unwrap_or(true) {
             taken.iter().position(|is_taken| !is_taken)
         } else {
             Some(usize::from(wanted_pad))

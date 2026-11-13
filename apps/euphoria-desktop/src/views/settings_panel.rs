@@ -237,8 +237,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     "Cue markers",
                     "The track's cues and beat grid are written as Serato cue \
                      points, which Serato DJ, Mixxx and VirtualDJ read too. \
-                     Cues that do not sit on a hot cue pad go in as memory cues. \
-                     Formats that cannot hold them are skipped.",
+                     Memory cues, on no pad, are left out. Formats that cannot \
+                     hold them are skipped.",
                     div().flex().child(
                         choice_button(
                             "write-cue-markers",

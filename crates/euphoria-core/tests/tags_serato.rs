@@ -464,3 +464,86 @@ fn ogg_files_get_no_serato_data() {
     assert_eq!(report.skipped, Some(SeratoSkip::Ogg));
     assert!(plan.is_empty());
 }
+
+#[test]
+fn a_corrected_tempo_keeps_the_users_cues_without_a_grid_and_says_so() {
+    let folder = scratch("corrected-tempo");
+    let path = copy_fixture(&folder, FORMATS[0]);
+    let corrected = euphoria_core::Correction {
+        key: None,
+        bpm: Some(126.0),
+    }
+    .apply(analysis_with_grid());
+    assert_eq!(corrected.beat_grid, None);
+    let edited = vec![Cue {
+        seconds: 30.25,
+        name: "My break".to_string(),
+        hot_cue: HotCue::from_pad(1),
+    }];
+
+    let markers = SeratoMarkers::of_cues(&corrected, Some(edited));
+    assert_eq!(markers.beat_grid, None);
+    assert_eq!(
+        markers.cues,
+        vec![SeratoCue::of(
+            Duration::from_millis(30_250),
+            "My break".to_string(),
+            Some(1)
+        )]
+    );
+    let (_, report) = write(&path, &markers);
+    assert_eq!(report.placed.len(), 1);
+    assert_eq!(report.grid, GridOutcome::NotAsked);
+    assert_eq!(
+        report.notes(),
+        ["no Serato beat grid: it has none rated medium or high, or you set its tempo"]
+    );
+
+    let automatic = SeratoMarkers::of_cues(&corrected, None);
+    assert!(automatic.cues.is_empty() && automatic.beat_grid.is_none());
+    let (plan, report) = write(&path, &automatic);
+    assert!(plan.is_empty());
+    assert_eq!(report.notes().len(), 1);
+    assert!(report.notes()[0].starts_with("no Serato cues or grid"));
+}
+
+#[test]
+fn a_cue_of_yours_past_the_end_of_the_track_is_not_written() {
+    let analysis = analysis_with_grid();
+    let edited = vec![
+        Cue {
+            seconds: 299.0,
+            name: "Last".to_string(),
+            hot_cue: HotCue::from_pad(0),
+        },
+        Cue {
+            seconds: 301.0,
+            name: "Lost".to_string(),
+            hot_cue: HotCue::from_pad(1),
+        },
+    ];
+    let markers = SeratoMarkers::of_cues(&analysis, Some(edited));
+    assert_eq!(
+        markers.cues,
+        vec![SeratoCue::of(
+            Duration::from_secs(299),
+            "Last".to_string(),
+            Some(0)
+        )]
+    );
+}
+
+#[test]
+fn more_cues_than_pads_place_eight_without_panicking() {
+    let folder = scratch("nine-cues");
+    let path = copy_fixture(&folder, FORMATS[0]);
+    let markers = SeratoMarkers {
+        cues: (0..9)
+            .map(|index| cue(&format!("Cue {index}"), 1_000 * (index + 1)))
+            .collect(),
+        beat_grid: None,
+    };
+    let (_, report) = write(&path, &markers);
+    assert_eq!(report.placed.len(), 8);
+    assert!(report.no_free_pad.is_empty(), "{:?}", report.no_free_pad);
+}
