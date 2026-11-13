@@ -179,6 +179,7 @@ mod tests {
                 key_notation: NotationChoice::Musical,
                 label: LabelChoice::Grouping,
                 write_tempo: false,
+                write_cue_markers: true,
             },
             display: DisplaySettings {
                 key_notation: NotationChoice::OpenKey,

@@ -1850,9 +1850,10 @@ fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
             path: path.clone(),
             analysis: Some(tag_testing::analysis()),
             correction: euphoria_core::Correction::default(),
+            edited_cues: None,
         })
         .collect();
-    let planned = tag_writing::plan_writes(&targets, &TagSettings::default().write_options());
+    let planned = tag_writing::plan_writes(&targets, &TagSettings::default());
     let mut log = euphoria_core::tags::WriteLog::new(&scratch.log_directory());
     for plan in &planned.plans {
         assert!(matches!(
@@ -1943,6 +1944,7 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
             key_notation: crate::tag_settings::NotationChoice::OpenKey,
             label: crate::tag_settings::LabelChoice::Grouping,
             write_tempo: true,
+            write_cue_markers: false,
         }
     );
 
@@ -3870,6 +3872,7 @@ fn a_correction_wins_in_the_mixes_and_the_tags_to_write(cx: &mut TestAppContext)
             path: track.path.clone(),
             analysis: track.analysis().cloned(),
             correction: track.correction,
+            edited_cues: track.edited_cues.clone(),
         }
     });
     let written = target.correction.apply(target.analysis.clone().unwrap());
