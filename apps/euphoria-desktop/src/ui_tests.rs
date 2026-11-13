@@ -2766,6 +2766,36 @@ fn needs_review_lists_doubtful_keys_and_tempos_and_failed_files_and_says_why(
 }
 
 #[gpui::test]
+fn a_key_that_differs_from_the_tags_is_marked_listed_for_review_and_explained(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_tracks_to_review(None, cx);
+    assert!(!is_shown(window, ("key-conflict", 0_usize), cx));
+    assert!(!is_shown(window, "tag-key", cx));
+    let tag_key = euphoria_core::TrackName {
+        key: euphoria_core::TagKey::from_text("9A"),
+        ..euphoria_core::TrackName::default()
+    };
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .set_track_names(vec![(PathBuf::from("/Demo/review/sure.mp3"), tag_key)]);
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    cx.update(|cx| assert_eq!(view.read(cx).sidebar_counts().needs_review, 3));
+    assert!(is_shown(window, ("key-conflict", 0_usize), cx));
+    assert!(!is_shown(window, ("key-conflict", 1_usize), cx));
+    assert!(is_shown(window, "tag-key", cx), "the inspector explains it");
+    click(window, "needs-review", cx);
+    assert_eq!(
+        shown_titles(&view, cx),
+        ["sure.mp3", "doubtful tempo.mp3", "broken.mp3"]
+    );
+}
+
+#[gpui::test]
 fn the_key_box_shows_its_confidence_and_the_runner_up_only_when_the_key_is_not_high(
     cx: &mut TestAppContext,
 ) {
