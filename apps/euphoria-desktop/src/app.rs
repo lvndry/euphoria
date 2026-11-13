@@ -1104,83 +1104,77 @@ impl EuphoriaApp {
 
     /// Narrows the suggestions to the pool typed on the suggestions
     /// surface: the tempo window, the energy and tempo ranges and the
-    /// genre. An end of a range on its own leaves that range open; an end
-    /// that is not a number leaves the range open and says so once.
+    /// genre. A range is open when both ends are empty, or when its ends
+    /// do not make a range: the problem is then shown, and the range is
+    /// left open. The pool is saved with the rest of the settings when it
+    /// changes.
     pub(crate) fn apply_suggestion_filter_inputs(&mut self, cx: &mut Context<'_, Self>) {
-        let typed = |input: &Entity<InputState>, cx: &mut Context<'_, Self>| {
-            input
-                .read(cx)
-                .value()
-                .trim()
-                .parse::<f32>()
-                .ok()
-                .filter(|value| value.is_finite())
+        let ends = |from: &Entity<InputState>,
+                    to: &Entity<InputState>,
+                    cx: &mut Context<'_, Self>|
+         -> (String, String) {
+            (
+                from.read(cx).value().trim().to_string(),
+                to.read(cx).value().trim().to_string(),
+            )
         };
-        let ends_open = |from: &Entity<InputState>,
-                         to: &Entity<InputState>,
-                         cx: &mut Context<'_, Self>|
-         -> bool {
-            from.read(cx).value().trim().is_empty()
-                != to.read(cx).value().trim().is_empty()
-        };
+        let number = |text: &str| text.parse::<f32>().ok().filter(|value| value.is_finite());
         let mut problem: Option<String> = None;
         let mut window = None;
-        if !self
-            .filter_window_input
-            .read(cx)
-            .value()
-            .trim()
-            .is_empty()
-        {
-            match typed(&self.filter_window_input, cx) {
+        let window_text = self.filter_window_input.read(cx).value().trim();
+        if !window_text.is_empty() {
+            match number(window_text) {
                 Some(value) if value > 0.0 => window = Some(value),
                 _ => problem =
                     Some("The tempo window is a number above zero, in percent.".to_string()),
             }
         }
-        let (bpm_min, bpm_max) = if ends_open(
+        let (bpm_from, bpm_to) = ends(
             &self.filter_bpm_from_input,
             &self.filter_bpm_to_input,
             cx,
-        ) {
-            problem = Some("Type both ends of a range, or neither.".to_string());
+        );
+        let (bpm_min, bpm_max) = if bpm_from.is_empty() && bpm_to.is_empty() {
+            (None, None)
+        } else if bpm_from.is_empty() || bpm_to.is_empty() {
+            problem = Some("Type both ends of a tempo range, or leave both empty.".to_string());
             (None, None)
         } else {
-            (
-                typed(&self.filter_bpm_from_input, cx),
-                typed(&self.filter_bpm_to_input, cx),
-            )
+            match (number(&bpm_from), number(&bpm_to)) {
+                (Some(lowest), Some(highest)) => (Some(lowest), Some(highest)),
+                _ => {
+                    problem = Some("The tempo range is two numbers, in beats per minute.".to_string());
+                    (None, None)
+                }
+            }
         };
-        let (energy_min, energy_max) = if ends_open(
+        let (energy_from, energy_to) = ends(
             &self.filter_energy_from_input,
             &self.filter_energy_to_input,
             cx,
-        ) {
-            problem = Some("Type both ends of a range, or neither.".to_string());
+        );
+        let (energy_min, energy_max) = if energy_from.is_empty() && energy_to.is_empty() {
+            (None, None)
+        } else if energy_from.is_empty() || energy_to.is_empty() {
+            problem = Some("Type both ends of an energy range, or leave both empty.".to_string());
             (None, None)
         } else {
-            (
-                typed(&self.filter_energy_from_input, cx),
-                typed(&self.filter_energy_to_input, cx),
-            )
-        };
-        match (energy_min, energy_max) {
-            (Some(lowest), Some(highest)) if lowest < 1.0 || lowest > 10.0
-                || highest < 1.0
-                || highest > 10.0
-                || lowest > highest =>
-            {
-                problem = Some("The energy range is 1 to 10, lowest first.".to_string());
+            match (number(&energy_from), number(&energy_to)) {
+                (Some(lowest), Some(highest))
+                    if (1.0..=10.0).contains(&lowest)
+                        && (1.0..=10.0).contains(&highest)
+                        && lowest <= highest =>
+                {
+                    (Some(lowest), Some(highest))
+                }
+                _ => {
+                    problem = Some("The energy range is two numbers from 1 to 10, lowest first.".to_string());
+                    (None, None)
+                }
             }
-            _ => {}
-        }
-        let genre_text = self
-            .filter_genre_input
-            .read(cx)
-            .value()
-            .trim()
-            .to_string();
-        let genre = (!genre_text.is_empty()).then_some(genre_text);
+        };
+        let genre_text = self.filter_genre_input.read(cx).value().trim();
+        let genre = (!genre_text.is_empty()).then(|| genre_text.to_string());
         let filter = crate::decks::SuggestionFilter {
             tempo_window_percent: window,
             bpm_min,
@@ -1196,6 +1190,9 @@ impl EuphoriaApp {
         self.decks.filter = filter;
         self.decks.filter_problem = problem;
         self.refresh_suggestions();
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
         cx.notify();
     }
 

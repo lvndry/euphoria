@@ -188,6 +188,7 @@ mod tests {
                 key_notation: NotationChoice::OpenKey,
                 tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
             },
+            suggestion_filter: SuggestionFilter::default(),
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -211,6 +212,7 @@ mod tests {
             column_widths: ColumnWidths::default(),
             tags: TagSettings::default(),
             display: DisplaySettings::default(),
+            suggestion_filter: SuggestionFilter::default(),
         })
         .unwrap();
         assert_eq!(
@@ -222,7 +224,8 @@ mod tests {
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
                 r#""label":"comment-start","write_tempo":true},"#,
                 r#""display":{"key_notation":"camelot","#,
-                r#""tempo_range":{"slowest":90,"fastest":180}}}"#
+                r#""tempo_range":{"slowest":90,"fastest":180}},"#,
+                r#""suggestion_filter":{"tempo_window_percent":null,"relations":"Default","energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null}}"#
             )
         );
     }

@@ -153,7 +153,7 @@ impl Default for MixOptions {
 }
 
 /// How a candidate's tempo was read to compare it with the reference.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TempoScaling {
     /// The tempos were compared as they are.
     Direct,
@@ -201,6 +201,8 @@ pub struct MixMatch<'candidates, Track> {
     pub energy_difference: Option<f32>,
 }
 
+/// Returns the candidates that mix into `reference`, smoothest mix first.
+///
 /// A candidate is kept when it lies in the pool the options narrow to
 /// ([`MixOptions::bpm_range`] and [`MixOptions::energy_range`], when named),
 /// when its key has one of the relations in [`MixOptions::relations`] to the
@@ -209,11 +211,8 @@ pub struct MixMatch<'candidates, Track> {
 /// Candidates without a key are left out. Candidates without a tempo are
 /// kept, since the tempo cannot rule them out, and so is every candidate with
 /// a compatible key when the reference has no tempo, unless the pool is
-/// narrowed to a tempo or an energy range. The result is empty when the
-/// reference has no key.
-/// kept, since the tempo cannot rule them out, and so is every candidate with
-/// a compatible key when the reference has no tempo. The result is empty when
-/// the reference has no key.
+/// narrowed to a range that asks for a value the candidate lacks. The result
+/// is empty when the reference has no key.
 ///
 /// The order is: candidates with a tempo before those without, then by
 /// relation from smoothest to boldest, then direct tempo matches before half

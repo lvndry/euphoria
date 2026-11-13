@@ -876,3 +876,57 @@ mod tests {
         assert_eq!(reason, "2m is next to A's key, sharing six of seven notes");
     }
 }
+
+    fn separated(code: &str, bpm: Option<f32>, energy: Option<f32>) -> Separated {
+        Separated {
+            features: TrackFeatures {
+                key: Some(code.parse().unwrap()),
+                bpm,
+                energy,
+            },
+            profile: None,
+        }
+    }
+
+    #[test]
+    fn a_tempo_range_keeps_only_the_candidates_in_it() {
+        let chosen = track("8A", 124.0);
+        let candidates = [
+            separated("8A", Some(118.0), Some(6.0)),
+            separated("8A", Some(126.0), Some(6.0)),
+            separated("8A", Some(140.0), Some(6.0)),
+        ];
+        let options = MashupOptions {
+            bpm_range: Some(BpmRange::new(115.0, 130.0).unwrap()),
+            ..MashupOptions::default()
+        };
+        let ranked = mashups_for(&chosen, &candidates, &options);
+        assert_eq!(keys(&ranked), [("8A".to_string(), 0), ("8A".to_string(), 0)]);
+    }
+
+    #[test]
+    fn an_energy_range_keeps_only_the_candidates_in_it() {
+        let chosen = separated("8A", Some(124.0), Some(6.0));
+        let candidates = [
+            separated("8A", Some(124.0), Some(4.0)),
+            separated("8A", Some(124.0), Some(8.0)),
+            separated("8A", Some(124.0), None),
+        ];
+        let options = MashupOptions {
+            energy_range: Some(EnergyRange::new(5.0, 10.0).unwrap()),
+            ..MashupOptions::default()
+        };
+        let ranked = mashups_for(&chosen, &candidates, &options);
+        assert_eq!(keys(&ranked), [("8A".to_string(), 0)]);
+    }
+
+    #[test]
+    fn the_pool_ranges_are_open_when_the_options_do_not_name_them() {
+        let chosen = separated("8A", None, None);
+        let candidates = [separated("8A", None, None)];
+        let options = MashupOptions::default();
+        assert!(options.bpm_range.is_none());
+        assert!(options.energy_range.is_none());
+        let ranked = mashups_for(&chosen, &candidates, &options);
+        assert_eq!(keys(&ranked), [("8A".to_string(), 0)]);
+    }

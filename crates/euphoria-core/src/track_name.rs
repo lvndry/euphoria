@@ -24,7 +24,7 @@ pub struct TrackName {
     pub genre: Option<String>,
 }
 
-/// Reads the title and artist stored in an audio file, without decoding its
+/// Reads the title, artist and genre stored in an audio file, without decoding its
 /// audio.
 ///
 /// Reads ID3v2 and ID3v1 tags (MP3, and the ID3 chunk of AIFF files), Vorbis
