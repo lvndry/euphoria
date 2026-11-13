@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Revealing a file in the file manager: the command each platform runs and
-//! the menu item of the table's rows that triggers it.
+//! the app's action that starts it for the selected track.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -10,8 +10,9 @@ use std::path::Path;
 use crate::app::EuphoriaApp;
 
 /// The file manager's command and arguments that reveal `path`. On macOS,
-/// `open -R` selects the file in Finder; on Linux, the folder that holds it
-/// is opened instead, as there is no standard reveal.
+/// `open -R` selects the file in Finder; on Windows, Explorer opens its
+/// folder; on Linux, the folder that holds it is opened, as there is no
+/// standard reveal.
 pub(crate) fn reveal_command(path: &Path) -> (OsString, Vec<OsString>) {
     #[cfg(target_os = "macos")]
     {
@@ -20,7 +21,15 @@ pub(crate) fn reveal_command(path: &Path) -> (OsString, Vec<OsString>) {
             vec![OsString::from("-R"), path.as_os_str().to_os_string()],
         )
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        let folder = path.parent().unwrap_or_else(|| Path::new("."));
+        (
+            OsString::from("explorer"),
+            vec![folder.as_os_str().to_os_string()],
+        )
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let folder = path.parent().unwrap_or_else(|| Path::new("."));
         (
@@ -86,7 +95,12 @@ mod tests {
                 ]
             );
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(program, "explorer");
+            assert_eq!(arguments, vec![OsString::from("/music/demo")]);
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             assert_eq!(program, "xdg-open");
             assert_eq!(arguments, vec![OsString::from("/music/demo")]);
@@ -99,5 +113,17 @@ mod tests {
         assert_eq!(reveal_label(), "Open in Finder");
         #[cfg(not(target_os = "macos"))]
         assert_eq!(reveal_label(), "Open in File Manager");
+    }
+
+    /// The action does not touch the state when nothing is selected, so it
+    /// can sit in the View menu next to the selection actions.
+    #[gpui::test]
+    fn revealing_without_a_selection_is_a_no_op(cx: &mut gpui::TestAppContext) {
+        let (_, app) = crate::ui_tests::open_library(0, cx);
+        cx.update(|cx| {
+            let app = app.read(cx);
+            assert_eq!(app.selected, None);
+            app.reveal_selected_track();
+        });
     }
 }
