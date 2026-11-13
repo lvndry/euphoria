@@ -727,7 +727,11 @@ mod tests {
         assert_eq!(found.files.len(), 10);
         assert!(found.cached.is_empty());
         assert_eq!(found.problems.len(), 1);
-        assert!(found.problems[0].starts_with("cannot read /definitely/not/here"));
+        assert!(found.problems[0].starts_with("/definitely/not/here is missing"));
+        assert_eq!(
+            found.unavailable_folders,
+            vec![PathBuf::from("/definitely/not/here")]
+        );
     }
 
     #[test]

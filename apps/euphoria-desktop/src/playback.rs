@@ -60,6 +60,7 @@ impl PlaybackProblem {
 
     fn from_core(error: &EuphoriaError) -> Self {
         match error {
+            EuphoriaError::Missing { .. } => PlaybackProblem::FileMissing,
             EuphoriaError::Open { source, .. } | EuphoriaError::Scan { source, .. }
                 if source.kind() == std::io::ErrorKind::NotFound =>
             {
