@@ -16,9 +16,11 @@ use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst};
 use lofty::ogg::tag::VorbisComments;
 use lofty::tag::TagExt;
 
-const FIXTURES: [&str; 6] = [
+const FIXTURES: [&str; 8] = [
     "sine-440hz-mono.mp3",
     "sine-440hz-mono.m4a",
+    "sine-440hz-mono-alac.m4a",
+    "sine-440hz-mono.mp4",
     "sine-440hz-mono.flac",
     "sine-440hz-mono.ogg",
     "sine-440hz-mono.wav",

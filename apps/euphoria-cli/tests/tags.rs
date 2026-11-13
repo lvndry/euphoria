@@ -721,7 +721,21 @@ fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
         standard_error(&after_write),
         "8 of 8 tracks came from the cache.\n"
     );
-    assert_eq!(after_write.stdout, first.stdout);
+    let without_tag_keys = |stdout: &[u8], written: bool| {
+        let mut tracks: serde_json::Value = serde_json::from_slice(stdout).unwrap();
+        for track in tracks.as_array_mut().unwrap() {
+            let tag_key = track.as_object_mut().unwrap().remove("tag_key").unwrap();
+            if written && !track["key"].is_null() {
+                assert_eq!(tag_key["agreement"], "same", "{track} {tag_key}");
+            }
+        }
+        tracks
+    };
+    assert_eq!(
+        without_tag_keys(&after_write.stdout, true),
+        without_tag_keys(&first.stdout, false),
+        "only the key read back from the tags changed, and it agrees"
+    );
 
     let undone = run(&euphoria, &["tags", "undo"]);
     assert_success(&undone);
