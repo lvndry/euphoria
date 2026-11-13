@@ -29,6 +29,8 @@ mod key_by_ear;
 mod key_shift;
 mod library;
 mod mashup;
+#[cfg(test)]
+mod missing_ui_tests;
 mod mixes;
 mod panels;
 mod peaks;
