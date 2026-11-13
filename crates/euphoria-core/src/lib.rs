@@ -40,6 +40,8 @@ pub mod mashup;
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// Linking a track whose file went missing to where the file is now.
+pub mod relink;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
@@ -97,6 +99,7 @@ pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,
 };
+pub use relink::{RelinkMatch, check_relink, find_in_folder};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
 pub use track_name::{TrackName, read_track_name};

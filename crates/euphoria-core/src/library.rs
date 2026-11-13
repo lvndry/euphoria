@@ -38,9 +38,15 @@ pub fn is_supported_audio_file(path: &Path) -> bool {
 pub fn find_audio_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, EuphoriaError> {
     let mut audio_files = Vec::new();
     for path in paths {
-        let metadata = std::fs::metadata(path).map_err(|source| EuphoriaError::Scan {
-            path: path.clone(),
-            source,
+        let metadata = std::fs::metadata(path).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::NotFound {
+                EuphoriaError::Missing { path: path.clone() }
+            } else {
+                EuphoriaError::Scan {
+                    path: path.clone(),
+                    source,
+                }
+            }
         })?;
         if !metadata.is_dir() {
             audio_files.push(path.clone());
@@ -166,11 +172,11 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_path_is_a_scan_error() {
+    fn a_missing_path_is_reported_as_missing() {
         let missing = PathBuf::from("/definitely/not/here");
         assert!(matches!(
-            find_audio_files(&[missing]),
-            Err(EuphoriaError::Scan { .. })
+            find_audio_files(std::slice::from_ref(&missing)),
+            Err(EuphoriaError::Missing { path }) if path == missing
         ));
     }
 }

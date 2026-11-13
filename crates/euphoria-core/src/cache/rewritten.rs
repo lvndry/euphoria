@@ -155,6 +155,30 @@ impl Cache {
             .map_err(cache_error(&self.path))?;
         Ok(path.flatten().map(PathBuf::from))
     }
+
+    /// The content the cache last saw at `path`, whatever is there now and
+    /// even when nothing is: what a file that went missing held.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn last_content_at(&self, path: &Path) -> Result<Option<ContentHash>, EuphoriaError> {
+        let Some(last_known_path) = std::path::absolute(path)
+            .ok()
+            .and_then(|absolute| absolute.to_str().map(str::to_owned))
+        else {
+            return Ok(None);
+        };
+        self.connection
+            .query_row(
+                "SELECT content_hash FROM analyses WHERE last_known_path = ?1",
+                params![last_known_path],
+                |row| row.get::<_, [u8; 32]>(0),
+            )
+            .optional()
+            .map(|bytes| bytes.map(ContentHash::from_bytes))
+            .map_err(cache_error(&self.path))
+    }
 }
 
 /// Copies the correction and the edited cues of `from` to `to`, each unless
