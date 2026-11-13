@@ -177,6 +177,11 @@ impl Theme {
         self.paint("1;33", "warning:")
     }
 
+    /// The `missing:` label, before a file that is no longer there.
+    pub fn missing_label(&self) -> String {
+        self.paint("1;35", "missing:")
+    }
+
     /// The `hint:` label, before what to do next.
     pub fn hint_label(&self) -> String {
         self.paint("1;36", "hint:")

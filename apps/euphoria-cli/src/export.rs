@@ -493,9 +493,10 @@ fn export_library(
         }
     };
     check_output_is_not_an_input(&output_file, &audio_files, &folders)?;
-    if let Some(playlist) = &playlist {
-        write_missing_files(&playlist.missing)?;
-    }
+    let left_out_of_playlist = match &playlist {
+        Some(playlist) => write_missing_files(&playlist.missing)?,
+        None => LeftOutOfPlaylist::default(),
+    };
     if audio_files.is_empty() {
         bail!("no audio files found, so nothing was exported");
     }
@@ -608,19 +609,18 @@ fn export_library(
             )?;
         }
     }
-    if !skipped.is_empty() {
-        output::write_skipped_summary(&mut standard_error, skipped.len())?;
-    }
+    let (missing_count, failed_count) = output::missing_and_failed(&skipped);
+    let missing_count = missing_count + left_out_of_playlist.missing;
+    output::write_skipped_summary(&mut standard_error, failed_count, missing_count)?;
     output::write_import_steps(&mut standard_error, &theme, program)?;
 
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(if skipped.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(output::exit_status(
+        failed_count > 0 || left_out_of_playlist.replaced > 0,
+        missing_count > 0,
+    ))
 }
 fn default_virtualdj_database() -> Option<PathBuf> {
     let home = if cfg!(windows) {
@@ -696,9 +696,10 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
         Some(playlist) => playlist.files.clone(),
         None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
     };
-    if let Some(playlist) = &playlist {
-        write_missing_files(&playlist.missing)?;
-    }
+    let left_out_of_playlist = match &playlist {
+        Some(playlist) => write_missing_files(&playlist.missing)?,
+        None => LeftOutOfPlaylist::default(),
+    };
     if audio_files.is_empty() {
         bail!("no audio files found, so nothing was exported");
     }
@@ -850,9 +851,9 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
             )?;
         }
     }
-    if !skipped.is_empty() {
-        output::write_skipped_summary(&mut standard_error, skipped.len())?;
-    }
+    let (missing_count, failed_count) = output::missing_and_failed(&skipped);
+    let missing_count = missing_count + left_out_of_playlist.missing;
+    output::write_skipped_summary(&mut standard_error, failed_count, missing_count)?;
     if !arguments.dry_run && !merge.updated.is_empty() {
         output::write_import_steps(&mut standard_error, &theme, Program::VirtualDj)?;
     }
@@ -861,11 +862,10 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(if merge.updated.is_empty() || !skipped.is_empty() {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
+    Ok(output::exit_status(
+        merge.updated.is_empty() || failed_count > 0 || left_out_of_playlist.replaced > 0,
+        missing_count > 0,
+    ))
 }
 
 fn default_engine_library() -> Option<PathBuf> {
@@ -940,9 +940,10 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
         Some(playlist) => playlist.files.clone(),
         None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
     };
-    if let Some(playlist) = &playlist {
-        write_missing_files(&playlist.missing)?;
-    }
+    let left_out_of_playlist = match &playlist {
+        Some(playlist) => write_missing_files(&playlist.missing)?,
+        None => LeftOutOfPlaylist::default(),
+    };
     if audio_files.is_empty() {
         bail!("no audio files found, so nothing was exported");
     }
@@ -1111,9 +1112,9 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
             )?;
         }
     }
-    if !skipped.is_empty() {
-        output::write_skipped_summary(&mut standard_error, skipped.len())?;
-    }
+    let (missing_count, failed_count) = output::missing_and_failed(&skipped);
+    let missing_count = missing_count + left_out_of_playlist.missing;
+    output::write_skipped_summary(&mut standard_error, failed_count, missing_count)?;
     if !arguments.dry_run && !update.updated.is_empty() {
         output::write_import_steps(&mut standard_error, &theme, Program::Engine)?;
     }
@@ -1121,11 +1122,10 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(if update.updated.is_empty() || !skipped.is_empty() {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
+    Ok(output::exit_status(
+        update.updated.is_empty() || failed_count > 0 || left_out_of_playlist.replaced > 0,
+        missing_count > 0,
+    ))
 }
 
 fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
@@ -1139,7 +1139,7 @@ fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
     check_output_file(&output_file, existing)?;
     let playlist = find_playlist(&arguments.playlist, !arguments.no_cache)?;
     check_output_is_not_an_input(&output_file, &playlist.files, &[])?;
-    write_missing_files(&playlist.missing)?;
+    let left_out_of_playlist = write_missing_files(&playlist.missing)?;
 
     let cache = if arguments.no_cache {
         None
@@ -1166,11 +1166,13 @@ fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
         Printable(&playlist.name),
         Printable(output_file.display())
     );
-    Ok(if playlist.missing.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    if left_out_of_playlist.missing > 0 {
+        output::write_missing_summary(&mut std::io::stderr().lock(), left_out_of_playlist.missing)?;
+    }
+    Ok(output::exit_status(
+        left_out_of_playlist.replaced > 0,
+        left_out_of_playlist.missing > 0,
+    ))
 }
 
 /// "Artist - Title" from the file's tags, the title alone without an
@@ -1191,27 +1193,40 @@ pub fn display_name(path: &Path) -> String {
     }
 }
 
-/// Says which tracks of the playlist are no longer anywhere, so they are
-/// left out.
-pub fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<()> {
-    if missing.is_empty() {
-        return Ok(());
-    }
+/// The tracks of a playlist left out of an export because they were not
+/// found.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LeftOutOfPlaylist {
+    /// Tracks whose file is no longer anywhere.
+    pub missing: usize,
+    /// Tracks whose path now holds other audio.
+    pub replaced: usize,
+}
+
+/// Says which tracks of the playlist were not found, so they are left out:
+/// a `missing:` line for each file that is no longer anywhere, and a
+/// warning for each path that now holds other audio.
+pub fn write_missing_files(missing: &[(PathBuf, EntryLocation)]) -> Result<LeftOutOfPlaylist> {
+    let mut left_out = LeftOutOfPlaylist::default();
     let mut standard_error = std::io::stderr().lock();
+    let theme = Theme::stderr();
     for (path, location) in missing {
-        let reason = match location {
-            EntryLocation::Replaced => {
-                "the file there now holds other audio than the track that was added"
-            }
-            _ => "the file is no longer there",
-        };
-        writeln!(
-            standard_error,
-            "warning: left out {}: {reason}",
-            Printable(path.display())
-        )?;
+        if *location == EntryLocation::Replaced {
+            left_out.replaced += 1;
+            output::write_warning(
+                &mut standard_error,
+                &theme,
+                format_args!(
+                    "left out {}: the file there now holds other audio than the track that was added",
+                    Printable(path.display())
+                ),
+            )?;
+        } else {
+            left_out.missing += 1;
+            output::write_missing(&mut standard_error, &theme, path)?;
+        }
     }
-    Ok(())
+    Ok(left_out)
 }
 
 /// How many cued tracks of the collection at `collection` match no file
@@ -1404,8 +1419,16 @@ fn resolve(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     paths
         .iter()
         .map(|path| {
-            path.canonicalize()
-                .with_context(|| format!("cannot read {}", path.display()))
+            path.canonicalize().with_context(|| {
+                if matches!(path.try_exists(), Ok(false)) {
+                    format!(
+                        "{} is missing: moved, deleted, or on a drive that is not connected",
+                        path.display()
+                    )
+                } else {
+                    format!("cannot read {}", path.display())
+                }
+            })
         })
         .collect()
 }
