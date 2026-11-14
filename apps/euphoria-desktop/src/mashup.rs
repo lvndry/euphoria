@@ -147,10 +147,14 @@ impl StemLibrary {
         loop {
             match scan.try_recv() {
                 Ok((path, found)) => {
-                    if let Some(found) = found {
+                    if let Some(found) = found.filter(|(files, _)| {
+                        euphoria_core::plan_signals::stem_signature(files).is_some()
+                    }) {
                         self.found.insert(path, found);
-                        changed = true;
+                    } else {
+                        self.found.remove(&path);
                     }
+                    changed = true;
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -166,6 +170,7 @@ impl StemLibrary {
     /// been separated.
     pub(crate) fn recheck(&mut self, path: &Path) {
         self.checked.remove(path);
+        self.found.remove(path);
     }
 }
 

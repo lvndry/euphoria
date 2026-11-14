@@ -818,8 +818,8 @@ impl EuphoriaApp {
         self.request_visible_plans(cx);
     }
 
-    /// The stems of the track at `path` were separated just now.
-    pub(crate) fn focus_stems_separated(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
+    /// The stems of the track at `path` were added or removed.
+    pub(crate) fn focus_stems_changed(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
         self.focus.stems.remove(path);
         self.plans_of_track_changed(path, cx);
         if self.selected_track().map(|track| track.path.as_path()) == Some(path) {

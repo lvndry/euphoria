@@ -1650,10 +1650,13 @@ impl EuphoriaApp {
         };
         if let Err(problem) = self.stems.remove(&path) {
             self.report(format!("Could not remove the stems: {problem}"));
+            cx.notify();
+            return;
         }
         self.vocal_lanes.insert(path.clone(), VocalLane::NoStems);
         self.stems_changed(cx);
         self.decks.stem_library.recheck(&path);
+        self.focus_stems_changed(&path, cx);
         cx.notify();
     }
 
@@ -1683,7 +1686,7 @@ impl EuphoriaApp {
                             }
                             this.decks.stem_library.recheck(&path);
                             this.load_vocal_lane(path.clone(), cx);
-                            this.focus_stems_separated(&path, cx);
+                            this.focus_stems_changed(&path, cx);
                             if this.decks.is_open
                                 && this.decks.mode == crate::decks::DeckMode::Mashup
                             {

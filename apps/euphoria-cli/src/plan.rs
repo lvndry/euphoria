@@ -16,6 +16,8 @@ use euphoria_core::harmony::transition::{
     AutomaticCues, CandidateWindow, Clash, PlanOptions, PlanTrack, SectionSource, TransitionPlan,
     plan_transition,
 };
+#[cfg(feature = "stems")]
+use euphoria_core::plan_signals::stem_signature;
 use euphoria_core::plan_signals::{
     SignalsCache, TrackSignals, measure_energy, signals_with_energy,
 };
@@ -154,13 +156,17 @@ fn signals_of(cache: &SignalsCache, path: &Path, analysis: &TrackAnalysis) -> Re
         }
     };
     #[cfg(feature = "stems")]
-    if signals.stems.is_none()
-        && let Ok(stem_cache) = euphoria_core::stems::StemCache::open_default()
-        && let Some(files) = stem_cache.cached(&hash)
-        && let Ok(levels) = euphoria_core::stems::measure_stem_levels(&files)
     {
-        signals.stems = Some(levels);
-        cache.store(&hash, &signals).map_err(with_causes)?;
+        let files = euphoria_core::stems::StemCache::open_default()
+            .ok()
+            .and_then(|stem_cache| stem_cache.cached(&hash));
+        let signature = files.as_ref().and_then(stem_signature);
+        if signals.stems_signature != signature || signals.stems.is_some() != signature.is_some() {
+            signals.stems =
+                files.and_then(|files| euphoria_core::stems::measure_stem_levels(&files).ok());
+            signals.stems_signature = signals.stems.as_ref().and(signature);
+            cache.store(&hash, &signals).map_err(with_causes)?;
+        }
     }
     Ok(signals)
 }
