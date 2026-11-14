@@ -108,10 +108,10 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
-    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition, Quit,
-    ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, ToggleDecks, ToggleFavorite,
-    ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
-    UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
+    PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems,
+    ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
+    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -124,6 +124,9 @@ const WINDOW_TITLE: &str = "Euphoria";
 /// The name Linux desktops match against `euphoria.desktop`, the launcher
 /// entry the AppImage installs, to show the window with its name and icon.
 const APP_ID: &str = "euphoria";
+
+/// Everywhere but the command palette.
+const NOT_IN_PALETTE_CONTEXT: &str = "!CommandPalette";
 
 /// Where the space bar belongs to the player: anywhere in the window but a
 /// text field.
@@ -237,16 +240,28 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         // Command K was already Search, so the palette is on Command P.
         KeyBinding::new("cmd-p", OpenCommandPalette, None),
         KeyBinding::new("cmd-k", FocusSearch, None),
+        KeyBinding::new(
+            "cmd-enter",
+            PlayPaletteTrack,
+            Some(views::PALETTE_KEY_CONTEXT),
+        ),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new(
+            "ctrl-enter",
+            PlayPaletteTrack,
+            Some(views::PALETTE_KEY_CONTEXT),
+        ),
         // Control Command S is what macOS apps use to show and hide a sidebar.
         #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-d", ToggleDecks, None),
         KeyBinding::new("cmd-shift-b", OpenSetBuilder, None),
-        KeyBinding::new("cmd-enter", BuildSet, None),
+        // Command Enter plays a track in the palette, which has its own binding.
+        KeyBinding::new("cmd-enter", BuildSet, Some(NOT_IN_PALETTE_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-b", OpenSetBuilder, None),
         #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("ctrl-enter", BuildSet, None),
+        KeyBinding::new("ctrl-enter", BuildSet, Some(NOT_IN_PALETTE_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-alt-s", ToggleSidebar, None),
         #[cfg(not(target_os = "macos"))]
@@ -307,8 +322,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
     register_view_command::<OpenSetBuilder>(view, cx, |view, cx| view.open_set_builder(cx));
     register_view_command::<BuildSet>(view, cx, |view, cx| {
-        if view.set_builder.is_open && !view.set_builder.is_building && view.palette.open.is_none()
-        {
+        if view.set_builder.is_open && !view.set_builder.is_building {
             view.build_set(cx);
         }
     });
@@ -359,30 +373,6 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     });
 
     register_view_command::<SeparateStems>(view, cx, |view, cx| view.separate_selected_stems(cx));
-
-    let weak_view = view.downgrade();
-    cx.on_action(move |_: &OpenCommandPalette, cx| {
-        let weak_view = weak_view.clone();
-        window
-            .update(cx, |_, window, cx| {
-                weak_view
-                    .update(cx, |view, cx| view.open_command_palette(window, cx))
-                    .ok();
-            })
-            .ok();
-    });
-
-    let weak_view = view.downgrade();
-    cx.on_action(move |_: &PlanTransition, cx| {
-        let weak_view = weak_view.clone();
-        window
-            .update(cx, |_, window, cx| {
-                weak_view
-                    .update(cx, |view, cx| view.plan_transition_from_playing(window, cx))
-                    .ok();
-            })
-            .ok();
-    });
 
     register_theme_command::<UseSlateTheme>(ThemeName::Slate, view, cx);
     register_theme_command::<UsePaperTheme>(ThemeName::Paper, view, cx);

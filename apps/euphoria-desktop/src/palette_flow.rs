@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use gpui::{Action, App, Context, Window};
+use gpui::{Action, App, Context, Modifiers, Window};
 
 use crate::app::EuphoriaApp;
 use crate::command_palette::{COMMANDS, OpenPalette, PaletteRow, answer, motion_is_reduced};
@@ -13,20 +13,60 @@ use crate::command_palette::{COMMANDS, OpenPalette, PaletteRow, answer, motion_i
 /// The text shown for the keys that run `action`: the first binding of the
 /// keymap, written as the platform writes it.
 pub(crate) fn shortcut_label(action: &dyn Action, cx: &App) -> Option<String> {
-    let os = if cfg!(target_os = "macos") {
-        gpui::OperatingSystem::Mac
-    } else {
-        gpui::OperatingSystem::Linux
-    };
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
     let binding = keymap.bindings_for_action(action).next()?;
     let label: Vec<String> = binding
         .keystrokes()
         .iter()
-        .map(|keystroke| keystroke.display(os).to_string())
+        .map(|keystroke| write_keystroke(keystroke.modifiers(), keystroke.key()))
         .collect();
     Some(label.join(" "))
+}
+
+/// A keystroke as macOS writes it, modifiers in the order Control, Option,
+/// Shift, Command, or as other systems write it, joined with plus signs.
+fn write_keystroke(modifiers: &Modifiers, key: &str) -> String {
+    let key_text = match key {
+        "enter" => "\u{21b5}".to_string(),
+        "escape" => "Esc".to_string(),
+        "space" => "Space".to_string(),
+        "up" => "\u{2191}".to_string(),
+        "down" => "\u{2193}".to_string(),
+        "left" => "\u{2190}".to_string(),
+        "right" => "\u{2192}".to_string(),
+        "backspace" => "\u{232b}".to_string(),
+        "tab" => "\u{21e5}".to_string(),
+        other => other.to_uppercase(),
+    };
+    if cfg!(target_os = "macos") {
+        let mut written = String::new();
+        for (is_held, symbol) in [
+            (modifiers.control, '\u{2303}'),
+            (modifiers.alt, '\u{2325}'),
+            (modifiers.shift, '\u{21e7}'),
+            (modifiers.platform, '\u{2318}'),
+        ] {
+            if is_held {
+                written.push(symbol);
+            }
+        }
+        written + &key_text
+    } else {
+        let mut parts: Vec<&str> = Vec::new();
+        for (is_held, name) in [
+            (modifiers.control, "Ctrl"),
+            (modifiers.alt, "Alt"),
+            (modifiers.shift, "Shift"),
+            (modifiers.platform, "Super"),
+        ] {
+            if is_held {
+                parts.push(name);
+            }
+        }
+        parts.push(&key_text);
+        parts.join("+")
+    }
 }
 
 impl EuphoriaApp {

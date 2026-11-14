@@ -154,7 +154,7 @@ fn a_key_lists_its_tracks_first_and_compatible_ones_with_a_pill(cx: &mut TestApp
                 panic!("a key and a tempo list no commands");
             };
             let track = &app.session.library().tracks()[index];
-            assert!(track.path.to_string_lossy().contains("Deep"));
+            assert!(track.folder.contains("Deep"));
             assert!((120.0..=126.0).contains(&track.bpm().unwrap()));
         }
     });
@@ -266,11 +266,11 @@ fn the_arrow_keys_choose_a_command_and_enter_runs_it(cx: &mut TestAppContext) {
 fn running_a_command_counts_it_as_used(cx: &mut TestAppContext) {
     let (window, view) = open_library(60, cx);
     open_palette(window, cx);
-    ask(window, "paper", cx);
+    ask(window, "graphite", cx);
     press(window, "enter", cx);
     open_palette(window, cx);
     let shown = command_ids(&rows(&view, cx));
-    assert_eq!(shown[0], "theme-paper");
+    assert_eq!(shown[0], "theme-graphite");
     assert_eq!(shown.len(), 6);
 }
 

@@ -84,6 +84,12 @@ pub(crate) fn render(
 
     let panel = div()
         .id("palette")
+        .key_context(crate::views::PALETTE_KEY_CONTEXT)
+        .on_action(
+            cx.listener(|this, _: &crate::actions::PlayPaletteTrack, window, cx| {
+                this.run_palette_selection(true, window, cx);
+            }),
+        )
         .flex()
         .flex_col()
         .w(px(PANEL_WIDTH))

@@ -2353,6 +2353,20 @@ impl Render for EuphoriaApp {
                     this.open_focus_view(window, cx);
                 }),
             )
+            .on_action(
+                cx.listener(|this, _: &crate::actions::OpenCommandPalette, window, cx| {
+                    if this.palette.open.is_some() {
+                        this.close_command_palette(window, cx);
+                    } else {
+                        this.open_command_palette(window, cx);
+                    }
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::actions::PlanTransition, window, cx| {
+                    this.plan_transition_from_playing(window, cx);
+                }),
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     if this.close_panels(cx) {

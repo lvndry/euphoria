@@ -53,6 +53,14 @@ const WHOLE_TEMPO_TOLERANCE: f32 = 1.0;
 /// The same, when the tempo is typed with decimals.
 const DECIMAL_TEMPO_TOLERANCE: f32 = 0.5;
 
+/// How many of a track's search fields name it: the title, the artist and
+/// the file name. The folder and the genre come after.
+const NAME_FIELDS: usize = 3;
+
+/// How much less a match in the folder or the genre counts than one in a
+/// name.
+const SIDE_FIELD_PENALTY: i32 = 400;
+
 /// A command the palette can run: the same actions the menus carry.
 pub(crate) struct CommandEntry {
     /// A stable name, used to count how often the command is used.
@@ -460,9 +468,19 @@ fn tempo_range(token: &str) -> Option<(f32, f32, f32)> {
         return None;
     }
     if let Some((from, to)) = typed.split_once('-') {
+        if [from, to].iter().any(|end| {
+            let digits = end.split('.').next().unwrap_or_default().len();
+            !(2..=3).contains(&digits) || end.starts_with('0')
+        }) {
+            return None;
+        }
         let (first, second) = (parse_bpm(from)?, parse_bpm(to)?);
         let (slowest, fastest) = (first.min(second), first.max(second));
         return Some((slowest, fastest, (slowest + fastest) / 2.0));
+    }
+    let whole_digits = typed.split('.').next().unwrap_or_default().len();
+    if !(2..=3).contains(&whole_digits) || typed.starts_with('0') {
+        return None;
     }
     let tempo = parse_bpm(&typed)?;
     let tolerance = if typed.contains('.') {
@@ -616,8 +634,16 @@ pub(crate) fn find_tracks(tracks: &[Track], query: &ParsedQuery) -> TrackAnswer 
         for word in &query.words {
             let best = fields
                 .iter()
-                .filter(|field| !field.is_empty())
-                .filter_map(|field| fuzzy_score(field, word))
+                .enumerate()
+                .filter(|(_, field)| !field.is_empty())
+                .filter_map(|(position, field)| {
+                    let penalty = if position < NAME_FIELDS {
+                        0
+                    } else {
+                        SIDE_FIELD_PENALTY
+                    };
+                    fuzzy_score(field, word).map(|score| score - penalty)
+                })
                 .max();
             match best {
                 Some(word_score) => score += word_score,
@@ -1123,7 +1149,7 @@ mod tests {
         assert!(found.total > 0, "the demo library has such tracks");
         for hit in &found.hits {
             let track = &library.tracks()[hit.index];
-            assert!(track.path.to_string_lossy().to_lowercase().contains("deep"));
+            assert!(track.folder.to_lowercase().contains("deep"));
             assert!((120.0..=126.0).contains(&track.bpm().unwrap()));
             assert!(hit.relation.is_some());
         }
@@ -1138,7 +1164,7 @@ mod tests {
         );
         assert!(fuzzy_score("glass signal", "glsig").is_some());
         assert_eq!(fuzzy_score("glass signal", "gz"), None);
-        assert_eq!(fuzzy_score("glass signal", "sgl"), None);
+        assert_eq!(fuzzy_score("glass signal", "lgs"), None);
         let library = library_of(100);
         let found = find_tracks(library.tracks(), &ParsedQuery::parse("cobalt"));
         assert!(found.total > 0);

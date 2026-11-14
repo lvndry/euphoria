@@ -45,6 +45,10 @@ use crate::theme::Palette;
 /// and the player are bound in.
 pub(crate) const LIBRARY_KEY_CONTEXT: &str = "Library";
 
+/// The key context of the command palette, where Command Enter plays the
+/// selected track.
+pub(crate) const PALETTE_KEY_CONTEXT: &str = "CommandPalette";
+
 /// Size of ordinary interface text.
 pub(crate) const TEXT_SIZE: Pixels = px(13.0);
 /// Size of secondary text such as counts and progress.

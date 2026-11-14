@@ -56,6 +56,8 @@ actions!(
         ResetColumnWidths,
         /// Opens the command palette, the one box for tracks and commands.
         OpenCommandPalette,
+        /// Plays the track the command palette has selected.
+        PlayPaletteTrack,
         /// Opens the focus view on the playing track and plans a transition
         /// into its best match.
         PlanTransition,
