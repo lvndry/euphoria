@@ -82,6 +82,10 @@ mod tag_flow;
 mod tag_settings;
 mod tag_writing;
 mod theme;
+mod track_filter_flow;
+#[cfg(test)]
+mod track_filter_ui_tests;
+mod track_filters;
 mod track_overview;
 mod transition_plan;
 #[cfg(test)]

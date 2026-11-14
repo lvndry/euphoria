@@ -30,6 +30,7 @@ pub(crate) mod stems;
 pub(crate) mod tag_editor;
 pub(crate) mod tag_panel;
 pub(crate) mod toolbar;
+pub(crate) mod track_filter_bar;
 pub(crate) mod track_overview;
 pub(crate) mod track_table;
 pub(crate) mod waveform;

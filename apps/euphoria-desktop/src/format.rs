@@ -75,6 +75,17 @@ pub(crate) fn track_summary(shown: usize, total: usize, from_cache: usize) -> St
     summary
 }
 
+/// The same summary as [`track_summary`], but always "N of M", for a list
+/// narrowed by filters.
+pub(crate) fn track_summary_filtered(shown: usize, total: usize, from_cache: usize) -> String {
+    let noun = if total == 1 { "track" } else { "tracks" };
+    let mut summary = format!("{} of {} {noun}", count(shown), count(total));
+    if from_cache > 0 {
+        summary.push_str(&format!(", {} from cache", count(from_cache)));
+    }
+    summary
+}
+
 /// A quality verdict in a word or two, for the table.
 pub(crate) fn quality_verdict(verdict: QualityVerdict) -> &'static str {
     match verdict {

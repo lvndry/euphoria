@@ -75,13 +75,19 @@ fn is_due(waiting: usize, waited: Duration, is_analyzing: bool) -> bool {
 /// The strip's sentence about tracks held for a running program.
 pub(crate) fn held_sentence(count: usize, programs: &[&str]) -> String {
     let tracks = if count == 1 {
-        "1 track is".to_string()
+        "1 track has".to_string()
     } else {
-        format!("{} tracks are", crate::format::count(count))
+        format!("{} tracks have", crate::format::count(count))
+    };
+    let programs = programs.join(" and ");
+    let (verb, pronoun) = if programs.contains(" and ") {
+        ("are", "them")
+    } else {
+        ("is", "it")
     };
     format!(
-        "{tracks} ready to tag. Close {} and choose Write tags, or write now.",
-        programs.join(" and ")
+        "{tracks} a key and tempo to write into the file. Waiting because {programs} {verb} \
+         open: close {pronoun} and choose Write tags, or write now."
     )
 }
 
@@ -312,12 +318,13 @@ mod tests {
     fn the_held_sentence_names_the_count_and_the_programs() {
         assert_eq!(
             held_sentence(1, &["rekordbox"]),
-            "1 track is ready to tag. Close rekordbox and choose Write tags, or write now."
+            "1 track has a key and tempo to write into the file. Waiting because rekordbox is \
+             open: close it and choose Write tags, or write now."
         );
         assert_eq!(
             held_sentence(12, &["rekordbox", "Traktor"]),
-            "12 tracks are ready to tag. Close rekordbox and Traktor and choose Write tags, or \
-             write now."
+            "12 tracks have a key and tempo to write into the file. Waiting because rekordbox and \
+             Traktor are open: close them and choose Write tags, or write now."
         );
     }
 }

@@ -26,6 +26,10 @@ pub(crate) const TEMPO_RULE: &str = "Tempo: type 30 to 300 (127,5 and 127.5 both
      over it, or use the arrows (Alt: 0.1). Until you set a value it follows the selected \
      track's tempo, starting at 120. Once you set one, it stays until you change it.";
 
+/// The tempo filter's tooltip: the same rule as the metronome field.
+pub(crate) const TEMPO_RANGE_RULE: &str = "Tempo range: type 30 to 300 (127,5 and 127.5 both work). \
+     Leave a side empty for no limit. Uses the corrected tempo when there is one.";
+
 /// The step of the tempo arrows, in beats per minute.
 pub(crate) const BPM_STEP: f32 = 1.0;
 

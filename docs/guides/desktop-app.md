@@ -59,6 +59,25 @@ The Folder column shows the path from the folder chosen in the sidebar to the fi
 
 Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
 
+### Filter by tempo, energy and quality
+
+The **Filter** button at the right of the heading, beside the track count, opens a bar of filters under the heading. Nothing else shows until you use it. The bar stays open while any filter is set, and the button closes it again once none is.
+
+| Filter | How it works |
+| --- | --- |
+| BPM | A minimum and a maximum, from 30 to 300, typed with a point or a comma (`127.5` or `127,5`), the same field rules as the [metronome](#metronome). Leave one side empty for no limit. It uses the tempo you corrected when there is one. |
+| ½ / 2× | Off by default. When on, a track also matches if half or double its tempo falls in the range, so 70 to 75 also shows a 142 BPM track (and a 36 BPM one). It does nothing without a BPM range. |
+| Energy | A minimum and a maximum, from 1 to 10. It uses the energy you corrected when there is one. |
+| Quality | Chips for Lossless, Good, Acceptable, Weak, Limited BW, Re-encoded? and Damaged, named as in the Quality column (pointing at a chip shows the full verdict name). A track matches when it has any of the chosen ones; Damaged matches files with [dropped or missing audio](../concepts/audio-quality.md) whatever their verdict. |
+
+The filters combine with each other (a track must pass every filter that is set), with the folder, playlist, **Needs review** or **Favorites** you chose in the sidebar, and with the search box. They apply as you type. A value that is not a number in range leaves that side open.
+
+Tracks that are still queued, being analyzed, failed or missing have no tempo, energy or quality yet, so they are hidden while a BPM, energy or quality filter is set. They come back when you clear it.
+
+While a filter is set the heading says, for example, `37 of 1,284 tracks`. **Clear** at the end of the bar removes every filter and empties the fields; it leaves the ½ / 2× choice as it was. The filters are remembered between launches in `settings.json`, so the list opens narrowed the way you left it; a settings file from an older version opens with no filters.
+
+![The track list with a BPM range of 120 to 126, energy from 6 and two quality chips set, and the heading counting the tracks that match](../images/desktop-app/track-filters.png)
+
 ### Resize the columns
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
@@ -587,7 +606,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |

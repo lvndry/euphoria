@@ -17,6 +17,7 @@ use crate::metronome::MetronomeSettings;
 use crate::panels::Panels;
 use crate::tag_settings::TagSettings;
 use crate::theme::ThemeName;
+use crate::track_filters::TrackFilters;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 
@@ -68,6 +69,8 @@ pub(crate) struct Settings {
     pub(crate) metronome: MetronomeSettings,
     /// Which sections of the track detail the user opened or closed.
     pub(crate) inspector_sections: crate::inspector_sections::SectionChoices,
+    /// The filters on the track list.
+    pub(crate) track_filters: TrackFilters,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -148,6 +151,7 @@ mod tests {
     use super::*;
     use crate::columns::ColumnId;
     use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
+    use crate::track_filters::QualityChoice;
 
     fn temporary_folder(name: &str) -> PathBuf {
         let folder =
@@ -210,6 +214,17 @@ mod tests {
                 mixes: Some(false),
                 ..Default::default()
             },
+            track_filters: TrackFilters {
+                bpm_min: Some(70.5),
+                bpm_max: Some(75.0),
+                half_or_double: true,
+                qualities: vec![
+                    QualityChoice::Verdict(euphoria_core::quality::QualityVerdict::Lossless),
+                    QualityChoice::Damaged,
+                ],
+                energy_min: Some(6),
+                energy_max: None,
+            },
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -251,6 +266,7 @@ mod tests {
             focus_lanes: FocusLanes::default(),
             metronome: MetronomeSettings::default(),
             inspector_sections: Default::default(),
+            track_filters: TrackFilters::default(),
         })
         .unwrap();
         assert_eq!(
@@ -266,9 +282,28 @@ mod tests {
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true},"#,
-                r#""inspector_sections":{"mixes":null,"by_ear":null,"key_shift":null,"stems":null,"quality":null,"location":null}}"#
+                r#""inspector_sections":{"mixes":null,"by_ear":null,"key_shift":null,"stems":null,"quality":null,"location":null},"#,
+                r#""track_filters":{"bpm_min":null,"bpm_max":null,"half_or_double":false,"qualities":[],"energy_min":null,"energy_max":null}}"#
             )
         );
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_track_filters_loads_with_none() {
+        let folder = temporary_folder("before-track-filters");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"folders":["/music"],"theme":"deck","metronome":{"sound":"classic","volume":0.7,"accent":true}}"#,
+        )
+        .unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.track_filters, TrackFilters::default());
+        assert!(!loaded.track_filters.is_active());
     }
 
     #[test]
