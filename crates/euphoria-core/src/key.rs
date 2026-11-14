@@ -131,6 +131,87 @@ impl Key {
             Mode::Minor => Key::new(major_tonic + 9, mode),
         })
     }
+
+    /// Parses the key field of an audio file, in the notations DJ programs
+    /// write there: Camelot ("8A", "08A"), Open Key ("1m") and musical
+    /// names ("Am", "A min", "A minor", "Abm", "A♭m", "Bb"). A tempo after
+    /// the key, as in "8A 114" or "8A 114bpm", and an energy label after a
+    /// dash, as in "8A - Energy 7", are ignored. Two readings joined by a
+    /// slash, as in "8A/Am", must name the same key. Returns `None` for
+    /// anything else, including the "o" ID3 uses for a track with no key.
+    pub fn parse_file_key(text: &str) -> Option<Self> {
+        let normalized = text.replace('\u{266F}', "#").replace('\u{266D}', "b");
+        let before_label = normalized.split(" - ").next().unwrap_or_default();
+        let mut readings = before_label.split('/').map(Self::parse_one_file_key);
+        let first = readings.next().flatten()?;
+        readings
+            .all(|reading| reading == Some(first))
+            .then_some(first)
+    }
+
+    fn parse_one_file_key(text: &str) -> Option<Self> {
+        let mut words: Vec<&str> = text.split_whitespace().collect();
+        if words.len() > 1 && words.last().copied().is_some_and(is_tempo) {
+            words.pop();
+        }
+        match words.as_slice() {
+            [code] => Self::from_wheel_code(code).or_else(|| Self::from_musical_name(code, "")),
+            [note, mode] => Self::from_musical_name(note, mode),
+            _ => None,
+        }
+    }
+
+    /// Reads a musical name: a note with an optional sharp or flat, and the
+    /// mode either joined to it ("Am", "Amin") or as the next word
+    /// (`separate_mode`, as in "A minor"). A bare note is major. A lone
+    /// capital "M" is rejected, as programs disagree on what it means.
+    fn from_musical_name(note: &str, separate_mode: &str) -> Option<Self> {
+        let mut characters = note.chars();
+        let natural: i16 = match characters.next()?.to_ascii_uppercase() {
+            'C' => 0,
+            'D' => 2,
+            'E' => 4,
+            'F' => 5,
+            'G' => 7,
+            'A' => 9,
+            'B' => 11,
+            _ => return None,
+        };
+        let rest = characters.as_str();
+        let (accidental, joined_mode): (i16, &str) = if let Some(after) = rest.strip_prefix('#') {
+            (1, after)
+        } else if let Some(after) = rest.strip_prefix('b') {
+            (-1, after)
+        } else {
+            (0, rest)
+        };
+        let mode_text = match (joined_mode, separate_mode) {
+            (joined, "") => joined,
+            ("", separate) => separate,
+            _ => return None,
+        };
+        let mode = match mode_text {
+            "" => Mode::Major,
+            "m" => Mode::Minor,
+            other => match other.to_ascii_lowercase().as_str() {
+                "min" | "minor" => Mode::Minor,
+                "maj" | "major" => Mode::Major,
+                _ => return None,
+            },
+        };
+        let tonic = (natural + accidental).rem_euclid(12) as u8;
+        Some(Key::new(tonic, mode))
+    }
+}
+
+/// True for a tempo written after a key: a positive number, optionally
+/// followed by "bpm".
+fn is_tempo(word: &str) -> bool {
+    let lowercase = word.to_ascii_lowercase();
+    let number = lowercase.strip_suffix("bpm").unwrap_or(&lowercase);
+    number
+        .parse::<f32>()
+        .is_ok_and(|tempo| tempo.is_finite() && tempo > 0.0)
 }
 
 impl fmt::Display for Key {
@@ -256,6 +337,99 @@ mod tests {
         ];
         for (tonic, mode, name) in expectations {
             assert_eq!(Key::new(tonic, mode).to_string(), name);
+        }
+    }
+
+    #[test]
+    fn file_key_fields_are_read_in_every_notation_programs_write() {
+        let a_minor = Key::new(9, Mode::Minor);
+        let a_minor_spellings = [
+            "8A",
+            "08A",
+            "8a",
+            "1m",
+            "Am",
+            "am",
+            "Amin",
+            "A min",
+            "A minor",
+            "A Minor",
+            "8A 114",
+            "8A 114bpm",
+            "a minor 114",
+            "8A - Energy 7",
+            "8A/Am",
+            "Am/8A",
+            "  Am  ",
+        ];
+        for text in a_minor_spellings {
+            assert_eq!(Key::parse_file_key(text), Some(a_minor), "{text}");
+        }
+        let expectations = [
+            ("8B", Key::new(0, Mode::Major)),
+            ("C", Key::new(0, Mode::Major)),
+            ("Cmaj 122", Key::new(0, Mode::Major)),
+            ("1d", Key::new(0, Mode::Major)),
+            ("Ebm", Key::new(3, Mode::Minor)),
+            ("Eb minor", Key::new(3, Mode::Minor)),
+            ("D#m", Key::new(3, Mode::Minor)),
+            ("Bb", Key::new(10, Mode::Major)),
+            ("bbm", Key::new(10, Mode::Minor)),
+            ("A\u{266D}m", Key::new(8, Mode::Minor)),
+            ("F\u{266F}", Key::new(6, Mode::Major)),
+            ("b min", Key::new(11, Mode::Minor)),
+            ("12A", Key::new(1, Mode::Minor)),
+        ];
+        for (text, key) in expectations {
+            assert_eq!(Key::parse_file_key(text), Some(key), "{text}");
+        }
+    }
+
+    #[test]
+    fn every_key_euphoria_writes_reads_back() {
+        for tonic in 0..12 {
+            for mode in [Mode::Major, Mode::Minor] {
+                let key = Key::new(tonic, mode);
+                for written in [
+                    key.camelot(),
+                    key.open_key(),
+                    key.short_name(),
+                    key.to_string(),
+                    format!("{} - Energy 7", key.camelot()),
+                ] {
+                    assert_eq!(Key::parse_file_key(&written), Some(key), "{written}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn text_that_is_not_a_key_is_not_read_as_one() {
+        let unreadable = [
+            "",
+            "   ",
+            "o",
+            "unknown",
+            "Energy 7",
+            "8A something 114",
+            "13A",
+            "0A",
+            "8C",
+            "8",
+            "H minor",
+            "AM",
+            "A dorian",
+            "Am minor",
+            "A minor major",
+            "8A/9A",
+            "8A 0",
+            "8A -114",
+            "\u{1F525}\u{1F525}",
+            "\0\0\0",
+            "8A 114 extra",
+        ];
+        for text in unreadable {
+            assert_eq!(Key::parse_file_key(text), None, "{text:?}");
         }
     }
 

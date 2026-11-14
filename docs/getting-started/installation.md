@@ -9,16 +9,22 @@ On a Mac with Apple Silicon, install the app or the command line tool with [Home
 
 ## Install with Homebrew
 
-The command line tool, for a Mac with Apple Silicon:
+Add the Euphoria tap once:
 
 ```
-brew install lvndry/euphoria/euphoria
+brew tap lvndry/euphoria
 ```
 
-The app:
+Then install the command line tool, for a Mac with Apple Silicon:
 
 ```
-brew install --cask lvndry/euphoria/euphoria
+brew install euphoria
+```
+
+and the app:
+
+```
+brew install --cask euphoria
 ```
 
 The tap, [lvndry/homebrew-euphoria](https://github.com/lvndry/homebrew-euphoria), is updated after each release. A Homebrew install runs the app like a downloaded one: open it the first time as described [below](#opening-the-app-for-the-first-time).

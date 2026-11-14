@@ -65,7 +65,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. See [Missing files](#missing-files).
@@ -105,6 +105,17 @@ The inspector shows the selected track: its name, format and length, its key, te
 The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, beside the box's name. Low is shown in red, and puts the track under **Needs review**. Point at the word for what it means.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
+
+### When the tags name another key
+
+Euphoria reads the key already written in each file's tags, by Euphoria, rekordbox, Mixed In Key, Traktor or any other program, in Camelot, Open Key or musical notation. When it names another key than the one detected, a red **≠** sits beside the key in the table, the track is listed under **Needs review**, and the inspector says under the Key box what the tags say and how the two keys differ:
+
+- **a fifth apart**: one step on the Camelot wheel, such as 8A and 9A. The keys share six of their seven notes, the most common mix-up between detectors, and both mix well with the same tracks.
+- **relative key**: the same number with the other letter, such as 8A and 8B. The keys share all seven notes; listen for whether the track sounds minor or major.
+- **parallel key**: the same home note in the other mode, such as A minor and A major. Listen for minor or major before you trust either.
+- **different key**: the keys share few notes, so one reading is wrong or the track changes key. Check by ear before you mix on it.
+
+Point at the **≠** for the key from the tags. When the tags agree, the inspector says so quietly; text that is not a key, such as a word typed into the key field, is shown as it is and does not put the track under Needs review. Setting the key yourself, as the next section explains, takes the track off the list. The tags are only read: nothing changes them until you [write tags](#write-tags), after which they name the key you see.
 
 ### Check the key by ear and correct it
 
@@ -274,6 +285,8 @@ The app can write the key, tempo and energy it found into the files themselves, 
 
 **Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
 
+**Cue markers**: with the **Cue markers** setting in [How tags are written](#settings) on, the write also adds each track's cues and beat grid where Serato DJ, Mixxx and VirtualDJ read them. The cues you edited in the app go in on the pads you gave them; memory cues, ones on no pad, are left out. The preview shows the cue points and beat grid each file gets, and below it lists the files where a cue went to another pad, where cues were left out, where your own Serato beat grid is kept, or where a file gets no Serato data. Those files still get their key and other tags. **Undo this write** puts these back byte for byte, Serato fields included. [Cue points and beat grids for Serato](serato-cues.md) explains what is written and how to bring it into Serato.
+
 A key or tempo you corrected is written in place of the detected one. Each file written, and each file put back by an undo, is recorded in the [analysis cache](../reference/cli.md#the-analysis-cache) as it is, so it is not analyzed again the next time the app starts, and its corrections stay with it.
 
 ## Playlists
@@ -356,6 +369,7 @@ How tags are written:
 | Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
 | Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. |
 | Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
+| Cue markers | Whether each track's cues and beat grid are written as Serato cue points, which Serato DJ, Mixxx and VirtualDJ read. Off by default. Your edited cues go in on their pads; memory cues are left out. WAV and Ogg files get none. |
 
 ## When a file fails
 

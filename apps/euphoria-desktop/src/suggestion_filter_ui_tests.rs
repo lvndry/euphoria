@@ -153,6 +153,7 @@ fn a_typed_genre_keeps_the_tracks_whose_genre_holds_it(cx: &mut TestAppContext) 
                         title: None,
                         artist: None,
                         genre: Some("Deep House".to_string()),
+                        key: None,
                     },
                 ),
                 (
@@ -161,6 +162,7 @@ fn a_typed_genre_keeps_the_tracks_whose_genre_holds_it(cx: &mut TestAppContext) 
                         title: None,
                         artist: None,
                         genre: Some("Techno".to_string()),
+                        key: None,
                     },
                 ),
             ];

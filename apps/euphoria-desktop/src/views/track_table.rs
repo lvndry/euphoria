@@ -265,8 +265,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
 }
 
 /// Why tracks are listed under Needs review, under its heading.
-const REVIEW_EXPLANATION: &str =
-    "A key or tempo rated low confidence, or a file that could not be analyzed. Check them by ear.";
+const REVIEW_EXPLANATION: &str = "A key or tempo rated low confidence, a key that differs from the one in the file's tags (\u{2260}), or a file that could not be analyzed. Check them by ear.";
 
 fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let layout = &app.table_layout;
@@ -605,7 +604,19 @@ fn cell_contents(
             .into_any_element(),
         ColumnId::Key => match (&track.status, track.key()) {
             (TrackStatus::Missing, _) => status_text("Missing", palette.danger, true),
-            (_, Some(key)) => key_chip(&key, theme, app.display.key_notation).into_any_element(),
+            (_, Some(key)) => {
+                let chip = key_chip(&key, theme, app.display.key_notation);
+                match key_conflict_mark(track, track_index, app, &palette) {
+                    Some(mark) => div()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.0))
+                        .child(chip)
+                        .child(mark)
+                        .into_any_element(),
+                    None => chip.into_any_element(),
+                }
+            }
             (TrackStatus::Queued, _) => status_text("Queued", palette.text_tertiary, false),
             (TrackStatus::Analyzing, _) => status_text("Analyzing", palette.accent, true),
             (TrackStatus::Failed(_), _) => status_text("Failed", palette.danger, true),
@@ -672,6 +683,35 @@ fn optional_text(track: &Track, value: Option<String>, palette: &Palette) -> Div
         Some(text) => div().child(text),
         None => div(),
     }
+}
+
+/// A mark beside the key when the file's tags name another key, with the
+/// key from the tags and how it differs on hover.
+fn key_conflict_mark(
+    track: &Track,
+    track_index: usize,
+    app: &EuphoriaApp,
+    palette: &Palette,
+) -> Option<AnyElement> {
+    let difference = track.key_conflict()?;
+    let tagged = track.tag_key.as_ref()?.key?;
+    let explanation: SharedString = format!(
+        "The tags say {} ({tagged}), {}. Listed under Needs review.",
+        app.display.key_notation.spell(&tagged),
+        difference.label()
+    )
+    .into();
+    Some(
+        div()
+            .id(("key-conflict", track_index))
+            .text_size(SMALL_TEXT_SIZE)
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(palette.danger)
+            .child("\u{2260}")
+            .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
+            .test_support()
+            .into_any_element(),
+    )
 }
 
 fn missing_value(palette: &Palette) -> Div {
