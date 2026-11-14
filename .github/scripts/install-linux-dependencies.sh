@@ -10,6 +10,22 @@ set -euo pipefail
 
 attempts=5
 
+# cmake, FFTW and pkg-config build libkeyfinder and the core. The desktop app
+# adds the libraries GPUI's X11 and Wayland back ends and cpal's ALSA output
+# link against, and libclang for the bindings of the time stretcher. patchelf
+# and rsvg-convert package the AppImage.
+packages=(
+  cmake libfftw3-dev pkg-config
+  libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev
+  libx11-xcb-dev libxkbcommon-x11-dev libclang-dev
+  patchelf librsvg2-bin
+)
+
+if [[ "${1:-}" == "--list-packages" ]]; then
+  printf '%s\n' "${packages[@]}"
+  exit 0
+fi
+
 retry() {
   local attempt=1
   until "$@"; do
@@ -37,18 +53,12 @@ update_package_lists() {
   ! grep -q '^W: Failed to fetch\|^E: ' <<<"$output"
 }
 
-retry update_package_lists
-# cmake, FFTW and pkg-config build libkeyfinder and the core. The desktop app
-# adds the libraries GPUI's X11 and Wayland back ends and cpal's ALSA output
-# link against, and libclang for the bindings of the time stretcher. patchelf
-# and rsvg-convert package the AppImage.
-packages=(
-  cmake libfftw3-dev pkg-config
-  libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev
-  libx11-xcb-dev libxkbcommon-x11-dev libclang-dev
-  patchelf librsvg2-bin
-)
-retry sudo apt-get install -y -o Acquire::Retries=3 "${packages[@]}"
+# The CI workflows restore these packages from a cache and set
+# EUPHORIA_APT_PACKAGES_INSTALLED, which skips the mirror round trips.
+if [[ "${EUPHORIA_APT_PACKAGES_INSTALLED:-}" != "1" ]]; then
+  retry update_package_lists
+  retry sudo apt-get install -y -o Acquire::Retries=3 "${packages[@]}"
+fi
 retry "$(dirname "$0")/install-libkeyfinder.sh"
 
 # The stem separation links the ONNX Runtime that the ort crate downloads,
