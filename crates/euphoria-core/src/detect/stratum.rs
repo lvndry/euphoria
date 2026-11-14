@@ -241,10 +241,11 @@ fn tempogram_tempo(
         config.frame_size,
         config.hop_size,
     );
+    let score_margin = octave_score_margin(estimate, &candidates);
     let estimate = tempo_choice::choose(&pulse, &leading).map_or(estimate, |chosen| chosen.tempo);
     Some(TempoReading {
         estimate,
-        score_margin: Some(octave_score_margin(estimate, &candidates)),
+        score_margin: Some(score_margin),
     })
 }
 

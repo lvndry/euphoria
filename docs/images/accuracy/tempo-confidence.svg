@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="292" viewBox="0 0 800 292" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">How often the tempo is right at each confidence</title>
-<desc id="chart-desc">Horizontal bars of how often the tempo is right modulo octaves on the held out half of the GiantSteps Tempo previews, by confidence: 97.7% of the 39% rated high, 89.8% of the 42% rated medium and 62.5% of the 19% rated low.</desc>
+<desc id="chart-desc">Horizontal bars of how often the tempo is right modulo octaves on the held out half of the GiantSteps Tempo previews, by confidence: 98.4% of the 39% rated high, 95.6% of the 42% rated medium and 89.1% of the 19% rated low.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -45,12 +45,12 @@
 <text x="700" y="248" class="tick" text-anchor="middle">100%</text>
 <text x="445" y="272" class="label" text-anchor="middle">Share of previews whose tempo is right modulo octaves</text>
 <text x="176" y="122.5" class="label" text-anchor="end">High, 39% of tracks</text>
-<path class="series-fill" d="M190,108 H684.27 Q688.27,108 688.27,112 V124 Q688.27,128 684.27,128 H190 Z"/>
-<text x="698.27" y="122.5" class="value halo" text-anchor="start">97.7%</text>
+<path class="series-fill" d="M190,108 H687.84 Q691.84,108 691.84,112 V124 Q691.84,128 687.84,128 H190 Z"/>
+<text x="701.84" y="122.5" class="value halo" text-anchor="start">98.4%</text>
 <text x="176" y="166.5" class="label" text-anchor="end">Medium, 42% of tracks</text>
-<path class="series-fill" d="M190,152 H643.98 Q647.98,152 647.98,156 V168 Q647.98,172 643.98,172 H190 Z"/>
-<text x="657.98" y="166.5" class="value halo" text-anchor="start">89.8%</text>
+<path class="series-fill" d="M190,152 H673.56 Q677.56,152 677.56,156 V168 Q677.56,172 673.56,172 H190 Z"/>
+<text x="687.56" y="166.5" class="value halo" text-anchor="start">95.6%</text>
 <text x="176" y="210.5" class="label" text-anchor="end">Low, 19% of tracks</text>
-<path class="series-fill" d="M190,196 H504.75 Q508.75,196 508.75,200 V212 Q508.75,216 504.75,216 H190 Z"/>
-<text x="518.75" y="210.5" class="value halo" text-anchor="start">62.5%</text>
+<path class="series-fill" d="M190,196 H640.41 Q644.41,196 644.41,200 V212 Q644.41,216 640.41,216 H190 Z"/>
+<text x="654.41" y="210.5" class="value halo" text-anchor="start">89.1%</text>
 </svg>
