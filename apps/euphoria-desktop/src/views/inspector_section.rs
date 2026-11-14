@@ -127,9 +127,8 @@ pub(crate) fn tabs(
         .flex()
         .flex_shrink_0()
         .flex_wrap()
-        .content_start()
         .gap(px(4.0))
-        .w(px(156.0))
+        .w_full()
         .children(SectionKind::ALL.into_iter().map(|kind| {
             let is_shown = kind == shown;
             let hover_background = palette.raised;

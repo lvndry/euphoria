@@ -51,7 +51,10 @@ pub(crate) const STRIP_TITLE_COLUMN: f32 = 220.0;
 
 /// The width of the key, tempo and energy boxes in the Deck strip, room for
 /// "per minute" and "C# minor" whole.
-const STRIP_STATISTICS_WIDTH: f32 = 280.0;
+const STRIP_STATISTICS_WIDTH: f32 = 264.0;
+
+/// The width of the last area of the strip: the tabs over the section they show.
+const STRIP_SECTION_WIDTH: f32 = 272.0;
 
 /// Space around the contents of the inspector.
 const PADDING: f32 = 16.0;
@@ -176,7 +179,7 @@ pub(crate) fn render(
     let sized = |section: Div, strip_width: Option<f32>| match (is_column, strip_width) {
         (true, _) => section,
         (false, Some(width)) => section.w(px(width)).flex_shrink_0(),
-        (false, None) => section.flex_1().min_w(px(320.0)),
+        (false, None) => section.flex_1().min_w(px(300.0)),
     };
     let divided = |section: Div| {
         if is_column {
@@ -220,7 +223,7 @@ pub(crate) fn render(
         )
     };
     let top = top
-        .child(sized(header, Some(STRIP_TITLE_COLUMN + 24.0)))
+        .child(sized(header, Some(STRIP_TITLE_COLUMN + 4.0)))
         .children(review::section(track, app, cx).map(|section| sized(section, Some(300.0))))
         .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
         .child(sized(
@@ -237,18 +240,25 @@ pub(crate) fn render(
         let shown = app.strip_section_shown();
         let content = section_body(shown, track, app, room, cx);
         return frame
+            .child(top)
             .child(
-                top.child(
-                    div()
-                        .id("strip-section")
-                        .flex_shrink_0()
-                        .w(px(260.0))
-                        .h_full()
-                        .overflow_y_scroll()
-                        .children(content),
-                ),
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_shrink_0()
+                    .w(px(STRIP_SECTION_WIDTH))
+                    .h_full()
+                    .gap(px(8.0))
+                    .child(inspector_section::tabs(app, shown, cx))
+                    .child(
+                        div()
+                            .id("strip-section")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .children(content),
+                    ),
             )
-            .child(inspector_section::tabs(app, shown, cx))
             .test_support()
             .into_any_element();
     }
@@ -908,7 +918,7 @@ const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 
 /// The least width of a box of the strip, room for "per minute" and
 /// "C# minor" at their size beside the padding.
-const STATISTIC_CELL_WIDTH: f32 = 92.0;
+const STATISTIC_CELL_WIDTH: f32 = 84.0;
 
 /// One line of the column: the label, and beside it the value with its
 /// note under it and under that how far to trust the value.
