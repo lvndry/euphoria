@@ -59,6 +59,12 @@ const MINIMUM_SECTION_BARS: usize = 4;
 /// track is 1. Music that barely changes, such as a steady loop, has only
 /// smaller changes and keeps the Start cue alone.
 const NUMBERED_SECTION_STRENGTH: f32 = 0.4;
+/// A fall from the body of a track is a DJ's breakdown when its low end is
+/// this far below the body's, or when this much larger a share of its bars
+/// lose the kick. On one DJ library almost every track with a fall has one
+/// this deep, while half the live band recordings of SALAMI have none.
+const BREAKDOWN_LOW_DROP_DB: f32 = 4.0;
+const BREAKDOWN_KICK_DROP: f32 = 0.5;
 /// A bar is silent when it is this far below the loudest bar of the track.
 const SILENT_BELOW_LOUDEST_DB: f32 = 40.0;
 /// A bar has a kick when the band below 150 Hz is at least this much louder
@@ -535,11 +541,82 @@ fn numbered_cues(segments: &[Segment]) -> Vec<(f64, CueSection)> {
         .collect()
 }
 
-/// Whether the energy cues of a track describe it: they name more than its
-/// start.
-fn follows_energy_arc(cues: &[(f64, CueSection)]) -> bool {
-    cues.iter()
-        .any(|(_, section)| *section != CueSection::Start)
+/// How a stretch of bars sounds, from the medians of its bars.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SectionLevel {
+    /// The median low end, in decibels.
+    low: f32,
+    /// The share of its bars with a kick.
+    kick_share: f32,
+}
+
+fn section_level(segment: &Segment, measures: &[BarMeasure]) -> SectionLevel {
+    let bars = &measures[segment.start..segment.start + segment.bars];
+    let mut lows: Vec<f32> = bars.iter().map(|measure| measure.low).collect();
+    lows.sort_by(f32::total_cmp);
+    SectionLevel {
+        low: lows
+            .get(lows.len() / 2)
+            .copied()
+            .unwrap_or(f32::NEG_INFINITY),
+        kick_share: bars
+            .iter()
+            .filter(|measure| measure.kick >= KICK_PRESENT_DB)
+            .count() as f32
+            / bars.len().max(1) as f32,
+    }
+}
+
+/// Whether the energy cues of a track describe it. They must name more than
+/// its start, and when the track falls below its body between two sections
+/// at full energy, at least one of those falls must be a DJ's breakdown: the
+/// low end at least [`BREAKDOWN_LOW_DROP_DB`] below the body's, or the kick
+/// gone from at least [`BREAKDOWN_KICK_DROP`] more of its bars. A band that
+/// plays a quieter verse or a solo dips less, and its sections are numbered
+/// instead of being called breakdowns and drops.
+fn follows_energy_arc(
+    cues: &[(f64, CueSection)],
+    sections: &[(Segment, SectionEnergy)],
+    measures: &[BarMeasure],
+) -> bool {
+    if cues
+        .iter()
+        .all(|(_, section)| *section == CueSection::Start)
+    {
+        return false;
+    }
+    let high: Vec<usize> = sections
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, energy))| *energy == SectionEnergy::High)
+        .map(|(index, _)| index)
+        .collect();
+    let (Some(&first_high), Some(&last_high)) = (high.first(), high.last()) else {
+        return true;
+    };
+    let (mut body_bars, mut body_low, mut body_kick) = (0.0_f32, 0.0_f32, 0.0_f32);
+    for &index in &high {
+        let (segment, _) = &sections[index];
+        let level = section_level(segment, measures);
+        let bars = segment.bars as f32;
+        body_bars += bars;
+        body_low += level.low * bars;
+        body_kick += level.kick_share * bars;
+    }
+    let body_low = body_low / body_bars.max(1.0);
+    let body_kick = body_kick / body_bars.max(1.0);
+    let mut breakdowns = sections[first_high..last_high]
+        .iter()
+        .filter(|(_, energy)| *energy == SectionEnergy::Low)
+        .map(|(segment, _)| section_level(segment, measures))
+        .peekable();
+    if breakdowns.peek().is_none() {
+        return true;
+    }
+    breakdowns.any(|level| {
+        body_low - level.low >= BREAKDOWN_LOW_DROP_DB
+            || body_kick - level.kick_share >= BREAKDOWN_KICK_DROP
+    })
 }
 
 /// At most [`MAXIMUM_CUES`] of `cues`: the start, the main section and the
@@ -577,8 +654,9 @@ pub(crate) fn find_cues(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<Sectio
     };
     let boundaries = section_boundaries(envelope, Some(grid));
     let segments = segments(&boundaries, grid, first, last + 1);
-    let energy = energy_cues(&section_energies(&segments, &measures));
-    let cues = if follows_energy_arc(&energy) {
+    let sections = section_energies(&segments, &measures);
+    let energy = energy_cues(&sections);
+    let cues = if follows_energy_arc(&energy, &sections, &measures) {
         keep_most_useful(energy)
     } else {
         numbered_cues(&segments)
@@ -983,11 +1061,12 @@ mod tests {
         assert_eq!(cues[0], (0.0, CueSection::Start));
         assert_eq!(cues[1], (60.0, CueSection::Section(2)));
         assert_eq!(cues[7], (180.0, CueSection::Section(8)));
-        assert!(!follows_energy_arc(&[(0.0, CueSection::Start)]));
-        assert!(follows_energy_arc(&[
-            (0.0, CueSection::Start),
-            (30.0, CueSection::Main)
-        ]));
+        assert!(!follows_energy_arc(&[(0.0, CueSection::Start)], &[], &[]));
+        assert!(follows_energy_arc(
+            &[(0.0, CueSection::Start), (30.0, CueSection::Main)],
+            &[],
+            &[]
+        ));
     }
 
     #[test]
@@ -1010,6 +1089,47 @@ mod tests {
             detect_beat_grid_and_cues(&silence, TEMPO),
             (None, Vec::new())
         );
+    }
+
+    #[test]
+    fn a_dip_that_keeps_the_low_end_and_the_kick_is_not_a_breakdown() {
+        let bar = |low: f32, kick: f32| BarMeasure {
+            loudness: -10.0,
+            low,
+            high: -20.0,
+            kick,
+        };
+        let stretch = |start: usize, seconds: f64| Segment {
+            start,
+            bars: 8,
+            seconds,
+            strength: 1.0,
+        };
+        let sections = [
+            (stretch(0, 0.0), SectionEnergy::High),
+            (stretch(8, 16.0), SectionEnergy::Low),
+            (stretch(16, 32.0), SectionEnergy::High),
+        ];
+        let cues = [
+            (0.0, CueSection::Start),
+            (16.0, CueSection::Breakdown),
+            (32.0, CueSection::Drop),
+        ];
+        let with_dip = |low: f32, kick: f32| -> Vec<BarMeasure> {
+            (0..24)
+                .map(|index| {
+                    if (8..16).contains(&index) {
+                        bar(low, kick)
+                    } else {
+                        bar(-12.0, 6.0)
+                    }
+                })
+                .collect()
+        };
+
+        assert!(!follows_energy_arc(&cues, &sections, &with_dip(-14.0, 6.0)));
+        assert!(follows_energy_arc(&cues, &sections, &with_dip(-20.0, 6.0)));
+        assert!(follows_energy_arc(&cues, &sections, &with_dip(-14.0, 0.0)));
     }
 
     #[test]
