@@ -84,6 +84,24 @@ The reference encoder keeps more of the top end than LAME at each level, often a
 
 ![Scatter of the lowest cutoff of each encoding against its measured bit rate, over the verdict zones: weak below 144 kbit/s, acceptable to 199, good from 200. Below 144 kbit/s the verdict stays weak regardless of cutoff. From 144 kbit/s, the lowest cutoff of each encoding made once from a lossless source sits above the step line; the lowest cutoff of each transcode to a higher bit rate sits below it, in the likely re-encoded zone. Some transcoded files have no cutoff and cannot be identified.](../images/audio-quality/verdicts.svg)
 
+## Damaged files
+
+A file that is truncated or corrupt used to be analyzed as if it were fine. Euphoria now counts what went wrong while decoding and compares the length it decoded with the length the container declares. A file is **damaged** when the decoder dropped any packet, or the decoded audio is shorter than the declared length by more than 0.5% of it and at least a quarter of a second. Containers round their length, and encoder delay moves it by a few hundredths of a second, so smaller differences are not damage. A file that declares no length can only be damaged by dropped packets.
+
+A packet the decoder rejects, or a stretch a reader had to skip to find the next valid packet, is replaced by silence of the same length. The times after it do not move, so a cue or beat grid time stays right, and the length of the track is still the length of the file. The quality report keeps the number of dropped packets, the seconds of silence, the length the file declares and the length decoded.
+
+A file is **heavily damaged** when the audio lost, the silence put in place of dropped packets plus what is missing against the declared length, is 2% or more of the track, about 8 seconds of a 7 minute track. Below that a gap is shorter than a phrase and the beat grid still fits the rest. From 2% a gap can hide a whole phrase and the sections around it, so Euphoria does not write a beat grid or cues for the file, and says so in the notes. The key, tempo and energy are still reported, with the damage noted, since they come from the whole sound. The threshold is a judgement, not a measurement; it is a constant, `SEVERE_LOST_SHARE`.
+
+Damage shows as a `damaged` flag with the details in `damage` and `notes` in the [JSON](../reference/cli.md#json-output), as a line in the detailed view of `euphoria analyze`, and as a note under the sound quality in the desktop inspector. It does not change the verdict: the verdict is about how the file was encoded.
+
+Reading stops at a read error, such as the end of a file cut inside a packet. That counts as damage only when the audio decoded is short of the declared length: some formats end a normal file with the same error. Tests cover a truncated WAV and MP3, a FLAC with corrupt frames and a heavily damaged file with no cues; they use small generated files. A dropped packet in an MP3 is probably not found from timestamps, since the MP3 reader appears to number packets as it reads them, so an MP3 with one corrupt frame in the middle may show only when its decoded length falls short of its declared one. That case was not tested.
+
+## Channels that cancel
+
+Euphoria mixes a stereo file down to one channel by averaging. Two channels that are inverted copies of each other average to silence, and a file like that, from a phase mistake in a recording or an export, used to be reported as silent. Now every block of about 0.4 seconds of stereo is checked: when its mono mixdown holds less than 5% of the energy of its two channels, the left channel is used for that block. For two channels of equal level, 5% means a correlation below -0.9, which real music does not reach. Wide stereo stays above 20%. A file with 1% or more of its length mixed this way gets a note, and `cancelled_share` in the JSON gives the share.
+
+The [cutoff](#the-cutoff) and the other measurements that read every channel are not affected.
+
 ## Limits
 
 - **It judges the file, not the master.** A badly mastered track in a lossless file is still lossless.

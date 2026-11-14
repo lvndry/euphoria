@@ -50,12 +50,18 @@ pub(crate) struct Scan {
 pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
     let mut scan = Scan::default();
     for path in paths {
-        match euphoria_core::find_audio_files(std::slice::from_ref(path)) {
-            Ok(files) => {
+        match euphoria_core::scan_audio_files(std::slice::from_ref(path)) {
+            Ok(found) => {
                 if path.is_dir() {
                     scan.folders.push(path.clone());
                 }
-                scan.files.extend(files);
+                scan.problems.extend(
+                    [found.unreadable_summary(), found.skipped_summary()]
+                        .into_iter()
+                        .flatten()
+                        .map(|summary| format!("{summary}.")),
+                );
+                scan.files.extend(found.files);
             }
             Err(error) if error.missing_path().is_some() => {
                 scan.unavailable_folders.push(path.clone());
@@ -747,6 +753,25 @@ mod tests {
                 other => panic!("{} was not analyzed: {other:?}", track.file_name),
             }
         }
+    }
+
+    #[test]
+    fn scanning_names_the_audio_files_it_cannot_decode_in_a_notice() {
+        let folder =
+            std::env::temp_dir().join(format!("euphoria-desktop-skipped-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        for name in ["a.opus", "b.opus", "c.wma", "kept.mp3"] {
+            std::fs::write(folder.join(name), b"").unwrap();
+        }
+
+        let found = scan(std::slice::from_ref(&folder), None);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        assert_eq!(found.files, vec![folder.join("kept.mp3")]);
+        assert_eq!(
+            found.problems,
+            vec!["3 files skipped: 2 .opus, 1 .wma, which Euphoria can't decode yet."]
+        );
     }
 
     #[test]

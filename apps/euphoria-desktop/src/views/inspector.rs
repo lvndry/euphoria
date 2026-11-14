@@ -1206,6 +1206,7 @@ fn status(track: &Track, palette: &Palette) -> Option<Div> {
 /// The sound quality verdict, why, and what it is based on.
 fn quality(track: &Track, palette: &Palette) -> Option<Div> {
     let report = track.quality()?;
+    let notes = report.notes();
     Some(
         div()
             .flex()
@@ -1227,7 +1228,13 @@ fn quality(track: &Track, palette: &Palette) -> Option<Div> {
                     .text_size(SMALL_TEXT_SIZE)
                     .text_color(palette.text_tertiary)
                     .child(format::quality_details(report)),
-            ),
+            )
+            .children(notes.into_iter().map(|note| {
+                div()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.danger)
+                    .child(note)
+            })),
     )
 }
 
