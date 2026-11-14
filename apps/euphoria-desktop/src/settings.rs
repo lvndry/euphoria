@@ -66,6 +66,8 @@ pub(crate) struct Settings {
     pub(crate) focus_lanes: FocusLanes,
     /// The metronome's sound, volume and accent.
     pub(crate) metronome: MetronomeSettings,
+    /// Which sections of the track detail the user opened or closed.
+    pub(crate) inspector_sections: crate::inspector_sections::SectionChoices,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -203,6 +205,11 @@ mod tests {
                 volume: 0.4,
                 accent: false,
             },
+            inspector_sections: crate::inspector_sections::SectionChoices {
+                stems: Some(true),
+                mixes: Some(false),
+                ..Default::default()
+            },
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -243,6 +250,7 @@ mod tests {
             suggestion_filter: SuggestionFilter::default(),
             focus_lanes: FocusLanes::default(),
             metronome: MetronomeSettings::default(),
+            inspector_sections: Default::default(),
         })
         .unwrap();
         assert_eq!(
@@ -257,7 +265,8 @@ mod tests {
                 r#""write_after_analysis":true,"schema":1},"#,
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
-                r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true}}"#
+                r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true},"#,
+                r#""inspector_sections":{"mixes":null,"by_ear":null,"key_shift":null,"stems":null,"quality":null,"location":null}}"#
             )
         );
     }

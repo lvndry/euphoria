@@ -96,6 +96,14 @@ fn open_keyed_library(cx: &mut TestAppContext) -> (gpui::AnyWindowHandle, Entity
         cx,
     );
     cx.update(|cx| view.update(cx, |app, cx| app.select(0, cx)));
+    crate::ui_tests::open_sections(
+        &view,
+        &[
+            crate::inspector_sections::SectionKind::Stems,
+            crate::inspector_sections::SectionKind::KeyShift,
+        ],
+        cx,
+    );
     (window, view)
 }
 

@@ -260,7 +260,6 @@ pub(crate) fn section(
             .flex()
             .flex_col()
             .gap(px(8.0))
-            .child(section_label("Check by ear", &palette))
             .child(
                 div()
                     .flex()

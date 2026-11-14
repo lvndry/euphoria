@@ -177,6 +177,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) logo_clock: crate::logo_motion::LogoClock,
     /// The sidebar sliding in or out.
     pub(crate) sidebar_slide: SidebarSlide,
+    /// Which sections of the track detail are open, and their motion.
+    pub(crate) inspector_sections: crate::inspector_sections::InspectorSections,
+    /// The section the Deck strip shows, when the user picked one.
+    pub(crate) strip_section: Option<crate::inspector_sections::SectionKind>,
     /// The width of the sidebar in the frame last drawn.
     sidebar_width_on_show: f32,
     /// Remembered folders that are not there now, such as one on a drive
@@ -468,6 +472,10 @@ impl EuphoriaApp {
             pending_stem_export: None,
             toolbar_drag_armed: false,
             sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
+            inspector_sections: crate::inspector_sections::InspectorSections::new(
+                settings.inspector_sections,
+            ),
+            strip_section: None,
             sidebar_width_on_show: settings.panels.sidebar_width(),
             panels: settings.panels,
             resizing: None,
@@ -1908,6 +1916,32 @@ impl EuphoriaApp {
         crate::install_menus(self.theme.name, self.panels.sidebar_folded, cx);
     }
 
+    /// Opens or closes a section of the track detail, and remembers it.
+    pub(crate) fn toggle_section(
+        &mut self,
+        kind: crate::inspector_sections::SectionKind,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let track = self
+            .selected
+            .and_then(|index| self.session.library().track(index));
+        self.inspector_sections.toggle(kind, track);
+        self.remember_panels(cx);
+    }
+
+    /// The section the Deck strip shows: the one the user picked, else the
+    /// first that opens for the track, else the mixes.
+    pub(crate) fn strip_section_shown(&self) -> crate::inspector_sections::SectionKind {
+        use crate::inspector_sections::SectionKind;
+        self.strip_section.unwrap_or_else(|| {
+            let track = self.selected_track();
+            SectionKind::ALL
+                .into_iter()
+                .find(|kind| track.is_some_and(|track| kind.opens_for(track)))
+                .unwrap_or(SectionKind::Mixes)
+        })
+    }
+
     /// A press on the edge of the track detail starts resizing it.
     pub(crate) fn start_resizing(&mut self, edge: PanelEdge, cx: &mut Context<'_, Self>) {
         self.resizing = Some(edge);
@@ -2016,6 +2050,7 @@ impl EuphoriaApp {
             suggestion_filter: self.decks.filter.clone(),
             focus_lanes: self.focus.lanes,
             metronome: self.metronome.settings,
+            inspector_sections: self.inspector_sections.choices,
         };
         settings
             .save(settings_path)
@@ -2205,6 +2240,13 @@ impl Render for EuphoriaApp {
         self.sidebar_slide.settle(now);
         self.sidebar_width_on_show = self.sidebar_slide.width(now);
         if self.sidebar_slide.is_moving(now) {
+            window.request_animation_frame();
+        }
+        let selected_track = self
+            .selected
+            .and_then(|index| self.session.library().track(index));
+        self.inspector_sections.sync(selected_track);
+        if self.inspector_sections.advance() {
             window.request_animation_frame();
         }
         let sidebar_width = self.sidebar_width_on_show;
