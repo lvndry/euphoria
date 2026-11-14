@@ -12,7 +12,7 @@ use crate::panels::SIDEBAR_WIDTH;
 /// Seconds a slide across the full sidebar width takes.
 pub(crate) const SLIDE_SECONDS: f32 = 0.22;
 
-fn ease_out(progress: f32) -> f32 {
+pub(crate) fn ease_out(progress: f32) -> f32 {
     1.0 - (1.0 - progress.clamp(0.0, 1.0)).powi(3)
 }
 
@@ -107,10 +107,10 @@ impl SidebarSlide {
 }
 
 #[cfg(not(test))]
-use crate::logo_motion::system_reduces_motion;
+pub(crate) use crate::logo_motion::system_reduces_motion;
 
 #[cfg(test)]
-fn system_reduces_motion() -> bool {
+pub(crate) fn system_reduces_motion() -> bool {
     true
 }
 

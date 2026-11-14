@@ -12,7 +12,6 @@ use crate::app::EuphoriaApp;
 use crate::library::Track;
 use crate::stem_export::StemExportKind;
 use crate::stems::{StemMode, StemStatus};
-use crate::views::section_label;
 use crate::views::tag_panel::choice_button;
 use euphoria_core::stems::Mixdown;
 
@@ -103,11 +102,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                     .test_support(),
             ),
     };
-    div()
-        .flex_col()
-        .gap(px(8.0))
-        .child(section_label("Stems", &palette))
-        .child(body)
+    div().flex_col().gap(px(8.0)).child(body)
 }
 
 /// The buttons that save the separated stems, the acapella or the
