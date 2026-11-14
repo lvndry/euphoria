@@ -14,9 +14,9 @@ use crate::cache::StoredCorrection;
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
 
-/// The version of the shape of each line. It goes up when a field is
-/// removed or changes meaning, and stays when a field is added. Version 2
-/// added the corrected and detected energy.
+/// The version of the shape of each line. It goes up whenever the fields
+/// change; consumers should ignore fields they don't know. Version 2 added
+/// the corrected and detected energy.
 pub const CORRECTIONS_SCHEMA_VERSION: u32 = 2;
 
 /// Whether each line names the file the correction was made on.

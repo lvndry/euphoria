@@ -705,7 +705,7 @@ By default a line names its track only by the hash of the file's content: no pat
 
 | Field | Meaning |
 | --- | --- |
-| `schema_version` | `2`. It goes up when a field is removed or changes meaning; a new field can appear without it changing. Version 2 added `corrected_energy` and `detected_energy`; version 1 lines have neither. |
+| `schema_version` | `2`. It goes up whenever the fields change; ignore fields you don't know. Version 2 added `corrected_energy` and `detected_energy`; version 1 lines have neither. |
 | `content_hash` | The BLAKE3 hash of every byte of the file, tags and artwork included, as 64 lowercase hexadecimal digits: what `b3sum` prints for the file. |
 | `corrected_key` | The key you set, or `null` when you did not correct the key. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
 | `corrected_bpm` | The tempo you set, as you typed it, or `null` when you did not correct the tempo. |

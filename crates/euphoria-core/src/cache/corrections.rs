@@ -250,7 +250,7 @@ impl Cache {
                     Ok(Correction {
                         key: key_in_column(row, 0)?,
                         bpm: row.get(1)?,
-                        energy: row.get(2)?,
+                        energy: stored_energy(row, 2)?,
                     })
                 },
             )
@@ -278,11 +278,18 @@ fn stored_correction_in_row(row: &Row<'_>) -> rusqlite::Result<StoredCorrection>
         correction: Correction {
             key: key_in_column(row, 1)?,
             bpm: row.get(2)?,
-            energy: row.get(9)?,
+            energy: stored_energy(row, 9)?,
         },
         corrected_at_seconds: row.get(3)?,
         detected,
     })
+}
+
+/// The energy stored in `column`. A value that does not fit a `u8` becomes
+/// 255, which [`Correction::validated`] refuses as an invalid correction.
+fn stored_energy(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
+    let stored: Option<i64> = row.get(column)?;
+    Ok(stored.map(|energy| u8::try_from(energy).unwrap_or(u8::MAX)))
 }
 
 pub(super) fn unreadable(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError {
@@ -391,14 +398,26 @@ mod tests {
                 Err(EuphoriaError::InvalidCorrection { .. })
             ));
         }
-        cache
-            .connection
-            .execute("UPDATE corrections SET energy = 11", [])
-            .unwrap();
-        assert!(matches!(
-            cache.stored_corrections(),
-            Err(EuphoriaError::InvalidCorrection { .. })
-        ));
+        for stored in [0_i64, 11, 300, -1] {
+            cache
+                .connection
+                .execute("UPDATE corrections SET energy = ?1", params![stored])
+                .unwrap();
+            assert!(
+                matches!(
+                    cache.stored_corrections(),
+                    Err(EuphoriaError::InvalidCorrection { .. })
+                ),
+                "{stored}"
+            );
+            assert!(
+                matches!(
+                    cache.verified_correction_for(&track),
+                    Err(EuphoriaError::InvalidCorrection { .. })
+                ),
+                "{stored}"
+            );
+        }
     }
 
     #[test]
