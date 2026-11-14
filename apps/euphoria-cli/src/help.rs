@@ -217,6 +217,23 @@ pub fn set_examples() -> StyledStr {
     )
 }
 
+pub fn plan_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria plan playing.flac next.flac",
+                "The best windows to mix the first into the second",
+            ),
+            (
+                "euphoria plan playing.flac next.flac --json",
+                "Every lane, clash and window as JSON",
+            ),
+        ],
+        "Run euphoria stems on both tracks first so vocals and bass can be told apart.",
+    )
+}
+
 pub fn virtualdj_export_examples() -> StyledStr {
     examples(
         "Examples",
