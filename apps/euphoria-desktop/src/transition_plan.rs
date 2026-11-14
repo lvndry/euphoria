@@ -688,6 +688,7 @@ pub(crate) fn section_name(label: SectionLabel) -> &'static str {
         SectionLabel::Breakdown => "Breakdown",
         SectionLabel::Drop => "Drop",
         SectionLabel::Outro => "Outro",
+        SectionLabel::Section => "Section",
     }
 }
 
