@@ -132,6 +132,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) tempo_range_problem: Option<String>,
     /// The steps of a tag write or undo, while one is on screen.
     pub(crate) tag_panel: Option<TagPanel>,
+    /// The sheet that exports the library to a DJ program, while open.
+    pub(crate) library_export: Option<crate::library_export::LibraryExportPanel>,
+    /// How the export finds out whether a DJ program is running.
+    pub(crate) running_checks: crate::library_export::RunningChecks,
     /// True while the settings panel is open.
     pub(crate) settings_open: bool,
     /// Where the backups of tag writes are kept, shared with the command
@@ -375,6 +379,8 @@ impl EuphoriaApp {
             is_custom_tempo_range: display.tempo_range.preset().is_none(),
             tempo_range_problem: None,
             tag_panel: None,
+            library_export: None,
+            running_checks: crate::library_export::RunningChecks::REAL,
             settings_open: false,
             write_log_directory: if cfg!(test) {
                 None
@@ -1013,6 +1019,10 @@ impl EuphoriaApp {
     pub(crate) fn close_panels(&mut self, cx: &mut Context<'_, Self>) -> bool {
         if self.settings_open {
             self.close_settings(cx);
+            return true;
+        }
+        if self.library_export.is_some() {
+            self.close_library_export(cx);
             return true;
         }
         if self.tag_panel.is_some() {
@@ -2112,6 +2122,7 @@ impl Render for EuphoriaApp {
             })
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
+            .children(views::library_export_panel::render(self, cx))
             .when(self.settings_open, |window| {
                 window.child(views::settings_panel::render(self, cx))
             })

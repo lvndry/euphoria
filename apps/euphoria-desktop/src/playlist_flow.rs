@@ -456,6 +456,7 @@ impl EuphoriaApp {
                     Some(artist) => format!("{artist} - {}", track.title()),
                     None => track.title().to_string(),
                 },
+                edited_cues: track.edited_cues.clone(),
             })
             .collect();
         PlaylistExport {
@@ -473,12 +474,14 @@ impl EuphoriaApp {
 /// One track of a playlist export.
 #[derive(Debug, Clone)]
 pub(crate) struct ExportedTrack {
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     /// The content the track had when it was added, when it is known. The
     /// file is compared with it before it is exported.
     content: Option<euphoria_core::ContentHash>,
-    analysis: Option<euphoria_core::TrackAnalysis>,
+    pub(crate) analysis: Option<euphoria_core::TrackAnalysis>,
     display_name: String,
+    /// The cues the user set, which replace those analysis placed.
+    pub(crate) edited_cues: Option<Vec<euphoria_core::Cue>>,
 }
 
 /// A playlist ready to export off the main thread.
@@ -490,6 +493,16 @@ pub(crate) struct PlaylistExport {
 }
 
 impl PlaylistExport {
+    /// The tracks to export, in order.
+    pub(crate) fn tracks(&self) -> &[ExportedTrack] {
+        &self.tracks
+    }
+
+    /// How many paths named no track of the library.
+    pub(crate) fn not_in_library(&self) -> usize {
+        self.not_in_library
+    }
+
     /// Writes the export to `destination`, replacing what is there: the
     /// save dialog already asked. Returns what to tell the user.
     pub(crate) fn write(self, destination: &Path) -> ExportOutcome {
@@ -600,7 +613,7 @@ pub(crate) fn content_for_saving(
 
 /// The playlist's name with the characters a file name cannot hold left
 /// out.
-fn file_name_for(name: &str) -> String {
+pub(crate) fn file_name_for(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .filter(|character| !matches!(character, '/' | '\\' | ':' | '\0'))
@@ -614,7 +627,7 @@ fn file_name_for(name: &str) -> String {
 }
 
 /// The user's home folder, where the save dialog starts.
-fn dirs_home() -> Option<PathBuf> {
+pub(crate) fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 

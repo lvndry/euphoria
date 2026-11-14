@@ -12,6 +12,7 @@ pub(crate) mod favorites;
 pub(crate) mod inspector;
 pub(crate) mod key_chip;
 pub(crate) mod key_shift;
+pub(crate) mod library_export_panel;
 pub(crate) mod logo;
 pub(crate) mod mashup;
 pub(crate) mod notice;
