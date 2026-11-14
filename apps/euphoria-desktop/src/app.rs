@@ -31,6 +31,7 @@ use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceSta
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
 use crate::playlists::PlaylistId;
 use crate::settings::{FolderTreeMemory, Settings};
+use crate::sidebar_slide::SidebarSlide;
 use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
@@ -174,6 +175,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) background_jobs: crate::busy::BackgroundJobs,
     /// When the logo started moving, for the activity indicator.
     pub(crate) logo_clock: crate::logo_motion::LogoClock,
+    /// The sidebar sliding in or out.
+    pub(crate) sidebar_slide: SidebarSlide,
+    /// The width of the sidebar in the frame last drawn.
+    sidebar_width_on_show: f32,
     /// Remembered folders that are not there now, such as one on a drive
     /// that is not connected. They stay remembered, to be looked for again
     /// at the next launch.
@@ -462,6 +467,8 @@ impl EuphoriaApp {
             pending_link: None,
             pending_stem_export: None,
             toolbar_drag_armed: false,
+            sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
+            sidebar_width_on_show: settings.panels.sidebar_width(),
             panels: settings.panels,
             resizing: None,
             detail_area_bounds: Rc::new(Cell::new(None)),
@@ -763,6 +770,16 @@ impl EuphoriaApp {
     /// the filter, the folder on show or the sort order changed, and the
     /// folder tree and the Folder column when they depend on what changed.
     pub(crate) fn refresh_visible(&mut self) {
+        if self.filter == LibraryFilter::Missing
+            && !self
+                .session
+                .library()
+                .tracks()
+                .iter()
+                .any(|track| track.is_missing())
+        {
+            self.filter = LibraryFilter::AllTracks;
+        }
         let library = self.session.library();
         let revisions = (library.structure_revision(), library.revision());
         match self.folder_tree_revisions {
@@ -840,7 +857,7 @@ impl EuphoriaApp {
     /// and how wide to draw the Folder column: wide enough for the longest
     /// path shown when there is room.
     fn lay_out_table(&mut self, window: &Window) {
-        let mut table_width = window.viewport_size().width / px(1.0) - self.panels.sidebar_width();
+        let mut table_width = window.viewport_size().width / px(1.0) - self.sidebar_width_on_show;
         if self.theme.layout == Layout::InspectorRight {
             table_width -= self.inspector_width(window) / px(1.0);
         }
@@ -1326,10 +1343,6 @@ impl EuphoriaApp {
         LibraryCounts {
             total: counts.total,
             needs_review: failed_in_folder.unwrap_or(counts.needs_review),
-            quality_to_check: self
-                .session
-                .library()
-                .quality_to_check_in(self.folder.as_deref()),
             missing: counts.missing,
         }
     }
@@ -1364,17 +1377,6 @@ impl EuphoriaApp {
         self.playlist = None;
         self.showing_favorites = false;
         self.filter = LibraryFilter::NeedsReview;
-        self.refresh_visible();
-        cx.notify();
-    }
-
-    /// Shows only the tracks whose quality is weak on a big system or likely
-    /// re-encoded, within the folder on show.
-    pub(crate) fn show_tracks_with_quality_to_check(&mut self, cx: &mut Context<'_, Self>) {
-        self.close_set_builder();
-        self.playlist = None;
-        self.showing_favorites = false;
-        self.filter = LibraryFilter::QualityToCheck;
         self.refresh_visible();
         cx.notify();
     }
@@ -1898,6 +1900,7 @@ impl EuphoriaApp {
     /// Folds the sidebar away, or brings it back, and remembers the choice.
     pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<'_, Self>) {
         self.panels.toggle_sidebar();
+        self.sidebar_slide.go_to(self.panels.sidebar_folded);
         self.remember_panels(cx);
         crate::install_menus(self.theme.name, self.panels.sidebar_folded, cx);
     }
@@ -1971,9 +1974,10 @@ impl EuphoriaApp {
 
     /// The width to draw the inspector at in a window of the current size.
     pub(crate) fn inspector_width(&self, window: &Window) -> Pixels {
-        px(self
-            .panels
-            .inspector_width_in(window.viewport_size().width / px(1.0)))
+        px(self.panels.inspector_width_beside(
+            window.viewport_size().width / px(1.0),
+            self.sidebar_width_on_show,
+        ))
     }
 
     /// The height to draw the strip under the table at. Until the area it
@@ -2194,7 +2198,14 @@ impl Render for EuphoriaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         self.sync_metronome_tempo();
         let palette = self.theme.palette;
-        let shows_sidebar = !self.panels.sidebar_folded;
+        let now = self.sidebar_slide.now();
+        self.sidebar_slide.settle(now);
+        self.sidebar_width_on_show = self.sidebar_slide.width(now);
+        if self.sidebar_slide.is_moving(now) {
+            window.request_animation_frame();
+        }
+        let sidebar_width = self.sidebar_width_on_show;
+        let shows_sidebar = sidebar_width > 0.0;
         self.lay_out_table(window);
         let body = if self.is_empty() {
             div()
@@ -2202,7 +2213,7 @@ impl Render for EuphoriaApp {
                 .flex_1()
                 .min_h_0()
                 .when(shows_sidebar, |body| {
-                    body.child(views::sidebar::render(self, cx))
+                    body.child(views::sidebar::sliding(self, sidebar_width, cx))
                 })
                 .child(views::empty_state::render(self, cx))
         } else {
@@ -2241,7 +2252,7 @@ impl Render for EuphoriaApp {
                 .flex_1()
                 .min_h_0()
                 .when(shows_sidebar && !self.focus.is_open, |body| {
-                    body.child(views::sidebar::render(self, cx))
+                    body.child(views::sidebar::sliding(self, sidebar_width, cx))
                 })
                 .map(|body| {
                     if self.focus.is_open {

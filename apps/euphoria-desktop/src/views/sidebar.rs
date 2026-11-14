@@ -48,7 +48,6 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let all_tracks_is_current =
         in_library && app.filter == LibraryFilter::AllTracks && app.folder.is_none();
     let needs_review_is_current = in_library && app.filter == LibraryFilter::NeedsReview;
-    let quality_is_current = in_library && app.filter == LibraryFilter::QualityToCheck;
     let missing_is_current = in_library && app.filter == LibraryFilter::Missing;
 
     div()
@@ -96,21 +95,6 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         )
         .child(
             row(
-                "Quality to check",
-                Some(counts.quality_to_check),
-                quality_is_current,
-                &palette,
-            )
-            .id("quality-to-check")
-            .cursor_pointer()
-            .when(!quality_is_current, |row| {
-                row.hover(move |style| style.bg(hover_background.opacity(0.6)))
-            })
-            .on_click(cx.listener(|this, _, _, cx| this.show_tracks_with_quality_to_check(cx)))
-            .test_support(),
-        )
-        .child(
-            row(
                 "Favorites",
                 Some(app.session.favorites().tracks().len()),
                 favorites_are_current,
@@ -124,24 +108,23 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             .on_click(cx.listener(|this, _, _, cx| this.show_favorites(cx)))
             .test_support(),
         )
-        .child(
-            row(
-                "Missing files",
-                Some(counts.missing),
-                missing_is_current,
-                &palette,
+        .when(counts.missing > 0, |sidebar| {
+            sidebar.child(
+                row(
+                    "Missing files",
+                    Some(counts.missing),
+                    missing_is_current,
+                    &palette,
+                )
+                .id("missing-files")
+                .cursor_pointer()
+                .when(!missing_is_current, |row| {
+                    row.hover(move |style| style.bg(hover_background.opacity(0.6)))
+                })
+                .on_click(cx.listener(|this, _, _, cx| this.show_missing_tracks(cx)))
+                .test_support(),
             )
-            .id("missing-files")
-            .cursor_pointer()
-            .when(counts.missing == 0 && !missing_is_current, |row| {
-                row.opacity(0.6)
-            })
-            .when(!missing_is_current, |row| {
-                row.hover(move |style| style.bg(hover_background.opacity(0.6)))
-            })
-            .on_click(cx.listener(|this, _, _, cx| this.show_missing_tracks(cx)))
-            .test_support(),
-        )
+        })
         .child(
             row("Set builder", None, app.set_builder.is_open, &palette)
                 .id("set-builder-entry")
@@ -353,4 +336,15 @@ fn row_after(
                 .text_color(palette.text_tertiary)
                 .child(format::count(count))
         }))
+}
+
+/// The sidebar with `width` of it on show. It keeps its full width inside
+/// and slides, so the text leaves with it instead of wrapping.
+pub(crate) fn sliding(app: &EuphoriaApp, width: f32, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .overflow_hidden()
+        .w(px(width))
+        .child(render(app, cx).ml(px(width - SIDEBAR_WIDTH)))
 }

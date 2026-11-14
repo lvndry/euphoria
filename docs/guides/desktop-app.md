@@ -50,7 +50,7 @@ The Euphoria mark at the top left of the toolbar is also the activity indicator.
 | BPM | The tempo, to one decimal |
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
 | Cues | How many cues the track has: the ones you set in the inspector if you changed them, otherwise the ones analysis placed, the same list the inspector shows. Empty until the track is analyzed. |
-| Quality | The [audio quality](../concepts/audio-quality.md) verdict: Lossless, Good, Acceptable, Weak, or Re-encoded? for a file likely made from a lower quality one. Weak and Re-encoded? stand out; the others are quieter. |
+| Quality | The [audio quality](../concepts/audio-quality.md) verdict: Lossless, Good, Acceptable, Weak, or Re-encoded? for a file likely made from a lower quality one. Weak and Re-encoded? stand out; the others are quieter. Click the column header to sort by it and bring the weak files to the top. |
 | Time | The length |
 | Format | The file type |
 | Folder | Where the file is, from the folder on show |
@@ -75,9 +75,8 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 
 - **All tracks** shows the whole library.
 - **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. Each row carries a small chip for each reason, such as **Key unsure**, and the inspector says how to [settle it](#settle-a-track-under-needs-review). [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
-- **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. A lossless file with a limited bandwidth, such as a tape or vinyl transfer, is not listed: it is information, not a defect. Like Needs review, it works within the folder on show.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
-- **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. See [Missing files](#missing-files).
+- **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. The entry appears only while at least one file is missing; when the last one is found again or removed, the table returns to **All tracks**. See [Missing files](#missing-files).
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
 ### Browse your folders
@@ -104,6 +103,8 @@ To give the table more room, fold the sidebar away. Any of these folds it, and t
 - the sidebar button at the left of the toolbar, beside the window buttons, which stays there while the sidebar is folded
 - Control Command S (Control Alt S on Linux and Windows)
 - **View > Hide Sidebar**, which reads **Show Sidebar** while it is folded
+
+The sidebar slides out to the left in about a fifth of a second while the table grows into the space, and slides back the same way. A click while it is moving turns it around from where it is. With **Reduce motion** on in macOS Accessibility settings, it folds and unfolds at once. The window opens with the sidebar as you left it, without sliding.
 
 ## The inspector
 

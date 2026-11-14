@@ -442,8 +442,6 @@ pub(crate) enum LibraryFilter {
     /// Tracks whose key or tempo is rated low, whose tags name another key,
     /// and tracks whose analysis failed.
     NeedsReview,
-    /// Tracks with a low bit rate, or likely made from a lower quality file.
-    QualityToCheck,
     /// Tracks whose file is no longer where it was.
     Missing,
 }
@@ -456,8 +454,6 @@ pub(crate) struct LibraryCounts {
     /// Tracks that need review: a key or tempo rated low, a key that differs
     /// from the tags, or a failure.
     pub(crate) needs_review: usize,
-    /// Tracks with a low bit rate, or likely made from a lower quality file.
-    pub(crate) quality_to_check: usize,
     /// Tracks whose file is no longer where it was.
     pub(crate) missing: usize,
 }
@@ -786,23 +782,12 @@ impl Library {
         LibraryCounts {
             total: self.tracks.len(),
             needs_review: self.review_count,
-            quality_to_check: self.quality_to_check_in(None),
             missing: self
                 .tracks
                 .iter()
                 .filter(|track| track.is_missing())
                 .count(),
         }
-    }
-
-    /// How many tracks inside `folder`, or in the whole library without one,
-    /// have a quality to check.
-    pub(crate) fn quality_to_check_in(&self, folder: Option<&Path>) -> usize {
-        self.tracks
-            .iter()
-            .filter(|track| folder.is_none_or(|folder| track.path.starts_with(folder)))
-            .filter(|track| track.has_quality_to_check())
-            .count()
     }
 
     /// Indexes of the tracks to show, filtered and in display order.
@@ -828,7 +813,6 @@ impl Library {
             .filter(|(_, track)| match filter {
                 LibraryFilter::AllTracks => true,
                 LibraryFilter::NeedsReview => track.needs_review(),
-                LibraryFilter::QualityToCheck => track.has_quality_to_check(),
                 LibraryFilter::Missing => track.is_missing(),
             })
             .filter(|(_, track)| folder.is_none_or(|folder| track.path.starts_with(folder)))
@@ -1639,7 +1623,7 @@ mod tests {
     }
 
     #[test]
-    fn the_quality_filter_shows_weak_and_likely_re_encoded_tracks() {
+    fn the_quality_column_sorts_weak_and_likely_re_encoded_tracks_first() {
         let mut library = sample_library();
         library.record_outcome(
             Path::new("/music/house/Low Tide.aiff"),
@@ -1652,22 +1636,6 @@ mod tests {
         library.record_outcome(
             Path::new("/music/techno/Glasshouse.flac"),
             Ok(with_quality(QualityVerdict::LikelyReencoded)),
-        );
-        assert_eq!(library.counts().quality_to_check, 2);
-        let shown = library.visible_tracks(
-            LibraryFilter::QualityToCheck,
-            None,
-            "",
-            None,
-            &FolderColumn::default(),
-        );
-        assert_eq!(
-            library.quality_to_check_in(Some(Path::new("/music/techno"))),
-            1
-        );
-        assert_eq!(
-            names(&library, &shown),
-            ["Low Tide.aiff", "Glasshouse.flac"]
         );
         assert!(library.tracks()[0].quality().is_some());
         assert!(library.tracks()[4].quality().is_none());
@@ -1695,7 +1663,6 @@ mod tests {
             Path::new("/music/house/Low Tide.aiff"),
             Ok(with_quality(QualityVerdict::Lossless)),
         );
-        assert_eq!(library.counts().quality_to_check, 0);
         let by_quality = visible(&library, "", ascending(SortColumn::Quality));
         let limited = by_quality.iter().position(|name| name == "saffron.mp3");
         let lossless = by_quality.iter().position(|name| name == "Low Tide.aiff");
@@ -1738,7 +1705,6 @@ mod tests {
             LibraryCounts {
                 total: 6,
                 needs_review: 1,
-                quality_to_check: 0,
                 missing: 0,
             }
         );
