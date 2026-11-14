@@ -132,6 +132,16 @@ impl StemLibrary {
         self.found.get(path).map(|(_, profile)| profile)
     }
 
+    #[cfg(test)]
+    pub(crate) fn pretend_scanning(&mut self) {
+        self.scan = Some(channel().1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pretend_done_scanning(&mut self) {
+        self.scan = None;
+    }
+
     /// True while a check runs in the background.
     pub(crate) fn is_scanning(&self) -> bool {
         self.scan.is_some()
@@ -538,11 +548,12 @@ impl EuphoriaApp {
                     return;
                 }
             };
-            this.update(cx, |this, cx| {
-                this.notice = Some("Rendering the mashup…".to_string());
-                cx.notify();
-            })
-            .ok();
+            let running = this
+                .update(cx, |this, cx| {
+                    this.notice = Some("Rendering the mashup…".to_string());
+                    this.begin_background_job("Rendering the mashup", cx)
+                })
+                .ok();
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
@@ -552,6 +563,9 @@ impl EuphoriaApp {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                if let Some(running) = running {
+                    this.background_jobs.finish(running);
+                }
                 this.notice = Some(match outcome {
                     Ok(written) => {
                         let seconds = written.frames as f32

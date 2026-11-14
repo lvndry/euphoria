@@ -392,10 +392,10 @@ impl EuphoriaApp {
                     return;
                 }
             };
-            let Ok(job) = this.update(cx, |this, _| job(this)) else {
-                return;
-            };
-            let Some(job) = job else {
+            let Ok(Some((job, running))) = this.update(cx, |this, cx| {
+                let job = job(this)?;
+                Some((job, this.begin_background_job("Exporting a playlist", cx)))
+            }) else {
                 return;
             };
             let outcome = cx
@@ -403,6 +403,7 @@ impl EuphoriaApp {
                 .spawn(async move { job.write(&destination) })
                 .await;
             this.update(cx, |this, cx| {
+                this.background_jobs.finish(running);
                 this.notice = Some(match outcome {
                     Ok(message) | Err(message) => message,
                 });

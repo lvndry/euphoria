@@ -31,6 +31,10 @@ The app analyzes as many tracks at once as your computer has cores, up to 4. The
 
 Your files are only read, until you choose to [write tags](#write-tags) into them.
 
+### The logo shows when Euphoria is working
+
+The Euphoria mark at the top left of the toolbar is also the activity indicator. While something long runs, the mark draws itself tip to tip, holds, and pulls back, over and over. Hover it to see what is running, for example "Analyzing 120 of 575 tracks" or "Separating stems". It covers analysis and the search for audio files, writing and undoing tags, stem separation and stem export, export to a DJ program, playlist and shifted copy exports, mashup rendering and building a set. When the work ends the mark finishes the stroke it is drawing and rests as the full mark, so it never jumps. With macOS **Reduce motion** on, the full mark fades in and out slowly instead of tracing.
+
 ## The track table
 
 | Column | Shows |

@@ -442,6 +442,16 @@ impl Session {
         &mut self.library
     }
 
+    #[cfg(test)]
+    pub(crate) fn pretend_finished(&mut self) {
+        self.progress.finish_one();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pretend_queued(&mut self, file_count: usize) {
+        self.progress.enqueue(file_count);
+    }
+
     /// How far the current run of analysis has got.
     pub(crate) fn progress(&self) -> AnalysisProgress {
         self.progress

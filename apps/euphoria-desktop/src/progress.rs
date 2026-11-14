@@ -40,6 +40,18 @@ impl AnalysisProgress {
         self.finished as f32 / self.queued as f32
     }
 
+    /// What the logo says while the run goes on, such as "Analyzing 12 of 340
+    /// tracks", or `None` when idle.
+    pub(crate) fn counts_label(&self) -> Option<String> {
+        self.is_active().then(|| {
+            format!(
+                "Analyzing {} of {} tracks",
+                format::count(self.finished),
+                format::count(self.queued)
+            )
+        })
+    }
+
     /// Toolbar text such as "12 of 340 done", counting failed files too, or `None` when idle.
     pub(crate) fn label(&self) -> Option<String> {
         self.is_active().then(|| {
@@ -73,6 +85,20 @@ mod tests {
         }
         assert_eq!(progress.label().as_deref(), Some("12 of 340 done"));
         assert!((progress.fraction() - 12.0 / 340.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_logo_label_counts_tracks() {
+        let mut progress = AnalysisProgress::default();
+        assert_eq!(progress.counts_label(), None);
+        progress.enqueue(575);
+        for _ in 0..120 {
+            progress.finish_one();
+        }
+        assert_eq!(
+            progress.counts_label().as_deref(),
+            Some("Analyzing 120 of 575 tracks")
+        );
     }
 
     #[test]

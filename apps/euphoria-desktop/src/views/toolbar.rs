@@ -19,7 +19,7 @@ use crate::actions;
 use crate::app::EuphoriaApp;
 use crate::metronome_controls::TEMPO_RULE;
 use crate::theme::{Palette, ThemeName};
-use crate::views::logo::logo;
+use crate::views::logo::busy_logo;
 use crate::views::tag_panel::choice_button;
 use crate::views::{CONTROL_HEIGHT, CONTROL_RADIUS, SMALL_TEXT_SIZE, secondary_button};
 
@@ -61,6 +61,31 @@ fn sidebar_toggle(
         .child(Icon::new(IconName::PanelLeft).size(px(16.0)))
         .test_support()
         .into_any_element()
+}
+
+/// The logo beside the app name. It plays its trace while work runs, with
+/// the work in a tooltip, and is the plain mark otherwise.
+fn logo_mark(app: &EuphoriaApp, palette: &Palette) -> impl IntoElement {
+    let description = app.busy_description();
+    let mark = busy_logo(
+        px(18.0),
+        palette.text,
+        palette.sidebar,
+        app.logo_clock.clone(),
+        description.is_some(),
+    );
+    div()
+        .id(if description.is_some() {
+            "logo-busy"
+        } else {
+            "logo-idle"
+        })
+        .flex_shrink_0()
+        .when_some(description, |mark_area, description| {
+            mark_area.tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
+        })
+        .child(mark)
+        .test_support()
 }
 
 /// The toolbar.
@@ -105,7 +130,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .flex_shrink_0()
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(sidebar_toggle(app, &palette, cx))
-                .child(logo(px(18.0), palette.text))
+                .child(logo_mark(app, &palette))
                 .child("Euphoria"),
         )
         .when(has_tracks, |toolbar| {

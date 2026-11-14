@@ -165,6 +165,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans_in_progress: usize,
+    /// Long actions running on threads that have no state of their own.
+    pub(crate) background_jobs: crate::busy::BackgroundJobs,
+    /// When the logo started moving, for the activity indicator.
+    pub(crate) logo_clock: crate::logo_motion::LogoClock,
     /// Remembered folders that are not there now, such as one on a drive
     /// that is not connected. They stay remembered, to be looked for again
     /// at the next launch.
@@ -446,6 +450,8 @@ impl EuphoriaApp {
             table_focus: cx.focus_handle(),
             notice,
             scans_in_progress: 0,
+            background_jobs: crate::busy::BackgroundJobs::default(),
+            logo_clock: crate::logo_motion::LogoClock::default(),
             unavailable_folders: Vec::new(),
             remembered_folders: settings.folders.clone(),
             pending_link: None,
