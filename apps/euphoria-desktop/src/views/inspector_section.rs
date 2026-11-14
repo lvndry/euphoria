@@ -11,7 +11,7 @@ use gpui::{Bounds, Context, Div, Pixels, TestSupportExt, canvas, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::inspector_sections::SectionKind;
-use crate::views::{LABEL_TEXT_SIZE, section_label};
+use crate::views::{LABEL_TEXT_SIZE, next_rail, section_label};
 
 /// Width of the box the chevron sits in, as in the sidebar's tree.
 const DISCLOSURE_WIDTH: f32 = 16.0;
@@ -48,9 +48,16 @@ pub(crate) fn collapsible(
     let natural_height = seen_height.get().unwrap_or(UNMEASURED_HEIGHT);
     let hover_background = palette.raised;
 
-    let heading = div()
+    let title = if kind == SectionKind::Mixes {
+        app.mixes_title()
+    } else {
+        kind.title().to_string()
+    };
+    let toggle = div()
         .id(toggle_id(kind))
         .flex()
+        .flex_1()
+        .min_w_0()
         .items_center()
         .gap(px(4.0))
         .h(px(24.0))
@@ -75,8 +82,16 @@ pub(crate) fn collapsible(
                     .size(px(12.0)),
                 ),
         )
-        .child(section_label(kind.title(), &palette))
+        .child(section_label(title, &palette).flex_1().min_w_0().truncate())
         .test_support();
+    let heading = div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(toggle)
+        .when(kind == SectionKind::Mixes, |heading| {
+            heading.children(next_rail::control(app, cx))
+        });
 
     let measured = div()
         .relative()

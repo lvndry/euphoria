@@ -34,6 +34,7 @@ use crate::views::favorites::star_button;
 use crate::views::inspector_section;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
+use crate::views::next_rail;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::review;
 use crate::views::stems;
@@ -1147,6 +1148,14 @@ const YOUR_TRANSITION: &str = "Your mix";
 /// The tracks in the library that mix with the selected one, the marked
 /// transitions out of it first.
 fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
+    if app.rail_anchor.is_some() {
+        return Some(div().child(next_rail::section(
+            app,
+            room.mix_count(app.next_rows.len()),
+            matches!(room, Room::Strip { .. }),
+            cx,
+        )));
+    }
     let theme = &app.theme;
     let palette = theme.palette;
     if app.selected_track()?.key().is_none() && app.mixes.is_empty() {

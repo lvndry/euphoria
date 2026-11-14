@@ -40,6 +40,9 @@ actions!(
         ToggleDecks,
         /// Gives the selected track the whole window.
         OpenFocusView,
+        /// Plays the selected track of the list of tracks to play next, or
+        /// loads it on deck B.
+        PlayNextRow,
         /// Leaves the focus view for the library.
         CloseFocusView,
         /// Opens the set builder page.

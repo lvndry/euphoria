@@ -17,6 +17,7 @@ pub(crate) mod key_shift;
 pub(crate) mod library_export_panel;
 pub(crate) mod logo;
 pub(crate) mod mashup;
+pub(crate) mod next_rail;
 pub(crate) mod notice;
 pub(crate) mod panel_edge;
 pub(crate) mod planner;
@@ -44,6 +45,10 @@ use crate::theme::Palette;
 /// The key context of the window, which keyboard shortcuts for the library
 /// and the player are bound in.
 pub(crate) const LIBRARY_KEY_CONTEXT: &str = "Library";
+
+/// The context of the list of tracks to play next, where Enter plays the
+/// selected one.
+pub(crate) const NEXT_RAIL_KEY_CONTEXT: &str = "NextRail";
 
 /// Size of ordinary interface text.
 pub(crate) const TEXT_SIZE: Pixels = px(13.0);

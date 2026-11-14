@@ -9,13 +9,19 @@ use std::borrow::Cow;
 use gpui::assets::{Assets as ComponentIcons, icon_assets};
 use gpui::{AssetSource, Result, SharedString};
 
-icon_assets!(ExtraIcons, [Music, Expand]);
+icon_assets!(ExtraIcons, [Music, Expand, Play, ListPlus]);
 
 /// Path of the music note icon shown where a track has no artwork.
 pub(crate) const MUSIC_ICON_PATH: &str = "icons/music.svg";
 
 /// Path of the expand icon on the button that opens the focus view.
 pub(crate) const EXPAND_ICON_PATH: &str = "icons/expand.svg";
+
+/// Path of the play icon on the hover action of a track to play next.
+pub(crate) const PLAY_ICON_PATH: &str = "icons/play.svg";
+
+/// Path of the icon that loads a track on deck B.
+pub(crate) const LOAD_ON_DECK_ICON_PATH: &str = "icons/list-plus.svg";
 
 /// Path of the outlined star of a track or transition that is not a
 /// favorite.

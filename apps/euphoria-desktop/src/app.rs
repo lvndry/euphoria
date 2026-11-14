@@ -21,6 +21,7 @@ use gpui::{
 };
 
 use crate::columns::{ColumnId, ColumnWidths, TableLayout, fitted_width, widest_text};
+use crate::deck_audio::DeckId;
 use crate::display_settings::{DisplaySettings, TempoPreset, TempoRangeSetting};
 use crate::folder_tree::{FolderColumn, FolderTree, TreeKey, TreeMove};
 use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track};
@@ -162,6 +163,17 @@ pub(crate) struct EuphoriaApp {
     /// Tracks that mix with the selected one, smoothest first, in its key
     /// shifted by `key_shift`.
     pub(crate) mixes: Vec<MixSuggestion>,
+    /// Where the energy should go with the track to play after the one
+    /// playing.
+    pub(crate) next_energy: crate::next_rail::EnergyChoice,
+    /// The library index of the track playing on the player or a deck,
+    /// which the list of tracks to play next follows.
+    pub(crate) rail_anchor: Option<usize>,
+    /// The tracks to play after the playing one, best first.
+    pub(crate) next_rows: Vec<crate::next_rail::NextRow>,
+    /// The tracks that played since the app opened, oldest first.
+    pub(crate) played_this_session: Vec<PathBuf>,
+    pub(crate) rail_focus: FocusHandle,
     /// Semitones the selected track is heard and suggested in, away from its
     /// own key. Back to 0 when another track is selected.
     pub(crate) key_shift: i8,
@@ -485,6 +497,11 @@ impl EuphoriaApp {
             visible: Vec::new(),
             selected: None,
             mixes: Vec::new(),
+            next_energy: settings.next_energy,
+            rail_anchor: None,
+            next_rows: Vec::new(),
+            played_this_session: Vec::new(),
+            rail_focus: cx.focus_handle(),
             key_shift: 0,
             table_scroll: UniformListScrollHandle::new(),
             table_focus: cx.focus_handle(),
@@ -1876,6 +1893,126 @@ impl EuphoriaApp {
                 )
             })
             .unwrap_or_default();
+        self.refresh_next_rows();
+    }
+
+    /// The track playing on the player, or on the deck that is heard more
+    /// while the decks are open.
+    pub(crate) fn playing_index(&self) -> Option<usize> {
+        let library = self.session.library();
+        if self.decks.is_open {
+            let decks = if self.decks.crossfader > 0.5 {
+                [DeckId::B, DeckId::A]
+            } else {
+                [DeckId::A, DeckId::B]
+            };
+            return decks.into_iter().find_map(|deck| {
+                let view = self.decks.view(deck);
+                view.playing.then_some(view.track_index).flatten()
+            });
+        }
+        if self.player.is_playing() {
+            return self.player.track().and_then(|path| library.index_of(path));
+        }
+        None
+    }
+
+    /// Follows what is playing: a track that starts is remembered as
+    /// played, and the tracks to play next are ranked again for it.
+    pub(crate) fn follow_playing(&mut self) {
+        let playing = self.playing_index();
+        if playing == self.rail_anchor {
+            return;
+        }
+        self.rail_anchor = playing;
+        if let Some(path) = playing
+            .and_then(|index| self.session.library().track(index))
+            .map(|track| track.path.clone())
+            && !self.played_this_session.contains(&path)
+        {
+            self.played_this_session.push(path);
+        }
+        self.refresh_next_rows();
+    }
+
+    /// Ranks the tracks to play after the playing one again.
+    pub(crate) fn refresh_next_rows(&mut self) {
+        let Some(playing_index) = self.rail_anchor else {
+            self.next_rows.clear();
+            return;
+        };
+        let pool = self.suggestion_indexes();
+        self.next_rows = crate::next_rail::next_after(&crate::next_rail::NextQuery {
+            library: self.session.library(),
+            favorites: self.session.favorites(),
+            playing_index,
+            energy: self.next_energy,
+            track_filters: &self.track_filters,
+            suggestion_filter: &self.decks.filter,
+            pool: &pool,
+            played: &self.played_this_session,
+            limit: MIX_LIMIT,
+        });
+    }
+
+    /// Chooses where the energy should go with the track to play next.
+    pub(crate) fn set_next_energy(
+        &mut self,
+        choice: crate::next_rail::EnergyChoice,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.next_energy == choice {
+            return;
+        }
+        self.next_energy = choice;
+        self.refresh_next_rows();
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
+        cx.notify();
+    }
+
+    /// Plays the track at `track_index` of the list of tracks to play next:
+    /// on deck B while the decks are open, else in the player.
+    pub(crate) fn play_next_track(&mut self, track_index: usize, cx: &mut Context<'_, Self>) {
+        if self.decks.is_open {
+            self.load_on_deck(DeckId::B, track_index, cx);
+        } else {
+            self.select_and_reveal(track_index, cx);
+            if !self.player.offers_pause() {
+                self.toggle_playback(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Enter in the list of tracks to play next: plays the selected row, or
+    /// the first when the selection is not in the list.
+    pub(crate) fn play_next_row(&mut self, cx: &mut Context<'_, Self>) {
+        let target = self
+            .selected
+            .filter(|selected| {
+                self.next_rows
+                    .iter()
+                    .any(|row| row.track_index == *selected)
+            })
+            .or_else(|| self.next_rows.first().map(|row| row.track_index));
+        if let Some(track_index) = target {
+            self.play_next_track(track_index, cx);
+        }
+    }
+
+    /// The heading of the mixes section: what it follows.
+    pub(crate) fn mixes_title(&self) -> String {
+        match self
+            .rail_anchor
+            .and_then(|index| self.session.library().track(index))
+        {
+            Some(playing) => format!("Next after {}", playing.title()),
+            None => crate::inspector_sections::SectionKind::Mixes
+                .title()
+                .to_string(),
+        }
     }
 
     /// Gives the playing track the key shift chosen for it.
@@ -2090,6 +2227,7 @@ impl EuphoriaApp {
             metronome: self.metronome.settings,
             inspector_sections: self.inspector_sections.choices,
             track_filters: self.track_filters.clone(),
+            next_energy: self.next_energy,
         };
         settings
             .save(settings_path)
@@ -2285,6 +2423,7 @@ impl Render for EuphoriaApp {
             .selected
             .and_then(|index| self.session.library().track(index));
         self.inspector_sections.sync(selected_track);
+        self.follow_playing();
         if self.inspector_sections.advance() {
             window.request_animation_frame();
         }

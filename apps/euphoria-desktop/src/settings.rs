@@ -71,6 +71,8 @@ pub(crate) struct Settings {
     pub(crate) inspector_sections: crate::inspector_sections::SectionChoices,
     /// The filters on the track list.
     pub(crate) track_filters: TrackFilters,
+    /// Where the energy goes with the track to play after the one playing.
+    pub(crate) next_energy: crate::next_rail::EnergyChoice,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -225,6 +227,7 @@ mod tests {
                 energy_min: Some(6),
                 energy_max: None,
             },
+            next_energy: crate::next_rail::EnergyChoice::Lift,
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -267,6 +270,7 @@ mod tests {
             metronome: MetronomeSettings::default(),
             inspector_sections: Default::default(),
             track_filters: TrackFilters::default(),
+            next_energy: Default::default(),
         })
         .unwrap();
         assert_eq!(
@@ -283,7 +287,7 @@ mod tests {
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true},"#,
                 r#""inspector_sections":{"mixes":null,"by_ear":null,"key_shift":null,"stems":null,"quality":null,"location":null},"#,
-                r#""track_filters":{"bpm_min":null,"bpm_max":null,"half_or_double":false,"qualities":[],"energy_min":null,"energy_max":null}}"#
+                r#""track_filters":{"bpm_min":null,"bpm_max":null,"half_or_double":false,"qualities":[],"energy_min":null,"energy_max":null},"next_energy":"keep"}"#
             )
         );
     }
@@ -304,6 +308,21 @@ mod tests {
         let loaded = loaded.unwrap();
         assert_eq!(loaded.track_filters, TrackFilters::default());
         assert!(!loaded.track_filters.is_active());
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_next_rail_keeps_the_energy() {
+        let folder = temporary_folder("before-next-rail");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(&path, r#"{"folders":["/music"],"theme":"deck"}"#).unwrap();
+        let old = Settings::load(&path).unwrap();
+        std::fs::write(&path, r#"{"folders":["/music"],"next_energy":"drop"}"#).unwrap();
+        let chosen = Settings::load(&path).unwrap();
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        assert_eq!(old.next_energy, crate::next_rail::EnergyChoice::Keep);
+        assert_eq!(chosen.next_energy, crate::next_rail::EnergyChoice::Drop);
     }
 
     #[test]
