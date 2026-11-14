@@ -36,7 +36,9 @@ use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::stems;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
-use crate::views::wheel::{emphasis_for, wheel};
+use crate::views::wheel::{
+    LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE, WHEEL_SIZE, emphasis_for, wheel,
+};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
 
@@ -75,6 +77,18 @@ impl Room {
             Room::Column => px(WAVEFORM_HEIGHT),
             Room::Strip { inner_height } => {
                 px((inner_height - HEADING_HEIGHT - others).max(SMALLEST_STRIP_WAVEFORM))
+            }
+        }
+    }
+
+    /// How wide and tall to draw the Camelot wheel: its usual size in the
+    /// column, and the height the strip leaves inside its padding, within
+    /// limits, so the wheel never hides.
+    fn wheel_size(self) -> f32 {
+        match self {
+            Room::Column => WHEEL_SIZE,
+            Room::Strip { inner_height } => {
+                inner_height.clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE)
             }
         }
     }
@@ -169,8 +183,13 @@ pub(crate) fn render(
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
         .children(
-            key_wheel(track, theme, &app.decks.filter.mix_options().relations)
-                .map(|section| sized(divided(section), Some(220.0))),
+            key_wheel(
+                track,
+                theme,
+                room,
+                &app.decks.filter.mix_options().relations,
+            )
+            .map(|section| sized(divided(section), Some(room.wheel_size()))),
         )
         .child(sized(stems::section(track, app, cx), None))
         .children(
@@ -1029,41 +1048,38 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
     )
 }
 
-/// The Camelot wheel, in themes that show it, for a track with a key.
-fn key_wheel(track: &Track, theme: &AppTheme, relations: &[Relation]) -> Option<Div> {
-    if !theme.shows_wheel {
-        return None;
-    }
+/// The Camelot wheel for a track with a key. In the column it has a line
+/// beside it; in the strip it is only the wheel, as tall as the strip allows.
+fn key_wheel(track: &Track, theme: &AppTheme, room: Room, relations: &[Relation]) -> Option<Div> {
     let key = track.key()?;
     let palette = &theme.palette;
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(14.0))
-            .child(wheel(
-                key.camelot(),
-                emphasis_for(
-                    CamelotPosition::of(&key),
-                    keys_related_by(&key, relations)
-                        .iter()
-                        .map(CamelotPosition::of),
-                ),
-                palette,
-            ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(SMALL_TEXT_SIZE)
-                    .text_color(palette.text_secondary)
-                    .child(format!(
-                        "Highlighted keys mix with {}, {}.",
-                        key.camelot(),
-                        key
-                    )),
-            ),
-    )
+    let key_wheel = wheel(
+        key.camelot(),
+        emphasis_for(
+            CamelotPosition::of(&key),
+            keys_related_by(&key, relations)
+                .iter()
+                .map(CamelotPosition::of),
+        ),
+        palette,
+        room.wheel_size(),
+    );
+    let section = div().flex().items_center().gap(px(14.0)).child(key_wheel);
+    Some(match room {
+        Room::Column => section.child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_secondary)
+                .child(format!(
+                    "Highlighted keys mix with {}, {}.",
+                    key.camelot(),
+                    key
+                )),
+        ),
+        Room::Strip { .. } => section,
+    })
 }
 
 /// Why a failed track failed, or that an unfinished one is queued or

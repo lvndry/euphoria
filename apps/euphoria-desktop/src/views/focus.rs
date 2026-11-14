@@ -20,12 +20,14 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::camelot::CamelotPosition;
 use crate::focus::{
     CueSections, Lane, MixVerdict, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane,
     Viewport, clock, mix_verdict,
 };
 use crate::format;
 use crate::library::Track;
+use crate::mixes::keys_related_by;
 use crate::peaks::BandPeaks;
 use crate::stems::StemStatus;
 use crate::theme::Palette;
@@ -36,6 +38,7 @@ use crate::views::key_chip::key_chip;
 use crate::views::tag_panel::choice_button;
 use crate::views::track_overview::{LaneFrame, LaneInputs, VOCALS_HEIGHT, overview_lanes};
 use crate::views::waveform::{WaveformColours, waveform};
+use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
 
@@ -349,6 +352,28 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                     .test_support(),
                 ),
         )
+        .children(header_wheel(track, app))
+}
+
+/// The side of the Camelot wheel in the header.
+const HEADER_WHEEL_SIZE: f32 = 104.0;
+
+/// The Camelot wheel of the track's key, with the keys the suggestion filter
+/// moves to tinted.
+fn header_wheel(track: &Track, app: &EuphoriaApp) -> Option<AnyElement> {
+    let key = track.key()?;
+    let relations = app.decks.filter.mix_options().relations;
+    Some(wheel(
+        key.camelot(),
+        emphasis_for(
+            CamelotPosition::of(&key),
+            keys_related_by(&key, &relations)
+                .iter()
+                .map(CamelotPosition::of),
+        ),
+        &app.theme.palette,
+        HEADER_WHEEL_SIZE,
+    ))
 }
 
 /// A lane: its name in the gutter and its content on the shared axis.

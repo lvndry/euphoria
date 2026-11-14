@@ -7,23 +7,31 @@
 //! the keys that mix with it with a lighter tint, so the moves a DJ can make
 //! are visible at a glance.
 
+use euphoria_core::{Key, Mode};
+use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, FontWeight, Hsla, PathBuilder, Pixels, Point, TestSupportExt, canvas, div,
-    point, px,
+    AnyElement, Bounds, FontWeight, Hsla, PathBuilder, Pixels, Point, SharedString, TestSupportExt,
+    canvas, div, point, px,
 };
 
 use crate::camelot::CamelotPosition;
 use crate::theme::{Palette, blend};
 
-/// Width and height of the wheel.
+/// Width and height of the wheel in the inspector column.
 pub(crate) const WHEEL_SIZE: f32 = 148.0;
-/// Radius where the outer ring, the major keys, ends.
+/// The smallest the wheel is drawn, in the strip at its shortest.
+pub(crate) const SMALLEST_WHEEL_SIZE: f32 = 100.0;
+/// The largest the wheel is drawn, in a tall strip.
+pub(crate) const LARGEST_WHEEL_SIZE: f32 = 220.0;
+/// Radius where the outer ring, the major keys, ends, at `WHEEL_SIZE`.
 const OUTER_RADIUS: f32 = WHEEL_SIZE / 2.0;
-/// Radius between the two rings.
+/// Radius between the two rings, at `WHEEL_SIZE`.
 const MIDDLE_RADIUS: f32 = 52.0;
-/// Radius where the inner ring, the minor keys, starts.
+/// Radius where the inner ring, the minor keys, starts, at `WHEEL_SIZE`.
 const HOLE_RADIUS: f32 = 30.0;
+/// The smallest cell label, so the numbers stay legible on a small wheel.
+const SMALLEST_LABEL_SIZE: f32 = 8.0;
 const SEGMENT_DEGREES: f32 = 30.0;
 /// Space left between neighbouring cells, in degrees and in pixels.
 const GAP_DEGREES: f32 = 1.5;
@@ -44,13 +52,33 @@ pub(crate) enum Emphasis {
     Compatible,
 }
 
-/// The wheel with `code` in the middle. `emphasized` lists the keys to
-/// colour; every other cell is drawn quiet.
+/// The key a wheel cell stands for.
+pub(crate) fn key_at(position: CamelotPosition) -> Key {
+    let mode = if position.is_major {
+        Mode::Major
+    } else {
+        Mode::Minor
+    };
+    (0..12)
+        .map(|tonic| Key::new(tonic, mode))
+        .find(|key| CamelotPosition::of(key) == position)
+        .unwrap_or_else(|| Key::new(0, mode))
+}
+
+/// The wheel, `size` pixels square, with `code` in the middle. `emphasized`
+/// lists the keys to colour; every other cell is drawn quiet. Hovering a
+/// cell names its key.
 pub(crate) fn wheel(
     code: String,
     emphasized: Vec<(CamelotPosition, Emphasis)>,
     palette: &Palette,
+    size: f32,
 ) -> AnyElement {
+    let scale = size / WHEEL_SIZE;
+    let outer_radius = OUTER_RADIUS * scale;
+    let middle_radius = MIDDLE_RADIUS * scale;
+    let hole_radius = HOLE_RADIUS * scale;
+    let label_size = (CELL_LABEL_SIZE * scale).max(SMALLEST_LABEL_SIZE);
     let quiet = palette.raised;
     let selected = palette.accent;
     let compatible = blend(palette.accent, palette.raised, 0.4);
@@ -69,7 +97,7 @@ pub(crate) fn wheel(
         match emphasis {
             Some(Emphasis::Selected) => palette.accent_ink,
             Some(Emphasis::Compatible) => palette.text,
-            None => palette.text_tertiary,
+            None => palette.text_secondary,
         }
     };
 
@@ -78,47 +106,54 @@ pub(crate) fn wheel(
         .map(|position| (position, emphasis_of(position)))
         .collect();
     let painted = cells.clone();
-    let labels = cells.iter().map(|(position, emphasis)| {
-        let (radius, letter) = if position.is_major {
-            ((OUTER_RADIUS + MIDDLE_RADIUS) / 2.0, 'B')
-        } else {
-            ((MIDDLE_RADIUS + HOLE_RADIUS) / 2.0, 'A')
-        };
-        let radians = (f32::from(position.number % 12) * SEGMENT_DEGREES).to_radians();
-        let centre_x = WHEEL_SIZE / 2.0 + radius * radians.sin();
-        let centre_y = WHEEL_SIZE / 2.0 - radius * radians.cos();
-        div()
-            .absolute()
-            .left(px(centre_x - 12.0))
-            .top(px(centre_y - 7.0))
-            .w(px(24.0))
-            .h(px(14.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(CELL_LABEL_SIZE))
-            .line_height(px(14.0))
-            .font_weight(if emphasis.is_some() {
-                FontWeight::SEMIBOLD
+    let labels = cells
+        .iter()
+        .enumerate()
+        .map(|(index, (position, emphasis))| {
+            let (radius, letter) = if position.is_major {
+                ((outer_radius + middle_radius) / 2.0, 'B')
             } else {
-                FontWeight::NORMAL
-            })
-            .text_color(label_colour(*emphasis))
-            .child(format!("{}{letter}", position.number))
-    });
+                ((middle_radius + hole_radius) / 2.0, 'A')
+            };
+            let radians = (f32::from(position.number % 12) * SEGMENT_DEGREES).to_radians();
+            let centre_x = size / 2.0 + radius * radians.sin();
+            let centre_y = size / 2.0 - radius * radians.cos();
+            let code = format!("{}{letter}", position.number);
+            let description: SharedString = format!("{code}, {}", key_at(*position)).into();
+            div()
+                .id(("camelot-cell", index))
+                .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
+                .absolute()
+                .left(px(centre_x - 12.0))
+                .top(px(centre_y - 7.0))
+                .w(px(24.0))
+                .h(px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(label_size))
+                .line_height(px(14.0))
+                .font_weight(if emphasis.is_some() {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::NORMAL
+                })
+                .text_color(label_colour(*emphasis))
+                .child(code)
+        });
 
     div()
         .id("camelot-wheel")
         .relative()
         .flex_shrink_0()
-        .size(px(WHEEL_SIZE))
+        .size(px(size))
         .child(
             canvas(
                 |_, _, _| (),
                 move |bounds: Bounds<Pixels>, _, window, _| {
                     let centre = bounds.center();
                     for (position, emphasis) in &painted {
-                        if let Some(path) = cell_path(centre, *position) {
+                        if let Some(path) = cell_path(centre, *position, scale) {
                             window.paint_path(path, fill_of(*emphasis));
                         }
                     }
@@ -135,7 +170,8 @@ pub(crate) fn wheel(
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(CODE_SIZE))
+                .text_size(px(CODE_SIZE * scale.max(0.8)))
+                .text_color(palette.text)
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(code),
         )
@@ -163,11 +199,15 @@ pub(crate) fn emphasis_for(
 /// The outline of the cell for `position`. Twelve sits at the top and the
 /// numbers run clockwise, as on a clock face; the major key of a number is
 /// on the outer ring and its minor key on the inner ring.
-fn cell_path(centre: Point<Pixels>, position: CamelotPosition) -> Option<gpui::Path<Pixels>> {
+fn cell_path(
+    centre: Point<Pixels>,
+    position: CamelotPosition,
+    scale: f32,
+) -> Option<gpui::Path<Pixels>> {
     let (outer, inner) = if position.is_major {
-        (OUTER_RADIUS, MIDDLE_RADIUS + RING_GAP / 2.0)
+        (OUTER_RADIUS * scale, MIDDLE_RADIUS * scale + RING_GAP / 2.0)
     } else {
-        (MIDDLE_RADIUS - RING_GAP / 2.0, HOLE_RADIUS)
+        (MIDDLE_RADIUS * scale - RING_GAP / 2.0, HOLE_RADIUS * scale)
     };
     let middle = f32::from(position.number % 12) * SEGMENT_DEGREES;
     let start = middle - SEGMENT_DEGREES / 2.0 + GAP_DEGREES / 2.0;
@@ -254,12 +294,55 @@ mod tests {
     }
 
     #[test]
+    fn a_cell_names_the_key_it_stands_for() {
+        for key_text in ["A minor", "C major", "Db minor", "B major"] {
+            let key: Key = key_text.parse().unwrap();
+            assert_eq!(key_at(CamelotPosition::of(&key)), key);
+        }
+        assert_eq!(key_at(position("A minor")).camelot(), "8A");
+    }
+
+    #[test]
     fn every_key_has_a_cell_of_its_own_on_its_ring() {
         let centre = point(px(0.0), px(0.0));
         for number in 1..=12_u8 {
             for is_major in [false, true] {
-                assert!(cell_path(centre, CamelotPosition { number, is_major }).is_some());
+                assert!(cell_path(centre, CamelotPosition { number, is_major }, 1.0).is_some());
             }
         }
+    }
+
+    #[test]
+    fn labels_read_at_least_4_5_to_1_in_every_theme() {
+        use crate::theme::{AppTheme, ThemeName};
+        for name in ThemeName::ALL {
+            let palette = AppTheme::named(name).palette;
+            let compatible = blend(palette.accent, palette.raised, 0.4);
+            for (label, fill) in [
+                (palette.accent_ink, palette.accent),
+                (palette.text, compatible),
+                (palette.text_secondary, palette.raised),
+            ] {
+                let ratio = contrast(label, fill);
+                assert!(ratio >= 4.5, "{name:?}: contrast {ratio:.2}");
+            }
+        }
+    }
+
+    fn contrast(first: Hsla, second: Hsla) -> f32 {
+        let luminance = |colour: Hsla| {
+            let rgba = colour.to_rgb();
+            let linear = |value: f32| {
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * linear(rgba.r) + 0.7152 * linear(rgba.g) + 0.0722 * linear(rgba.b)
+        };
+        let lighter = luminance(first).max(luminance(second));
+        let darker = luminance(first).min(luminance(second));
+        (lighter + 0.05) / (darker + 0.05)
     }
 }

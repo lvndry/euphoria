@@ -140,6 +140,12 @@ A value you set wins everywhere: in the table and search, in **Mixes well with**
 
 **Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is close to it. It uses the same saved controls as the suggestions under the decks, described under [Narrow the suggestions](#narrow-the-suggestions): the key moves that count (the same key, the keys one step either way on the Camelot wheel and the relative major or minor, until you change them), the tempo window (6 percent), the tempo and energy ranges, the genre, and the pool chosen with **Whole library**, **Tracks shown**, **Favorites** or a playlist. The smoothest key moves come first, then the closest tempos, then the closest energy. Transitions you marked as favorites come first and stay even when the controls would leave them out. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. When a saved filter narrows the list, a line under the heading says what is narrowed, and clicking it opens the decks, where the controls are. When the filter leaves nothing, the list says so. The Camelot wheel tints the keys that the same key moves reach. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
+### The Camelot wheel
+
+Every theme shows the Camelot wheel for the selected track's key, in its own colours. The minor keys (A) are on the inner ring and the major keys (B) on the outer ring. The selected key is filled in the accent colour, and the keys that your key moves reach (by default the neighbours and the relative major or minor) are in a lighter tint, following the saved controls under [Narrow the suggestions](#narrow-the-suggestions). Rest the pointer on a key to see its Camelot code and its name.
+
+In the column themes the wheel sits under the key and tempo. In the Deck theme it is a square next to the key and tempo in the strip, as tall as the strip allows inside its padding, between 100 and 220 pixels, so it shrinks with the strip and is never hidden. The focus view shows a smaller wheel in its header. The wheel keeps Camelot codes whatever notation the table uses.
+
 ### Resize the inspector
 
 Drag the left edge of the inspector to make it wider or narrower. The pointer turns into a resize arrow over the edge. The waveform, the three boxes and the list of mixes follow the new width. Double click the edge to return to the usual width.
@@ -491,7 +497,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Paper | Light with a blue accent. |
 | Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
-| Key first | Slate colours with solid key chips, a Camelot wheel in the inspector, and the table sorted by key. The wheel has the minor keys (A) on its inner ring and the major keys (B) on its outer ring; the selected track's key is filled in the accent colour and the keys that mix with it, its neighbours and its relative major or minor, in a lighter tint. |
+| Key first | Slate colours with solid key chips and the table sorted by key. |
 
 ![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
 

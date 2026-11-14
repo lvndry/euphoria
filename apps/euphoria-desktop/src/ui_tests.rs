@@ -353,23 +353,17 @@ fn each_theme_lays_the_window_out_as_it_should(cx: &mut TestAppContext) {
 fn the_expected_layout_of_each_theme_is_the_one_in_the_spec(_cx: &mut TestAppContext) {
     let layout_and_rows = |name| {
         let theme = AppTheme::named(name);
-        (theme.layout, theme.row_height, theme.shows_wheel)
+        (theme.layout, theme.row_height)
     };
     let column = Layout::InspectorRight;
-    assert_eq!(layout_and_rows(ThemeName::Slate), (column, px(32.0), false));
-    assert_eq!(layout_and_rows(ThemeName::Paper), (column, px(32.0), false));
+    assert_eq!(layout_and_rows(ThemeName::Slate), (column, px(32.0)));
+    assert_eq!(layout_and_rows(ThemeName::Paper), (column, px(32.0)));
     assert_eq!(
         layout_and_rows(ThemeName::Deck),
-        (Layout::DeckBelow, px(32.0), false)
+        (Layout::DeckBelow, px(32.0))
     );
-    assert_eq!(
-        layout_and_rows(ThemeName::Graphite),
-        (column, px(26.0), false)
-    );
-    assert_eq!(
-        layout_and_rows(ThemeName::KeyFirst),
-        (column, px(32.0), true)
-    );
+    assert_eq!(layout_and_rows(ThemeName::Graphite), (column, px(26.0)));
+    assert_eq!(layout_and_rows(ThemeName::KeyFirst), (column, px(32.0)));
 }
 
 #[gpui::test]
@@ -3132,16 +3126,63 @@ fn the_curve_is_worked_out_from_the_decoded_audio_after_the_waveform(cx: &mut Te
 }
 
 #[gpui::test]
-fn the_key_first_wheel_shows_both_rings_around_the_selected_key(cx: &mut TestAppContext) {
-    let (window, _) =
-        open_track_changing_key(ThemeName::KeyFirst, Panels::default(), USUAL_WINDOW, cx);
-    cx.update_window(window, |_, window, cx| {
-        window.render_frame(cx);
-        let wheel = window.find("camelot-wheel").bounds();
-        assert_eq!(wheel.size.width, px(crate::views::wheel::WHEEL_SIZE));
-        assert!(window.find("inspector").bounds().contains(&wheel.center()));
-    })
-    .unwrap();
+fn every_theme_shows_the_wheel_in_the_inspector_above_the_waveform(cx: &mut TestAppContext) {
+    for theme in ThemeName::ALL {
+        let (window, _) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let inspector = window.find("inspector").bounds();
+            let wheel = window.find("camelot-wheel").bounds();
+            assert!(inspector.contains(&wheel.center()), "{theme:?}");
+            if AppTheme::named(theme).layout == Layout::InspectorRight {
+                assert_eq!(
+                    wheel.size.width,
+                    px(crate::views::wheel::WHEEL_SIZE),
+                    "{theme:?}"
+                );
+                assert_eq!(wheel.size.height, wheel.size.width, "{theme:?}");
+                assert!(
+                    wheel.bottom() <= window.find("waveform").bounds().top(),
+                    "{theme:?}"
+                );
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn the_deck_strip_holds_a_square_wheel_as_tall_as_its_inside_next_to_the_key(
+    cx: &mut TestAppContext,
+) {
+    use crate::views::wheel::{LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE};
+    for strip_height in [0_u32, 180, 420] {
+        let panels = Panels {
+            strip_height,
+            ..Panels::default()
+        };
+        let (window, _) = open_track_changing_key(ThemeName::Deck, panels, USUAL_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let strip = window.find("inspector").bounds();
+            let wheel = window.find("camelot-wheel").bounds();
+            let waveform = window.find("waveform").bounds();
+            let inner_height = strip.size.height / px(1.0) - 32.0;
+            let expected = inner_height.clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE);
+            assert_eq!(wheel.size.width, px(expected), "{strip_height}");
+            assert_eq!(wheel.size.height, wheel.size.width, "{strip_height}");
+            assert!(wheel.top() >= strip.top(), "{strip_height}");
+            assert!(
+                wheel.bottom() <= strip.bottom() - px(16.0) + px(0.5),
+                "{wheel:?} in {strip:?}"
+            );
+            assert!(wheel.right() <= waveform.left() + px(0.5), "{strip_height}");
+            assert!(waveform.size.width >= px(300.0), "{waveform:?}");
+        })
+        .unwrap();
+    }
 }
 
 /// An analysis rated by the core's confidence rules: a key margin of 0.02

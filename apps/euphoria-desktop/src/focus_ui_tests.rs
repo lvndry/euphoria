@@ -8,6 +8,7 @@ use gpui::test::{ClickOptions, TestEventExt, TestWindowExt};
 use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext, point, px};
 
 use crate::app::EuphoriaApp;
+use crate::demo;
 use crate::focus::Lane;
 use crate::playback::testing::SilentOutput;
 use crate::settings::Settings;
@@ -88,6 +89,35 @@ fn the_focus_button_opens_the_view_and_the_library_button_returns_with_the_selec
     assert!(!is_open(&view, cx));
     assert_eq!(selected(&view, cx), Some(3));
     assert!(is_shown(window, track(3), cx));
+}
+
+#[gpui::test]
+fn the_focus_view_shows_the_wheel_of_the_selected_tracks_key_in_every_theme(
+    cx: &mut TestAppContext,
+) {
+    for theme in crate::theme::ThemeName::ALL {
+        let (window, _) = open_window_with(
+            demo::tracks(10),
+            Box::new(SilentOutput),
+            Settings {
+                theme,
+                ..Settings::default()
+            },
+            None,
+            gpui::size(px(1280.0), px(800.0)),
+            cx,
+        );
+        click(window, track(3), cx);
+        open_focus(window, cx);
+        cx.update_window(window, |_, window, _| {
+            let focus = window.find("focus-view").bounds();
+            let wheel = window.find("camelot-wheel").bounds();
+            assert!(focus.contains(&wheel.center()), "{theme:?}");
+            assert_eq!(wheel.size.width, wheel.size.height, "{theme:?}");
+            assert!(wheel.size.width >= px(96.0), "{theme:?}");
+        })
+        .unwrap();
+    }
 }
 
 #[gpui::test]
