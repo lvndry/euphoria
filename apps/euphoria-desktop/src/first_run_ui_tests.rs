@@ -3,7 +3,7 @@
 
 //! The first run card, used in a headless window.
 
-use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext, px, size};
+use gpui::{AnyWindowHandle, Entity, TestAppContext, px, size};
 
 use crate::app::EuphoriaApp;
 use crate::first_run::FirstRun;
