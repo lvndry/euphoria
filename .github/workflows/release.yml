@@ -438,17 +438,17 @@ jobs:
           if [ -n "$PREVIOUS_TAG" ]; then
             since=(--since "$PREVIOUS_TAG")
           fi
-          linux=()
+          linux_flag=()
           if [ "$LINUX" = true ]; then
-            linux=(--minimum-glibc "$MINIMUM_GLIBC")
+            linux_flag=(--minimum-glibc "$MINIMUM_GLIBC")
           fi
-          notarized=()
+          notarized_flag=()
           if [ "$NOTARIZED" = true ]; then
-            notarized=(--notarized)
+            notarized_flag=(--notarized)
           fi
-          python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" "${notarized[@]}" \
+          python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" "${notarized_flag[@]}" \
             --until "$BASE" --repository "$GITHUB_REPOSITORY" \
-            --minimum-macos "$MINIMUM_MACOS" "${linux[@]}" > "$RUNNER_TEMP/notes.md"
+            --minimum-macos "$MINIMUM_MACOS" "${linux_flag[@]}" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
