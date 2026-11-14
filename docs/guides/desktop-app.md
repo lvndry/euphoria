@@ -74,7 +74,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. Each row carries a small chip for each reason, such as **Key unsure**, and the inspector says how to [settle it](#settle-a-track-under-needs-review). [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. The entry appears only while at least one file is missing; when the last one is found again or removed, the table returns to **All tracks**. See [Missing files](#missing-files).
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
@@ -126,6 +126,27 @@ Euphoria reads the key already written in each file's tags, by Euphoria, rekordb
 - **different key**: the keys share few notes, so one reading is wrong or the track changes key. Check by ear before you mix on it.
 
 Point at the **≠** for the key from the tags. When the tags agree, the inspector says so quietly; text that is not a key, such as a word typed into the key field, is shown as it is and does not put the track under Needs review. Setting the key yourself, as the next section explains, takes the track off the list. The tags are only read: nothing changes them until you [write tags](#write-tags), after which they name the key you see.
+
+### Settle a track under Needs review
+
+A track is under **Needs review** for one or more of four reasons. In the list each row has a red chip per reason; select the track and a **Needs review** box at the top of the inspector says each reason in plain words, with the quickest ways to settle it. The track leaves the list, and every count (Needs review, and the folders') drops at once, as soon as its last reason is settled.
+
+| Chip | What it means | How to settle it |
+| --- | --- | --- |
+| **Key unsure** | The key is rated low confidence. | Play the key tone or the piano under the Key box (see [check the key by ear](#check-the-key-by-ear-and-correct-it)). Then click **Try** with the second best key if it is right, **Correct...** to pick another, or **Looks right** to keep the detected key. |
+| **Tempo unsure** | The tempo is rated low confidence, most often because it is counted at half or double speed. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. Click **½ ×** or **2 ×** to use half or double, or **Looks right** to keep it. |
+| **Tag says 8A** | The key field in the file's tags names another key than the one detected (the same case as the red **≠**; see [when the tags name another key](#when-the-tags-name-another-key)). | The box offers **Keep** the tags' key, which sets it as your key, or **Use** the detected key, which confirms it. Either way the conflict does not come back. |
+| **Failed** | The file could not be analyzed. The box gives the reason. | Fix the file if the reason points to a problem, then click **Analyze again**. A file that fails again stays under Needs review. |
+
+![The Needs review list, with a red chip for each reason beside each title.](../images/desktop-app/needs-review-list.png)
+
+![The Needs review box at the top of the inspector: one line per reason, each with its buttons.](../images/desktop-app/needs-review-inspector.png)
+
+When a row has several chips and the Title column is narrow, the last chips are cut off; widen the column or select the track to see every reason.
+
+**Looks right** confirms the value without changing it. It is kept in the [analysis cache](../reference/cli.md#corrections) with your corrections, so it survives quitting and analyzing the track again, and `euphoria cache clear` keeps it. It is not a correction: the track keeps the detected key or tempo, its beat grid and its cues (a tempo you set drops them), the inspector does not say "by you", and it is not written to tags or exported as something you changed. Confirming the key also settles a tag conflict, since you looked at the key and kept it. Setting a key or a tempo yourself replaces the confirmation of that value; resetting it brings the doubt back.
+
+Only the second best key is kept by the analysis, so **Try** offers one key, not three; use **Correct...** for any other. The command line's `needs_review` field does not know about confirmations yet.
 
 ### Check the key by ear and correct it
 
@@ -515,7 +536,7 @@ How tags are written:
 
 ## When a file fails
 
-A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on. A file that is no longer there is not a failure; see [Missing files](#missing-files).
+A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector, where **Analyze again** tries it once more. The other files carry on. A file that is no longer there is not a failure; see [Missing files](#missing-files).
 
 ## Missing files
 

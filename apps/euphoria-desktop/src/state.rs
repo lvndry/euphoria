@@ -526,6 +526,17 @@ impl Session {
         queued
     }
 
+    /// Queues the track at `path` for analysis again when its analysis
+    /// failed. Returns false when it did not fail.
+    pub(crate) fn analyze_again(&mut self, path: &Path) -> bool {
+        if !self.library.requeue_failed(path) {
+            return false;
+        }
+        self.progress.enqueue(1);
+        self.workers.enqueue(vec![path.to_path_buf()]);
+        true
+    }
+
     /// Sets the key and tempo the user chose for the track at `path`, in the
     /// library at once. Keeping it in the cache is
     /// [`CachedAnalyzer::set_correction`], which reads the file and so runs
@@ -842,6 +853,39 @@ mod tests {
             reopened.analysis().is_some(),
             "the analysis came from the cache"
         );
+    }
+
+    #[test]
+    fn a_confirmation_kept_in_the_cache_comes_back_and_changes_no_value() {
+        let folder = TemporaryFolder::new("confirmations");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let confirmed = euphoria_core::Correction::default()
+            .confirming_key()
+            .confirming_bpm();
+        let (detected_key, detected_bpm) = {
+            let cache = folder.open_cache();
+            let mut session = Session::start(Some(cache.clone())).unwrap();
+            session.add(scan(std::slice::from_ref(&folder.0), Some(&cache)));
+            wait_until_idle(&mut session);
+            session.set_correction(&track, confirmed);
+            cache.set_correction(&track, &confirmed).unwrap();
+            let analyzed = &session.library().tracks()[0];
+            (analyzed.key(), analyzed.bpm())
+        };
+
+        let cache = folder.open_cache();
+        let found = scan(std::slice::from_ref(&folder.0), Some(&cache));
+        assert_eq!(found.corrections.get(&track), Some(&confirmed));
+        let mut session = Session::start(Some(cache)).unwrap();
+        session.add(found);
+        let reopened = &session.library().tracks()[0];
+        assert_eq!(reopened.correction, confirmed);
+        assert_eq!(
+            (reopened.key(), reopened.bpm()),
+            (detected_key, detected_bpm)
+        );
+        assert!(reopened.review_reasons().is_empty());
     }
 
     #[test]

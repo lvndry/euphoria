@@ -57,6 +57,19 @@ impl From<&str> for TrackFailure {
     }
 }
 
+/// One reason a track is listed under Needs review.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ReviewReason {
+    /// Analysis failed; the text says why.
+    Failed(String),
+    /// The key is rated low confidence.
+    KeyUnsure,
+    /// The tempo is rated low confidence.
+    TempoUnsure,
+    /// The key field of the file's tags names another key.
+    KeyConflict { tag_key: Key },
+}
+
 /// One audio file in the library, with the text the table shows for it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Track {
@@ -193,7 +206,7 @@ impl Track {
     /// How the tags differ from the detected key, when they name another
     /// key and the user has not set one: a reason to review the track.
     pub(crate) fn key_conflict(&self) -> Option<KeyDifference> {
-        if self.correction.key.is_some() {
+        if self.correction.key.is_some() || self.correction.key_confirmed {
             return None;
         }
         match self.tag_key_agreement()? {
@@ -298,20 +311,40 @@ impl Track {
         value.or_else(|| self.analysis().map(|_| NOT_FOUND.to_string()))
     }
 
-    /// Whether the track is worth checking: its analysis failed, the core
-    /// rates its key or its tempo low, or its tags name another key.
-    pub(crate) fn needs_review(&self) -> bool {
+    /// Why the track is worth checking: its analysis failed, the core rates
+    /// its key or its tempo low, or its tags name another key. A value the
+    /// user set or confirmed is no longer in doubt.
+    pub(crate) fn review_reasons(&self) -> Vec<ReviewReason> {
         match &self.status {
-            TrackStatus::Failed(_) => true,
+            TrackStatus::Failed(message) => vec![ReviewReason::Failed(message.clone())],
             TrackStatus::Analyzed(analysis) => {
-                let doubtful_key = self.correction.key.is_none()
-                    && analysis.key_confidence() == Some(Confidence::Low);
-                let doubtful_tempo = self.correction.bpm.is_none()
-                    && analysis.tempo_confidence() == Some(Confidence::Low);
-                doubtful_key || doubtful_tempo || self.key_conflict().is_some()
+                let mut reasons = Vec::new();
+                if self.correction.key.is_none()
+                    && !self.correction.key_confirmed
+                    && analysis.key_confidence() == Some(Confidence::Low)
+                {
+                    reasons.push(ReviewReason::KeyUnsure);
+                }
+                if self.correction.bpm.is_none()
+                    && !self.correction.bpm_confirmed
+                    && analysis.tempo_confidence() == Some(Confidence::Low)
+                {
+                    reasons.push(ReviewReason::TempoUnsure);
+                }
+                if self.key_conflict().is_some()
+                    && let Some(tag_key) = self.tag_key.as_ref().and_then(|tagged| tagged.key)
+                {
+                    reasons.push(ReviewReason::KeyConflict { tag_key });
+                }
+                reasons
             }
-            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => false,
+            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => Vec::new(),
         }
+    }
+
+    /// Whether the track is worth checking: it has a reason to review.
+    pub(crate) fn needs_review(&self) -> bool {
+        !self.review_reasons().is_empty()
     }
 
     /// Why analysis failed, when it did.
@@ -526,6 +559,25 @@ impl Library {
             return false;
         }
         track.status = TrackStatus::Queued;
+        self.revision += 1;
+        true
+    }
+
+    /// Queues a track whose analysis failed to be analyzed again. Returns
+    /// false when the file is not in the library or its track did not fail.
+    pub(crate) fn requeue_failed(&mut self, path: &Path) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        if !matches!(track.status, TrackStatus::Failed(_)) {
+            return false;
+        }
+        track.status = TrackStatus::Queued;
+        self.review_count -= 1;
         self.revision += 1;
         true
     }
@@ -1187,6 +1239,116 @@ mod tests {
             "the difference is still shown"
         );
         assert_eq!(library.counts().needs_review, 0);
+    }
+
+    #[test]
+    fn each_reason_is_named_and_a_track_can_have_several() {
+        let mut library = Library::default();
+        let broken = Path::new("/music/broken.mp3");
+        let key = Path::new("/music/key.mp3");
+        let tempo = Path::new("/music/tempo.mp3");
+        let everything = Path::new("/music/everything.mp3");
+        let sure = Path::new("/music/sure.mp3");
+        for path in [broken, key, tempo, everything, sure] {
+            library.add_files(vec![path.to_path_buf()]);
+        }
+        library.record_outcome(broken, Err("cannot decode".into()));
+        library.record_outcome(key, Ok(rated(0.001, 124.0, 0.6)));
+        library.record_outcome(tempo, Ok(rated(0.02, 87.0, 0.01)));
+        library.record_outcome(everything, Ok(rated(0.001, 87.0, 0.01)));
+        library.record_outcome(sure, Ok(rated(0.02, 124.0, 0.6)));
+        library.set_names(everything, with_tag_key("9A"));
+        let tag_key = library.tracks()[3].tag_key.as_ref().unwrap().key.unwrap();
+
+        let reasons = |index: usize| library.tracks()[index].review_reasons();
+        assert_eq!(
+            reasons(0),
+            [ReviewReason::Failed("cannot decode".to_string())]
+        );
+        assert_eq!(reasons(1), [ReviewReason::KeyUnsure]);
+        assert_eq!(reasons(2), [ReviewReason::TempoUnsure]);
+        assert_eq!(
+            reasons(3),
+            [
+                ReviewReason::KeyUnsure,
+                ReviewReason::TempoUnsure,
+                ReviewReason::KeyConflict { tag_key }
+            ]
+        );
+        assert!(reasons(4).is_empty());
+        assert!(!library.tracks()[4].needs_review());
+        assert_eq!(library.counts().needs_review, 4);
+    }
+
+    #[test]
+    fn looks_right_ends_the_doubt_without_setting_a_value_and_keeps_the_grid() {
+        let mut library = Library::default();
+        let path = Path::new("/music/doubtful.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.001, 87.0, 0.01)));
+        assert_eq!(library.counts().needs_review, 1);
+
+        let key_confirmed = Correction::default().confirming_key();
+        library.set_correction(path, key_confirmed);
+        let track = &library.tracks()[0];
+        assert_eq!(track.review_reasons(), [ReviewReason::TempoUnsure]);
+        assert_eq!(track.key(), Some("A minor".parse().unwrap()));
+        assert_eq!(library.counts().needs_review, 1);
+
+        library.set_correction(path, key_confirmed.confirming_bpm());
+        let track = &library.tracks()[0];
+        assert!(track.review_reasons().is_empty());
+        assert_eq!(track.bpm(), Some(174.0), "the tempo is the detected one");
+        assert_eq!(library.counts().needs_review, 0);
+
+        library.record_outcome(path, Ok(rated(0.001, 87.0, 0.01)));
+        assert_eq!(
+            library.counts().needs_review,
+            0,
+            "analyzing again keeps the confirmation"
+        );
+
+        library.set_correction(path, Correction::default());
+        assert_eq!(library.counts().needs_review, 1);
+    }
+
+    #[test]
+    fn a_key_conflict_settled_either_way_stays_settled() {
+        let mut library = Library::default();
+        let path = Path::new("/music/sure.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        library.set_names(path, with_tag_key("9A"));
+        let tag_key = library.tracks()[0].tag_key.as_ref().unwrap().key.unwrap();
+        assert_eq!(library.counts().needs_review, 1);
+
+        library.set_correction(path, Correction::of_key(tag_key));
+        assert_eq!(library.counts().needs_review, 0);
+        library.set_correction(path, Correction::default().confirming_key());
+        assert_eq!(library.tracks()[0].key_conflict(), None);
+        assert_eq!(library.counts().needs_review, 0);
+        assert_eq!(library.tracks()[0].key(), Some("A minor".parse().unwrap()));
+
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        library.set_names(path, with_tag_key("9A"));
+        assert_eq!(
+            library.counts().needs_review,
+            0,
+            "re-read tags, same answer"
+        );
+    }
+
+    #[test]
+    fn a_failed_track_is_queued_again_and_leaves_needs_review() {
+        let mut library = Library::default();
+        let path = Path::new("/music/broken.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Err("cannot decode".into()));
+        assert_eq!(library.counts().needs_review, 1);
+        assert!(library.requeue_failed(path));
+        assert_eq!(library.counts().needs_review, 0);
+        assert!(library.tracks()[0].is_unfinished());
+        assert!(!library.requeue_failed(path));
     }
 
     #[test]

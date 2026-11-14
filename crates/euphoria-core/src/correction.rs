@@ -24,6 +24,14 @@ pub struct Correction {
     /// The energy the user set, from 1 (calm) to 10 (intense), the scale the
     /// analysis reports.
     pub energy: Option<u8>,
+    /// The user checked the detected key and found it right, without
+    /// setting another. It changes no value; it only ends the doubt about
+    /// the key. Setting or resetting the key clears it.
+    pub key_confirmed: bool,
+    /// The user checked the detected tempo and found it right. As
+    /// `key_confirmed`, it keeps the beat grid and the cues, which a set
+    /// tempo drops.
+    pub bpm_confirmed: bool,
 }
 
 impl Correction {
@@ -60,7 +68,11 @@ impl Correction {
                 reason: "a tempo must be a number above 0 and at most 999",
             });
         }
-        Ok(Self { bpm, ..self })
+        Ok(Self {
+            bpm,
+            bpm_confirmed: false,
+            ..self
+        })
     }
 
     /// A correction of the energy only.
@@ -99,18 +111,49 @@ impl Correction {
     /// [`EuphoriaError::InvalidCorrection`] for a tempo that is not a
     /// positive number no faster than 999, or an energy outside 1 to 10.
     pub fn validated(self) -> Result<Self, EuphoriaError> {
-        self.with_bpm(self.bpm)?.with_energy(self.energy)
+        Ok(Self {
+            bpm_confirmed: self.bpm_confirmed,
+            ..self.with_bpm(self.bpm)?.with_energy(self.energy)?
+        })
     }
 
     /// The same correction with the key set to `key`, or back to the
     /// detected key with `None`.
     pub fn with_key(self, key: Option<Key>) -> Self {
-        Self { key, ..self }
+        Self {
+            key,
+            key_confirmed: false,
+            ..self
+        }
     }
 
-    /// True when nothing is corrected.
+    /// The same correction with the detected key confirmed as right, and
+    /// no key set.
+    pub fn confirming_key(self) -> Self {
+        Self {
+            key: None,
+            key_confirmed: true,
+            ..self
+        }
+    }
+
+    /// The same correction with the detected tempo confirmed as right, and
+    /// no tempo set.
+    pub fn confirming_bpm(self) -> Self {
+        Self {
+            bpm: None,
+            bpm_confirmed: true,
+            ..self
+        }
+    }
+
+    /// True when nothing is corrected or confirmed.
     pub fn is_empty(&self) -> bool {
-        self.key.is_none() && self.bpm.is_none() && self.energy.is_none()
+        self.key.is_none()
+            && self.bpm.is_none()
+            && self.energy.is_none()
+            && !self.key_confirmed
+            && !self.bpm_confirmed
     }
 
     /// `analysis` with the corrected values in place of the detected ones.

@@ -732,7 +732,7 @@ impl EuphoriaApp {
 
     /// Moves finished files into the table a few times a second for as long
     /// as analysis is running.
-    fn start_collecting(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn start_collecting(&mut self, cx: &mut Context<'_, Self>) {
         if self.is_collecting || !self.session.progress().is_active() {
             return;
         }

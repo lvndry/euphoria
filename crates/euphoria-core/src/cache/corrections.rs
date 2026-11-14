@@ -103,14 +103,17 @@ impl Cache {
         } else {
             self.connection.execute(
                 "INSERT OR REPLACE INTO corrections
-                     (content_hash, key, bpm, corrected_at, energy)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                     (content_hash, key, bpm, corrected_at, energy,
+                      key_confirmed, bpm_confirmed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     content_hash.as_bytes(),
                     correction.key.map(|key| key.to_string()),
                     correction.bpm,
                     seconds_since_epoch(),
                     correction.energy,
+                    correction.key_confirmed,
+                    correction.bpm_confirmed,
                 ],
             )
         };
@@ -157,6 +160,8 @@ impl Cache {
                         analyses.energy
                  FROM corrections
                  LEFT JOIN analyses ON analyses.content_hash = corrections.content_hash
+                 WHERE corrections.key IS NOT NULL OR corrections.bpm IS NOT NULL
+                       OR corrections.energy IS NOT NULL
                  ORDER BY corrections.corrected_at, corrections.content_hash",
             )
             .map_err(cache_error(&self.path))?;
@@ -244,13 +249,15 @@ impl Cache {
         let correction: Option<Correction> = self
             .connection
             .query_row(
-                "SELECT key, bpm, energy FROM corrections WHERE content_hash = ?1",
+                "SELECT key, bpm, energy, key_confirmed, bpm_confirmed FROM corrections WHERE content_hash = ?1",
                 params![content_hash.as_bytes()],
                 |row| {
                     Ok(Correction {
                         key: key_in_column(row, 0)?,
                         bpm: row.get(1)?,
                         energy: stored_energy(row, 2)?,
+                        key_confirmed: row.get(3)?,
+                        bpm_confirmed: row.get(4)?,
                     })
                 },
             )
@@ -279,6 +286,8 @@ fn stored_correction_in_row(row: &Row<'_>) -> rusqlite::Result<StoredCorrection>
             key: key_in_column(row, 1)?,
             bpm: row.get(2)?,
             energy: stored_energy(row, 9)?,
+            key_confirmed: false,
+            bpm_confirmed: false,
         },
         corrected_at_seconds: row.get(3)?,
         detected,
@@ -366,6 +375,29 @@ mod tests {
             cache.verified_correction_for(&track),
             Err(EuphoriaError::InvalidCorrection { .. })
         ));
+    }
+
+    #[test]
+    fn a_confirmation_is_kept_apart_from_the_values_and_is_not_a_correction_to_export() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("confirmed.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        let confirmed = Correction::default().confirming_key().confirming_bpm();
+        assert!(!confirmed.is_empty());
+        cache.set_correction(&track, &confirmed).unwrap();
+
+        assert_eq!(
+            open(&folder).verified_correction_for(&track).unwrap(),
+            Some(confirmed)
+        );
+        assert!(cache.stored_corrections().unwrap().is_empty());
+
+        let set_afterwards = confirmed.with_key(Some(Key::new(4, Mode::Minor)));
+        assert!(!set_afterwards.key_confirmed);
+        assert!(set_afterwards.bpm_confirmed);
+        assert_eq!(confirmed.apply(analysis()).key, analysis().key);
+        assert_eq!(confirmed.apply(analysis()).beat_grid, analysis().beat_grid);
     }
 
     #[test]
