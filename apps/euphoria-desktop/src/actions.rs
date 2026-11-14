@@ -36,6 +36,10 @@ actions!(
         OpenSettings,
         /// Shows the two decks, or hides them.
         ToggleDecks,
+        /// Gives the selected track the whole window.
+        OpenFocusView,
+        /// Leaves the focus view for the library.
+        CloseFocusView,
         /// Opens the set builder page.
         OpenSetBuilder,
         /// Builds the set on the set builder page.

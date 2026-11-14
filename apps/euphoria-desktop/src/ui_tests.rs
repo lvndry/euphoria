@@ -2836,7 +2836,7 @@ fn a_track_without_stems_has_an_empty_vocals_lane_that_offers_to_separate_them(
     assert!(is_shown(window, "vocals-lane", cx));
 }
 
-fn write_stems_with_vocals_for(
+pub(crate) fn write_stems_with_vocals_for(
     folder: &ScratchFolder,
     seconds: usize,
     sounding_seconds: usize,
@@ -5278,7 +5278,7 @@ fn replacing_a_deck_load_cancels_its_abandoned_waveform_work(cx: &mut TestAppCon
 }
 
 /// Length of the tracks of [`open_cued_library`], in seconds.
-const CUED_TRACK_SECONDS: f32 = 32.0;
+pub(crate) const CUED_TRACK_SECONDS: f32 = 32.0;
 
 /// A fixture file standing for a 32 second track at 120 BPM. With a grid,
 /// beats fall every half second from 0 and bars every two seconds, and
@@ -5321,20 +5321,20 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
 
 /// A track with a beat grid and the cues analysis placed on it, selected,
 /// and a track without a grid or cues.
-fn open_cued_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
-    open_window_on(
-        vec![
-            cued_track("sine-440hz-stereo.wav", true),
-            cued_track("sine-440hz-mono.wav", false),
-        ],
-        Box::new(SilentOutput),
-        cx,
-    )
+pub(crate) fn cued_tracks() -> Vec<DemoTrack> {
+    vec![
+        cued_track("sine-440hz-stereo.wav", true),
+        cued_track("sine-440hz-mono.wav", false),
+    ]
+}
+
+pub(crate) fn open_cued_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    open_window_on(cued_tracks(), Box::new(SilentOutput), cx)
 }
 
 /// The selected track's cues as (seconds, name, hot cue letter), and
 /// whether the user set them.
-fn selected_cues(
+pub(crate) fn selected_cues(
     view: &Entity<EuphoriaApp>,
     cx: &mut TestAppContext,
 ) -> (Vec<(f64, String, Option<char>)>, bool) {

@@ -38,7 +38,7 @@ pub use export::{
     MixExport, Mixdown, StemShift, StemsExport, export_mix, export_stems, publish_stems,
 };
 pub use model::{WEIGHTS_BYTES, WEIGHTS_SHA256, WEIGHTS_URL, default_weights_path};
-pub use profile::profile_stems;
+pub use profile::{StemActivity, profile_stems, stem_activity};
 pub use vocal_activity::{
     VOCAL_ACTIVITY_FILE_NAME, VocalActivity, VocalLevels, VocalWindow, vocal_activity,
 };

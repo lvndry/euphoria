@@ -52,6 +52,84 @@ pub fn profile_stems(files: &StemFiles) -> Result<StemProfile, EuphoriaError> {
     Ok(measure.profile())
 }
 
+/// Where each stem sounds in a track, in windows of a second.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StemActivity {
+    active: [Vec<bool>; 4],
+}
+
+impl StemActivity {
+    /// How long each window is.
+    pub const WINDOW_SECONDS: f32 = 1.0;
+
+    /// How many windows the track has.
+    pub fn windows(&self) -> usize {
+        self.active[0].len()
+    }
+
+    /// Whether `stem` sounds in each window, from the start of the track.
+    pub fn windows_of(&self, stem: Stem) -> &[bool] {
+        &self.active[stem as usize]
+    }
+
+    /// Whether `stem` sounds `seconds` into the track, or `None` past its
+    /// end.
+    pub fn is_active_at(&self, stem: Stem, seconds: f64) -> Option<bool> {
+        if seconds < 0.0 {
+            return None;
+        }
+        let window = (seconds / f64::from(Self::WINDOW_SECONDS)) as usize;
+        self.active[stem as usize].get(window).copied()
+    }
+}
+
+/// Finds where each stem in `files` sounds, window by window, by the rule
+/// [`profile_stems`] uses: a stem sounds in a window when it is louder than
+/// 50 dB below full scale and within 12 dB of the level of all four stems
+/// together.
+pub fn stem_activity(files: &StemFiles) -> Result<StemActivity, EuphoriaError> {
+    let mut readers = Vec::with_capacity(Stem::ALL.len());
+    for stem in Stem::ALL {
+        readers.push(StemWav::open(&files.path(stem))?);
+    }
+    let mut windows: Vec<Vec<Vec<f32>>> = vec![Vec::new(); Stem::ALL.len()];
+    let mut active: [Vec<bool>; 4] = Default::default();
+    loop {
+        let mut any = false;
+        for (reader, window) in readers.iter_mut().zip(&mut windows) {
+            reader.read_channels(window, WINDOW_FRAMES)?;
+            any |= window.iter().any(|channel| !channel.is_empty());
+        }
+        if !any {
+            break;
+        }
+        let length = windows
+            .iter()
+            .flat_map(|channels| channels.iter().map(Vec::len))
+            .max()
+            .unwrap_or(0);
+        let energies: Vec<f64> = windows
+            .iter()
+            .map(|channels| {
+                let total: f64 = channels
+                    .iter()
+                    .flat_map(|channel| channel.iter())
+                    .map(|sample| f64::from(sample * sample))
+                    .sum();
+                total / channels.len().max(1) as f64
+            })
+            .collect();
+        let level = |energy: f64| (energy / length.max(1) as f64).sqrt() as f32;
+        let all_level = level(energies.iter().sum());
+        for (stem, energy) in energies.iter().enumerate() {
+            let stem_level = level(*energy);
+            active[stem]
+                .push(stem_level >= SILENCE_LEVEL && stem_level >= all_level * ACTIVE_LEVEL_RATIO);
+        }
+    }
+    Ok(StemActivity { active })
+}
+
 pub(super) struct StemWav {
     path: std::path::PathBuf,
     reader: hound::WavReader<BufReader<File>>,
@@ -290,6 +368,41 @@ mod tests {
             .max_by(|first, second| first.1.total_cmp(second.1))
             .map(|(band, _)| band)
             .unwrap()
+    }
+
+    #[test]
+    fn activity_follows_where_each_stem_sounds_second_by_second() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = write_stems(
+            directory.path(),
+            10,
+            [
+                (Some(120.0), (0.0, 1.0)),
+                (None, (0.0, 1.0)),
+                (Some(500.0), (0.0, 0.5)),
+                (Some(2_000.0), (0.5, 1.0)),
+            ],
+        );
+        let activity = stem_activity(&files).unwrap();
+        assert_eq!(activity.windows(), 10);
+        assert!(
+            activity
+                .windows_of(Stem::Drums)
+                .iter()
+                .all(|active| *active)
+        );
+        assert!(
+            activity
+                .windows_of(Stem::Bass)
+                .iter()
+                .all(|active| !*active)
+        );
+        assert_eq!(activity.is_active_at(Stem::Other, 2.5), Some(true));
+        assert_eq!(activity.is_active_at(Stem::Other, 7.5), Some(false));
+        assert_eq!(activity.is_active_at(Stem::Vocals, 2.5), Some(false));
+        assert_eq!(activity.is_active_at(Stem::Vocals, 7.5), Some(true));
+        assert_eq!(activity.is_active_at(Stem::Vocals, 10.5), None);
+        assert_eq!(activity.is_active_at(Stem::Vocals, -1.0), None);
     }
 
     #[test]
