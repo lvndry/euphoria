@@ -176,14 +176,14 @@ jobs:
             command: cargo test -p euphoria-core --lib --bins --locked
           - name: Desktop unit and headless UI tests
             key: desktop-unit
-            command: cargo test -p euphoria-desktop --lib --bins --locked
+            command: cargo test -p euphoria-desktop --bins --locked
           - name: Command line unit, integration and packaging tests
             key: cli
             # The debug build of the euphoria command, made by the tests,
             # links libkeyfinder and FFTW like the app does, so the app needs
             # no release build here.
             command: |
-              cargo test -p euphoria-cli -p euphoria-bench --lib --bins --locked
+              cargo test -p euphoria-cli -p euphoria-bench --bins --locked
               cargo test -p euphoria-cli --test '*' --locked
               test -x "$EUPHORIA_LINKED_BINARY"
               uv run --no-project --python 3.12 python -m unittest scripts/test_macos_libraries.py
