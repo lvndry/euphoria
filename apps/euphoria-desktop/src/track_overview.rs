@@ -7,7 +7,10 @@
 
 use std::sync::Arc;
 
+use euphoria_core::stems::VocalWindow;
 use euphoria_core::{EnergyCurvePoint, EuphoriaError, Key, KeySection};
+
+use crate::format;
 
 /// The energy curve of a track, once worked out.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,34 +54,168 @@ pub(crate) struct EnergyStep {
 /// the start of the track and the last ends at the end of its window, so
 /// the steps cover the track without gaps or overlaps.
 pub(crate) fn energy_steps(points: &[EnergyCurvePoint], duration_seconds: f32) -> Vec<EnergyStep> {
+    let windows: Vec<(f32, f32)> = points
+        .iter()
+        .map(|point| (point.start_seconds, point.duration_seconds))
+        .collect();
+    window_steps(&windows, duration_seconds)
+        .into_iter()
+        .zip(points)
+        .map(|((start, end), point)| EnergyStep {
+            start,
+            end,
+            rating: point.rating.as_ref().map(|rating| rating.rating),
+        })
+        .filter(|step| step.end > step.start)
+        .collect()
+}
+
+/// Where each of the overlapping `windows`, as a start and a length in
+/// seconds, is drawn along a track `duration_seconds` long, as fractions of
+/// it: the lanes under the waveform share this, so they step together.
+fn window_steps(windows: &[(f32, f32)], duration_seconds: f32) -> Vec<(f32, f32)> {
     if duration_seconds <= 0.0 || !duration_seconds.is_finite() {
         return Vec::new();
     }
-    let middles: Vec<f32> = points
+    let middles: Vec<f32> = windows
         .iter()
-        .map(|point| point.start_seconds + point.duration_seconds / 2.0)
+        .map(|(start, length)| start + length / 2.0)
         .collect();
     let fraction = |seconds: f32| (seconds / duration_seconds).clamp(0.0, 1.0);
-    points
+    windows
         .iter()
         .enumerate()
-        .map(|(index, point)| {
+        .map(|(index, (window_start, window_length))| {
             let start = match index {
                 0 => 0.0,
                 _ => (middles[index - 1] + middles[index]) / 2.0,
             };
             let end = match middles.get(index + 1) {
                 Some(next) => (middles[index] + next) / 2.0,
-                None => point.start_seconds + point.duration_seconds,
+                None => window_start + window_length,
             };
-            EnergyStep {
-                start: fraction(start),
-                end: fraction(end),
-                rating: point.rating.as_ref().map(|rating| rating.rating),
-            }
+            (fraction(start), fraction(end))
         })
-        .filter(|step| step.end > step.start)
         .collect()
+}
+
+/// What the tooltip over the energy curve says about the point `fraction`
+/// of the way along a track `duration_seconds` long.
+pub(crate) fn energy_reading(steps: &[EnergyStep], duration_seconds: f32, fraction: f32) -> String {
+    let time = format::duration(fraction.clamp(0.0, 1.0) * duration_seconds);
+    match steps
+        .iter()
+        .find(|step| fraction >= step.start && fraction < step.end)
+        .or_else(|| steps.last().filter(|step| fraction >= step.end))
+        .and_then(|step| step.rating)
+    {
+        Some(rating) => format!("Energy {rating} at {time}"),
+        None => format!("Silent at {time}"),
+    }
+}
+
+/// What the tooltip on the "Energy" label says.
+pub(crate) const ENERGY_EXPLANATION: &str = "Energy over time, 1 to 10, rated every 4 seconds";
+
+/// What the tooltip on the "Vocals" label says.
+pub(crate) const VOCALS_EXPLANATION: &str =
+    "Where the vocals are, from the separated vocals stem, in the same 4 second steps";
+
+/// The vocals lane of a track, once worked out.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum VocalLane {
+    /// The stems are being looked for, or the vocals measured.
+    Checking,
+    /// The track has no separated stems.
+    NoStems,
+    /// The windows of the track, each with whether the vocals sound in it.
+    Ready(Arc<[VocalWindow]>),
+    /// The vocals stem could not be read; the text says why.
+    Unavailable(String),
+}
+
+/// The vocals lane for a track whose separated stems are `files`, or the
+/// lane of a track without stems. Reads the vocals stem the first time and
+/// the measurement kept next to the stems after that.
+pub(crate) fn vocal_lane_from(files: Option<euphoria_core::stems::StemFiles>) -> VocalLane {
+    let Some(files) = files else {
+        return VocalLane::NoStems;
+    };
+    match euphoria_core::stems::vocal_activity(&files) {
+        Ok(activity) => VocalLane::Ready(activity.windows.into()),
+        Err(error) => VocalLane::Unavailable(error.chain()),
+    }
+}
+
+/// A stretch of the track with vocals.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct VocalStretch {
+    /// Where the stretch starts, as a fraction of the track.
+    pub(crate) start: f32,
+    /// Where it ends, as a fraction of the track.
+    pub(crate) end: f32,
+}
+
+/// The stretches with vocals in a track `duration_seconds` long, with the
+/// windows that follow each other with vocals joined into one.
+pub(crate) fn vocal_stretches(windows: &[VocalWindow], duration_seconds: f32) -> Vec<VocalStretch> {
+    let spans: Vec<(f32, f32)> = windows
+        .iter()
+        .map(|window| (window.start_seconds, window.duration_seconds))
+        .collect();
+    let mut stretches: Vec<VocalStretch> = Vec::new();
+    for ((start, end), window) in window_steps(&spans, duration_seconds)
+        .into_iter()
+        .zip(windows)
+    {
+        if !window.active || end <= start {
+            continue;
+        }
+        match stretches.last_mut() {
+            Some(last) if start <= last.end => last.end = last.end.max(end),
+            _ => stretches.push(VocalStretch { start, end }),
+        }
+    }
+    stretches
+}
+
+/// What the tooltip over the vocals lane says about the point `fraction`
+/// of the way along a track `duration_seconds` long: the stretch with
+/// vocals it is in, or the stretch without them.
+pub(crate) fn vocal_reading(
+    stretches: &[VocalStretch],
+    duration_seconds: f32,
+    fraction: f32,
+) -> String {
+    let time = |fraction: f32| format::duration(fraction * duration_seconds);
+    if let Some(stretch) = stretches
+        .iter()
+        .find(|stretch| fraction >= stretch.start && fraction < stretch.end)
+    {
+        return format!(
+            "Vocals from {} to {}",
+            time(stretch.start),
+            time(stretch.end)
+        );
+    }
+    let gap_start = stretches
+        .iter()
+        .rev()
+        .find(|stretch| stretch.end <= fraction)
+        .map_or(0.0, |stretch| stretch.end);
+    let gap_end = stretches
+        .iter()
+        .find(|stretch| stretch.start > fraction)
+        .map_or(1.0, |stretch| stretch.start);
+    format!("No vocals from {} to {}", time(gap_start), time(gap_end))
+}
+
+/// How far along a lane `bounds` wide the pointer is, from 0 to 1.
+pub(crate) fn pointer_fraction(pointer_x: f32, left: f32, width: f32) -> f32 {
+    if width <= 0.0 {
+        return 0.0;
+    }
+    ((pointer_x - left) / width).clamp(0.0, 1.0)
 }
 
 /// The shortest a key section may be for the timeline to be shown.
@@ -247,6 +384,129 @@ mod tests {
         );
         assert!(energy_steps(&[], 5.0).is_empty());
         assert!(energy_steps(&[point(0.0, 5.0, Some(3))], 0.0).is_empty());
+    }
+
+    fn window(start_seconds: f32, active: bool) -> VocalWindow {
+        VocalWindow {
+            start_seconds,
+            duration_seconds: 8.0,
+            active,
+        }
+    }
+
+    #[test]
+    fn the_energy_tooltip_reads_the_rating_at_the_pointer_and_says_silent_in_a_gap() {
+        let steps = energy_steps(
+            &[
+                point(0.0, 8.0, Some(9)),
+                point(4.0, 8.0, Some(3)),
+                point(8.0, 8.0, None),
+            ],
+            160.0,
+        );
+        assert_eq!(energy_reading(&steps, 160.0, 0.0), "Energy 9 at 0:00");
+        assert_eq!(
+            energy_reading(&steps, 160.0, 6.0 / 160.0),
+            "Energy 3 at 0:06"
+        );
+        assert_eq!(
+            energy_reading(&steps, 160.0, 12.0 / 160.0),
+            "Silent at 0:12"
+        );
+        assert_eq!(energy_reading(&steps, 160.0, 0.5), "Silent at 1:20");
+        assert_eq!(
+            energy_reading(&steps, 160.0, 7.0 / 160.0),
+            "Energy 3 at 0:07"
+        );
+    }
+
+    #[test]
+    fn the_energy_explanation_states_the_window_and_the_hop_of_the_core() {
+        assert_eq!(
+            ENERGY_EXPLANATION,
+            "Energy over time, 1 to 10, rated every 4 seconds"
+        );
+        assert_eq!(euphoria_core::energy::ENERGY_CURVE_HOP_SECONDS, 4.0);
+        assert_eq!(euphoria_core::energy::ENERGY_CURVE_WINDOW_SECONDS, 8.0);
+    }
+
+    #[test]
+    fn the_vocal_stretches_use_the_steps_of_the_energy_curve_and_join_neighbours() {
+        let windows = [
+            window(0.0, false),
+            window(4.0, true),
+            window(8.0, true),
+            window(12.0, false),
+            window(16.0, true),
+        ];
+        let energy = energy_steps(
+            &[
+                point(0.0, 8.0, Some(5)),
+                point(4.0, 8.0, Some(5)),
+                point(8.0, 8.0, Some(5)),
+                point(12.0, 8.0, Some(5)),
+                point(16.0, 8.0, Some(5)),
+            ],
+            24.0,
+        );
+        let stretches = vocal_stretches(&windows, 24.0);
+        assert_eq!(stretches.len(), 2);
+        assert_eq!(stretches[0].start, energy[1].start);
+        assert_eq!(stretches[0].end, energy[2].end);
+        assert_eq!(stretches[1].start, energy[4].start);
+        assert_eq!(stretches[1].end, energy[4].end);
+        assert!(vocal_stretches(&windows, 0.0).is_empty());
+        assert!(vocal_stretches(&[window(0.0, false)], 8.0).is_empty());
+    }
+
+    #[test]
+    fn the_vocals_tooltip_names_the_stretch_with_vocals_or_the_gap_without() {
+        let windows = [
+            window(0.0, false),
+            window(4.0, false),
+            window(8.0, true),
+            window(12.0, true),
+            window(16.0, false),
+            window(20.0, false),
+            window(24.0, false),
+        ];
+        let stretches = vocal_stretches(&windows, 32.0);
+        assert_eq!(
+            vocal_reading(&stretches, 32.0, 12.0 / 32.0),
+            "Vocals from 0:10 to 0:18"
+        );
+        assert_eq!(
+            vocal_reading(&stretches, 32.0, 2.0 / 32.0),
+            "No vocals from 0:00 to 0:10"
+        );
+        assert_eq!(
+            vocal_reading(&stretches, 32.0, 30.0 / 32.0),
+            "No vocals from 0:18 to 0:32"
+        );
+        assert_eq!(
+            vocal_reading(&[], 100.0, 0.5),
+            "No vocals from 0:00 to 1:40"
+        );
+    }
+
+    #[test]
+    fn a_track_without_stems_has_no_vocals_to_draw_and_a_missing_stem_says_why() {
+        assert_eq!(vocal_lane_from(None), VocalLane::NoStems);
+        let missing = euphoria_core::stems::StemFiles::in_directory(
+            std::env::temp_dir().join("euphoria-no-such-stems"),
+        );
+        assert!(matches!(
+            vocal_lane_from(Some(missing)),
+            VocalLane::Unavailable(_)
+        ));
+    }
+
+    #[test]
+    fn the_pointer_is_placed_along_the_lane_and_kept_within_it() {
+        assert_eq!(pointer_fraction(150.0, 100.0, 200.0), 0.25);
+        assert_eq!(pointer_fraction(50.0, 100.0, 200.0), 0.0);
+        assert_eq!(pointer_fraction(500.0, 100.0, 200.0), 1.0);
+        assert_eq!(pointer_fraction(150.0, 100.0, 0.0), 0.0);
     }
 
     fn section(start_seconds: f32, end_seconds: f32, tonic: u8) -> KeySection {

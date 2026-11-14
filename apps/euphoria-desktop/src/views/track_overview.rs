@@ -1,32 +1,118 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The energy curve and the key timeline drawn under the waveform, across
+//! The energy curve, the vocals lane and the key timeline drawn under the waveform, across
 //! the same width, so a breakdown, a drop or a key change sits right under
 //! the part of the waveform it belongs to, and the playhead runs through
 //! all three.
 
+use std::rc::Rc;
+
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{AnyElement, FontWeight, SharedString, TestSupportExt, div, px, relative};
+use gpui::{
+    AnyElement, App, ClickEvent, Div, FontWeight, SharedString, Stateful, TestSupportExt, Window,
+    div, px, relative,
+};
 
 use crate::camelot::CamelotPosition;
 use crate::format;
+use crate::stems::StemStatus;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Palette};
-use crate::track_overview::{EnergyStep, KeyStretch};
+use crate::track_overview::{self, EnergyCurve, EnergyStep, KeyStretch, VocalLane};
+use crate::views::waveform::SeenBounds;
 
 /// Height of the energy curve.
 pub(crate) const ENERGY_HEIGHT: f32 = 20.0;
 
+/// Height of the vocals lane.
+pub(crate) const VOCALS_HEIGHT: f32 = 12.0;
+
 /// Height of the key timeline.
 pub(crate) const KEY_TIMELINE_HEIGHT: f32 = 14.0;
 
+/// A row under the waveform: drawn across the width of the waveform, so that
+/// what is under a part of the waveform lines up with it. A lane for the
+/// sections of a track joins the others by being added to [`overview_lanes`].
+pub(crate) struct Lane {
+    pub(crate) element: AnyElement,
+    pub(crate) height: f32,
+}
+
+/// What a press on the link that starts separating the stems does.
+pub(crate) type SeparateHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+
+/// What the lanes under a track's waveform are drawn from.
+pub(crate) struct LaneInputs<'a> {
+    pub(crate) energy: Option<&'a EnergyCurve>,
+    pub(crate) vocals: &'a VocalLane,
+    pub(crate) stems: Option<&'a StemStatus>,
+    pub(crate) duration_seconds: f32,
+    pub(crate) progress: Option<f32>,
+    pub(crate) waveform_bounds: SeenBounds,
+    pub(crate) palette: Palette,
+    pub(crate) on_separate: SeparateHandler,
+}
+
+/// The lanes between the waveform and the key timeline, top to bottom.
+pub(crate) fn overview_lanes(inputs: &LaneInputs<'_>) -> Vec<Lane> {
+    let mut lanes = Vec::new();
+    match inputs.energy {
+        Some(EnergyCurve::Steps(steps)) if !steps.is_empty() => lanes.push(Lane {
+            element: energy_curve(
+                steps,
+                inputs.duration_seconds,
+                inputs.progress,
+                &inputs.waveform_bounds,
+                &inputs.palette,
+            ),
+            height: ENERGY_HEIGHT,
+        }),
+        Some(EnergyCurve::Unavailable(reason)) => lanes.push(Lane {
+            element: energy_unavailable(reason, &inputs.palette),
+            height: ENERGY_HEIGHT,
+        }),
+        _ => {}
+    }
+    if inputs.energy.is_some() {
+        lanes.push(Lane {
+            element: vocals_lane(inputs),
+            height: VOCALS_HEIGHT,
+        });
+    }
+    lanes
+}
+
+/// The quiet label at the left of a lane, which says what the lane is.
+fn lane_label(
+    id: &'static str,
+    text: &'static str,
+    explanation: &'static str,
+    palette: &Palette,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .px(px(4.0))
+        .rounded(px(2.0))
+        .bg(palette.panel.opacity(0.7))
+        .text_size(px(LANE_LABEL_SIZE))
+        .text_color(palette.text_tertiary)
+        .child(text)
+        .tooltip(move |window, cx| Tooltip::new(explanation).build(window, cx))
+}
+
+const LANE_LABEL_SIZE: f32 = 9.0;
+
 /// The energy curve: a bar for each step, as tall as its rating out of 10,
-/// fainter once played, with gaps where the track is silent.
+/// fainter once played, with gaps where the track is silent. The tooltip
+/// says the energy where the pointer is.
 pub(crate) fn energy_curve(
     steps: &[EnergyStep],
+    duration_seconds: f32,
     progress: Option<f32>,
+    waveform_bounds: &SeenBounds,
     palette: &Palette,
 ) -> AnyElement {
     let colour = palette.accent;
@@ -43,6 +129,8 @@ pub(crate) fn energy_curve(
                 .bg(colour.opacity(if is_played { 0.3 } else { 0.7 })),
         )
     });
+    let steps: Vec<EnergyStep> = steps.to_vec();
+    let bounds = waveform_bounds.clone();
     div()
         .id("energy-curve")
         .relative()
@@ -53,12 +141,35 @@ pub(crate) fn energy_curve(
         .rounded(px(2.0))
         .bg(palette.raised.opacity(0.5))
         .children(bars)
+        .child(div().absolute().top_0().left_0().child(lane_label(
+            "energy-label",
+            "Energy",
+            track_overview::ENERGY_EXPLANATION,
+            palette,
+        )))
         .children(playhead(progress, palette))
-        .tooltip(|window, cx| {
-            Tooltip::new("Energy over time, from 1 to 10, every 4 seconds").build(window, cx)
+        .tooltip(move |window, cx| {
+            let fraction = pointer_fraction_in(window, &bounds);
+            Tooltip::new(track_overview::energy_reading(
+                &steps,
+                duration_seconds,
+                fraction,
+            ))
+            .build(window, cx)
         })
         .test_support()
         .into_any_element()
+}
+
+fn pointer_fraction_in(window: &Window, bounds: &SeenBounds) -> f32 {
+    let Some(bounds) = bounds.get() else {
+        return 0.0;
+    };
+    track_overview::pointer_fraction(
+        window.mouse_position().x / px(1.0),
+        bounds.left() / px(1.0),
+        bounds.size.width / px(1.0),
+    )
 }
 
 /// The curve's row when the core could not rate the audio: a quiet line
@@ -78,6 +189,122 @@ pub(crate) fn energy_unavailable(reason: &str, palette: &Palette) -> AnyElement 
         .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
         .test_support()
         .into_any_element()
+}
+
+/// The vocals lane: filled where the vocals stem is loud, empty where it is
+/// not. A track without separated stems has it empty, with a link that
+/// starts separating them. The tooltip says where the stretch under the
+/// pointer starts and ends.
+fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
+    let palette = &inputs.palette;
+    let label = lane_label(
+        "vocals-label",
+        "Vocals",
+        track_overview::VOCALS_EXPLANATION,
+        palette,
+    );
+    let lane = div()
+        .id("vocals-lane")
+        .relative()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .w_full()
+        .h(px(VOCALS_HEIGHT))
+        .flex_shrink_0()
+        .overflow_hidden()
+        .rounded(px(2.0))
+        .bg(palette.raised.opacity(0.5));
+    let label = div().absolute().top_0().left_0().child(label);
+    match inputs.vocals {
+        VocalLane::Ready(windows) => {
+            let stretches = track_overview::vocal_stretches(windows, inputs.duration_seconds);
+            let progress = inputs.progress;
+            let fills = stretches.iter().enumerate().map(|(index, stretch)| {
+                let is_played = progress.is_some_and(|progress| stretch.end <= progress);
+                div()
+                    .id(("vocal-stretch", index))
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(relative(stretch.start))
+                    .w(relative(stretch.end - stretch.start))
+                    .bg(palette.accent.opacity(if is_played { 0.3 } else { 0.7 }))
+                    .test_support()
+            });
+            let bounds = inputs.waveform_bounds.clone();
+            let duration_seconds = inputs.duration_seconds;
+            lane.children(fills)
+                .child(label)
+                .children(playhead(inputs.progress, palette))
+                .tooltip(move |window, cx| {
+                    let fraction = pointer_fraction_in(window, &bounds);
+                    Tooltip::new(track_overview::vocal_reading(
+                        &stretches,
+                        duration_seconds,
+                        fraction,
+                    ))
+                    .build(window, cx)
+                })
+                .test_support()
+                .into_any_element()
+        }
+        VocalLane::NoStems => {
+            let hover_colour = palette.text;
+            let is_separating = matches!(inputs.stems, Some(StemStatus::Separating));
+            let prompt = if is_separating {
+                div()
+                    .id("vocals-separating")
+                    .child("Separating the stems")
+                    .into_any_element()
+            } else {
+                let on_separate = Rc::clone(&inputs.on_separate);
+                div()
+                    .id("vocals-separate")
+                    .cursor_pointer()
+                    .hover(move |style| style.text_color(hover_colour))
+                    .child("Separate the stems to see the vocals")
+                    .on_click(move |event, window, cx| on_separate(event, window, cx))
+                    .test_support()
+                    .into_any_element()
+            };
+            lane.child(label)
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(48.0))
+                        .top_0()
+                        .bottom_0()
+                        .flex()
+                        .items_center()
+                        .text_size(px(LANE_LABEL_SIZE + 1.0))
+                        .text_color(palette.text_secondary)
+                        .child(prompt),
+                )
+                .test_support()
+                .into_any_element()
+        }
+        VocalLane::Unavailable(reason) => {
+            let reason: SharedString = reason.clone().into();
+            lane.child(label)
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(48.0))
+                        .top_0()
+                        .bottom_0()
+                        .flex()
+                        .items_center()
+                        .text_size(px(LANE_LABEL_SIZE + 1.0))
+                        .text_color(palette.text_secondary)
+                        .child("Vocals not available"),
+                )
+                .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
+                .test_support()
+                .into_any_element()
+        }
+        VocalLane::Checking => lane.child(label).test_support().into_any_element(),
+    }
 }
 
 /// The key timeline: a stretch for each section in its key's colour, with
@@ -140,7 +367,7 @@ pub(crate) fn key_timeline(
 }
 
 /// A thin line where playing is, as on the waveform.
-fn playhead(progress: Option<f32>, palette: &Palette) -> Option<gpui::Div> {
+fn playhead(progress: Option<f32>, palette: &Palette) -> Option<Div> {
     let progress = progress?;
     Some(
         div()
