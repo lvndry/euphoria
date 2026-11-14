@@ -162,6 +162,12 @@ pub(crate) struct EuphoriaApp {
     /// that is not connected. They stay remembered, to be looked for again
     /// at the next launch.
     pub(crate) unavailable_folders: Vec<PathBuf>,
+    /// The folders remembered from the last launch. Only these stay
+    /// remembered while they are not there.
+    remembered_folders: Vec<PathBuf>,
+    /// A missing track and the file picked for it, waiting for the user to
+    /// confirm the link because nothing recorded can check it.
+    pub(crate) pending_link: Option<crate::relink_flow::PendingLink>,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
     /// Whether the sidebar is folded and how large the track detail is.
@@ -401,6 +407,8 @@ impl EuphoriaApp {
             notice,
             scans_in_progress: 0,
             unavailable_folders: Vec::new(),
+            remembered_folders: settings.folders.clone(),
+            pending_link: None,
             toolbar_drag_armed: false,
             panels: settings.panels,
             resizing: None,
@@ -608,7 +616,9 @@ impl EuphoriaApp {
             problems.push("No audio files found there.".to_string());
         }
         for folder in std::mem::take(&mut found.unavailable_folders) {
-            if !self.unavailable_folders.contains(&folder) {
+            if self.remembered_folders.contains(&folder)
+                && !self.unavailable_folders.contains(&folder)
+            {
                 self.unavailable_folders.push(folder);
             }
         }
@@ -2122,6 +2132,7 @@ impl Render for EuphoriaApp {
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })
+            .children(views::notice::render_link_confirmation(self, cx))
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
             .when(self.settings_open, |window| {

@@ -227,3 +227,177 @@ fn removing_leaves_a_track_whose_file_is_there(cx: &mut TestAppContext) {
         })
     });
 }
+
+#[gpui::test]
+fn removing_a_track_keeps_each_deck_on_its_own_track(cx: &mut TestAppContext) {
+    let library = open_with_missing_files("ui-missing-decks", cx);
+    let view = library.view.clone();
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session.add_demo_tracks(vec![crate::demo::DemoTrack {
+                path: library.other_audio.clone(),
+                outcome: Err("not analyzed in this test".to_string()),
+            }]);
+            let on_deck = app.session.library().index_of(&library.other_audio);
+            assert_eq!(on_deck, Some(2));
+            let deck = app.decks.view_mut(crate::deck_audio::DeckId::A);
+            deck.track_index = on_deck;
+            deck.path = Some(library.other_audio.clone());
+
+            app.selected = app.session.library().index_of(&library.deleted);
+            app.remove_missing_tracks_of_selection(cx);
+
+            let deck = app.decks.view(crate::deck_audio::DeckId::A);
+            let index = deck.track_index.expect("the deck keeps its track");
+            assert_eq!(index, 1);
+            assert_eq!(
+                app.session.library().track(index).unwrap().path,
+                library.other_audio
+            );
+            let track_count = app.session.library().tracks().len();
+            assert!(app.mixes.iter().all(|mix| mix.track_index < track_count));
+            assert!(
+                app.decks
+                    .suggestions
+                    .iter()
+                    .all(|suggestion| suggestion.track_index < track_count)
+            );
+        })
+    });
+}
+
+#[gpui::test]
+fn a_file_that_cannot_be_checked_is_linked_only_once_confirmed(cx: &mut TestAppContext) {
+    let library = open_with_missing_files("ui-missing-confirm", cx);
+    let view = library.view.clone();
+    let unrecorded = library.moved_to.with_file_name("never-recorded.mp3");
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session.library_mut().add_missing([unrecorded.clone()]);
+            app.locate_track(unrecorded.clone(), library.other_audio.clone(), cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let pending = app.pending_link.as_ref().expect("the link waits for a yes");
+        assert_eq!(pending.picked, library.other_audio);
+        assert!(
+            app.session
+                .library()
+                .track_by_path(&unrecorded)
+                .unwrap()
+                .is_missing()
+        );
+    });
+
+    cx.update(|cx| view.update(cx, |app, cx| app.cancel_pending_link(cx)));
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.pending_link.is_none());
+        assert!(
+            app.session
+                .library()
+                .track_by_path(&unrecorded)
+                .unwrap()
+                .is_missing()
+        );
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.locate_track(unrecorded.clone(), library.other_audio.clone(), cx)
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| view.update(cx, |app, cx| app.confirm_pending_link(cx)));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.pending_link.is_none());
+        assert_eq!(app.session.library().index_of(&unrecorded), None);
+        assert!(
+            app.session
+                .library()
+                .index_of(&library.other_audio)
+                .is_some()
+        );
+    });
+}
+
+#[gpui::test]
+fn a_link_against_recorded_audio_moves_nothing(cx: &mut TestAppContext) {
+    let library = open_with_missing_files("ui-missing-conflict", cx);
+    let view = library.view.clone();
+    let other_content = euphoria_core::ContentHash::of_file(&library.other_audio).unwrap();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let relinked =
+                app.session
+                    .relink(&library.moved_from, &library.other_audio, other_content);
+            assert_eq!(relinked, crate::state::Relinked::OtherAudioRecorded);
+            assert!(
+                app.session
+                    .library()
+                    .track_by_path(&library.moved_from)
+                    .unwrap()
+                    .is_missing()
+            );
+            assert!(
+                app.session
+                    .playlists()
+                    .all()
+                    .iter()
+                    .any(|playlist| playlist.tracks.contains(&library.moved_from))
+            );
+        })
+    });
+}
+
+#[gpui::test]
+fn only_a_remembered_folder_stays_remembered_while_it_is_gone(cx: &mut TestAppContext) {
+    let library = open_with_missing_files("ui-missing-unavailable", cx);
+    let view = library.view.clone();
+    let dropped = library.moved_to.with_file_name("vanished-before-the-scan");
+    cx.update(|cx| view.update(cx, |app, cx| app.add_paths(vec![dropped.clone()], true, cx)));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.unavailable_folders.is_empty());
+        assert!(
+            app.notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("is missing"))
+        );
+    });
+}
+
+#[gpui::test]
+fn a_remembered_folder_that_is_gone_is_kept_for_the_next_launch(cx: &mut TestAppContext) {
+    let gone =
+        std::env::temp_dir().join(format!("euphoria-unplugged-drive-{}", std::process::id()));
+    let settings = Settings {
+        folders: vec![gone.clone()],
+        ..Settings::default()
+    };
+    let view = cx.update(|cx| {
+        gpui::init(cx);
+        let (_, view) = gpui::open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                EuphoriaApp::new(
+                    Session::start(None).unwrap(),
+                    settings,
+                    None,
+                    None,
+                    Box::new(SilentOutput),
+                    window,
+                    cx,
+                )
+            })
+        })
+        .unwrap();
+        view
+    });
+    cx.run_until_parked();
+    cx.update(|cx| assert_eq!(view.read(cx).unavailable_folders, vec![gone.clone()]));
+}

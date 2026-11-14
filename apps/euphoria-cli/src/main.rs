@@ -330,6 +330,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         outcome: Err(EuphoriaError::Missing { path: path.clone() }),
         path,
     }));
+    results.sort_by(|first, second| first.path.cmp(&second.path));
     let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;

@@ -96,6 +96,17 @@ pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
     scan
 }
 
+/// What [`Session::relink`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Relinked {
+    /// The track and everything that held it moved. The playlists or the
+    /// favorites are worth saving when they changed.
+    Done { saved_lists_changed: bool },
+    /// A playlist or a favorite recorded other audio for the old path, so
+    /// nothing moved.
+    OtherAudioRecorded,
+}
+
 /// The library and the background workers analyzing it.
 pub(crate) struct Session {
     library: Library,
@@ -338,20 +349,36 @@ impl Session {
     /// Points the missing track of `old`, with its playlists and favorites,
     /// at `new`, where the same audio, `content`, is now. When `new` is
     /// already in the library the missing track is removed instead, its
-    /// playlists and favorites pointing at the track that is there. Returns
-    /// whether the playlists or the favorites changed and are worth saving.
+    /// playlists and favorites pointing at the track that is there.
+    ///
+    /// Nothing changes when the playlists or the favorites recorded other
+    /// audio for `old`, so the track, its playlists and its favorites never
+    /// end up in different places.
     pub(crate) fn relink(
         &mut self,
         old: &Path,
         new: &Path,
         content: euphoria_core::ContentHash,
-    ) -> bool {
+    ) -> Relinked {
+        let recorded = [
+            self.playlists.content_of(old),
+            self.favorites.content_of(old),
+        ];
+        if recorded
+            .iter()
+            .flatten()
+            .any(|recorded| *recorded != content)
+        {
+            return Relinked::OtherAudioRecorded;
+        }
         if !self.library.relink(old, new.to_path_buf()) {
             self.library.remove(old);
         }
         let playlists_changed = self.playlists.relink(old, new, content);
         let favorites_changed = self.favorites.relink(old, new, content);
-        playlists_changed || favorites_changed
+        Relinked::Done {
+            saved_lists_changed: playlists_changed || favorites_changed,
+        }
     }
 
     /// Takes the missing tracks among `paths` out of the library, the
@@ -402,6 +429,11 @@ impl Session {
     /// The tracks added so far.
     pub(crate) fn library(&self) -> &Library {
         &self.library
+    }
+
+    #[cfg(test)]
+    pub(crate) fn library_mut(&mut self) -> &mut Library {
+        &mut self.library
     }
 
     /// How far the current run of analysis has got.

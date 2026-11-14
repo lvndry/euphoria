@@ -11,15 +11,19 @@ use euphoria_core::{CachedAnalyzer, ContentHash, RelinkMatch, check_relink, find
 use gpui::{Context, PathPromptOptions};
 
 use crate::app::EuphoriaApp;
+use crate::deck_audio::DeckId;
 use crate::library::LibraryFilter;
+use crate::state::Relinked;
 
 /// What locating a missing track found, worked out off the main thread.
 #[derive(Debug)]
 enum Located {
     /// The picked file holds the track's audio, or nothing was known to
-    /// compare it with. Other missing tracks found beside it come along.
+    /// compare it with, which `checked` tells. Other missing tracks found
+    /// beside it come along.
     Found {
         content: ContentHash,
+        checked: bool,
         moved_with_it: Vec<(PathBuf, PathBuf, ContentHash)>,
     },
     /// The picked file holds other audio.
@@ -48,8 +52,9 @@ fn locate(
     cache: Option<&CachedAnalyzer>,
 ) -> Located {
     let expected = content_of(old, old_content, cache);
-    let content = match check_relink(expected.as_ref(), picked) {
-        Ok(RelinkMatch::SameAudio(found) | RelinkMatch::NothingToCompare(found)) => found,
+    let (content, checked) = match check_relink(expected.as_ref(), picked) {
+        Ok(RelinkMatch::SameAudio(found)) => (found, true),
+        Ok(RelinkMatch::NothingToCompare(found)) => (found, false),
         Ok(RelinkMatch::OtherAudio) => return Located::OtherAudio,
         Err(error) => return Located::Unreadable(error.chain()),
     };
@@ -73,8 +78,21 @@ fn locate(
         .collect();
     Located::Found {
         content,
+        checked,
         moved_with_it,
     }
+}
+
+/// A link that waits for the user to confirm it, because nothing was
+/// recorded about the missing track's audio to check the picked file with.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PendingLink {
+    /// Where the missing track was.
+    pub(crate) old: PathBuf,
+    /// The file picked for it.
+    pub(crate) picked: PathBuf,
+    content: ContentHash,
+    moved_with_it: Vec<(PathBuf, PathBuf, ContentHash)>,
 }
 
 impl EuphoriaApp {
@@ -180,11 +198,20 @@ impl EuphoriaApp {
         located: Located,
         cx: &mut Context<'_, Self>,
     ) {
-        let (content, moved_with_it) = match located {
+        let (link, checked) = match located {
             Located::Found {
                 content,
+                checked,
                 moved_with_it,
-            } => (content, moved_with_it),
+            } => (
+                PendingLink {
+                    old,
+                    picked,
+                    content,
+                    moved_with_it,
+                },
+                checked,
+            ),
             Located::OtherAudio => {
                 self.report(format!(
                     "{} holds other audio than the missing track, so the track was not \
@@ -200,19 +227,68 @@ impl EuphoriaApp {
                 return;
             }
         };
+        if checked {
+            self.link(link, cx);
+        } else {
+            self.pending_link = Some(link);
+            cx.notify();
+        }
+    }
+
+    /// Links the track waiting for a confirmation, as the user confirmed.
+    pub(crate) fn confirm_pending_link(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(link) = self.pending_link.take() {
+            self.link(link, cx);
+        }
+    }
+
+    /// Leaves the track waiting for a confirmation missing.
+    pub(crate) fn cancel_pending_link(&mut self, cx: &mut Context<'_, Self>) {
+        self.pending_link = None;
+        cx.notify();
+    }
+
+    fn link(&mut self, link: PendingLink, cx: &mut Context<'_, Self>) {
+        let PendingLink {
+            old,
+            picked,
+            content,
+            moved_with_it,
+        } = link;
+        let saved_lists_changed = match self.session.relink(&old, &picked, content) {
+            Relinked::Done {
+                saved_lists_changed,
+            } => saved_lists_changed,
+            Relinked::OtherAudioRecorded => {
+                self.report(format!(
+                    "{} holds other audio than a playlist or a favorite recorded for the \
+                     missing track, so the track was not linked to it.",
+                    picked.display()
+                ));
+                cx.notify();
+                return;
+            }
+        };
         let mut relinked = vec![picked.clone()];
-        let mut saved_lists_changed = self.session.relink(&old, &picked, content);
+        let mut lists_changed = saved_lists_changed;
         for (other_old, other_new, other_content) in &moved_with_it {
-            saved_lists_changed |= self.session.relink(other_old, other_new, *other_content);
-            relinked.push(other_new.clone());
+            if let Relinked::Done {
+                saved_lists_changed,
+            } = self.session.relink(other_old, other_new, *other_content)
+            {
+                lists_changed |= saved_lists_changed;
+                relinked.push(other_new.clone());
+            }
         }
         self.selected = self.session.library().index_of(&picked);
         self.marked.clear();
-        if saved_lists_changed {
+        self.follow_library_indexes();
+        if lists_changed {
             self.save_playlists(cx);
             self.save_favorites(cx);
         }
-        self.report(match moved_with_it.len() {
+        let others = relinked.len() - 1;
+        self.report(match others {
             0 => format!("Linked the missing track to {}.", picked.display()),
             others => format!(
                 "Linked the missing track to {}, and {} other {} found beside it.",
@@ -222,8 +298,25 @@ impl EuphoriaApp {
             ),
         });
         self.add_paths(relinked, false, cx);
-        self.refresh_visible();
         cx.notify();
+    }
+
+    /// Points the decks at their tracks' indexes again after tracks left the
+    /// library and the later ones moved up, then works out the rows, the
+    /// deck suggestions and the mixes from the indexes as they are now. A
+    /// deck whose track left the library keeps its file and loses its row.
+    pub(crate) fn follow_library_indexes(&mut self) {
+        for deck in DeckId::BOTH {
+            let index = self
+                .decks
+                .view(deck)
+                .path
+                .as_ref()
+                .and_then(|path| self.session.library().index_of(path));
+            self.decks.view_mut(deck).track_index = index;
+        }
+        self.refresh_visible();
+        self.refresh_mixes();
     }
 
     /// Takes the missing tracks of the selection out of the library, their
@@ -237,7 +330,7 @@ impl EuphoriaApp {
         }
         self.selected = None;
         self.marked.clear();
-        self.refresh_visible();
+        self.follow_library_indexes();
         self.save_playlists(cx);
         self.save_favorites(cx);
         cx.notify();
@@ -276,16 +369,18 @@ mod tests {
         ));
         let Located::Found {
             content,
+            checked,
             moved_with_it,
         } = locate(&old_first, Some(first_content), &picked, &others, None)
         else {
             panic!("the picked file holds the track");
         };
         assert_eq!(content, first_content);
+        assert!(checked);
         assert_eq!(moved_with_it, vec![(old_second, neighbour, second_content)]);
         assert!(matches!(
             locate(&old_first, None, &impostor, &others, None),
-            Located::Found { .. }
+            Located::Found { checked: false, .. }
         ));
         assert!(matches!(
             locate(

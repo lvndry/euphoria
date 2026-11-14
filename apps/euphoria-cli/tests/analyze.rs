@@ -259,14 +259,22 @@ fn a_missing_path_does_not_stop_the_other_files() {
     let output = Euphoria::new().run(&[
         "analyze",
         "--json",
-        fixture.to_str().expect("UTF-8 path"),
         "/definitely/not/here",
+        fixture.to_str().expect("UTF-8 path"),
+        "/0-also-not-here.wav",
     ]);
     assert_eq!(output.status.code(), Some(3));
     let tracks: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("the output is JSON");
     let tracks = tracks.as_array().expect("the output is an array");
-    assert_eq!(tracks.len(), 2, "{tracks:?}");
+    assert_eq!(tracks.len(), 3, "{tracks:?}");
+    let paths: Vec<&str> = tracks
+        .iter()
+        .map(|track| track["path"].as_str().expect("a path"))
+        .collect();
+    let mut sorted_paths = paths.clone();
+    sorted_paths.sort_unstable();
+    assert_eq!(paths, sorted_paths, "one object per file, in path order");
     let missing_track = tracks
         .iter()
         .find(|track| track["path"] == "/definitely/not/here")
@@ -275,7 +283,7 @@ fn a_missing_path_does_not_stop_the_other_files() {
     assert!(missing_track["error"].is_string(), "{missing_track}");
     let analyzed_track = tracks
         .iter()
-        .find(|track| track["path"] != "/definitely/not/here")
+        .find(|track| track["missing"].is_null())
         .expect("the existing file has an entry");
     assert!(analyzed_track["error"].is_null(), "{analyzed_track}");
     assert!(analyzed_track.get("missing").is_none(), "{analyzed_track}");

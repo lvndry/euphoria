@@ -340,13 +340,16 @@ impl Playlists {
     }
 
     /// Points every playlist entry of the missing file `old` at `new`, where
-    /// the same audio, `content`, is now. Returns whether any entry moved.
+    /// the same audio, `content`, is now. Entries recorded with other audio
+    /// stay where they are. Returns whether any entry moved.
     pub(crate) fn relink(&mut self, old: &Path, new: &Path, content: ContentHash) -> bool {
-        if !self
-            .items
-            .iter()
-            .any(|playlist| playlist.tracks.iter().any(|path| path == old))
-        {
+        let holds_old = |playlists: &Self| {
+            playlists
+                .items
+                .iter()
+                .any(|playlist| playlist.tracks.iter().any(|path| path == old))
+        };
+        if !holds_old(self) {
             return false;
         }
         self.follow_rewrites(&[PlaylistRewrite {
@@ -355,8 +358,11 @@ impl Playlists {
             after: content,
             paths: HashMap::from([(old.to_path_buf(), new.to_path_buf())]),
         }]);
-        self.revision += 1;
-        true
+        let moved = !holds_old(self);
+        if moved {
+            self.revision += 1;
+        }
+        moved
     }
 
     /// Takes `paths` out of every playlist. Returns whether any playlist

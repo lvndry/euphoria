@@ -72,7 +72,6 @@ pub fn write_warning(
     write_message(writer, theme, &theme.warning_label(), message)
 }
 
-/// Writes `hint: message`, what to do next.
 /// The exit status of a command that reports missing files apart from
 /// failures, when files were missing and nothing failed.
 pub const MISSING_FILES_EXIT_STATUS: u8 = 3;
@@ -109,6 +108,7 @@ pub fn write_missing_summary(writer: &mut impl Write, missing_count: usize) -> i
     )
 }
 
+/// Writes `hint: message`, what to do next.
 pub fn write_hint(writer: &mut impl Write, theme: &Theme, message: impl Display) -> io::Result<()> {
     write_message(writer, theme, &theme.hint_label(), message)
 }
