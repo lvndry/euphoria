@@ -54,6 +54,7 @@ impl ToastAction {
 #[derive(Debug, Clone)]
 pub(crate) struct Toast {
     pub(crate) message: String,
+    pub(crate) detail: Option<String>,
     pub(crate) action: Option<ToastAction>,
     id: u64,
     shown_at: Instant,
@@ -112,6 +113,7 @@ impl Toasts {
         };
         self.current = Some(Toast {
             message,
+            detail: None,
             action,
             id: self.next_id,
             shown_at: now,
@@ -120,6 +122,13 @@ impl Toasts {
             enter_seconds,
         });
         self.next_id
+    }
+
+    /// Adds a short second line to the toast showing.
+    pub(crate) fn set_detail(&mut self, detail: String) {
+        if let Some(toast) = &mut self.current {
+            toast.detail = Some(detail);
+        }
     }
 
     pub(crate) fn dismiss(&mut self) {

@@ -41,6 +41,21 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Ends a write with a toast that has a short second line, such as what
+    /// to do next in another program.
+    pub(crate) fn show_toast_with_detail(
+        &mut self,
+        message: String,
+        detail: String,
+        action: Option<ToastAction>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.show_toast(message, action, cx);
+        if !detail.is_empty() {
+            self.toasts.set_detail(detail);
+        }
+    }
+
     pub(crate) fn set_toast_hovered(&mut self, is_hovered: bool, cx: &mut Context<'_, Self>) {
         self.toasts.set_hovered(is_hovered);
         cx.notify();

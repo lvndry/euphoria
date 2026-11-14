@@ -434,8 +434,9 @@ impl EuphoriaApp {
                         if !exported.left_out.is_empty() {
                             this.report(exported.left_out);
                         }
-                        this.show_toast(
+                        this.show_toast_with_detail(
                             exported.summary,
+                            exported.next_step,
                             Some(crate::toast::ToastAction::Reveal(shown_path)),
                             cx,
                         );

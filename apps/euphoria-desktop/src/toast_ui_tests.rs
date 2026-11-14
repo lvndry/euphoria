@@ -8,7 +8,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui::{AnyWindowHandle, Entity, TestAppContext};
+use gpui::test::TestWindowExt;
+use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext};
 
 use crate::app::EuphoriaApp;
 use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
@@ -42,7 +43,7 @@ fn press(window: AnyWindowHandle, key: &str, cx: &mut TestAppContext) {
     cx.run_until_parked();
 }
 
-fn fake_clock(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> impl Fn(f32) {
+fn fake_clock(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> impl Fn(f32) + use<> {
     let origin = Instant::now();
     let offset = Rc::new(Cell::new(0.0_f32));
     let reading = offset.clone();

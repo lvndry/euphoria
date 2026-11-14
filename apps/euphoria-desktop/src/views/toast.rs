@@ -26,6 +26,7 @@ pub(crate) fn render(app: &EuphoriaApp, now: Instant, cx: &mut Context<'_, Eupho
     let palette = app.theme.palette;
     let progress = app.toasts.progress(now);
     let message: SharedString = toast.message.clone().into();
+    let detail: Option<SharedString> = toast.detail.clone().map(Into::into);
     let action = toast.action.clone();
     let shadow_alpha = if palette.is_dark { 0.35 } else { 0.18 };
     let mut body = div()
@@ -53,7 +54,20 @@ pub(crate) fn render(app: &EuphoriaApp, now: Instant, cx: &mut Context<'_, Eupho
         .on_hover(cx.listener(|this, is_hovered: &bool, _, cx| {
             this.set_toast_hovered(*is_hovered, cx);
         }))
-        .child(div().min_w_0().child(message));
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .child(message)
+                .children(detail.map(|detail| {
+                    div()
+                        .id("toast-detail")
+                        .text_color(palette.text_secondary)
+                        .child(detail)
+                        .test_support()
+                })),
+        );
     if let Some(action) = action {
         let hint = matches!(action, ToastAction::UndoTagWrite);
         body = body.child(
