@@ -68,6 +68,8 @@ Writing again never adds a second label. When the key or the energy changed, for
 
 Only text that has exactly the form of a label counts as one: a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`, `1m - Energy 7`), at the very start of the comment and followed by ` - ` or by nothing. Everything else is your own text and is kept, including comments such as `A - side`, `Am - my favourite`, `8A-side remix` and `High Energy 7`. A comment of your own that begins with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its `8A` is replaced by the new label.
 
+In the desktop app, **Settings > Writing tags** shows a box titled **In your files** under the label choices. It shows, for the selected track or a built-in example, the fields that would change and where the label ends up, and it updates as soon as you change the program, the notation, the label place, the tempo or the replace and low confidence choices. It is the same plan **Write tags** shows, so a key a file already has appears as "kept (already tagged 8A)" when replacing is off. Nothing is written from it.
+
 ### Choose where the label goes
 
 | Option | Result |
@@ -137,7 +139,7 @@ If you changed the tags of a file after the write, undo leaves that file alone r
 
 The desktop app can write each track's key and tempo into its file as soon as the track has been analyzed, so the tags are filled without a click on **Write tags**. It is the setting **Write key and tempo to files after analysis** under **Settings > Writing tags**.
 
-It is off by default. Writing changes your files, and DJ programs read them: turning it on is a decision to let Euphoria touch every track it analyzes, so it is yours to make.
+It is on by default, because a key or tempo in the file is what DJ programs read, and the safe defaults below never overwrite one the file already has. The first analysis of a library therefore fills the empty key and tempo fields of every track it analyzes. Turn the setting off to write only when you choose **Write tags**.
 
 When it is on, each newly analyzed track goes through the same planning and writing as **Write tags**, so every safe default above applies:
 

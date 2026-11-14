@@ -234,7 +234,7 @@ mod tests {
     fn themes_are_stored_by_name() {
         let text = serde_json::to_string(&Settings {
             folders: Vec::new(),
-            theme: ThemeName::KeyFirst,
+            theme: ThemeName::Deck,
             panels: Panels::default(),
             folder_tree: FolderTreeMemory::default(),
             column_widths: ColumnWidths::default(),
@@ -248,18 +248,38 @@ mod tests {
         assert_eq!(
             text,
             concat!(
-                r#"{"folders":[],"theme":"key-first","#,
+                r#"{"folders":[],"theme":"deck","#,
                 r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
                 r#""write_tempo":true,"write_cue_markers":false,"#,
                 r#""replace_existing":false,"include_low_confidence":false,"#,
-                r#""write_after_analysis":false,"schema":1},"#,
+                r#""write_after_analysis":true,"schema":1},"#,
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true}}"#
             )
         );
+    }
+
+    #[test]
+    fn a_settings_file_with_the_removed_key_first_theme_loads_as_slate() {
+        let folder = temporary_folder("key-first");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"folders":["/music"],"theme":"key-first","panels":{"sidebar_folded":true,"inspector_width":400,"strip_height":180}}"#,
+        )
+        .unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.theme, ThemeName::Slate);
+        assert_eq!(loaded.folders, [PathBuf::from("/music")]);
+        assert!(loaded.panels.sidebar_folded);
+        assert_eq!(loaded.panels.inspector_width, 400);
     }
 
     #[test]

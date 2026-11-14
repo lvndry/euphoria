@@ -497,14 +497,20 @@ How tags are written:
 
 | Setting | Choices |
 | --- | --- |
-| After analysis | **Write key and tempo to files after analysis** (off) writes each newly analyzed track's key and tempo into its file with the choices below, in batches, never while a DJ program runs, and with Undo. [Writing tags automatically after analysis](write-tags.md#writing-tags-automatically-after-analysis) explains the safety rules. |
+| After analysis | **Write key and tempo to files after analysis** (on) writes each newly analyzed track's key and tempo into its file with the choices below, in batches, never while a DJ program runs, and with Undo. [Writing tags automatically after analysis](write-tags.md#writing-tags-automatically-after-analysis) explains the safety rules. |
 | DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
 | Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
+| In your files | A box under the label choices that shows, live, what the choices above and below write: for one track, each tag field that would change, such as the comment, key and BPM, with the key and energy label in the accent colour. It uses the selected track when it has an analysis, with the comment its file really has, and says **Selected track**; otherwise it uses a built-in example (8A, 128, energy 7, the comment "Great vocal intro") and says **Example**. It is worked out by the same code as [writing tags](#write-tags), so it never disagrees with it, and it writes nothing. With **Write the cue markers** on it adds a line saying Serato DJ, Mixxx and VirtualDJ read them, and for rekordbox and Traktor, which do not read cues from files, it points to **File > Export Library...**. |
+
 | Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. Until you choose, it follows the program: nowhere for any program, the start of the comment for a DJ program. Settings saved by earlier versions keep a label you chose; the old default with any program is read as no choice. |
 | Existing key and tempo | A key or tempo a file already has is kept, so a correct tag is never replaced by a guess. **Replace existing key and tempo** (off) replaces them. A value Euphoria wrote earlier is still updated. |
 | Low confidence | A key or tempo rated low confidence is left out and listed in the preview. **Also write low confidence values** (off) writes them. A key or tempo you corrected counts as high. |
 | Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
 | Cue markers | Whether each track's cues and beat grid are written as Serato cue points, which Serato DJ, Mixxx and VirtualDJ read. Off by default. Your edited cues go in on their pads; memory cues are left out. WAV and Ogg files get none. |
+
+![The Energy label choices with End of the comment chosen, and the In your files box under them: Key 4A, BPM 129 and the comment 4A - Energy 7 with the label in the accent colour, captioned Selected track.](../images/desktop-app/settings-label-end.png)
+
+![The same box with Start of the comment chosen.](../images/desktop-app/settings-label-start.png)
 
 ## When a file fails
 
@@ -536,11 +542,8 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Paper | Light with a blue accent. |
 | Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
-| Key first | Slate colours with solid key chips and the table sorted by key. |
 
 ![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
-
-![The Key first theme: the table sorted by key from 1A to 12A, with solid key chips. The inspector shows the selected track in 5A with a Camelot wheel under its waveform, where 5A is filled in the accent colour and 4A, 6A and 5B, the keys that mix with it, are tinted.](../images/desktop-app/key-first.png)
 
 ## What the app remembers
 

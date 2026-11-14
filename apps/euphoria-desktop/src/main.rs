@@ -36,6 +36,7 @@ mod folder_tree;
 mod format;
 mod key_by_ear;
 mod key_shift;
+mod label_preview;
 mod library;
 mod library_export;
 #[cfg(test)]
@@ -100,8 +101,8 @@ use crate::actions::{
     AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
     OpenFocusView, OpenSetBuilder, OpenSettings, Quit, ResetColumnWidths, RevealTrack,
     SelectAllTracks, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
-    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
-    UseSlateTheme, WriteTags,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
+    WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -347,7 +348,6 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_theme_command::<UsePaperTheme>(ThemeName::Paper, view, cx);
     register_theme_command::<UseDeckTheme>(ThemeName::Deck, view, cx);
     register_theme_command::<UseGraphiteTheme>(ThemeName::Graphite, view, cx);
-    register_theme_command::<UseKeyFirstTheme>(ThemeName::KeyFirst, view, cx);
 }
 
 /// Runs `command` on the root view when the action `Command` is triggered.
@@ -390,7 +390,6 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             ThemeName::Paper => MenuItem::action(label, UsePaperTheme),
             ThemeName::Deck => MenuItem::action(label, UseDeckTheme),
             ThemeName::Graphite => MenuItem::action(label, UseGraphiteTheme),
-            ThemeName::KeyFirst => MenuItem::action(label, UseKeyFirstTheme),
         };
         item.checked(theme == current_theme)
     });
