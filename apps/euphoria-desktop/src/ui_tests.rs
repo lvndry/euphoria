@@ -6055,3 +6055,23 @@ fn statistic_labels_stay_on_one_line_in_every_theme_at_the_narrowest_inspector(
     }
     assert!(measured >= 3, "the compact statistics were never shown");
 }
+
+#[gpui::test]
+fn closing_the_decks_clears_the_notice_that_they_hold_the_player(cx: &mut TestAppContext) {
+    let output = RenderedDecks::default();
+    let (_window, view) = open_window_on(deck_tracks(), Box::new(output), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.toggle_playback(cx);
+        })
+    });
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).notice.as_deref(),
+            Some(crate::decks::PLAYER_HELD_BY_DECKS)
+        )
+    });
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
+    cx.update(|cx| assert_eq!(view.read(cx).notice, None));
+}

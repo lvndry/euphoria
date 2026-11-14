@@ -1507,7 +1507,7 @@ impl EuphoriaApp {
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
         if self.decks.is_open {
-            self.notice = Some("Close the decks to use the track player.".to_string());
+            self.notice = Some(crate::decks::PLAYER_HELD_BY_DECKS.to_string());
             cx.notify();
             return;
         }
