@@ -341,6 +341,7 @@ fn playing_a_transition_starts_the_track_before_twenty_seconds_from_its_end(
 fn the_decks_keep_the_player_from_a_set_row(cx: &mut TestAppContext) {
     let (window, view) = open_playable_set(cx);
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
+    let held_before = held_track(&view, cx);
     click_play(window, 0, cx);
     cx.update(|cx| {
         let app = view.read(cx);
@@ -349,8 +350,9 @@ fn the_decks_keep_the_player_from_a_set_row(cx: &mut TestAppContext) {
             Some(crate::decks::PLAYER_HELD_BY_DECKS)
         );
         assert!(!app.player.offers_pause());
-        assert!(app.player.track().is_none());
+        assert!(app.set_builder.playing.is_none());
     });
+    assert_eq!(held_track(&view, cx), held_before);
     click(window, ("set-transition", 1usize), cx);
     cx.update(|cx| assert!(!view.read(cx).player.offers_pause()));
 }
