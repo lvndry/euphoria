@@ -26,6 +26,19 @@ The model's weights, 84 MB, are downloaded once from the Demucs author's publish
 
 Stems are saved by the content of the file, so separating the same track again is instant, even after it is renamed or moved. The saved stems take at most 5 GB by default, after which the stems used longest ago are removed first.
 
+## How the app plays stems
+
+Once a track is separated, the track detail offers **Full track**, **Acapella** and **Instrumental**.
+
+- **Full track** plays the file itself, exactly as before the separation, at its own sample rate and with its own channels. The stems are not used, so nothing of the separation can be heard in it.
+- **Acapella** plays the vocals stem. **Instrumental** plays the drums, bass and other stems added together. The stems are read side by side, in step, and mixed as 32 bit floating point samples, so adding them never clips or rounds. They are played at 44.1 kHz, the rate they were written at, and the system's audio output converts that to the rate of the device, as it does for any file.
+- The position is kept in seconds, so a seek or a switch between the three lands at the same moment of the track whatever its sample rate. Switching between Acapella and Instrumental fades the stems in and out without a restart; switching to or from Full track starts the file or the stems again from the current position.
+- A key shift applies to the stems as it does to the file.
+
+Acapella and Instrumental added together give back the track, apart from the model's own mistakes: on generated test stems at 44.1 kHz, 48 kHz and in mono, their sum matches the track to more than 60 dB, the limit of the 16 bit stem files, and lasts as long as the track to within a millisecond.
+
+**Remove stems**, under the three choices, deletes the saved stems of the track. The track detail then offers to separate it again. Stems are also removed on their own when the saved stems pass the size limit below.
+
 ## How close it is to Demucs
 
 Euphoria's stems were compared with the reference Python Demucs package (version 4.1.0, the same weights, without random shifts, the setting Euphoria matches) on a 60 second excerpt of ["Let's Pretend"](https://archive.org/details/josh-woodward-lets-pretend) by Josh Woodward, licensed CC BY 4.0, from the Internet Archive. The comparison is made by [`scripts/stems/compare_with_demucs.py`](https://github.com/lvndry/euphoria/blob/main/scripts/stems/compare_with_demucs.py).
