@@ -1494,6 +1494,41 @@ fn the_collection_is_never_the_output_even_with_force() {
 }
 
 #[test]
+fn the_collection_is_never_the_output_without_cues_either() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let collection = resolved(output_folder.path()).join("collection.xml");
+    let contents = "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>";
+    std::fs::write(&collection, contents).expect("the collection is written");
+
+    let refused = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&collection),
+        "--force",
+        "--beat-grid",
+        "--collection",
+        text(&collection),
+    ]);
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        standard_error(&refused).contains("is the rekordbox collection in"),
+        "{}",
+        standard_error(&refused)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&collection).expect("the collection is read"),
+        contents
+    );
+}
+
+#[test]
 fn cued_tracks_that_match_no_file_stop_the_export_unless_allowed() {
     let euphoria = Euphoria::new();
     let music_folder = TemporaryFolder::new();

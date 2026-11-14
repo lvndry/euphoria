@@ -231,6 +231,9 @@ impl ImportSummary {
             if info.source == Some(GridSource::Rekordbox) {
                 summary.used += 1;
             }
+            if info.source == Some(GridSource::User) {
+                continue;
+            }
             match (&info.collection, info.collection.skipped_because()) {
                 (_, Some(reason)) => summary.skipped.push((path.clone(), reason)),
                 (CollectionStatus::NotInCollection, None) => summary.not_in_collection += 1,
@@ -269,5 +272,29 @@ mod tests {
             CollectionStatus::NotInCollection.label(),
             Some("not in collection")
         );
+    }
+
+    #[test]
+    fn a_track_whose_tempo_you_set_is_not_listed_as_keeping_the_detected_grid() {
+        let variable = CollectionStatus::Found(RekordboxGrid::Unreadable);
+        let mut infos = GridInfos::new();
+        infos.insert(
+            PathBuf::from("set.wav"),
+            GridInfo {
+                source: Some(GridSource::User),
+                collection: variable.clone(),
+            },
+        );
+        infos.insert(
+            PathBuf::from("detected.wav"),
+            GridInfo {
+                source: Some(GridSource::Detected),
+                collection: variable,
+            },
+        );
+        let files = [PathBuf::from("set.wav"), PathBuf::from("detected.wav")];
+        let summary = ImportSummary::of(&files, &infos);
+        assert_eq!(summary.skipped.len(), 1);
+        assert_eq!(summary.skipped[0].0, PathBuf::from("detected.wav"));
     }
 }

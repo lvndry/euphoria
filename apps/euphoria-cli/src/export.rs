@@ -463,6 +463,9 @@ fn export_library(
     };
     // Checked before the analysis, which can take hours on a large library.
     check_output_file(&output_file, existing)?;
+    if let Some(collection) = request.collection {
+        check_output_is_not_a_collection(&output_file, &[collection.to_path_buf()], program)?;
+    }
     let grids = match request.collection {
         Some(collection) if request.import_grids => {
             Some(grid_import::CollectionGrids::read(collection)?)
@@ -471,7 +474,6 @@ fn export_library(
     };
     let cued_tracks = match request.collection.filter(|_| request.cues) {
         Some(collection) => {
-            check_output_is_not_a_collection(&output_file, &[collection.to_path_buf()], program)?;
             let cued_tracks = read_cued_tracks(collection)?;
             if !cued_tracks.unmatched.is_empty() && !request.allow_unmatched_cued_tracks {
                 bail!(
