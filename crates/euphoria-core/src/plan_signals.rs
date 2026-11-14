@@ -15,6 +15,8 @@ use crate::cache::ContentHash;
 use crate::energy::{ENERGY_MODEL_VERSION, energy_curve};
 use crate::error::EuphoriaError;
 use crate::harmony::transition::{EnergyPoint, StemLevels};
+#[cfg(feature = "stems")]
+use crate::stems::{Stem, StemFiles};
 
 /// The energy and stem levels of one track.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -26,6 +28,10 @@ pub struct TrackSignals {
     /// The stem levels, or `None` when the track had no cached stems when
     /// they were last looked for.
     pub stems: Option<StemLevels>,
+    /// The files from which `stems` was measured. Old cache entries have no
+    /// signature and are measured again before their levels are used.
+    #[serde(default)]
+    pub stems_signature: Option<String>,
 }
 
 /// The folder the signals of tracks are kept in.
@@ -88,6 +94,22 @@ pub fn measure_energy(path: &Path, tempo: Option<f32>) -> Result<Vec<EnergyPoint
         .collect())
 }
 
+/// Identifies the current four stem files by path, size and modification
+/// time. Returns `None` when any stem has gone away or cannot be inspected.
+#[cfg(feature = "stems")]
+pub fn stem_signature(files: &StemFiles) -> Option<String> {
+    let mut hasher = blake3::Hasher::new();
+    for stem in Stem::ALL {
+        let path = files.path(stem);
+        let metadata = std::fs::metadata(&path).ok()?;
+        let modified = metadata.modified().ok()?;
+        hasher.update(path.to_string_lossy().as_bytes());
+        hasher.update(&metadata.len().to_le_bytes());
+        hasher.update(format!("{modified:?}").as_bytes());
+    }
+    Some(hasher.finalize().to_hex().to_string())
+}
+
 /// A [`TrackSignals`] with the energy model of this build and nothing
 /// measured of the stems.
 pub fn signals_with_energy(energy: Vec<EnergyPoint>) -> TrackSignals {
@@ -95,5 +117,25 @@ pub fn signals_with_energy(energy: Vec<EnergyPoint>) -> TrackSignals {
         energy_model_version: ENERGY_MODEL_VERSION,
         energy,
         stems: None,
+        stems_signature: None,
+    }
+}
+
+#[cfg(all(test, feature = "stems"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stem_signature_changes_with_files_and_disappears_when_one_is_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = StemFiles::in_directory(directory.path().to_path_buf());
+        for stem in Stem::ALL {
+            std::fs::write(files.path(stem), b"first").unwrap();
+        }
+        let first = stem_signature(&files).unwrap();
+        std::fs::write(files.path(Stem::Vocals), b"second version").unwrap();
+        assert_ne!(stem_signature(&files), Some(first));
+        std::fs::remove_file(files.path(Stem::Vocals)).unwrap();
+        assert_eq!(stem_signature(&files), None);
     }
 }

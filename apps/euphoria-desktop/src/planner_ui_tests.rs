@@ -19,6 +19,7 @@ use crate::playback::testing::SilentOutput;
 use crate::settings::Settings;
 use crate::stems::StemSession;
 use crate::tag_writing::testing::ScratchFolder;
+use crate::track_overview::VocalLane;
 use crate::transition_plan::PlanState;
 use crate::ui_tests::{click, is_shown, open_window_with, write_stems_with_vocals_for};
 
@@ -221,6 +222,45 @@ fn the_clash_column_fills_for_the_matches_and_says_not_checked_without_stems(
     cx.update(|cx| {
         let state = setup.view.read(cx).plan_state(b_index);
         assert!(matches!(state, Some(PlanState::Ready(_))));
+    });
+}
+
+#[gpui::test]
+fn removing_stems_recomputes_the_plan_without_cached_stem_levels(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-removed-stems", &[0, 1], cx);
+    open_focus_with_plans(&setup, cx);
+    let b_index = index_of(&setup.view, &setup.b, cx);
+    assert_eq!(clash_label(&setup, b_index, cx), "Clean");
+
+    cx.update(|cx| setup.view.update(cx, |app, cx| app.remove_stems(cx)));
+    for _ in 0..10 {
+        cx.run_until_parked();
+    }
+    assert_eq!(clash_label(&setup, b_index, cx), "Not checked");
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.stems.ready_files(&setup.a).is_none());
+        assert!(app.decks.stem_library.files(&setup.a).is_none());
+    });
+}
+
+#[gpui::test]
+fn a_failed_stem_removal_keeps_the_vocal_lane_and_stem_state(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-failed-stem-removal", &[], cx);
+    let file = setup.scratch.0.join("not-a-directory");
+    std::fs::write(&file, b"stem directory cannot be a file").unwrap();
+    let files = euphoria_core::stems::StemFiles::in_directory(file);
+    cx.update(|cx| {
+        setup.view.update(cx, |app, cx| {
+            app.stems.mark_ready(&setup.a, files.clone());
+            app.show_vocal_lane(setup.a.clone(), VocalLane::Checking);
+            app.remove_stems(cx);
+        })
+    });
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert_eq!(app.stems.ready_files(&setup.a), Some(files));
+        assert_eq!(app.vocal_lane_of(&setup.a), &VocalLane::Checking);
     });
 }
 

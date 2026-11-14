@@ -18,7 +18,7 @@ use euphoria_core::harmony::transition::{
     Side, StepKind, SuggestedCues, TransitionPlan, cues_for_window, plan_transition,
 };
 use euphoria_core::plan_signals::{
-    SignalsCache, TrackSignals, measure_energy, signals_with_energy,
+    SignalsCache, TrackSignals, measure_energy, signals_with_energy, stem_signature,
 };
 use euphoria_core::stems::{StemCache, StemFiles, measure_stem_levels};
 use euphoria_core::{BeatGrid, ContentHash, Cue, CueSection, HotCue, Key, TrackAnalysis};
@@ -83,6 +83,7 @@ struct PlanSide {
     analysis: TrackAnalysis,
     sections: Vec<PlanSection>,
     stem_files: Option<StemFiles>,
+    stem_signature: Option<String>,
 }
 
 struct PlanJob {
@@ -164,11 +165,13 @@ fn plan_side(track: &Track, app: &EuphoriaApp) -> Option<PlanSide> {
         .stems
         .ready_files(&track.path)
         .or_else(|| app.decks.stem_library.files(&track.path));
+    let stem_signature = stem_files.as_ref().and_then(stem_signature);
     Some(PlanSide {
         path: track.path.clone(),
         analysis,
         sections,
         stem_files,
+        stem_signature,
     })
 }
 
@@ -181,7 +184,7 @@ fn fingerprint(a: &PlanSide, b: &PlanSide) -> u64 {
             side.analysis.key,
             side.analysis.duration_seconds,
             side.sections,
-            side.stem_files.is_some()
+            side.stem_signature.as_deref().unwrap_or("")
         )
         .hash(&mut hasher);
     }
@@ -202,12 +205,14 @@ fn signals_of(side: &PlanSide, directory: Option<&Path>) -> TrackSignals {
         let energy = measure_energy(&side.path, side.analysis.bpm).unwrap_or_default();
         signals_with_energy(energy)
     });
-    if signals.stems.is_none() {
-        let files = side.stem_files.clone().or_else(|| {
-            let hash = hash.as_ref()?;
-            StemCache::open_default().ok()?.cached(hash)
-        });
+    let files = side.stem_files.clone().or_else(|| {
+        let hash = hash.as_ref()?;
+        StemCache::open_default().ok()?.cached(hash)
+    });
+    let signature = files.as_ref().and_then(stem_signature);
+    if signals.stems_signature != signature || signals.stems.is_some() != signature.is_some() {
         signals.stems = files.and_then(|files| measure_stem_levels(&files).ok());
+        signals.stems_signature = signals.stems.as_ref().and(signature);
     }
     if let (Some(hash), Some(cache)) = (&hash, &cache) {
         cache.store(hash, &signals).ok();
