@@ -68,7 +68,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 - **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
-- **Missing files** is a placeholder and always shows 0.
+- **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. See [Missing files](#missing-files).
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
 ### Browse your folders
@@ -375,7 +375,23 @@ How tags are written:
 
 ## When a file fails
 
-A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on.
+A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on. A file that is no longer there is not a failure; see [Missing files](#missing-files).
+
+## Missing files
+
+A track is missing when its file is no longer where it was: moved, deleted, or on a drive that is not connected. When the app opens, each track of a playlist or a favorite whose file is gone is first looked for where the analysis cache last saw the same audio, and followed there. A track found nowhere is added to the library as missing. A file that disappears while the app runs becomes missing too, not failed.
+
+A missing track shows **Missing** in its key column and is listed under **Missing files** in the sidebar, not under **Needs review**. The inspector says where the file was.
+
+To point a missing track at where its file is now, right click it and choose **Locate…**, then pick the file. Euphoria reads the file you picked and compares its audio with what the track held. When they match, the track, its playlists, its stars and favorite transitions, and the key, tempo and cues you set follow the file, and its analysis comes back from the cache without analyzing again. Every other missing track whose file sits in the same folder under the same name, with the same audio, is linked too, so locating one track of a moved folder finds the rest. When the picked file holds other audio, nothing changes and a notice says so. When nothing was recorded about the track's audio, Euphoria cannot check the file and asks first: **Link anyway** links it, **Cancel** leaves the track missing.
+
+**Remove from Library** in the same menu takes the missing tracks of the selection out of the library, out of every playlist and out of the favorites. Tracks whose file is there are left alone. Until you remove a missing track, its playlists, favorites and edited cues keep it, so unplugging a drive loses nothing.
+
+A remembered folder that is not there when the app opens is named in the notice and stays remembered: it is searched again at the next launch, and its tracks come back then.
+
+The command line reports missing files the same way, on [`missing:` lines](../reference/cli.md#messages) with exit status 3.
+
+Limits: there is no way yet to forget a remembered folder, and a deleted file of a remembered folder that is in no playlist or favorite is not shown as missing; it is simply not found when the folder is searched.
 
 ## Themes
 
@@ -405,7 +421,7 @@ Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are
 
 Set the `EUPHORIA_DATA_DIR` environment variable to keep it somewhere else.
 
-Files dropped on their own, outside a folder, are not remembered. If the folder that was on show is gone the next time, for example on a drive that is not connected, the app starts on **All tracks**.
+Files dropped on their own, outside a folder, are not remembered. If the folder that was on show is gone the next time, for example on a drive that is not connected, the app starts on **All tracks**. The folder stays remembered and is searched again at the next launch.
 
 ## Remembered results
 

@@ -1420,7 +1420,7 @@ music
     fn a_key_the_user_set_is_compared_without_advice() {
         let correction = Correction {
             key: Some(Key::new(9, Mode::Minor)),
-            bpm: None,
+            ..Correction::default()
         };
         let detail = detail_with_tag_key("8B", Some(&correction));
         assert!(detail.contains("differs from the key you set"), "{detail}");

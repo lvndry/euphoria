@@ -164,11 +164,11 @@ fn opposite_phase_channels_cancel_out() {
 }
 
 #[test]
-fn missing_file_is_an_open_error() {
+fn a_missing_file_is_reported_as_missing() {
     let path = fixture("does-not-exist.wav");
     let error = decode_mono(&path).unwrap_err();
     assert!(
-        matches!(&error, EuphoriaError::Open { path: error_path, .. } if *error_path == path),
+        matches!(&error, EuphoriaError::Missing { path: error_path } if *error_path == path),
         "{error:?}"
     );
 }

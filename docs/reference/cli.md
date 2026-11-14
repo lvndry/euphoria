@@ -205,7 +205,7 @@ One object per file, in path order, including files that failed:
 ]
 ```
 
-`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
+`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
 A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
 
@@ -251,6 +251,13 @@ A debug build analyzes many times slower than a release build. When a run of a d
 When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
 
 The command exits with status 0 when every file was analyzed. If any file failed, each one is listed on standard error as `error: <path>: <reason>` after the table, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
+
+A file that is no longer there, because it was moved, deleted, or is on a drive that is not connected, is not a failure. It is listed after the errors as `missing: <path>`, followed by a count, and when files are missing and nothing failed the command exits with status 3, even when every file named is missing. A path named on the command line that does not exist is reported this way, and the other paths are still analyzed:
+
+```
+missing: /Volumes/USB/Crates/Low Tide.flac
+1 file is missing: moved, deleted, or on a drive that is not connected.
+```
 
 ## euphoria export rekordbox
 
@@ -362,7 +369,10 @@ The command also exits with status 1, and writes no file, when:
 - the output file exists and `--force` was not given, or its folder does not exist,
 - the output file is one of the audio files to export, reached by any path or symbolic link, or it has an audio file extension and is inside a folder to export. `--force` does not change this, so an export never replaces a track,
 - no audio file was found, or none could be exported,
+- a file or folder to export does not exist; the error says it is missing,
 - folders are nested more than 32 levels deep, the most a rekordbox XML file can hold. The error names the first folder beyond the limit.
+
+With `--playlist`, a track of the playlist that is no longer anywhere, even where the cache last saw it, is left out and listed as `missing: <path>`; when tracks are missing and nothing failed, the command exits with status 3. A track whose path now holds other audio is left out with a warning, and the command exits with status 1. A file that disappears while the export runs is listed as missing in the same way. When every track of the playlist is missing, nothing is exported and the exit status is 1, as when no audio file is found.
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
@@ -407,7 +417,8 @@ Tracks are matched by the path Engine DJ stores. It refuses to write while Engin
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
 | `--dry-run` | Checks the library and says what would change, writing nothing. |
 
-The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library or a file could not be analyzed.
+The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
+
 ## euphoria export virtualdj
 
 Analyzes audio files and writes the results into the songs of your VirtualDJ `database.xml`, after saving a copy of it. [Export to VirtualDJ](../guides/export-to-virtualdj.md) explains what is written and kept. **Not tested in VirtualDJ.**
@@ -428,7 +439,7 @@ Songs are matched by path, and only songs the database holds are changed. Every 
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
 | `--dry-run` | Says what would change and writes nothing. |
 
-The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database or a file could not be analyzed.
+The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
 
 ## euphoria export m3u8
 
@@ -452,7 +463,7 @@ The file starts with `#EXTM3U` and `#PLAYLIST:` and the playlist's name, then gi
 | `--force` | Replace the output file if it exists. |
 | `--no-cache` | Neither look for files that moved where the cache last saw them, nor read lengths from it. |
 
-Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere, or whose file was replaced at its path by other audio, is left out with a warning, and the command then exits with status 1. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere is left out and listed as `missing: <path>`, and the command exits with status 3. A track whose file was replaced at its path by other audio is left out with a warning, and the command exits with status 1. When every track is missing, the file is written with no tracks and the exit status is 3. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
 
 ## euphoria playlists
 
@@ -817,6 +828,7 @@ Every command writes its results to standard output and everything else to stand
 | Starts with | Means |
 | --- | --- |
 | `error:` | Something failed: the file, if there is one, then the reason. The exit status is 1. |
+| `missing:` | A file that is no longer there: moved, deleted, or on a drive that is not connected. When nothing else failed, the exit status is 3. |
 | `warning:` | Something went wrong that did not stop the command, such as a cache that could not be used. |
 | `hint:` | What to do next. |
 | `note:` | Something worth knowing that needs no action. |

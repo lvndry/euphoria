@@ -213,6 +213,7 @@ fn measure(track: &LabelledTrack) -> Outcome {
 /// Names the kind of error without the path that its message carries.
 fn failure_kind(error: &EuphoriaError) -> &'static str {
     match error {
+        EuphoriaError::Missing { .. } => "are missing",
         EuphoriaError::Open { .. } => "could not be opened",
         EuphoriaError::Decode { .. } | EuphoriaError::EmptyAudio { .. } => "could not be decoded",
         _ => "could not be analyzed",
@@ -701,7 +702,7 @@ mod tests {
             path: PathBuf::from("/secret/folder/track name.mp3"),
             reference: Some(1.0),
         });
-        assert!(matches!(missing, Outcome::Failed("could not be opened")));
+        assert!(matches!(missing, Outcome::Failed("are missing")));
     }
 
     #[test]
