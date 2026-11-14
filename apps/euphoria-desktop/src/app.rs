@@ -36,6 +36,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
+use crate::toast::Toasts;
 use crate::track_overview::{VocalLane, energy_curve_from, vocal_lane_from};
 use crate::views;
 use crate::views::waveform::SeenBounds;
@@ -177,6 +178,11 @@ pub(crate) struct EuphoriaApp {
     pub(crate) logo_clock: crate::logo_motion::LogoClock,
     /// The sidebar sliding in or out.
     pub(crate) sidebar_slide: SidebarSlide,
+    pub(crate) toasts: Toasts,
+    #[cfg(test)]
+    pub(crate) revealed: Vec<PathBuf>,
+    #[cfg(test)]
+    pub(crate) last_written: Vec<PathBuf>,
     /// The width of the sidebar in the frame last drawn.
     sidebar_width_on_show: f32,
     /// Remembered folders that are not there now, such as one on a drive
@@ -494,6 +500,11 @@ impl EuphoriaApp {
             pending_stem_export: None,
             toolbar_drag_armed: false,
             sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
+            toasts: Toasts::default(),
+            #[cfg(test)]
+            revealed: Vec::new(),
+            #[cfg(test)]
+            last_written: Vec::new(),
             sidebar_width_on_show: settings.panels.sidebar_width(),
             panels: settings.panels,
             resizing: None,
@@ -2246,6 +2257,10 @@ impl Render for EuphoriaApp {
         if self.sidebar_slide.is_moving(now) {
             window.request_animation_frame();
         }
+        let toast_now = self.toasts.now();
+        if self.toasts.is_animating(toast_now) {
+            window.request_animation_frame();
+        }
         let sidebar_width = self.sidebar_width_on_show;
         let shows_sidebar = sidebar_width > 0.0;
         self.lay_out_table(window);
@@ -2377,6 +2392,7 @@ impl Render for EuphoriaApp {
             )
             .child(views::toolbar::render(self, cx))
             .child(body)
+            .child(views::toast::render(self, toast_now, cx))
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })

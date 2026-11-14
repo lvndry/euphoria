@@ -28,6 +28,7 @@ pub(crate) mod sidebar;
 pub(crate) mod stems;
 pub(crate) mod tag_editor;
 pub(crate) mod tag_panel;
+pub(crate) mod toast;
 pub(crate) mod toolbar;
 pub(crate) mod track_filter_bar;
 pub(crate) mod track_overview;

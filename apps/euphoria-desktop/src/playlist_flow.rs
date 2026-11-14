@@ -50,7 +50,31 @@ impl PlaylistFormat {
 }
 
 /// What the export of a playlist wrote, or why it could not.
-pub(crate) type ExportOutcome = Result<String, String>;
+pub(crate) type ExportOutcome = Result<ExportedPlaylist, String>;
+
+/// A playlist export that was written: the toast's line, and what to warn
+/// about, which is empty when nothing was left out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExportedPlaylist {
+    pub(crate) summary: String,
+    pub(crate) left_out: String,
+    pub(crate) next_step: String,
+}
+
+impl ExportedPlaylist {
+    /// The export as one text, for a sheet that has room for it.
+    pub(crate) fn as_text(&self) -> String {
+        [
+            format!("{}.", self.summary),
+            self.next_step.clone(),
+            self.left_out.clone(),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+    }
+}
 
 impl EuphoriaApp {
     /// Shows the tracks of the playlist in its order.
@@ -398,15 +422,26 @@ impl EuphoriaApp {
             }) else {
                 return;
             };
+            let shown_path = destination.clone();
             let outcome = cx
                 .background_executor()
                 .spawn(async move { job.write(&destination) })
                 .await;
             this.update(cx, |this, cx| {
                 this.background_jobs.finish(running);
-                this.notice = Some(match outcome {
-                    Ok(message) | Err(message) => message,
-                });
+                match outcome {
+                    Ok(exported) => {
+                        if !exported.left_out.is_empty() {
+                            this.report(exported.left_out);
+                        }
+                        this.show_toast(
+                            exported.summary,
+                            Some(crate::toast::ToastAction::Reveal(shown_path)),
+                            cx,
+                        );
+                    }
+                    Err(message) => this.notice = Some(message),
+                }
                 cx.notify();
             })
             .ok();
@@ -568,12 +603,13 @@ impl PlaylistExport {
                     ExistingFile::Replace,
                 )
                 .map_err(failed)?;
-                Ok(format!(
-                    "Exported {} to {} for rekordbox: in rekordbox, open the XML view to import it.{}",
-                    self.name,
-                    destination.display(),
-                    left_out_note(tracks.len() - exported + self.not_in_library)
-                ))
+                Ok(ExportedPlaylist {
+                    summary: format!("Exported {} to rekordbox XML", self.name),
+                    left_out: left_out_note(tracks.len() - exported + self.not_in_library)
+                        .trim()
+                        .to_string(),
+                    next_step: "In rekordbox, open the XML view to import it.".to_string(),
+                })
             }
             PlaylistFormat::M3u8 => {
                 let tracks: Vec<M3uTrack> = tracks
@@ -589,12 +625,11 @@ impl PlaylistExport {
                     .collect();
                 write_m3u8_file(destination, &self.name, &tracks, ExistingFile::Replace)
                     .map_err(failed)?;
-                Ok(format!(
-                    "Exported {} to {}.{}",
-                    self.name,
-                    destination.display(),
-                    left_out_note(self.not_in_library)
-                ))
+                Ok(ExportedPlaylist {
+                    summary: format!("Exported {} to an M3U8 playlist", self.name),
+                    left_out: left_out_note(self.not_in_library).trim().to_string(),
+                    next_step: String::new(),
+                })
             }
         }
     }

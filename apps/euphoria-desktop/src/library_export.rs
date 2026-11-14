@@ -67,6 +67,17 @@ impl ExportProgram {
         }
     }
 
+    /// What an export is said to have gone to, in the toast.
+    fn destination(self) -> &'static str {
+        match self {
+            ExportProgram::Rekordbox => "rekordbox XML",
+            ExportProgram::Traktor => "a Traktor collection",
+            ExportProgram::EngineDj => "the Engine DJ library",
+            ExportProgram::VirtualDj => "the VirtualDJ database",
+            ExportProgram::M3u8 => "an M3U8 playlist",
+        }
+    }
+
     pub(crate) fn id(self) -> &'static str {
         match self {
             ExportProgram::Rekordbox => "rekordbox",
@@ -238,16 +249,6 @@ pub(crate) struct ExportReport {
     pub(crate) track_count: usize,
 }
 
-impl ExportReport {
-    /// The report as one text for the notice strip.
-    pub(crate) fn as_notice(&self) -> String {
-        std::iter::once(self.headline.clone())
-            .chain(self.details.iter().take(3).cloned())
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-}
-
 /// Everything an export works from, taken from the window so that the work
 /// can run off the main thread.
 pub(crate) struct LibraryExportJob {
@@ -371,9 +372,9 @@ impl LibraryExportJob {
                 track_count,
             });
         }
-        let message = self.export.write(&output)?;
+        let exported = self.export.write(&output)?;
         Ok(ExportReport {
-            headline: message,
+            headline: exported.as_text(),
             details: Vec::new(),
             track_count,
         })
@@ -992,8 +993,17 @@ impl EuphoriaApp {
                 match outcome {
                     Ok(report) if dry_run => panel.stage = ExportStage::Review(report),
                     Ok(report) => {
-                        this.notice = Some(report.as_notice());
+                        let message = format!(
+                            "Exported {} to {}",
+                            counted(report.track_count, "track", "tracks"),
+                            setup.program.destination()
+                        );
                         panel.stage = ExportStage::Done(report);
+                        this.show_toast(
+                            message,
+                            setup.output.clone().map(crate::toast::ToastAction::Reveal),
+                            cx,
+                        );
                     }
                     Err(problem) => {
                         if !dry_run {

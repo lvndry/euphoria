@@ -3873,7 +3873,7 @@ fn a_playlist_exports_in_its_order_to_rekordbox_and_m3u8(cx: &mut TestAppContext
     let write = |format, file: &str, cx: &mut TestAppContext| {
         let job = cx.update(|cx| view.read(cx).playlist_export_job(id, format).unwrap());
         let destination = scratch.0.join(file);
-        let message = job.write(&destination).unwrap();
+        let message = job.write(&destination).unwrap().as_text();
         (std::fs::read_to_string(&destination).unwrap(), message)
     };
 
@@ -4338,7 +4338,7 @@ fn playlist_identity_follows_tag_edits_and_undo_in_the_same_window(cx: &mut Test
                 .unwrap()
         });
         let destination = scratch.0.join(name);
-        let message = job.write(&destination).unwrap();
+        let message = job.write(&destination).unwrap().as_text();
         assert!(!message.contains("other audio"), "{message}");
         assert!(
             std::fs::read_to_string(destination)
@@ -4454,7 +4454,7 @@ fn a_file_replaced_by_other_audio_is_left_out_of_an_export(cx: &mut TestAppConte
             .unwrap()
     });
     let destination = scratch.0.join("set.m3u8");
-    let message = job.write(&destination).unwrap();
+    let message = job.write(&destination).unwrap().as_text();
     let written = std::fs::read_to_string(&destination).unwrap();
     assert!(written.contains(files[0].to_str().unwrap()), "{written}");
     assert!(!written.contains(files[1].to_str().unwrap()), "{written}");
