@@ -173,7 +173,9 @@ jobs:
         suite:
           - name: Core unit tests
             key: core-unit
-            command: cargo test -p euphoria-core --lib --bins --locked
+            # The desktop app enables the stems feature, which the workspace
+            # build unifies into the core, and its tests only compile then.
+            command: cargo test -p euphoria-core --features stems --lib --bins --locked
           - name: Desktop unit and headless UI tests
             key: desktop-unit
             command: cargo test -p euphoria-desktop --bins --locked
