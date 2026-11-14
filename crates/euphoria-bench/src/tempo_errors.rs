@@ -9,6 +9,7 @@ use std::fmt::{self, Display, Formatter};
 use std::fs;
 use std::path::Path;
 
+use euphoria_core::TempoRange;
 use euphoria_core::detect::{StratumDetector, TempoDetector};
 
 use crate::dataset::Dataset;
@@ -116,6 +117,9 @@ pub struct TempoErrorReport {
     overall: Accuracy,
     kinds: BTreeMap<TempoError, usize>,
     genres: BTreeMap<String, Accuracy>,
+    /// Tracks reported at double their annotated tempo, which is below the
+    /// slowest tempo of the default range.
+    doubled_below_range: usize,
     missing: usize,
 }
 
@@ -136,10 +140,11 @@ pub fn evaluate_tempo_errors(dataset: &Dataset<f32>, dataset_directory: &Path) -
             continue;
         };
         report.overall.record(track.annotation, reported);
-        *report
-            .kinds
-            .entry(classify(track.annotation, reported))
-            .or_default() += 1;
+        let kind = classify(track.annotation, reported);
+        *report.kinds.entry(kind).or_default() += 1;
+        report.doubled_below_range += usize::from(
+            kind == TempoError::Double && track.annotation < TempoRange::DEFAULT.slowest(),
+        );
         let genre = fs::read_to_string(
             dataset_directory
                 .join("annotations/genre")
@@ -193,7 +198,12 @@ impl Display for TempoErrorReport {
                 share_with_interval(count, tracks)
             )?;
         }
-        writeln!(formatter)?;
+        writeln!(
+            formatter,
+            "Of the tracks reported at double, {} are annotated below {} BPM, which the default range reports at double.\n",
+            self.doubled_below_range,
+            TempoRange::DEFAULT.slowest()
+        )?;
         writeln!(formatter, "| Genre | Tracks | Accuracy 1 | Accuracy 2 |")?;
         writeln!(formatter, "| --- | --- | --- | --- |")?;
         let mut rest = Accuracy::default();
