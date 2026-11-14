@@ -166,6 +166,8 @@ In most themes the player is a bar along the bottom of the window, with the play
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
+If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence.
+
 ## Stems
 
 The track detail can separate a track into its four stems with the Demucs model, and then you can hear any part of it on its own. Select a track and click **Separate the stems** in the track detail: while it runs the button says so, and when it is done the player offers what to hear.

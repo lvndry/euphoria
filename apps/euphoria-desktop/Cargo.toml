@@ -21,6 +21,7 @@ euphoria-core = { workspace = true, features = ["stems"] }
 gpui.workspace = true
 rayon.workspace = true
 rodio.workspace = true
+log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

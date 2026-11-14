@@ -34,10 +34,12 @@ mod library;
 mod library_export;
 #[cfg(test)]
 mod library_export_ui_tests;
+mod logging;
 mod mashup;
 #[cfg(test)]
 mod missing_ui_tests;
 mod mixes;
+mod output_stream;
 mod panels;
 mod peaks;
 #[cfg(test)]
@@ -114,6 +116,7 @@ fn open_cache() -> Result<CachedAnalyzer, EuphoriaError> {
 }
 
 fn main() {
+    logging::init();
     gpui::application()
         .with_assets(assets::AppAssets)
         .with_quit_mode(QuitMode::LastWindowClosed)
