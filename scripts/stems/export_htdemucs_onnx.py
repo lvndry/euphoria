@@ -11,6 +11,11 @@ initializer named after its key in the official safetensors file, so the
 committed graph is small and the weights come only from the pinned
 download.
 
+Attention in the cross transformer is computed one head after another
+instead of all eight heads at once. The result is the same up to float
+rounding, and ONNX Runtime then holds one head's score matrix at a time,
+which lowers the peak memory of a segment.
+
 Run with the packages from scripts/stems/requirements.txt:
 
     python scripts/stems/export_htdemucs_onnx.py \
@@ -19,10 +24,13 @@ Run with the packages from scripts/stems/requirements.txt:
 """
 
 import argparse
+import hashlib
+import types
 from pathlib import Path
 
 import onnx
 import torch
+import torch.nn.functional as functional
 from demucs.hf import load_safetensors_model
 from demucs.htdemucs import HTDemucs
 from onnx import numpy_helper
@@ -112,6 +120,50 @@ class SeparationNetwork(torch.nn.Module):
         return frequency_branch, time_branch
 
 
+def attention_one_head_at_a_time(
+    self,
+    query,
+    key,
+    value,
+    key_padding_mask=None,
+    need_weights=False,
+    attn_mask=None,
+    average_attn_weights=True,
+    is_causal=False,
+):
+    """nn.MultiheadAttention.forward for batch first inputs without masks,
+    computing the attention of one head after another so that only one
+    head's score matrix is held at a time."""
+    if key_padding_mask is not None or attn_mask is not None:
+        raise SystemExit("attention masks are not supported by the head by head export")
+    head_dimension = self.embed_dim // self.num_heads
+    query_weight, key_weight, value_weight = self.in_proj_weight.chunk(3)
+    query_bias, key_bias, value_bias = self.in_proj_bias.chunk(3)
+    queries = functional.linear(query, query_weight, query_bias) * head_dimension**-0.5
+    keys = functional.linear(key, key_weight, key_bias)
+    values = functional.linear(value, value_weight, value_bias)
+    heads = []
+    for head in range(self.num_heads):
+        columns = slice(head * head_dimension, (head + 1) * head_dimension)
+        scores = torch.matmul(queries[..., columns], keys[..., columns].transpose(-2, -1))
+        heads.append(torch.matmul(scores.softmax(-1), values[..., columns]))
+    output = functional.linear(torch.cat(heads, -1), self.out_proj.weight, self.out_proj.bias)
+    return output, None
+
+
+def compute_attention_one_head_at_a_time(model: HTDemucs) -> int:
+    """Replaces the forward of every attention module of `model` with
+    attention_one_head_at_a_time. Returns how many were replaced."""
+    replaced = 0
+    for module in model.modules():
+        if isinstance(module, torch.nn.MultiheadAttention):
+            if not module.batch_first or not module._qkv_same_embed_dim:
+                raise SystemExit("the head by head export expects batch first attention with one projection")
+            module.forward = types.MethodType(attention_one_head_at_a_time, module)
+            replaced += 1
+    return replaced
+
+
 def reference_forward(model: HTDemucs, waveform: torch.Tensor):
     spectrum = model._spec(waveform)
     spectrogram = model._magnitude(spectrum)
@@ -175,6 +227,9 @@ def main() -> None:
     waveform = torch.randn(1, 2, SEGMENT_SAMPLES, generator=generator) * 0.1
     with torch.no_grad():
         spectrogram, expected = reference_forward(model, waveform)
+    replaced = compute_attention_one_head_at_a_time(model)
+    print(f"attention computed one head at a time in {replaced} modules")
+    with torch.no_grad():
         frequency_branch, time_branch = network(spectrogram, waveform)
         spectrum = model._mask(None, frequency_branch)
         rebuilt = model._ispec(spectrum, SEGMENT_SAMPLES) + time_branch
@@ -200,6 +255,8 @@ def main() -> None:
         )
     externalize(arguments.output, arguments.weights)
     print(f"graph written to {arguments.output} ({arguments.output.stat().st_size} bytes)")
+    digest = hashlib.sha256(arguments.output.read_bytes()).hexdigest()
+    print(f"graph SHA-256 {digest}")
 
 
 if __name__ == "__main__":

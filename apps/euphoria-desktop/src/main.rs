@@ -48,6 +48,8 @@ mod set_builder_ui_tests;
 mod settings;
 mod state;
 mod stems;
+#[cfg(test)]
+mod suggestion_filter_ui_tests;
 mod tag_editor;
 mod tag_flow;
 mod tag_settings;

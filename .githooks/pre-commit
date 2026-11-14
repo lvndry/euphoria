@@ -1,0 +1,44 @@
+#!/bin/sh
+# Formats the staged Rust and TOML files and adds the result to the commit,
+# so nobody has to run cargo fmt or taplo by hand. A file that also has
+# unstaged changes is left alone and only its staged version is checked,
+# since adding it again would commit those other changes too.
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.rs' '*.toml' | grep -v '/vendor/' || true)
+[ -z "$staged" ] && exit 0
+
+have_taplo=true
+command -v taplo >/dev/null 2>&1 || have_taplo=false
+
+needs_restaging=""
+for file in $staged; do
+    if [ -n "$(git diff --name-only -- "$file")" ]; then
+        case "$file" in
+            *.rs)
+                staged_text=$(git show ":$file")
+                formatted_text=$(printf '%s\n' "$staged_text" | rustfmt --edition 2024 --config-path rustfmt.toml --emit stdout 2>/dev/null || true)
+                if [ "$staged_text" != "$formatted_text" ]; then
+                    needs_restaging="$needs_restaging $file"
+                fi
+                ;;
+        esac
+        continue
+    fi
+    case "$file" in
+        *.rs) rustfmt --edition 2024 "$file" ;;
+        *.toml) if $have_taplo; then taplo fmt "$file" 2>/dev/null; fi ;;
+    esac
+    git add -- "$file"
+done
+
+if ! $have_taplo; then
+    echo "pre-commit: taplo is not installed, so TOML files were not formatted (cargo install taplo-cli)." >&2
+fi
+
+if [ -n "$needs_restaging" ]; then
+    echo "pre-commit: these files are only partly staged and their staged part is not formatted:" >&2
+    for file in $needs_restaging; do echo "  $file" >&2; done
+    echo "Run cargo fmt, stage them again and commit." >&2
+    exit 1
+fi

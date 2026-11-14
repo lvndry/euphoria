@@ -116,7 +116,7 @@ enum Command {
                       htdemucs model, and write one WAV file per stem.\n\n\
                       The model, 84 MB, is downloaded the first time. Separation runs on this \
                       computer, about 20 to 30 seconds per minute of audio on a recent Mac, \
-                      and needs about 3 GB of free memory. The stems are saved, so separating \
+                      and needs about 2.5 GB of free memory. The stems are saved, so separating \
                       the same track again is instant.",
         after_help = help::stems_examples(),
     )]

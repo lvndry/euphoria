@@ -20,9 +20,11 @@ pub struct TrackName {
     pub title: Option<String>,
     /// The artist, or `None` when the file has none.
     pub artist: Option<String>,
+    /// The genre, or `None` when the file has none.
+    pub genre: Option<String>,
 }
 
-/// Reads the title and artist stored in an audio file, without decoding its
+/// Reads the title, artist and genre stored in an audio file, without decoding its
 /// audio.
 ///
 /// Reads ID3v2 and ID3v1 tags (MP3, and the ID3 chunk of AIFF files), Vorbis
@@ -70,6 +72,7 @@ fn fill_from_tag(tags: &mut TrackName, tag: &Tag) {
     let (slot, value) = match &tag.std {
         Some(StandardTag::TrackTitle(title)) => (&mut tags.title, title),
         Some(StandardTag::Artist(artist)) => (&mut tags.artist, artist),
+        Some(StandardTag::Genre(genre)) => (&mut tags.genre, genre),
         _ => return,
     };
     fill_slot(slot, value);
@@ -234,6 +237,7 @@ mod tests {
             TrackName {
                 title: Some("Low Tide".to_string()),
                 artist: Some("Saffron".to_string()),
+                genre: None,
             }
         );
     }
@@ -260,6 +264,7 @@ mod tests {
         let mut tags = TrackName {
             title: Some("From ID3".to_string()),
             artist: None,
+            genre: None,
         };
         read_wav_info_list(&mut tags, &mut Cursor::new(file)).unwrap();
         assert_eq!(tags.title.as_deref(), Some("From ID3"));

@@ -3370,7 +3370,7 @@ fn edits_after_a_playlist_was_saved_are_all_kept(cx: &mut TestAppContext) {
 }
 
 /// Types `text` into the field `id`, replacing what it holds.
-fn type_into(
+pub(crate) fn type_into(
     window: AnyWindowHandle,
     id: impl Into<gpui::ElementId>,
     text: &str,
@@ -4404,7 +4404,7 @@ fn suggestions_can_come_from_a_playlist(cx: &mut TestAppContext) {
         })
     };
     assert_eq!(suggested(cx).len(), 2, "the whole library");
-    click(window, ("suggestion-scope", 2_usize), cx);
+    click(window, ("suggestion-scope", 3_usize), cx);
     assert_eq!(suggested(cx), [wav], "only the playlist's track");
 }
 
