@@ -30,6 +30,35 @@ use crate::playback::{StemMix, TrackSource, Voice};
 use crate::playlists::PlaylistId;
 use crate::views::waveform::SeenBounds;
 
+/// How hard the decks work: the share of one core each deck takes, and the
+/// frames the decoders could not fill in time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LoadReadout {
+    pub(crate) a_percent: f64,
+    pub(crate) b_percent: f64,
+    pub(crate) dropped_frames: u64,
+}
+
+impl LoadReadout {
+    pub(crate) fn has_dropped_frames(&self) -> bool {
+        self.dropped_frames > 0
+    }
+
+    pub(crate) fn details(&self) -> String {
+        format!(
+            "A {:.1}%, B {:.1}% of a core",
+            self.a_percent, self.b_percent
+        )
+    }
+
+    pub(crate) fn dropped_text(&self) -> String {
+        match self.dropped_frames {
+            1 => "1 dropped frame".to_string(),
+            frames => format!("{frames} dropped frames"),
+        }
+    }
+}
+
 /// How many tracks the suggestions list.
 const SUGGESTION_LIMIT: usize = 40;
 
@@ -509,16 +538,15 @@ impl Decks {
     /// How hard the decks work, for the owner to see while listening: the
     /// share of one core each deck takes, and the frames the decoders
     /// could not fill in time.
-    pub(crate) fn load_readout(&self) -> Option<String> {
+    pub(crate) fn load_readout(&self) -> Option<LoadReadout> {
         let link = self.link.as_ref()?;
         let a = link.meter(DeckId::A);
         let b = link.meter(DeckId::B);
-        Some(format!(
-            "A {:.1}%, B {:.1}% of a core; {} dropped frames",
-            a.load() * 100.0,
-            b.load() * 100.0,
-            a.starved_frames() + b.starved_frames()
-        ))
+        Some(LoadReadout {
+            a_percent: a.load() * 100.0,
+            b_percent: b.load() * 100.0,
+            dropped_frames: a.starved_frames() + b.starved_frames(),
+        })
     }
 
     pub(crate) fn send(&self, command: DeckCommand) {
@@ -1113,6 +1141,31 @@ impl EuphoriaApp {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_load_readout_flags_only_dropped_frames() {
+        let calm = LoadReadout {
+            a_percent: 3.0,
+            b_percent: 4.0,
+            dropped_frames: 0,
+        };
+        assert!(!calm.has_dropped_frames());
+        assert_eq!(calm.details(), "A 3.0%, B 4.0% of a core");
+        let starved = LoadReadout {
+            dropped_frames: 2,
+            ..calm
+        };
+        assert!(starved.has_dropped_frames());
+        assert_eq!(starved.dropped_text(), "2 dropped frames");
+        assert_eq!(
+            LoadReadout {
+                dropped_frames: 1,
+                ..calm
+            }
+            .dropped_text(),
+            "1 dropped frame"
+        );
+    }
+
     use super::*;
 
     #[test]

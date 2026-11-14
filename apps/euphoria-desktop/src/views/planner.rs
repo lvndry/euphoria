@@ -20,10 +20,12 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::focus::{SectionKind, clock};
 use crate::format;
+use crate::harmony_words::{OVERLAP_LABEL, SEPARATE_STEMS_LINK};
 use crate::theme::Palette;
 use crate::transition_plan::{
-    BARS_AFTER, BARS_BEFORE, ClashVerdict, PlanState, PlannedTransition, clash_verdict,
-    compressed_strip, failure_text, ruler_marks, step_line, window_detail, window_title,
+    BARS_AFTER, BARS_BEFORE, ClashVerdict, PLAY_ACTION, PlanState, PlannedTransition,
+    SAVE_FAVORITE_ACTION, SET_CUES_ACTION, UPDATE_FAVORITE_ACTION, clash_verdict, compressed_strip,
+    failure_text, ruler_marks, step_line, window_detail, window_title,
 };
 use crate::views::focus::section_colour;
 use crate::views::tag_panel::choice_button;
@@ -38,8 +40,21 @@ const CLASH_HEIGHT: f32 = 18.0;
 const COMPACT_ROW_HEIGHT: f32 = 12.0;
 const STRIP_CELLS: usize = 16;
 
-fn amber() -> Hsla {
+pub(crate) fn amber() -> Hsla {
     gpui::hsla(0.095, 0.85, 0.58, 1.0)
+}
+
+fn success_green() -> Hsla {
+    gpui::hsla(0.38, 0.55, 0.5, 1.0)
+}
+
+pub(crate) fn tone_colour(tone: crate::harmony_words::Tone, palette: &Palette) -> Hsla {
+    use crate::harmony_words::Tone;
+    match tone {
+        Tone::Success => success_green(),
+        Tone::Neutral => palette.text_secondary,
+        Tone::Warning => amber(),
+    }
 }
 
 pub(crate) fn clash_colour(clash: Option<Clash>, palette: &Palette) -> Hsla {
@@ -554,7 +569,10 @@ fn stems_line(
     if !b_known {
         line = line.child(link("planner-separate-b", Side::B, "B", b_path));
     }
-    Some(line.child("to check vocal and bass clashes").test_support())
+    Some(
+        line.child("to check whether vocals and bass overlap")
+            .test_support(),
+    )
 }
 
 fn card(palette: &Palette) -> Div {
@@ -723,7 +741,7 @@ fn steps_card(
                 .gap(px(8.0))
                 .mt(px(6.0))
                 .child(
-                    primary_button("Set the cues on A and B", &palette)
+                    primary_button(SET_CUES_ACTION, &palette)
                         .id("planner-set-cues")
                         .on_click(cx.listener(|this, _, _, cx| {
                             let index = this.planner.window;
@@ -732,7 +750,7 @@ fn steps_card(
                         .test_support(),
                 )
                 .child(
-                    secondary_button("Play it on the decks", &palette)
+                    secondary_button(PLAY_ACTION, &palette)
                         .id("planner-play")
                         .on_click(cx.listener(|this, _, _, cx| {
                             let index = this.planner.window;
@@ -743,9 +761,9 @@ fn steps_card(
                 .child(
                     secondary_button(
                         if is_favorite {
-                            "Update the favorite transition"
+                            UPDATE_FAVORITE_ACTION
                         } else {
-                            "Save as a favorite transition"
+                            SAVE_FAVORITE_ACTION
                         },
                         &palette,
                     )
@@ -951,7 +969,7 @@ fn planned_body(
                         .w(px(GUTTER_WIDTH))
                         .flex_shrink_0()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Clash"),
+                        .child(OVERLAP_LABEL),
                 )
                 .child(
                     div()
@@ -976,6 +994,67 @@ fn planned_body(
                 .child(window_rows(app, planned, cx))
                 .child(steps_card(app, planned, window, cx)),
         )
+}
+
+/// The line under the strip: whether vocals and bass overlap, or the link
+/// that separates the stems to find out.
+fn overlap_line(
+    app: &EuphoriaApp,
+    verdict: ClashVerdict,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> impl IntoElement {
+    let is_separating = [
+        app.selected_track(),
+        app.focus
+            .selected_match
+            .and_then(|index| app.session.library().track(index)),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|track| {
+        matches!(
+            app.stems.status(&track.path),
+            Some(crate::stems::StemStatus::Separating)
+        )
+    });
+    let answer = if verdict != ClashVerdict::NotChecked {
+        div()
+            .id("focus-transition-verdict")
+            .text_color(verdict_colour(verdict, palette))
+            .child(verdict.label())
+            .test_support()
+    } else if is_separating {
+        div()
+            .id("focus-transition-verdict")
+            .text_color(palette.text_tertiary)
+            .child(format!("{SEPARATE_STEMS_LINK} (separating)"))
+            .test_support()
+    } else {
+        let hover_colour = palette.text;
+        div()
+            .id("focus-transition-verdict")
+            .cursor_pointer()
+            .text_color(palette.accent)
+            .hover(move |style| style.text_color(hover_colour))
+            .child(SEPARATE_STEMS_LINK)
+            .on_click(cx.listener(|this, _, _, cx| this.separate_missing_plan_stems(cx)))
+            .test_support()
+    };
+    div()
+        .id("focus-transition-overlap")
+        .flex()
+        .flex_wrap()
+        .gap(px(4.0))
+        .text_size(LABEL_TEXT_SIZE)
+        .font_weight(FontWeight::MEDIUM)
+        .child(
+            div()
+                .text_color(palette.text_secondary)
+                .child(format!("{OVERLAP_LABEL}:")),
+        )
+        .child(answer)
+        .test_support()
 }
 
 /// The transition tab: the best window in a sentence, the strip, the
@@ -1033,6 +1112,19 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                     ClashVerdict::NotChecked
                 };
                 let summary = app.window_summary_text(0).unwrap_or_default();
+                let is_favorite = app
+                    .selected_track()
+                    .zip(
+                        app.focus
+                            .selected_match
+                            .and_then(|index| app.session.library().track(index)),
+                    )
+                    .is_some_and(|(from, to)| {
+                        app.session
+                            .favorites()
+                            .transition(&from.path, &to.path)
+                            .is_some()
+                    });
                 shell()
                     .child(
                         div()
@@ -1048,43 +1140,38 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                             .flex_wrap()
                             .gap(px(6.0))
                             .child(
-                                choice_button(
-                                    "plan-set-cues",
-                                    "Set cues on both tracks",
-                                    true,
-                                    &palette,
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| this.set_plan_cues(0, cx)))
-                                .test_support(),
+                                choice_button("plan-set-cues", SET_CUES_ACTION, true, &palette)
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.set_plan_cues(0, cx)),
+                                    )
+                                    .test_support(),
+                            )
+                            .child(
+                                choice_button("plan-preview", PLAY_ACTION, false, &palette)
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.preview_on_decks(0, cx)),
+                                    )
+                                    .test_support(),
                             )
                             .child(
                                 choice_button(
-                                    "plan-preview",
-                                    "Preview on the decks",
+                                    "plan-save-favorite",
+                                    if is_favorite {
+                                        UPDATE_FAVORITE_ACTION
+                                    } else {
+                                        SAVE_FAVORITE_ACTION
+                                    },
                                     false,
                                     &palette,
                                 )
                                 .on_click(
-                                    cx.listener(|this, _, _, cx| this.preview_on_decks(0, cx)),
+                                    cx.listener(|this, _, _, cx| this.save_plan_as_favorite(0, cx)),
                                 )
                                 .test_support(),
-                            )
-                            .child(
-                                choice_button("plan-open", "Open the planner", false, &palette)
-                                    .on_click(cx.listener(|this, _, _, cx| this.open_planner(cx)))
-                                    .test_support(),
                             ),
                     )
                     .child(compact_strip(planned, window, &palette))
-                    .child(
-                        div()
-                            .id("focus-transition-verdict")
-                            .text_size(LABEL_TEXT_SIZE)
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(verdict_colour(verdict, &palette))
-                            .child(verdict.label())
-                            .test_support(),
-                    )
+                    .child(overlap_line(app, verdict, &palette, cx))
                     .test_support()
                     .into_any_element()
             }

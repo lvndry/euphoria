@@ -5154,7 +5154,11 @@ fn the_transport_cues_and_mixer_drive_the_decks(cx: &mut TestAppContext) {
         assert_eq!(decks.gains(), [0.5, 0.0]);
         assert!(decks.load_readout().is_some());
     });
-    assert!(is_shown(window, "deck-load-readout", cx));
+    assert!(
+        !is_shown(window, "deck-load-readout", cx),
+        "the readout stays hidden while no frames drop"
+    );
+    assert!(is_shown(window, "deck-load-hint", cx));
     click(window, "toggle-decks", cx);
     cx.update(|cx| {
         let decks = &view.read(cx).decks;

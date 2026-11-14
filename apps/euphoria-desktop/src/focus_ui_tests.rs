@@ -364,6 +364,14 @@ fn the_mixes_into_list_shows_what_the_inspector_lists_in_the_same_order(cx: &mut
     let in_focus = order("focus-mix", window, cx);
     assert_eq!(in_focus, mixes, "the list is app.mixes, in order");
     assert!(is_shown(window, ("focus-mix-clash", mixes[0]), cx));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        for index in &mixes {
+            let row = window.find(("focus-mix", *index)).bounds();
+            assert_eq!(row.size.height, px(32.0), "row {index}");
+        }
+    })
+    .unwrap();
 
     click(window, ("focus-mix-star", mixes[0]), cx);
     cx.update(|cx| {

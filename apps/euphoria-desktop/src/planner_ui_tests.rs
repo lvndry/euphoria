@@ -200,7 +200,7 @@ fn cue_names(setup: &Setup, path: &Path, cx: &mut TestAppContext) -> (Vec<(Strin
 }
 
 #[gpui::test]
-fn the_clash_column_fills_for_the_matches_and_says_not_checked_without_stems(
+fn the_clash_column_fills_for_the_matches_and_says_stems_are_needed_without_stems(
     cx: &mut TestAppContext,
 ) {
     let setup = open_plans("plan-clash-column", &[0, 1], cx);
@@ -217,7 +217,7 @@ fn the_clash_column_fills_for_the_matches_and_says_not_checked_without_stems(
     assert_eq!(clash_label(&setup, b_index, cx), "Clean");
     assert_eq!(
         clash_label(&setup, c_index, cx),
-        "Not checked",
+        "Stems needed",
         "a match without stems is not checked"
     );
     cx.update(|cx| {
@@ -237,7 +237,7 @@ fn removing_stems_recomputes_the_plan_without_cached_stem_levels(cx: &mut TestAp
     for _ in 0..10 {
         cx.run_until_parked();
     }
-    assert_eq!(clash_label(&setup, b_index, cx), "Not checked");
+    assert_eq!(clash_label(&setup, b_index, cx), "Stems needed");
     cx.update(|cx| {
         let app = setup.view.read(cx);
         assert!(app.stems.ready_files(&setup.a).is_none());
@@ -274,14 +274,19 @@ fn the_transition_tab_gives_the_best_window_in_a_sentence(cx: &mut TestAppContex
     assert!(is_shown(setup.window, "focus-transition-summary", cx));
     assert!(is_shown(setup.window, "plan-strip", cx));
     assert!(is_shown(setup.window, "plan-clash", cx));
-    for id in ["plan-set-cues", "plan-preview", "plan-open"] {
+    for id in [
+        "plan-set-cues",
+        "plan-preview",
+        "plan-save-favorite",
+        "plan-open",
+    ] {
         assert!(is_shown(setup.window, id, cx), "{id}");
     }
     let text = summary(&setup, cx).unwrap();
     assert_eq!(
         text,
         "Mix out of this track's Main (0:16) into sine-440hz-stereo.wav's Intro. 16 bars, \
-         vocals on B only, no bass clash. sine-440hz-stereo.wav plays at 120.0 BPM (+1.7%), \
+         vocals on B only, no bass overlap. sine-440hz-stereo.wav plays at 120.0 BPM (+1.7%), \
          key 9A, one step up the wheel."
     );
 }
@@ -441,7 +446,7 @@ fn saving_the_favorite_transition_keeps_the_summary_as_its_note(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn missing_stems_show_not_checked_and_links_that_start_separation(cx: &mut TestAppContext) {
+fn missing_stems_say_stems_are_needed_and_links_that_start_separation(cx: &mut TestAppContext) {
     let setup = open_plans("plan-missing-stems", &[], cx);
     cx.update(|cx| {
         setup.view.update(cx, |app, _| {
@@ -450,7 +455,7 @@ fn missing_stems_show_not_checked_and_links_that_start_separation(cx: &mut TestA
     });
     open_focus_with_plans(&setup, cx);
     let b_index = pick(&setup, &setup.b.clone(), cx);
-    assert_eq!(clash_label(&setup, b_index, cx), "Not checked");
+    assert_eq!(clash_label(&setup, b_index, cx), "Stems needed");
     cx.update(|cx| {
         let text = setup.view.read(cx).window_summary_text(0).unwrap();
         assert!(
@@ -570,4 +575,115 @@ fn previewing_loads_both_tracks_on_the_decks_with_sync_on(cx: &mut TestAppContex
         );
         assert!(!app.focus.is_open, "the decks are in the library layout");
     });
+}
+
+#[gpui::test]
+fn the_overlap_link_on_the_plan_card_starts_separating_both_tracks(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-overlap-link", &[], cx);
+    cx.update(|cx| {
+        setup.view.update(cx, |app, _| {
+            app.stems = StemSession::new(|| Err(EuphoriaError::NoDataDirectory));
+        })
+    });
+    open_focus_with_plans(&setup, cx);
+    pick(&setup, &setup.b.clone(), cx);
+    settle(setup.window, cx);
+    assert!(is_shown(setup.window, "focus-transition-overlap", cx));
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.stems.status(&setup.a).is_none());
+        assert!(app.stems.status(&setup.b).is_none());
+    });
+    click(setup.window, "focus-transition-verdict", cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.stems.status(&setup.a).is_some(), "A starts separating");
+        assert!(app.stems.status(&setup.b).is_some(), "B starts separating");
+    });
+    drop(setup.stem_folders);
+    drop(setup.scratch);
+}
+
+#[gpui::test]
+fn the_plan_card_opens_the_planner_from_a_link_in_its_header(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-open-link", &[0, 1], cx);
+    open_focus_with_plans(&setup, cx);
+    assert!(
+        !is_shown(setup.window, "plan-open", cx),
+        "no link until a match is picked"
+    );
+    pick(&setup, &setup.b.clone(), cx);
+    settle(setup.window, cx);
+    cx.update_window(setup.window, |_, window, cx| {
+        window.render_frame(cx);
+        let link = window.find("plan-open").bounds();
+        let card = window.find("focus-plan-body").bounds();
+        assert!(link.bottom() <= card.top(), "the link sits in the header");
+        assert!(link.right() <= window.viewport_size().width);
+    })
+    .unwrap();
+    click(setup.window, "plan-open", cx);
+    cx.update(|cx| assert!(setup.view.read(cx).planner.is_open));
+}
+
+#[test]
+fn the_surfaces_use_the_dj_words_and_the_old_words_are_gone() {
+    let surfaces = [
+        ("views/planner.rs", include_str!("views/planner.rs")),
+        ("views/focus.rs", include_str!("views/focus.rs")),
+        ("views/decks.rs", include_str!("views/decks.rs")),
+        ("views/set_builder.rs", include_str!("views/set_builder.rs")),
+        ("transition_plan.rs", include_str!("transition_plan.rs")),
+        ("decks.rs", include_str!("decks.rs")),
+    ];
+    let old_words = [
+        "\"Stretch\"",
+        "\"Workable\"",
+        "\"Smooth\"",
+        "\"Verdict\"",
+        "\"Adjacent\"",
+        "\"Diagonal\"",
+        "\"Pool\"",
+        "\"Lanes\"",
+        "\"Clash\"",
+        "\"Not checked\"",
+        "\"Vocal clash\"",
+        "\"Bass clash\"",
+        "\"Set the cues on A and B\"",
+        "\"Set cues on both tracks\"",
+        "\"Play it on the decks\"",
+        "\"Preview on the decks\"",
+        "\"Open the planner\"",
+        "\"Save as a favorite transition\"",
+        "dropped frames; ",
+    ];
+    for (name, source) in surfaces {
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        for word in old_words {
+            assert!(!production.contains(word), "{name} still says {word}");
+        }
+    }
+    let words = include_str!("harmony_words.rs");
+    for word in [
+        "One step on the wheel",
+        "Wheel diagonal",
+        "One step and a major/minor switch",
+        "Vocals and bass overlap",
+        "Separate stems to check",
+        "Pick from",
+        "Layers",
+        "Pitch move",
+        "Big jump",
+    ] {
+        assert!(words.contains(word), "{word} is in the shared words");
+    }
+    let plan = include_str!("transition_plan.rs");
+    for word in [
+        "Set cues on A and B",
+        "Play on the decks",
+        "Save as favorite transition",
+        "Open planner \\u{2192}",
+    ] {
+        assert!(plan.contains(word), "{word} is in the shared plan copy");
+    }
 }
