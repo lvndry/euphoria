@@ -501,6 +501,11 @@ How tags are written:
 | DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
 | Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
 | In your files | A box under the label choices that shows, live, what the choices above and below write: for one track, each tag field that would change, such as the comment, key and BPM, with the key and energy label in the accent colour. It uses the selected track when it has an analysis, with the comment its file really has, and says **Selected track**; otherwise it uses a built-in example (8A, 128, energy 7, the comment "Great vocal intro") and says **Example**. It is worked out by the same code as [writing tags](#write-tags), so it never disagrees with it, and it writes nothing. With **Write the cue markers** on it adds a line saying Serato DJ, Mixxx and VirtualDJ read them, and for rekordbox and Traktor, which do not read cues from files, it points to **File > Export Library...**. |
+
+![The Energy label choices with End of the comment chosen, and the In your files box under them: Key 4A, BPM 129 and the comment 4A - Energy 7 with the label in the accent colour, captioned Selected track.](../images/desktop-app/settings-label-end.png)
+
+![The same box with Start of the comment chosen.](../images/desktop-app/settings-label-start.png)
+
 | Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. Until you choose, it follows the program: nowhere for any program, the start of the comment for a DJ program. Settings saved by earlier versions keep a label you chose; the old default with any program is read as no choice. |
 | Existing key and tempo | A key or tempo a file already has is kept, so a correct tag is never replaced by a guess. **Replace existing key and tempo** (off) replaces them. A value Euphoria wrote earlier is still updated. |
 | Low confidence | A key or tempo rated low confidence is left out and listed in the preview. **Also write low confidence values** (off) writes them. A key or tempo you corrected counts as high. |
