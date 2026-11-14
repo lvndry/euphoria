@@ -190,6 +190,8 @@ The benchmark measures only the default. Other ranges move tempos by whole octav
 
 Every key and every tempo is rated high, medium or low, for how far to trust it, and comes with a second answer: the runner up key, and for some tempos half or double the tempo. The point is to tell a DJ which tracks are worth checking by ear before a set, and what the likely alternative is.
 
+In the desktop app a low rating puts the track under Needs review, where each track says why and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+
 ### Key confidence
 
 drone-v2 gives every key a probability, and the confidence is how far the probability of the key is above the runner up's. The band edges were set the same way as for libkeyfinder below, on every other preview: low below a margin of 0.16 and high from 0.72.

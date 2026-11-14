@@ -588,7 +588,11 @@ fn cell_contents(
                 .child(
                     div()
                         .id(("title-cell", track_index))
-                        .min_w_0()
+                        .min_w(px(if app.filter == LibraryFilter::NeedsReview {
+                            96.0
+                        } else {
+                            0.0
+                        }))
                         .truncate()
                         .font_weight(FontWeight::MEDIUM)
                         .when(track.is_unfinished(), |title| {
