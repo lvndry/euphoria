@@ -90,6 +90,30 @@ Type in the search field, or press Command F first, to filter as you type. Each 
 
 Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move the selection. Command click adds a track to the selection or takes it out, Shift click selects every row between, and Command A selects every track on show.
 
+## Find anything with ⌘K
+
+Press **⌘K** (**Ctrl+K** on Linux), click the **⌘K** chip in the search field, or choose **View > Command Palette**, to open one box over the window that finds tracks and runs commands. Type, move with **Up** and **Down**, press **Enter** to run the highlighted row and **Esc** to close. The panel eases in over a moment, and appears at once with macOS **Reduce motion** on. ⌘P opens it too. Search keeps ⌘F.
+
+Tracks are matched on title, artist and file name, loosely: `glsig` finds *Glass Signal*. The box also understands what a DJ asks for. Mix these in any order with words:
+
+| Type | It means | Example |
+| --- | --- | --- |
+| `8A`, `8a`, `Am`, `A minor` | The track's key, and the keys that mix with it | `8A` lists 8A first, then 7A and 9A (pill **one step**) and 8B (pill **relative**) |
+| `124`, `124,5`, `124bpm` | A tempo within one beat, or within half a beat when you type a decimal | `124` lists 123.0 to 125.0 |
+| `120-126`, `120–126`, `120,5-125,5` | A range of tempos | `120-126` |
+| `e6`, `e6+`, `e7-9`, `energy 6+` | The [energy rating](../concepts/energy.md): exactly 6, 6 or more, 7 to 9 | `energy 6+` |
+| Anything else | Words that must all be in the title, artist or file name | `deep`, `glass sig` |
+
+Combined, `8A 124 deep` lists the tracks in 8A or a key that mixes with it, near 124 BPM, with *deep* in the name, the exact key first and the nearest tempo first. Tempos are the corrected values: a tempo or key you set in the inspector is the one that counts. The palette searches the whole library, whatever the table is showing.
+
+**Enter** selects the track and shows it in the table. If a search, a filter, a folder or a playlist hid it, they are taken off first. **⌘Enter** (**Ctrl+Enter** on Linux) does the same and plays it.
+
+Under the tracks, **Actions** lists the commands of the menus, each with its shortcut, so the palette teaches the keyboard: Write tags, Edit tags, Undo last tag write, Add folder, Open decks, Open set builder, Plan a transition from the playing track, Toggle metronome, Separate stems, Export library, Settings, each theme, Toggle sidebar, Focus view and the rest. Search them by name or by what they do: `tag` finds the three tag commands, `key` and `bpm` find Write tags, `vocals` finds Separate stems, `dark` finds the dark themes. **Plan a transition from the playing track** opens the focus view on the playing track, or the selected one when nothing plays, and the planner for its best match as soon as the plan is worked out.
+
+With nothing typed the palette lists the last 8 tracks you selected or played, then the 6 commands you used most in this session, starting with Write tags, Edit tags, Add folder, Open decks, Open set builder and Settings. Neither list is saved: both start empty at each launch.
+
+Limits: typing a bare note such as `a` or `c` is a word, not a key; add `m` or `minor` (`Am`, `C major`). The list shows the 8 best tracks with the number that match. Not tested: how the animation looks at a real frame rate.
+
 ## The sidebar
 
 - **All tracks** shows the whole library.
@@ -628,7 +652,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+The palette's recent tracks and most used commands are kept in memory only. Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |

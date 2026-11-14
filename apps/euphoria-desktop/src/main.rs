@@ -19,6 +19,9 @@ mod busy;
 mod busy_ui_tests;
 mod camelot;
 mod columns;
+mod command_palette;
+#[cfg(test)]
+mod command_palette_ui_tests;
 mod cue_editing;
 mod deck_audio;
 mod decks;
@@ -53,6 +56,7 @@ mod metronome_ui_tests;
 mod missing_ui_tests;
 mod mixes;
 mod output_stream;
+mod palette_flow;
 mod panels;
 mod peaks;
 #[cfg(test)]
@@ -112,10 +116,10 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
-    OpenFocusView, OpenSetBuilder, OpenSettings, Quit, ResetColumnWidths, RevealTrack,
-    SelectAllTracks, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
-    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
-    WriteTags,
+    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
+    PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems,
+    ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
+    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -128,6 +132,9 @@ const WINDOW_TITLE: &str = "Euphoria";
 /// The name Linux desktops match against `euphoria.desktop`, the launcher
 /// entry the AppImage installs, to show the window with its name and icon.
 const APP_ID: &str = "euphoria";
+
+/// Everywhere but the command palette.
+const NOT_IN_PALETTE_CONTEXT: &str = "!CommandPalette";
 
 /// Where the space bar belongs to the player: anywhere in the window but a
 /// text field.
@@ -238,17 +245,30 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-o", AddFolder, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
-        KeyBinding::new("cmd-k", FocusSearch, None),
+        KeyBinding::new("cmd-k", OpenCommandPalette, None),
+        KeyBinding::new("cmd-p", OpenCommandPalette, None),
+        KeyBinding::new(
+            "cmd-enter",
+            PlayPaletteTrack,
+            Some(views::PALETTE_KEY_CONTEXT),
+        ),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new(
+            "ctrl-enter",
+            PlayPaletteTrack,
+            Some(views::PALETTE_KEY_CONTEXT),
+        ),
         // Control Command S is what macOS apps use to show and hide a sidebar.
         #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-d", ToggleDecks, None),
         KeyBinding::new("cmd-shift-b", OpenSetBuilder, None),
-        KeyBinding::new("cmd-enter", BuildSet, None),
+        // Command Enter plays a track in the palette, which has its own binding.
+        KeyBinding::new("cmd-enter", BuildSet, Some(NOT_IN_PALETTE_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-b", OpenSetBuilder, None),
         #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("ctrl-enter", BuildSet, None),
+        KeyBinding::new("ctrl-enter", BuildSet, Some(NOT_IN_PALETTE_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-alt-s", ToggleSidebar, None),
         #[cfg(not(target_os = "macos"))]
@@ -277,6 +297,10 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("ctrl-shift-t", WriteTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-i", EditTags, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-k", OpenCommandPalette, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-p", OpenCommandPalette, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
@@ -357,6 +381,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<SeparateStems>(view, cx, |view, cx| view.separate_selected_stems(cx));
+
     register_theme_command::<UseSlateTheme>(ThemeName::Slate, view, cx);
     register_theme_command::<UsePaperTheme>(ThemeName::Paper, view, cx);
     register_theme_command::<UseDeckTheme>(ThemeName::Deck, view, cx);
@@ -391,6 +417,11 @@ fn register_theme_command<Command: gpui::Action>(
 /// Sets the menu bar, with a tick beside the theme in use and the sidebar
 /// item worded for what it will do.
 pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: &mut App) {
+    cx.set_menus(build_menus(current_theme, sidebar_folded));
+}
+
+/// The menus: what the command palette lists must be what they carry.
+pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec<Menu> {
     let sidebar_item = if sidebar_folded {
         "Show Sidebar"
     } else {
@@ -406,7 +437,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         };
         item.checked(theme == current_theme)
     });
-    cx.set_menus([
+    vec![
         Menu::new(WINDOW_TITLE).items([
             MenuItem::action("Settings\u{2026}", OpenSettings),
             MenuItem::separator(),
@@ -423,6 +454,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::action("Set Builder", OpenSetBuilder),
             MenuItem::action("Focus View", OpenFocusView),
             MenuItem::separator(),
+            MenuItem::action("Command Palette\u{2026}", OpenCommandPalette),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
             MenuItem::action("Star or Unstar Selection", ToggleFavorite),
@@ -440,9 +472,11 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         Menu::new("Playback").items([
             MenuItem::action("Play or Pause", TogglePlayback),
             MenuItem::action("Metronome", ToggleMetronome),
+            MenuItem::action("Plan Transition from Playing Track", PlanTransition),
+            MenuItem::action("Separate Stems", SeparateStems),
             MenuItem::separator(),
             MenuItem::action("Add Cue at Playhead", AddCueAtPlayhead),
             MenuItem::action("Undo Cue Edit", UndoCueEdit),
         ]),
-    ]);
+    ]
 }
