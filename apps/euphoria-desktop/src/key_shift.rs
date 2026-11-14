@@ -73,6 +73,11 @@ impl EuphoriaApp {
                     return;
                 }
             };
+            let running = this
+                .update(cx, |this, cx| {
+                    this.begin_background_job("Saving a shifted copy", cx)
+                })
+                .ok();
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
@@ -89,6 +94,9 @@ impl EuphoriaApp {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                if let Some(running) = running {
+                    this.background_jobs.finish(running);
+                }
                 this.notice = Some(match outcome {
                     Ok(copy) => format!(
                         "Saved a copy {} {} {} to {}{}",

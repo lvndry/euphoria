@@ -11,6 +11,9 @@ mod actions;
 mod analysis;
 mod app;
 mod assets;
+mod busy;
+#[cfg(test)]
+mod busy_ui_tests;
 mod camelot;
 mod columns;
 mod cue_editing;
@@ -35,6 +38,7 @@ mod library_export;
 #[cfg(test)]
 mod library_export_ui_tests;
 mod logging;
+mod logo_motion;
 mod mashup;
 mod metronome;
 mod metronome_controls;

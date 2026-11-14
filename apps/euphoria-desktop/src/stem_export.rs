@@ -359,7 +359,7 @@ impl EuphoriaApp {
 
     fn run_stem_export(&mut self, request: StemExportRequest, cx: &mut Context<'_, Self>) {
         self.notice = Some(format!("Saving {}…", request.description()));
-        cx.notify();
+        let job = self.begin_background_job("Exporting stems", cx);
         cx.spawn(async move |this, cx| {
             let outcome = cx
                 .background_executor()
@@ -369,6 +369,7 @@ impl EuphoriaApp {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                this.background_jobs.finish(job);
                 this.notice = Some(match outcome {
                     Ok(done) => done.message(&request),
                     Err(error) => format!(
