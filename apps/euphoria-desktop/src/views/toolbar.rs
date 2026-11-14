@@ -145,6 +145,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
 
 const METRONOME_GLYPH_SIZE: f32 = 14.0;
 
+/// Width of the tempo field, room for "300.0 BPM".
+const METRONOME_FIELD_WIDTH: f32 = 84.0;
+
 /// The metronome: a toggle button that starts and stops the clicks, and
 /// the tempo beside it. The tempo is typed after a click on it or moved
 /// with the scroll wheel, one beat for a notch and a tenth with Alt held.
@@ -194,9 +197,22 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
     let bpm = app.metronome_bpm();
     let field = if app.metronome.is_editing {
         div()
-            .w(px(58.0))
+            .relative()
+            .w(px(METRONOME_FIELD_WIDTH))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(Input::new(&app.metronome_input).id("metronome-field"))
+            .child(
+                div()
+                    .absolute()
+                    .right(px(8.0))
+                    .top_0()
+                    .bottom_0()
+                    .flex()
+                    .items_center()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_tertiary)
+                    .child("BPM"),
+            )
             .into_any_element()
     } else {
         div()
@@ -205,7 +221,8 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             .flex_shrink_0()
             .items_center()
             .justify_center()
-            .w(px(58.0))
+            .gap(px(4.0))
+            .w(px(METRONOME_FIELD_WIDTH))
             .h(CONTROL_HEIGHT)
             .rounded(CONTROL_RADIUS)
             .border_1()
@@ -227,6 +244,7 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             }))
             .tooltip(|window, cx| Tooltip::new(TEMPO_RULE).build(window, cx))
             .child(crate::format::bpm(bpm))
+            .child(div().text_color(palette.text_tertiary).child("BPM"))
             .test_support()
             .into_any_element()
     };
@@ -239,7 +257,8 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
         .child(field)
 }
 
-/// A metronome: a tall triangle with a tilted rod across it.
+/// A metronome: a trapezoid body on a base, with a slanted arm that rises
+/// past the top and carries a small weight.
 fn paint_metronome_glyph(bounds: Bounds<Pixels>, colour: gpui::Hsla, window: &mut gpui::Window) {
     let corner = |across: f32, down: f32| {
         bounds.origin
@@ -248,21 +267,29 @@ fn paint_metronome_glyph(bounds: Bounds<Pixels>, colour: gpui::Hsla, window: &mu
                 px(METRONOME_GLYPH_SIZE * down),
             )
     };
-    let mut body = PathBuilder::stroke(px(1.4));
-    body.move_to(corner(0.36, 0.06));
-    body.line_to(corner(0.64, 0.06));
-    body.line_to(corner(0.94, 0.94));
-    body.line_to(corner(0.06, 0.94));
-    body.close();
-    if let Ok(path) = body.build() {
-        window.paint_path(path, colour);
-    }
-    let mut rod = PathBuilder::stroke(px(1.4));
-    rod.move_to(corner(0.5, 0.78));
-    rod.line_to(corner(0.74, 0.2));
-    if let Ok(path) = rod.build() {
-        window.paint_path(path, colour);
-    }
+    let mut stroke = |width: f32, points: &[(f32, f32)], is_closed: bool| {
+        let mut builder = PathBuilder::stroke(px(width));
+        for (index, (across, down)) in points.iter().enumerate() {
+            if index == 0 {
+                builder.move_to(corner(*across, *down));
+            } else {
+                builder.line_to(corner(*across, *down));
+            }
+        }
+        if is_closed {
+            builder.close();
+        }
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, colour);
+        }
+    };
+    stroke(
+        1.3,
+        &[(0.3, 0.16), (0.7, 0.16), (0.93, 0.94), (0.07, 0.94)],
+        true,
+    );
+    stroke(1.3, &[(0.5, 0.8), (0.76, 0.0)], false);
+    stroke(3.4, &[(0.64, 0.32), (0.67, 0.24)], false);
 }
 
 /// Write tags, with the DJ program they are written for beside it, so the
