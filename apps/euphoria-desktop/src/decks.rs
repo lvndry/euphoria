@@ -237,6 +237,34 @@ impl SuggestionFilter {
         (filter, problems.first().map(|problem| problem.to_string()))
     }
 
+    /// The parts of the pool that are narrowed, each in a few words, for
+    /// saying why a list is short. Empty when the filter is open.
+    pub(crate) fn narrowing(&self) -> Vec<String> {
+        let mut parts = Vec::new();
+        if let Some(relations) = &self.relations {
+            let labels: Vec<&str> = relations.iter().map(Relation::label).collect();
+            parts.push(format!("key moves {}", labels.join(", ")));
+        }
+        if let Some(percent) = self.tempo_window_percent {
+            parts.push(format!("tempo window {percent} percent"));
+        }
+        if let Some(range) = self.bpm_min.zip(self.bpm_max) {
+            parts.push(format!("tempo {} to {} BPM", range.0, range.1));
+        }
+        if let Some(range) = self.energy_min.zip(self.energy_max) {
+            parts.push(format!("energy {} to {}", range.0, range.1));
+        }
+        if let Some(genre) = self
+            .genre
+            .as_deref()
+            .map(str::trim)
+            .filter(|genre| !genre.is_empty())
+        {
+            parts.push(format!("genre {genre}"));
+        }
+        parts
+    }
+
     /// The options for the next track suggestions.
     pub(crate) fn mix_options(&self) -> MixOptions {
         let defaults = MixOptions::default();

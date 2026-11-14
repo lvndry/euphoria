@@ -18,7 +18,7 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
-use crate::decks::{SuggestionFilter, SuggestionScope};
+use crate::decks::SuggestionScope;
 use crate::format;
 use crate::library::{Track, TrackStatus};
 use crate::mixes::keys_related_by;
@@ -775,8 +775,14 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
         return None;
     }
 
-    let is_narrowed = app.decks.filter != SuggestionFilter::default()
-        || app.decks.scope != SuggestionScope::Library;
+    let mut narrowing = app.decks.filter.narrowing();
+    match app.decks.scope {
+        SuggestionScope::Library => {}
+        SuggestionScope::Shown => narrowing.push("pool: tracks shown".to_string()),
+        SuggestionScope::Favorites => narrowing.push("pool: favorites".to_string()),
+        SuggestionScope::Playlist(_) => narrowing.push("pool: a playlist".to_string()),
+    }
+    let is_narrowed = !narrowing.is_empty();
     let shown_count = room.mix_count(app.mixes.len());
     let rows: Vec<Stateful<Div>> = app
         .mixes
@@ -873,13 +879,27 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
             .flex_col()
             .gap(px(4.0))
             .child(section_label("Mixes well with", &palette).pb(px(4.0)))
+            .when(is_narrowed, |section| {
+                section.child(reset_note(
+                    "mixes-filter",
+                    format!("Filtered: {}. Show the controls.", narrowing.join("; ")),
+                    &palette,
+                    cx,
+                    |this, cx| {
+                        if !this.decks.is_open {
+                            this.toggle_decks(cx);
+                        }
+                        cx.notify();
+                    },
+                ))
+            })
             .when(rows.is_empty(), |section| {
                 section.child(
                     div()
                         .id("mixes-empty")
                         .text_color(palette.text_tertiary)
                         .child(if is_narrowed {
-                            "No track in the suggestion pool mixes with this one. Widen the controls above the decks' suggestions."
+                            "No track in the suggestion pool mixes with this one under that filter."
                         } else {
                             "No track in the library mixes with this one yet."
                         })

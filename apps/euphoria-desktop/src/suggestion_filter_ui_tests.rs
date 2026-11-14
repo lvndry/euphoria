@@ -395,3 +395,37 @@ fn marked_transitions_stay_first_and_an_emptied_list_says_why(cx: &mut TestAppCo
     assert!(inspector_mixes(&fixture, cx).is_empty());
     assert!(is_shown(fixture.window, "mixes-empty", cx));
 }
+
+#[gpui::test]
+fn a_saved_filter_is_named_in_the_inspector_and_opens_the_decks(cx: &mut TestAppContext) {
+    let settings = Settings {
+        suggestion_filter: SuggestionFilter {
+            bpm_min: Some(100.0),
+            bpm_max: Some(110.0),
+            ..SuggestionFilter::default()
+        },
+        ..Settings::default()
+    };
+    let (window, view) = open_window_with(
+        deck_tracks(),
+        Box::new(SilentOutput),
+        settings,
+        None,
+        size(px(1440.0), px(2400.0)),
+        cx,
+    );
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.select(flac, cx)));
+    cx.update(|cx| assert!(!view.read(cx).decks.is_open));
+    assert!(is_shown(window, "mixes-filter", cx));
+    assert!(is_shown(window, "mixes-empty", cx));
+    click(window, "mixes-filter", cx);
+    cx.update(|cx| assert!(view.read(cx).decks.is_open));
+    assert!(is_shown(window, "suggestion-tempo-from", cx));
+}
+
+#[gpui::test]
+fn an_open_filter_shows_no_filtered_line_in_the_inspector(cx: &mut TestAppContext) {
+    let fixture = mixes_with_flac_selected(cx);
+    assert!(!is_shown(fixture.window, "mixes-filter", cx));
+}

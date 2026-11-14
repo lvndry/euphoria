@@ -183,7 +183,20 @@ impl Track {
     /// How many cues the track has, once it is analyzed: the same ones
     /// [`Track::cues`] gives.
     pub(crate) fn cue_count(&self) -> Option<usize> {
-        self.analysis().map(|_| self.cues().cues.len())
+        let analysis = self.analysis()?;
+        Some(match &self.edited_cues {
+            Some(edited) => {
+                let duration = f64::from(analysis.duration_seconds);
+                edited
+                    .iter()
+                    .filter(|cue| duration <= 0.0 || cue.seconds <= duration)
+                    .count()
+            }
+            None if self.correction.bpm.is_none() => {
+                analysis.cues.len().min(euphoria_core::HotCue::ALL.len())
+            }
+            None => 0,
+        })
     }
 
     /// The length in seconds, once the track is analyzed.
@@ -1662,5 +1675,9 @@ mod tests {
         library.record_outcome(path, Ok(analysis(None, None, 370.0)));
         let shown = library.track_by_path(path).unwrap().cues().cues;
         assert_eq!(shown, cues[..1].to_vec());
+        assert_eq!(
+            library.track_by_path(path).unwrap().cue_count(),
+            Some(shown.len())
+        );
     }
 }
