@@ -251,7 +251,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .children(
             track
                 .and_then(|track| track.key())
-                .map(|key| key_chip(&key, &app.theme, app.display.key_notation)),
+                .map(|key| key_chip(&key, &app.theme, app.tag_settings.key_notation)),
         )
         .child(
             div()
@@ -813,7 +813,7 @@ fn suggestion_rows(
                     div().w(px(38.0)).flex_shrink_0().children(
                         track
                             .key()
-                            .map(|key| key_chip(&key, &app.theme, app.display.key_notation)),
+                            .map(|key| key_chip(&key, &app.theme, app.tag_settings.key_notation)),
                     ),
                 )
                 .child(

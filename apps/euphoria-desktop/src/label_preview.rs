@@ -55,6 +55,10 @@ pub(crate) struct PreviewField {
     pub(crate) label: String,
     /// The value after the label.
     pub(crate) after: String,
+    /// Why an option keeps this row out of the write, such as "not
+    /// written". The row is then shown struck out, with the value it would
+    /// have held.
+    pub(crate) struck: Option<String>,
 }
 
 impl PreviewField {
@@ -104,30 +108,117 @@ impl LabelPreview {
     pub(crate) fn of(
         source: PreviewSource,
         planned: &PlannedWrite,
+        unrestricted: &PlannedWrite,
         settings: &TagSettings,
     ) -> Self {
-        let mut fields = Vec::new();
         let mut notes = Vec::new();
         for plan in &planned.plans {
-            fields.extend(
-                plan.changes()
-                    .iter()
-                    .map(|change| preview_field(plan, change, settings)),
-            );
             notes.extend(plan.skipped().iter().map(|skipped| skipped.describe()));
         }
+        let left_out: Vec<String> = notes
+            .iter()
+            .chain(planned.left_alone.iter().map(|left| &left.reason))
+            .cloned()
+            .collect();
         notes.extend(planned.left_alone.iter().map(|left| left.reason.clone()));
         notes.extend(planned.failures.iter().map(|left| left.reason.clone()));
         notes.extend(planned.not_analyzed.iter().map(|left| left.reason.clone()));
-        if fields.is_empty() && notes.is_empty() {
+        let written = planned_fields(planned, settings);
+        if written.is_empty() && notes.is_empty() {
             notes.push("Nothing would change in this file.".to_string());
         }
+        let fields = with_struck_rows(
+            written,
+            planned_fields(unrestricted, settings),
+            settings,
+            &left_out,
+        );
         Self {
             source,
-            fields: merge_same_rows(fields),
+            fields,
             notes,
             cue_hints: cue_hints(settings),
         }
+    }
+}
+
+/// The rows of every field `planned` changes, rows with the same value
+/// folded together.
+fn planned_fields(planned: &PlannedWrite, settings: &TagSettings) -> Vec<PreviewField> {
+    merge_same_rows(
+        planned
+            .plans
+            .iter()
+            .flat_map(|plan| {
+                plan.changes()
+                    .iter()
+                    .map(|change| preview_field(plan, change, settings))
+            })
+            .collect(),
+    )
+}
+
+/// `written` with a struck out row, in its natural place, for each kind of
+/// field that only `unrestricted`, the plan with every option allowing a
+/// write, would write.
+fn with_struck_rows(
+    written: Vec<PreviewField>,
+    unrestricted: Vec<PreviewField>,
+    settings: &TagSettings,
+    left_out: &[String],
+) -> Vec<PreviewField> {
+    let mut names: Vec<&'static str> = Vec::new();
+    for field in &unrestricted {
+        if !names.contains(&field.name) {
+            names.push(field.name);
+        }
+    }
+    let position = |name: &str| names.iter().position(|known| *known == name);
+    let mut rows = written;
+    for field in &unrestricted {
+        let is_written = rows
+            .iter()
+            .any(|row| row.name == field.name && row.struck.is_none());
+        let is_struck = rows
+            .iter()
+            .any(|row| row.name == field.name && row.struck.is_some());
+        if is_written || is_struck {
+            continue;
+        }
+        let mut struck = field.clone();
+        struck.struck = Some(struck_reason(field.name, settings, left_out));
+        let index = rows
+            .iter()
+            .position(|row| position(row.name) > position(field.name))
+            .unwrap_or(rows.len());
+        rows.insert(index, struck);
+    }
+    rows
+}
+
+/// What kept a row out, in a few words.
+fn struck_reason(name: &str, settings: &TagSettings, left_out: &[String]) -> String {
+    let not_written = "not written".to_string();
+    match name {
+        "BPM" if !settings.write_tempo => return not_written,
+        "Cue markers" | "Beat grid" if !settings.write_cue_markers => return not_written,
+        _ => {}
+    }
+    let word = match name {
+        "Key" => "key",
+        "BPM" => "tempo",
+        _ => return not_written,
+    };
+    let clause = left_out
+        .iter()
+        .flat_map(|note| note.split("; "))
+        .find(|clause| clause.starts_with(word));
+    match clause {
+        Some(clause) if clause.contains("low confidence") => {
+            "not written, low confidence".to_string()
+        }
+        Some(clause) if clause.contains("kept") => "kept as it is in the file".to_string(),
+        _ => not_written,
     }
 }
 
@@ -161,21 +252,9 @@ fn preview_field(
     settings: &TagSettings,
 ) -> PreviewField {
     let format = plan.format();
-    let preset = settings.program.dj_software();
     let field = change.field.as_str();
     let new = change.new.clone().unwrap_or_default();
-    let is_in = |fields: &[&str]| fields.contains(&field);
-    let (name, label_inside) = if is_in(format.comment_fields()) {
-        ("Comment", true)
-    } else if is_in(format.grouping_fields()) {
-        ("Grouping", true)
-    } else if is_in(preset.key_fields(format)) || is_in(preset.key_fields_if_present(format)) {
-        ("Key", false)
-    } else if is_in(preset.bpm_fields(format)) || is_in(preset.bpm_fields_if_present(format)) {
-        ("BPM", false)
-    } else {
-        ("Field", false)
-    };
+    let (name, label_inside) = field_name(format, settings.program.dj_software(), field);
     let tag = euphoria_core::tags::serato_field_name(field)
         .unwrap_or(field)
         .to_string();
@@ -183,9 +262,10 @@ fn preview_field(
         return PreviewField {
             name,
             tag,
-            before: new,
+            before: euphoria_core::tags::describe_serato_value(field, &new).unwrap_or(new),
             label: String::new(),
             after: String::new(),
+            struck: None,
         };
     }
     let (mut before, label, mut after) = split_label(change.current.as_deref(), &new);
@@ -211,6 +291,35 @@ fn preview_field(
         before,
         label,
         after,
+        struck: None,
+    }
+}
+
+/// What `field` of a file in `format` holds for `preset`, in words, and
+/// whether the energy label can go inside it. Fields that are none of the
+/// four everyone knows are named "Field".
+pub(crate) fn field_name(
+    format: euphoria_core::tags::TagFormat,
+    preset: euphoria_core::tags::DjSoftware,
+    field: &str,
+) -> (&'static str, bool) {
+    let is_in = |fields: &[&str]| fields.contains(&field);
+    if is_in(format.comment_fields()) {
+        ("Comment", true)
+    } else if is_in(format.grouping_fields()) {
+        ("Grouping", true)
+    } else if is_in(preset.key_fields(format)) || is_in(preset.key_fields_if_present(format)) {
+        ("Key", false)
+    } else if is_in(preset.bpm_fields(format)) || is_in(preset.bpm_fields_if_present(format)) {
+        ("BPM", false)
+    } else if let Some(serato) = euphoria_core::tags::serato_field_name(field) {
+        if serato.contains("beat grid") {
+            ("Beat grid", false)
+        } else {
+            ("Cue markers", false)
+        }
+    } else {
+        ("Field", false)
     }
 }
 
@@ -253,8 +362,16 @@ fn example_analysis() -> TrackAnalysis {
         key_source: None,
         tempo_estimate: None,
         tempo_score_margin: None,
-        beat_grid: None,
-        cues: Vec::new(),
+        beat_grid: Some(euphoria_core::detect::BeatGrid {
+            first_downbeat_seconds: 0.1,
+            bpm: 128.0,
+            salience: 10.0,
+            drift_seconds: None,
+        }),
+        cues: vec![euphoria_core::detect::SectionCue {
+            seconds: 0.1,
+            section: euphoria_core::detect::CueSection::Start,
+        }],
         key_timeline: Vec::new(),
         quality: None,
     }
@@ -323,11 +440,109 @@ pub(crate) fn plan_preview(
     writer: &CorrectionWriter,
     log_directory: Option<&std::path::Path>,
 ) -> LabelPreview {
-    let planned = plan_verified_writes(vec![input.target], settings, cache, writer, log_directory);
-    LabelPreview::of(input.source, &planned, settings)
+    let targets = vec![input.target];
+    let planned = plan_verified_writes(targets.clone(), settings, cache, writer, log_directory);
+    let unrestricted_settings = TagSettings {
+        write_tempo: true,
+        write_cue_markers: true,
+        replace_existing: true,
+        include_low_confidence: true,
+        ..*settings
+    };
+    let unrestricted = plan_verified_writes(
+        targets,
+        &unrestricted_settings,
+        cache,
+        writer,
+        log_directory,
+    );
+    LabelPreview::of(input.source, &planned, &unrestricted, settings)
+}
+
+/// How many files of the library the tag settings would change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LibraryChange {
+    /// Files a write would change.
+    pub(crate) would_change: usize,
+    /// Files in the library.
+    pub(crate) total: usize,
+}
+
+impl LibraryChange {
+    /// The line the settings show.
+    pub(crate) fn sentence(self) -> String {
+        format!(
+            "Would change in your library: {} of {} files",
+            crate::format::count(self.would_change),
+            crate::format::count(self.total)
+        )
+    }
+}
+
+/// Plans a write of `targets`, the whole library, and counts the files it
+/// would change. Reads the files, and never writes them.
+pub(crate) fn plan_library_change(
+    targets: Vec<WriteTarget>,
+    settings: &TagSettings,
+    cache: Option<&euphoria_core::CachedAnalyzer>,
+    writer: &CorrectionWriter,
+    log_directory: Option<&std::path::Path>,
+) -> LibraryChange {
+    let total = targets.len();
+    let planned = plan_verified_writes(targets, settings, cache, writer, log_directory);
+    LibraryChange {
+        would_change: planned.plans.len(),
+        total,
+    }
 }
 
 impl crate::app::EuphoriaApp {
+    /// Counts, off the main thread, the library files the current tag
+    /// settings would change, and keeps the count for the settings panel.
+    pub(crate) fn refresh_library_change(&mut self, cx: &mut gpui::Context<'_, Self>) {
+        self.library_change_generation += 1;
+        self.library_change = None;
+        let generation = self.library_change_generation;
+        let targets: Vec<WriteTarget> = self
+            .session
+            .library()
+            .tracks()
+            .iter()
+            .map(|track| WriteTarget {
+                path: track.path.clone(),
+                analysis: track.analysis().cloned(),
+                correction: track.correction,
+                edited_cues: track.edited_cues.clone(),
+            })
+            .collect();
+        let settings = self.tag_settings;
+        let cache = self.session.cache();
+        let writer = self.by_ear.correction_writer.clone();
+        let log_directory = self.write_log_directory.clone();
+        cx.spawn(async move |this, cx| {
+            let change = cx
+                .background_executor()
+                .spawn(async move {
+                    plan_library_change(
+                        targets,
+                        &settings,
+                        cache.as_deref(),
+                        &writer,
+                        log_directory.as_deref(),
+                    )
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.library_change_generation == generation {
+                    this.library_change = Some(change);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Works out the preview for the selected track and the current tag
     /// settings, off the main thread, and keeps it for the settings panel.
     /// Files are read when the settings or the selection change, never
@@ -345,6 +560,7 @@ impl crate::app::EuphoriaApp {
         let cache = self.session.cache();
         let writer = self.by_ear.correction_writer.clone();
         let log_directory = self.write_log_directory.clone();
+        self.refresh_library_change(cx);
         cx.spawn(async move |this, cx| {
             let preview = cx
                 .background_executor()
@@ -386,6 +602,7 @@ mod tests {
             before: value.to_string(),
             label: String::new(),
             after: String::new(),
+            struck: None,
         }
     }
 

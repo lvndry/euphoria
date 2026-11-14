@@ -241,7 +241,7 @@ fn chip(label: &'static str, value: impl IntoElement, palette: &Palette) -> Div 
 fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let dash = || "\u{2013}".to_string();
     let mut facts: Vec<String> = Vec::new();
     if let Some(seconds) = track.duration_seconds() {
@@ -1051,11 +1051,9 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                                 .flex_shrink_0()
                                 .w(px(92.0))
                                 .gap(px(2.0))
-                                .child(
-                                    div().flex().children(track.key().map(|key| {
-                                        key_chip(&key, theme, app.display.key_notation)
-                                    })),
-                                )
+                                .child(div().flex().children(track.key().map(|key| {
+                                    key_chip(&key, theme, app.tag_settings.key_notation)
+                                })))
                                 .child(
                                     div()
                                         .text_size(LABEL_TEXT_SIZE)

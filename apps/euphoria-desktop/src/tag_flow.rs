@@ -302,7 +302,7 @@ impl EuphoriaApp {
                 this.tag_panel = Some(TagPanel::Preview(Preview {
                     kind: PreviewKind::Analysis { scope },
                     settings,
-                    rows: preview_rows(&planned.plans),
+                    rows: preview_rows(&planned.plans, settings.program.dj_software()),
                     plans: Arc::new(planned.plans),
                     analyses: Arc::new(planned.analyses.into_iter().map(Some).collect()),
                     up_to_date: planned.up_to_date,

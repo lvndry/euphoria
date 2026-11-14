@@ -245,21 +245,28 @@ pub(crate) enum PreviewRow {
         /// How many of its fields would change.
         change_count: usize,
     },
-    /// One field of the file above.
-    Change(FieldChange),
+    /// One field of the file above, with what the field holds in words
+    /// ("Key", "BPM", "Comment") when it is one of the familiar fields.
+    Change(FieldChange, Option<&'static str>),
     /// A key or tempo of the file above that is left out, and why.
     Skipped(String),
 }
 
 /// The preview of `plans`, a file at a time, each followed by its changes.
-pub(crate) fn preview_rows(plans: &[WritePlan]) -> Vec<PreviewRow> {
+pub(crate) fn preview_rows(
+    plans: &[WritePlan],
+    preset: euphoria_core::tags::DjSoftware,
+) -> Vec<PreviewRow> {
     let mut rows = Vec::new();
     for plan in plans {
         rows.push(PreviewRow::File {
             path: plan.path().to_path_buf(),
             change_count: plan.changes().len(),
         });
-        rows.extend(plan.changes().iter().cloned().map(PreviewRow::Change));
+        rows.extend(plan.changes().iter().map(|change| {
+            let (name, _) = crate::label_preview::field_name(plan.format(), preset, &change.field);
+            PreviewRow::Change(change.clone(), (name != "Field").then_some(name))
+        }));
         rows.extend(
             plan.skipped()
                 .iter()
@@ -712,7 +719,7 @@ mod tests {
                 ..TagSettings::default()
             },
         );
-        let rows = preview_rows(&with_label.plans);
+        let rows = preview_rows(&with_label.plans, euphoria_core::tags::DjSoftware::Generic);
         assert!(rows.contains(&PreviewRow::Skipped(
             "key not written (rated low confidence)".to_string()
         )));
@@ -921,7 +928,7 @@ mod tests {
             ..TagSettings::default()
         };
         let planned = plan_writes(&targets(&files[..1]), &with_label);
-        let rows = preview_rows(&planned.plans);
+        let rows = preview_rows(&planned.plans, with_label.program.dj_software());
         assert_eq!(
             rows[0],
             PreviewRow::File {
@@ -932,7 +939,7 @@ mod tests {
         let changes: Vec<(String, Option<String>, Option<String>)> = rows[1..]
             .iter()
             .map(|row| match row {
-                PreviewRow::Change(change) => (
+                PreviewRow::Change(change, _) => (
                     change.field.clone(),
                     change.current.clone(),
                     change.new.clone(),

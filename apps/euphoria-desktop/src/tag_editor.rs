@@ -547,7 +547,7 @@ impl EuphoriaApp {
                 this.tag_panel = Some(TagPanel::Preview(Preview {
                     kind: PreviewKind::Edit { summary },
                     settings: this.tag_settings,
-                    rows: preview_rows(&plans),
+                    rows: preview_rows(&plans, this.tag_settings.program.dj_software()),
                     plans: Arc::new(plans),
                     analyses: Arc::new(analyses),
                     up_to_date,

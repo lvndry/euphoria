@@ -944,8 +944,10 @@ impl EuphoriaApp {
                 .collect(),
         };
         let export = self.export_job("Euphoria library", &paths, PlaylistFormat::M3u8, |_| None);
+        let mut setup = setup.clone();
+        setup.key_notation = self.tag_settings.key_notation;
         LibraryExportJob {
-            setup: setup.clone(),
+            setup,
             export,
             folders: library.folders().to_vec(),
             running: self.running_checks,

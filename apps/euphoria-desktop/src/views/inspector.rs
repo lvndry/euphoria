@@ -464,7 +464,7 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
 fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = &theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let not_known_yet = match track.status {
         TrackStatus::Queued => "queued",
         TrackStatus::Analyzing => "analyzing",
@@ -1022,7 +1022,7 @@ fn waveform_section(
                 analysis.duration_seconds,
                 progress,
                 &app.theme,
-                app.display.key_notation,
+                app.tag_settings.key_notation,
             )
         })
     });
@@ -1215,7 +1215,7 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                         div().flex().flex_shrink_0().w(px(38.0)).children(
                             track
                                 .key()
-                                .map(|key| key_chip(&key, theme, app.display.key_notation)),
+                                .map(|key| key_chip(&key, theme, app.tag_settings.key_notation)),
                         ),
                     )
                     .child(

@@ -292,7 +292,7 @@ impl EuphoriaApp {
             matched.title(),
             matched
                 .key()
-                .map(|key| self.display.key_notation.spell(&key)),
+                .map(|key| self.tag_settings.key_notation.spell(&key)),
         ))
     }
 

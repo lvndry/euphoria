@@ -646,7 +646,7 @@ fn cell_contents(
         ColumnId::Key => match (&track.status, track.key()) {
             (TrackStatus::Missing, _) => status_text("Missing", palette.danger, true),
             (_, Some(key)) => {
-                let chip = key_chip(&key, theme, app.display.key_notation);
+                let chip = key_chip(&key, theme, app.tag_settings.key_notation);
                 match key_conflict_mark(track, track_index, app, &palette) {
                     Some(mark) => div()
                         .flex()
@@ -741,7 +741,7 @@ fn key_conflict_mark(
     let tagged = track.tag_key.as_ref()?.key?;
     let explanation: SharedString = format!(
         "The tags say {} ({tagged}), {}. Listed under Needs review.",
-        app.display.key_notation.spell(&tagged),
+        app.tag_settings.key_notation.spell(&tagged),
         difference.label()
     )
     .into();

@@ -2224,8 +2224,8 @@ fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_e
         Some(TagPanel::Preview(preview)) => {
             assert!(preview.settings.write_cue_markers);
             assert!(
-                crate::views::tag_panel::settings_sentence(&preview.settings)
-                    .contains("the cue markers written for Serato")
+                crate::views::tag_panel::rules(&preview.settings)
+                    .contains(&"Cue markers are written as Serato cues".to_string())
             );
             assert_eq!(preview.serato_notes.len(), 1, "{:?}", preview.serato_notes);
             assert_eq!(preview.serato_notes[0].path, wav);
@@ -3589,13 +3589,13 @@ fn the_key_display_setting_spells_keys_in_the_table_and_is_remembered(cx: &mut T
         assert!(codes.contains("8A"), "{codes:?}");
     });
     cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
-    click(window, ("key-display", 2_usize), cx);
+    click(window, ("notation", 2_usize), cx);
     cx.update(|cx| {
         let codes = view.read(cx).column_texts(ColumnId::Key);
         assert!(codes.contains("1m"), "{codes:?}");
     });
     assert_eq!(
-        Settings::load(&settings_path).unwrap().display.key_notation,
+        Settings::load(&settings_path).unwrap().tags.key_notation,
         crate::tag_settings::NotationChoice::OpenKey
     );
 }

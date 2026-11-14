@@ -82,7 +82,7 @@ pub(crate) fn corrector(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) ->
 
 fn editor(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let current = app.selected_track().and_then(Track::key);
     let keys = (0..24).map(|index| {
         let key = picker_key(index);
@@ -191,7 +191,7 @@ pub(crate) fn section(
 ) -> Option<Div> {
     let key = track.key()?;
     let palette = app.theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let sounding = app.by_ear.drone_key();
 
     let tones = std::iter::once(key)

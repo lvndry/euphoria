@@ -209,23 +209,10 @@ fn preview_contents(
 
     let mut contents = match &preview.kind {
         PreviewKind::Analysis { scope } => vec![
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(12.0))
-                .child(title(&format!(
-                    "Write tags for {}",
-                    preview.settings.program.label_in_sentence()
-                )))
-                .child(
-                    secondary_button("Change settings", palette)
-                        .id("change-tag-settings")
-                        .on_click(cx.listener(|this, _, _, cx| this.change_tag_settings(cx)))
-                        .test_support(),
-                )
-                .into_any_element(),
-            quiet(&settings_sentence(&preview.settings), palette),
+            title(&format!(
+                "Write tags for {}",
+                preview.settings.program.label_in_sentence()
+            )),
             scope_switch(app, *scope, palette, cx),
         ],
         PreviewKind::Edit { summary } => vec![
@@ -278,6 +265,9 @@ fn preview_contents(
         palette,
         cx,
     ));
+    if matches!(preview.kind, PreviewKind::Analysis { .. }) {
+        contents.push(rules_in_use(&preview.settings, palette, cx));
+    }
     if let Some(running) = &preview.program_warning {
         contents.push(
             div()
@@ -313,7 +303,7 @@ fn preview_contents(
             if file_count == 0 {
                 "Nothing to write".to_string()
             } else {
-                format!("Write {}", counted(file_count, "file"))
+                write_button_label(file_count)
             },
             palette,
         )
@@ -328,37 +318,107 @@ fn preview_contents(
     contents
 }
 
-/// What the write will do with the settings in use, in one sentence.
-pub(crate) fn settings_sentence(settings: &TagSettings) -> String {
-    format!(
-        "Keys in {}, the energy label {}, the tempo {}, the cue markers {}, a key or tempo a \
-         file already has {}, low confidence values {}. Nothing is written until you confirm.",
-        settings.key_notation.label(),
+/// The primary button of the preview: what it does, with the count.
+pub(crate) fn write_button_label(file_count: usize) -> String {
+    format!("Write tags to {}", counted(file_count, "file"))
+}
+
+/// The rules a write follows, drawn from `settings`: three or four short
+/// lines, the ones that decide most what lands in the files.
+pub(crate) fn rules(settings: &TagSettings) -> Vec<String> {
+    let mut rules = vec![
+        format!(
+            "{} already in files are {}",
+            if settings.write_tempo {
+                "Keys and tempos"
+            } else {
+                "Keys"
+            },
+            if settings.replace_existing {
+                "replaced"
+            } else {
+                "kept"
+            }
+        ),
+        format!(
+            "Low confidence values are {}",
+            if settings.include_low_confidence {
+                "written"
+            } else {
+                "skipped"
+            }
+        ),
         match settings.effective_label() {
-            crate::tag_settings::LabelChoice::None => "not written".to_string(),
-            place => format!("at the {}", place.label().to_lowercase()),
+            crate::tag_settings::LabelChoice::None => "No energy label is written".to_string(),
+            place => format!("Energy label at the {}", place.label().to_lowercase()),
         },
-        if settings.write_tempo {
-            "written"
-        } else {
-            "left alone"
-        },
-        if settings.write_cue_markers {
-            "written for Serato"
-        } else {
-            "left alone"
-        },
-        if settings.replace_existing {
-            "replaced"
-        } else {
-            "kept"
-        },
-        if settings.include_low_confidence {
-            "written"
-        } else {
-            "left out"
-        }
-    )
+    ];
+    if !settings.write_tempo {
+        rules.push("The tempo is not written".to_string());
+    } else if settings.write_cue_markers {
+        rules.push("Cue markers are written as Serato cues".to_string());
+    } else {
+        rules.push(format!("Keys as {}", settings.key_notation.label()));
+    }
+    rules
+}
+
+/// The "Rules in use" box above the buttons, with a link to the settings.
+fn rules_in_use(
+    settings: &TagSettings,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let accent = palette.accent;
+    div()
+        .id("tag-rules")
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .p(px(10.0))
+        .rounded(px(6.0))
+        .bg(palette.raised)
+        .text_size(SMALL_TEXT_SIZE)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(palette.text)
+                        .child("Rules in use"),
+                )
+                .child(
+                    div()
+                        .id("change-tag-settings")
+                        .cursor_pointer()
+                        .text_color(accent)
+                        .hover(|style| style.underline())
+                        .child("Change settings")
+                        .on_click(cx.listener(|this, _, _, cx| this.change_tag_settings(cx)))
+                        .test_support(),
+                ),
+        )
+        .children(
+            rules(settings)
+                .into_iter()
+                .enumerate()
+                .map(|(index, rule)| {
+                    div()
+                        .id(("tag-rule", index))
+                        .flex()
+                        .gap(px(6.0))
+                        .text_color(palette.text_secondary)
+                        .child(div().text_color(palette.text_tertiary).child("\u{2022}"))
+                        .child(rule)
+                        .test_support()
+                }),
+        )
+        .test_support()
+        .into_any_element()
 }
 
 /// Two buttons that choose between the selected tracks and every track on
@@ -514,42 +574,55 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
             .child(div().flex_1().min_w_0().truncate().child(sentence.clone()))
             .test_support()
             .into_any_element(),
-        PreviewRow::Change(change) => line
-            .pl(px(24.0))
-            .child(
-                div()
-                    .w(px(150.0))
-                    .flex_shrink_0()
-                    .truncate()
-                    .text_color(palette.text_secondary)
-                    .child(
-                        serato_field_name(&change.field)
-                            .map_or_else(|| change.field.clone(), str::to_string),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_color(palette.text_tertiary)
-                    .child(shown_value(&change.field, change.current.as_deref())),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(palette.text_tertiary)
-                    .child("\u{2192}"),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .child(shown_value(&change.field, change.new.as_deref())),
-            )
-            .test_support()
-            .into_any_element(),
+        PreviewRow::Change(change, name) => {
+            let frame: SharedString = change.field.clone().into();
+            let shown_name: SharedString = name.map_or_else(
+                || {
+                    serato_field_name(&change.field)
+                        .map_or_else(|| frame.clone(), SharedString::from)
+                },
+                SharedString::from,
+            );
+            line.pl(px(24.0))
+                .child(
+                    div()
+                        .id(("tag-preview-field", index))
+                        .w(px(150.0))
+                        .flex_shrink_0()
+                        .truncate()
+                        .text_color(palette.text_secondary)
+                        .when(name.is_some(), |field| {
+                            field.tooltip(move |window, cx| {
+                                Tooltip::new(frame.clone()).build(window, cx)
+                            })
+                        })
+                        .child(shown_name)
+                        .test_support(),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(palette.text_tertiary)
+                        .child(shown_value(&change.field, change.current.as_deref())),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(palette.text_tertiary)
+                        .child("\u{2192}"),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(shown_value(&change.field, change.new.as_deref())),
+                )
+                .test_support()
+                .into_any_element()
+        }
     }
 }
 

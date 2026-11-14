@@ -1,9 +1,10 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! How keys and tempos are shown: the key notation of the table and the
-//! track detail, and the range tempos are placed in. Both change only what
-//! is shown; nothing is analyzed again.
+//! How tempos are shown: the range they are placed in, which changes only
+//! what is shown; nothing is analyzed again. Also how a key is spelled in
+//! each notation; which notation is in use is a tag setting, shared by the
+//! table, the tags and the exports.
 
 use euphoria_core::{Key, TempoRange};
 use serde::{Deserialize, Serialize};
@@ -101,8 +102,6 @@ impl TempoPreset {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct DisplaySettings {
-    /// The notation of keys in the table and the track detail.
-    pub(crate) key_notation: NotationChoice,
     /// The range tempos are shown in.
     pub(crate) tempo_range: TempoRangeSetting,
 }
@@ -163,16 +162,13 @@ mod tests {
     #[test]
     fn display_settings_are_stored_by_name_and_missing_ones_take_their_defaults() {
         let settings = DisplaySettings {
-            key_notation: NotationChoice::OpenKey,
             tempo_range: TempoPreset::HipHop.setting(),
         };
         assert_eq!(
             serde_json::to_string(&settings).unwrap(),
-            r#"{"key_notation":"open-key","tempo_range":{"slowest":70,"fastest":140}}"#
+            r#"{"tempo_range":{"slowest":70,"fastest":140}}"#
         );
-        let partial: DisplaySettings =
-            serde_json::from_str(r#"{"key_notation":"musical"}"#).unwrap();
-        assert_eq!(partial.key_notation, NotationChoice::Musical);
+        let partial: DisplaySettings = serde_json::from_str("{}").unwrap();
         assert_eq!(partial.tempo_range, TempoRangeSetting::default());
     }
 }
