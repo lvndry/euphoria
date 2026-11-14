@@ -224,39 +224,6 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                         .children(custom_range),
                     &palette,
                 ))
-                .child(part_heading("Metronome", &palette))
-                .child(setting(
-                    "Sound",
-                    "The click of the metronome button in the toolbar. Choosing a sound plays \
-                     one click of it.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_sounds),
-                    &palette,
-                ))
-                .child(setting(
-                    "Volume",
-                    "How loud the clicks are next to the music.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_volumes),
-                    &palette,
-                ))
-                .child(setting(
-                    "Accent",
-                    "The first beat of every bar of four is higher and louder.",
-                    div().flex().child(
-                        choice_button(
-                            "metronome-accent",
-                            if metronome.accent {
-                                "\u{2713} Accent the first beat"
-                            } else {
-                                "Accent the first beat"
-                            },
-                            metronome.accent,
-                            &palette,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
                 .child(part_heading("Writing tags", &palette))
                 .child(setting(
                     "DJ program",
@@ -314,6 +281,39 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                             &palette,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(part_heading("Metronome", &palette))
+                .child(setting(
+                    "Sound",
+                    "The click of the metronome button in the toolbar. Choosing a sound plays \
+                     one click of it.",
+                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_sounds),
+                    &palette,
+                ))
+                .child(setting(
+                    "Volume",
+                    "How loud the clicks are next to the music.",
+                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_volumes),
+                    &palette,
+                ))
+                .child(setting(
+                    "Accent",
+                    "The first beat of every bar of four is higher and louder.",
+                    div().flex().child(
+                        choice_button(
+                            "metronome-accent",
+                            if metronome.accent {
+                                "\u{2713} Accent the first beat"
+                            } else {
+                                "Accent the first beat"
+                            },
+                            metronome.accent,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
                         .test_support(),
                     ),
                     &palette,

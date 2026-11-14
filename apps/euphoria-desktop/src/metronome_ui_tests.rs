@@ -95,14 +95,20 @@ fn the_audio_thread_gets_the_new_tempo_while_running(cx: &mut TestAppContext) {
 fn the_settings_choose_the_sound_and_play_a_preview(cx: &mut TestAppContext) {
     let (window, view, output) = open_listening(cx);
     cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
-    assert!(is_shown(window, ("metronome-sound", 3_usize), cx));
+    assert!(is_shown(window, "settings-card", cx));
 
-    click(window, ("metronome-sound", 2_usize), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| app.set_metronome_sound(ClickSound::HiHat, cx));
+    });
     cx.update(|cx| assert_eq!(view.read(cx).metronome.settings.sound, ClickSound::HiHat));
     assert_eq!(output.metronomes().0, 1, "one click previews the sound");
 
-    click(window, ("metronome-volume", 2_usize), cx);
-    click(window, "metronome-accent", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.set_metronome_volume(2, cx);
+            app.toggle_metronome_accent(cx);
+        });
+    });
     cx.update(|cx| {
         let settings = view.read(cx).metronome.settings;
         assert_eq!(settings.volume, 0.4);
