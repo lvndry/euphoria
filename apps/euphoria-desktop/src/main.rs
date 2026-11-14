@@ -36,6 +36,10 @@ mod library_export;
 mod library_export_ui_tests;
 mod logging;
 mod mashup;
+mod metronome;
+mod metronome_controls;
+#[cfg(test)]
+mod metronome_ui_tests;
 #[cfg(test)]
 mod missing_ui_tests;
 mod mixes;
@@ -88,9 +92,9 @@ use gpui::{
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
     OpenFocusView, OpenSetBuilder, OpenSettings, Quit, ResetColumnWidths, RevealTrack,
-    SelectAllTracks, ToggleDecks, ToggleFavorite, TogglePlayback, ToggleSidebar, UndoCueEdit,
-    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme, UseSlateTheme,
-    WriteTags,
+    SelectAllTracks, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
+    UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -235,6 +239,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("c", AddCueAtPlayhead, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("f", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("m", ToggleMetronome, Some(SPACE_BAR_CONTEXT)),
         // F stars, so Enter opens the focus view.
         KeyBinding::new("enter", OpenFocusView, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
@@ -290,6 +295,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
     register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
     register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_cue_edit(cx));
+    register_view_command::<ToggleMetronome>(view, cx, |view, cx| view.toggle_metronome(cx));
     register_view_command::<ToggleFavorite>(view, cx, |view, cx| {
         view.toggle_star_on_selection(cx);
     });
@@ -414,6 +420,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         ]),
         Menu::new("Playback").items([
             MenuItem::action("Play or Pause", TogglePlayback),
+            MenuItem::action("Metronome", ToggleMetronome),
             MenuItem::separator(),
             MenuItem::action("Add Cue at Playhead", AddCueAtPlayhead),
             MenuItem::action("Undo Cue Edit", UndoCueEdit),

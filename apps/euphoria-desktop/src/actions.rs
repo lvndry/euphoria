@@ -18,6 +18,8 @@ actions!(
         ExportLibrary,
         /// Plays the selected track, or pauses it.
         TogglePlayback,
+        /// Starts the metronome, or stops it.
+        ToggleMetronome,
         /// Folds the sidebar away, or brings it back.
         ToggleSidebar,
         /// Moves the keyboard to the search field.

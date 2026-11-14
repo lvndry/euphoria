@@ -174,6 +174,21 @@ If a track cannot be played, the player says why in a few words, for example "Th
 
 If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence.
 
+## Metronome
+
+The metronome button sits in the toolbar, at the right, beside the **Decks** button. Click it, or press **M** while the table has the keyboard (not while you type in a field), to start a steady click in 4/4 with an accented first beat. Click it again to stop. It plays through the same output as the track and the decks, so it sounds with or without a track playing.
+
+The tempo field beside it takes the tempo of the metronome, from 30 to 300 beats per minute in steps of 0.1:
+
+- Click the field and type a value, then press Return. "127,5" and "127.5" both work.
+- Scroll over the field to move it by one beat a notch, or by a tenth with Alt held.
+- The field starts at 120. Until you type or scroll to a value, it takes the tempo shown for the selected track, so the usual case needs no typing. Once you type a value, it stays until you change it, whichever track you select.
+- A new tempo is used from the next beat, without restarting the bar.
+
+Under **Settings > Metronome** you choose the sound (Classic click, Woodblock, Hi-hat or Beep, with a click played when you choose one), the volume in five steps, and whether the first beat of every bar is accented. They are kept in `settings.json`.
+
+The clicks are made in the app, not played from files, and are placed by counting audio frames, so they keep their tempo however long they run. The metronome does not follow a playing track's beat grid; it clicks at the tempo you see, starting when you press the button. Hearing it line up with a track's beats is not there yet.
+
 ## Stems
 
 The track detail can separate a track into its four stems with the Demucs model, and then you can hear any part of it on its own. Select a track and click **Separate the stems** in the track detail: while it runs the button says so, and when it is done the player offers what to hear.
@@ -459,6 +474,14 @@ How keys and tempos are shown:
 | Keys | Camelot (8A), musical (Am) or Open Key (1m), in the table, the track detail, the mixes and the key timeline. The wheel keeps Camelot codes. Search finds a key in any of the three. |
 | Tempo range | House and techno, 90 to 180 (the default); hip hop, 70 to 140; drum and bass, 120 to 200; or a custom range of whole beats per minute, at most an octave wide, such as 80 up to 160. A track counted at half or double speed moves into the range. Nothing is analyzed again, and tags are written with the tempo as shown. A custom range that cannot be used is explained under it, and the last range that worked stays in use. [Choosing the range](../concepts/accuracy.md#choosing-the-range) says more. |
 
+How the metronome sounds:
+
+| Setting | Choices |
+| --- | --- |
+| Sound | Classic click, Woodblock, Hi-hat or Beep. Choosing one plays a click of it. |
+| Volume | 20% to 100%, in five steps. |
+| Accent | Whether the first beat of every bar of four is higher and louder. On by default. |
+
 How tags are written:
 
 | Setting | Choices |
@@ -507,7 +530,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the lanes of the focus view you hid, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
@@ -559,5 +582,6 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
 - Rating favorites (more than one star), and exporting favorite transitions with their notes.
 - Loops, and cue colours.
+- Following a playing track's beat grid with the metronome, and hearing the metronome on a real output has not been checked by an automated test, which checks the click timing and the headless interface only: listen for yourself and report anything off.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

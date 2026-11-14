@@ -215,6 +215,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) filter_genre_input: Entity<InputState>,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
+    /// The metronome: whether it clicks, its tempo and its sound.
+    pub(crate) metronome: crate::metronome_controls::MetronomeState,
+    /// The field the metronome's tempo is typed in.
+    pub(crate) metronome_input: Entity<InputState>,
     /// Moving, adding, renaming and deleting the selected track's cues.
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
     /// The field the name of a cue is typed in.
@@ -341,6 +345,16 @@ impl EuphoriaApp {
                 this.accept_typed_bpm(cx);
             }
         });
+        let metronome_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
+        let metronome_entered = cx.subscribe_in(
+            &metronome_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.commit_metronome_bpm(window, cx);
+                }
+            },
+        );
         let cue_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Cue name"));
         let cue_named = cx.subscribe(
             &cue_name_input,
@@ -444,6 +458,8 @@ impl EuphoriaApp {
             filter_energy_to_input,
             filter_genre_input,
             bpm_input,
+            metronome: crate::metronome_controls::MetronomeState::new(settings.metronome),
+            metronome_input,
             cue_editor: crate::cue_editing::CueEditor::default(),
             cue_name_input,
             voice: None,
@@ -462,6 +478,7 @@ impl EuphoriaApp {
                 playlist_named,
                 transition_noted,
                 bpm_entered,
+                metronome_entered,
                 cue_named,
                 search_changed,
                 quitting,
@@ -1955,6 +1972,7 @@ impl EuphoriaApp {
             display: self.display,
             suggestion_filter: self.decks.filter.clone(),
             focus_lanes: self.focus.lanes,
+            metronome: self.metronome.settings,
         };
         settings
             .save(settings_path)
@@ -2138,6 +2156,7 @@ impl EuphoriaApp {
 
 impl Render for EuphoriaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        self.sync_metronome_tempo();
         let palette = self.theme.palette;
         let shows_sidebar = !self.panels.sidebar_folded;
         self.lay_out_table(window);

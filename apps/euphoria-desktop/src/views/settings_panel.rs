@@ -138,6 +138,36 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             }))
     });
 
+    let metronome = app.metronome.settings;
+    let metronome_sounds =
+        crate::metronome::ClickSound::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, sound)| {
+                let sound = *sound;
+                choice_button(
+                    ("metronome-sound", index),
+                    sound.label(),
+                    metronome.sound == sound,
+                    &palette,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_sound(sound, cx)))
+                .test_support()
+            });
+    let metronome_volumes = (1..=crate::metronome_controls::VOLUME_STEPS).map(|step| {
+        choice_button(
+            ("metronome-volume", usize::from(step)),
+            format!(
+                "{}%",
+                u32::from(step) * 100 / u32::from(crate::metronome_controls::VOLUME_STEPS)
+            ),
+            app.metronome.volume_step() == step,
+            &palette,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_volume(step, cx)))
+        .test_support()
+    });
+
     let tempo_hint = if settings.program == ProgramChoice::Serato {
         "Serato detects the tempo itself and builds its beat grid from it only when a file has \
          none, so it is left alone unless you tick this."
@@ -192,6 +222,39 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                                 .children(tempo_choices),
                         )
                         .children(custom_range),
+                    &palette,
+                ))
+                .child(part_heading("Metronome", &palette))
+                .child(setting(
+                    "Sound",
+                    "The click of the metronome button in the toolbar. Choosing a sound plays \
+                     one click of it.",
+                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_sounds),
+                    &palette,
+                ))
+                .child(setting(
+                    "Volume",
+                    "How loud the clicks are next to the music.",
+                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_volumes),
+                    &palette,
+                ))
+                .child(setting(
+                    "Accent",
+                    "The first beat of every bar of four is higher and louder.",
+                    div().flex().child(
+                        choice_button(
+                            "metronome-accent",
+                            if metronome.accent {
+                                "\u{2713} Accent the first beat"
+                            } else {
+                                "Accent the first beat"
+                            },
+                            metronome.accent,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
+                        .test_support(),
+                    ),
                     &palette,
                 ))
                 .child(part_heading("Writing tags", &palette))

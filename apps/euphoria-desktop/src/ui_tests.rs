@@ -3343,7 +3343,12 @@ fn a_tempo_range_preset_moves_the_tempos_shown_and_is_remembered(cx: &mut TestAp
 }
 
 /// Replaces the text of the field `id` with `text`.
-fn retype(window: AnyWindowHandle, id: &'static str, text: &str, cx: &mut TestAppContext) {
+pub(crate) fn retype(
+    window: AnyWindowHandle,
+    id: &'static str,
+    text: &str,
+    cx: &mut TestAppContext,
+) {
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         window.click(id, cx);
@@ -5190,6 +5195,12 @@ impl AudioOutput for RenderedDecks {
         sound: crate::reference_sound::ReferenceSound,
     ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
         SilentOutput.play_reference(sound)
+    }
+    fn play_metronome(
+        &mut self,
+        clicks: crate::metronome::Metronome,
+    ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
+        SilentOutput.play_metronome(clicks)
     }
     fn play_decks(
         &mut self,
