@@ -2210,6 +2210,11 @@ impl Render for EuphoriaApp {
                     if this.close_panels(cx) {
                         return;
                     }
+                    if this.focus.lanes_menu_open {
+                        this.focus.lanes_menu_open = false;
+                        cx.notify();
+                        return;
+                    }
                     if this.focus.is_open {
                         this.close_focus_view(cx);
                         return;

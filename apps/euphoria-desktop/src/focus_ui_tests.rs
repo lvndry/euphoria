@@ -121,6 +121,45 @@ fn enter_opens_the_view_escape_closes_it_and_f_still_stars(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn enter_leaves_the_set_builder_and_open_settings_alone(cx: &mut TestAppContext) {
+    let (window, view) = open_library(10, cx);
+    click(window, track(4), cx);
+    view.update(cx, |app, cx| {
+        app.set_builder.is_open = true;
+        cx.notify();
+    });
+    press(window, "enter", cx);
+    assert!(!is_open(&view, cx), "Enter does not cover the set builder");
+
+    view.update(cx, |app, cx| {
+        app.set_builder.is_open = false;
+        app.settings_open = true;
+        cx.notify();
+    });
+    press(window, "enter", cx);
+    assert!(
+        !is_open(&view, cx),
+        "Enter does not open the view behind settings"
+    );
+}
+
+#[gpui::test]
+fn escape_closes_the_lanes_menu_before_the_view(cx: &mut TestAppContext) {
+    let (window, view) = open_library(10, cx);
+    click(window, track(4), cx);
+    press(window, "enter", cx);
+    view.update(cx, |app, cx| {
+        app.focus.lanes_menu_open = true;
+        cx.notify();
+    });
+    press(window, "escape", cx);
+    assert!(is_open(&view, cx), "the first Escape closes the menu only");
+    assert!(!view.read_with(cx, |app, _| app.focus.lanes_menu_open));
+    press(window, "escape", cx);
+    assert!(!is_open(&view, cx));
+}
+
+#[gpui::test]
 fn every_lane_is_drawn_on_one_axis_with_the_sections_of_the_cues(cx: &mut TestAppContext) {
     let (window, _view) = open_cued_library(cx);
     open_focus(window, cx);

@@ -517,7 +517,11 @@ impl EuphoriaApp {
         window: &mut gpui::Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.focus.is_open || self.selected_track().is_none() {
+        let something_else_is_open = self.set_builder.is_open
+            || self.settings_open
+            || self.library_export.is_some()
+            || self.tag_panel.is_some();
+        if self.focus.is_open || something_else_is_open || self.selected_track().is_none() {
             return;
         }
         // The table that held the keyboard is replaced, so the window takes it
