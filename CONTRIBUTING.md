@@ -36,6 +36,15 @@ Then:
 cargo test --workspace
 ```
 
+## Running the app while you work
+
+```
+cargo app                          # the desktop app
+cargo cli -- analyze path/to/music # the command line tool
+```
+
+Both use the `fast` profile in `Cargo.toml`: optimised like a release, so audio and analysis run at full speed, but with thin link-time optimisation, parallel code generation and incremental builds, so a rebuild after a small change is quick. `cargo build --release` keeps the full optimisation the downloads are built with, and takes several minutes.
+
 ## Formatting on commit
 
 Turn on the repository's pre-commit hook once per clone:
