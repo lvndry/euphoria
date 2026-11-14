@@ -520,6 +520,9 @@ fn row(
                     row.hover(move |style| style.bg(palette.raised.opacity(0.5)))
                 }
             })
+            .on_hover(cx.listener(move |this, is_hovered: &bool, _, cx| {
+                this.row_hovered(track_index, *is_hovered, cx);
+            }))
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.table_focus.focus(window, cx);
                 this.click_track(track_index, event.modifiers(), cx);
@@ -593,6 +596,7 @@ fn cell_contents(
             let is_starred = app.session.favorites().is_starred(&track.path);
             let is_selected =
                 app.selected == Some(track_index) || app.marked.contains(&track_index);
+            let shows_actions = is_selected || app.hovered_track == Some(track_index);
             let is_sounding =
                 app.player.offers_pause() && app.player.track() == Some(track.path.as_path());
             div()
@@ -620,13 +624,8 @@ fn cell_contents(
                             0.0
                         }))
                         .truncate()
-                        .when(is_selected, |title| {
+                        .when(shows_actions, |title| {
                             title.mr(px(row_actions::reserved_width(ACTION_COUNT)))
-                        })
-                        .when(!is_selected, |title| {
-                            title.group_hover(TRACK_ROW_GROUP, |style| {
-                                style.mr(px(row_actions::reserved_width(ACTION_COUNT)))
-                            })
                         })
                         .font_weight(FontWeight::MEDIUM)
                         .when(track.is_unfinished(), |title| {

@@ -142,6 +142,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) program_checks: euphoria_core::export::program_files::DjProgramChecks,
     /// The tracks waiting to be tagged after analysis, when that is on.
     pub(crate) auto_tags: crate::auto_tags::AutoTags,
+    /// The table row under the pointer, whose title leaves room for the
+    /// row buttons. A title is laid out again when this changes, because a
+    /// style that only applies on hover does not shorten its ellipsis.
+    pub(crate) hovered_track: Option<usize>,
     /// How far the first run got, which decides whether its card shows.
     pub(crate) first_run: crate::first_run::FirstRun,
     /// True while the settings panel is open.
@@ -468,6 +472,7 @@ impl EuphoriaApp {
             } else {
                 euphoria_core::export::program_files::DjProgramChecks::REAL
             },
+            hovered_track: None,
             first_run: crate::first_run::FirstRun::from_stored(
                 settings.first_run,
                 !settings.folders.is_empty(),
@@ -1580,6 +1585,26 @@ impl EuphoriaApp {
         let request = self.player.toggle();
         self.carry_out(request, cx);
         cx.notify();
+    }
+
+    /// The pointer entered or left the row of `index`.
+    pub(crate) fn row_hovered(
+        &mut self,
+        index: usize,
+        is_hovered: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let hovered = if is_hovered {
+            Some(index)
+        } else if self.hovered_track == Some(index) {
+            None
+        } else {
+            return;
+        };
+        if self.hovered_track != hovered {
+            self.hovered_track = hovered;
+            cx.notify();
+        }
     }
 
     /// The play button of a table row: plays the track from where the player
