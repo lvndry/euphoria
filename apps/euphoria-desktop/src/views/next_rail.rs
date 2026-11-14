@@ -141,9 +141,9 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
             .group(ROW_GROUP)
             .flex()
             .flex_shrink_0()
-            .items_center()
+            .items_start()
             .gap(px(8.0))
-            .h(px(28.0))
+            .py(px(4.0))
             .px(px(2.0))
             .rounded(px(4.0))
             .cursor_pointer()
@@ -170,59 +170,85 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
             )
             .child(
                 div()
+                    .flex()
+                    .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .truncate()
-                    .child(track.title().to_string()),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_shrink_0()
-                    .justify_end()
-                    .w(px(46.0))
-                    .text_size(SMALL_TEXT_SIZE)
-                    .text_color(palette.text_secondary)
-                    .children(next.tempo_difference_percent.map(format::signed_percent)),
-            )
-            .children(
-                pills
-                    .into_iter()
-                    .enumerate()
-                    .map(|(position, text)| pill(text, position == 0, &palette)),
-            )
-            .child(
-                icon_button(
-                    play_id(track_index),
-                    PLAY_ICON_PATH,
-                    if decks_open {
-                        "Load on deck B (Enter)"
-                    } else {
-                        "Play (Enter)"
-                    },
-                    &palette,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.play_next_track(track_index, cx);
-                    cx.stop_propagation();
-                }))
-                .test_support(),
-            )
-            .when(decks_open, |row| {
-                row.child(
-                    icon_button(
-                        load_id(track_index),
-                        LOAD_ON_DECK_ICON_PATH,
-                        "Load on deck B",
-                        &palette,
+                    .gap(px(3.0))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(track.title().to_string()),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_shrink_0()
+                                    .justify_end()
+                                    .text_size(SMALL_TEXT_SIZE)
+                                    .text_color(palette.text_secondary)
+                                    .children(
+                                        next.tempo_difference_percent.map(format::signed_percent),
+                                    ),
+                            ),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.load_on_deck(crate::deck_audio::DeckId::B, track_index, cx);
-                        cx.stop_propagation();
-                    }))
-                    .test_support(),
-                )
-            })
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .children(
+                                pills
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(position, text)| pill(text, position == 0, &palette)),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                icon_button(
+                                    play_id(track_index),
+                                    PLAY_ICON_PATH,
+                                    if decks_open {
+                                        "Load on deck B (Enter)"
+                                    } else {
+                                        "Play (Enter)"
+                                    },
+                                    &palette,
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.play_next_track(track_index, cx);
+                                    cx.stop_propagation();
+                                }))
+                                .test_support(),
+                            )
+                            .when(decks_open, |actions| {
+                                actions.child(
+                                    icon_button(
+                                        load_id(track_index),
+                                        LOAD_ON_DECK_ICON_PATH,
+                                        "Load on deck B",
+                                        &palette,
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.load_on_deck(
+                                            crate::deck_audio::DeckId::B,
+                                            track_index,
+                                            cx,
+                                        );
+                                        cx.stop_propagation();
+                                    }))
+                                    .test_support(),
+                                )
+                            }),
+                    ),
+            )
             .test_support()
             .into_any_element(),
     )
