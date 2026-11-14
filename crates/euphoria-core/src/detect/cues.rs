@@ -13,6 +13,16 @@ use crate::detect::beat_grid::{BEATS_PER_BAR, BeatGrid, OnsetEnvelope, grid_of_e
 const BAR_LEAD_SECONDS: f64 = 0.05;
 /// The band of the kick and the bass ends about here.
 const KICK_BAND_HZ: f32 = 150.0;
+/// The grid has one tempo for the whole track, which is a little off the
+/// tempo of the music, so the beats drift from it. The kick of each bar is
+/// looked for this many steps of [`KICK_SEARCH_STEP_SECONDS`] either side of
+/// where the kick of the bar before was found, up to
+/// [`MAXIMUM_KICK_DRIFT_SECONDS`] from the grid.
+const KICK_SEARCH_STEPS: i32 = 4;
+const KICK_SEARCH_STEP_SECONDS: f64 = 0.01;
+const MAXIMUM_KICK_DRIFT_SECONDS: f64 = 0.3;
+/// The band of the hats and the percussion starts about here.
+const HIGH_BAND_HZ: f32 = 2_000.0;
 /// The kick is measured over this long from just before each beat, and the
 /// band between beats over as long halfway to the next beat.
 const KICK_WINDOW_SECONDS: f64 = 0.1;
@@ -37,14 +47,35 @@ const SILENT_BELOW_LOUDEST_DB: f32 = 40.0;
 /// A bar has a kick when the band below 150 Hz is at least this much louder
 /// just after its beats than between them.
 const KICK_PRESENT_DB: f32 = 3.0;
-/// A bar with a kick plays at full energy when its band below 150 Hz is no
-/// more than [`FULL_LOW_DROP_DB`] below its usual level and the whole bar no
-/// more than [`FULL_LOUDNESS_DROP_DB`] below its usual loudness.
-const FULL_LOW_DROP_DB: f32 = 6.0;
-const FULL_LOUDNESS_DROP_DB: f32 = 4.0;
-/// The usual level of a track is the level this share of its bars with
-/// sound reach.
-const USUAL_LEVEL_PERCENTILE: f32 = 0.9;
+/// Features further below the loudest bar of the track than this count as
+/// this far below it.
+const FEATURE_FLOOR_DB: f32 = 30.0;
+/// The features of a bar vary at least this much, in decibels, over a track,
+/// so that a steady track does not turn small differences into section
+/// changes.
+const MINIMUM_SPREAD_DB: f32 = 2.0;
+/// A bar with a kick counts as this many decibels in the kick feature.
+const KICK_FEATURE_DB: f32 = 3.0;
+/// Bars of each window the novelty compares around a bar.
+const NOVELTY_HALF_WIDTH_BARS: usize = 8;
+/// The windows of the novelty have at least this many bars, so that the
+/// last and the first bars have no novelty.
+const MINIMUM_NOVELTY_WIDTH: usize = 4;
+/// A peak of the novelty at least this large is a change of section.
+const BOUNDARY_NOVELTY: f32 = 1.0;
+/// The level of the body of a track is the one this share of its bars reach.
+const BODY_PERCENTILE: f32 = 0.75;
+/// A section plays at the level of the body of the track when its loudness
+/// is no more than this many decibels below it and its low end no more than
+/// [`HIGH_LOW_DROP_DB`] below the low end of the body.
+const HIGH_LOUDNESS_DROP_DB: f32 = 3.0;
+const HIGH_LOW_DROP_DB: f32 = 6.0;
+
+/// The body of a track has a kick when this share of the bars at its level
+/// have one. Then a section needs the kick for as many of its bars to play
+/// at the level of the body. A percussive groove whose kick the detector
+/// does not find has sections told apart by level alone.
+const BODY_KICK_SHARE: f32 = 0.5;
 
 /// What a cue marks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -124,16 +155,22 @@ pub fn cues_on_grid(audio: &AudioBuffer, grid: &BeatGrid) -> Vec<SectionCue> {
     OnsetEnvelope::of_audio(audio).map_or_else(Vec::new, |envelope| find_cues(&envelope, grid))
 }
 
-/// How a bar sounds.
+/// The part of a track between two section changes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Segment {
+    /// The first bar of the segment.
+    start: usize,
+    /// How many bars it lasts.
+    bars: usize,
+}
+
+/// Whether a section plays at the energy of the body of the track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BarLevel {
-    /// The kick and the bass at their usual level, and the track near its
-    /// usual loudness.
-    Full,
-    /// Kick or bass, but quieter or thinner than at full energy.
-    Partial,
-    /// No kick and bass to speak of, or silence.
-    NoKick,
+enum SectionEnergy {
+    /// At the level the track plays at for most of its length.
+    High,
+    /// Below it: an intro, a breakdown or an outro.
+    Low,
 }
 
 /// How one bar sounds, in decibels.
@@ -143,10 +180,25 @@ struct BarMeasure {
     loudness: f32,
     /// The loudness below about 150 Hz, where the kick and the bass are.
     low: f32,
+    /// The loudness above about 2 kHz, where the hats and the percussion are.
+    high: f32,
     /// How much louder the band below 150 Hz is just after each beat than
     /// halfway between beats. A kick on the beat raises it; a sustained
     /// bass line or pad sounds as loud between the beats and does not.
     kick: f32,
+}
+
+/// `samples` without what a one pole low pass at [`HIGH_BAND_HZ`] keeps.
+fn high_passed(samples: &[f32], sample_rate: f32) -> Vec<f32> {
+    let coefficient = 1.0 - (-std::f32::consts::TAU * HIGH_BAND_HZ / sample_rate).exp();
+    let mut stage = 0.0_f32;
+    samples
+        .iter()
+        .map(|sample| {
+            stage += coefficient * (sample - stage);
+            sample - stage
+        })
+        .collect()
 }
 
 /// The [`BarMeasure`] of every bar of the grid that fits in the track.
@@ -157,6 +209,7 @@ struct BarMeasure {
 fn bar_measures(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<BarMeasure> {
     let sample_rate = f64::from(envelope.sample_rate);
     let low_passed = low_passed(&envelope.samples, envelope.sample_rate);
+    let high_passed = high_passed(&envelope.samples, envelope.sample_rate);
     let power = |samples: &[f32]| {
         samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len().max(1) as f32
     };
@@ -171,21 +224,41 @@ fn bar_measures(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<BarMeasure> {
     let beat_seconds = grid.beat_seconds();
     let mut measures = Vec::new();
     let mut downbeat = grid.first_downbeat_seconds;
+    let mut drift = 0.0_f64;
     while downbeat + bar_seconds <= duration {
         let first = ((downbeat - BAR_LEAD_SECONDS).max(0.0) * sample_rate) as usize;
         let last = (((downbeat + bar_seconds - BAR_LEAD_SECONDS) * sample_rate) as usize)
             .min(envelope.samples.len());
         let range = first.min(last)..last;
-        let (mut on_beat, mut between_beats) = (0.0_f32, 0.0_f32);
-        for beat in 0..BEATS_PER_BAR {
-            let beat_time = downbeat + beat as f64 * beat_seconds - BAR_LEAD_SECONDS;
-            on_beat += power(window(beat_time, KICK_WINDOW_SECONDS));
-            between_beats += power(window(beat_time + beat_seconds / 2.0, KICK_WINDOW_SECONDS));
+        let kick_contrast = |shift: f64| {
+            let (mut on_beat, mut between_beats) = (0.0_f32, 0.0_f32);
+            for beat in 0..BEATS_PER_BAR {
+                let beat_time = downbeat + beat as f64 * beat_seconds - BAR_LEAD_SECONDS + shift;
+                on_beat += power(window(beat_time, KICK_WINDOW_SECONDS));
+                between_beats += power(window(beat_time + beat_seconds / 2.0, KICK_WINDOW_SECONDS));
+            }
+            decibels(on_beat) - decibels(between_beats)
+        };
+        let (best_shift, best_contrast) = (-KICK_SEARCH_STEPS..=KICK_SEARCH_STEPS)
+            .map(|step| {
+                let shift = drift + f64::from(step) * KICK_SEARCH_STEP_SECONDS;
+                (shift, kick_contrast(shift))
+            })
+            .fold((drift, f32::NEG_INFINITY), |best, candidate| {
+                if candidate.1 > best.1 {
+                    candidate
+                } else {
+                    best
+                }
+            });
+        if best_contrast >= KICK_PRESENT_DB {
+            drift = best_shift.clamp(-MAXIMUM_KICK_DRIFT_SECONDS, MAXIMUM_KICK_DRIFT_SECONDS);
         }
         measures.push(BarMeasure {
             loudness: decibels(power(&envelope.samples[range.clone()])),
-            low: decibels(power(&low_passed[range])),
-            kick: decibels(on_beat) - decibels(between_beats),
+            low: decibels(power(&low_passed[range.clone()])),
+            high: decibels(power(&high_passed[range])),
+            kick: best_contrast,
         });
         downbeat += bar_seconds;
     }
@@ -208,80 +281,227 @@ fn low_passed(samples: &[f32], sample_rate: f32) -> Vec<f32> {
         .collect()
 }
 
-/// The value that `share` of `values` reach or stay below.
-fn percentile(values: &[f32], share: f32) -> f32 {
-    let mut sorted = values.to_vec();
-    sorted.sort_by(f32::total_cmp);
-    let index = ((sorted.len() - 1) as f32 * share).round() as usize;
-    sorted[index]
-}
+/// How many numbers describe a bar for the segmentation: its loudness, its
+/// low end, its high end and whether it has a kick.
+const FEATURE_COUNT: usize = 4;
 
-/// The level of every bar, and the index of the first bar with sound.
-fn bar_levels(measures: &[BarMeasure]) -> Option<(Vec<BarLevel>, usize)> {
+/// Each of the four numbers of a bar in units of how much it varies over the
+/// track, so that a change in any of them shows as a distance.
+type BarFeatures = [f32; FEATURE_COUNT];
+
+/// The first bar with sound, or `None` when the track is silent.
+fn first_bar_with_sound(measures: &[BarMeasure]) -> Option<usize> {
     let loudest = measures
         .iter()
         .map(|measure| measure.loudness)
         .fold(f32::NEG_INFINITY, f32::max);
-    let silent = |measure: &BarMeasure| measure.loudness < loudest - SILENT_BELOW_LOUDEST_DB;
-    let first_with_sound = measures.iter().position(|measure| !silent(measure))?;
-    let sounding: Vec<&BarMeasure> = measures.iter().filter(|measure| !silent(measure)).collect();
-    let usual = |value: fn(&BarMeasure) -> f32| {
-        percentile(
-            &sounding
-                .iter()
-                .map(|measure| value(measure))
-                .collect::<Vec<_>>(),
-            USUAL_LEVEL_PERCENTILE,
-        )
-    };
-    let usual_loudness = usual(|measure| measure.loudness);
-    let usual_low = usual(|measure| measure.low);
-    let levels = measures
+    measures
         .iter()
-        .map(|measure| {
-            if silent(measure) || measure.kick < KICK_PRESENT_DB {
-                BarLevel::NoKick
-            } else if measure.low >= usual_low - FULL_LOW_DROP_DB
-                && measure.loudness >= usual_loudness - FULL_LOUDNESS_DROP_DB
-            {
-                BarLevel::Full
-            } else {
-                BarLevel::Partial
-            }
-        })
-        .collect();
-    Some((levels, first_with_sound))
+        .position(|measure| measure.loudness >= loudest - SILENT_BELOW_LOUDEST_DB)
 }
 
-/// Runs of bars at one level, as (first bar, level), from `first` on. A run
-/// shorter than [`MINIMUM_SECTION_BARS`] joins the run before it.
-fn sections(levels: &[BarLevel], first: usize) -> Vec<(usize, BarLevel)> {
-    let mut runs: Vec<(usize, usize, BarLevel)> = Vec::new();
-    for (index, level) in levels.iter().enumerate().skip(first) {
-        match runs.last_mut() {
-            Some((_, length, last_level)) if last_level == level => *length += 1,
-            _ => runs.push((index, 1, *level)),
+/// The features of every bar of `measures`, which start at the first bar with
+/// sound. A bar far below the loudest bars counts as that far below, so a
+/// silent tail does not stretch the scale the other bars are measured on.
+fn bar_features(measures: &[BarMeasure]) -> Vec<BarFeatures> {
+    let clamped = |value: fn(&BarMeasure) -> f32| {
+        let loudest = measures.iter().map(value).fold(f32::NEG_INFINITY, f32::max);
+        move |measure: &BarMeasure| value(measure).max(loudest - FEATURE_FLOOR_DB)
+    };
+    let loudness = clamped(|measure| measure.loudness);
+    let low = clamped(|measure| measure.low);
+    let high = clamped(|measure| measure.high);
+    let mut features: Vec<BarFeatures> = measures
+        .iter()
+        .map(|measure| {
+            [
+                loudness(measure),
+                low(measure),
+                high(measure),
+                if measure.kick >= KICK_PRESENT_DB {
+                    KICK_FEATURE_DB
+                } else {
+                    0.0
+                },
+            ]
+        })
+        .collect();
+    let count = features.len().max(1) as f32;
+    for column in 0..FEATURE_COUNT {
+        let mean = features.iter().map(|bar| bar[column]).sum::<f32>() / count;
+        let variance = features
+            .iter()
+            .map(|bar| (bar[column] - mean).powi(2))
+            .sum::<f32>()
+            / count;
+        let spread = variance.sqrt().max(MINIMUM_SPREAD_DB);
+        for bar in &mut features {
+            bar[column] = (bar[column] - mean) / spread;
         }
     }
-    let mut merged: Vec<(usize, usize, BarLevel)> = Vec::new();
-    for (start, length, level) in runs {
-        match merged.last_mut() {
-            Some((_, last_length, last_level)) if *last_level == level => *last_length += length,
-            Some((_, last_length, _)) if length < MINIMUM_SECTION_BARS => *last_length += length,
-            _ => merged.push((start, length, level)),
-        }
-    }
-    // A short first run is kept above, since nothing comes before it; it
-    // joins the run after it instead.
-    if merged.len() > 1 && merged[0].1 < MINIMUM_SECTION_BARS {
-        let (start, length, _) = merged.remove(0);
-        merged[0].0 = start;
-        merged[0].1 += length;
-    }
-    merged
-        .into_iter()
-        .map(|(start, _, level)| (start, level))
+    features
+}
+
+/// How much the music changes at each bar: the checkerboard kernel novelty
+/// of Foote on the distances between bars. Bars of a window before the bar
+/// are compared with bars of a window after it; the more they differ from
+/// each other, and the less they differ among themselves, the larger it is.
+fn novelty(features: &[BarFeatures]) -> Vec<f32> {
+    let distance = |first: &BarFeatures, second: &BarFeatures| -> f32 {
+        first
+            .iter()
+            .zip(second)
+            .map(|(left, right)| (left - right).powi(2))
+            .sum()
+    };
+    let mean_distance = |first: &[BarFeatures], second: &[BarFeatures]| -> f32 {
+        let total: f32 = first
+            .iter()
+            .flat_map(|left| second.iter().map(move |right| distance(left, right)))
+            .sum();
+        total / (first.len() * second.len()) as f32
+    };
+    (0..features.len())
+        .map(|bar| {
+            let width = NOVELTY_HALF_WIDTH_BARS.min(bar).min(features.len() - bar);
+            if width < MINIMUM_NOVELTY_WIDTH {
+                return 0.0;
+            }
+            let before = &features[bar - width..bar];
+            let after = &features[bar..bar + width];
+            mean_distance(before, after)
+                - (mean_distance(before, before) + mean_distance(after, after)) / 2.0
+        })
         .collect()
+}
+
+/// The bars, counted from the first bar with sound, where a new section
+/// starts: the peaks of the novelty above [`BOUNDARY_NOVELTY`], the highest
+/// first, at least [`MINIMUM_SECTION_BARS`] from each other and from the
+/// ends.
+fn boundaries(novelty: &[f32]) -> Vec<usize> {
+    let reach = MINIMUM_SECTION_BARS / 2;
+    let mut peaks: Vec<usize> = (MINIMUM_SECTION_BARS
+        ..novelty.len().saturating_sub(MINIMUM_SECTION_BARS - 1))
+        .filter(|&bar| {
+            novelty[bar] >= BOUNDARY_NOVELTY
+                && (bar.saturating_sub(reach)..(bar + reach + 1).min(novelty.len()))
+                    .all(|other| novelty[other] <= novelty[bar])
+        })
+        .collect();
+    peaks.sort_by(|left, right| novelty[*right].total_cmp(&novelty[*left]));
+    let mut accepted: Vec<usize> = Vec::new();
+    for bar in peaks {
+        if accepted
+            .iter()
+            .all(|other| other.abs_diff(bar) >= MINIMUM_SECTION_BARS)
+        {
+            accepted.push(bar);
+        }
+    }
+    accepted.sort_unstable();
+    accepted
+}
+
+/// The segments of the bars from `first` to `bar_count`, split at
+/// `boundaries` (counted from `first`) moved onto the phrases.
+fn segments(boundaries: &[usize], first: usize, bar_count: usize) -> Vec<Segment> {
+    let mut starts = vec![first];
+    for &boundary in boundaries {
+        let bar = snapped_to_phrase(first + boundary, first);
+        let last = *starts.last().unwrap_or(&first);
+        if bar >= last + MINIMUM_SECTION_BARS && bar + MINIMUM_SECTION_BARS <= bar_count {
+            starts.push(bar);
+        }
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(index, &start)| Segment {
+            start,
+            bars: starts.get(index + 1).copied().unwrap_or(bar_count) - start,
+        })
+        .collect()
+}
+
+/// The value that `share` of the bars of `segments` reach or stay below,
+/// where every bar has the value of the mean of its segment.
+fn body_level(segments: &[(Segment, f32)], share: f32) -> f32 {
+    let mut ordered: Vec<(Segment, f32)> = segments.to_vec();
+    ordered.sort_by(|left, right| left.1.total_cmp(&right.1));
+    let total: usize = ordered.iter().map(|(segment, _)| segment.bars).sum();
+    let mut reached = 0;
+    for (segment, level) in &ordered {
+        reached += segment.bars;
+        if reached as f32 >= total as f32 * share {
+            return *level;
+        }
+    }
+    ordered.last().map_or(0.0, |(_, level)| *level)
+}
+
+/// Whether each segment plays at the level of the body of the track: the
+/// loudness and the low end that [`BODY_PERCENTILE`] of the bars reach, with
+/// a kick when the track has one for most of its length. Neighbours at the
+/// same energy are one section.
+fn section_energies(
+    segments: &[Segment],
+    measures: &[BarMeasure],
+) -> Vec<(Segment, SectionEnergy)> {
+    let mean = |segment: &Segment, value: fn(&BarMeasure) -> f32| {
+        let bars = &measures[segment.start..segment.start + segment.bars];
+        bars.iter().map(value).sum::<f32>() / bars.len().max(1) as f32
+    };
+    let loudness: Vec<(Segment, f32)> = segments
+        .iter()
+        .map(|segment| (*segment, mean(segment, |measure| measure.loudness)))
+        .collect();
+    let low: Vec<(Segment, f32)> = segments
+        .iter()
+        .map(|segment| (*segment, mean(segment, |measure| measure.low)))
+        .collect();
+    let body_loudness = body_level(&loudness, BODY_PERCENTILE);
+    let body_low = body_level(&low, BODY_PERCENTILE);
+    let at_body_level: Vec<bool> = segments
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            loudness[index].1 >= body_loudness - HIGH_LOUDNESS_DROP_DB
+                && low[index].1 >= body_low - HIGH_LOW_DROP_DB
+        })
+        .collect();
+    let kick_share = |segment: &Segment| {
+        let bars = &measures[segment.start..segment.start + segment.bars];
+        bars.iter()
+            .filter(|measure| measure.kick >= KICK_PRESENT_DB)
+            .count() as f32
+            / bars.len().max(1) as f32
+    };
+    let (kick_bars, body_bars) = segments
+        .iter()
+        .zip(&at_body_level)
+        .filter(|(_, at_body_level)| **at_body_level)
+        .fold((0.0, 0.0), |(kick, total), (segment, _)| {
+            (
+                kick + kick_share(segment) * segment.bars as f32,
+                total + segment.bars as f32,
+            )
+        });
+    let body_has_kick = body_bars > 0.0 && kick_bars / body_bars >= BODY_KICK_SHARE;
+    let mut energies: Vec<(Segment, SectionEnergy)> = Vec::new();
+    for (segment, &at_body_level) in segments.iter().zip(&at_body_level) {
+        let energy = if at_body_level && (!body_has_kick || kick_share(segment) >= BODY_KICK_SHARE)
+        {
+            SectionEnergy::High
+        } else {
+            SectionEnergy::Low
+        };
+        match energies.last_mut() {
+            Some((last, last_energy)) if *last_energy == energy => last.bars += segment.bars,
+            _ => energies.push((*segment, energy)),
+        }
+    }
+    energies
 }
 
 /// `bar` moved onto the phrase boundary counted from `first`, or onto the
@@ -299,47 +519,39 @@ fn snapped_to_phrase(bar: usize, first: usize) -> usize {
 }
 
 /// The cues of a track, as (bar, section), in order.
-fn cue_bars(levels: &[BarLevel], first: usize) -> Vec<(usize, CueSection)> {
-    let runs = sections(levels, first);
+fn cue_bars(measures: &[BarMeasure], first: usize) -> Vec<(usize, CueSection)> {
+    let features = bar_features(&measures[first..]);
+    let starts = boundaries(&novelty(&features));
+    let sections = section_energies(&segments(&starts, first, measures.len()), measures);
     let mut cues = vec![(first, CueSection::Start)];
-    let mut seen_full = false;
+    let mut seen_high = false;
     let mut in_breakdown = false;
-    for &(start, level) in &runs {
-        match level {
-            BarLevel::Full if !seen_full => {
-                seen_full = true;
-                cues.push((start, CueSection::Main));
+    for (index, &(segment, energy)) in sections.iter().enumerate() {
+        match energy {
+            SectionEnergy::High if !seen_high => {
+                seen_high = true;
+                cues.push((segment.start, CueSection::Main));
             }
-            BarLevel::Full if in_breakdown => {
+            SectionEnergy::High if in_breakdown => {
                 in_breakdown = false;
-                cues.push((start, CueSection::Drop));
+                cues.push((segment.start, CueSection::Drop));
             }
-            BarLevel::NoKick if seen_full && !in_breakdown => {
+            SectionEnergy::Low if seen_high && !in_breakdown => {
                 in_breakdown = true;
-                cues.push((start, CueSection::Breakdown));
+                let is_last = index + 1 == sections.len();
+                let section = if is_last && segment.bars >= PHRASE_BARS {
+                    CueSection::Outro
+                } else {
+                    CueSection::Breakdown
+                };
+                cues.push((segment.start, section));
             }
             _ => {}
         }
     }
-    let last_full_end = runs
-        .iter()
-        .enumerate()
-        .rfind(|(_, (_, level))| *level == BarLevel::Full)
-        .map(|(index, _)| {
-            runs.get(index + 1)
-                .map_or(levels.len(), |(start, _)| *start)
-        });
-    if let Some(end) = last_full_end
-        && end + PHRASE_BARS <= levels.len()
-    {
-        // A breakdown cue at the same bar is the outro instead.
-        cues.retain(|(bar, _)| *bar != end);
-        cues.push((end, CueSection::Outro));
-    }
-
     let mut snapped: Vec<(usize, CueSection)> = Vec::new();
     for (bar, section) in cues {
-        let bar = snapped_to_phrase(bar, first).min(levels.len().saturating_sub(1));
+        let bar = snapped_to_phrase(bar, first).min(measures.len().saturating_sub(1));
         if snapped.iter().all(|(placed, _)| *placed != bar) {
             snapped.push((bar, section));
         }
@@ -378,10 +590,10 @@ fn keep_most_useful(cues: Vec<(usize, CueSection)>) -> Vec<(usize, CueSection)> 
 
 pub(crate) fn find_cues(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<SectionCue> {
     let measures = bar_measures(envelope, grid);
-    let Some((levels, first)) = bar_levels(&measures) else {
+    let Some(first) = first_bar_with_sound(&measures) else {
         return Vec::new();
     };
-    cue_bars(&levels, first)
+    cue_bars(&measures, first)
         .into_iter()
         .map(|(bar, section)| SectionCue {
             seconds: grid.first_downbeat_seconds + bar as f64 * grid.bar_seconds(),
@@ -571,6 +783,128 @@ mod tests {
         let cues = cues_of(&audio);
 
         assert_cues(&cues, &[(0.0, CueSection::Start), (32.0, CueSection::Main)]);
+    }
+
+    const GROOVE: Parts = Parts {
+        kick: false,
+        bass: true,
+        pad: true,
+    };
+    const KICK_AND_BASS: Parts = Parts {
+        kick: true,
+        bass: true,
+        pad: false,
+    };
+
+    #[test]
+    fn a_groove_without_a_kick_after_a_kick_intro_is_the_main_section_not_an_outro() {
+        let audio = arrangement(0.0, &[(16, INTRO), (48, GROOVE)]);
+
+        let cues = cues_of(&audio);
+
+        assert_cues(&cues, &[(0.0, CueSection::Start), (32.0, CueSection::Main)]);
+    }
+
+    #[test]
+    fn a_loud_intro_before_a_quieter_steady_body_does_not_start_an_outro() {
+        let audio = arrangement(0.0, &[(16, FULL), (48, KICK_AND_BASS)]);
+
+        let cues = cues_of(&audio);
+
+        assert_cues(&cues, &[(0.0, CueSection::Start)]);
+    }
+
+    #[test]
+    fn a_groove_without_a_kick_still_has_its_breakdown_drop_and_outro() {
+        let audio = arrangement(
+            0.0,
+            &[
+                (16, INTRO),
+                (32, GROOVE),
+                (16, BREAKDOWN),
+                (32, GROOVE),
+                (16, BREAKDOWN),
+            ],
+        );
+
+        let cues = cues_of(&audio);
+
+        assert_cues(
+            &cues,
+            &[
+                (0.0, CueSection::Start),
+                (32.0, CueSection::Main),
+                (96.0, CueSection::Breakdown),
+                (128.0, CueSection::Drop),
+                (192.0, CueSection::Outro),
+            ],
+        );
+    }
+
+    type Scenario = (
+        &'static str,
+        f64,
+        Vec<(usize, Parts)>,
+        Vec<(usize, CueSection)>,
+    );
+
+    #[test]
+    fn synthetic_arrangements_get_the_cues_of_their_sections() {
+        use CueSection::*;
+        let scenarios: Vec<Scenario> = vec![
+            (
+                "two breakdowns",
+                0.0,
+                vec![
+                    (8, INTRO),
+                    (24, FULL),
+                    (8, BREAKDOWN),
+                    (24, FULL),
+                    (8, BREAKDOWN),
+                    (32, FULL),
+                    (16, INTRO),
+                ],
+                vec![
+                    (0, Start),
+                    (8, Main),
+                    (32, Breakdown),
+                    (40, Drop),
+                    (64, Breakdown),
+                    (72, Drop),
+                    (104, Outro),
+                ],
+            ),
+            (
+                "long intro and outro",
+                0.0,
+                vec![(32, INTRO), (64, FULL), (32, INTRO)],
+                vec![(0, Start), (32, Main), (96, Outro)],
+            ),
+            (
+                "groove long intro and outro",
+                0.0,
+                vec![(32, INTRO), (64, GROOVE), (32, BREAKDOWN)],
+                vec![(0, Start), (32, Main), (96, Outro)],
+            ),
+        ];
+        for (name, offset, stretches, expected) in &scenarios {
+            let audio = arrangement(*offset, stretches);
+            let found = cues_of(&audio);
+            let expected: Vec<(f64, CueSection)> = expected
+                .iter()
+                .map(|(bar, section)| (found[0].0 + *bar as f64 * BAR_SECONDS, *section))
+                .collect();
+            assert_eq!(found.len(), expected.len(), "{name}: {found:?}");
+            for ((seconds, section), (expected_seconds, expected_section)) in
+                found.iter().zip(&expected)
+            {
+                assert_eq!(section, expected_section, "{name}: {found:?}");
+                assert!(
+                    (seconds - expected_seconds).abs() < 0.05,
+                    "{name}: {found:?}"
+                );
+            }
+        }
     }
 
     #[test]
