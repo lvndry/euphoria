@@ -386,6 +386,8 @@ jobs:
     name: Publish to Homebrew
     needs: [prepare, publish]
     if: needs.publish.result == 'success'
+    permissions:
+      contents: read
     uses: ./.github/workflows/publish-homebrew.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
