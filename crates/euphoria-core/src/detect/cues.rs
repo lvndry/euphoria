@@ -16,11 +16,14 @@ const KICK_BAND_HZ: f32 = 150.0;
 /// The grid has one tempo for the whole track, which is a little off the
 /// tempo of the music, so the beats drift from it. The kick of each bar is
 /// looked for this many steps of [`KICK_SEARCH_STEP_SECONDS`] either side of
-/// where the kick of the bar before was found, up to
-/// [`MAXIMUM_KICK_DRIFT_SECONDS`] from the grid.
+/// where the kick of the bar before was found. A bar where that finds none
+/// is searched again this many steps of [`KICK_WIDE_SEARCH_STEP_SECONDS`]
+/// either side of the grid, which finds the kick again after a breakdown
+/// that lasted long enough for the beats to drift out of the first search.
 const KICK_SEARCH_STEPS: i32 = 4;
 const KICK_SEARCH_STEP_SECONDS: f64 = 0.01;
-const MAXIMUM_KICK_DRIFT_SECONDS: f64 = 0.3;
+const KICK_WIDE_SEARCH_STEPS: i32 = 11;
+const KICK_WIDE_SEARCH_STEP_SECONDS: f64 = 0.02;
 /// The band of the hats and the percussion starts about here.
 const HIGH_BAND_HZ: f32 = 2_000.0;
 /// The kick is measured over this long from just before each beat, and the
@@ -239,20 +242,31 @@ fn bar_measures(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<BarMeasure> {
             }
             decibels(on_beat) - decibels(between_beats)
         };
-        let (best_shift, best_contrast) = (-KICK_SEARCH_STEPS..=KICK_SEARCH_STEPS)
-            .map(|step| {
-                let shift = drift + f64::from(step) * KICK_SEARCH_STEP_SECONDS;
-                (shift, kick_contrast(shift))
-            })
-            .fold((drift, f32::NEG_INFINITY), |best, candidate| {
-                if candidate.1 > best.1 {
-                    candidate
-                } else {
-                    best
-                }
-            });
+        let search = |center: f64, steps: i32, step_seconds: f64| {
+            (-steps..=steps)
+                .map(|step| {
+                    let shift = center + f64::from(step) * step_seconds;
+                    (shift, kick_contrast(shift))
+                })
+                .fold((center, f32::NEG_INFINITY), |best, candidate| {
+                    if candidate.1 > best.1 {
+                        candidate
+                    } else {
+                        best
+                    }
+                })
+        };
+        let (mut best_shift, mut best_contrast) =
+            search(drift, KICK_SEARCH_STEPS, KICK_SEARCH_STEP_SECONDS);
+        if best_contrast < KICK_PRESENT_DB {
+            let (wide_shift, wide_contrast) =
+                search(0.0, KICK_WIDE_SEARCH_STEPS, KICK_WIDE_SEARCH_STEP_SECONDS);
+            if wide_contrast > best_contrast {
+                (best_shift, best_contrast) = (wide_shift, wide_contrast);
+            }
+        }
         if best_contrast >= KICK_PRESENT_DB {
-            drift = best_shift.clamp(-MAXIMUM_KICK_DRIFT_SECONDS, MAXIMUM_KICK_DRIFT_SECONDS);
+            drift = best_shift;
         }
         measures.push(BarMeasure {
             loudness: decibels(power(&envelope.samples[range.clone()])),
@@ -425,7 +439,7 @@ fn segments(boundaries: &[usize], first: usize, bar_count: usize) -> Vec<Segment
 }
 
 /// The value that `share` of the bars of `segments` reach or stay below,
-/// where every bar has the value of the mean of its segment.
+/// where every bar has the median value of its segment.
 fn body_level(segments: &[(Segment, f32)], share: f32) -> f32 {
     let mut ordered: Vec<(Segment, f32)> = segments.to_vec();
     ordered.sort_by(|left, right| left.1.total_cmp(&right.1));
@@ -448,17 +462,21 @@ fn section_energies(
     segments: &[Segment],
     measures: &[BarMeasure],
 ) -> Vec<(Segment, SectionEnergy)> {
-    let mean = |segment: &Segment, value: fn(&BarMeasure) -> f32| {
-        let bars = &measures[segment.start..segment.start + segment.bars];
-        bars.iter().map(value).sum::<f32>() / bars.len().max(1) as f32
+    let median = |segment: &Segment, value: fn(&BarMeasure) -> f32| {
+        let mut values: Vec<f32> = measures[segment.start..segment.start + segment.bars]
+            .iter()
+            .map(value)
+            .collect();
+        values.sort_by(f32::total_cmp);
+        values[values.len() / 2]
     };
     let loudness: Vec<(Segment, f32)> = segments
         .iter()
-        .map(|segment| (*segment, mean(segment, |measure| measure.loudness)))
+        .map(|segment| (*segment, median(segment, |measure| measure.loudness)))
         .collect();
     let low: Vec<(Segment, f32)> = segments
         .iter()
-        .map(|segment| (*segment, mean(segment, |measure| measure.low)))
+        .map(|segment| (*segment, median(segment, |measure| measure.low)))
         .collect();
     let body_loudness = body_level(&loudness, BODY_PERCENTILE);
     let body_low = body_level(&low, BODY_PERCENTILE);
@@ -905,6 +923,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_few_silent_bars_at_the_end_do_not_turn_the_last_section_into_an_outro() {
+        let silence = Parts {
+            kick: false,
+            bass: false,
+            pad: false,
+        };
+        let audio = arrangement(
+            0.0,
+            &[
+                (16, INTRO),
+                (32, FULL),
+                (16, BREAKDOWN),
+                (32, FULL),
+                (3, silence),
+            ],
+        );
+
+        let cues = cues_of(&audio);
+
+        assert_cues(
+            &cues,
+            &[
+                (0.0, CueSection::Start),
+                (32.0, CueSection::Main),
+                (96.0, CueSection::Breakdown),
+                (128.0, CueSection::Drop),
+            ],
+        );
     }
 
     #[test]
