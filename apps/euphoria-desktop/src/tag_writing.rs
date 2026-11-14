@@ -19,11 +19,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::playlists::PlaylistRewrite;
 use crate::state::PlaylistSaver;
+use crate::tag_settings::TagSettings;
 use euphoria_core::tags::{
-    FieldChange, LoggedWrite, RewriteStage, TagWriteOptions, WriteLog, WritePlan, plan_write,
-    undo_last_write_with_observer,
+    FieldChange, LoggedWrite, RewriteStage, SeratoMarkers, WriteLog, WritePlan, add_serato_markers,
+    plan_write, undo_last_write_with_observer,
 };
-use euphoria_core::{CachedAnalyzer, Correction, TrackAnalysis};
+use euphoria_core::{CachedAnalyzer, Correction, Cue, TrackAnalysis};
 
 struct RewriteUpdates<'a> {
     playlists: Option<&'a PlaylistSaver>,
@@ -121,6 +122,9 @@ pub(crate) struct WriteTarget {
     /// The key and tempo the user set, which are written in place of the
     /// detected ones.
     pub(crate) correction: Correction,
+    /// The cues the user set, which are written as Serato cue points in
+    /// place of those analysis placed, or `None`.
+    pub(crate) edited_cues: Option<Vec<Cue>>,
 }
 
 /// A file left out of a write, and why.
@@ -147,10 +151,16 @@ pub(crate) struct PlannedWrite {
     pub(crate) not_analyzed: Vec<LeftOut>,
     /// Files whose tags could not be read or could not be written safely.
     pub(crate) failures: Vec<LeftOut>,
+    /// Files whose Serato cue points or beat grid do not all go where they
+    /// were meant to, each with a note of one sentence. A file with several
+    /// notes is listed once for each.
+    pub(crate) serato_notes: Vec<LeftOut>,
 }
 
-/// Works out the changes for every target. Reads the files, writes none.
-pub(crate) fn plan_writes(targets: &[WriteTarget], options: &TagWriteOptions) -> PlannedWrite {
+/// Works out the changes for every target with `settings`. Reads the files,
+/// writes none.
+pub(crate) fn plan_writes(targets: &[WriteTarget], settings: &TagSettings) -> PlannedWrite {
+    let options = settings.write_options();
     let mut planned = PlannedWrite::default();
     for target in targets {
         let Some(analysis) = &target.analysis else {
@@ -161,7 +171,23 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], options: &TagWriteOptions) ->
             continue;
         };
         let written = target.correction.apply(analysis.clone());
-        match plan_write(&target.path, &written, options) {
+        let mut notes = Vec::new();
+        let plan = plan_write(&target.path, &written, &options).and_then(|mut plan| {
+            if settings.write_cue_markers {
+                let markers = SeratoMarkers::of_cues(&written, target.edited_cues.clone());
+                notes = add_serato_markers(&mut plan, &markers)?.notes();
+            }
+            Ok(plan)
+        });
+        if plan.is_ok() {
+            planned
+                .serato_notes
+                .extend(notes.into_iter().map(|note| LeftOut {
+                    path: target.path.clone(),
+                    reason: note,
+                }));
+        }
+        match plan {
             Ok(plan) if plan.is_empty() => planned.up_to_date += 1,
             Ok(plan) => {
                 planned.plans.push(plan);
@@ -511,8 +537,9 @@ mod tests {
             path: path.clone(),
             analysis: Some(projected),
             correction: Correction::default(),
+            edited_cues: None,
         };
-        let planned = plan_writes(&[target], &TagSettings::default().write_options());
+        let planned = plan_writes(&[target], &TagSettings::default());
         let report = write_plans(
             &planned.plans,
             &planned.analyses.into_iter().map(Some).collect::<Vec<_>>(),
@@ -539,8 +566,161 @@ mod tests {
                 path: path.clone(),
                 analysis: Some(analysis()),
                 correction: Correction::default(),
+                edited_cues: None,
             })
             .collect()
+    }
+
+    fn analysis_with_grid() -> TrackAnalysis {
+        TrackAnalysis {
+            beat_grid: Some(euphoria_core::detect::BeatGrid {
+                first_downbeat_seconds: 0.1,
+                bpm: 124.0,
+                salience: 10.0,
+                drift_seconds: None,
+            }),
+            cues: vec![euphoria_core::detect::SectionCue {
+                seconds: 0.1,
+                section: euphoria_core::detect::CueSection::Start,
+            }],
+            ..analysis()
+        }
+    }
+
+    fn cue_marker_settings() -> TagSettings {
+        TagSettings {
+            write_cue_markers: true,
+            ..TagSettings::default()
+        }
+    }
+
+    fn grid_targets(paths: &[PathBuf], edited_cues: Option<Vec<Cue>>) -> Vec<WriteTarget> {
+        paths
+            .iter()
+            .map(|path| WriteTarget {
+                path: path.clone(),
+                analysis: Some(analysis_with_grid()),
+                correction: Correction::default(),
+                edited_cues: edited_cues.clone(),
+            })
+            .collect()
+    }
+
+    fn serato_changes(plan: &WritePlan) -> Vec<&'static str> {
+        plan.changes()
+            .iter()
+            .filter_map(|change| euphoria_core::tags::serato_field_name(&change.field))
+            .collect()
+    }
+
+    #[test]
+    fn cue_markers_are_planned_only_when_the_setting_is_on() {
+        let scratch = ScratchFolder::new("cue-markers-setting");
+        let files = scratch.copy_fixtures();
+        let targets = grid_targets(&files, None);
+
+        let without = plan_writes(&targets, &TagSettings::default());
+        assert!(
+            without
+                .plans
+                .iter()
+                .all(|plan| serato_changes(plan).is_empty())
+        );
+        assert!(without.serato_notes.is_empty());
+
+        let with = plan_writes(&targets, &cue_marker_settings());
+        assert!(with.failures.is_empty(), "{:?}", with.failures);
+        let plan_of = |path: &PathBuf| {
+            with.plans
+                .iter()
+                .find(|plan| plan.path() == path)
+                .expect("a plan for the file")
+        };
+        for audio in &files[..2] {
+            let fields = serato_changes(plan_of(audio));
+            assert!(fields.contains(&"Serato cue points"), "{fields:?}");
+            assert!(fields.contains(&"Serato beat grid"), "{fields:?}");
+        }
+        assert!(serato_changes(plan_of(&files[2])).is_empty());
+        assert_eq!(with.serato_notes.len(), 1, "{:?}", with.serato_notes);
+        assert_eq!(with.serato_notes[0].path, files[2]);
+        assert!(with.serato_notes[0].reason.contains("WAV"));
+    }
+
+    #[test]
+    fn edited_cues_are_written_on_their_pads_instead_of_the_automatic_ones() {
+        let scratch = ScratchFolder::new("cue-markers-edited");
+        let files = scratch.copy_fixtures();
+        let edited = vec![
+            Cue {
+                seconds: 0.5,
+                name: "Mine".to_string(),
+                hot_cue: euphoria_core::track_cues::HotCue::from_pad(3),
+            },
+            Cue {
+                seconds: 0.25,
+                name: "Memory".to_string(),
+                hot_cue: None,
+            },
+        ];
+        let planned = plan_writes(
+            &grid_targets(&files[..1], Some(edited)),
+            &cue_marker_settings(),
+        );
+        let change = planned.plans[0]
+            .changes()
+            .iter()
+            .find(|change| {
+                euphoria_core::tags::serato_field_name(&change.field) == Some("Serato cue points")
+            })
+            .expect("the cue points are planned");
+        let described = euphoria_core::tags::describe_serato_value(
+            &change.field,
+            change.new.as_deref().expect("a new value"),
+        )
+        .expect("the value is described");
+        assert!(described.contains("4 Mine at 0:00.500"), "{described}");
+        assert!(!described.contains("Start"), "{described}");
+        assert!(!described.contains("Memory"), "{described}");
+    }
+
+    #[test]
+    fn writing_cue_markers_then_undoing_restores_every_byte() {
+        let scratch = ScratchFolder::new("cue-markers-undo");
+        let files = scratch.copy_fixtures();
+        let before = contents(&files);
+        let planned = plan_writes(&grid_targets(&files, None), &cue_marker_settings());
+        let report = write_plans(
+            &planned.plans,
+            &planned
+                .analyses
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect::<Vec<_>>(),
+            &scratch.log_directory(),
+            None,
+            &Arc::new(AtomicUsize::new(0)),
+        );
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.written.len(), files.len());
+        assert_ne!(contents(&files), before);
+
+        let replanned = plan_writes(&grid_targets(&files, None), &cue_marker_settings());
+        assert_eq!(
+            replanned
+                .plans
+                .iter()
+                .map(|plan| serato_changes(plan).len())
+                .sum::<usize>(),
+            0,
+            "the markers are already there"
+        );
+
+        let undone = undo_last(&scratch.log_directory(), None).unwrap().unwrap();
+        assert_eq!(undone.restored.len(), files.len());
+        assert!(undone.failures.is_empty(), "{:?}", undone.failures);
+        assert_eq!(contents(&files), before);
     }
 
     #[test]
@@ -548,7 +728,7 @@ mod tests {
         let scratch = ScratchFolder::new("plan");
         let files = scratch.copy_fixtures();
         let before = contents(&files);
-        let planned = plan_writes(&targets(&files), &TagSettings::default().write_options());
+        let planned = plan_writes(&targets(&files), &TagSettings::default());
         assert_eq!(contents(&files), before);
         assert_eq!(planned.plans.len(), files.len());
         assert!(planned.failures.is_empty(), "{:?}", planned.failures);
@@ -559,10 +739,7 @@ mod tests {
     fn the_preview_lists_each_file_then_each_field_with_old_and_new_values() {
         let scratch = ScratchFolder::new("preview");
         let files = scratch.copy_fixtures();
-        let planned = plan_writes(
-            &targets(&files[..1]),
-            &TagSettings::default().write_options(),
-        );
+        let planned = plan_writes(&targets(&files[..1]), &TagSettings::default());
         let rows = preview_rows(&planned.plans);
         assert_eq!(
             rows[0],
@@ -598,7 +775,7 @@ mod tests {
         let files = scratch.copy_fixtures();
         let mut targets = targets(&files);
         targets[1].analysis = None;
-        let planned = plan_writes(&targets, &TagSettings::default().write_options());
+        let planned = plan_writes(&targets, &TagSettings::default());
         assert_eq!(planned.plans.len(), 2);
         assert_eq!(planned.not_analyzed.len(), 1);
         assert_eq!(planned.not_analyzed[0].path, files[1]);
@@ -609,7 +786,7 @@ mod tests {
         let scratch = ScratchFolder::new("missing");
         let mut files = scratch.copy_fixtures();
         files.push(scratch.0.join("music/gone.mp3"));
-        let planned = plan_writes(&targets(&files), &TagSettings::default().write_options());
+        let planned = plan_writes(&targets(&files), &TagSettings::default());
         assert_eq!(planned.plans.len(), 3);
         assert_eq!(planned.failures.len(), 1);
         assert!(!planned.failures[0].reason.is_empty());
@@ -622,7 +799,7 @@ mod tests {
         let before = contents(&files);
         let mut settings = TagSettings::default();
         settings.choose_program(ProgramChoice::Rekordbox);
-        let planned = plan_writes(&targets(&files), &settings.write_options());
+        let planned = plan_writes(&targets(&files), &settings);
 
         let done = Arc::new(AtomicUsize::new(0));
         let report = write_plans(
@@ -641,7 +818,7 @@ mod tests {
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(done.load(Ordering::Relaxed), files.len());
         assert_ne!(contents(&files), before);
-        let replanned = plan_writes(&targets(&files), &settings.write_options());
+        let replanned = plan_writes(&targets(&files), &settings);
         assert_eq!(replanned.up_to_date, files.len());
 
         let undone = undo_last(&scratch.log_directory(), None).unwrap().unwrap();
@@ -655,12 +832,12 @@ mod tests {
     fn a_file_changed_after_planning_is_not_written_and_the_rest_are() {
         let scratch = ScratchFolder::new("changed");
         let files = scratch.copy_fixtures();
-        let planned = plan_writes(&targets(&files), &TagSettings::default().write_options());
+        let planned = plan_writes(&targets(&files), &TagSettings::default());
         let other_settings = TagSettings {
             write_tempo: false,
             ..TagSettings::default()
         };
-        let meanwhile = plan_writes(&targets(&files[..1]), &other_settings.write_options());
+        let meanwhile = plan_writes(&targets(&files[..1]), &other_settings);
         euphoria_core::tags::apply_plan(&meanwhile.plans[0]).unwrap();
 
         let done = Arc::new(AtomicUsize::new(0));
@@ -699,9 +876,10 @@ mod tests {
                 path: path.clone(),
                 analysis: Some(first_launch.analyze_file(path).unwrap().analysis),
                 correction: Correction::default(),
+                edited_cues: None,
             })
             .collect();
-        let planned = plan_writes(&targets, &TagSettings::default().write_options());
+        let planned = plan_writes(&targets, &TagSettings::default());
         let done = Arc::new(AtomicUsize::new(0));
         let report = write_plans(
             &planned.plans,

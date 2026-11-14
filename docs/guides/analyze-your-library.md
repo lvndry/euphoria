@@ -47,7 +47,7 @@ euphoria analyze --needs-review ~/Music/DJ
 euphoria analyze --quality weak,reencoded ~/Music/DJ
 ```
 
-The first lists the tracks whose key or tempo is rated low, the second the files whose sound quality is weak on a big system or that were likely made from a lower quality file. The summary says how many of the tracks are shown.
+The first lists the tracks whose key or tempo is rated low, or whose tags name another key than the detected one, the second the files whose sound quality is weak on a big system or that were likely made from a lower quality file. The summary says how many of the tracks are shown.
 
 ## Analyze again after adding music
 

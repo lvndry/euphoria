@@ -16,10 +16,10 @@ use euphoria_core::tags::{
     plan_write, undo_last_write_with_observer,
 };
 use euphoria_core::{
-    CachedBatch, Correction, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
+    CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
 };
 
-use crate::batch::{self, AnalysisOptions};
+use crate::batch::{self, AnalysisOptions, UserEdits};
 use crate::rewrites::RewriteIdentities;
 use crate::style::Theme;
 use crate::view::KeyNotationChoice;
@@ -183,8 +183,8 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     for result in results {
         // The tags get the values the user set; the cache keeps the
         // analysis as detected, so a correction can still be reset.
-        let correction = match user_edits.get(&result.path) {
-            Some(Ok(edits)) => edits.correction,
+        let edits = match user_edits.get(&result.path) {
+            Some(Ok(edits)) => edits.clone(),
             Some(Err(reason)) => {
                 failures.push(Failure {
                     error: EuphoriaError::CorrectionUnchecked {
@@ -195,21 +195,24 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                 });
                 continue;
             }
-            None => Correction::default(),
+            None => UserEdits::default(),
         };
         let planned = result.outcome.and_then(|analysis| {
-            let mut plan = plan_write(
-                &result.path,
-                &correction.apply(
-                    analysis
-                        .clone()
-                        .with_tempo_range(arguments.analysis.tempo_range()),
-                ),
-                &options,
-            )?;
+            // The values the user set, in the tempo range of the run. The
+            // Serato cues and grid go through the same analysis, so a
+            // corrected tempo moves them too. The cache keeps the
+            // analysis as detected, so a correction can still be reset.
+            let written = edits.correction.apply(
+                analysis
+                    .clone()
+                    .with_tempo_range(arguments.analysis.tempo_range()),
+            );
+            let mut plan = plan_write(&result.path, &written, &options)?;
             if arguments.serato_markers {
-                let report =
-                    add_serato_markers(&mut plan, &SeratoMarkers::from_analysis(&analysis))?;
+                let report = add_serato_markers(
+                    &mut plan,
+                    &SeratoMarkers::of_cues(&written, edits.cues.clone()),
+                )?;
                 serato_reports.push((result.path.clone(), report));
             }
             Ok((plan, analysis))

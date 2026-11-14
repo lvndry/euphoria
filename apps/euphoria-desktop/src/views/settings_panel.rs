@@ -233,6 +233,29 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     ),
                     &palette,
                 ))
+                .child(setting(
+                    "Cue markers",
+                    "The track's cues and beat grid are written as Serato cue \
+                     points, which Serato DJ, Mixxx and VirtualDJ read too. \
+                     Memory cues, on no pad, are left out. Formats that cannot \
+                     hold them are skipped.",
+                    div().flex().child(
+                        choice_button(
+                            "write-cue-markers",
+                            if settings.write_cue_markers {
+                                "\u{2713} Write the cue markers"
+                            } else {
+                                "Write the cue markers"
+                            },
+                            settings.write_cue_markers,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .test_support()
                 )
                 .child(
                     div()

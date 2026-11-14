@@ -9,10 +9,15 @@ use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::{Confidence, Correction, FileResult, Key, TempoRange, TrackAnalysis};
+use euphoria_core::rekordbox_grid::GridSource;
+use euphoria_core::{
+    Confidence, Correction, FileResult, Key, TagKey, TagKeyAgreement, TempoRange, TrackAnalysis,
+};
 
 use crate::batch::Corrections;
+use crate::grid_import::GridInfo;
 use crate::style::Theme;
+use crate::tag_key::TagKeys;
 use crate::terminal::Printable;
 
 /// The width used when the output is not a terminal.
@@ -199,6 +204,7 @@ enum Column {
     Key,
     KeyCompanion,
     KeyConfidence,
+    TagKey,
     Bpm,
     BpmConfidence,
     Energy,
@@ -208,10 +214,11 @@ enum Column {
 }
 
 impl Column {
-    const ALL: [Column; 9] = [
+    const ALL: [Column; 10] = [
         Column::Key,
         Column::KeyCompanion,
         Column::KeyConfidence,
+        Column::TagKey,
         Column::Bpm,
         Column::BpmConfidence,
         Column::Energy,
@@ -222,10 +229,11 @@ impl Column {
 
     /// The order columns are left out in when the window is narrow, the
     /// most decorative first. The key, the tempo and the file always stay.
-    const DROP_ORDER: [&'static [Column]; 6] = [
+    const DROP_ORDER: [&'static [Column]; 7] = [
         &[Column::EnergyBar],
         &[Column::KeyCompanion],
         &[Column::Time],
+        &[Column::TagKey],
         &[Column::KeyConfidence, Column::BpmConfidence],
         &[Column::Quality],
         &[Column::Energy],
@@ -238,6 +246,7 @@ impl Column {
             Column::Energy => "Energy",
             Column::Quality => "Quality",
             Column::Time => "Time",
+            Column::TagKey => "Tags",
             Column::KeyCompanion
             | Column::KeyConfidence
             | Column::BpmConfidence
@@ -269,11 +278,40 @@ struct Row {
     name: String,
 }
 
+/// What the Tags column shows: nothing without a key field or a detected
+/// key, "=" when they agree, "?" for text that is not a key, and otherwise
+/// the key from the tags with how it differs, marked when it needs a look.
+fn tag_key_cell(
+    theme: &Theme,
+    tag_keys: &TagKeys,
+    path: &Path,
+    analysis: &TrackAnalysis,
+    options: &ViewOptions,
+) -> String {
+    let (Some(tag_key), Some(agreement)) = (tag_keys.get(path), tag_keys.agreement(path, analysis))
+    else {
+        return String::new();
+    };
+    match (agreement, tag_key.key) {
+        (TagKeyAgreement::Differs(difference), Some(tagged)) => {
+            let text = format!("{} {}", options.notation.short(tagged), difference.as_str());
+            if tag_keys.conflict(path, analysis).is_some() {
+                theme.caution(text)
+            } else {
+                theme.dim(text)
+            }
+        }
+        (TagKeyAgreement::Same, _) => theme.dim("="),
+        _ => theme.dim("?"),
+    }
+}
+
 fn row(
     theme: &Theme,
     analysis: &TrackAnalysis,
     correction: Option<&Correction>,
     options: &ViewOptions,
+    tag_key: String,
     folder: String,
     name: String,
 ) -> Row {
@@ -309,6 +347,7 @@ fn row(
                     .unwrap_or_default(),
                 Column::KeyConfidence if key_set => theme.user("you"),
                 Column::KeyConfidence => confidence_meter(theme, analysis.key_confidence()),
+                Column::TagKey => tag_key.clone(),
                 Column::Bpm => bpm.clone(),
                 Column::BpmConfidence if bpm_set => theme.user("you"),
                 Column::BpmConfidence => confidence_meter(theme, analysis.tempo_confidence()),
@@ -441,8 +480,9 @@ fn pad(cell: &Cell, width: usize, align: Align) -> String {
 }
 
 /// Writes the analyzed files as a table that fits in `options.width`
-/// columns: the key in its notation and colour, how sure it is, the tempo
-/// and how sure it is, the energy, the sound quality in a word, the length
+/// columns: the key in its notation and colour, how sure it is, how the key
+/// in the file's tags compares when the file has one, the tempo and how
+/// sure it is, the energy, the sound quality in a word, the length
 /// and the file. Files that failed are left out; they are reported on
 /// their own.
 pub fn write_table(
@@ -451,6 +491,7 @@ pub fn write_table(
     results: &[FileResult],
     options: &ViewOptions,
     corrections: &Corrections,
+    tag_keys: &TagKeys,
 ) -> io::Result<()> {
     let analyzed: Vec<(&Path, &TrackAnalysis)> = results
         .iter()
@@ -468,7 +509,8 @@ pub fn write_table(
             let correction = corrections
                 .get(*path)
                 .and_then(|looked_up| looked_up.as_ref().ok());
-            row(theme, analysis, correction, options, folder, name)
+            let tag_key = tag_key_cell(theme, tag_keys, path, analysis, options);
+            row(theme, analysis, correction, options, tag_key, folder, name)
         })
         .collect();
 
@@ -491,6 +533,14 @@ pub fn write_table(
         .iter()
         .copied()
         .filter(|column| column_width(*column, &rows) > 0)
+        .filter(|column| {
+            *column != Column::TagKey
+                || rows.iter().any(|row| {
+                    row.cells
+                        .iter()
+                        .any(|(kept, cell)| *kept == Column::TagKey && cell.width > 0)
+                })
+        })
         .collect();
     let mut dropped_steps = 0;
     let fixed_width = |shown: &[Column]| -> usize {
@@ -644,6 +694,65 @@ fn signed(value: f32) -> String {
     }
 }
 
+/// Writes what the key field of the tags holds and how it compares with
+/// the key shown above it.
+fn write_tag_key(
+    writer: &mut impl Write,
+    theme: &Theme,
+    tag_key: &TagKey,
+    detected: Option<Key>,
+    options: &ViewOptions,
+    key_set: bool,
+) -> io::Result<()> {
+    let Some(tagged) = tag_key.key else {
+        let text = format!("\"{}\", not a key Euphoria reads", Printable(&tag_key.text));
+        return write_line(writer, theme, "Key in tags", &theme.dim(text));
+    };
+    let spelled = format!(
+        "{}  {}",
+        theme.key(tagged, options.notation.short(tagged)),
+        options.notation.companion(tagged)
+    );
+    match detected.map(|detected| tag_key.compare(detected)) {
+        Some(TagKeyAgreement::Differs(difference)) => {
+            write_line(writer, theme, "Key in tags", &spelled)?;
+            let compared = if key_set {
+                "from the key you set"
+            } else {
+                "from the detected key"
+            };
+            write_line(
+                writer,
+                theme,
+                "",
+                &theme.caution(format!("{}, differs {compared}", difference.label())),
+            )?;
+            if !key_set {
+                write_wrapped(writer, theme, "", difference.advice(), options.width)?;
+            }
+            Ok(())
+        }
+        Some(TagKeyAgreement::Same) => write_line(
+            writer,
+            theme,
+            "Key in tags",
+            &format!("{spelled}  {}", theme.dim("the same key")),
+        ),
+        Some(TagKeyAgreement::Unreadable) | None => {
+            write_line(writer, theme, "Key in tags", &spelled)
+        }
+    }
+}
+
+/// What was read about a file besides its analysis, for the detailed view.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FileFacts<'facts> {
+    /// The key field of the file's tags.
+    pub tag_key: Option<&'facts TagKey>,
+    /// Where the beat grid came from, when a collection was given.
+    pub grid_info: Option<&'facts GridInfo>,
+}
+
 /// Writes everything known about one track, a label per line: the key with
 /// its runner up and confidence, the tempo with its alternative and
 /// confidence, the energy, the sound quality with its reason and format,
@@ -655,7 +764,9 @@ pub fn write_detail(
     analysis: &TrackAnalysis,
     options: &ViewOptions,
     correction: Option<&Correction>,
+    facts: FileFacts<'_>,
 ) -> io::Result<()> {
+    let FileFacts { tag_key, grid_info } = facts;
     let key_set = correction.is_some_and(|correction| correction.key.is_some());
     let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
     let name = path
@@ -706,6 +817,9 @@ pub fn write_detail(
         }
         None => write_line(writer, theme, "Key", &theme.dim("none found"))?,
     }
+    if let Some(tag_key) = tag_key {
+        write_tag_key(writer, theme, tag_key, analysis.key, options, key_set)?;
+    }
 
     match analysis.bpm {
         Some(bpm) => {
@@ -744,11 +858,41 @@ pub fn write_detail(
                 grid.first_downbeat_seconds, grid.bpm
             ),
         )?;
+        match grid_info.and_then(|info| info.source) {
+            Some(GridSource::Rekordbox) => write_line(
+                writer,
+                theme,
+                "",
+                &theme.dim("from your rekordbox collection"),
+            )?,
+            Some(GridSource::User) => write_line(writer, theme, "", &theme.user("set by you"))?,
+            _ => {
+                write_line(
+                    writer,
+                    theme,
+                    "",
+                    &confidence_words(theme, grid.confidence()),
+                )?;
+                if grid_info.is_some() {
+                    write_line(writer, theme, "", &theme.dim("detected by Euphoria"))?;
+                }
+            }
+        }
+    } else if let Some(GridSource::User) = grid_info.and_then(|info| info.source) {
         write_line(
             writer,
             theme,
+            "Beat grid",
+            &theme.dim("none, you set the tempo, so no grid was fitted to a different one"),
+        )?;
+    }
+    if let Some(reason) = grid_info.and_then(|info| info.collection.skipped_because()) {
+        write_wrapped(
+            writer,
+            theme,
             "",
-            &confidence_words(theme, grid.confidence()),
+            &theme.dim(format!("rekordbox grid not used: {reason}")),
+            width,
         )?;
     }
 
@@ -903,6 +1047,7 @@ mod tests {
             &results(),
             &options(width),
             &Corrections::new(),
+            &TagKeys::default(),
         )
         .unwrap();
         String::from_utf8(buffer).unwrap()
@@ -954,6 +1099,7 @@ Key                  BPM       Energy              Quality  Time  File
             &results(),
             &musical,
             &Corrections::new(),
+            &TagKeys::default(),
         )
         .unwrap();
         let shown = String::from_utf8(buffer).unwrap();
@@ -969,6 +1115,7 @@ Key                  BPM       Energy              Quality  Time  File
             &results(),
             &options(200),
             &Corrections::new(),
+            &TagKeys::default(),
         )
         .unwrap();
         let coloured = String::from_utf8(buffer).unwrap();
@@ -1016,6 +1163,7 @@ Key                  BPM       Energy              Quality  Time  File
             &results,
             &options(200),
             &Corrections::new(),
+            &TagKeys::default(),
         )
         .unwrap();
         let shown = String::from_utf8(buffer).unwrap();
@@ -1033,6 +1181,7 @@ Key                  BPM       Energy              Quality  Time  File
             &track,
             &options(100),
             None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1084,6 +1233,7 @@ music
             &results,
             &options(200),
             &corrections,
+            &TagKeys::default(),
         )
         .unwrap();
         let table = String::from_utf8(buffer).unwrap();
@@ -1097,6 +1247,7 @@ music
             &track,
             &options(100),
             Some(&correction),
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1126,6 +1277,7 @@ music
             &with_grid,
             &options(100),
             None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1148,6 +1300,7 @@ music
             &track,
             &options(100),
             None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1156,5 +1309,121 @@ music
             "{detail}"
         );
         assert!(detail.starts_with("dnb.flac\n\n"), "{detail}");
+    }
+    fn tag_key_results() -> Vec<FileResult> {
+        ["agrees.mp3", "fifth.mp3", "garbage.mp3", "untagged.mp3"]
+            .iter()
+            .map(|name| FileResult {
+                path: PathBuf::from(format!("music/{name}")),
+                outcome: Ok(analysis(0.5, 0.5)),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_tags_column_marks_agreement_conflicts_and_unreadable_fields() {
+        let results = tag_key_results();
+        let tag_keys = TagKeys::from_texts(&[
+            (Path::new("music/agrees.mp3"), "Am"),
+            (Path::new("music/fifth.mp3"), "9A 124"),
+            (Path::new("music/garbage.mp3"), "banger"),
+        ]);
+        let mut buffer = Vec::new();
+        write_table(
+            &mut buffer,
+            &Theme::PLAIN,
+            &results,
+            &options(140),
+            &Corrections::new(),
+            &tag_keys,
+        )
+        .unwrap();
+        let shown = String::from_utf8(buffer).unwrap();
+        let line_of = |name: &str| {
+            shown
+                .lines()
+                .find(|line| line.ends_with(name))
+                .unwrap_or_else(|| panic!("{name} in {shown}"))
+                .to_string()
+        };
+        assert!(shown.lines().next().unwrap().contains("Tags"), "{shown}");
+        assert!(line_of("agrees.mp3").contains(" = "), "{shown}");
+        assert!(line_of("fifth.mp3").contains("9A fifth"), "{shown}");
+        assert!(line_of("garbage.mp3").contains(" ? "), "{shown}");
+        assert!(!line_of("untagged.mp3").contains('?'), "{shown}");
+    }
+
+    #[test]
+    fn the_tags_column_is_left_out_when_no_file_has_a_key_field() {
+        let mut buffer = Vec::new();
+        write_table(
+            &mut buffer,
+            &Theme::PLAIN,
+            &tag_key_results(),
+            &options(140),
+            &Corrections::new(),
+            &TagKeys::default(),
+        )
+        .unwrap();
+        let shown = String::from_utf8(buffer).unwrap();
+        assert!(!shown.contains("Tags"), "{shown}");
+    }
+
+    fn detail_with_tag_key(text: &str, correction: Option<&Correction>) -> String {
+        let mut buffer = Vec::new();
+        let tag_key = TagKey::from_text(text).unwrap();
+        write_detail(
+            &mut buffer,
+            &Theme::PLAIN,
+            Path::new("music/low tide.flac"),
+            &analysis(0.5, 0.5),
+            &options(100),
+            correction,
+            FileFacts {
+                tag_key: Some(&tag_key),
+                ..FileFacts::default()
+            },
+        )
+        .unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn the_detail_names_the_difference_and_which_reading_to_trust() {
+        let detail = detail_with_tag_key("8B", None);
+        assert!(detail.contains("Key in tags    8B  C major"), "{detail}");
+        assert!(
+            detail.contains("relative key, differs from the detected key"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("Listen for whether the track sounds minor"),
+            "{detail}"
+        );
+    }
+
+    #[test]
+    fn the_detail_says_when_the_tags_agree_or_cannot_be_read() {
+        let agrees = detail_with_tag_key("1m", None);
+        assert!(
+            agrees.contains("Key in tags    8A  A minor  the same key"),
+            "{agrees}"
+        );
+        let garbage = detail_with_tag_key("banger", None);
+        assert!(
+            garbage.contains("Key in tags    \"banger\", not a key Euphoria reads"),
+            "{garbage}"
+        );
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_compared_without_advice() {
+        let correction = Correction {
+            key: Some(Key::new(9, Mode::Minor)),
+            bpm: None,
+        };
+        let detail = detail_with_tag_key("8B", Some(&correction));
+        assert!(detail.contains("differs from the key you set"), "{detail}");
+        assert!(!detail.contains("Listen for"), "{detail}");
     }
 }

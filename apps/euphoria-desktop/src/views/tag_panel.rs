@@ -18,6 +18,7 @@ use crate::tag_settings::TagSettings;
 use crate::tag_writing::{LeftOut, PreviewRow};
 use crate::theme::Palette;
 use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button};
+use euphoria_core::tags::{describe_serato_value, serato_field_name};
 
 /// Height of one line of the preview list.
 const PREVIEW_ROW_HEIGHT: f32 = 24.0;
@@ -257,6 +258,13 @@ fn preview_contents(
         palette,
         cx,
     ));
+    contents.extend(problems(
+        "Serato cue points",
+        ProblemList::SeratoNotes,
+        preview.serato_notes.len(),
+        palette,
+        cx,
+    ));
     contents.push(buttons(vec![
         cancel_button("cancel-tag-write", palette, cx),
         primary_button(
@@ -279,9 +287,10 @@ fn preview_contents(
 }
 
 /// What the write will do with the settings in use, in one sentence.
-fn settings_sentence(settings: &TagSettings) -> String {
+pub(crate) fn settings_sentence(settings: &TagSettings) -> String {
     format!(
-        "Keys in {}, the energy label {}, the tempo {}. Nothing is written until you confirm.",
+        "Keys in {}, the energy label {}, the tempo {}, the cue markers {}. Nothing is written \
+         until you confirm.",
         settings.key_notation.label(),
         match settings.label {
             crate::tag_settings::LabelChoice::None => "not written".to_string(),
@@ -289,6 +298,11 @@ fn settings_sentence(settings: &TagSettings) -> String {
         },
         if settings.write_tempo {
             "written"
+        } else {
+            "left alone"
+        },
+        if settings.write_cue_markers {
+            "written for Serato"
         } else {
             "left alone"
         }
@@ -450,7 +464,10 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
                     .flex_shrink_0()
                     .truncate()
                     .text_color(palette.text_secondary)
-                    .child(change.field.clone()),
+                    .child(
+                        serato_field_name(&change.field)
+                            .map_or_else(|| change.field.clone(), str::to_string),
+                    ),
             )
             .child(
                 div()
@@ -458,7 +475,7 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
                     .min_w_0()
                     .truncate()
                     .text_color(palette.text_tertiary)
-                    .child(shown_value(change.current.as_deref())),
+                    .child(shown_value(&change.field, change.current.as_deref())),
             )
             .child(
                 div()
@@ -471,16 +488,20 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .child(shown_value(change.new.as_deref())),
+                    .child(shown_value(&change.field, change.new.as_deref())),
             )
             .test_support()
             .into_any_element(),
     }
 }
 
-/// A value as the preview shows it, "(none)" for a field the file lacks.
-fn shown_value(value: Option<&str>) -> String {
-    value.map_or_else(|| "(none)".to_string(), str::to_string)
+/// A value of `field` as the preview shows it: "(none)" for a field the
+/// file lacks, and Serato's data as the cues or grid it holds.
+pub(crate) fn shown_value(field: &str, value: Option<&str>) -> String {
+    match value {
+        None => "(none)".to_string(),
+        Some(value) => describe_serato_value(field, value).unwrap_or_else(|| value.to_string()),
+    }
 }
 
 /// Height of one line of a list of files left out or failed.
@@ -499,6 +520,9 @@ pub(crate) enum ProblemList {
     NotNoted,
     /// Files an undo could not restore.
     NotRestored,
+    /// Files whose Serato cue points or grid do not all go where they were
+    /// meant to.
+    SeratoNotes,
 }
 
 impl ProblemList {
@@ -508,6 +532,7 @@ impl ProblemList {
         match (self, panel) {
             (ProblemList::CannotBeWritten, TagPanel::Preview(preview)) => &preview.failures,
             (ProblemList::NotAnalyzed, TagPanel::Preview(preview)) => &preview.not_analyzed,
+            (ProblemList::SeratoNotes, TagPanel::Preview(preview)) => &preview.serato_notes,
             (ProblemList::NotWritten, TagPanel::Written(report)) => &report.failures,
             (ProblemList::NotNoted, TagPanel::Written(report)) => &report.not_noted,
             (ProblemList::NotRestored, TagPanel::Undone(Ok(Some(report)))) => &report.failures,
@@ -522,6 +547,14 @@ impl ProblemList {
             ProblemList::NotWritten => "not-written",
             ProblemList::NotNoted => "not-noted",
             ProblemList::NotRestored => "not-restored",
+            ProblemList::SeratoNotes => "serato-notes",
+        }
+    }
+
+    fn heading_color(self, palette: &Palette) -> gpui::Hsla {
+        match self {
+            ProblemList::SeratoNotes => palette.text_secondary,
+            _ => palette.danger,
         }
     }
 }
@@ -551,7 +584,7 @@ fn problems(
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(palette.danger)
+                    .text_color(list.heading_color(palette))
                     .child(format!("{heading} ({})", format::count(count))),
             )
             .child(
