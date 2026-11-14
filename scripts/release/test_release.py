@@ -458,6 +458,21 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertIn("It needs a Mac with Apple Silicon.", without)
         self.assertTrue(with_minimum.rstrip().endswith(release_notes.COMPLETE_MARKER))
 
+    def test_the_notes_say_whether_the_app_is_notarized(self):
+        self.commit("feat: a thing (#1)")
+        original = pathlib.Path.cwd()
+        os.chdir(self.folder)
+        try:
+            ad_hoc = release_notes.notes("2026.11.1", None, "HEAD", "owner/repository")
+            notarized = release_notes.notes(
+                "2026.11.1", None, "HEAD", "owner/repository", notarized=True
+            )
+        finally:
+            os.chdir(original)
+        self.assertIn("right click it in Applications and choose Open", ad_hoc)
+        self.assertIn("notarized by Apple, so it opens without a warning", notarized)
+        self.assertNotIn("choose Open", notarized)
+
     def test_the_notes_name_the_minimum_glibc_only_when_given(self):
         self.commit("feat: a thing (#1)")
         original = pathlib.Path.cwd()

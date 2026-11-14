@@ -136,6 +136,7 @@ jobs:
     outputs:
       tree: ${{ steps.version.outputs.tree }}
       minimum_macos: ${{ steps.minimum.outputs.minimum_macos }}
+      notarized: ${{ steps.signing.outputs.notarized }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -158,6 +159,75 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Check the version in Cargo.lock
         run: cargo metadata --locked --format-version 1 --no-deps > /dev/null
+      - name: Check for the Apple signing secrets
+        id: signing
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          missing=()
+          for name in APPLE_DEVELOPER_ID_P12_BASE64 APPLE_DEVELOPER_ID_P12_PASSWORD APPLE_TEAM_ID \
+            APPLE_NOTARY_KEY_P8_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "notarized=true" >> "$GITHUB_OUTPUT"
+            echo "Signing with Developer ID and notarizing."
+          else
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Not signed with a Developer ID::These secrets are not set: ${missing[*]}. The app and the command line tool get an ad hoc signature and are not notarized, so macOS warns when they are opened on another Mac. See docs/development/releasing.md."
+          fi
+      - name: Import the Developer ID certificate and the notary key
+        if: steps.signing.outputs.notarized == 'true'
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          keychain="$RUNNER_TEMP/euphoria-signing.keychain-db"
+          keychain_password=$(openssl rand -base64 32)
+          echo "::add-mask::$keychain_password"
+          echo "EUPHORIA_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$APPLE_DEVELOPER_ID_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+
+          identities=$(security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application" || true)
+          if [ "$(printf '%s\n' "$identities" | grep -c .)" -ne 1 ]; then
+            echo "::error::The certificate must hold exactly one Developer ID Application identity; found: ${identities:-none}"
+            exit 1
+          fi
+          case "$identities" in
+            *"($APPLE_TEAM_ID)"*) ;;
+            *)
+              echo "::error::The Developer ID Application certificate does not belong to the team in APPLE_TEAM_ID."
+              exit 1
+              ;;
+          esac
+          identity=$(printf '%s\n' "$identities" | awk '{print $2}')
+
+          (umask 077 && printf '%s' "$APPLE_NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary-key.p8")
+          {
+            echo "EUPHORIA_SIGN_IDENTITY=$identity"
+            echo "EUPHORIA_NOTARY_KEY_PATH=$RUNNER_TEMP/notary-key.p8"
+            echo "EUPHORIA_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
+            echo "EUPHORIA_NOTARY_ISSUER_ID=$APPLE_NOTARY_ISSUER_ID"
+          } >> "$GITHUB_ENV"
       - name: Build the app and the disk image
         run: ./scripts/bundle-macos.sh
       - name: Read the oldest macOS the app runs on
@@ -168,6 +238,34 @@ jobs:
           echo "The app needs macOS $minimum or later."
       - name: Build the command line tool
         run: ./scripts/release/package-cli.sh dist
+      - name: Verify the signatures and notarization
+        if: steps.signing.outputs.notarized == 'true'
+        run: |
+          dmg="target/release/bundle/Euphoria-$VERSION.dmg"
+          codesign --verify --strict --verbose=2 "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl -a -vvv -t install "$dmg"
+
+          mount_point="$RUNNER_TEMP/dmg"
+          mkdir "$mount_point"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_point" > /dev/null
+          trap 'hdiutil detach "$mount_point" > /dev/null || true' EXIT
+          app="$mount_point/Euphoria.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl -a -vvv "$app"
+          codesign -dvv "$app" 2>&1 | grep -q "flags=0x10000(runtime)"
+
+          unpacked="$RUNNER_TEMP/cli"
+          mkdir "$unpacked"
+          tar -xzf dist/euphoria-*-aarch64-apple-darwin.tar.gz -C "$unpacked"
+          for file in "$unpacked"/*/bin/euphoria "$unpacked"/*/lib/*.dylib; do
+            codesign --verify --strict --verbose=2 "$file"
+            codesign -dvv "$file" 2>&1 | grep -q "flags=0x10000(runtime)"
+          done
+          for executable in "$unpacked"/*/bin/euphoria; do
+            "$executable" --version
+          done
       - name: Gather the files and their checksums
         run: |
           cp "target/release/bundle/Euphoria-$VERSION.dmg" dist/
@@ -183,6 +281,13 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 7
+      - name: Delete the keychain and the keys
+        if: always()
+        run: |
+          if [ -n "${EUPHORIA_KEYCHAIN:-}" ]; then
+            security delete-keychain "$EUPHORIA_KEYCHAIN" || true
+          fi
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/notary-key.p8"
 
   build-linux:
     name: Build for Linux
@@ -276,6 +381,7 @@ jobs:
       LINUX: ${{ needs.prepare.outputs.linux }}
       LINUX_TREE: ${{ needs.build-linux.outputs.tree }}
       MINIMUM_MACOS: ${{ needs.build.outputs.minimum_macos }}
+      NOTARIZED: ${{ needs.build.outputs.notarized }}
       MINIMUM_GLIBC: ${{ needs.build-linux.outputs.minimum_glibc }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -318,7 +424,11 @@ jobs:
           if [ "$LINUX" = true ]; then
             linux=(--minimum-glibc "$MINIMUM_GLIBC")
           fi
-          python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" \
+          notarized=()
+          if [ "$NOTARIZED" = true ]; then
+            notarized=(--notarized)
+          fi
+          python3 scripts/release/release_notes.py --version "$VERSION" "${since[@]}" "${notarized[@]}" \
             --until "$BASE" --repository "$GITHUB_REPOSITORY" \
             --minimum-macos "$MINIMUM_MACOS" "${linux[@]}" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"

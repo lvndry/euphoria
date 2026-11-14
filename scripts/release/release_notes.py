@@ -78,7 +78,7 @@ def breaking_description(body):
 COMPLETE_MARKER = "<!-- euphoria-release-complete -->"
 
 
-def notes(version, since, until, repository, minimum_macos=None, minimum_glibc=None):
+def notes(version, since, until, repository, minimum_macos=None, minimum_glibc=None, notarized=False):
     grouped = {kind: [] for kind, _ in SECTIONS}
     breaking = []
     for sha, subject, body in commits(since, until):
@@ -97,8 +97,12 @@ def notes(version, since, until, repository, minimum_macos=None, minimum_glibc=N
         "Download `Euphoria-"
         + version
         + ".dmg` below, open it and drag Euphoria onto Applications. "
-        "The app is not notarized, so the first time you open it, right click it in Applications and choose Open. "
-        "[Installation](https://github.com/"
+        + (
+            "The app is signed with a Developer ID and notarized by Apple, so it opens without a warning. "
+            if notarized
+            else "The app is not notarized, so the first time you open it, right click it in Applications and choose Open. "
+        )
+        + "[Installation](https://github.com/"
         + repository
         + "/blob/main/docs/getting-started/installation.md) "
         "has the details. It needs a Mac with Apple Silicon"
@@ -150,6 +154,11 @@ def main():
         "--minimum-glibc",
         help="the oldest glibc the Linux files run on, as linux_libraries.py reads it",
     )
+    parser.add_argument(
+        "--notarized",
+        action="store_true",
+        help="the app and the disk image were signed with a Developer ID and notarized",
+    )
     arguments = parser.parse_args()
     print(
         notes(
@@ -159,6 +168,7 @@ def main():
             arguments.repository,
             arguments.minimum_macos,
             arguments.minimum_glibc,
+            arguments.notarized,
         ),
         end="",
     )

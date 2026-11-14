@@ -15,6 +15,14 @@
 # folder can be unpacked anywhere. A Homebrew formula can install bin/ and
 # lib/ as they are. Pass --skip-build to package the binary already in
 # target/release.
+#
+# On macOS the files are signed with an ad hoc signature, or with the
+# Developer ID Application identity in EUPHORIA_SIGN_IDENTITY, the libraries
+# first, with the hardened runtime. With that identity and the notary key in
+# EUPHORIA_NOTARY_KEY_PATH, EUPHORIA_NOTARY_KEY_ID and
+# EUPHORIA_NOTARY_ISSUER_ID, Apple notarizes a zip of bin/ and lib/ first.
+# Command line files cannot be stapled, so the ticket stays with Apple and
+# Gatekeeper looks it up online the first time a downloaded file runs.
 
 set -eu
 
@@ -75,10 +83,19 @@ else
     --executable "$folder/bin/euphoria" \
     --libraries "$folder/lib" \
     --run-path "@executable_path/../lib"
-  for file in "$folder/lib"/*.dylib "$folder/bin/euphoria"; do
-    [ -e "$file" ] || continue
-    codesign --force --sign - --timestamp=none "$file"
+  sign_identity=${EUPHORIA_SIGN_IDENTITY:--}
+  set -- "$folder/lib"/*.dylib
+  [ -e "$1" ] || shift
+  python3 "$repository/scripts/macos_sign.py" files --identity "$sign_identity" "$@" "$folder/bin/euphoria"
+  for file in "$@" "$folder/bin/euphoria"; do
+    codesign --verify --strict --verbose=1 "$file"
   done
+  if [ "$sign_identity" != "-" ] && [ -n "${EUPHORIA_NOTARY_KEY_PATH:-}" ]; then
+    notarization=$(mktemp -d)
+    (cd "$folder" && zip -qr "$notarization/files.zip" bin lib)
+    "$repository/scripts/release/notarize-macos.sh" --no-staple "$notarization/files.zip"
+    rm -rf "$notarization"
+  fi
   cp "$repository/LICENSE" "$repository/README.md" "$folder/"
   python3 "$repository/scripts/macos_libraries.py" verify --root "$folder" --executable "$folder/bin/euphoria"
 fi
