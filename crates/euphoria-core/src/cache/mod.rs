@@ -87,7 +87,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 11] = [
+const MIGRATIONS: [&str; 12] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -148,6 +148,10 @@ const MIGRATIONS: [&str; 11] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN key_source TEXT;
+",
+    "
+    ALTER TABLE corrections ADD COLUMN key_confirmed INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE corrections ADD COLUMN bpm_confirmed INTEGER NOT NULL DEFAULT 0;
 ",
 ];
 
@@ -1424,7 +1428,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 11);
+        assert_eq!(SCHEMA_VERSION, 12);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1493,7 +1497,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 11);
+        assert_eq!(SCHEMA_VERSION, 12);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1547,7 +1551,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 11);
+        assert_eq!(SCHEMA_VERSION, 12);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),

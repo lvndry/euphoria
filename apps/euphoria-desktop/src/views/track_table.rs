@@ -28,6 +28,7 @@ use crate::theme::Palette;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::playlists::{DragLabel, TrackMenuState, track_menu};
+use crate::views::review;
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 use gpui::component::menu::ContextMenuExt;
 
@@ -596,6 +597,12 @@ fn cell_contents(
                         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                         .child(title)
                         .test_support(),
+                )
+                .children(
+                    (app.filter == LibraryFilter::NeedsReview)
+                        .then(|| review::chips(track, track_index, app, &palette))
+                        .into_iter()
+                        .flatten(),
                 )
                 .into_any_element()
         }

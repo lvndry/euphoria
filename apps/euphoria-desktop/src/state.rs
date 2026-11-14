@@ -526,6 +526,17 @@ impl Session {
         queued
     }
 
+    /// Queues the track at `path` for analysis again when its analysis
+    /// failed. Returns false when it did not fail.
+    pub(crate) fn analyze_again(&mut self, path: &Path) -> bool {
+        if !self.library.requeue_failed(path) {
+            return false;
+        }
+        self.progress.enqueue(1);
+        self.workers.enqueue(vec![path.to_path_buf()]);
+        true
+    }
+
     /// Sets the key and tempo the user chose for the track at `path`, in the
     /// library at once. Keeping it in the cache is
     /// [`CachedAnalyzer::set_correction`], which reads the file and so runs

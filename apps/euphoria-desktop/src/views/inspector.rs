@@ -33,6 +33,7 @@ use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
+use crate::views::review;
 use crate::views::stems;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
@@ -196,6 +197,7 @@ pub(crate) fn render(
                 .child(track_star(app, cx)),
             Some(220.0),
         ))
+        .children(review::section(track, app, cx).map(|section| sized(section, Some(300.0))))
         .child(sized(statistics(track, app, cx), Some(264.0)))
         .children(strip_wheel)
         .child(sized(stems::section(track, app, cx), None))

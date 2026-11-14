@@ -57,6 +57,19 @@ impl From<&str> for TrackFailure {
     }
 }
 
+/// One reason a track is listed under Needs review.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ReviewReason {
+    /// Analysis failed; the text says why.
+    Failed(String),
+    /// The key is rated low confidence.
+    KeyUnsure,
+    /// The tempo is rated low confidence.
+    TempoUnsure,
+    /// The key field of the file's tags names another key.
+    KeyConflict { tag_key: Key },
+}
+
 /// One audio file in the library, with the text the table shows for it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Track {
@@ -193,7 +206,7 @@ impl Track {
     /// How the tags differ from the detected key, when they name another
     /// key and the user has not set one: a reason to review the track.
     pub(crate) fn key_conflict(&self) -> Option<KeyDifference> {
-        if self.correction.key.is_some() {
+        if self.correction.key.is_some() || self.correction.key_confirmed {
             return None;
         }
         match self.tag_key_agreement()? {
@@ -298,20 +311,40 @@ impl Track {
         value.or_else(|| self.analysis().map(|_| NOT_FOUND.to_string()))
     }
 
-    /// Whether the track is worth checking: its analysis failed, the core
-    /// rates its key or its tempo low, or its tags name another key.
-    pub(crate) fn needs_review(&self) -> bool {
+    /// Why the track is worth checking: its analysis failed, the core rates
+    /// its key or its tempo low, or its tags name another key. A value the
+    /// user set or confirmed is no longer in doubt.
+    pub(crate) fn review_reasons(&self) -> Vec<ReviewReason> {
         match &self.status {
-            TrackStatus::Failed(_) => true,
+            TrackStatus::Failed(message) => vec![ReviewReason::Failed(message.clone())],
             TrackStatus::Analyzed(analysis) => {
-                let doubtful_key = self.correction.key.is_none()
-                    && analysis.key_confidence() == Some(Confidence::Low);
-                let doubtful_tempo = self.correction.bpm.is_none()
-                    && analysis.tempo_confidence() == Some(Confidence::Low);
-                doubtful_key || doubtful_tempo || self.key_conflict().is_some()
+                let mut reasons = Vec::new();
+                if self.correction.key.is_none()
+                    && !self.correction.key_confirmed
+                    && analysis.key_confidence() == Some(Confidence::Low)
+                {
+                    reasons.push(ReviewReason::KeyUnsure);
+                }
+                if self.correction.bpm.is_none()
+                    && !self.correction.bpm_confirmed
+                    && analysis.tempo_confidence() == Some(Confidence::Low)
+                {
+                    reasons.push(ReviewReason::TempoUnsure);
+                }
+                if self.key_conflict().is_some()
+                    && let Some(tag_key) = self.tag_key.as_ref().and_then(|tagged| tagged.key)
+                {
+                    reasons.push(ReviewReason::KeyConflict { tag_key });
+                }
+                reasons
             }
-            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => false,
+            TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => Vec::new(),
         }
+    }
+
+    /// Whether the track is worth checking: it has a reason to review.
+    pub(crate) fn needs_review(&self) -> bool {
+        !self.review_reasons().is_empty()
     }
 
     /// Why analysis failed, when it did.
@@ -530,6 +563,25 @@ impl Library {
             return false;
         }
         track.status = TrackStatus::Queued;
+        self.revision += 1;
+        true
+    }
+
+    /// Queues a track whose analysis failed to be analyzed again. Returns
+    /// false when the file is not in the library or its track did not fail.
+    pub(crate) fn requeue_failed(&mut self, path: &Path) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        if !matches!(track.status, TrackStatus::Failed(_)) {
+            return false;
+        }
+        track.status = TrackStatus::Queued;
+        self.review_count -= 1;
         self.revision += 1;
         true
     }

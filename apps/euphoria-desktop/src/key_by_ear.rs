@@ -314,6 +314,30 @@ impl EuphoriaApp {
         );
     }
 
+    /// Confirms the detected key of the selected track as right, without
+    /// setting one: it leaves Needs review and keeps the detector's values.
+    pub(crate) fn confirm_key(&mut self, cx: &mut Context<'_, Self>) {
+        self.correct_selected(Correction::confirming_key, cx);
+    }
+
+    /// Confirms the detected tempo of the selected track as right, keeping
+    /// its beat grid and cues.
+    pub(crate) fn confirm_bpm(&mut self, cx: &mut Context<'_, Self>) {
+        self.correct_selected(Correction::confirming_bpm, cx);
+    }
+
+    /// Queues the selected track for analysis again when its analysis failed.
+    pub(crate) fn analyze_selected_again(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(path) = self.selected_track().map(|track| track.path.clone()) else {
+            return;
+        };
+        if self.session.analyze_again(&path) {
+            self.refresh_visible();
+            self.start_collecting(cx);
+            cx.notify();
+        }
+    }
+
     /// Takes `energy`, from 1 to 10, as the selected track's energy.
     pub(crate) fn accept_energy(&mut self, energy: u8, cx: &mut Context<'_, Self>) {
         self.correct_selected(

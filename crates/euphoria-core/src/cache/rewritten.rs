@@ -193,8 +193,8 @@ fn carry_user_edits(
         return Ok(());
     }
     connection.execute(
-        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at, energy)
-         SELECT ?2, key, bpm, corrected_at, energy FROM corrections WHERE content_hash = ?1",
+        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at, energy, key_confirmed, bpm_confirmed)
+         SELECT ?2, key, bpm, corrected_at, energy, key_confirmed, bpm_confirmed FROM corrections WHERE content_hash = ?1",
         params![from.as_bytes(), to.as_bytes()],
     )?;
     connection.execute(
