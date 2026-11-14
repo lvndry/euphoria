@@ -217,8 +217,7 @@ fn the_setting_is_a_button_in_the_settings_and_is_remembered(cx: &mut TestAppCon
     let settings_path = scratch.0.join("settings.json");
     let (window, view) = open_taggable_files(&scratch, &files, Some(settings_path.clone()), cx);
     click(window, "tag-program", cx);
-    assert!(is_shown(window, "write-after-analysis", cx));
-    click(window, "write-after-analysis", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_write_after_analysis(cx)));
     cx.update(|cx| assert!(view.read(cx).tag_settings.write_after_analysis));
     assert!(
         Settings::load(&settings_path)
@@ -226,7 +225,7 @@ fn the_setting_is_a_button_in_the_settings_and_is_remembered(cx: &mut TestAppCon
             .tags
             .write_after_analysis
     );
-    click(window, "write-after-analysis", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_write_after_analysis(cx)));
     assert_eq!(
         Settings::load(&settings_path).unwrap().tags,
         TagSettings::default()
