@@ -660,6 +660,23 @@ pub struct BeatGrid {
 }
 
 impl BeatGrid {
+    /// A grid a DJ made, read from another program, rather than fitted to
+    /// the audio. Nothing was measured, so it has the salience of the
+    /// highest rating and no drift: the DJ checked it by ear.
+    /// `first_downbeat_seconds` is moved into the first bar.
+    pub fn imported(first_downbeat_seconds: f64, bpm: f64) -> Self {
+        let grid = Self {
+            first_downbeat_seconds: 0.0,
+            bpm,
+            salience: HIGH_SALIENCE,
+            drift_seconds: None,
+        };
+        Self {
+            first_downbeat_seconds: first_downbeat_seconds.rem_euclid(grid.bar_seconds()),
+            ..grid
+        }
+    }
+
     /// Seconds from one beat to the next.
     pub fn beat_seconds(&self) -> f64 {
         60.0 / self.bpm

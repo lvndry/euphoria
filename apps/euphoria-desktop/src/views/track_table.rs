@@ -157,6 +157,8 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
     } else if app.filter == LibraryFilter::NeedsReview {
         "Nothing to review: every key and tempo is rated medium or high, and every file was \
          analyzed"
+    } else if app.filter == LibraryFilter::Missing {
+        "No missing files: every track is where it was"
     } else if app.filter == LibraryFilter::QualityToCheck {
         "No tracks with a low bit rate or likely re-encoded"
     } else {
@@ -181,6 +183,8 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
         (LibraryFilter::NeedsReview, None) => "Needs review".into(),
         (LibraryFilter::AllTracks, Some(folder)) => folder.into(),
         (LibraryFilter::NeedsReview, Some(folder)) => format!("Needs review in {folder}").into(),
+        (LibraryFilter::Missing, None) => "Missing files".into(),
+        (LibraryFilter::Missing, Some(folder)) => format!("Missing files in {folder}").into(),
         (LibraryFilter::QualityToCheck, None) => "Quality to check".into(),
         (LibraryFilter::QualityToCheck, Some(folder)) => {
             format!("Quality to check in {folder}").into()
@@ -261,8 +265,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
 }
 
 /// Why tracks are listed under Needs review, under its heading.
-const REVIEW_EXPLANATION: &str =
-    "A key or tempo rated low confidence, or a file that could not be analyzed. Check them by ear.";
+const REVIEW_EXPLANATION: &str = "A key or tempo rated low confidence, a key that differs from the one in the file's tags (\u{2260}), or a file that could not be analyzed. Check them by ear.";
 
 fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let layout = &app.table_layout;
@@ -442,9 +445,12 @@ fn row(
     let is_starred = app.session.favorites().is_starred(&track.path);
     // The item that opens the file in the file manager only makes sense
     // when the row is the whole selection, like the drag does it.
+    let revealable = reveal::revealable(track_index, app.selected, &app.marked);
     let menu_state = TrackMenuState {
         is_starred,
-        revealable: reveal::revealable(track_index, app.selected, &app.marked),
+        revealable: revealable && !track.is_missing(),
+        locatable: revealable && track.is_missing(),
+        is_missing: track.is_missing(),
     };
     let cells: Vec<AnyElement> = app
         .table_layout
@@ -484,6 +490,9 @@ fn row(
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.table_focus.focus(window, cx);
                 this.click_track(track_index, event.modifiers(), cx);
+                if event.click_count() == 2 {
+                    this.open_focus_view(window, cx);
+                }
             }))
             .on_drag(
                 DraggedTracks {
@@ -597,7 +606,20 @@ fn cell_contents(
             .children(track.artist.clone())
             .into_any_element(),
         ColumnId::Key => match (&track.status, track.key()) {
-            (_, Some(key)) => key_chip(&key, theme, app.display.key_notation).into_any_element(),
+            (TrackStatus::Missing, _) => status_text("Missing", palette.danger, true),
+            (_, Some(key)) => {
+                let chip = key_chip(&key, theme, app.display.key_notation);
+                match key_conflict_mark(track, track_index, app, &palette) {
+                    Some(mark) => div()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.0))
+                        .child(chip)
+                        .child(mark)
+                        .into_any_element(),
+                    None => chip.into_any_element(),
+                }
+            }
             (TrackStatus::Queued, _) => status_text("Queued", palette.text_tertiary, false),
             (TrackStatus::Analyzing, _) => status_text("Analyzing", palette.accent, true),
             (TrackStatus::Failed(_), _) => status_text("Failed", palette.danger, true),
@@ -611,6 +633,9 @@ fn cell_contents(
             optional_text(track, track.bpm().map(format::bpm), &palette).into_any_element()
         }
         ColumnId::Energy => energy(track, &palette).into_any_element(),
+        ColumnId::Cues => optional_text(track, track.cue_count().map(format::count), &palette)
+            .text_color(palette.text_secondary)
+            .into_any_element(),
         ColumnId::Quality => quality(track, &palette).into_any_element(),
         ColumnId::Time => div()
             .text_color(palette.text_secondary)
@@ -666,6 +691,35 @@ fn optional_text(track: &Track, value: Option<String>, palette: &Palette) -> Div
     }
 }
 
+/// A mark beside the key when the file's tags name another key, with the
+/// key from the tags and how it differs on hover.
+fn key_conflict_mark(
+    track: &Track,
+    track_index: usize,
+    app: &EuphoriaApp,
+    palette: &Palette,
+) -> Option<AnyElement> {
+    let difference = track.key_conflict()?;
+    let tagged = track.tag_key.as_ref()?.key?;
+    let explanation: SharedString = format!(
+        "The tags say {} ({tagged}), {}. Listed under Needs review.",
+        app.display.key_notation.spell(&tagged),
+        difference.label()
+    )
+    .into();
+    Some(
+        div()
+            .id(("key-conflict", track_index))
+            .text_size(SMALL_TEXT_SIZE)
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(palette.danger)
+            .child("\u{2260}")
+            .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
+            .test_support()
+            .into_any_element(),
+    )
+}
+
 fn missing_value(palette: &Palette) -> Div {
     div().text_color(palette.text_tertiary).child(NOT_FOUND)
 }
@@ -679,9 +733,9 @@ fn quality(track: &Track, palette: &Palette) -> Div {
         .min_w_0()
         .truncate()
         .text_color(if track.has_quality_to_check() {
-            palette.text
-        } else {
             palette.text_tertiary
+        } else {
+            palette.text
         })
         .child(format::quality_verdict(report.verdict))
 }

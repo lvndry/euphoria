@@ -154,7 +154,15 @@ fn dry_run_shows_the_changes_and_writes_nothing() {
 
     let output = run(
         &euphoria,
-        &["tags", "write", "--dry-run", text(library.path())],
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--dry-run",
+            text(library.path()),
+        ],
     );
     assert_success(&output);
     assert!(library.contents() == original);
@@ -187,7 +195,17 @@ fn without_a_terminal_and_without_yes_nothing_is_written() {
     let library = Library::new();
     let original = library.contents();
 
-    let output = run(&euphoria, &["tags", "write", text(library.path())]);
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            text(library.path()),
+        ],
+    );
     assert!(!output.status.success());
     assert!(library.contents() == original);
     assert_eq!(log_count(&euphoria), 0);
@@ -210,7 +228,14 @@ fn an_answer_on_a_pipe_does_not_confirm() {
     let original = library.contents();
 
     let mut child = euphoria
-        .command(&["tags", "write", text(library.path())])
+        .command(&[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            text(library.path()),
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -235,7 +260,18 @@ fn write_then_undo_gives_back_the_exact_files() {
     let original = library.contents();
     let original_tags = library.tags();
 
-    let output = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
+    );
     assert_success(&output);
     let report = standard_error(&output);
     assert!(report.contains("Wrote the tags of 8 files."), "{report}");
@@ -280,10 +316,29 @@ fn writing_again_changes_nothing_and_does_not_stack_the_label() {
 
     assert_success(&run(
         &euphoria,
-        &["tags", "write", "--yes", text(library.path())],
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
     ));
     let after_first = library.contents();
-    let output = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
+    );
     assert_success(&output);
     assert!(library.contents() == after_first);
     assert_eq!(standard_output(&output), "");
@@ -300,6 +355,9 @@ fn writing_again_changes_nothing_and_does_not_stack_the_label() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--key-notation",
             "musical",
@@ -333,6 +391,7 @@ fn options_choose_what_is_written_and_where() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
             "--yes",
             "--no-tempo",
             "--label",
@@ -364,6 +423,7 @@ fn options_choose_what_is_written_and_where() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
             "--yes",
             "--label",
             "none",
@@ -383,6 +443,7 @@ fn options_choose_what_is_written_and_where() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
             "--yes",
             "--label",
             "comment-end",
@@ -411,6 +472,9 @@ fn the_serato_preset_writes_the_tempo_only_when_asked() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--preset",
             "serato",
@@ -429,6 +493,9 @@ fn the_serato_preset_writes_the_tempo_only_when_asked() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--preset",
             "serato",
@@ -446,6 +513,9 @@ fn the_serato_preset_writes_the_tempo_only_when_asked() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--tempo",
             "--no-tempo",
             "--dry-run",
@@ -473,6 +543,9 @@ fn every_program_has_a_preset_and_open_key_is_a_notation() {
             &[
                 "tags",
                 "write",
+                "--include-low-confidence",
+                "--label",
+                "comment-start",
                 "--dry-run",
                 "--preset",
                 preset,
@@ -489,6 +562,9 @@ fn every_program_has_a_preset_and_open_key_is_a_notation() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--preset",
             "traktor",
@@ -516,7 +592,18 @@ fn a_file_that_fails_is_reported_and_the_others_are_written() {
     let not_audio = library.path().join("notes.mp3");
     std::fs::write(&not_audio, "This is a text file, not audio.\n".repeat(64)).unwrap();
 
-    let output = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
+    );
     assert!(!output.status.success());
     let report = standard_error(&output);
     assert!(
@@ -548,7 +635,18 @@ fn a_file_the_module_refuses_is_reported_with_the_reason() {
     std::fs::hard_link(&linked, &other_name).unwrap();
     let original = std::fs::read(&linked).unwrap();
 
-    let output = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
+    let output = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
+    );
     assert!(!output.status.success());
     let report = standard_error(&output);
     assert!(
@@ -568,7 +666,15 @@ fn a_file_changed_after_the_write_is_reported_by_undo_and_can_be_retried() {
     let original = library.contents();
     assert_success(&run(
         &euphoria,
-        &["tags", "write", "--yes", text(library.path())],
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
     ));
 
     // Another program rewrites the tags of one file.
@@ -579,6 +685,9 @@ fn a_file_changed_after_the_write_is_reported_by_undo_and_can_be_retried() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--key-notation",
             "musical",
@@ -620,7 +729,16 @@ fn yes_and_dry_run_cannot_be_combined() {
     let library = Library::new();
     let output = run(
         &euphoria,
-        &["tags", "write", "--yes", "--dry-run", text(library.path())],
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            "--dry-run",
+            text(library.path()),
+        ],
     );
     assert!(!output.status.success());
     assert!(standard_error(&output).contains("cannot be used with"));
@@ -653,10 +771,39 @@ fn text_from_files_cannot_act_on_the_terminal() {
     let outputs = [
         run(
             &euphoria,
-            &["tags", "write", "--dry-run", text(folder.path())],
+            &[
+                "tags",
+                "write",
+                "--include-low-confidence",
+                "--label",
+                "comment-start",
+                "--dry-run",
+                text(folder.path()),
+            ],
         ),
-        run(&euphoria, &["tags", "write", text(folder.path())]),
-        run(&euphoria, &["tags", "write", "--yes", text(folder.path())]),
+        run(
+            &euphoria,
+            &[
+                "tags",
+                "write",
+                "--include-low-confidence",
+                "--label",
+                "comment-start",
+                text(folder.path()),
+            ],
+        ),
+        run(
+            &euphoria,
+            &[
+                "tags",
+                "write",
+                "--include-low-confidence",
+                "--label",
+                "comment-start",
+                "--yes",
+                text(folder.path()),
+            ],
+        ),
         run(&euphoria, &["tags", "undo"]),
         run(&euphoria, &["analyze", text(folder.path())]),
         run(
@@ -686,7 +833,18 @@ fn text_from_files_cannot_act_on_the_terminal() {
     assert!(standard_output(&outputs[3]).contains("track\\r\\u{1b}[2Kinnocent.wav"));
 
     // What is written to the file is the real text, not the escaped form.
-    let written = run(&euphoria, &["tags", "write", "--yes", text(folder.path())]);
+    let written = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(folder.path()),
+        ],
+    );
     assert_cannot_act_on_a_terminal(&standard_output(&written));
     let comment = read_tags(&track).unwrap().comment.unwrap();
     assert!(
@@ -708,7 +866,18 @@ fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
     assert_success(&first);
     assert!(!standard_error(&first).contains("came from the cache"));
 
-    let written = run(&euphoria, &["tags", "write", "--yes", text(library.path())]);
+    let written = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            text(library.path()),
+        ],
+    );
     assert_success(&written);
     assert!(
         !standard_error(&written).contains("warning"),
@@ -721,7 +890,21 @@ fn written_and_restored_files_come_from_the_cache_and_are_not_analyzed_again() {
         standard_error(&after_write),
         "8 of 8 tracks came from the cache.\n"
     );
-    assert_eq!(after_write.stdout, first.stdout);
+    let without_tag_keys = |stdout: &[u8], written: bool| {
+        let mut tracks: serde_json::Value = serde_json::from_slice(stdout).unwrap();
+        for track in tracks.as_array_mut().unwrap() {
+            let tag_key = track.as_object_mut().unwrap().remove("tag_key").unwrap();
+            if written && !track["key"].is_null() {
+                assert_eq!(tag_key["agreement"], "same", "{track} {tag_key}");
+            }
+        }
+        tracks
+    };
+    assert_eq!(
+        without_tag_keys(&after_write.stdout, true),
+        without_tag_keys(&first.stdout, false),
+        "only the key read back from the tags changed, and it agrees"
+    );
 
     let undone = run(&euphoria, &["tags", "undo"]);
     assert_success(&undone);
@@ -758,6 +941,9 @@ fn a_custom_tag_tempo_range_keeps_the_shared_cache_in_the_default_range() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--tempo-range",
             "45-90",
@@ -783,7 +969,16 @@ fn a_write_without_the_cache_leaves_no_cache_behind() {
     let library = Library::new();
     let written = run(
         &euphoria,
-        &["tags", "write", "--yes", "--no-cache", text(library.path())],
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            "--no-cache",
+            text(library.path()),
+        ],
     );
     assert_success(&written);
     assert!(!euphoria.cache_path().exists());
@@ -825,6 +1020,9 @@ fn writing_a_faster_tempo_range_preserves_the_original_cached_downbeat() {
         &[
             "tags",
             "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
             "--yes",
             "--tempo-range",
             "200-400",
@@ -893,6 +1091,7 @@ fn serato_markers_are_written_merged_on_a_second_run_and_undone() {
     let arguments = [
         "tags",
         "write",
+        "--include-low-confidence",
         "--serato-markers",
         "--label",
         "none",
@@ -935,4 +1134,117 @@ fn serato_markers_are_written_merged_on_a_second_run_and_undone() {
 
     assert!(undone.status.success(), "{}", standard_error(&undone));
     assert_eq!(std::fs::read(&track).expect("the track is read"), original);
+}
+
+fn only_mp3() -> (Euphoria, TemporaryFolder, PathBuf) {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = folder.path().join("sine-440hz-mono.mp3");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.mp3"), &track)
+        .expect("the fixture is copied");
+    (euphoria, folder, track)
+}
+
+#[test]
+fn a_key_and_tempo_already_in_the_file_are_kept_until_overwrite_is_given() {
+    let (euphoria, folder, track) = only_mp3();
+    let seed = euphoria.run(&[
+        "tags",
+        "set",
+        "--yes",
+        "--field",
+        "key=5B",
+        "--field",
+        "bpm=75",
+        text(&track),
+    ]);
+    assert_success(&seed);
+
+    let preview = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--dry-run",
+            "--include-low-confidence",
+            text(folder.path()),
+        ],
+    );
+    assert_success(&preview);
+    let shown = standard_output(&preview);
+    assert!(shown.contains("key kept (already tagged 5B)"), "{shown}");
+    assert!(shown.contains("tempo kept (already tagged 75)"), "{shown}");
+
+    let kept = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--include-low-confidence",
+            text(&track),
+        ],
+    );
+    assert_success(&kept);
+    let tags = read_tags(&track).expect("the tags are read");
+    assert_eq!(tags.key.as_deref(), Some("5B"));
+    assert_eq!(tags.bpm.as_deref(), Some("75"));
+
+    let replaced = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--yes",
+            "--overwrite",
+            "--include-low-confidence",
+            text(&track),
+        ],
+    );
+    assert_success(&replaced);
+    let tags = read_tags(&track).expect("the tags are read");
+    assert_ne!(tags.key.as_deref(), Some("5B"));
+    assert_ne!(tags.bpm.as_deref(), Some("75"));
+}
+
+#[test]
+fn a_low_confidence_key_is_left_out_unless_asked_for_and_no_label_is_written() {
+    let (euphoria, _folder, track) = only_mp3();
+    let preview = run(&euphoria, &["tags", "write", "--dry-run", text(&track)]);
+    assert_success(&preview);
+    let shown = standard_output(&preview);
+    assert!(
+        shown.contains("key not written (rated low confidence)"),
+        "{shown}"
+    );
+    assert!(!shown.contains("COMM"), "no label by default: {shown}");
+
+    let included = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--dry-run",
+            "--include-low-confidence",
+            text(&track),
+        ],
+    );
+    let shown = standard_output(&included);
+    assert!(shown.contains("TKEY: (none) -> "), "{shown}");
+    assert!(!shown.contains("not written (rated"), "{shown}");
+    assert!(!shown.contains("COMM"), "still no label: {shown}");
+
+    let dj = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--dry-run",
+            "--include-low-confidence",
+            "--preset",
+            "rekordbox",
+            text(&track),
+        ],
+    );
+    assert!(standard_output(&dj).contains("COMM: (none) -> "));
 }

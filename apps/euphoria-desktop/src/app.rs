@@ -35,7 +35,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
-use crate::track_overview::energy_curve_from;
+use crate::track_overview::{VocalLane, energy_curve_from, vocal_lane_from};
 use crate::views;
 use crate::views::waveform::SeenBounds;
 use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
@@ -132,6 +132,13 @@ pub(crate) struct EuphoriaApp {
     pub(crate) tempo_range_problem: Option<String>,
     /// The steps of a tag write or undo, while one is on screen.
     pub(crate) tag_panel: Option<TagPanel>,
+    /// The sheet that exports the library to a DJ program, while open.
+    pub(crate) library_export: Option<crate::library_export::LibraryExportPanel>,
+    /// How the export finds out whether a DJ program is running.
+    pub(crate) running_checks: crate::library_export::RunningChecks,
+    /// The checks of whether a DJ program is running before tags are written,
+    /// which a test replaces.
+    pub(crate) program_checks: euphoria_core::export::program_files::DjProgramChecks,
     /// True while the settings panel is open.
     pub(crate) settings_open: bool,
     /// Where the backups of tag writes are kept, shared with the command
@@ -158,6 +165,17 @@ pub(crate) struct EuphoriaApp {
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans_in_progress: usize,
+    /// Remembered folders that are not there now, such as one on a drive
+    /// that is not connected. They stay remembered, to be looked for again
+    /// at the next launch.
+    pub(crate) unavailable_folders: Vec<PathBuf>,
+    /// The folders remembered from the last launch. Only these stay
+    /// remembered while they are not there.
+    remembered_folders: Vec<PathBuf>,
+    /// A missing track and the file picked for it, waiting for the user to
+    /// confirm the link because nothing recorded can check it.
+    pub(crate) pending_link: Option<crate::relink_flow::PendingLink>,
+    pub(crate) pending_stem_export: Option<crate::stem_export::StemExportRequest>,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
     /// Whether the sidebar is folded and how large the track detail is.
@@ -186,12 +204,32 @@ pub(crate) struct EuphoriaApp {
     pub(crate) decks: crate::decks::Decks,
     /// The curve, pool and set of the set builder page.
     pub(crate) set_builder: crate::set_builder::SetBuilder,
+    /// The furthest the suggestions' tempo may be from deck A's, as typed.
+    pub(crate) filter_window_input: Entity<InputState>,
+    /// The slowest tempo the suggestions may have, as typed.
+    pub(crate) filter_bpm_from_input: Entity<InputState>,
+    /// The fastest tempo the suggestions may have, as typed.
+    pub(crate) filter_bpm_to_input: Entity<InputState>,
+    /// The lowest energy the suggestions may have, as typed.
+    pub(crate) filter_energy_from_input: Entity<InputState>,
+    /// The highest energy the suggestions may have, as typed.
+    pub(crate) filter_energy_to_input: Entity<InputState>,
+    /// The genre the suggestions must carry, as typed.
+    pub(crate) filter_genre_input: Entity<InputState>,
     /// The tempo the user types to correct the selected track's.
     pub(crate) bpm_input: Entity<InputState>,
+    /// The metronome: whether it clicks, its tempo and its sound.
+    pub(crate) metronome: crate::metronome_controls::MetronomeState,
+    /// The field the metronome's tempo is typed in.
+    pub(crate) metronome_input: Entity<InputState>,
     /// Moving, adding, renaming and deleting the selected track's cues.
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
     /// The field the name of a cue is typed in.
     pub(crate) cue_name_input: Entity<InputState>,
+    /// The focus view that gives one track the whole window.
+    pub(crate) focus: crate::focus::FocusView,
+    /// The plans of the selected track into the tracks it mixes into.
+    pub(crate) planner: crate::transition_plan::Planner,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -199,6 +237,7 @@ pub(crate) struct EuphoriaApp {
     pub(crate) query: String,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
+    vocal_lanes: HashMap<PathBuf, VocalLane>,
     waveform_task: Option<Task<()>>,
     /// The file the waveform task is decoding.
     waveform_task_path: Option<PathBuf>,
@@ -206,9 +245,9 @@ pub(crate) struct EuphoriaApp {
     /// The library's structure revision the folder tree was built from,
     /// and the revision its failure counts were last brought up to date at.
     folder_tree_revisions: Option<(u64, u64)>,
-    /// What the Folder column was worked out for: how many tracks and
-    /// folders the library had, and the folder on show.
-    folder_column_basis: Option<(usize, usize, Option<PathBuf>)>,
+    /// What the Folder column was worked out for: the library's structure
+    /// revision and the folder on show.
+    folder_column_basis: Option<(u64, Option<PathBuf>)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -283,12 +322,42 @@ impl EuphoriaApp {
                 InputEvent::Change | InputEvent::Focus => {}
             },
         );
+        let filter_window_input = cx.new(|cx| InputState::new(window, cx).placeholder("6"));
+        let filter_bpm_from_input = cx.new(|cx| InputState::new(window, cx).placeholder("118"));
+        let filter_bpm_to_input = cx.new(|cx| InputState::new(window, cx).placeholder("128"));
+        let filter_energy_from_input = cx.new(|cx| InputState::new(window, cx).placeholder("1"));
+        let filter_energy_to_input = cx.new(|cx| InputState::new(window, cx).placeholder("10"));
+        let filter_genre_input = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. house"));
+        let filter_typed = |this: &mut Self,
+                            _: Entity<InputState>,
+                            event: &InputEvent,
+                            cx: &mut Context<'_, Self>| {
+            if matches!(event, InputEvent::Change) {
+                this.apply_suggestion_filter_inputs(cx);
+            }
+        };
+        let filter_window_changed = cx.subscribe(&filter_window_input, filter_typed);
+        let filter_bpm_from_changed = cx.subscribe(&filter_bpm_from_input, filter_typed);
+        let filter_bpm_to_changed = cx.subscribe(&filter_bpm_to_input, filter_typed);
+        let filter_energy_from_changed = cx.subscribe(&filter_energy_from_input, filter_typed);
+        let filter_energy_to_changed = cx.subscribe(&filter_energy_to_input, filter_typed);
+        let filter_genre_changed = cx.subscribe(&filter_genre_input, filter_typed);
         let bpm_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
         let bpm_entered = cx.subscribe(&bpm_input, |this: &mut Self, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 this.accept_typed_bpm(cx);
             }
         });
+        let metronome_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
+        let metronome_entered = cx.subscribe_in(
+            &metronome_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.commit_metronome_bpm(window, cx);
+                }
+            },
+        );
         let cue_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Cue name"));
         let cue_named = cx.subscribe(
             &cue_name_input,
@@ -343,6 +412,19 @@ impl EuphoriaApp {
             is_custom_tempo_range: display.tempo_range.preset().is_none(),
             tempo_range_problem: None,
             tag_panel: None,
+            library_export: None,
+            running_checks: crate::library_export::RunningChecks::REAL,
+            program_checks: if cfg!(test) {
+                euphoria_core::export::program_files::DjProgramChecks {
+                    rekordbox: || Some(false),
+                    serato: || Some(false),
+                    traktor: || Some(false),
+                    engine: || Some(false),
+                    virtualdj: || Some(false),
+                }
+            } else {
+                euphoria_core::export::program_files::DjProgramChecks::REAL
+            },
             settings_open: false,
             write_log_directory: if cfg!(test) {
                 None
@@ -364,6 +446,10 @@ impl EuphoriaApp {
             table_focus: cx.focus_handle(),
             notice,
             scans_in_progress: 0,
+            unavailable_folders: Vec::new(),
+            remembered_folders: settings.folders.clone(),
+            pending_link: None,
+            pending_stem_export: None,
             toolbar_drag_armed: false,
             panels: settings.panels,
             resizing: None,
@@ -375,9 +461,19 @@ impl EuphoriaApp {
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
-            decks: crate::decks::Decks::default(),
+            decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
+            focus: crate::focus::FocusView::new(settings.focus_lanes),
+            planner: crate::transition_plan::Planner::default(),
             set_builder: crate::set_builder::SetBuilder::default(),
+            filter_window_input,
+            filter_bpm_from_input,
+            filter_bpm_to_input,
+            filter_energy_from_input,
+            filter_energy_to_input,
+            filter_genre_input,
             bpm_input,
+            metronome: crate::metronome_controls::MetronomeState::new(settings.metronome),
+            metronome_input,
             cue_editor: crate::cue_editing::CueEditor::default(),
             cue_name_input,
             voice: None,
@@ -386,6 +482,7 @@ impl EuphoriaApp {
             query: String::new(),
             settings_path,
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
+            vocal_lanes: HashMap::new(),
             waveform_task: None,
             waveform_task_path: None,
             is_collecting: false,
@@ -395,13 +492,21 @@ impl EuphoriaApp {
                 playlist_named,
                 transition_noted,
                 bpm_entered,
+                metronome_entered,
                 cue_named,
                 search_changed,
                 quitting,
                 tempo_from_changed,
                 tempo_to_changed,
+                filter_window_changed,
+                filter_bpm_from_changed,
+                filter_bpm_to_changed,
+                filter_energy_from_changed,
+                filter_energy_to_changed,
+                filter_genre_changed,
             ],
         };
+        this.show_suggestion_filter(&settings.suggestion_filter, window, cx);
         if !settings.folders.is_empty() {
             this.add_paths(settings.folders, false, cx);
         }
@@ -411,6 +516,46 @@ impl EuphoriaApp {
         }
         this.select_first_track_if_none(cx);
         this
+    }
+
+    /// Fills the suggestions' pool fields with the remembered values, so
+    /// the pool the settings named is on show when the app opens.
+    fn show_suggestion_filter(
+        &mut self,
+        filter: &crate::decks::SuggestionFilter,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let fill = |input: &Entity<InputState>,
+                    value: Option<f32>,
+                    window: &mut Window,
+                    cx: &mut Context<'_, Self>| {
+            input.update(cx, |input, cx| {
+                input.set_value(
+                    value.map(|value| format!("{value:.0}")).unwrap_or_default(),
+                    window,
+                    cx,
+                );
+            });
+        };
+        fill(
+            &self.filter_window_input,
+            filter.tempo_window_percent,
+            window,
+            cx,
+        );
+        fill(&self.filter_bpm_from_input, filter.bpm_min, window, cx);
+        fill(&self.filter_bpm_to_input, filter.bpm_max, window, cx);
+        fill(
+            &self.filter_energy_from_input,
+            filter.energy_min,
+            window,
+            cx,
+        );
+        fill(&self.filter_energy_to_input, filter.energy_max, window, cx);
+        self.filter_genre_input.update(cx, |input, cx| {
+            input.set_value(filter.genre.clone().unwrap_or_default(), window, cx);
+        });
     }
 
     /// The selected track, when there is one.
@@ -517,8 +662,18 @@ impl EuphoriaApp {
         if problems.is_empty() && found.files.is_empty() {
             problems.push("No audio files found there.".to_string());
         }
+        for folder in std::mem::take(&mut found.unavailable_folders) {
+            if self.remembered_folders.contains(&folder)
+                && !self.unavailable_folders.contains(&folder)
+            {
+                self.unavailable_folders.push(folder);
+            }
+        }
         let found_files = found.files.clone();
         self.session.add(found);
+        let library_folders = self.session.library().folders();
+        self.unavailable_folders
+            .retain(|folder| !library_folders.contains(folder));
         self.read_track_names(found_files, cx);
         self.refresh_visible();
         if self.scans_in_progress == 0 {
@@ -540,7 +695,7 @@ impl EuphoriaApp {
 
     /// Shows a problem in the notice strip, after any that is already there
     /// so that an earlier one is not lost.
-    fn report(&mut self, problem: String) {
+    pub(crate) fn report(&mut self, problem: String) {
         self.notice = Some(match self.notice.take() {
             Some(earlier) => format!("{earlier} {problem}"),
             None => problem,
@@ -609,11 +764,7 @@ impl EuphoriaApp {
             }
         }
         self.folder_tree_revisions = Some(revisions);
-        let basis = (
-            library.tracks().len(),
-            library.folders().len(),
-            self.folder.clone(),
-        );
+        let basis = (library.structure_revision(), self.folder.clone());
         if self.folder_column_basis.as_ref() != Some(&basis) {
             self.folder_column =
                 FolderColumn::new(library.tracks(), library.folders(), self.folder.as_deref());
@@ -670,6 +821,7 @@ impl EuphoriaApp {
         );
         self.refresh_deck_metadata();
         self.refresh_suggestions();
+        self.refresh_mixes();
     }
 
     /// Works out which columns fit the table in the window as it is now,
@@ -889,6 +1041,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Cues => track
+                    .cue_count()
+                    .map(|count| Cow::Owned(crate::format::count(count))),
                 ColumnId::Quality => track
                     .quality()
                     .map(|report| Cow::Borrowed(crate::format::quality_verdict(report.verdict))),
@@ -928,6 +1083,10 @@ impl EuphoriaApp {
     pub(crate) fn close_panels(&mut self, cx: &mut Context<'_, Self>) -> bool {
         if self.settings_open {
             self.close_settings(cx);
+            return true;
+        }
+        if self.library_export.is_some() {
+            self.close_library_export(cx);
             return true;
         }
         if self.tag_panel.is_some() {
@@ -1008,6 +1167,55 @@ impl EuphoriaApp {
         }
     }
 
+    /// Narrows the suggestions to the pool typed above them: the tempo
+    /// window, the tempo and energy ranges and the genre. A field that does
+    /// not read is left open and its problem shown. The pool is saved with
+    /// the rest of the settings when it changes.
+    pub(crate) fn apply_suggestion_filter_inputs(&mut self, cx: &mut Context<'_, Self>) {
+        let typed = |input: &Entity<InputState>| input.read(cx).value().to_string();
+        let typed = crate::decks::TypedFilter {
+            tempo_window: typed(&self.filter_window_input),
+            bpm_from: typed(&self.filter_bpm_from_input),
+            bpm_to: typed(&self.filter_bpm_to_input),
+            energy_from: typed(&self.filter_energy_from_input),
+            energy_to: typed(&self.filter_energy_to_input),
+            genre: typed(&self.filter_genre_input),
+        };
+        let (filter, problem) = self.decks.filter.with_typed(&typed);
+        let problem_changed = problem != self.decks.filter_problem;
+        self.decks.filter_problem = problem;
+        if filter == self.decks.filter {
+            if problem_changed {
+                cx.notify();
+            }
+            return;
+        }
+        self.decks.filter = filter;
+        self.suggestion_filter_changed(cx);
+    }
+
+    /// Counts `relation` in the suggestions when it is not counted, and
+    /// stops counting it when it is.
+    pub(crate) fn toggle_suggestion_relation(
+        &mut self,
+        relation: euphoria_core::harmony::Relation,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let defaults = self.decks.default_relations();
+        self.decks.filter.toggle_relation(relation, &defaults);
+        self.suggestion_filter_changed(cx);
+    }
+
+    /// Ranks the suggestions again for the changed pool and remembers it.
+    fn suggestion_filter_changed(&mut self, cx: &mut Context<'_, Self>) {
+        self.refresh_suggestions();
+        self.refresh_mixes();
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
+        cx.notify();
+    }
+
     /// Shows every tempo in `setting`'s range and remembers it. Nothing is
     /// analyzed again.
     fn use_tempo_range(&mut self, setting: TempoRangeSetting, cx: &mut Context<'_, Self>) {
@@ -1056,13 +1264,30 @@ impl EuphoriaApp {
 
     /// Chooses where the key and energy label goes.
     pub(crate) fn set_label_place(&mut self, label: LabelChoice, cx: &mut Context<'_, Self>) {
-        self.tag_settings.label = label;
+        self.tag_settings.label = Some(label);
         self.remember_tag_settings(cx);
     }
 
     /// Ticks or unticks writing the tempo.
     pub(crate) fn toggle_write_tempo(&mut self, cx: &mut Context<'_, Self>) {
         self.tag_settings.write_tempo = !self.tag_settings.write_tempo;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Ticks or unticks replacing a key and tempo the file already has.
+    pub(crate) fn toggle_replace_existing(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.replace_existing = !self.tag_settings.replace_existing;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Ticks or unticks writing a key or tempo rated low confidence.
+    pub(crate) fn toggle_include_low_confidence(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.include_low_confidence = !self.tag_settings.include_low_confidence;
+        self.remember_tag_settings(cx);
+    }
+
+    pub(crate) fn toggle_write_cue_markers(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.write_cue_markers = !self.tag_settings.write_cue_markers;
         self.remember_tag_settings(cx);
     }
 
@@ -1091,6 +1316,7 @@ impl EuphoriaApp {
                 .session
                 .library()
                 .quality_to_check_in(self.folder.as_deref()),
+            missing: counts.missing,
         }
     }
 
@@ -1247,6 +1473,9 @@ impl EuphoriaApp {
         self.refresh_mixes();
         self.load_selected_waveform(cx);
         self.point_player_at_selection(cx);
+        if self.focus.is_open {
+            self.focus_selection_changed(cx);
+        }
         cx.notify();
     }
 
@@ -1257,6 +1486,10 @@ impl EuphoriaApp {
         let selected = self
             .selected_track()
             .map(|track| (track.path.clone(), track.duration_seconds()));
+        let plays_stems = selected
+            .as_ref()
+            .is_some_and(|(path, _)| self.stems.files_to_play(path).is_some());
+        self.player.stems_ready(plays_stems);
         let request = match &selected {
             Some((path, duration_seconds)) => self.player.select(Some(path), *duration_seconds),
             None => self.player.select(None, None),
@@ -1317,7 +1550,7 @@ impl EuphoriaApp {
                 self.voice = None;
                 let semitones = self.key_shift;
                 let opening = if with_stems {
-                    self.open_stems(&path, from_seconds)
+                    self.open_stems(&path, from_seconds, semitones)
                 } else {
                     TrackSource::open_shifted(&path, from_seconds, semitones)
                 };
@@ -1403,18 +1636,24 @@ impl EuphoriaApp {
         .detach();
     }
 
-    /// The stems of the track at `path`, mixed as the player hears them,
-    /// to be played in place of the track.
-    fn open_stems(&self, path: &Path, from_seconds: f32) -> Result<TrackSource, PlaybackProblem> {
+    /// The stems of the track at `path`, mixed as the player hears them
+    /// and shifted by `semitones`, to be played in place of the track.
+    fn open_stems(
+        &self,
+        path: &Path,
+        from_seconds: f32,
+        semitones: i8,
+    ) -> Result<TrackSource, PlaybackProblem> {
         let files = self
             .stems
-            .ready_files(path)
+            .files_to_play(path)
             .ok_or(PlaybackProblem::FileMissing)?;
-        TrackSource::open_stems(&files, self.stems.mix(), from_seconds)
+        TrackSource::open_stems_shifted(&files, self.stems.mix(), from_seconds, semitones)
     }
 
-    /// The track detail's stem switch changed what is heard: the sound
-    /// follows, by restarting the track when it sounds.
+    /// The track detail's stem switch changed what is heard. Between
+    /// Acapella and Instrumental the stems fade over as they play; to or
+    /// from the full track the sound changes source, from the same moment.
     pub(crate) fn set_stem_mode(
         &mut self,
         mode: crate::stems::StemMode,
@@ -1423,28 +1662,44 @@ impl EuphoriaApp {
         if !self.stems.set_mode(mode) {
             return;
         }
-        if self.player.offers_pause() {
-            let request = self.player.toggle();
-            self.carry_out(request, cx);
-        }
-        cx.notify();
+        self.stems_changed(cx);
     }
 
-    /// The player's track is separated, or it is not: the player starts the
-    /// track again when that changes while it sounds, so that it sounds the
-    /// way the player hears it.
+    /// The player's track is separated, or it is not, or the full track is
+    /// to be heard rather than its stems: when that changes what the player
+    /// plays from, it starts again from the same moment.
     pub(crate) fn stems_changed(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(track) = self.selected_track().map(|track| track.path.clone()) else {
+        let Some(track) = self.player.track().map(Path::to_path_buf) else {
             return;
         };
-        let ready = self.stems.ready_files(&track).is_some();
-        let was = self.player.offers_stems();
-        self.player.stems_ready(ready);
-        if ready != was && self.player.offers_pause() {
-            let request = self.player.toggle();
+        let plays_stems = self.stems.files_to_play(&track).is_some();
+        if plays_stems != self.player.offers_stems() {
+            self.player.stems_ready(plays_stems);
+            if let Some(active) = &self.voice {
+                self.player.advance_to(active.state.position_seconds());
+            }
+            let request = self.player.restart();
             self.carry_out(request, cx);
         }
         self.report_stem_problem(&track);
+        cx.notify();
+    }
+
+    /// Deletes the stems of the selected track, which plays from its file
+    /// again and can be separated anew.
+    pub(crate) fn remove_stems(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(path) = self.selected_track().map(|track| track.path.clone()) else {
+            return;
+        };
+        if let Err(problem) = self.stems.remove(&path) {
+            self.report(format!("Could not remove the stems: {problem}"));
+            cx.notify();
+            return;
+        }
+        self.vocal_lanes.insert(path.clone(), VocalLane::NoStems);
+        self.stems_changed(cx);
+        self.decks.stem_library.recheck(&path);
+        self.focus_stems_changed(&path, cx);
         cx.notify();
     }
 
@@ -1455,6 +1710,11 @@ impl EuphoriaApp {
             return;
         };
         let path = track.path.clone();
+        self.request_stems_of(path, cx);
+    }
+
+    /// Asks the stems of the track at `path` to be separated.
+    pub(crate) fn request_stems_of(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
         if self.stems.start(&path) {
             cx.spawn(async move |this, cx| {
                 loop {
@@ -1468,6 +1728,8 @@ impl EuphoriaApp {
                                 this.stems_changed(cx);
                             }
                             this.decks.stem_library.recheck(&path);
+                            this.load_vocal_lane(path.clone(), cx);
+                            this.focus_stems_changed(&path, cx);
                             if this.decks.is_open
                                 && this.decks.mode == crate::decks::DeckMode::Mashup
                             {
@@ -1516,6 +1778,7 @@ impl EuphoriaApp {
             self.voice = None;
         } else {
             self.player.advance_to(active.state.position_seconds());
+            self.follow_playhead_in_focus();
         }
         cx.notify();
     }
@@ -1533,6 +1796,7 @@ impl EuphoriaApp {
     /// Asks the core which tracks mix with the selected one, in its key
     /// shifted by `key_shift`.
     pub(crate) fn refresh_mixes(&mut self) {
+        let pool = self.suggestion_indexes();
         self.mixes = self
             .selected
             .map(|selected| {
@@ -1542,6 +1806,8 @@ impl EuphoriaApp {
                     selected,
                     self.key_shift,
                     MIX_LIMIT,
+                    &self.decks.filter,
+                    &pool,
                 )
             })
             .unwrap_or_default();
@@ -1716,12 +1982,14 @@ impl EuphoriaApp {
 
     /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user
     /// when that fails.
-    fn save_settings(&self) -> Option<String> {
+    pub(crate) fn save_settings(&self) -> Option<String> {
         let settings_path = self.settings_path.as_ref()?;
         let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
         expanded.sort();
+        let mut folders = self.session.library().folders().to_vec();
+        folders.extend(self.unavailable_folders.iter().cloned());
         let settings = Settings {
-            folders: self.session.library().folders().to_vec(),
+            folders,
             theme: self.theme.name,
             panels: self.panels,
             folder_tree: FolderTreeMemory {
@@ -1731,6 +1999,9 @@ impl EuphoriaApp {
             column_widths: self.column_widths.clone(),
             tags: self.tag_settings,
             display: self.display,
+            suggestion_filter: self.decks.filter.clone(),
+            focus_lanes: self.focus.lanes,
+            metronome: self.metronome.settings,
         };
         settings
             .save(settings_path)
@@ -1782,6 +2053,51 @@ impl EuphoriaApp {
     /// The waveform of the track at `path`, when it was read.
     pub(crate) fn waveform_of(&self, path: &Path) -> Option<&Waveform> {
         self.waveforms.get(path)
+    }
+
+    /// The vocals lane of the track at `path`: where the vocals are, once
+    /// its stems have been found and measured.
+    pub(crate) fn vocal_lane_of(&self, path: &Path) -> &VocalLane {
+        self.vocal_lanes.get(path).unwrap_or(&VocalLane::Checking)
+    }
+
+    /// Shows `lane` as the vocals lane of the track at `path`.
+    #[cfg(test)]
+    pub(crate) fn show_vocal_lane(&mut self, path: PathBuf, lane: VocalLane) {
+        self.vocal_lanes.insert(path, lane);
+    }
+
+    /// Looks for the stems of the track at `path`, in this session and in
+    /// the stem cache, and measures where the vocals are in them, off the
+    /// main thread. Measuring is done once: the result is kept with the
+    /// stems. Separation is never started from here.
+    pub(crate) fn load_vocal_lane(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        if !matches!(self.vocal_lanes.get(&path), Some(VocalLane::Ready(_))) {
+            self.vocal_lanes.insert(path.clone(), VocalLane::Checking);
+        }
+        let session_files = self.stems.ready_files(&path);
+        let analyzer = self.session.cache();
+        cx.spawn(async move |this, cx| {
+            let lane_path = path.clone();
+            let lane = cx
+                .background_executor()
+                .spawn(async move {
+                    let files = session_files.or_else(|| {
+                        let content = analyzer.as_ref()?.known_content(&lane_path)?;
+                        euphoria_core::stems::StemCache::open_default()
+                            .ok()?
+                            .cached(&content)
+                    });
+                    vocal_lane_from(files)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.vocal_lanes.insert(path, lane);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Loads the waveform of the track on a deck, when it is not loaded
@@ -1859,6 +2175,7 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.set_energy(&path, curve);
+                this.load_vocal_lane(path, cx);
                 cx.notify();
             })
             .ok();
@@ -1868,6 +2185,7 @@ impl EuphoriaApp {
 
 impl Render for EuphoriaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        self.sync_metronome_tempo();
         let palette = self.theme.palette;
         let shows_sidebar = !self.panels.sidebar_folded;
         self.lay_out_table(window);
@@ -1915,11 +2233,13 @@ impl Render for EuphoriaApp {
                 .flex()
                 .flex_1()
                 .min_h_0()
-                .when(shows_sidebar, |body| {
+                .when(shows_sidebar && !self.focus.is_open, |body| {
                     body.child(views::sidebar::render(self, cx))
                 })
                 .map(|body| {
-                    if self.set_builder.is_open {
+                    if self.focus.is_open {
+                        body.child(views::focus::render(self, window, cx))
+                    } else if self.set_builder.is_open {
                         body.child(views::set_builder::render(self, cx))
                     } else {
                         body.child(library_and_detail)
@@ -1933,9 +2253,29 @@ impl Render for EuphoriaApp {
             .id("euphoria")
             .track_focus(&self.window_focus)
             .key_context(views::LIBRARY_KEY_CONTEXT)
+            .on_action(
+                cx.listener(|this, _: &crate::actions::OpenFocusView, window, cx| {
+                    this.open_focus_view(window, cx);
+                }),
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" && this.close_panels(cx) {
-                    return;
+                if event.keystroke.key == "escape" {
+                    if this.close_panels(cx) {
+                        return;
+                    }
+                    if this.focus.lanes_menu_open {
+                        this.focus.lanes_menu_open = false;
+                        cx.notify();
+                        return;
+                    }
+                    if this.planner.is_open {
+                        this.close_planner(cx);
+                        return;
+                    }
+                    if this.focus.is_open {
+                        this.close_focus_view(cx);
+                        return;
+                    }
                 }
                 // With the keyboard on the window itself, the arrow keys
                 // move through the table as they do when the table has it.
@@ -1956,11 +2296,14 @@ impl Render for EuphoriaApp {
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
-                    if !this.drag_cue_to(event.position.x, event.modifiers, cx) {
+                    if !this.drag_cue_to(event.position.x, event.modifiers, cx)
+                        && !this.drag_window_to(event.position.x, cx)
+                    {
                         this.resize_to(event.position, window, cx);
                     }
                 } else {
                     this.finish_resizing(cx);
+                    this.finish_moving_window();
                     this.release_cue(cx);
                 }
             }))
@@ -1968,6 +2311,7 @@ impl Render for EuphoriaApp {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.finish_resizing(cx);
+                    this.finish_moving_window();
                     this.release_cue(cx);
                 }),
             )
@@ -1976,8 +2320,11 @@ impl Render for EuphoriaApp {
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })
+            .children(views::notice::render_link_confirmation(self, cx))
+            .children(views::notice::render_stem_export_confirmation(self, cx))
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
+            .children(views::library_export_panel::render(self, cx))
             .when(self.settings_open, |window| {
                 window.child(views::settings_panel::render(self, cx))
             })

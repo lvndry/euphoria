@@ -18,28 +18,25 @@ OUTPUT_DIRECTORY = Path(__file__).resolve().parent
 ONSET_RATE_LOW = 2.5
 ONSET_RATE_HIGH = 7.0
 
-# "From measurements to a rating", step 3: 0.2 maps to the bottom of the
-# scale and 0.8 to the top, cut into ten equal steps.
-COMBINED_LOW = 0.2
-COMBINED_HIGH = 0.8
+# "From measurements to a rating", step 3: 0.1 maps to the bottom of the
+# scale and 0.9 to the top, cut into ten equal steps.
+COMBINED_LOW = 0.1
+COMBINED_HIGH = 0.9
 RATING_COUNT = 10
 
 # "From measurements to a rating", the Weight column of the anchor table.
 FEATURE_WEIGHTS = [
-    ("Integrated loudness", 0.25),
-    ("Loudness range", 0.20),
-    ("Onset rate", 0.25),
-    ("Low frequency share", 0.10),
-    ("Spectral flux", 0.20),
-    ("Tempo, when known", 0.10),
+    ("Spectral flux", 0.65),
+    ("Integrated loudness", 0.20),
+    ("Onset rate", 0.10),
+    ("Loudness range", 0.05),
+    ("Low frequency share", 0.0),
+    ("Tempo, when known", 0.0),
 ]
 
 # "From measurements to a rating", the row "Tracks, rated with the detected
 # tempo" for ratings 1 to 10 of the 604 GiantSteps Key previews.
-GIANTSTEPS_TRACKS_PER_RATING = [13, 13, 30, 63, 65, 115, 114, 102, 56, 33]
-
-# "How well it works", One DJ's folders: the average rating of each folder.
-DJ_FOLDER_AVERAGES = [("Warm up", 5.0), ("Build", 5.9), ("Peak", 6.3)]
+GIANTSTEPS_TRACKS_PER_RATING = [26, 22, 53, 67, 86, 91, 102, 79, 42, 36]
 
 # "Energy curve": energy_curve on a two minute preview from the GiantSteps
 # benchmark set, 8 second windows every 4 seconds, as (window centre in
@@ -47,12 +44,37 @@ DJ_FOLDER_AVERAGES = [("Warm up", 5.0), ("Build", 5.9), ("Peak", 6.3)]
 CURVE_WINDOW_SECONDS = 8
 CURVE_STEP_SECONDS = 4
 CURVE_POINTS = [
-    (4, 10), (8, 10), (12, 10), (16, 9), (20, 8), (24, 8), (28, 7), (32, 7),
-    (36, 7), (40, 1), (44, 1), (48, 1), (52, 1), (56, 1), (60, 2), (64, 10),
-    (68, 10), (72, 10), (76, 10), (80, 10), (84, 10), (88, 10), (92, 10),
-    (96, 10), (100, 10), (104, 8), (108, 9), (112, 10), (116, 10),
+    (4, 10), (8, 9), (12, 8), (16, 6), (20, 5), (24, 4), (28, 2), (32, 4),
+    (36, 5), (40, 1), (44, 1), (48, 1), (52, 1), (56, 1), (60, 2), (64, 8),
+    (68, 9), (72, 9), (76, 10), (80, 9), (84, 9), (88, 10), (92, 9), (96, 10),
+    (100, 9), (104, 6), (108, 7), (112, 8), (116, 8),
 ]
 CURVE_WHOLE_TRACK_RATING = 6
+
+# "How well it works", the table of agreement by genre: Spearman correlation
+# of the score with listeners' arousal for the old weights (version 1) and the
+# new weights (version 2), and the number of songs. DEAM rows are the 586 held
+# out songs, PMEmo rows the 226 held out songs with a genre label.
+GENRE_AGREEMENT = [
+    ("DEAM, all genres", 586, 0.601, 0.656),
+    ("Electronic", 110, 0.650, 0.709),
+    ("Rock", 135, 0.570, 0.669),
+    ("Folk", 99, 0.609, 0.732),
+    ("Pop", 81, 0.729, 0.735),
+    ("Jazz", 81, 0.688, 0.685),
+    ("Classical", 71, 0.454, 0.458),
+    ("Country", 71, 0.507, 0.474),
+    ("Blues", 62, 0.405, 0.599),
+    ("Experimental", 54, 0.694, 0.751),
+    ("International", 44, 0.695, 0.787),
+    ("Hip-hop", 32, 0.442, 0.621),
+    ("Soul and R&B", 36, 0.626, 0.805),
+    ("PMEmo, all genres", 226, 0.526, 0.760),
+    ("Hip-hop and rap", 32, 0.600, 0.823),
+    ("Pop", 26, 0.535, 0.631),
+    ("Country", 22, 0.705, 0.775),
+    ("Dance and electronic", 19, 0.349, 0.524),
+]
 
 STYLE = """
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
@@ -67,6 +89,7 @@ STYLE = """
 .series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .series-fill { fill: #2a78d6; }
 .series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.muted-fill { fill: #898781; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 @media (prefers-color-scheme: dark) {
   .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
@@ -76,6 +99,7 @@ STYLE = """
   .axis { stroke: #383835; }
   .series-line { stroke: #3987e5; }
   .series-fill, .series-wash { fill: #3987e5; }
+  .muted-fill { fill: #898781; }
   .ring { stroke: #1a1a19; }
 }
 """
@@ -209,14 +233,14 @@ def feature_to_score_chart():
         staircase.append((to_x(edge), to_y(rating + 1)))
     staircase.append((to_x(1), to_y(RATING_COUNT)))
     body.append(polyline(staircase, "series-line"))
-    body.append(text(to_x(COMBINED_LOW) + 8, to_y(9.6), "0.2 is the bottom", "label"))
-    body.append(text(to_x(COMBINED_HIGH) - 8, to_y(1.4), "0.8 is the top", "label", "end"))
+    body.append(text(to_x(COMBINED_LOW) + 8, to_y(9.6), "0.1 is the bottom", "label"))
+    body.append(text(to_x(COMBINED_HIGH) - 8, to_y(1.4), "0.9 is the top", "label", "end"))
 
     description = (
         "Left: onset rate scores 0 at or below 2.5 percussive events per second, "
         "rises in a straight line, and scores 1 at or above 7 per second. "
         "Right: the weighted average of the feature scores maps to the rating as a "
-        "staircase. An average of 0.2 or less gives 1, 0.8 or more gives 10, and "
+        "staircase. An average of 0.1 or less gives 1, 0.9 or more gives 10, and "
         "the stretch between is cut into ten equal steps."
     )
     return document(width, height, "From a measurement to a rating", description, body)
@@ -228,10 +252,10 @@ def weights_chart():
     chart_top = 92
     width = 800
     height = chart_top + row_height * len(ranked) + 20
-    to_x = scale(0, 0.25, 220, 700)
+    to_x = scale(0, 0.7, 220, 700)
     body = [
         text(24, 36, "How much each feature counts", "title"),
-        text(24, 58, "Weights of the six features in the average. Onset rate and loudness count most.", "subtitle"),
+        text(24, 58, "Weights of the six features in the average. Spectral flux counts most, two features count nothing.", "subtitle"),
     ]
     for index, (name, weight) in enumerate(ranked):
         row_middle = chart_top + row_height * index + row_height / 2
@@ -241,9 +265,8 @@ def weights_chart():
     body.append(line(to_x(0), chart_top, to_x(0), chart_top + row_height * len(ranked), "axis"))
 
     description = (
-        "Horizontal bars of the weights: integrated loudness 0.25, onset rate 0.25, "
-        "loudness range 0.20, spectral flux 0.20, low frequency share 0.10, and tempo, "
-        "when known, 0.10."
+        "Horizontal bars of the weights: spectral flux 0.65, integrated loudness 0.20, "
+        "onset rate 0.10, loudness range 0.05, and low frequency share and tempo 0 each."
     )
     return document(width, height, "How much each feature counts", description, body)
 
@@ -274,41 +297,11 @@ def giantsteps_spread_chart():
 
     description = (
         "Column chart of how many of the 604 GiantSteps Key previews get each rating "
-        "with the detected tempo: 13, 13, 30, 63, 65, 115, 114, 102, 56 and 33 tracks "
+        "with the detected tempo: 26, 22, 53, 67, 86, 91, 102, 79, 42 and 36 tracks "
         "for ratings 1 to 10. The previews cover the whole scale, with most between 4 and 8 "
-        "and the peak at 6."
+        "and the peak at 7."
     )
     return document(width, height, "How the GiantSteps previews spread over the scale", description, body)
-
-
-def dj_folders_chart():
-    width = 800
-    row_height = 40
-    chart_top = 96
-    height = chart_top + row_height * len(DJ_FOLDER_AVERAGES) + 60
-    to_x = scale(1, 10, 130, 760)
-    chart_bottom = chart_top + row_height * len(DJ_FOLDER_AVERAGES)
-    body = [
-        text(24, 36, "Average rating of one DJ's folders", "title"),
-        text(24, 58, "494 house tracks sorted by their owner. The order is right, the steps are small.", "subtitle"),
-    ]
-    for rating_tick in range(1, 11):
-        body.append(line(to_x(rating_tick), chart_top, to_x(rating_tick), chart_bottom, "grid"))
-        body.append(text(to_x(rating_tick), chart_bottom + 20, str(rating_tick), "tick", "middle"))
-    body.append(text(to_x(5.5), chart_bottom + 44, "Energy rating", "label", "middle"))
-    for index, (folder, average) in enumerate(DJ_FOLDER_AVERAGES):
-        row_middle = chart_top + row_height * index + row_height / 2
-        body.append(text(to_x(1) - 18, row_middle + 4.5, folder, "label", "end"))
-        body.append(dot(to_x(average), row_middle, radius=6))
-        body.append(text(to_x(average) + 14, row_middle + 4.5, f"{average:.1f}", "value"))
-
-    description = (
-        "Dot plot on the rating scale from 1 to 10 of the average rating of three "
-        "folders in one DJ's library of 494 house tracks: warm up 5.0, build 5.9 and "
-        "peak 6.3. The rating rises in the right order, but the three averages sit "
-        "within about one point of each other."
-    )
-    return document(width, height, "Average rating of one DJ's folders", description, body)
 
 
 def minutes_and_seconds(seconds):
@@ -352,19 +345,52 @@ def energy_curve_chart():
 
     description = (
         "Step chart of the energy rating of a two minute preview from the benchmark set, "
-        "one rating every 4 seconds over 8 second windows. It starts at 10, eases down to 7, "
-        "falls to 1 in a breakdown between about 40 and 60 seconds, jumps back to 10 at the "
-        "drop just after one minute and stays near 10 to the end. The whole preview rates 6, "
+        "one rating every 4 seconds over 8 second windows. It starts at 10, eases down to 2 "
+        "by half a minute, falls to 1 in a breakdown between about 40 and 60 seconds, jumps "
+        "back to 8 and then 9 or 10 at the drop just after one minute and stays high to the "
+        "end. The whole preview rates 6, "
         "so the windows reach both higher and lower than the rating of the whole track."
     )
     return document(width, height, "Energy curve of a two minute preview", description, body)
+
+
+def agreement_by_genre_chart():
+    width = 800
+    row_height = 26
+    chart_top = 104
+    height = chart_top + row_height * len(GENRE_AGREEMENT) + 64
+    to_x = scale(0.3, 0.9, 230, 760)
+    chart_bottom = chart_top + row_height * len(GENRE_AGREEMENT)
+    body = [
+        text(24, 36, "Agreement with listeners by genre", "title"),
+        text(24, 58, "Correlation of the energy score with listeners' arousal, on songs held out from the fitting.", "subtitle"),
+        text(24, 80, "Grey: weights of version 1. Blue: weights of version 2.", "subtitle"),
+    ]
+    for tick in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        body.append(line(to_x(tick), chart_top, to_x(tick), chart_bottom, "grid"))
+        body.append(text(to_x(tick), chart_bottom + 20, f"{tick:.1f}", "tick", "middle"))
+    body.append(text(to_x(0.6), chart_bottom + 44, "Spearman correlation", "label", "middle"))
+    for index, (name, count, before, after) in enumerate(GENRE_AGREEMENT):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(0.3) - 14, row_middle + 4.5, f"{name} ({count})", "label", "end"))
+        body.append(line(to_x(before), row_middle, to_x(after), row_middle, "reference"))
+        body.append(f'<circle cx="{number(to_x(before))}" cy="{number(row_middle)}" r="5" class="muted-fill ring"/>')
+        body.append(dot(to_x(after), row_middle))
+
+    description = (
+        "Dot plot of the correlation between the energy score and listeners' arousal, by genre, "
+        "for the weights of version 1 and of version 2. Version 2 is higher in 13 of 16 genre "
+        "groups, level in jazz and classical, and 0.03 lower in DEAM country music. Overall it "
+        "rises from 0.60 to 0.66 on DEAM and from 0.53 to 0.76 on PMEmo."
+    )
+    return document(width, height, "Agreement with listeners by genre", description, body)
 
 
 CHARTS = {
     "feature-to-rating.svg": feature_to_score_chart,
     "weights.svg": weights_chart,
     "giantsteps-spread.svg": giantsteps_spread_chart,
-    "dj-folders.svg": dj_folders_chart,
+    "agreement-by-genre.svg": agreement_by_genre_chart,
     "energy-curve.svg": energy_curve_chart,
 }
 

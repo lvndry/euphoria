@@ -11,18 +11,20 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::tags::{
-    GridOutcome, SeratoReport, SeratoSkip, WritePlan, describe_serato_value, serato_field_name,
-};
+use euphoria_core::rekordbox_grid::GridSource;
+use euphoria_core::tags::{SeratoReport, WritePlan, describe_serato_value, serato_field_name};
 use euphoria_core::{
-    BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeySection, SUPPORTED_EXTENSIONS,
-    SkippedTrack, TempoRange, UnreadTags,
+    AudioScan, BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference,
+    KeySection, SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange, TrackAnalysis,
+    UnreadTags,
 };
 use serde::Serialize;
 
 use crate::batch::{UserEdits, UserEditsByFile};
 use crate::export::Program;
+use crate::grid_import::{GridInfo, GridInfos, ImportSummary};
 use crate::style::Theme;
+use crate::tag_key::TagKeys;
 use crate::tags::Failure;
 use crate::terminal::Printable;
 use crate::view::format_duration;
@@ -72,6 +74,43 @@ pub fn write_warning(
     write_message(writer, theme, &theme.warning_label(), message)
 }
 
+/// The exit status of a command that reports missing files apart from
+/// failures, when files were missing and nothing failed.
+pub const MISSING_FILES_EXIT_STATUS: u8 = 3;
+
+/// The exit status of a run: 1 when something failed, 3 when the only
+/// problem is files that are no longer there or folders that could not be
+/// read, and 0 otherwise.
+pub fn exit_status(failed: bool, missing: bool) -> std::process::ExitCode {
+    if failed {
+        std::process::ExitCode::FAILURE
+    } else if missing || crate::scan::was_incomplete() {
+        std::process::ExitCode::from(MISSING_FILES_EXIT_STATUS)
+    } else {
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+/// Writes one `missing:` line for a file that is no longer where it was.
+pub fn write_missing(writer: &mut impl Write, theme: &Theme, path: &Path) -> io::Result<()> {
+    write_message(
+        writer,
+        theme,
+        &theme.missing_label(),
+        Printable(path.display()),
+    )
+}
+
+/// Writes how many files are missing and what that usually means.
+pub fn write_missing_summary(writer: &mut impl Write, missing_count: usize) -> io::Result<()> {
+    let verb = if missing_count == 1 { "is" } else { "are" };
+    writeln!(
+        writer,
+        "{} {verb} missing: moved, deleted, or on a drive that is not connected.",
+        counted_files(missing_count)
+    )
+}
+
 /// Writes `hint: message`, what to do next.
 pub fn write_hint(writer: &mut impl Write, theme: &Theme, message: impl Display) -> io::Result<()> {
     write_message(writer, theme, &theme.hint_label(), message)
@@ -119,6 +158,8 @@ struct JsonTrack<'result> {
     duration_seconds: Option<f32>,
     key: Option<JsonKey>,
     runner_up_key: Option<JsonKey>,
+    /// The key field of the file's tags, when it has one.
+    tag_key: Option<JsonTagKey>,
     bpm: Option<f32>,
     bpm_confidence: Option<&'static str>,
     bpm_alternative: Option<f32>,
@@ -126,6 +167,13 @@ struct JsonTrack<'result> {
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
+    /// Whose beat grid the track has: "rekordbox", "detected" or "you", or
+    /// `None` when it has none.
+    beat_grid_source: Option<&'static str>,
+    /// What the rekordbox collection gave for the track, when one was
+    /// passed: "used", "variable", "unsupported meter", "unreadable",
+    /// "no grid" or "not in collection".
+    rekordbox_grid: Option<&'static str>,
     cues: Vec<JsonCue>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
@@ -133,6 +181,59 @@ struct JsonTrack<'result> {
     /// any of "key", "bpm" and "cues".
     set_by_user: Vec<&'static str>,
     error: Option<String>,
+    /// True when the file is no longer there, as opposed to a file that is
+    /// there but failed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    missing: bool,
+    /// True for a folder the scan could not read: `path` is the folder and
+    /// `error` says why. The files in it are not in the list.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unreadable: bool,
+    /// True for an audio file of a format Euphoria cannot decode yet, which
+    /// a scan of a folder left out.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    skipped: bool,
+}
+
+impl<'result> JsonTrack<'result> {
+    /// An entry for `path` with nothing analyzed.
+    fn bare(path: &'result Path, error: Option<String>) -> Self {
+        Self {
+            path,
+            duration_seconds: None,
+            key: None,
+            runner_up_key: None,
+            tag_key: None,
+            bpm: None,
+            bpm_confidence: None,
+            bpm_alternative: None,
+            energy: None,
+            tuning_cents: None,
+            key_timeline: Vec::new(),
+            beat_grid: None,
+            beat_grid_source: None,
+            rekordbox_grid: None,
+            cues: Vec::new(),
+            quality: None,
+            needs_review: None,
+            set_by_user: Vec::new(),
+            error,
+            missing: false,
+            unreadable: false,
+            skipped: false,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonTagKey {
+    /// The text of the field as written.
+    text: String,
+    /// The key the text names, or `None` when it is not a key.
+    key: Option<JsonKey>,
+    /// "same", "fifth", "relative", "parallel", "other" or "unreadable", or
+    /// `None` when no key was detected to compare with.
+    agreement: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -157,15 +258,18 @@ impl From<Cue> for JsonCue {
 struct JsonBeatGrid {
     first_downbeat_seconds: f64,
     bpm: f64,
-    confidence: &'static str,
+    /// How far to trust a detected grid. `None` for the grid of a rekordbox
+    /// collection, which nothing was measured for: the DJ set it.
+    confidence: Option<&'static str>,
 }
 
-impl From<BeatGrid> for JsonBeatGrid {
-    fn from(grid: BeatGrid) -> Self {
+impl JsonBeatGrid {
+    fn of(grid: BeatGrid, info: Option<&GridInfo>) -> Self {
+        let imported = info.is_some_and(|info| info.source == Some(GridSource::Rekordbox));
         Self {
             first_downbeat_seconds: round_to_thousandths(grid.first_downbeat_seconds),
             bpm: round_to_thousandths(grid.bpm),
-            confidence: grid.confidence().as_str(),
+            confidence: (!imported).then(|| grid.confidence().as_str()),
         }
     }
 }
@@ -175,6 +279,13 @@ struct JsonQuality<'result> {
     #[serde(flatten)]
     report: &'result QualityReport,
     reason: String,
+    /// True when packets could not be decoded or the audio is shorter than
+    /// the file declares. `damage` says how much; a heavily damaged file has
+    /// no beat grid and no cues.
+    damaged: bool,
+    /// Sentences about damage and about channels that cancelled in the mono
+    /// mixdown.
+    notes: Vec<String>,
 }
 
 impl<'result> From<&'result QualityReport> for JsonQuality<'result> {
@@ -182,6 +293,8 @@ impl<'result> From<&'result QualityReport> for JsonQuality<'result> {
         Self {
             report,
             reason: report.reason(),
+            damaged: report.is_damaged(),
+            notes: report.notes(),
         }
     }
 }
@@ -233,13 +346,17 @@ impl From<Key> for JsonKey {
 }
 
 /// Writes one JSON array with an object per file, including failed files with
-/// their error. Tempos are taken to be reported in `range`, which decides
+/// their error, then an object for each folder the scan could not read and
+/// each audio file it left out for its format. Tempos are taken to be reported in `range`, which decides
 /// the half or double tempo offered as an alternative.
 pub fn write_json(
     writer: &mut impl Write,
     results: &[FileResult],
     range: TempoRange,
     user_edits: &UserEditsByFile,
+    tag_keys: &TagKeys,
+    grid_infos: &GridInfos,
+    scan: &AudioScan,
 ) -> io::Result<()> {
     let no_edits = UserEdits::default();
     let tracks: Vec<JsonTrack<'_>> = results
@@ -257,6 +374,13 @@ pub fn write_json(
                         .key
                         .map(|key| JsonKey::rated(key, analysis.key_confidence())),
                     runner_up_key: analysis.key_runner_up.map(JsonKey::from),
+                    tag_key: tag_keys.get(&result.path).map(|tag_key| JsonTagKey {
+                        text: tag_key.text.clone(),
+                        key: tag_key.key.map(JsonKey::from),
+                        agreement: tag_keys
+                            .agreement(&result.path, analysis)
+                            .map(TagKeyAgreement::as_str),
+                    }),
                     bpm: analysis.bpm.map(round_to_tenths),
                     bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
                     bpm_alternative: analysis
@@ -270,7 +394,16 @@ pub fn write_json(
                         .iter()
                         .map(JsonKeySection::from)
                         .collect(),
-                    beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
+                    beat_grid: analysis
+                        .beat_grid
+                        .map(|grid| JsonBeatGrid::of(grid, grid_infos.get(&result.path))),
+                    beat_grid_source: grid_infos
+                        .get(&result.path)
+                        .and_then(|info| info.source)
+                        .map(GridSource::label),
+                    rekordbox_grid: grid_infos
+                        .get(&result.path)
+                        .and_then(|info| info.collection.label()),
                     cues: edits
                         .track_cues(analysis)
                         .cues
@@ -278,30 +411,36 @@ pub fn write_json(
                         .map(JsonCue::from)
                         .collect(),
                     quality: analysis.quality.as_ref().map(JsonQuality::from),
-                    needs_review: Some(analysis.needs_review()),
+                    needs_review: Some(
+                        analysis.needs_review()
+                            || tag_keys.conflict(&result.path, analysis).is_some(),
+                    ),
                     set_by_user: set_by_user(edits),
                     error: None,
+                    missing: false,
+                    unreadable: false,
+                    skipped: false,
                 }
             }
             Err(error) => JsonTrack {
-                path: &result.path,
-                duration_seconds: None,
-                key: None,
-                runner_up_key: None,
-                bpm: None,
-                bpm_confidence: None,
-                bpm_alternative: None,
-                energy: None,
-                tuning_cents: None,
-                key_timeline: Vec::new(),
-                beat_grid: None,
-                cues: Vec::new(),
-                quality: None,
-                needs_review: None,
-                set_by_user: Vec::new(),
-                error: Some(error.chain()),
+                missing: error.missing_path().is_some(),
+                ..JsonTrack::bare(&result.path, Some(error.chain()))
             },
         })
+        .chain(scan.unreadable.iter().map(|warning| JsonTrack {
+            unreadable: true,
+            ..JsonTrack::bare(
+                &warning.path,
+                Some(format!("cannot read: {}", warning.reason)),
+            )
+        }))
+        .chain(scan.skipped_files.iter().map(|path| JsonTrack {
+            skipped: true,
+            ..JsonTrack::bare(
+                path,
+                Some("not decoded: Euphoria can't decode this format yet".to_string()),
+            )
+        }))
         .collect();
     serde_json::to_writer_pretty(&mut *writer, &tracks)?;
     writeln!(writer)
@@ -315,6 +454,9 @@ fn set_by_user(edits: &UserEdits) -> Vec<&'static str> {
     }
     if edits.correction.bpm.is_some() {
         names.push("bpm");
+    }
+    if edits.correction.energy.is_some() {
+        names.push("energy");
     }
     if edits.cues.is_some() {
         names.push("cues");
@@ -415,6 +557,7 @@ pub fn write_plain_table(
 fn plain_verdict(verdict: QualityVerdict) -> &'static str {
     match verdict {
         QualityVerdict::Lossless => "Lossless",
+        QualityVerdict::LimitedBandwidth => "Limited BW",
         QualityVerdict::Good => "Good",
         QualityVerdict::Acceptable => "Acceptable",
         QualityVerdict::WeakOnABigSystem => "Weak",
@@ -432,8 +575,9 @@ fn confidence_letter(confidence: Option<Confidence>) -> &'static str {
 }
 
 /// The verdicts from best to worst.
-const VERDICT_ORDER: [QualityVerdict; 5] = [
+const VERDICT_ORDER: [QualityVerdict; 6] = [
     QualityVerdict::Lossless,
+    QualityVerdict::LimitedBandwidth,
     QualityVerdict::Good,
     QualityVerdict::Acceptable,
     QualityVerdict::WeakOnABigSystem,
@@ -466,18 +610,32 @@ pub fn write_analysis_summary(
     theme: &Theme,
     results: &[FileResult],
     narrowing: &Narrowing,
+    tag_keys: &TagKeys,
 ) -> io::Result<()> {
     let analyses: Vec<_> = results
         .iter()
         .filter_map(|result| result.outcome.as_ref().ok())
         .collect();
-    let failure_count = results.len() - analyses.len();
+    let missing_count = results.iter().filter(|result| is_missing(result)).count();
+    let failure_count = results.len() - analyses.len() - missing_count;
     let mut hints: Vec<String> = Vec::new();
+    let mut review_hint_given = false;
+    let has_conflicts = results.iter().any(|result| {
+        result
+            .outcome
+            .as_ref()
+            .is_ok_and(|analysis| tag_keys.conflict(&result.path, analysis).is_some())
+    });
 
     if narrowing.is_narrowed() {
         let mut reasons = Vec::new();
         if narrowing.needs_review {
-            reasons.push("a key or tempo rated low confidence".to_string());
+            reasons.push(if has_conflicts {
+                "a key or tempo rated low confidence or a key that differs from the tags"
+                    .to_string()
+            } else {
+                "a key or tempo rated low confidence".to_string()
+            });
         }
         if !narrowing.verdicts.is_empty() {
             let labels: Vec<String> = narrowing
@@ -512,8 +670,79 @@ pub fn write_analysis_summary(
                 theme.caution("●○○")
             )?;
             if !narrowing.needs_review {
-                hints.push("--needs-review lists only the tracks to check by ear.".to_string());
+                hints.push(if has_conflicts {
+                    "--needs-review lists only the tracks to check by ear, with those whose tags name another key."
+                        .to_string()
+                } else {
+                    "--needs-review lists only the tracks to check by ear.".to_string()
+                });
+                review_hint_given = true;
             }
+        }
+    }
+
+    let analyzed: Vec<(&Path, &TrackAnalysis)> = results
+        .iter()
+        .filter_map(|result| Some((result.path.as_path(), result.outcome.as_ref().ok()?)))
+        .collect();
+    let agreements: Vec<TagKeyAgreement> = analyzed
+        .iter()
+        .filter_map(|(path, analysis)| tag_keys.compared(path, analysis))
+        .collect();
+    let compared_count = agreements.len();
+    if compared_count > 0 {
+        let conflicts: Vec<KeyDifference> = agreements
+            .iter()
+            .filter_map(|agreement| match agreement {
+                TagKeyAgreement::Differs(difference) => Some(*difference),
+                TagKeyAgreement::Same | TagKeyAgreement::Unreadable => None,
+            })
+            .collect();
+        let count_of = |wanted: TagKeyAgreement| {
+            agreements
+                .iter()
+                .filter(|agreement| **agreement == wanted)
+                .count()
+        };
+        let same_count = count_of(TagKeyAgreement::Same);
+        let unreadable_count = count_of(TagKeyAgreement::Unreadable);
+        if conflicts.is_empty() && same_count > 0 {
+            writeln!(
+                writer,
+                "Tag keys: the key in the tags of {} matches the detected key.",
+                counted(same_count, "track", "tracks")
+            )?;
+        } else if !conflicts.is_empty() {
+            let kinds: Vec<String> = KeyDifference::ALL
+                .iter()
+                .filter_map(|difference| {
+                    let count = conflicts
+                        .iter()
+                        .filter(|found| *found == difference)
+                        .count();
+                    (count > 0).then(|| format!("{count} {}", difference.label()))
+                })
+                .collect();
+            writeln!(
+                writer,
+                "Tag keys: {} of {} with a key in their tags differ from the detected key ({}).",
+                theme.bold(conflicts.len()),
+                counted(compared_count, "track", "tracks"),
+                kinds.join(", ")
+            )?;
+            let lists_them = if narrowing.needs_review || review_hint_given {
+                ""
+            } else {
+                "--needs-review lists them, and "
+            };
+            hints.push(format!("{lists_them}--detail says which reading to trust."));
+        }
+        if unreadable_count > 0 {
+            writeln!(
+                writer,
+                "{} a key field Euphoria cannot read; --json shows its text.",
+                counted(unreadable_count, "track has", "tracks have")
+            )?;
         }
     }
 
@@ -568,6 +797,9 @@ pub fn write_analysis_summary(
             counted_files(failure_count)
         )?;
     }
+    if missing_count > 0 {
+        write_missing_summary(writer, missing_count)?;
+    }
     for hint in hints {
         write_hint(writer, theme, hint)?;
     }
@@ -583,16 +815,30 @@ fn or_list(items: &[String]) -> String {
     }
 }
 
-/// Writes one `error:` line per file that could not be analyzed, with why.
+/// True when the result is a file that is no longer there.
+pub fn is_missing(result: &FileResult) -> bool {
+    result
+        .outcome
+        .as_ref()
+        .is_err_and(|error| error.missing_path().is_some())
+}
+
+/// Writes one `error:` line per file that could not be analyzed, with why,
+/// then one `missing:` line per file that is no longer there.
 pub fn write_failures(
     writer: &mut impl Write,
     theme: &Theme,
     results: &[FileResult],
 ) -> io::Result<()> {
     for result in results {
-        if let Err(error) = &result.outcome {
+        if let Err(error) = &result.outcome
+            && error.missing_path().is_none()
+        {
             write_file_error(writer, theme, &result.path, error)?;
         }
+    }
+    for result in results.iter().filter(|result| is_missing(result)) {
+        write_missing(writer, theme, &result.path)?;
     }
     Ok(())
 }
@@ -608,6 +854,47 @@ pub fn write_cache_summary(
         writer,
         "{cached_count} of {total} {noun} came from the cache."
     )
+}
+
+/// Writes how many tracks use the beat grid of the rekordbox collection at
+/// `collection`, and the tracks whose grid was left out with the reason.
+pub fn write_grid_import_summary(
+    writer: &mut impl Write,
+    theme: &Theme,
+    summary: &ImportSummary,
+    collection: &Path,
+) -> io::Result<()> {
+    let noun = |count: usize| if count == 1 { "track" } else { "tracks" };
+    writeln!(
+        writer,
+        "{} {} use the beat grid of your rekordbox collection.",
+        summary.used,
+        noun(summary.used)
+    )?;
+    if summary.not_in_collection > 0 || summary.no_grid > 0 {
+        writeln!(
+            writer,
+            "{} not in {} and {} with no grid there keep the detected grid.",
+            summary.not_in_collection,
+            Printable(collection.display()),
+            summary.no_grid
+        )?;
+    }
+    if !summary.skipped.is_empty() {
+        write_warning(
+            writer,
+            theme,
+            format_args!(
+                "{} {} keep the detected grid because the rekordbox grid cannot be used:",
+                summary.skipped.len(),
+                noun(summary.skipped.len())
+            ),
+        )?;
+        for (path, reason) in &summary.skipped {
+            writeln!(writer, "  {}: {}", Printable(path.display()), reason)?;
+        }
+    }
+    Ok(())
 }
 
 /// Writes that the cache could not be used and why, that the files are
@@ -843,18 +1130,46 @@ pub fn write_skipped_tracks(
     skipped: &[SkippedTrack],
 ) -> io::Result<()> {
     for skipped_track in skipped {
-        write_file_error(writer, theme, &skipped_track.path, &skipped_track.reason)?;
+        if skipped_track.reason.missing_path().is_none() {
+            write_file_error(writer, theme, &skipped_track.path, &skipped_track.reason)?;
+        }
+    }
+    for skipped_track in skipped {
+        if skipped_track.reason.missing_path().is_some() {
+            write_missing(writer, theme, &skipped_track.path)?;
+        }
     }
     Ok(())
 }
 
-/// Writes how many files an export left out, after their errors.
-pub fn write_skipped_summary(writer: &mut impl Write, skipped_count: usize) -> io::Result<()> {
-    writeln!(
-        writer,
-        "Left {} out of the export; the errors above say why.",
-        counted_files(skipped_count)
-    )
+/// How many of the tracks an export left out are missing files, and how
+/// many failed for another reason.
+pub fn missing_and_failed(skipped: &[SkippedTrack]) -> (usize, usize) {
+    let missing = skipped
+        .iter()
+        .filter(|skipped_track| skipped_track.reason.missing_path().is_some())
+        .count();
+    (missing, skipped.len() - missing)
+}
+
+/// Writes how many files an export left out, after their errors: those
+/// that failed and those that are missing.
+pub fn write_skipped_summary(
+    writer: &mut impl Write,
+    failed_count: usize,
+    missing_count: usize,
+) -> io::Result<()> {
+    if failed_count > 0 {
+        writeln!(
+            writer,
+            "Left {} out of the export; the errors above say why.",
+            counted_files(failed_count)
+        )?;
+    }
+    if missing_count > 0 {
+        write_missing_summary(writer, missing_count)?;
+    }
+    Ok(())
 }
 
 /// Writes one `warning:` line per exported track that is named after its
@@ -910,6 +1225,32 @@ pub fn write_tag_preview(
                 theme.good(Printable(shown(change.new.as_deref())))
             )?;
         }
+        write_skipped_values(writer, theme, plan)?;
+    }
+    Ok(())
+}
+
+/// Lists the files that have nothing to change but a key or tempo they
+/// leave out, with the reason, so that a kept value is visible.
+pub fn write_tag_skips(
+    writer: &mut impl Write,
+    theme: &Theme,
+    plans: &[WritePlan],
+) -> io::Result<()> {
+    for plan in plans {
+        writeln!(writer, "{}", theme.bold(Printable(plan.path().display())))?;
+        write_skipped_values(writer, theme, plan)?;
+    }
+    Ok(())
+}
+
+fn write_skipped_values(
+    writer: &mut impl Write,
+    theme: &Theme,
+    plan: &WritePlan,
+) -> io::Result<()> {
+    for skipped in plan.skipped() {
+        writeln!(writer, "  {}", theme.dim(Printable(skipped.describe())))?;
     }
     Ok(())
 }
@@ -928,48 +1269,7 @@ pub fn write_serato_reports(
     for (path, report) in reports {
         placed += report.placed.len();
         kept += report.kept;
-        let mut problems = Vec::new();
-        match &report.skipped {
-            Some(SeratoSkip::Wav) => {
-                problems.push("no Serato cues or grid: Serato reads none from WAV tags".to_string())
-            }
-            Some(SeratoSkip::Ogg) => problems.push(
-                "no Serato cues or grid: Serato's layout in Ogg files is not known well enough to write"
-                    .to_string(),
-            ),
-            Some(SeratoSkip::OldId3) => problems
-                .push("no Serato cues or grid: its ID3v2.2 tag cannot hold them".to_string()),
-            Some(SeratoSkip::Unreadable { field, reason }) => problems.push(format!(
-                "no Serato cues or grid: its {} could not be read ({reason}), so it is left as it is",
-                serato_field_name(field).unwrap_or(field)
-            )),
-            None => {}
-        }
-        for cue in &report.placed {
-            if cue.pad != cue.wanted_pad {
-                problems.push(format!(
-                    "{} went to pad {}, since pad {} holds a cue of yours",
-                    if cue.name.is_empty() {
-                        "a cue"
-                    } else {
-                        &cue.name
-                    },
-                    cue.pad + 1,
-                    cue.wanted_pad + 1
-                ));
-            }
-        }
-        if !report.no_free_pad.is_empty() {
-            problems.push(format!(
-                "{} left out: every pad holds a cue of yours",
-                report.no_free_pad.join(", ")
-            ));
-        }
-        if let GridOutcome::KeptYours { position, bpm } = report.grid {
-            problems.push(format!(
-                "your Serato beat grid ({bpm:.2} BPM from {position:.3} s) is kept, not replaced"
-            ));
-        }
+        let problems = report.notes();
         for problem in problems {
             write_warning(
                 writer,
@@ -1165,6 +1465,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-9.25),
             true_peak_dbtp: Some(0.8),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict: QualityVerdict::WeakOnABigSystem,
         }
     }
@@ -1239,12 +1541,22 @@ mod tests {
             results,
             TempoRange::DEFAULT,
             &UserEditsByFile::new(),
+            &TagKeys::default(),
+            &GridInfos::new(),
+            &AudioScan::default(),
         )
     }
 
     fn summary(results: &[FileResult], narrowing: &Narrowing) -> String {
         let mut buffer = Vec::new();
-        write_analysis_summary(&mut buffer, &Theme::PLAIN, results, narrowing).unwrap();
+        write_analysis_summary(
+            &mut buffer,
+            &Theme::PLAIN,
+            results,
+            narrowing,
+            &TagKeys::default(),
+        )
+        .unwrap();
         String::from_utf8(buffer).unwrap()
     }
 
@@ -1342,7 +1654,16 @@ Key             BPM  Energy  Conf  Quality  Time  File
         assert!(table.contains("H/U"), "{table}");
 
         let mut json = Vec::new();
-        write_json(&mut json, &results, TempoRange::DEFAULT, &user_edits).unwrap();
+        write_json(
+            &mut json,
+            &results,
+            TempoRange::DEFAULT,
+            &user_edits,
+            &TagKeys::default(),
+            &GridInfos::new(),
+            &AudioScan::default(),
+        )
+        .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
         assert_eq!(json[0]["set_by_user"], serde_json::json!(["bpm"]));
         assert_eq!(json[1]["set_by_user"], serde_json::json!([]));
@@ -1359,7 +1680,16 @@ Key             BPM  Energy  Conf  Quality  Time  File
         }
         let json_of = |user_edits: &UserEditsByFile| {
             let mut json = Vec::new();
-            write_json(&mut json, &results, TempoRange::DEFAULT, user_edits).unwrap();
+            write_json(
+                &mut json,
+                &results,
+                TempoRange::DEFAULT,
+                user_edits,
+                &TagKeys::default(),
+                &GridInfos::new(),
+                &AudioScan::default(),
+            )
+            .unwrap();
             serde_json::from_slice::<serde_json::Value>(&json).unwrap()
         };
         assert_eq!(
@@ -1440,6 +1770,25 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
             "Key and tempo: no track is rated low confidence.\n"
         );
         assert_eq!(summary(&[], &Narrowing::default()), "");
+    }
+
+    #[test]
+    fn a_limited_bandwidth_is_named_in_json_and_not_sent_to_review() {
+        let mut results = sample_results();
+        let mut limited = sample_quality();
+        limited.lossless = true;
+        limited.codec = "flac".to_string();
+        limited.verdict = QualityVerdict::LimitedBandwidth;
+        if let Ok(analysis) = &mut results[1].outcome {
+            analysis.quality = Some(limited);
+        }
+        let mut buffer = Vec::new();
+        write_json_in_default_range(&mut buffer, &results).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&buffer).unwrap();
+        assert_eq!(parsed[1]["quality"]["verdict"], "limited-bandwidth");
+        let text = summary(&results, &Narrowing::default());
+        assert!(text.contains("1 track limited bandwidth"), "{text}");
+        assert!(text.contains("--quality weak lists"), "{text}");
     }
 
     #[test]
@@ -1596,7 +1945,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         }];
         let mut buffer = Vec::new();
         write_skipped_tracks(&mut buffer, &Theme::PLAIN, &skipped).unwrap();
-        write_skipped_summary(&mut buffer, skipped.len()).unwrap();
+        write_skipped_summary(&mut buffer, skipped.len(), 0).unwrap();
         assert_eq!(
             String::from_utf8(buffer).unwrap(),
             "error: music/broken.mp3: unrecognised key text: \"example\"\n\
@@ -1631,6 +1980,160 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert_eq!(
             String::from_utf8(buffer).unwrap(),
             "error: music/broken.mp3: unrecognised key text: \"example\"\n"
+        );
+    }
+
+    fn confident_results() -> Vec<FileResult> {
+        let mut results = sample_results();
+        if let Ok(analysis) = &mut results[0].outcome {
+            analysis.key_score_margin = Some(1.0);
+            analysis.tempo_score_margin = Some(1.0);
+        }
+        results
+    }
+
+    fn json_with(results: &[FileResult], tag_keys: &TagKeys) -> serde_json::Value {
+        let mut json = Vec::new();
+        write_json(
+            &mut json,
+            results,
+            TempoRange::DEFAULT,
+            &UserEditsByFile::new(),
+            tag_keys,
+            &GridInfos::new(),
+            &AudioScan::default(),
+        )
+        .unwrap();
+        serde_json::from_slice(&json).unwrap()
+    }
+
+    #[test]
+    fn the_json_gives_the_tag_key_and_flags_a_conflict_for_review() {
+        let results = confident_results();
+        let untagged = json_with(&results, &TagKeys::default());
+        assert_eq!(untagged[0]["needs_review"], false);
+        assert_eq!(untagged[0]["tag_key"], serde_json::Value::Null);
+
+        let tag_keys = TagKeys::from_texts(&[
+            (Path::new("music/low tide.flac"), "8B"),
+            (Path::new("music/intro.wav"), "Am"),
+        ]);
+        let tagged = json_with(&results, &tag_keys);
+        assert_eq!(tagged[0]["tag_key"]["text"], "8B");
+        assert_eq!(tagged[0]["tag_key"]["key"]["camelot"], "8B");
+        assert_eq!(tagged[0]["tag_key"]["agreement"], "relative");
+        assert_eq!(tagged[0]["needs_review"], true);
+        assert_eq!(tagged[1]["tag_key"]["agreement"], serde_json::Value::Null);
+        assert_eq!(tagged[2]["tag_key"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn the_json_keeps_an_unreadable_tag_key_as_text() {
+        let tag_keys = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "banger")]);
+        let json = json_with(&confident_results(), &tag_keys);
+        assert_eq!(json[0]["tag_key"]["text"], "banger");
+        assert_eq!(json[0]["tag_key"]["key"], serde_json::Value::Null);
+        assert_eq!(json[0]["tag_key"]["agreement"], "unreadable");
+        assert_eq!(json[0]["needs_review"], false);
+    }
+
+    fn summary_with(results: &[FileResult], tag_keys: &TagKeys) -> String {
+        let mut buffer = Vec::new();
+        write_analysis_summary(
+            &mut buffer,
+            &Theme::PLAIN,
+            results,
+            &Narrowing::default(),
+            tag_keys,
+        )
+        .unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn the_summary_counts_tag_keys_that_differ_by_kind() {
+        let tag_keys = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "9A")]);
+        let summary = summary_with(&confident_results(), &tag_keys);
+        assert!(
+            summary.contains(
+                "Tag keys: 1 of 1 track with a key in their tags differ from the detected key (1 a fifth apart)."
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains(
+                "hint: --needs-review lists them, and --detail says which reading to trust."
+            ),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn the_summary_says_when_the_tags_agree_and_counts_unreadable_fields() {
+        let agrees = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "A minor")]);
+        let summary = summary_with(&confident_results(), &agrees);
+        assert!(
+            summary.contains("Tag keys: the key in the tags of 1 track matches the detected key."),
+            "{summary}"
+        );
+        let garbage = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "banger")]);
+        let summary = summary_with(&confident_results(), &garbage);
+        assert!(!summary.contains("matches"), "{summary}");
+        assert!(
+            summary
+                .contains("1 track has a key field Euphoria cannot read; --json shows its text."),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_neither_counted_as_matching_nor_as_differing() {
+        let low_tide = Path::new("music/low tide.flac");
+        let tag_keys = TagKeys::from_texts(&[(low_tide, "8B")]).with_key_set_by_user(low_tide);
+        let summary = summary_with(&confident_results(), &tag_keys);
+        assert!(!summary.contains("Tag keys"), "{summary}");
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_left_out_of_the_counts_beside_other_tracks() {
+        let mut results = confident_results();
+        let copy = |name: &str| FileResult {
+            path: PathBuf::from(name),
+            outcome: Ok(results[0].outcome.as_ref().unwrap().clone()),
+        };
+        let agrees = copy("music/agrees.flac");
+        let differs = copy("music/differs.flac");
+        results.push(agrees);
+        results.push(differs);
+        let low_tide = Path::new("music/low tide.flac");
+
+        let only_agreeing =
+            TagKeys::from_texts(&[(low_tide, "8B"), (Path::new("music/agrees.flac"), "8A")])
+                .with_key_set_by_user(low_tide);
+        let summary = summary_with(&results, &only_agreeing);
+        assert!(
+            summary.contains("Tag keys: the key in the tags of 1 track matches the detected key."),
+            "{summary}"
+        );
+
+        let with_a_conflict = TagKeys::from_texts(&[
+            (low_tide, "8B"),
+            (Path::new("music/agrees.flac"), "8A"),
+            (Path::new("music/differs.flac"), "9A"),
+        ])
+        .with_key_set_by_user(low_tide);
+        let summary = summary_with(&results, &with_a_conflict);
+        assert!(
+            summary.contains(
+                "Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1 a fifth apart)."
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains(
+                "hint: --needs-review lists them, and --detail says which reading to trust."
+            ),
+            "{summary}"
         );
     }
 }

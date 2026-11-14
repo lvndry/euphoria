@@ -18,7 +18,7 @@ use euphoria_core::{
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
 use crate::demo::DemoTrack;
 use crate::favorites::Favorites;
-use crate::library::Library;
+use crate::library::{Library, TrackFailure};
 use crate::playlists::{PlaylistRewrite, Playlists};
 use crate::progress::AnalysisProgress;
 
@@ -37,6 +37,9 @@ pub(crate) struct Scan {
     pub(crate) edited_cues: HashMap<PathBuf, Vec<euphoria_core::Cue>>,
     /// One message for each path that could not be read.
     pub(crate) problems: Vec<String>,
+    /// The paths that are no longer there, such as a folder on a drive that
+    /// is not connected, kept so they are looked for again next time.
+    pub(crate) unavailable_folders: Vec<PathBuf>,
 }
 
 /// Asks the core for the audio files under each path and, with a cache, for
@@ -47,12 +50,25 @@ pub(crate) struct Scan {
 pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
     let mut scan = Scan::default();
     for path in paths {
-        match euphoria_core::find_audio_files(std::slice::from_ref(path)) {
-            Ok(files) => {
+        match euphoria_core::scan_audio_files(std::slice::from_ref(path)) {
+            Ok(found) => {
                 if path.is_dir() {
                     scan.folders.push(path.clone());
                 }
-                scan.files.extend(files);
+                scan.problems.extend(
+                    [found.unreadable_summary(), found.skipped_summary()]
+                        .into_iter()
+                        .flatten()
+                        .map(|summary| format!("{summary}.")),
+                );
+                scan.files.extend(found.files);
+            }
+            Err(error) if error.missing_path().is_some() => {
+                scan.unavailable_folders.push(path.clone());
+                scan.problems.push(format!(
+                    "{} is missing: moved, deleted, or on a drive that is not connected.",
+                    path.display()
+                ));
             }
             Err(error) => scan.problems.push(error.chain()),
         }
@@ -84,6 +100,17 @@ pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
         });
     }
     scan
+}
+
+/// What [`Session::relink`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Relinked {
+    /// The track and everything that held it moved. The playlists or the
+    /// favorites are worth saving when they changed.
+    Done { saved_lists_changed: bool },
+    /// A playlist or a favorite recorded other audio for the old path, so
+    /// nothing moved.
+    OtherAudioRecorded,
 }
 
 /// The library and the background workers analyzing it.
@@ -289,6 +316,7 @@ impl Session {
             store.save_favorites(&favorites)?;
         }
         self.favorites = Favorites::from_stored(favorites);
+        self.show_missing_entries();
         let saver = PlaylistSaver {
             store: Arc::new(Mutex::new(store)),
             saved_revision: Arc::new(AtomicU64::new(0)),
@@ -298,6 +326,85 @@ impl Session {
         };
         self.playlist_saver = Some(saver);
         Ok(())
+    }
+
+    /// Adds a missing track for each file of a playlist or a favorite that
+    /// is no longer there, even where the cache last saw it, so the user
+    /// can locate it or remove it.
+    fn show_missing_entries(&mut self) {
+        let gone: Vec<PathBuf> = self
+            .playlists
+            .all()
+            .iter()
+            .flat_map(|playlist| playlist.tracks.iter())
+            .chain(self.favorites.paths())
+            .filter(|path| matches!(path.try_exists(), Ok(false)))
+            .cloned()
+            .collect();
+        self.library.add_missing(gone);
+    }
+
+    /// The content a missing track held, as far as the playlists and
+    /// favorites know it without the cache.
+    pub(crate) fn known_content_of(&self, path: &Path) -> Option<euphoria_core::ContentHash> {
+        self.playlists
+            .content_of(path)
+            .or_else(|| self.favorites.content_of(path))
+    }
+
+    /// Points the missing track of `old`, with its playlists and favorites,
+    /// at `new`, where the same audio, `content`, is now. When `new` is
+    /// already in the library the missing track is removed instead, its
+    /// playlists and favorites pointing at the track that is there.
+    ///
+    /// Nothing changes when the playlists or the favorites recorded other
+    /// audio for `old`, so the track, its playlists and its favorites never
+    /// end up in different places.
+    pub(crate) fn relink(
+        &mut self,
+        old: &Path,
+        new: &Path,
+        content: euphoria_core::ContentHash,
+    ) -> Relinked {
+        let recorded = [
+            self.playlists.content_of(old),
+            self.favorites.content_of(old),
+        ];
+        if recorded
+            .iter()
+            .flatten()
+            .any(|recorded| *recorded != content)
+        {
+            return Relinked::OtherAudioRecorded;
+        }
+        if !self.library.relink(old, new.to_path_buf()) {
+            self.library.remove(old);
+        }
+        let playlists_changed = self.playlists.relink(old, new, content);
+        let favorites_changed = self.favorites.relink(old, new, content);
+        Relinked::Done {
+            saved_lists_changed: playlists_changed || favorites_changed,
+        }
+    }
+
+    /// Takes the missing tracks among `paths` out of the library, the
+    /// playlists and the favorites. Returns the paths taken out.
+    pub(crate) fn remove_missing(&mut self, paths: &[PathBuf]) -> Vec<PathBuf> {
+        let missing: Vec<PathBuf> = paths
+            .iter()
+            .filter(|path| {
+                self.library
+                    .track_by_path(path)
+                    .is_some_and(crate::library::Track::is_missing)
+            })
+            .cloned()
+            .collect();
+        for path in &missing {
+            self.library.remove(path);
+        }
+        self.playlists.forget(&missing);
+        self.favorites.forget(&missing);
+        missing
     }
 
     /// The playlists.
@@ -328,6 +435,11 @@ impl Session {
     /// The tracks added so far.
     pub(crate) fn library(&self) -> &Library {
         &self.library
+    }
+
+    #[cfg(test)]
+    pub(crate) fn library_mut(&mut self) -> &mut Library {
+        &mut self.library
     }
 
     /// How far the current run of analysis has got.
@@ -364,7 +476,15 @@ impl Session {
             self.library.add_folder(folder);
         }
         let mut files_to_analyze = Vec::new();
-        for file in self.library.add_files(scan.files) {
+        let revived: Vec<PathBuf> = scan
+            .files
+            .iter()
+            .filter(|file| self.library.revive(file))
+            .cloned()
+            .collect();
+        let mut new_files = self.library.add_files(scan.files);
+        new_files.extend(revived);
+        for file in new_files {
             match scan.cached.remove(&file) {
                 Some(analysis) => {
                     self.library.record_outcome(&file, Ok(analysis));
@@ -409,10 +529,10 @@ impl Session {
         self.library.set_tempo_range(range);
     }
 
-    /// Takes the titles and artists read from the files' tags.
+    /// Takes the titles, artists and key fields read from the files' tags.
     pub(crate) fn set_track_names(&mut self, names: Vec<(PathBuf, euphoria_core::TrackName)>) {
         for (path, name) in names {
-            self.library.set_names(&path, name.title, name.artist);
+            self.library.set_names(&path, name);
         }
     }
 
@@ -428,7 +548,8 @@ impl Session {
         self.library
             .add_files(tracks.iter().map(|track| track.path.clone()).collect());
         for track in tracks {
-            self.library.record_outcome(&track.path, track.outcome);
+            self.library
+                .record_outcome(&track.path, track.outcome.map_err(TrackFailure::Failed));
         }
     }
 
@@ -635,6 +756,25 @@ mod tests {
     }
 
     #[test]
+    fn scanning_names_the_audio_files_it_cannot_decode_in_a_notice() {
+        let folder =
+            std::env::temp_dir().join(format!("euphoria-desktop-skipped-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        for name in ["a.opus", "b.opus", "c.wma", "kept.mp3"] {
+            std::fs::write(folder.join(name), b"").unwrap();
+        }
+
+        let found = scan(std::slice::from_ref(&folder), None);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        assert_eq!(found.files, vec![folder.join("kept.mp3")]);
+        assert_eq!(
+            found.problems,
+            vec!["3 files skipped: 2 .opus, 1 .wma, which Euphoria can't decode yet."]
+        );
+    }
+
+    #[test]
     fn scanning_reports_unreadable_paths_and_keeps_the_rest() {
         let found = scan(
             &[PathBuf::from("/definitely/not/here"), fixtures_folder()],
@@ -644,7 +784,11 @@ mod tests {
         assert_eq!(found.files.len(), 10);
         assert!(found.cached.is_empty());
         assert_eq!(found.problems.len(), 1);
-        assert!(found.problems[0].starts_with("cannot read /definitely/not/here"));
+        assert!(found.problems[0].starts_with("/definitely/not/here is missing"));
+        assert_eq!(
+            found.unavailable_folders,
+            vec![PathBuf::from("/definitely/not/here")]
+        );
     }
 
     #[test]
@@ -878,7 +1022,7 @@ mod tests {
 
         session.apply(AnalysisEvent::Finished(Box::new(FinishedFile {
             path: first.clone(),
-            outcome: Err("cannot open the file".to_string()),
+            outcome: Err("cannot open the file".into()),
             from_cache: false,
             cache_problem: None,
         })));

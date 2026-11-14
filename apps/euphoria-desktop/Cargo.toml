@@ -21,6 +21,7 @@ euphoria-core = { workspace = true, features = ["stems"] }
 gpui.workspace = true
 rayon.workspace = true
 rodio.workspace = true
+log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -32,6 +33,8 @@ objc2-foundation.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true
+roxmltree.workspace = true
+hound.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 png.workspace = true
 

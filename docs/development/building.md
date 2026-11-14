@@ -195,7 +195,7 @@ cargo run --release -p euphoria-bench -- energy path/to/labels.tsv
 
 Each track is rated the way `euphoria analyze` rates it, with its detected tempo. The report has the Spearman correlation between rating and reference, the share of track pairs with different references that the rating puts in the right order, averages by reference, the histogram of the ratings, the same figures for every feature and for the tempo, and the CPU time per track. It holds aggregates only, never a track name or a path, so a private library can serve as reference data. Set `RAYON_NUM_THREADS` to limit the number of tracks analyzed at once.
 
-Next to the shipped rating, the report scores a fitted model, an alternative with weights fitted to listener ratings that Euphoria does not ship. It is defined in `crates/euphoria-bench/src/alternative.rs`, and [the results](https://github.com/lvndry/euphoria/blob/main/bench/results/energy.md) explain why it is not the rating.
+Next to the shipped rating, the report scores a fitted model, an alternative with weights fitted to listener ratings that Euphoria does not ship. It is defined in `crates/euphoria-bench/src/alternative.rs`, and [the results](https://github.com/lvndry/euphoria/blob/main/bench/results/energy.md) compare it with version 1 of the rating, which was measured before version 2 adopted weights fitted in the same way.
 
 ### Reference data
 

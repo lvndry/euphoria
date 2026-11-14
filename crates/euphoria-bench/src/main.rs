@@ -18,6 +18,7 @@ mod render;
 mod scoring;
 mod shift;
 mod statistics;
+mod tempo_errors;
 
 use std::path::PathBuf;
 
@@ -210,6 +211,10 @@ fn main() -> Result<()> {
     }
     if let Some(dataset) = &tempo_tracks {
         print!("{}", confidence::evaluate_tempo_confidence(dataset));
+        print!(
+            "{}",
+            tempo_errors::evaluate_tempo_errors(dataset, &data_directory.join("tempo"))
+        );
     }
     Ok(())
 }

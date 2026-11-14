@@ -1,5 +1,7 @@
 # Energy rating results
 
+These results were measured with energy model version 1. Version 2 uses weights fitted on DEAM and PMEmo together, and [the energy page](../../docs/concepts/energy.md#how-well-it-works) has its measured agreement with listeners. The comparison below stays as it was measured, and its "shipped rating" is version 1.
+
 Measured on 11 November 2026 on an Apple M5 (10 cores), macOS 27.2, with 4 worker threads, by `euphoria-bench energy`.
 
 Two models are scored on the same tracks:

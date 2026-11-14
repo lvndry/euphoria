@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::columns::ColumnWidths;
+use crate::decks::SuggestionFilter;
 use crate::display_settings::DisplaySettings;
+use crate::focus::FocusLanes;
+use crate::metronome::MetronomeSettings;
 use crate::panels::Panels;
 use crate::tag_settings::TagSettings;
 use crate::theme::ThemeName;
@@ -39,7 +42,7 @@ pub(crate) enum SettingsError {
 }
 
 /// The settings kept between launches.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Settings {
     /// The folders the user added, in the order they were added.
@@ -56,6 +59,13 @@ pub(crate) struct Settings {
     pub(crate) tags: TagSettings,
     /// How keys and tempos are shown.
     pub(crate) display: DisplaySettings,
+    /// The pool the mix suggestions are chosen from, set on the
+    /// suggestions surface.
+    pub(crate) suggestion_filter: SuggestionFilter,
+    /// Which lanes of the focus view are shown.
+    pub(crate) focus_lanes: FocusLanes,
+    /// The metronome's sound, volume and accent.
+    pub(crate) metronome: MetronomeSettings,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -177,12 +187,21 @@ mod tests {
             tags: TagSettings {
                 program: ProgramChoice::Serato,
                 key_notation: NotationChoice::Musical,
-                label: LabelChoice::Grouping,
+                label: Some(LabelChoice::Grouping),
                 write_tempo: false,
+                write_cue_markers: true,
+                ..TagSettings::default()
             },
             display: DisplaySettings {
                 key_notation: NotationChoice::OpenKey,
                 tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
+            },
+            suggestion_filter: SuggestionFilter::default(),
+            focus_lanes: FocusLanes::default(),
+            metronome: MetronomeSettings {
+                sound: crate::metronome::ClickSound::Woodblock,
+                volume: 0.4,
+                accent: false,
             },
         };
         settings.save(&path).unwrap();
@@ -198,6 +217,20 @@ mod tests {
     }
 
     #[test]
+    fn a_file_from_before_the_metronome_loads_with_its_defaults() {
+        let folder = temporary_folder("before-metronome");
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(&path, r#"{"folders": ["/music"], "theme": "graphite"}"#).unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.folders, [PathBuf::from("/music")]);
+        assert_eq!(loaded.metronome, MetronomeSettings::default());
+    }
+
+    #[test]
     fn themes_are_stored_by_name() {
         let text = serde_json::to_string(&Settings {
             folders: Vec::new(),
@@ -207,6 +240,9 @@ mod tests {
             column_widths: ColumnWidths::default(),
             tags: TagSettings::default(),
             display: DisplaySettings::default(),
+            suggestion_filter: SuggestionFilter::default(),
+            focus_lanes: FocusLanes::default(),
+            metronome: MetronomeSettings::default(),
         })
         .unwrap();
         assert_eq!(
@@ -216,9 +252,11 @@ mod tests {
                 r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
-                r#""label":"comment-start","write_tempo":true},"#,
+                r#""write_tempo":true,"write_cue_markers":false,"#,
+                r#""replace_existing":false,"include_low_confidence":false,"schema":1},"#,
                 r#""display":{"key_notation":"camelot","#,
-                r#""tempo_range":{"slowest":90,"fastest":180}}}"#
+                r#""tempo_range":{"slowest":90,"fastest":180}},"#,
+                r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true}}"#
             )
         );
     }

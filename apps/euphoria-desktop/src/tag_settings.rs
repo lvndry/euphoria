@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! How tags are written: for which DJ program, in which key notation, where
-//! the energy label goes and whether the tempo is written. Kept in the
-//! settings file under names that stay the same between versions, and
-//! turned into the core's write options.
+//! the energy label goes, whether the tempo is written and whether the
+//! track's cues go in as Serato cue points. Kept in the settings file under
+//! names that stay the same between versions, and turned into the core's
+//! write options.
 
 use euphoria_core::tags::{DjSoftware, KeyNotation, LabelPlacement, TagWriteOptions};
 use serde::{Deserialize, Serialize};
@@ -108,7 +109,16 @@ impl NotationChoice {
         }
     }
 
-    fn key_notation(self) -> KeyNotation {
+    pub(crate) fn export_notation(self) -> euphoria_core::export::rekordbox::KeyNotation {
+        use euphoria_core::export::rekordbox::KeyNotation as ExportNotation;
+        match self {
+            NotationChoice::Camelot => ExportNotation::Camelot,
+            NotationChoice::Musical => ExportNotation::Musical,
+            NotationChoice::OpenKey => ExportNotation::OpenKey,
+        }
+    }
+
+    pub(crate) fn key_notation(self) -> KeyNotation {
         match self {
             NotationChoice::Camelot => KeyNotation::Camelot,
             NotationChoice::Musical => KeyNotation::Musical,
@@ -151,7 +161,7 @@ impl LabelChoice {
         }
     }
 
-    fn placement(self) -> LabelPlacement {
+    pub(crate) fn placement(self) -> LabelPlacement {
         match self {
             LabelChoice::CommentStart => LabelPlacement::CommentStart,
             LabelChoice::CommentEnd => LabelPlacement::CommentEnd,
@@ -161,18 +171,91 @@ impl LabelChoice {
     }
 }
 
+/// Which version of the defaults a stored [`TagSettings`] was written
+/// under. Files from before the safe tag writing have none, which reads as
+/// 0: they always stored the label, so a stored label cannot tell a choice
+/// from the old default.
+const CURRENT_SCHEMA: u32 = 1;
+
 /// The choices that decide what a tag write writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(from = "StoredTagSettings")]
 pub(crate) struct TagSettings {
     /// The DJ program whose fields are written.
     pub(crate) program: ProgramChoice,
     /// How the key is spelled.
     pub(crate) key_notation: NotationChoice,
-    /// Where the key and energy label goes.
-    pub(crate) label: LabelChoice,
+    /// Where the key and energy label goes, when the user chose a place.
+    /// `None` follows the program: no label for any program, and the start
+    /// of the comment for a DJ program. Only a choice is stored, so a
+    /// default is never mistaken for one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) label: Option<LabelChoice>,
     /// Whether the tempo is written.
     pub(crate) write_tempo: bool,
+    /// Whether the track's cues and beat grid are written as Serato cue
+    /// points, which Serato DJ, Mixxx and VirtualDJ read too.
+    pub(crate) write_cue_markers: bool,
+    /// Whether a key or tempo the file already has is replaced.
+    pub(crate) replace_existing: bool,
+    /// Whether a key or tempo rated low confidence is written.
+    pub(crate) include_low_confidence: bool,
+    pub(crate) schema: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(default)]
+struct StoredTagSettings {
+    program: ProgramChoice,
+    key_notation: NotationChoice,
+    label: Option<LabelChoice>,
+    write_tempo: bool,
+    write_cue_markers: bool,
+    replace_existing: bool,
+    include_low_confidence: bool,
+    schema: u32,
+}
+
+impl Default for StoredTagSettings {
+    fn default() -> Self {
+        let current = TagSettings::default();
+        Self {
+            program: current.program,
+            key_notation: current.key_notation,
+            label: current.label,
+            write_tempo: current.write_tempo,
+            write_cue_markers: current.write_cue_markers,
+            replace_existing: current.replace_existing,
+            include_low_confidence: current.include_low_confidence,
+            schema: 0,
+        }
+    }
+}
+
+impl From<StoredTagSettings> for TagSettings {
+    fn from(stored: StoredTagSettings) -> Self {
+        let label = if stored.schema >= CURRENT_SCHEMA {
+            stored.label
+        } else {
+            // Before the schema was recorded the label was always stored, so
+            // the only value that can be told from the default is another
+            // one. The old default with the generic program is read as the
+            // default, which is now no label.
+            stored.label.filter(|label| {
+                !(stored.program == ProgramChoice::Generic && *label == LabelChoice::CommentStart)
+            })
+        };
+        Self {
+            program: stored.program,
+            key_notation: stored.key_notation,
+            label,
+            write_tempo: stored.write_tempo,
+            write_cue_markers: stored.write_cue_markers,
+            replace_existing: stored.replace_existing,
+            include_low_confidence: stored.include_low_confidence,
+            schema: CURRENT_SCHEMA,
+        }
+    }
 }
 
 impl Default for TagSettings {
@@ -180,10 +263,14 @@ impl Default for TagSettings {
         Self {
             program: ProgramChoice::default(),
             key_notation: NotationChoice::default(),
-            label: LabelChoice::default(),
+            label: None,
             write_tempo: ProgramChoice::default()
                 .dj_software()
                 .writes_bpm_by_default(),
+            write_cue_markers: false,
+            replace_existing: false,
+            include_low_confidence: false,
+            schema: CURRENT_SCHEMA,
         }
     }
 }
@@ -199,13 +286,23 @@ impl TagSettings {
         }
     }
 
+    /// Where the label goes: the user's choice, or the program's default.
+    pub(crate) fn effective_label(&self) -> LabelChoice {
+        self.label.unwrap_or(match self.program {
+            ProgramChoice::Generic => LabelChoice::None,
+            _ => LabelChoice::CommentStart,
+        })
+    }
+
     /// The core's options for a write with these settings.
     pub(crate) fn write_options(&self) -> TagWriteOptions {
         TagWriteOptions {
             key_notation: self.key_notation.key_notation(),
             write_bpm: self.write_tempo,
-            label: self.label.placement(),
+            label: self.effective_label().placement(),
             preset: self.program.dj_software(),
+            keep_existing: !self.replace_existing,
+            skip_low_confidence: !self.include_low_confidence,
         }
     }
 }
@@ -215,11 +312,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_defaults_match_the_command_line_defaults() {
+    fn the_defaults_keep_existing_values_and_skip_low_confidence_without_a_label() {
         assert_eq!(
             TagSettings::default().write_options(),
-            TagWriteOptions::default()
+            TagWriteOptions {
+                label: LabelPlacement::None,
+                keep_existing: true,
+                skip_low_confidence: true,
+                ..TagWriteOptions::default()
+            }
         );
+    }
+
+    #[test]
+    fn the_label_follows_the_program_until_one_is_chosen() {
+        for (program, expected) in [
+            (ProgramChoice::Generic, LabelChoice::None),
+            (ProgramChoice::Rekordbox, LabelChoice::CommentStart),
+            (ProgramChoice::Serato, LabelChoice::CommentStart),
+            (ProgramChoice::Traktor, LabelChoice::CommentStart),
+            (ProgramChoice::EngineDj, LabelChoice::CommentStart),
+            (ProgramChoice::VirtualDj, LabelChoice::CommentStart),
+            (ProgramChoice::Mixxx, LabelChoice::CommentStart),
+        ] {
+            let settings = TagSettings {
+                program,
+                ..TagSettings::default()
+            };
+            assert_eq!(settings.effective_label(), expected, "{program:?}");
+        }
+        let chosen = TagSettings {
+            label: Some(LabelChoice::Grouping),
+            ..TagSettings::default()
+        };
+        assert_eq!(chosen.effective_label(), LabelChoice::Grouping);
+    }
+
+    #[test]
+    fn settings_saved_before_the_safe_defaults_keep_a_chosen_label_and_drop_the_default() {
+        let load = |text: &str| -> TagSettings { serde_json::from_str(text).unwrap() };
+        let old_default = load(
+            r#"{"program":"generic","key_notation":"camelot","label":"comment-start","write_tempo":true,"write_cue_markers":false}"#,
+        );
+        assert_eq!(old_default.label, None);
+        assert_eq!(old_default.effective_label(), LabelChoice::None);
+        for chosen in ["comment-end", "grouping", "none"] {
+            let kept = load(&format!(r#"{{"program":"generic","label":"{chosen}"}}"#));
+            assert!(kept.label.is_some(), "{chosen}");
+        }
+        let with_program = load(r#"{"program":"traktor","label":"comment-start"}"#);
+        assert_eq!(with_program.effective_label(), LabelChoice::CommentStart);
+        assert!(!with_program.replace_existing);
+        assert!(!with_program.include_low_confidence);
+    }
+
+    #[test]
+    fn a_label_chosen_after_the_change_is_kept_even_when_it_is_the_old_default() {
+        let chosen = TagSettings {
+            label: Some(LabelChoice::CommentStart),
+            ..TagSettings::default()
+        };
+        let stored = serde_json::to_string(&chosen).unwrap();
+        let loaded: TagSettings = serde_json::from_str(&stored).unwrap();
+        assert_eq!(loaded.label, Some(LabelChoice::CommentStart));
+        let untouched = serde_json::to_string(&TagSettings::default()).unwrap();
+        assert!(!untouched.contains("label"), "{untouched}");
     }
 
     #[test]
@@ -256,8 +413,11 @@ mod tests {
         let settings = TagSettings {
             program: ProgramChoice::Traktor,
             key_notation: NotationChoice::OpenKey,
-            label: LabelChoice::Grouping,
+            label: Some(LabelChoice::Grouping),
             write_tempo: false,
+            replace_existing: true,
+            include_low_confidence: true,
+            ..TagSettings::default()
         };
         assert_eq!(
             settings.write_options(),
@@ -266,6 +426,8 @@ mod tests {
                 write_bpm: false,
                 label: LabelPlacement::Grouping,
                 preset: DjSoftware::Traktor,
+                keep_existing: false,
+                skip_low_confidence: false,
             }
         );
     }
@@ -275,19 +437,26 @@ mod tests {
         let settings = TagSettings {
             program: ProgramChoice::VirtualDj,
             key_notation: NotationChoice::OpenKey,
-            label: LabelChoice::CommentEnd,
+            label: Some(LabelChoice::CommentEnd),
             write_tempo: true,
+            write_cue_markers: true,
+            ..TagSettings::default()
         };
         assert_eq!(
             serde_json::to_string(&settings).unwrap(),
             concat!(
                 r#"{"program":"virtualdj","key_notation":"open-key","#,
-                r#""label":"comment-end","write_tempo":true}"#
+                r#""label":"comment-end","write_tempo":true,"write_cue_markers":true,"#,
+                r#""replace_existing":false,"include_low_confidence":false,"schema":1}"#
             )
         );
         let engine: TagSettings = serde_json::from_str(r#"{"program":"engine-dj"}"#).unwrap();
         assert_eq!(engine.program, ProgramChoice::EngineDj);
         assert_eq!(engine.key_notation, NotationChoice::Camelot);
         assert!(engine.write_tempo);
+        assert!(
+            !engine.write_cue_markers,
+            "a setting that was not there takes its default"
+        );
     }
 }

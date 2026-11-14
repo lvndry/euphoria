@@ -1,8 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The keys and tempos the user corrected, as JSON Lines for training and
-//! evaluating a key or tempo model: one object per correction, each naming
+//! The keys, tempos and energies the user corrected, as JSON Lines for
+//! training and evaluating a key, tempo or energy model: one object per correction, each naming
 //! the content by its hash rather than by its file.
 
 use std::path::Path;
@@ -14,9 +14,10 @@ use crate::cache::StoredCorrection;
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
 
-/// The version of the shape of each line. It goes up when a field is
-/// removed or changes meaning, and stays when a field is added.
-pub const CORRECTIONS_SCHEMA_VERSION: u32 = 1;
+/// The version of the shape of each line. It goes up whenever the fields
+/// change; consumers should ignore fields they don't know. Version 2 added
+/// the corrected and detected energy.
+pub const CORRECTIONS_SCHEMA_VERSION: u32 = 2;
 
 /// Whether each line names the file the correction was made on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,9 +36,11 @@ struct CorrectionLine<'stored> {
     content_hash: String,
     corrected_key: Option<KeyFields>,
     corrected_bpm: Option<f32>,
+    corrected_energy: Option<u8>,
     corrected_at: i64,
     detected_key: Option<KeyFields>,
     detected_bpm: Option<f32>,
+    detected_energy: Option<u8>,
     analyzer_version: Option<&'stored str>,
     analyzed_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,9 +87,11 @@ pub fn render_corrections_jsonl(
             content_hash: stored.content_hash.to_hex(),
             corrected_key: stored.correction.key.map(KeyFields::from),
             corrected_bpm: stored.correction.bpm,
+            corrected_energy: stored.correction.energy,
             corrected_at: stored.corrected_at_seconds,
             detected_key: detected.and_then(|values| values.key).map(KeyFields::from),
             detected_bpm: detected.and_then(|values| values.bpm),
+            detected_energy: detected.and_then(|values| values.energy),
             analyzer_version: detected.map(|values| values.analyzer_version.as_str()),
             analyzed_at: detected.map(|values| values.analyzed_at_seconds),
             path: (paths == PathInclusion::Include)
@@ -136,11 +141,14 @@ mod tests {
             content_hash: hash(),
             correction: Correction::of_key(Key::new(4, Mode::Minor))
                 .with_bpm(Some(87.5))
+                .unwrap()
+                .with_energy(Some(9))
                 .unwrap(),
             corrected_at_seconds: 1_800_000_000,
             detected: Some(DetectedValues {
                 key: Some(Key::new(9, Mode::Minor)),
                 bpm: Some(175.0),
+                energy: Some(6),
                 analyzer_version: "12+libkeyfinder".to_string(),
                 analyzed_at_seconds: 1_799_999_000,
                 last_known_path: Some("/music/track.flac".to_string()),
@@ -164,13 +172,15 @@ mod tests {
         assert_eq!(
             lines[0],
             serde_json::json!({
-                "schema_version": 1,
+                "schema_version": 2,
                 "content_hash": blake3::hash(b"audio").to_hex().to_string(),
                 "corrected_key": {"name": "E minor", "camelot": "9A", "tonic": 4, "mode": "minor"},
                 "corrected_bpm": 87.5,
+                "corrected_energy": 9,
                 "corrected_at": 1_800_000_000,
                 "detected_key": {"name": "A minor", "camelot": "8A", "tonic": 9, "mode": "minor"},
                 "detected_bpm": 175.0,
+                "detected_energy": 6,
                 "analyzer_version": "12+libkeyfinder",
                 "analyzed_at": 1_799_999_000,
             })
@@ -199,6 +209,7 @@ mod tests {
         for field in [
             "detected_key",
             "detected_bpm",
+            "detected_energy",
             "analyzer_version",
             "analyzed_at",
             "path",

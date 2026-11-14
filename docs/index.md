@@ -42,6 +42,7 @@ Exports for Serato and Engine DJ are in development.
 - Layering two tracks: [mashups](guides/mashups.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Curious what the energy number means: [energy rating](concepts/energy.md).
+- Mixing one track into the next: [planning a transition](concepts/plan-a-transition.md).
 - Wondering whether your files are good enough to play loud: [audio quality](concepts/audio-quality.md).
 - Wondering how much to trust the results: [accuracy](concepts/accuracy.md).
 - Want to know what gets written to your files: [tags](reference/tags.md).

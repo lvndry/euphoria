@@ -13,6 +13,8 @@ euphoria tags write --preset serato --serato-markers ~/Music/DJ
 
 Like every tag write, it shows each change first, asks before writing, and `euphoria tags undo` puts every file back exactly as it was, byte for byte.
 
+In the desktop app, turn on **Cue markers** in the settings and click **Write tags**: the same data is written, with the same preview and undo. See [Write tags](desktop-app.md#write-tags).
+
 **Tested in Serato: no.** Serato DJ is not installed on the machine Euphoria is developed on. Serato does not document this data. Euphoria follows the description that the [serato-tags](https://github.com/Holzhaus/serato-tags) project worked out by reading files Serato wrote, and the reader and writer in [Mixxx](https://github.com/mixxxdj/mixxx/tree/main/src/track/serato). Euphoria's tests read 37 fields that Serato DJ itself wrote, from Mixxx's test data, and write each one back. Every one comes back identical to the byte. Euphoria's own writes are then read back and merged with those real cues. That is as close as Euphoria can get without Serato. If you try it, please report what you see.
 
 ## What is written
@@ -24,8 +26,8 @@ Like every tag write, it shows each change first, asks before writing, and `euph
 | Older copy of the first five cues | `Serato Markers_`, only when the file has one | `----:com.serato.dj:markers`, added when missing | None |
 | Key | `TKEY` | `initialkey` and `KEY` | `INITIALKEY` |
 
-- **Cue points**: up to 8 hot cues at the starts of the track's sections, named Start, Main, Breakdown, Drop and Outro. Each one sits on the first beat of a bar at a phrase boundary, as described on the [accuracy](../concepts/accuracy.md#cue-points) page. Each pad gets the colour Serato gives it by default: red, orange, blue, yellow, green, magenta, cyan and purple.
-- **Beat grid**: one marker at the first downbeat with the grid's tempo. Only grids rated medium or high are written. A track whose grid is rated low gets neither a grid nor cues, since the cues sit on its bars.
+- **Cue points**: when you [edited a track's cues](desktop-app.md#cue-points) in the desktop app, yours, each on the pad you gave it; memory cues, on no pad, are left out. Otherwise up to 8 hot cues at the starts of the track's sections, named Start, Main, Breakdown, Drop and Outro. Each one sits on the first beat of a bar at a phrase boundary, as described on the [accuracy](../concepts/accuracy.md#cue-points) page. Each pad gets the colour Serato gives it by default: red, orange, blue, yellow, green, magenta, cyan and purple.
+- **Beat grid**: one marker at the first downbeat with the grid's tempo. Only grids rated medium or high are written. A track whose grid is rated low gets neither a grid nor the automatic cues, since they sit on its bars. A track whose [tempo you set](desktop-app.md#check-the-key-by-ear-and-correct-it) gets no grid and none of the automatic cues either, since they sit on the grid of the detected tempo; cues you edited are still written. Each such file is listed with a note.
 - **Key**: written in the key field by the preset, as without `--serato-markers`. See [use Euphoria with your DJ program](dj-programs.md#serato-dj).
 - **Older copy**: Serato also keeps the first five cues in an older field, and prefers it when the file has one. A cue that is in the newer field only is ignored there. So when a file has that field, Euphoria's cues on pads 1 to 5 are added to it too. In M4A files, Serato reads the first five cues only from that field, so Euphoria adds it when it is missing.
 
@@ -69,7 +71,7 @@ The summary line counts the cues added and the cues of yours that were kept.
 These steps follow Serato's documentation and Mixed In Key's Serato guide. They were not tried in Serato here. **(not verified)**
 
 1. Close Serato DJ, or at least do not play the tracks while Euphoria writes them.
-2. Run `euphoria tags write --preset serato --serato-markers` on your music folder, and check the preview before you answer yes.
+2. Run `euphoria tags write --preset serato --serato-markers` on your music folder, and check the preview before you answer yes. In the desktop app, turn on **Cue markers** and use **Write tags** instead.
 3. Open Serato DJ. A track's cues and grid are read from the file when the track is loaded into a deck. For tracks Serato already shows, select them in the library and use **Rescan ID3 Tags** in the **Files** panel so the library columns catch up too.
 4. Before you analyse these tracks in Serato, untick **Set Beatgrid / BPM** in the analysis options, or lock the grid of each track. Otherwise Serato's analysis may replace the grid, and the cues sit on its bars. Untick **Set Key** to keep Euphoria's key.
 5. Load a track and check its cues and grid against the waveform.
@@ -82,4 +84,4 @@ Different MP3 decoders start some files a few dozen milliseconds apart, dependin
 
 ## Undo
 
-`euphoria tags undo` restores every file of the last write, Serato fields included, to the exact bytes it had. A file you changed in Serato since the write is left alone and listed, so a cue you set afterwards is never lost. [Tags](../reference/tags.md#undo) has the details.
+`euphoria tags undo` restores every file of the last write, Serato fields included, to the exact bytes it had. **Undo this write** in the desktop app does the same. A file you changed in Serato since the write is left alone and listed, so a cue you set afterwards is never lost. [Tags](../reference/tags.md#undo) has the details.

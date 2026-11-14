@@ -562,7 +562,7 @@ mod tests {
         let mut library = dj_library();
         library.record_outcome(
             Path::new("/music/DJ tracks/afro_house/peak/three.flac"),
-            Err("cannot decode".to_string()),
+            Err("cannot decode".into()),
         );
         let tree = tree_of(&library);
         let failed = |path: &str| {
@@ -646,7 +646,7 @@ mod tests {
         let file_refs: Vec<&str> = files.iter().map(String::as_str).collect();
         let mut library = library(&["/music/DJ"], &file_refs);
         for file in files.iter().step_by(10) {
-            library.record_outcome(Path::new(file), Err("cannot decode".to_string()));
+            library.record_outcome(Path::new(file), Err("cannot decode".into()));
         }
         library
     }
@@ -666,7 +666,7 @@ mod tests {
                 number % 5
             )
         }) {
-            library.record_outcome(Path::new(&file), Err("cannot decode".to_string()));
+            library.record_outcome(Path::new(&file), Err("cannot decode".into()));
         }
         // The shortest of five recounts, so that a moment the test machine
         // spends on other work does not count. A recount takes about 2 ms

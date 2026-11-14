@@ -11,7 +11,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use euphoria_core::{CachedAnalyzer, TrackAnalysis};
+use euphoria_core::{CachedAnalyzer, EuphoriaError, TrackAnalysis};
+
+use crate::library::TrackFailure;
 
 /// The app has no setting for the number of workers and also holds
 /// waveforms, so it stays below the command line tool's default: 4 workers
@@ -24,8 +26,9 @@ const MAXIMUM_WORKERS: usize = 4;
 pub(crate) struct FinishedFile {
     /// The file that was analyzed.
     pub(crate) path: PathBuf,
-    /// The analysis, or the reason it failed with every underlying cause.
-    pub(crate) outcome: Result<TrackAnalysis, String>,
+    /// The analysis, or why there is none: the file is missing, or the
+    /// reason it failed with every underlying cause.
+    pub(crate) outcome: Result<TrackAnalysis, TrackFailure>,
     /// True when the analysis was served from the cache.
     pub(crate) from_cache: bool,
     /// Why the analysis could not be stored in the cache, when storing
@@ -161,7 +164,7 @@ fn analyze(path: PathBuf, cache: Option<&CachedAnalyzer>) -> FinishedFile {
                 cached.from_cache,
                 cached.store_error.map(|error| error.chain()),
             ),
-            Err(error) => (Err(error.chain()), false, None),
+            Err(error) => (Err(failure(&error)), false, None),
         },
         None => (analyze_without_cache(&path), false, None),
     };
@@ -173,8 +176,16 @@ fn analyze(path: PathBuf, cache: Option<&CachedAnalyzer>) -> FinishedFile {
     }
 }
 
-fn analyze_without_cache(path: &Path) -> Result<TrackAnalysis, String> {
-    euphoria_core::analyze_file(path).map_err(|error| error.chain())
+fn analyze_without_cache(path: &Path) -> Result<TrackAnalysis, TrackFailure> {
+    euphoria_core::analyze_file(path).map_err(|error| failure(&error))
+}
+
+fn failure(error: &EuphoriaError) -> TrackFailure {
+    if error.missing_path().is_some() {
+        TrackFailure::Missing
+    } else {
+        TrackFailure::Failed(error.chain())
+    }
 }
 
 fn worker_count() -> usize {
@@ -194,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_a_file_that_cannot_be_opened() {
+    fn reports_a_file_that_is_not_there_as_missing() {
         let (workers, events) = AnalysisWorkers::start(None).unwrap();
         let missing = PathBuf::from("/definitely/not/here.mp3");
         workers.enqueue(vec![missing.clone()]);
@@ -206,8 +217,7 @@ mod tests {
         };
         assert_eq!(file.path, missing);
         assert!(!file.from_cache);
-        let reason = file.outcome.unwrap_err();
-        assert!(reason.starts_with("cannot open"), "{reason}");
+        assert_eq!(file.outcome.unwrap_err(), TrackFailure::Missing);
         assert!(
             workers
                 .stop_signal()

@@ -354,23 +354,17 @@ fn each_theme_lays_the_window_out_as_it_should(cx: &mut TestAppContext) {
 fn the_expected_layout_of_each_theme_is_the_one_in_the_spec(_cx: &mut TestAppContext) {
     let layout_and_rows = |name| {
         let theme = AppTheme::named(name);
-        (theme.layout, theme.row_height, theme.shows_wheel)
+        (theme.layout, theme.row_height)
     };
     let column = Layout::InspectorRight;
-    assert_eq!(layout_and_rows(ThemeName::Slate), (column, px(32.0), false));
-    assert_eq!(layout_and_rows(ThemeName::Paper), (column, px(32.0), false));
+    assert_eq!(layout_and_rows(ThemeName::Slate), (column, px(32.0)));
+    assert_eq!(layout_and_rows(ThemeName::Paper), (column, px(32.0)));
     assert_eq!(
         layout_and_rows(ThemeName::Deck),
-        (Layout::DeckBelow, px(32.0), false)
+        (Layout::DeckBelow, px(32.0))
     );
-    assert_eq!(
-        layout_and_rows(ThemeName::Graphite),
-        (column, px(26.0), false)
-    );
-    assert_eq!(
-        layout_and_rows(ThemeName::KeyFirst),
-        (column, px(32.0), true)
-    );
+    assert_eq!(layout_and_rows(ThemeName::Graphite), (column, px(26.0)));
+    assert_eq!(layout_and_rows(ThemeName::KeyFirst), (column, px(32.0)));
 }
 
 #[gpui::test]
@@ -918,7 +912,7 @@ fn everything_in_the_strip_fits_at_its_shortest(cx: &mut TestAppContext) {
             window.render_frame(cx);
             window.render_frame(cx);
             let strip = window.find("inspector").bounds();
-            assert_eq!(strip.size.height, px(124.0));
+            assert_eq!(strip.size.height, px(142.0));
             let inside_bottom = strip.bottom() - px(16.0);
             for part in ["waveform", "play-button"] {
                 let bounds = window.find(part).bounds();
@@ -1036,7 +1030,7 @@ fn dragging_the_edge_of_the_strip_resizes_it_and_the_waveform_grows_with_it(
         assert_eq!(taller_waveform_height - usual_waveform_height, px(160.0));
 
         drag_edge_to(window, gpui::point(px(700.0), px(890.0)), cx);
-        assert_eq!(window.find("inspector").bounds().size.height, px(124.0));
+        assert_eq!(window.find("inspector").bounds().size.height, px(142.0));
 
         drag_edge_to(window, gpui::point(px(700.0), px(10.0)), cx);
         assert_eq!(window.find("inspector").bounds().size.height, px(420.0));
@@ -1095,7 +1089,7 @@ fn the_smallest_window_keeps_table_rows_whatever_strip_height_was_remembered(
         let inspector = window.find("inspector").bounds();
         let first_row = window.find(track(0)).bounds();
         assert_eq!(inspector.bottom(), px(560.0));
-        assert!(inspector.size.height >= px(124.0));
+        assert!(inspector.size.height >= px(142.0));
         assert!(
             inspector.top() - first_row.top() >= px(200.0 - 70.0),
             "{:?} of table above a strip of {:?}",
@@ -1137,7 +1131,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 10;
+const FOLDER_COLUMN: usize = 11;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1725,7 +1719,7 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 9;
+const FORMAT_COLUMN: usize = 10;
 
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
@@ -1842,6 +1836,42 @@ fn writing_tags_shows_a_preview_writes_only_on_confirm_and_undo_restores_every_b
 }
 
 #[gpui::test]
+fn a_running_dj_program_makes_the_preview_ask_before_it_writes(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-program-running");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.program_checks.rekordbox = || Some(true);
+        })
+    });
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    click(window, "confirm-tag-write", cx);
+    assert!(is_shown(window, "program-running-strip", cx));
+    assert!(is_shown(window, "confirm-tag-write-anyway", cx));
+    assert_eq!(
+        tag_testing::contents(&files),
+        before,
+        "the first confirmation only asks"
+    );
+    cx.update(|cx| {
+        assert!(matches!(
+            &view.read(cx).tag_panel,
+            Some(TagPanel::Preview(preview))
+                if preview.program_warning.as_deref() == Some(&["rekordbox"][..])
+        ));
+    });
+
+    click(window, "confirm-tag-write-anyway", cx);
+    let written = cx.update(|cx| view.read(cx).written_files());
+    assert_eq!(written, Some(files.clone()));
+    assert_ne!(tag_testing::contents(&files), before);
+}
+
+#[gpui::test]
 fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
     let scratch = ScratchFolder::new("ui-shared-log");
     let files = scratch.copy_fixtures();
@@ -1852,9 +1882,10 @@ fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
             path: path.clone(),
             analysis: Some(tag_testing::analysis()),
             correction: euphoria_core::Correction::default(),
+            edited_cues: None,
         })
         .collect();
-    let planned = tag_writing::plan_writes(&targets, &TagSettings::default().write_options());
+    let planned = tag_writing::plan_writes(&targets, &TagSettings::default());
     let mut log = euphoria_core::tags::WriteLog::new(&scratch.log_directory());
     for plan in &planned.plans {
         assert!(matches!(
@@ -1943,8 +1974,10 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         TagSettings {
             program: ProgramChoice::Serato,
             key_notation: crate::tag_settings::NotationChoice::OpenKey,
-            label: crate::tag_settings::LabelChoice::Grouping,
+            label: Some(crate::tag_settings::LabelChoice::Grouping),
             write_tempo: true,
+            write_cue_markers: false,
+            ..TagSettings::default()
         }
     );
 
@@ -1969,6 +2002,159 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         assert!(app.settings_open);
         assert!(app.tag_panel.is_none());
     });
+}
+
+#[gpui::test]
+fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_every_byte(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-cue-markers");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let mut analysis = tag_testing::analysis();
+    analysis.beat_grid = Some(euphoria_core::detect::BeatGrid {
+        first_downbeat_seconds: 0.1,
+        bpm: 124.0,
+        salience: 10.0,
+        drift_seconds: None,
+    });
+    analysis.cues = vec![euphoria_core::detect::SectionCue {
+        seconds: 0.1,
+        section: euphoria_core::detect::CueSection::Start,
+    }];
+    let tracks = files
+        .iter()
+        .map(|path| DemoTrack {
+            path: path.clone(),
+            outcome: Ok(analysis.clone()),
+        })
+        .collect();
+    let settings_path = scratch.0.join("settings.json");
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(SilentOutput),
+        Settings::default(),
+        Some(settings_path.clone()),
+        USUAL_WINDOW,
+        cx,
+    );
+    let log_directory = scratch.log_directory();
+    let mp3 = files[0].clone();
+    let wav = files[2].clone();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.write_log_directory = Some(log_directory);
+            app.session.set_edited_cues(
+                &mp3,
+                Some(vec![
+                    euphoria_core::Cue {
+                        seconds: 0.5,
+                        name: "Mine".to_string(),
+                        hot_cue: euphoria_core::track_cues::HotCue::from_pad(3),
+                    },
+                    euphoria_core::Cue {
+                        seconds: 0.25,
+                        name: "Memory".to_string(),
+                        hot_cue: None,
+                    },
+                ]),
+            );
+        })
+    });
+
+    click(window, "tag-program", cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.scroll(
+            "settings-body",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-100_000.0))),
+            cx,
+        );
+    })
+    .unwrap();
+    click(window, "write-cue-markers", cx);
+    click(window, "close-settings", cx);
+    assert!(
+        Settings::load(&settings_path)
+            .unwrap()
+            .tags
+            .write_cue_markers
+    );
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    let described = cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => {
+            assert!(preview.settings.write_cue_markers);
+            assert!(
+                crate::views::tag_panel::settings_sentence(&preview.settings)
+                    .contains("the cue markers written for Serato")
+            );
+            assert_eq!(preview.serato_notes.len(), 1, "{:?}", preview.serato_notes);
+            assert_eq!(preview.serato_notes[0].path, wav);
+            assert!(preview.serato_notes[0].reason.contains("WAV"));
+            preview
+                .plans
+                .iter()
+                .find(|plan| plan.path() == mp3)
+                .unwrap()
+                .changes()
+                .iter()
+                .filter(|change| euphoria_core::tags::serato_field_name(&change.field).is_some())
+                .map(|change| {
+                    crate::views::tag_panel::shown_value(&change.field, change.new.as_deref())
+                })
+                .collect::<Vec<_>>()
+        }
+        other => panic!("{other:?}"),
+    });
+    assert!(
+        described.contains(&"cue points 4 Mine at 0:00.500".to_string()),
+        "{described:?}"
+    );
+    assert!(
+        described
+            .iter()
+            .any(|value| value.starts_with("beat grid from 0.100 s at 124")),
+        "{described:?}"
+    );
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("serato-notes-section").is_some());
+    })
+    .unwrap();
+    assert_eq!(
+        tag_testing::contents(&files),
+        before,
+        "a preview writes nothing"
+    );
+
+    click(window, "confirm-tag-write", cx);
+    let written = cx.update(|cx| view.read(cx).written_files());
+    assert_eq!(written, Some(files.clone()));
+    assert_ne!(tag_testing::contents(&files), before);
+    click(window, "close-tag-panel", cx);
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    assert_eq!(
+        preview_file_count(&view, cx),
+        Some(0),
+        "the markers are already there"
+    );
+    click(window, "cancel-tag-write", cx);
+
+    click(window, "tag-program", cx);
+    click(window, "settings-undo", cx);
+    click(window, "confirm-tag-undo", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Undone(Ok(Some(report)))) => {
+            assert_eq!(report.restored.len(), files.len());
+            assert!(report.failures.is_empty(), "{:?}", report.failures);
+        }
+        other => panic!("{other:?}"),
+    });
+    assert_eq!(tag_testing::contents(&files), before);
 }
 
 #[gpui::test]
@@ -2541,6 +2727,305 @@ fn the_energy_curve_and_the_key_timeline_line_up_under_the_waveform_in_both_layo
     }
 }
 
+fn vocal_windows_active_between(
+    first_second: f32,
+    last_second: f32,
+) -> crate::track_overview::VocalLane {
+    let windows: Vec<euphoria_core::stems::VocalWindow> = (0..24)
+        .map(|index| {
+            let start_seconds = index as f32 * 4.0;
+            euphoria_core::stems::VocalWindow {
+                start_seconds,
+                duration_seconds: 8.0,
+                active: start_seconds >= first_second && start_seconds < last_second,
+            }
+        })
+        .collect();
+    crate::track_overview::VocalLane::Ready(windows.into())
+}
+
+fn show_vocal_lane_of_selected(
+    view: &Entity<EuphoriaApp>,
+    lane: crate::track_overview::VocalLane,
+    cx: &mut TestAppContext,
+) {
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.show_vocal_lane(path, lane);
+            cx.notify();
+        })
+    });
+}
+
+fn fails_to_separate() -> Result<Box<dyn crate::stems::StemSeparation>, euphoria_core::EuphoriaError>
+{
+    Err(euphoria_core::EuphoriaError::NoDataDirectory)
+}
+
+#[gpui::test]
+fn the_energy_strip_and_the_vocals_lane_are_labelled_and_stack_under_the_waveform_in_both_layouts(
+    cx: &mut TestAppContext,
+) {
+    for theme in [ThemeName::Slate, ThemeName::Deck] {
+        let (window, view) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
+        show_vocal_lane_of_selected(&view, vocal_windows_active_between(40.0, 80.0), cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let waveform = window.find("waveform").bounds();
+            let energy = window.find("energy-curve").bounds();
+            let vocals = window.find("vocals-lane").bounds();
+            let timeline = window.find("key-timeline").bounds();
+            assert_eq!(vocals.left(), waveform.left(), "{theme:?}");
+            assert_eq!(vocals.right(), waveform.right(), "{theme:?}");
+            assert!(vocals.top() >= energy.bottom(), "{theme:?}");
+            assert!(timeline.top() >= vocals.bottom(), "{theme:?}");
+            assert!(vocals.size.height < energy.size.height, "{theme:?}");
+
+            let energy_label = window.find("energy-label").bounds();
+            let vocals_label = window.find("vocals-label").bounds();
+            assert_eq!(energy_label.left(), energy.left(), "{theme:?}");
+            assert_eq!(vocals_label.left(), vocals.left(), "{theme:?}");
+            assert!(energy_label.bottom() <= energy.bottom(), "{theme:?}");
+            assert!(vocals_label.bottom() <= vocals.bottom(), "{theme:?}");
+            if theme == ThemeName::Deck {
+                let strip = window.find("inspector").bounds();
+                assert!(timeline.bottom() <= strip.bottom(), "{theme:?}");
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn the_vocal_stretches_sit_under_the_part_of_the_waveform_they_belong_to(cx: &mut TestAppContext) {
+    let (window, view) =
+        open_track_changing_key(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    show_vocal_lane_of_selected(&view, vocal_windows_active_between(40.0, 80.0), cx);
+    let expected = match vocal_windows_active_between(40.0, 80.0) {
+        crate::track_overview::VocalLane::Ready(windows) => {
+            crate::track_overview::vocal_stretches(&windows, 100.0)
+        }
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(expected.len(), 1);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let waveform = window.find("waveform").bounds();
+        let stretch = window.find(("vocal-stretch", 0_usize)).bounds();
+        let at = |fraction: f32| waveform.left() + waveform.size.width * fraction;
+        assert!((stretch.left() - at(expected[0].start)).abs() < px(1.0));
+        assert!((stretch.right() - at(expected[0].end)).abs() < px(1.0));
+        assert!(window.try_find(("vocal-stretch", 1_usize)).is_none());
+        assert!(window.try_find("vocals-separate").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn a_track_without_stems_has_an_empty_vocals_lane_that_offers_to_separate_them(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) =
+        open_track_changing_key(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.stems = crate::stems::StemSession::new(fails_to_separate);
+        })
+    });
+    show_vocal_lane_of_selected(&view, crate::track_overview::VocalLane::NoStems, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(window.try_find("vocals-lane").is_some());
+        assert!(window.try_find(("vocal-stretch", 0_usize)).is_none());
+        let prompt = window.find("vocals-separate").bounds();
+        let lane = window.find("vocals-lane").bounds();
+        assert!(prompt.left() >= lane.left() && prompt.right() <= lane.right());
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let path = app.selected_track().unwrap().path.clone();
+        assert_eq!(app.stems.status(&path), None, "nothing starts by itself");
+    });
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("vocals-separate", cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let path = app.selected_track().unwrap().path.clone();
+        assert_eq!(
+            app.stems.status(&path),
+            Some(&crate::stems::StemStatus::Separating)
+        );
+    });
+    assert!(!is_shown(window, "vocals-separate", cx));
+    assert!(is_shown(window, "vocals-separating", cx));
+    assert!(is_shown(window, "vocals-lane", cx));
+}
+
+pub(crate) fn write_stems_with_vocals_for(
+    folder: &ScratchFolder,
+    seconds: usize,
+    sounding_seconds: usize,
+) -> euphoria_core::stems::StemFiles {
+    let rate = euphoria_core::stems::STEMS_SAMPLE_RATE as usize;
+    let files = euphoria_core::stems::StemFiles::in_directory(folder.0.join("stems"));
+    std::fs::create_dir_all(files.directory()).unwrap();
+    for stem in euphoria_core::stems::Stem::ALL {
+        let frames = seconds * rate;
+        let data_bytes = frames * 4;
+        let mut bytes = Vec::with_capacity(44 + data_bytes);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_bytes as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&2_u16.to_le_bytes());
+        bytes.extend_from_slice(&(rate as u32).to_le_bytes());
+        bytes.extend_from_slice(&(rate as u32 * 4).to_le_bytes());
+        bytes.extend_from_slice(&4_u16.to_le_bytes());
+        bytes.extend_from_slice(&16_u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(data_bytes as u32).to_le_bytes());
+        for frame in 0..frames {
+            let sounds =
+                stem == euphoria_core::stems::Stem::Vocals && frame < sounding_seconds * rate;
+            let sample = if sounds {
+                let time = frame as f32 / rate as f32;
+                ((std::f32::consts::TAU * 220.0 * time).sin() * 9_000.0) as i16
+            } else {
+                0
+            };
+            bytes.extend_from_slice(&sample.to_le_bytes());
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(files.path(stem), bytes).unwrap();
+    }
+    files
+}
+
+#[gpui::test]
+fn the_lane_fills_in_once_the_stems_exist(cx: &mut TestAppContext) {
+    let folder = ScratchFolder::new("vocal-lane-after-stems");
+    let (window, view) = open_fixture_library(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(waveform_with_energy());
+        })
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.load_vocal_lane(path, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(is_shown(window, "vocals-separate", cx));
+    assert!(!is_shown(window, ("vocal-stretch", 0_usize), cx));
+
+    let files = write_stems_with_vocals_for(&folder, 16, 6);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.stems.mark_ready(&path, files.clone());
+            app.load_vocal_lane(path, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(is_shown(window, ("vocal-stretch", 0_usize), cx));
+    assert!(!is_shown(window, "vocals-separate", cx));
+    let kept = folder
+        .0
+        .join("stems")
+        .join(euphoria_core::stems::VOCAL_ACTIVITY_FILE_NAME);
+    assert!(kept.is_file(), "measured once and kept with the stems");
+
+    cx.update(|cx| view.update(cx, |app, cx| app.remove_stems(cx)));
+    assert!(!is_shown(window, ("vocal-stretch", 0_usize), cx));
+    assert!(is_shown(window, "vocals-separate", cx));
+}
+
+#[gpui::test]
+fn a_vocals_stem_that_cannot_be_read_is_said_quietly(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.show_waveform(waveform_with_energy());
+        })
+    });
+    show_vocal_lane_of_selected(
+        &view,
+        crate::track_overview::VocalLane::Unavailable("the stem is gone".to_string()),
+        cx,
+    );
+    assert!(is_shown(window, "vocals-lane", cx));
+    assert!(!is_shown(window, "vocals-separate", cx));
+}
+
+#[gpui::test]
+fn hovering_the_strips_shows_their_tooltips_without_disturbing_the_layout(cx: &mut TestAppContext) {
+    let (window, view) =
+        open_track_changing_key(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    show_vocal_lane_of_selected(&view, vocal_windows_active_between(40.0, 80.0), cx);
+    for id in [
+        "energy-curve",
+        "vocals-lane",
+        "energy-label",
+        "vocals-label",
+    ] {
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let before = window.find("energy-curve").bounds();
+            window.hover(id, cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("energy-curve").bounds(), before, "{id}");
+        })
+        .unwrap();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(2));
+        cx.update_window(window, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+}
+
+#[gpui::test]
+fn the_decks_draw_the_energy_strip_and_the_vocals_lane_under_each_waveform(
+    cx: &mut TestAppContext,
+) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    click(window, track(flac), cx);
+    click(window, deck_part("deck-load", DeckId::A), cx);
+    cx.update(|cx| view.update(cx, |app, _| app.show_waveform(waveform_with_energy())));
+    show_vocal_lane_of_selected(&view, vocal_windows_active_between(0.0, 8.0), cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let deck_bounds = window.find(deck_part("deck", DeckId::A)).bounds();
+        let deck = window.within(deck_part("deck", DeckId::A));
+        let waveform = deck.find(deck_part("deck-waveform", DeckId::A)).bounds();
+        let energy = deck.find("energy-curve").bounds();
+        let vocals = deck.find("vocals-lane").bounds();
+        assert!(deck.try_find("energy-label").is_some());
+        assert!(deck.try_find("vocals-label").is_some());
+        assert!(energy.top() >= waveform.bottom());
+        assert!(vocals.top() >= energy.bottom());
+        assert_eq!(vocals.left(), waveform.left());
+        assert!(vocals.bottom() <= deck_bounds.bottom());
+    })
+    .unwrap();
+}
+
 #[gpui::test]
 fn a_track_in_one_key_has_no_timeline_and_no_curve_shows_before_it_is_worked_out(
     cx: &mut TestAppContext,
@@ -2646,7 +3131,7 @@ fn the_strip_at_its_shortest_still_holds_the_waveform_the_curve_and_the_timeline
             window.render_frame(cx);
             window.render_frame(cx);
             let strip = window.find("inspector").bounds();
-            assert_eq!(strip.size.height, px(124.0));
+            assert_eq!(strip.size.height, px(142.0));
             let inside_bottom = strip.bottom() - px(16.0);
             for part in ["waveform", "energy-curve", "key-timeline", "play-button"] {
                 let bounds = window.find(part).bounds();
@@ -2681,16 +3166,64 @@ fn the_curve_is_worked_out_from_the_decoded_audio_after_the_waveform(cx: &mut Te
 }
 
 #[gpui::test]
-fn the_key_first_wheel_shows_both_rings_around_the_selected_key(cx: &mut TestAppContext) {
-    let (window, _) =
-        open_track_changing_key(ThemeName::KeyFirst, Panels::default(), USUAL_WINDOW, cx);
-    cx.update_window(window, |_, window, cx| {
-        window.render_frame(cx);
-        let wheel = window.find("camelot-wheel").bounds();
-        assert_eq!(wheel.size.width, px(crate::views::wheel::WHEEL_SIZE));
-        assert!(window.find("inspector").bounds().contains(&wheel.center()));
-    })
-    .unwrap();
+fn every_theme_shows_the_wheel_in_the_inspector_without_scrolling(cx: &mut TestAppContext) {
+    for theme in ThemeName::ALL {
+        let (window, _) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let inspector = window.find("inspector").bounds();
+            let wheel = window.find("camelot-wheel").bounds();
+            assert!(inspector.contains(&wheel.origin), "{theme:?}");
+            assert!(inspector.contains(&wheel.bottom_right()), "{theme:?}");
+            assert_eq!(wheel.size.height, wheel.size.width, "{theme:?}");
+            if AppTheme::named(theme).layout == Layout::InspectorRight {
+                assert_eq!(
+                    wheel.size.width,
+                    px(crate::views::wheel::COLUMN_WHEEL_SIZE),
+                    "{theme:?}"
+                );
+                assert!(
+                    wheel.bottom() <= window.find("waveform").bounds().top(),
+                    "{theme:?}"
+                );
+            }
+        })
+        .unwrap();
+    }
+}
+
+#[gpui::test]
+fn the_deck_strip_holds_a_square_wheel_as_tall_as_its_inside_next_to_the_key(
+    cx: &mut TestAppContext,
+) {
+    use crate::views::wheel::{LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE};
+    for strip_height in [0_u32, 180, 420] {
+        let panels = Panels {
+            strip_height,
+            ..Panels::default()
+        };
+        let (window, _) = open_track_changing_key(ThemeName::Deck, panels, USUAL_WINDOW, cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let strip = window.find("inspector").bounds();
+            let wheel = window.find("camelot-wheel").bounds();
+            let waveform = window.find("waveform").bounds();
+            let inner_height = strip.size.height / px(1.0) - 33.0;
+            let expected = inner_height.clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE);
+            assert_eq!(wheel.size.width, px(expected), "{strip_height}");
+            assert_eq!(wheel.size.height, wheel.size.width, "{strip_height}");
+            assert!(wheel.top() >= strip.top(), "{strip_height}");
+            assert!(
+                wheel.bottom() <= strip.bottom() - px(16.0) + px(0.5),
+                "{wheel:?} in {strip:?}"
+            );
+            assert!(wheel.right() <= waveform.left() + px(0.5), "{strip_height}");
+            assert!(waveform.size.width >= px(250.0), "{waveform:?}");
+        })
+        .unwrap();
+    }
 }
 
 /// An analysis rated by the core's confidence rules: a key margin of 0.02
@@ -2770,6 +3303,36 @@ fn needs_review_lists_doubtful_keys_and_tempos_and_failed_files_and_says_why(
 }
 
 #[gpui::test]
+fn a_key_that_differs_from_the_tags_is_marked_listed_for_review_and_explained(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_tracks_to_review(None, cx);
+    assert!(!is_shown(window, ("key-conflict", 0_usize), cx));
+    assert!(!is_shown(window, "tag-key", cx));
+    let tag_key = euphoria_core::TrackName {
+        key: euphoria_core::TagKey::from_text("9A"),
+        ..euphoria_core::TrackName::default()
+    };
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .set_track_names(vec![(PathBuf::from("/Demo/review/sure.mp3"), tag_key)]);
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    cx.update(|cx| assert_eq!(view.read(cx).sidebar_counts().needs_review, 3));
+    assert!(is_shown(window, ("key-conflict", 0_usize), cx));
+    assert!(!is_shown(window, ("key-conflict", 1_usize), cx));
+    assert!(is_shown(window, "tag-key", cx), "the inspector explains it");
+    click(window, "needs-review", cx);
+    assert_eq!(
+        shown_titles(&view, cx),
+        ["sure.mp3", "doubtful tempo.mp3", "broken.mp3"]
+    );
+}
+
+#[gpui::test]
 fn the_key_box_shows_its_confidence_and_the_runner_up_only_when_the_key_is_not_high(
     cx: &mut TestAppContext,
 ) {
@@ -2821,7 +3384,12 @@ fn a_tempo_range_preset_moves_the_tempos_shown_and_is_remembered(cx: &mut TestAp
 }
 
 /// Replaces the text of the field `id` with `text`.
-fn retype(window: AnyWindowHandle, id: &'static str, text: &str, cx: &mut TestAppContext) {
+pub(crate) fn retype(
+    window: AnyWindowHandle,
+    id: &'static str,
+    text: &str,
+    cx: &mut TestAppContext,
+) {
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         window.click(id, cx);
@@ -3375,7 +3943,7 @@ fn edits_after_a_playlist_was_saved_are_all_kept(cx: &mut TestAppContext) {
 }
 
 /// Types `text` into the field `id`, replacing what it holds.
-fn type_into(
+pub(crate) fn type_into(
     window: AnyWindowHandle,
     id: impl Into<gpui::ElementId>,
     text: &str,
@@ -3833,6 +4401,71 @@ fn the_key_is_picked_and_the_tempo_typed_by_hand(cx: &mut TestAppContext) {
     assert!(is_shown(window, "tempo-set-by-you", cx));
 }
 
+fn selected_energy_and_detected(
+    view: &Entity<EuphoriaApp>,
+    cx: &mut TestAppContext,
+) -> (Option<u8>, Option<u8>) {
+    cx.update(|cx| {
+        let track = view.read(cx).selected_track().unwrap();
+        (track.energy(), track.detected_energy())
+    })
+}
+
+#[gpui::test]
+fn the_energy_is_picked_marked_by_you_and_reset_to_the_detected_one(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert_eq!(selected_energy_and_detected(&view, cx), (Some(6), Some(6)));
+    assert!(!is_shown(window, ("pick-energy", 1_usize), cx));
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+
+    click(window, "edit-values", cx);
+    assert!(is_shown(window, ("pick-energy", 10_usize), cx));
+    assert!(!is_shown(window, ("pick-energy", 11_usize), cx));
+    assert!(!is_shown(window, "reset-energy", cx));
+
+    click(window, ("pick-energy", 9_usize), cx);
+    assert_eq!(selected_energy_and_detected(&view, cx), (Some(9), Some(6)));
+    assert!(is_shown(window, "energy-set-by-you", cx));
+    assert!(is_shown(window, "energy-reset", cx));
+    assert!(is_shown(window, "reset-energy", cx));
+    cx.update(|cx| {
+        let correction = view.read(cx).selected_track().unwrap().correction;
+        assert_eq!(correction.energy, Some(9));
+        assert_eq!(correction.key, None);
+        assert_eq!(correction.bpm, None);
+    });
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(124.0));
+
+    click(window, "reset-energy", cx);
+    assert_eq!(selected_energy_and_detected(&view, cx), (Some(6), Some(6)));
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+    assert!(!is_shown(window, "reset-energy", cx));
+
+    click(window, ("pick-energy", 2_usize), cx);
+    assert_eq!(selected_energy_and_detected(&view, cx).0, Some(2));
+    click(window, "energy-reset", cx);
+    assert_eq!(selected_energy_and_detected(&view, cx).0, Some(6));
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+}
+
+#[gpui::test]
+fn a_corrected_energy_is_a_correction_that_is_kept_for_that_track_only(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, "edit-values", cx);
+    click(window, ("pick-energy", 3_usize), cx);
+    click(window, track(0), cx);
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+    cx.update(|cx| {
+        let library = view.read(cx).session.library();
+        assert_eq!(library.track(0).unwrap().energy(), Some(6));
+        assert_eq!(library.track(1).unwrap().energy(), Some(3));
+        assert!(!library.track(1).unwrap().correction.is_empty());
+    });
+}
+
 #[gpui::test]
 fn selecting_another_track_discards_the_previous_tracks_tempo_draft(cx: &mut TestAppContext) {
     let (window, view, _) = open_tracks_to_check_by_ear(cx);
@@ -3875,6 +4508,7 @@ fn a_correction_wins_in_the_mixes_and_the_tags_to_write(cx: &mut TestAppContext)
             path: track.path.clone(),
             analysis: track.analysis().cloned(),
             correction: track.correction,
+            edited_cues: track.edited_cues.clone(),
         }
     });
     let written = target.correction.apply(target.analysis.clone().unwrap());
@@ -4410,7 +5044,7 @@ fn suggestions_can_come_from_a_playlist(cx: &mut TestAppContext) {
         })
     };
     assert_eq!(suggested(cx).len(), 2, "the whole library");
-    click(window, ("suggestion-scope", 2_usize), cx);
+    click(window, ("suggestion-scope", 3_usize), cx);
     assert_eq!(suggested(cx), [wav], "only the playlist's track");
 }
 
@@ -4605,6 +5239,12 @@ impl AudioOutput for RenderedDecks {
     ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
         SilentOutput.play_reference(sound)
     }
+    fn play_metronome(
+        &mut self,
+        clicks: crate::metronome::Metronome,
+    ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
+        SilentOutput.play_metronome(clicks)
+    }
     fn play_decks(
         &mut self,
         mix: crate::deck_audio::DeckMix,
@@ -4734,7 +5374,7 @@ fn replacing_a_deck_load_cancels_its_abandoned_waveform_work(cx: &mut TestAppCon
 }
 
 /// Length of the tracks of [`open_cued_library`], in seconds.
-const CUED_TRACK_SECONDS: f32 = 32.0;
+pub(crate) const CUED_TRACK_SECONDS: f32 = 32.0;
 
 /// A fixture file standing for a 32 second track at 120 BPM. With a grid,
 /// beats fall every half second from 0 and bars every two seconds, and
@@ -4778,20 +5418,20 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
 
 /// A track with a beat grid and the cues analysis placed on it, selected,
 /// and a track without a grid or cues.
-fn open_cued_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
-    open_window_on(
-        vec![
-            cued_track("sine-440hz-stereo.wav", true),
-            cued_track("sine-440hz-mono.wav", false),
-        ],
-        Box::new(SilentOutput),
-        cx,
-    )
+pub(crate) fn cued_tracks() -> Vec<DemoTrack> {
+    vec![
+        cued_track("sine-440hz-stereo.wav", true),
+        cued_track("sine-440hz-mono.wav", false),
+    ]
+}
+
+pub(crate) fn open_cued_library(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    open_window_on(cued_tracks(), Box::new(SilentOutput), cx)
 }
 
 /// The selected track's cues as (seconds, name, hot cue letter), and
 /// whether the user set them.
-fn selected_cues(
+pub(crate) fn selected_cues(
     view: &Entity<EuphoriaApp>,
     cx: &mut TestAppContext,
 ) -> (Vec<(f64, String, Option<char>)>, bool) {
@@ -4810,6 +5450,59 @@ fn selected_cues(
             .collect();
         (listed, cues.is_edited())
     })
+}
+
+#[gpui::test]
+fn the_cues_column_counts_edited_cues_else_automatic_ones_and_sorts(cx: &mut TestAppContext) {
+    let (window, view) = open_window_with(
+        vec![
+            cued_track("sine-440hz-stereo.wav", true),
+            cued_track("sine-440hz-mono.wav", false),
+        ],
+        Box::new(SilentOutput),
+        Settings::default(),
+        None,
+        size(px(2400.0), px(900.0)),
+        cx,
+    );
+    let counts = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            app.visible
+                .iter()
+                .map(|index| app.session.library().track(*index).unwrap().cue_count())
+                .collect::<Vec<_>>()
+        })
+    };
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let texts = app.column_texts(ColumnId::Cues);
+        assert!(texts.contains("2") && texts.contains("0"), "{texts:?}");
+    });
+    click(window, header_id(ColumnId::Cues), cx);
+    assert_eq!(counts(cx), [Some(0), Some(2)]);
+    click(window, header_id(ColumnId::Cues), cx);
+    assert_eq!(counts(cx), [Some(2), Some(0)]);
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.session.library().tracks()[1].path.clone();
+            let cue = |seconds: f64| euphoria_core::Cue {
+                seconds,
+                name: String::new(),
+                hot_cue: None,
+            };
+            app.session
+                .set_edited_cues(&path, Some(vec![cue(1.0), cue(2.0), cue(3.0), cue(4.0)]));
+        })
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    assert_eq!(counts(cx), [Some(4), Some(2)]);
 }
 
 /// Holds or lets go of Shift, as the keyboard would.
@@ -5244,4 +5937,121 @@ fn saved_cues_wait_for_analysis_duration_before_drawing_markers(cx: &mut TestApp
         assert!(window.try_find(crate::views::cues::marker_id(0)).is_none());
     })
     .unwrap();
+}
+
+/// The selected track of the fixture library, marked as separated into
+/// four copies of a stereo test file in `folder`.
+fn separate_selected_track(
+    view: &Entity<EuphoriaApp>,
+    folder: &ScratchFolder,
+    cx: &mut TestAppContext,
+) -> euphoria_core::stems::StemFiles {
+    let stereo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
+    let files = euphoria_core::stems::StemFiles::in_directory(folder.0.join("stems"));
+    std::fs::create_dir_all(files.directory()).unwrap();
+    for stem in euphoria_core::stems::Stem::ALL {
+        std::fs::copy(&stereo, files.path(stem)).unwrap();
+    }
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.stems.mark_ready(&path, files.clone());
+            app.stems_changed(cx);
+        })
+    });
+    files
+}
+
+#[gpui::test]
+fn the_full_track_plays_the_file_and_acapella_or_instrumental_the_stems(cx: &mut TestAppContext) {
+    let folder = ScratchFolder::new("stem-modes");
+    let (_, view) = open_fixture_library(cx);
+    separate_selected_track(&view, &folder, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            assert_eq!(app.stems.mode(), crate::stems::StemMode::Full);
+            assert!(!app.player.offers_stems());
+            match app.player.toggle() {
+                Some(PlayerRequest::Start {
+                    with_stems: false, ..
+                }) => {}
+                other => panic!("the full track should play the file, got {other:?}"),
+            }
+
+            app.player.advance_to(0.4);
+            app.set_stem_mode(crate::stems::StemMode::Acapella, cx);
+            assert!(app.player.offers_stems());
+            assert_eq!(app.player.status(), &PlayerStatus::Starting);
+
+            app.set_stem_mode(crate::stems::StemMode::Instrumental, cx);
+            assert!(app.player.offers_stems());
+            assert_eq!(app.player.status(), &PlayerStatus::Starting);
+
+            app.set_stem_mode(crate::stems::StemMode::Full, cx);
+            assert!(!app.player.offers_stems());
+            assert_eq!(app.player.status(), &PlayerStatus::Starting);
+        })
+    });
+}
+
+#[gpui::test]
+fn remove_stems_deletes_them_and_offers_to_separate_again(cx: &mut TestAppContext) {
+    let folder = ScratchFolder::new("stem-remove");
+    let (window, view) = open_fixture_library(cx);
+    let files = separate_selected_track(&view, &folder, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.set_stem_mode(crate::stems::StemMode::Acapella, cx)
+        })
+    });
+    assert!(is_shown(window, "stems-remove", cx));
+    assert!(!is_shown(window, "stems-separate", cx));
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("stems-remove", cx);
+    })
+    .unwrap();
+
+    assert!(!files.directory().exists());
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let path = app.selected_track().unwrap().path.clone();
+        assert_eq!(app.stems.status(&path), None);
+        assert!(!app.player.offers_stems());
+    });
+    assert!(is_shown(window, "stems-separate", cx));
+    assert!(!is_shown(window, "stems-remove", cx));
+}
+
+#[gpui::test]
+fn statistic_labels_stay_on_one_line_in_every_theme_at_the_narrowest_inspector(
+    cx: &mut TestAppContext,
+) {
+    let mut measured = 0;
+    for theme in ThemeName::ALL {
+        let panels = Panels {
+            inspector_width: 0,
+            ..Panels::default()
+        };
+        let (window, _) = open_arranged(theme, panels, USUAL_WINDOW, cx);
+        for label in ["Key", "BPM", "Energy"] {
+            let id = gpui::SharedString::from(format!("statistic-label-{label}"));
+            let height = cx
+                .update_window(window, |_, window, cx| {
+                    window.render_frame(cx);
+                    window.try_find(id).map(|found| found.bounds().size.height)
+                })
+                .unwrap();
+            if let Some(height) = height {
+                measured += 1;
+                assert!(
+                    height < px(20.0),
+                    "{label} wraps in {theme:?}: {height:?} high"
+                );
+            }
+        }
+    }
+    assert!(measured >= 3, "the compact statistics were never shown");
 }

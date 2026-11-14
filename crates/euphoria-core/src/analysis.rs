@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
+use crate::audio_budget::{budgeted_seconds, global_audio_budget};
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::detect::{
     BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
@@ -32,10 +33,10 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = match (cfg!(feature = "libkeyfinder"), cfg!(feature = "drone")) {
-    (true, true) => "13+libkeyfinder+drone",
-    (true, false) => "13+libkeyfinder",
-    (false, true) => "13+stratum+drone",
-    (false, false) => "13+stratum",
+    (true, true) => "17+libkeyfinder+drone",
+    (true, false) => "17+libkeyfinder",
+    (false, true) => "17+stratum+drone",
+    (false, false) => "17+stratum",
 };
 
 /// The version the analysis cache records for analyses made now: the
@@ -260,6 +261,12 @@ impl AnalysisObserver for Unobserved {}
 /// its costly key analysis does not run. The energy rating takes the
 /// detected tempo into account when there is one.
 ///
+/// A file that is heavily damaged, with [`SEVERE_LOST_SHARE`](crate::SEVERE_LOST_SHARE)
+/// or more of its audio lost, gets no beat grid and no cues, and says so in
+/// [`QualityReport::notes`]. At most as much audio as the global
+/// [`AudioBudget`](crate::AudioBudget) allows is decoded at once, so a call
+/// can wait for other analyses to finish.
+///
 /// A file whose sample rate is outside the range the energy rating supports
 /// fails with [`EuphoriaError::UnsupportedSampleRate`].
 pub fn analyze_file(path: &Path) -> Result<TrackAnalysis, EuphoriaError> {
@@ -273,8 +280,11 @@ pub fn analyze_file_observed(
     observer: &impl AnalysisObserver,
 ) -> Result<TrackAnalysis, EuphoriaError> {
     observer.stage(path, AnalysisStage::Decoding);
+    let _audio_in_flight = global_audio_budget().acquire(budgeted_seconds(path));
     let (audio, pending_quality) =
         decode_measuring_quality(path, |share| observer.decoded(path, share))?;
+
+    let heavily_damaged = pending_quality.damage().is_severe();
 
     // Tempo runs first because it has the larger peak. libkeyfinder then
     // reuses the memory tempo released, where the other order keeps
@@ -297,9 +307,10 @@ pub fn analyze_file_observed(
     observer.stage(path, AnalysisStage::Energy);
     let energy_rating = rate_energy(&audio, tempo)?;
     observer.stage(path, AnalysisStage::BeatGrid);
-    let (beat_grid, cues) = tempo.map_or((None, Vec::new()), |tempo| {
-        detect_beat_grid_and_cues(&audio, f64::from(tempo))
-    });
+    let (beat_grid, cues) = match tempo {
+        Some(tempo) if !heavily_damaged => detect_beat_grid_and_cues(&audio, f64::from(tempo)),
+        _ => (None, Vec::new()),
+    };
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
     observer.stage(path, AnalysisStage::Quality);

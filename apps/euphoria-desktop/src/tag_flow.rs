@@ -16,8 +16,8 @@ use gpui::Context;
 use crate::app::EuphoriaApp;
 use crate::tag_settings::TagSettings;
 use crate::tag_writing::{
-    LeftOut, PreviewRow, UndoReport, WriteReport, WriteTarget, plan_writes, preview_rows,
-    undo_last_with_playlists, write_plans_with_playlists,
+    LeftOut, PreviewRow, UndoReport, WriteReport, WriteTarget, plan_writes_with_history,
+    preview_rows, undo_last_with_playlists, write_plans_with_playlists,
 };
 
 /// The targets with their corrections checked against the whole file, since
@@ -110,10 +110,19 @@ pub(crate) struct Preview {
     pub(crate) rows: Vec<PreviewRow>,
     /// How many files already hold the values.
     pub(crate) up_to_date: usize,
+    /// Files with nothing to change from which a key or tempo was left
+    /// out, with what and why.
+    pub(crate) left_alone: Vec<LeftOut>,
     /// Tracks left out because they have no analysis.
     pub(crate) not_analyzed: Vec<LeftOut>,
     /// Files whose tags could not be read or written safely.
     pub(crate) failures: Vec<LeftOut>,
+    /// Files whose Serato cue points or beat grid do not all go where they
+    /// were meant to, a line for each note.
+    pub(crate) serato_notes: Vec<LeftOut>,
+    /// The DJ programs found running when the write was confirmed, which
+    /// the preview asks about before it writes. `None` until then.
+    pub(crate) program_warning: Option<Vec<&'static str>>,
 }
 
 /// The tag panel over the window, at one step of a write or an undo.
@@ -198,6 +207,7 @@ impl EuphoriaApp {
                 path: track.path.clone(),
                 analysis: track.analysis().cloned(),
                 correction: track.correction,
+                edited_cues: track.edited_cues.clone(),
             })
             .collect();
         let settings = self.tag_settings;
@@ -207,13 +217,22 @@ impl EuphoriaApp {
         cx.notify();
         let cache = self.session.cache();
         let writer = self.by_ear.correction_writer.clone();
+        let log_directory = self.write_log_directory.clone();
         cx.spawn(async move |this, cx| {
             let planned = cx
                 .background_executor()
                 .spawn(async move {
                     let (targets, unchecked) =
                         verified_corrections(targets, cache.as_deref(), &writer);
-                    let mut planned = plan_writes(&targets, &settings.write_options());
+                    let history = match &log_directory {
+                        Some(directory) if !settings.replace_existing => {
+                            let paths: Vec<_> =
+                                targets.iter().map(|target| target.path.clone()).collect();
+                            euphoria_core::tags::WrittenValues::load(directory, &paths)
+                        }
+                        _ => euphoria_core::tags::WrittenValues::default(),
+                    };
+                    let mut planned = plan_writes_with_history(&targets, &settings, &history);
                     planned.failures.extend(unchecked);
                     planned
                 })
@@ -229,8 +248,11 @@ impl EuphoriaApp {
                     plans: Arc::new(planned.plans),
                     analyses: Arc::new(planned.analyses.into_iter().map(Some).collect()),
                     up_to_date: planned.up_to_date,
+                    left_alone: planned.left_alone,
                     not_analyzed: planned.not_analyzed,
                     failures: planned.failures,
+                    serato_notes: planned.serato_notes,
+                    program_warning: None,
                 }));
                 cx.notify();
             })
@@ -241,7 +263,27 @@ impl EuphoriaApp {
 
     /// The confirm button of the preview: writes the changes shown, through
     /// the shared write log, and reports each file.
+    ///
+    /// When a DJ program is running, the first click only shows a strip that
+    /// says so, and the write waits for "Write anyway".
     pub(crate) fn confirm_tag_write(&mut self, cx: &mut Context<'_, Self>) {
+        let running = self.program_checks.running();
+        let Some(TagPanel::Preview(preview)) = &mut self.tag_panel else {
+            return;
+        };
+        if preview.plans.is_empty() {
+            return;
+        }
+        if !running.is_empty() {
+            preview.program_warning = Some(running);
+            cx.notify();
+            return;
+        }
+        self.write_confirmed_tags(cx);
+    }
+
+    /// Writes the changes shown without asking about running programs again.
+    pub(crate) fn write_confirmed_tags(&mut self, cx: &mut Context<'_, Self>) {
         let Some(TagPanel::Preview(preview)) = &self.tag_panel else {
             return;
         };
@@ -466,6 +508,7 @@ mod tests {
                 path: track.clone(),
                 analysis: Some(tag_testing::analysis()),
                 correction,
+                edited_cues: None,
             }]
         };
         let writer = CorrectionWriter::default();
@@ -508,6 +551,7 @@ mod tests {
                 path: track.clone(),
                 analysis: Some(tag_testing::analysis()),
                 correction: Correction::default(),
+                edited_cues: None,
             }]
         };
         std::fs::write(&track, b"audio").unwrap();

@@ -25,6 +25,29 @@ const LOWEST_CUTOFF_HZ: f32 = 8_000.0;
 /// their cutoff, which leaves a fall of 30 to 60 dB; music that is merely
 /// dark falls far more gradually.
 pub(crate) const MINIMUM_FALL_DB: f64 = 20.0;
+/// The width of the narrow bands compared to measure how abruptly the level
+/// falls at a cutoff.
+const EDGE_BAND_HZ: f32 = 250.0;
+/// A cutoff is a brick wall when the average level falls at least this many
+/// dB from the 250 Hz below it to the 250 Hz above it, and at least
+/// [`BRICKWALL_MINIMUM_FALL_DB`] from the 1 kHz below to the 1 kHz above. A
+/// lossy encoder's lowpass has a transition narrower than about 1 kHz and
+/// measures 20 dB or more; tape, vinyl, analog filters and dark mastering
+/// fall by under a few dB over 250 Hz even when they drop 30 dB or more over
+/// a few kHz.
+pub(crate) const BRICKWALL_MINIMUM_EDGE_FALL_DB: f64 = 15.0;
+/// See [`BRICKWALL_MINIMUM_EDGE_FALL_DB`]: almost nothing is left above a
+/// brick wall.
+pub(crate) const BRICKWALL_MINIMUM_FALL_DB: f64 = 30.0;
+
+/// Where the content stops, and whether it stops like an encoder's lowpass.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cutoff {
+    /// The frequency in Hz where the content stops.
+    pub hz: f32,
+    /// Whether the fall is as abrupt as an encoder's lowpass.
+    pub brickwall: bool,
+}
 
 /// Accumulates channel powers before any mixdown, keeping at most one
 /// FFT frame of interleaved samples. Channel phase cannot cancel energy.
@@ -48,7 +71,7 @@ impl SpectralCutoffMeter {
 
     /// The steepest fall above 8 kHz, or no cutoff for full-band, short or
     /// quiet audio. The top 1 kHz below Nyquist is excluded.
-    pub(crate) fn finish(self) -> Option<f32> {
+    pub(crate) fn finish(self) -> Option<Cutoff> {
         let spectrum = self.spectrum?;
         let rate = spectrum.sample_rate as f32;
         let level = spectrum.levels()?;
@@ -56,7 +79,7 @@ impl SpectralCutoffMeter {
     }
 }
 
-fn cutoff_from_levels(level: &[f64], rate: f32) -> Option<f32> {
+fn cutoff_from_levels(level: &[f64], rate: f32) -> Option<Cutoff> {
     let bin_width = rate / (2 * (level.len() - 1)) as f32;
     let side = ((SIDE_BAND_HZ / bin_width).round() as usize).max(1);
     let lowest = ((LOWEST_CUTOFF_HZ / bin_width).ceil() as usize).max(side);
@@ -78,7 +101,18 @@ fn cutoff_from_levels(level: &[f64], rate: f32) -> Option<f32> {
         }
     }
     let (bin, fall) = steepest?;
-    (fall >= MINIMUM_FALL_DB).then_some(bin as f32 * bin_width)
+    if fall < MINIMUM_FALL_DB {
+        return None;
+    }
+    let edge = ((EDGE_BAND_HZ / bin_width).round() as usize).max(1);
+    let sharpest_edge = (bin.saturating_sub(side).max(edge)..=(bin + side).min(level.len() - edge))
+        .map(|candidate| mean(candidate - edge, candidate) - mean(candidate, candidate + edge))
+        .fold(f64::MIN, f64::max);
+    Some(Cutoff {
+        hz: bin as f32 * bin_width,
+        brickwall: sharpest_edge >= BRICKWALL_MINIMUM_EDGE_FALL_DB
+            && fall >= BRICKWALL_MINIMUM_FALL_DB,
+    })
 }
 
 struct Spectrum {
@@ -204,7 +238,7 @@ mod tests {
     fn spectral_cutoff(samples: &[f32], sample_rate: NonZeroU32) -> Option<f32> {
         let mut meter = SpectralCutoffMeter::default();
         meter.add(samples, 1, sample_rate.get());
-        meter.finish()
+        meter.finish().map(|cutoff| cutoff.hz)
     }
 
     const RATE: u32 = 44_100;
@@ -278,6 +312,64 @@ mod tests {
         }
     }
 
+    /// `samples` with a gain of 0 dB up to `corner_hz` that falls by
+    /// `depth_db` over `width_hz` along a raised cosine, then stays there:
+    /// a narrow `width_hz` is an encoder's lowpass, a wide one the roll-off
+    /// of tape or vinyl.
+    fn shaped_lowpass(samples: &[f32], corner_hz: f32, width_hz: f32, depth_db: f32) -> Vec<f32> {
+        let length = samples.len();
+        let mut planner = FftPlanner::<f32>::new();
+        let mut spectrum: Vec<Complex<f32>> = samples
+            .iter()
+            .map(|sample| Complex::new(*sample, 0.0))
+            .collect();
+        planner.plan_fft_forward(length).process(&mut spectrum);
+        for (bin, value) in spectrum.iter_mut().enumerate() {
+            let frequency = bin.min(length - bin) as f32 * RATE as f32 / length as f32;
+            let progress = ((frequency - corner_hz) / width_hz).clamp(0.0, 1.0);
+            let fall_db = depth_db * (0.5 - 0.5 * (std::f32::consts::PI * progress).cos());
+            *value *= 10.0_f32.powf(-fall_db / 20.0);
+        }
+        planner.plan_fft_inverse(length).process(&mut spectrum);
+        spectrum
+            .iter()
+            .map(|value| value.re / length as f32)
+            .collect()
+    }
+
+    fn measured(samples: &[f32]) -> Option<Cutoff> {
+        let mut meter = SpectralCutoffMeter::default();
+        meter.add(samples, 1, RATE);
+        meter.finish()
+    }
+
+    #[test]
+    fn an_encoder_lowpass_is_a_brickwall() {
+        for (corner, width) in [
+            (16_000.0, 1.0),
+            (16_000.0, 600.0),
+            (18_000.0, 1_000.0),
+            (14_000.0, 1_500.0),
+        ] {
+            let filtered = shaped_lowpass(&noise(5.0), corner, width, 80.0);
+            let cutoff = measured(&filtered).expect("a cutoff");
+            assert!(cutoff.brickwall, "{corner} over {width} Hz: {cutoff:?}");
+        }
+    }
+
+    #[test]
+    fn the_roll_off_of_tape_or_vinyl_is_a_cutoff_but_not_a_brickwall() {
+        for (corner, width) in [
+            (12_000.0, 4_000.0),
+            (13_000.0, 6_000.0),
+            (10_000.0, 5_000.0),
+        ] {
+            let filtered = shaped_lowpass(&noise(5.0), corner, width, 80.0);
+            let cutoff = measured(&filtered).expect("a cutoff");
+            assert!(!cutoff.brickwall, "{corner} over {width} Hz: {cutoff:?}");
+        }
+    }
+
     #[test]
     fn a_gentle_slope_is_not_a_cutoff() {
         let dark = gentle_lowpass(&noise(5.0), 2_000.0);
@@ -314,7 +406,11 @@ mod tests {
             for packet in interleaved.chunks(packet_frames * 4) {
                 meter.add(packet, 4, RATE);
             }
-            assert_eq!(meter.finish(), Some(expected), "{packet_frames}");
+            assert_eq!(
+                meter.finish().map(|cutoff| cutoff.hz),
+                Some(expected),
+                "{packet_frames}"
+            );
         }
     }
 

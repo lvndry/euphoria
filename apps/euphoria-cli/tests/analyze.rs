@@ -5,7 +5,7 @@
 
 mod support;
 
-use support::{Euphoria, fixtures_directory, standard_error};
+use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
 
 #[test]
 fn analyzes_a_folder_as_json() {
@@ -32,12 +32,8 @@ fn analyzes_a_folder_as_json() {
         assert!((duration - 1.0).abs() < 0.1, "{track}");
         let path = track["path"].as_str().expect("a path");
         let energy = &track["energy"];
-        if path.contains("opposite-phase") {
-            assert!(energy.is_null(), "silence has no energy rating: {track}");
-        } else {
-            let rating = energy.as_u64().expect("a track with sound has a rating");
-            assert!((1..=10).contains(&rating), "{track}");
-        }
+        let rating = energy.as_u64().expect("a track with sound has a rating");
+        assert!((1..=10).contains(&rating), "{track}");
         let quality = &track["quality"];
         assert_eq!(quality["sample_rate"], 44_100, "{track}");
         let lossless = quality["lossless"].as_bool().expect("a lossless flag");
@@ -59,20 +55,22 @@ fn analyzes_a_folder_as_json() {
         assert!(quality["reason"].as_str().is_some(), "{track}");
         let tuning = &track["tuning_cents"];
         let timeline = track["key_timeline"].as_array().expect("a key timeline");
-        if path.contains("opposite-phase") {
-            assert!(tuning.is_null(), "silence has no tuning: {track}");
-            assert!(timeline.is_empty(), "silence has no key over time: {track}");
-        } else {
-            let cents = tuning.as_f64().expect("a 440 Hz tone has a tuning");
-            assert!(
-                cents.abs() < 2.0,
-                "a 440 Hz tone is at concert pitch: {track}"
-            );
-            assert_eq!(timeline.len(), 1, "{track}");
-            assert_eq!(timeline[0]["key"]["name"], track["key"]["name"], "{track}");
-            assert_eq!(timeline[0]["start_seconds"], 0.0, "{track}");
-            assert_eq!(timeline[0]["end_seconds"], track["duration_seconds"]);
-        }
+        let cents = tuning.as_f64().expect("a 440 Hz tone has a tuning");
+        assert!(
+            cents.abs() < 2.0,
+            "a 440 Hz tone is at concert pitch: {track}"
+        );
+        assert_eq!(timeline.len(), 1, "{track}");
+        assert_eq!(timeline[0]["key"]["name"], track["key"]["name"], "{track}");
+        assert_eq!(timeline[0]["start_seconds"], 0.0, "{track}");
+        assert_eq!(timeline[0]["end_seconds"], track["duration_seconds"]);
+        let damaged = quality["damaged"].as_bool().expect("a damaged flag");
+        assert!(!damaged, "{track}");
+        assert_eq!(
+            quality["notes"].as_array().expect("notes").is_empty(),
+            !path.contains("opposite-phase"),
+            "only the opposite phase file has a note: {track}"
+        );
     }
 }
 
@@ -122,11 +120,6 @@ fn analyze_json(arguments: &[&str]) -> Vec<serde_json::Value> {
 #[test]
 fn json_rates_the_key_and_the_tempo_and_names_the_runner_up() {
     for track in analyze_json(&[]) {
-        if track["path"].as_str().unwrap().contains("opposite-phase") {
-            assert!(track["runner_up_key"].is_null(), "{track}");
-            assert_eq!(track["needs_review"], false, "{track}");
-            continue;
-        }
         let confidence = track["key"]["confidence"].as_str().expect("a key rating");
         assert!(["high", "medium", "low"].contains(&confidence), "{track}");
         assert!(track["key"]["open_key"].is_string(), "{track}");
@@ -216,12 +209,6 @@ fn needs_review_lists_only_tracks_rated_low() {
         let rated_low = listed["key"]["confidence"] == "low" || listed["bpm_confidence"] == "low";
         assert!(rated_low, "{listed}");
     }
-    assert!(
-        to_review
-            .iter()
-            .all(|track| !track["path"].as_str().unwrap().contains("opposite-phase")),
-        "silence has nothing to review"
-    );
 }
 
 #[test]
@@ -241,10 +228,69 @@ fn reports_an_unreadable_file_and_exits_with_failure() {
 }
 
 #[test]
-fn a_missing_path_is_an_error() {
+fn a_missing_path_is_reported_as_missing_with_status_3() {
     let output = Euphoria::new().run(&["analyze", "/definitely/not/here"]);
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("/definitely/not/here"));
+    assert_eq!(output.status.code(), Some(3));
+    let errors = standard_error(&output);
+    assert!(errors.contains("missing: /definitely/not/here"), "{errors}");
+    assert!(
+        errors.contains("1 file is missing: moved, deleted, or on a drive that is not connected."),
+        "{errors}"
+    );
+    assert!(!errors.contains("error:"), "{errors}");
+}
+
+#[test]
+fn a_missing_path_does_not_stop_the_other_files() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--json",
+        "/definitely/not/here",
+        fixture.to_str().expect("UTF-8 path"),
+        "/0-also-not-here.wav",
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let tracks: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the output is JSON");
+    let tracks = tracks.as_array().expect("the output is an array");
+    assert_eq!(tracks.len(), 3, "{tracks:?}");
+    let paths: Vec<&str> = tracks
+        .iter()
+        .map(|track| track["path"].as_str().expect("a path"))
+        .collect();
+    let mut sorted_paths = paths.clone();
+    sorted_paths.sort_unstable();
+    assert_eq!(paths, sorted_paths, "one object per file, in path order");
+    let missing_track = tracks
+        .iter()
+        .find(|track| track["path"] == "/definitely/not/here")
+        .expect("the missing path has an entry");
+    assert_eq!(missing_track["missing"], true, "{missing_track}");
+    assert!(missing_track["error"].is_string(), "{missing_track}");
+    let analyzed_track = tracks
+        .iter()
+        .find(|track| track["missing"].is_null())
+        .expect("the existing file has an entry");
+    assert!(analyzed_track["error"].is_null(), "{analyzed_track}");
+    assert!(analyzed_track.get("missing").is_none(), "{analyzed_track}");
+}
+
+#[test]
+fn a_failure_and_a_missing_file_exit_with_status_1() {
+    let readme = fixtures_directory().join("README.md");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        readme.to_str().expect("UTF-8 path"),
+        "/definitely/not/here",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let errors = standard_error(&output);
+    assert!(
+        errors.contains(&format!("error: {}", readme.display())),
+        "{errors}"
+    );
+    assert!(errors.contains("missing: /definitely/not/here"), "{errors}");
 }
 
 #[cfg(unix)]
@@ -491,7 +537,7 @@ fn an_empty_filtered_detail_explains_why_the_track_is_not_shown() {
 #[test]
 fn a_literal_path_after_double_dash_cannot_change_the_colour_policy() {
     let euphoria = Euphoria::new();
-    let folder = support::TemporaryFolder::new();
+    let folder = TemporaryFolder::new();
     std::fs::create_dir(folder.path().join("--color=always")).unwrap();
     let output = euphoria
         .command(&["--color", "never", "analyze", "--", "--color=always"])
@@ -505,4 +551,103 @@ fn a_literal_path_after_double_dash_cannot_change_the_colour_policy() {
         standard_error(&output)
     );
     assert!(standard_error(&output).contains("no audio files found"));
+}
+
+/// A folder with one real track, one unsupported audio file of two formats
+/// and, on Unix, a subfolder the process cannot enter.
+#[cfg(unix)]
+fn library_with_a_locked_folder() -> (TemporaryFolder, std::path::PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let library = TemporaryFolder::new();
+    let locked = library.path().join("locked");
+    std::fs::create_dir(&locked).expect("the folder is created");
+    std::fs::write(locked.join("inside.mp3"), b"").expect("the file is written");
+    std::fs::copy(
+        fixtures_directory().join("sine-440hz-mono.wav"),
+        library.path().join("tone.wav"),
+    )
+    .expect("the fixture is copied");
+    for name in ["a.opus", "b.opus", "c.wma"] {
+        std::fs::write(library.path().join(name), b"").expect("the file is written");
+    }
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))
+        .expect("the folder is locked");
+    (library, locked)
+}
+
+#[cfg(unix)]
+fn unlock(locked: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(locked, std::fs::Permissions::from_mode(0o755))
+        .expect("the folder is unlocked");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_folder_is_reported_and_the_rest_is_analyzed() {
+    let (library, locked) = library_with_a_locked_folder();
+    let cannot_enter = std::fs::read_dir(&locked).is_err();
+
+    let output = Euphoria::new().run(&["analyze", "--json", library.path().to_str().unwrap()]);
+    unlock(&locked);
+    if !cannot_enter {
+        return;
+    }
+
+    let stderr = standard_error(&output);
+    assert_eq!(output.status.code(), Some(3), "{stderr}");
+    assert!(stderr.contains("1 folder could not be read:"), "{stderr}");
+    assert!(stderr.contains("Permission denied"), "{stderr}");
+    assert!(
+        stderr.contains("3 files skipped: 2 .opus, 1 .wma, which Euphoria can't decode yet"),
+        "{stderr}"
+    );
+    let entries: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let entries = entries.as_array().expect("an array");
+    let analyzed: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry["error"].is_null())
+        .collect();
+    assert_eq!(analyzed.len(), 1);
+    assert!(analyzed[0]["path"].as_str().unwrap().ends_with("tone.wav"));
+    let unreadable: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry["unreadable"] == true)
+        .collect();
+    assert_eq!(unreadable.len(), 1);
+    assert!(unreadable[0]["path"].as_str().unwrap().ends_with("locked"));
+    assert!(
+        unreadable[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("Permission denied")
+    );
+    let skipped = entries
+        .iter()
+        .filter(|entry| entry["skipped"] == true)
+        .count();
+    assert_eq!(skipped, 3);
+}
+
+#[test]
+fn skipped_formats_are_reported_and_do_not_change_the_exit_status() {
+    let library = TemporaryFolder::new();
+    std::fs::copy(
+        fixtures_directory().join("sine-440hz-mono.wav"),
+        library.path().join("tone.wav"),
+    )
+    .expect("the fixture is copied");
+    for name in ["a.opus", "b.opus", "c.wma"] {
+        std::fs::write(library.path().join(name), b"").expect("the file is written");
+    }
+
+    let output = Euphoria::new().run(&["analyze", library.path().to_str().unwrap()]);
+
+    let stderr = standard_error(&output);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("3 files skipped: 2 .opus, 1 .wma, which Euphoria can't decode yet"),
+        "{stderr}"
+    );
 }

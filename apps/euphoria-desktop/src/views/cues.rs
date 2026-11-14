@@ -260,12 +260,36 @@ pub(crate) fn lane(
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
+    let indexes: Vec<usize> = (0..cues.len()).collect();
+    markers_lane(
+        cues,
+        &indexes,
+        &fractions(cues, duration_seconds),
+        places,
+        palette,
+        cx,
+    )
+}
+
+/// The markers of `cues` as [`lane`] draws them, each at its own fraction
+/// of the lane's width. `indexes` names each cue's place among all the
+/// track's cues, which is what a press or a drag edits, so that a lane
+/// showing part of the track still edits the right cue.
+pub(crate) fn markers_lane(
+    cues: &[Cue],
+    indexes: &[usize],
+    fractions: &[f32],
+    places: &[MarkerPlace],
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
     let markers = cues
         .iter()
-        .zip(fractions(cues, duration_seconds))
+        .zip(fractions)
         .zip(places)
-        .enumerate()
-        .map(|(index, ((cue, fraction), place))| {
+        .zip(indexes)
+        .map(|(((cue, fraction), place), index)| {
+            let (fraction, index) = (*fraction, *index);
             let text = marker_text(cue, place.label);
             let explanation: SharedString = format!(
                 "{} at {}. Click to play from here, drag to move it: it lands on a beat, or on a bar with Shift held.",

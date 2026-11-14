@@ -23,34 +23,57 @@ mod favorite_flow;
 mod favorites;
 #[cfg(test)]
 mod favorites_ui_tests;
+mod focus;
+#[cfg(test)]
+mod focus_ui_tests;
 mod folder_tree;
 mod format;
 mod key_by_ear;
 mod key_shift;
 mod library;
+mod library_export;
+#[cfg(test)]
+mod library_export_ui_tests;
+mod logging;
 mod mashup;
+mod metronome;
+mod metronome_controls;
+#[cfg(test)]
+mod metronome_ui_tests;
+#[cfg(test)]
+mod missing_ui_tests;
 mod mixes;
+mod output_stream;
 mod panels;
 mod peaks;
+#[cfg(test)]
+mod planner_ui_tests;
 mod playback;
 mod player;
 mod playlist_flow;
 mod playlists;
 mod progress;
 mod reference_sound;
+mod relink_flow;
 mod reveal;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
 mod settings;
 mod state;
+mod stem_export;
+#[cfg(test)]
+mod stem_export_ui_tests;
 mod stems;
+#[cfg(test)]
+mod suggestion_filter_ui_tests;
 mod tag_editor;
 mod tag_flow;
 mod tag_settings;
 mod tag_writing;
 mod theme;
 mod track_overview;
+mod transition_plan;
 #[cfg(test)]
 mod ui_tests;
 mod views;
@@ -67,10 +90,11 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, BuildSet, EditTags, FocusSearch, OpenSetBuilder, OpenSettings,
-    Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, ToggleDecks, ToggleFavorite,
-    TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
-    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
+    OpenFocusView, OpenSetBuilder, OpenSettings, Quit, ResetColumnWidths, RevealTrack,
+    SelectAllTracks, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme,
+    UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -96,6 +120,7 @@ fn open_cache() -> Result<CachedAnalyzer, EuphoriaError> {
 }
 
 fn main() {
+    logging::init();
     gpui::application()
         .with_assets(assets::AppAssets)
         .with_quit_mode(QuitMode::LastWindowClosed)
@@ -214,6 +239,9 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("c", AddCueAtPlayhead, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("f", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("m", ToggleMetronome, Some(SPACE_BAR_CONTEXT)),
+        // F stars, so Enter opens the focus view.
+        KeyBinding::new("enter", OpenFocusView, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
@@ -253,6 +281,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<ExportLibrary>(view, cx, |view, cx| view.open_library_export(cx));
     register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
     register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
     register_view_command::<OpenSetBuilder>(view, cx, |view, cx| view.open_set_builder(cx));
@@ -266,9 +295,11 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
     register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
     register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_cue_edit(cx));
+    register_view_command::<ToggleMetronome>(view, cx, |view, cx| view.toggle_metronome(cx));
     register_view_command::<ToggleFavorite>(view, cx, |view, cx| {
         view.toggle_star_on_selection(cx);
     });
+    register_view_command::<CloseFocusView>(view, cx, |view, cx| view.close_focus_view(cx));
     register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
         view.reset_column_widths(cx);
     });
@@ -362,11 +393,16 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::separator(),
             MenuItem::action("Quit Euphoria", Quit),
         ]),
-        Menu::new("File").items([MenuItem::action("Add Folder\u{2026}", AddFolder)]),
+        Menu::new("File").items([
+            MenuItem::action("Add Folder\u{2026}", AddFolder),
+            MenuItem::separator(),
+            MenuItem::action("Export Library\u{2026}", ExportLibrary),
+        ]),
         Menu::new("View").items([
             MenuItem::action(sidebar_item, ToggleSidebar),
             MenuItem::action("Decks", ToggleDecks),
             MenuItem::action("Set Builder", OpenSetBuilder),
+            MenuItem::action("Focus View", OpenFocusView),
             MenuItem::separator(),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
@@ -384,6 +420,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         ]),
         Menu::new("Playback").items([
             MenuItem::action("Play or Pause", TogglePlayback),
+            MenuItem::action("Metronome", ToggleMetronome),
             MenuItem::separator(),
             MenuItem::action("Add Cue at Playhead", AddCueAtPlayhead),
             MenuItem::action("Undo Cue Edit", UndoCueEdit),

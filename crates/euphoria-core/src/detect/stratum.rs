@@ -12,6 +12,7 @@ use stratum_dsp::{AnalysisConfig, AnalysisResult, Key as StratumKey, analyze_aud
 
 use crate::audio::AudioBuffer;
 use crate::detect::decimate::decimate;
+use crate::detect::tempo_choice;
 use crate::detect::{Analysis, KeyDetector, TempoDetector, TempoReading};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
@@ -233,9 +234,18 @@ fn tempogram_tempo(
     )
     .ok()?;
     let estimate = valid_tempo(estimate.bpm)?;
+    let leading = tempo_choice::leading_candidates(&candidates);
+    let pulse = tempo_choice::OnsetPulse::from_spectrogram(
+        &spectrogram,
+        sample_rate,
+        config.frame_size,
+        config.hop_size,
+    );
+    let score_margin = octave_score_margin(estimate, &candidates);
+    let estimate = tempo_choice::choose(&pulse, &leading).map_or(estimate, |chosen| chosen.tempo);
     Some(TempoReading {
         estimate,
-        score_margin: Some(octave_score_margin(estimate, &candidates)),
+        score_margin: Some(score_margin),
     })
 }
 

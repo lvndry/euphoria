@@ -308,6 +308,12 @@ pub(crate) struct TrackMenuState {
     pub(crate) is_starred: bool,
     /// The row is the whole selection, so the file manager can open it.
     pub(crate) revealable: bool,
+    /// The row is the whole selection and its file is missing, so it can be
+    /// located.
+    pub(crate) locatable: bool,
+    /// The row's file is missing, so the missing tracks of the selection
+    /// can be removed from the library.
+    pub(crate) is_missing: bool,
 }
 
 /// The menu of the table's rows: add the selection to a playlist, make a
@@ -370,10 +376,32 @@ pub(crate) fn track_menu(
     } else {
         menu
     };
-    if state.revealable {
+    let menu = if state.revealable {
         menu.separator().item(
             PopupMenuItem::new(crate::reveal::reveal_label())
                 .on_click(on_app(app, |this, _, _| this.reveal_selected_track())),
+        )
+    } else {
+        menu
+    };
+    let menu = if state.locatable {
+        menu.separator().item(
+            PopupMenuItem::new("Locate\u{2026}")
+                .on_click(on_app(app, |this, _, cx| this.locate_selected_track(cx))),
+        )
+    } else {
+        menu
+    };
+    if state.is_missing {
+        let menu = if state.locatable {
+            menu
+        } else {
+            menu.separator()
+        };
+        menu.item(
+            PopupMenuItem::new("Remove from Library").on_click(on_app(app, |this, _, cx| {
+                this.remove_missing_tracks_of_selection(cx)
+            })),
         )
     } else {
         menu

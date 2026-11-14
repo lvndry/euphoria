@@ -23,6 +23,7 @@ use euphoria_core::stems::{Stem, StemFiles};
 use euphoria_core::{AudioStream, EuphoriaError};
 
 use crate::deck_audio::DeckMix;
+use crate::metronome::Metronome;
 use crate::reference_sound::ReferenceSound;
 
 /// How many decoded chunks wait between the decoder and the audio output. A
@@ -60,6 +61,7 @@ impl PlaybackProblem {
 
     fn from_core(error: &EuphoriaError) -> Self {
         match error {
+            EuphoriaError::Missing { .. } => PlaybackProblem::FileMissing,
             EuphoriaError::Open { source, .. } | EuphoriaError::Scan { source, .. }
                 if source.kind() == std::io::ErrorKind::NotFound =>
             {
@@ -409,20 +411,29 @@ struct Decoder {
 }
 
 /// The pitch shifter of a playing track, rebuilt when the shift changes or
-/// the track seeks, since what it holds belongs to the audio before.
+/// the track seeks, since what it holds belongs to the audio before. Stems
+/// get a shifter each, so every stem is shifted exactly as it would be
+/// alone and none colours the analysis of another.
 struct Shift {
     semitones: i8,
-    shifter: Option<PitchShifter>,
+    shifters: Vec<PitchShifter>,
     channels: usize,
+    layer_count: usize,
     sample_rate: u32,
 }
 
 impl Shift {
-    fn new(channels: usize, sample_rate: u32, semitones: i8) -> Result<Self, PlaybackProblem> {
+    fn new(
+        channels: usize,
+        layer_count: usize,
+        sample_rate: u32,
+        semitones: i8,
+    ) -> Result<Self, PlaybackProblem> {
         let mut shift = Self {
             semitones,
-            shifter: None,
+            shifters: Vec::new(),
             channels,
+            layer_count,
             sample_rate,
         };
         shift.rebuild()?;
@@ -430,13 +441,15 @@ impl Shift {
     }
 
     fn rebuild(&mut self) -> Result<(), PlaybackProblem> {
-        self.shifter = if self.semitones != 0 {
-            Some(
-                PitchShifter::new(self.channels, self.sample_rate, self.semitones)
-                    .map_err(|_| PlaybackProblem::NotDecodable)?,
-            )
+        self.shifters = if self.semitones != 0 {
+            (0..self.layer_count)
+                .map(|_| {
+                    PitchShifter::new(self.channels, self.sample_rate, self.semitones)
+                        .map_err(|_| PlaybackProblem::NotDecodable)
+                })
+                .collect::<Result<_, _>>()?
         } else {
-            None
+            Vec::new()
         };
         Ok(())
     }
@@ -449,23 +462,66 @@ impl Shift {
             self.semitones = semitones;
             self.rebuild()?;
         }
-        match &mut self.shifter {
-            Some(shifter) => shifter
-                .process(&samples)
-                .map_err(|_| PlaybackProblem::NotDecodable),
-            None => Ok(samples),
+        if self.shifters.is_empty() {
+            return Ok(samples);
         }
+        let layers = if self.layer_count == 1 {
+            vec![samples]
+        } else {
+            split_layers(&samples, self.channels, self.layer_count)
+        };
+        let shifted = self
+            .shifters
+            .iter_mut()
+            .zip(&layers)
+            .map(|(shifter, layer)| shifter.process(layer))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| PlaybackProblem::NotDecodable)?;
+        join_layers(shifted, self.channels)
     }
 
     /// Drains the held audio before EOF. Unlike live output, the streaming
     /// shifter removes its startup latency and restores exactly the input's
     /// duration once this tail has been handed to the output.
     fn finish(&mut self) -> Result<Vec<f32>, PlaybackProblem> {
-        match self.shifter.take() {
-            Some(shifter) => shifter.finish().map_err(|_| PlaybackProblem::NotDecodable),
-            None => Ok(Vec::new()),
+        let tails = std::mem::take(&mut self.shifters)
+            .into_iter()
+            .map(PitchShifter::finish)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| PlaybackProblem::NotDecodable)?;
+        join_layers(tails, self.channels)
+    }
+}
+
+/// The samples of each layer of `samples`, in which every frame holds
+/// `channels` samples of each of `layer_count` layers in turn.
+fn split_layers(samples: &[f32], channels: usize, layer_count: usize) -> Vec<Vec<f32>> {
+    let mut layers = vec![Vec::with_capacity(samples.len() / layer_count); layer_count];
+    for frame in samples.chunks_exact(channels * layer_count) {
+        for (layer, frame_of_layer) in layers.iter_mut().zip(frame.chunks_exact(channels)) {
+            layer.extend_from_slice(frame_of_layer);
         }
     }
+    layers
+}
+
+/// The layers laid back side by side in every frame, as
+/// [`split_layers`] found them.
+fn join_layers(mut layers: Vec<Vec<f32>>, channels: usize) -> Result<Vec<f32>, PlaybackProblem> {
+    if layers.len() <= 1 {
+        return Ok(layers.pop().unwrap_or_default());
+    }
+    let first = &layers[0];
+    if layers.iter().any(|layer| layer.len() != first.len()) {
+        return Err(PlaybackProblem::NotDecodable);
+    }
+    let mut joined = Vec::with_capacity(first.len() * layers.len());
+    for frame in 0..first.len() / channels {
+        for layer in &layers {
+            joined.extend_from_slice(&layer[frame * channels..(frame + 1) * channels]);
+        }
+    }
+    Ok(joined)
 }
 
 impl Decoder {
@@ -651,8 +707,19 @@ impl TrackSource {
         mix: Arc<StemMix>,
         from_seconds: f32,
     ) -> Result<Self, PlaybackProblem> {
+        Self::open_stems_shifted(files, mix, from_seconds, 0)
+    }
+
+    /// Opens the four stems of a track like [`TrackSource::open_stems`],
+    /// with their key shifted by `semitones`.
+    pub(crate) fn open_stems_shifted(
+        files: &StemFiles,
+        mix: Arc<StemMix>,
+        from_seconds: f32,
+        semitones: i8,
+    ) -> Result<Self, PlaybackProblem> {
         let reader = StemReader::open(files).map_err(|error| PlaybackProblem::from_core(&error))?;
-        Self::start(Reader::Stems(reader), Some(mix), 0, from_seconds)
+        Self::start(Reader::Stems(reader), Some(mix), semitones, from_seconds)
     }
 
     fn start(
@@ -673,6 +740,7 @@ impl TrackSource {
         let layer_count = stream.layer_count();
         let mut shift = Shift::new(
             usize::from(channel_count.get()),
+            layer_count,
             stream.sample_rate().get(),
             semitones,
         )?;
@@ -756,7 +824,7 @@ impl TrackSource {
             return self.state.frames_at(self.state.position_seconds());
         }
         let channel_count = usize::from(self.channel_count.get());
-        self.chunk_start_frame + (self.next_sample.min(self.chunk.len()) / channel_count) as u64
+        self.chunk_start_frame + (self.next_sample.min(self.chunk_samples()) / channel_count) as u64
     }
 
     /// The source, waiting for the decoder whenever it is behind rather
@@ -837,15 +905,14 @@ impl TrackSource {
         if channel == 0 {
             self.fade_towards_mixed_levels();
         }
-
+        let frame_start = frame * channel_count * self.layer_count;
         self.gains
             .iter()
             .enumerate()
-            .map(|(layer, gain)| {
-                gain * self.chunk[frame * channel_count + layer * channel_count + channel]
-            })
+            .map(|(layer, gain)| gain * self.chunk[frame_start + layer * channel_count + channel])
             .sum()
     }
+
     /// Brings each layer's level a step closer to the level the mix asks
     /// for, at the start of each frame.
     fn fade_towards_mixed_levels(&mut self) {
@@ -883,7 +950,7 @@ impl Iterator for TrackSource {
                     // step, then look again.
                     if self.chunk_seek_count == latest_seek_count {
                         self.chunk_start_frame +=
-                            (self.chunk.len() / usize::from(self.channel_count.get())) as u64;
+                            (self.chunk_samples() / usize::from(self.channel_count.get())) as u64;
                     }
                     self.chunk.clear();
                     self.next_sample = 0;
@@ -948,6 +1015,10 @@ pub(crate) trait AudioOutput {
     /// Starts playing the mix of the two decks, which plays until the voice
     /// is dropped.
     fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem>;
+
+    /// Starts playing the metronome's clicks at once, mixed over whatever
+    /// else is playing, until the voice is dropped or the clicks end.
+    fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem>;
 }
 
 /// The computer's default audio output, opened the first time a track is
@@ -955,6 +1026,7 @@ pub(crate) trait AudioOutput {
 #[derive(Default)]
 pub(crate) struct SystemOutput {
     device: Option<rodio::MixerDeviceSink>,
+    underruns: crate::output_stream::Underruns,
 }
 
 impl SystemOutput {
@@ -964,7 +1036,7 @@ impl SystemOutput {
         let device = match &mut self.device {
             Some(device) => device,
             unopened => {
-                let mut device = rodio::DeviceSinkBuilder::open_default_sink()
+                let mut device = crate::output_stream::open_output(&self.underruns)
                     .map_err(|_| PlaybackProblem::NoOutput)?;
                 device.log_on_drop(false);
                 unopened.insert(device)
@@ -990,6 +1062,12 @@ impl AudioOutput for SystemOutput {
     fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
         let player = self.new_player()?;
         player.append(mix);
+        Ok(Box::new(SystemVoice(player)))
+    }
+
+    fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+        let player = self.new_player()?;
+        player.append(clicks);
         Ok(Box::new(SystemVoice(player)))
     }
 }
@@ -1040,6 +1118,10 @@ pub(crate) mod testing {
         fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Ok(Box::new(SilentVoice(mix)))
         }
+
+        fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(clicks)))
+        }
     }
 
     /// A reference sound a [`ListeningOutput`] was given, and whether it is
@@ -1065,6 +1147,7 @@ pub(crate) mod testing {
     #[derive(Default, Clone)]
     pub(crate) struct ListeningOutput {
         heard: Arc<Mutex<Vec<Heard>>>,
+        metronomes: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
     }
 
     impl ListeningOutput {
@@ -1074,6 +1157,20 @@ pub(crate) mod testing {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone()
+        }
+
+        /// How many metronomes were started, and how many of those are
+        /// still sounding.
+        pub(crate) fn metronomes(&self) -> (usize, usize) {
+            let metronomes = self
+                .metronomes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let sounding = metronomes
+                .iter()
+                .filter(|sounding| sounding.load(Ordering::Relaxed))
+                .count();
+            (metronomes.len(), sounding)
         }
 
         /// The reference sounds still sounding, oldest first.
@@ -1123,6 +1220,15 @@ pub(crate) mod testing {
         fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Ok(Box::new(SilentVoice(mix)))
         }
+
+        fn play_metronome(&mut self, _: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            let sounding = Arc::new(AtomicBool::new(true));
+            self.metronomes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(sounding.clone());
+            Ok(Box::new(ListenedVoice(sounding)))
+        }
     }
 
     /// An output on a computer with no audio device.
@@ -1139,6 +1245,10 @@ pub(crate) mod testing {
         }
 
         fn play_decks(&mut self, _: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Err(PlaybackProblem::NoOutput)
+        }
+
+        fn play_metronome(&mut self, _: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Err(PlaybackProblem::NoOutput)
         }
     }
@@ -1188,6 +1298,9 @@ pub(crate) mod testing {
         (source, ControlledFeed(sender))
     }
 }
+
+#[cfg(test)]
+mod stem_tests;
 
 #[cfg(test)]
 mod tests {

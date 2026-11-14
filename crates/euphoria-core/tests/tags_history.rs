@@ -100,6 +100,7 @@ fn values(tonic: u8, energy: u8) -> TagValues {
         key: Some(Key::new(tonic, Mode::Minor)),
         bpm: Some(126.0),
         energy: Some(energy),
+        ..TagValues::default()
     }
 }
 

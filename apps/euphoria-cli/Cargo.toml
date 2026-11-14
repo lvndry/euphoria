@@ -27,12 +27,11 @@ roxmltree.workspace = true
 same-file.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempfile = { workspace = true, optional = true }
 
 [features]
 default = ["stems"]
 # The `stems` command, which links ONNX Runtime.
-stems = ["euphoria-core/stems", "dep:tempfile"]
+stems = ["euphoria-core/stems"]
 
 [dev-dependencies]
 portable-pty.workspace = true

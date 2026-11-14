@@ -503,7 +503,7 @@ class PublishHomebrewTests(unittest.TestCase):
         )
 
     def test_the_formula_points_at_the_release(self):
-        formula = publish_homebrew.render_formula("2026.11.0", "ab" * 32)
+        formula = publish_homebrew.render_formula("2026.11.0", "ab" * 32, "sequoia")
         self.assertIn(
             "url \"https://github.com/lvndry/euphoria/releases/download/v2026.11.0/"
             "euphoria-2026.11.0-aarch64-apple-darwin.tar.gz\"",
@@ -511,19 +511,39 @@ class PublishHomebrewTests(unittest.TestCase):
         )
         self.assertIn('sha256 "' + "ab" * 32 + '"', formula)
         self.assertIn("license \"GPL-3.0-or-later\"", formula)
-        self.assertIn("depends_on macos: :ventura", formula)
+        self.assertIn("depends_on macos: :sequoia", formula)
         # The checksum is the one of the release, not of a latest alias.
         self.assertNotIn("releases/latest/download", formula)
 
     def test_the_cask_points_at_the_release(self):
-        cask = publish_homebrew.render_cask("2026.11.0", "cd" * 32)
+        cask = publish_homebrew.render_cask("2026.11.0", "cd" * 32, "sequoia")
         self.assertIn('version "2026.11.0"', cask)
+        self.assertIn("depends_on macos: :sequoia", cask)
         self.assertIn('sha256 "' + "cd" * 32 + '"', cask)
         self.assertIn(
             "url \"https://github.com/lvndry/euphoria/releases/download/v"
             "#{version}/Euphoria-#{version}.dmg\"",
             cask,
         )
+
+    def test_the_minimum_macos_comes_from_the_release_notes(self):
+        notes = (
+            "Download `Euphoria-2026.11.0.dmg` below. It needs a Mac with Apple "
+            "Silicon and macOS 15.0 or later."
+        )
+        self.assertEqual(publish_homebrew.minimum_macos(notes), "sequoia")
+        self.assertEqual(
+            publish_homebrew.minimum_macos("needs macOS 13 or later"), "ventura"
+        )
+        self.assertEqual(
+            publish_homebrew.minimum_macos("needs macOS 26.1 or later"), "tahoe"
+        )
+
+    def test_notes_without_a_minimum_or_an_unknown_one_stop_the_publish(self):
+        with self.assertRaises(SystemExit):
+            publish_homebrew.minimum_macos("Download the disk image.")
+        with self.assertRaises(SystemExit):
+            publish_homebrew.minimum_macos("needs macOS 99 or later")
 
 
 if __name__ == "__main__":

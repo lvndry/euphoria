@@ -35,6 +35,7 @@ fn values(energy: u8) -> TagValues {
         key: Some(Key::new(9, Mode::Minor)),
         bpm: Some(126.0),
         energy: Some(energy),
+        ..TagValues::default()
     }
 }
 

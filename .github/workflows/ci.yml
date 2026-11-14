@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,6 +39,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "packaging=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           base="$BASE_SHA"
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
@@ -50,12 +56,12 @@ jobs:
           packaging=false
           while IFS= read -r -d '' path; do
             case "$path" in
-              apps/*|crates/*|assets/*|bench/*.sh|bench/*.py|scripts/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/workflows/ci.yml|.github/workflows/release.yml|.editorconfig)
+              apps/*|crates/*|assets/*|bench/*.sh|bench/*.py|scripts/*|*.rs|*.toml|Cargo.lock|.cargo/*|rust-toolchain*|.github/scripts/*|.github/actions/*|.github/workflows/ci.yml|.github/workflows/release.yml|.editorconfig)
                 rust=true
                 ;;
             esac
             case "$path" in
-              Cargo.lock|*Cargo.toml|*/build.rs|*.cpp|assets/logo/*|scripts/linux_libraries.py|scripts/bundle-linux.sh|scripts/release/package-cli.sh|scripts/release/check-linux-packages.sh|.github/scripts/*|.github/workflows/ci.yml|.github/workflows/release.yml)
+              Cargo.lock|*Cargo.toml|*/build.rs|*.cpp|assets/logo/*|scripts/linux_libraries.py|scripts/bundle-linux.sh|scripts/release/package-cli.sh|scripts/release/check-linux-packages.sh|.github/scripts/*|.github/actions/*|.github/workflows/ci.yml|.github/workflows/release.yml)
                 packaging=true
                 ;;
             esac
@@ -148,10 +154,6 @@ jobs:
       - name: Install system libraries on macOS
         if: runner.os == 'macOS'
         run: brew install libkeyfinder
-      - name: Install system libraries on Linux
-        if: runner.os == 'Linux'
-        run: |
-          ./.github/scripts/install-linux-dependencies.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -161,62 +163,90 @@ jobs:
       - name: Clippy without libkeyfinder
         run: cargo clippy -p euphoria-core --no-default-features --all-targets --locked -- -D warnings
 
-  test:
-    name: Tests on ${{ matrix.system.name }}
+  test-macos:
+    name: ${{ matrix.suite.name }} on macOS
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     strategy:
       fail-fast: false
       matrix:
-        system:
-          - { name: macOS, runner: macos-latest, packages: --workspace }
-          # The desktop app is built, linted and tested on Linux by its own
-          # job below, so this one tests every other crate.
-          # These debug binaries are also packaged and exercised on 22.04.
-          - { name: Linux, runner: ubuntu-22.04, packages: --workspace --exclude euphoria-desktop }
-    runs-on: ${{ matrix.system.runner }}
+        suite:
+          - name: Core unit tests
+            key: core-unit
+            # The desktop app enables the stems feature, which the workspace
+            # build unifies into the core, and its tests only compile then.
+            command: cargo test -p euphoria-core --features stems --lib --bins --locked
+          - name: Desktop unit and headless UI tests
+            key: desktop-unit
+            command: cargo test -p euphoria-desktop --bins --locked
+          - name: Command line unit, integration and packaging tests
+            key: cli
+            # The debug build of the euphoria command, made by the tests,
+            # links libkeyfinder and FFTW like the app does, so the app needs
+            # no release build here.
+            command: |
+              cargo test -p euphoria-cli -p euphoria-bench --bins --locked
+              cargo test -p euphoria-cli --test '*' --locked
+              test -x "$EUPHORIA_LINKED_BINARY"
+              uv run --no-project --python 3.12 python -m unittest scripts/test_macos_libraries.py
+          - name: Core integration tests
+            key: core-integration
+            command: cargo test -p euphoria-core --test '*' --locked
+          - name: Core tests without libkeyfinder
+            key: core-without-libkeyfinder
+            command: cargo test -p euphoria-core --no-default-features --locked
+    runs-on: macos-latest
     timeout-minutes: 30
+    env:
+      EUPHORIA_LINKED_BINARY: ${{ github.workspace }}/target/debug/euphoria
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install system libraries on macOS
-        if: runner.os == 'macOS'
+      - name: Install system libraries
         run: brew install libkeyfinder
-      - name: Install system libraries on Linux
-        if: runner.os == 'Linux'
-        run: |
-          ./.github/scripts/install-linux-dependencies.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.suite.key }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: matrix.suite.key == 'cli'
+      - name: ${{ matrix.suite.name }}
+        run: ${{ matrix.suite.command }}
+
+  test-linux:
+    name: Tests on Linux
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    # These debug binaries are also packaged and exercised on 22.04.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      # Link the ONNX Runtime install-linux-dependencies.sh puts into
+      # /usr/local/lib, which runs on 22.04's libstdc++, instead of the one
+      # ort downloads, which needs a newer C++ runtime.
+      ORT_LIB_PATH: /usr/local/lib
+      ORT_PREFER_DYNAMIC_LINK: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/linux-dependencies
+      - uses: rui314/setup-mold@339e96b4ff1f3bd865856ba4cbbe8818a7acb038 # v1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           # Do not restore native objects built against a newer Ubuntu ABI.
-          key: ${{ matrix.system.runner }}
-      - name: Unit tests on macOS
-        if: runner.os == 'macOS'
-        run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
-      - name: Unit tests on Linux
-        if: runner.os == 'Linux'
-        env:
-          # Link the ONNX Runtime install-linux-dependencies.sh puts into
-          # /usr/local/lib, which runs on 22.04's libstdc++, instead of the
-          # one ort downloads, which needs a newer C++ runtime.
-          ORT_LIB_PATH: /usr/local/lib
-          ORT_PREFER_DYNAMIC_LINK: "1"
-        run: cargo test ${{ matrix.system.packages }} --lib --bins --locked
-      - name: Audio decoding and detector integration tests on macOS
-        if: runner.os == 'macOS'
-        run: cargo test ${{ matrix.system.packages }} --test '*' --locked
-      - name: Audio decoding and detector integration tests on Linux
-        if: runner.os == 'Linux'
-        env:
-          ORT_LIB_PATH: /usr/local/lib
-          ORT_PREFER_DYNAMIC_LINK: "1"
-        run: cargo test ${{ matrix.system.packages }} --test '*' --locked
+          key: ubuntu-22.04
+      # The desktop app is built, linted and tested by its own job below,
+      # so these test every other crate.
+      - name: Unit tests
+        run: cargo test --workspace --exclude euphoria-desktop --lib --bins --locked
+      - name: Audio decoding and detector integration tests
+        run: cargo test --workspace --exclude euphoria-desktop --test '*' --locked
       - name: Core tests without libkeyfinder
         run: cargo test -p euphoria-core --no-default-features --locked
       - name: Linux packaging library tests
-        if: runner.os == 'Linux'
         # The debug build of the euphoria command links libkeyfinder and FFTW
         # from /usr/local/lib, so bundling it exercises the same walk as the
         # release.
@@ -226,25 +256,24 @@ jobs:
           test -x "$EUPHORIA_LINKED_BINARY"
           python3 -m unittest scripts/test_linux_libraries.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: runner.os == 'Linux'
         # The clean-system smoke test packs this binary without rebuilding it.
         with:
           name: linux-debug-cli
           path: target/debug/euphoria
           if-no-files-found: error
           retention-days: 1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        if: runner.os == 'macOS'
-      - name: App packaging library tests
-        if: runner.os == 'macOS'
-        # The debug build of the euphoria command, made by the integration
-        # tests above, links libkeyfinder and FFTW like the app does, so the
-        # app needs no release build here.
+
+  test-macos-result:
+    name: Tests on macOS
+    needs: test-macos
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every macOS test job passed or was skipped
         env:
-          EUPHORIA_LINKED_BINARY: ${{ github.workspace }}/target/debug/euphoria
-        run: |
-          test -x "$EUPHORIA_LINKED_BINARY"
-          uv run --no-project --python 3.12 python -m unittest scripts/test_macos_libraries.py
+          RESULT: ${{ needs.test-macos.result }}
+        run: '[[ "$RESULT" == success || "$RESULT" == skipped ]]'
 
   desktop-linux:
     name: Desktop app on Linux
@@ -263,14 +292,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install system libraries
-        run: ./.github/scripts/install-linux-dependencies.sh
+      - uses: ./.github/actions/linux-dependencies
+      - uses: rui314/setup-mold@339e96b4ff1f3bd865856ba4cbbe8818a7acb038 # v1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ubuntu-22.04
+          key: ubuntu-22.04-desktop
       - name: Build with the X11 and Wayland back ends
         run: cargo build -p euphoria-desktop --locked
       - name: Clippy
@@ -288,14 +317,19 @@ jobs:
 
   linux-packages:
     name: Linux AppImage and tarball on a clean system
-    needs: [changes, test, desktop-linux]
-    # The LTO release build takes a while, so it runs only when what goes
-    # into the packages changes: dependencies, build scripts and packaging
-    # scripts. A Rust source-only change skips it and packages the binaries
-    # the other Linux jobs already built instead, then runs the same
+    needs: [changes, test-linux, desktop-linux]
+    # The LTO release build takes a while, so on a pull request this runs
+    # only when what goes into the packages changes: dependencies, build
+    # scripts and packaging scripts. On pushes to main and manual runs it
+    # always runs, and a Rust source-only change packages the binaries the
+    # other Linux jobs built instead of rebuilding, then runs the same
     # clean-system check, so a change that breaks startup or runtime
-    # dependencies still fails here before the release workflow rebuilds.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true') }}
+    # dependencies still fails before the release workflow rebuilds.
+    # A skipped job counts as passed for required checks.
+    if: >-
+      ${{ !cancelled() && (needs.changes.result != 'success'
+      || needs.changes.outputs.packaging == 'true'
+      || (github.event_name != 'pull_request' && needs.changes.outputs.rust == 'true')) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
@@ -308,8 +342,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install system libraries
-        run: ./.github/scripts/install-linux-dependencies.sh
+      - uses: ./.github/actions/linux-dependencies
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build the app and the AppImage

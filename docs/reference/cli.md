@@ -28,31 +28,39 @@ How the results are shown depends on where they go:
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
 
+### Beat grid from rekordbox
+
+`--collection <FILE>` takes your rekordbox collection exported as XML (**File > Export Collection in xml format**). A track listed there, matched by its file location, with a constant beat grid uses that grid in place of the detected one: `beat_grid` and `bpm` are the grid's, and the cues are placed again on its bars. The detailed view and the JSON say where each grid came from, `rekordbox`, `detected` or `you`; see [use your rekordbox beat grid](../guides/export-to-rekordbox.md#use-your-rekordbox-beat-grid) for the rules. JSON adds `beat_grid_source` and, with `--collection`, `rekordbox_grid`: `used`, `variable`, `unsupported meter`, `unreadable`, `no grid` or `not in collection`. The `confidence` of an imported grid is `null`. Standard error says how many tracks use the collection's grid and lists those whose grid could not be used, with the reason.
+
 ### The table on a terminal
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key                  BPM       Energy              Quality   Time  File
- 8A  A minor  ●●●  124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
-10B  D major  ●○○  149.8  ●●●       6  ━━━━━━────  weak      2:00  edits/Intro.m4a
+Key                  Tags      BPM       Energy              Quality   Time  File
+ 8A  A minor  ●●●  =         124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
+10B  D major  ●○○  9A other  149.8  ●●●       6  ━━━━━━────  weak      2:00  edits/Intro.m4a
 
 Key and tempo: 1 of 2 tracks rated low confidence (●○○), worth checking by ear.
+Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1 different key).
 Sound quality: 1 track lossless, 1 weak on a big system.
-hint: --needs-review lists only the tracks to check by ear.
+hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key.
+hint: --detail says which reading to trust.
 hint: --quality weak lists the tracks worth replacing, and --detail says why.
 ```
 
-The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those. A key or tempo you set yourself in the desktop app shows `you` in place of the dots: see [Corrections](#corrections).
+The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those, along with the tracks whose tags name another key (see the Tags column below). A key or tempo you set yourself in the desktop app shows `you` in place of the dots: see [Corrections](#corrections).
+
+The Tags column compares the key already written in each file's tags with the detected key. Euphoria reads the key field of every format it writes: `TKEY` in MP3, AIFF and WAV files, `initialkey` or `KEY` in M4A files, and `INITIALKEY` or `KEY` in FLAC and Ogg files, in Camelot (`8A`, `08A`), Open Key (`1m`) or musical notation (`Am`, `A min`, `A minor`, `Abm`), so a key written by Euphoria, rekordbox, Mixed In Key or Traktor is read alike. A tempo after the key, as in `8A 114`, and an energy label, as in `8A - Energy 7`, are ignored. `=` means the tags name the detected key, `?` that the field holds text that is not a key, and otherwise the column shows the key from the tags and how it differs: `fifth` (one step on the Camelot wheel), `relative` (the same number, the other letter), `parallel` (the same home note, the other mode) or `other`. A track whose tags name another key is listed by `--needs-review`, unless you set its key yourself. The column is left out when no file has a key in its tags. Analyzing only reads the tags: it never changes them.
 
 Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
-Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use in a word: `lossless`, `good`, `acceptable`, `weak` (weak on a big system) or `re-encoded?` (likely made from a lower quality file). The detailed view gives the reason.
+Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use in a word: `lossless`, `limited bw` (a lossless file whose content stops below 19 kHz with a gradual roll-off: information, not a defect), `good`, `acceptable`, `weak` (weak on a big system) or `re-encoded?` (likely made from a lower quality file). The detailed view gives the reason.
 
 The folder that holds every file is left out of the File column, so a folder shows its file names and the subfolders below it. A name too long for the window is shortened in the middle, keeping its end and extension.
 
-In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the confidence dots, the quality, then the energy. With the dots left out, a key or tempo rated low is marked with a `?`. The key, the tempo and the file always stay.
+In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the Tags column, the confidence dots, the quality, then the energy. With the dots left out, a key or tempo rated low is marked with a `?`. The key, the tempo and the file always stay.
 
-After the table, standard error gets a summary in plain sentences: how many tracks have a key or tempo rated low, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
+After the table, standard error gets a summary in plain sentences: how many tracks have a key or tempo rated low, how many have a key in their tags that differs from the detected one and in which way, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
 
 ### The detailed view
 
@@ -64,6 +72,10 @@ Intro.m4a
   Key            10B  D major
                  ●○○ low confidence, worth checking by ear
                  runner up 9A  E minor
+  Key in tags    9A  E minor
+                 different key, differs from the detected key
+                 The keys share few notes, so one reading is wrong or the track changes key.
+                 Check by ear before you mix on it.
   Tempo          149.8 BPM
                  ●●● high confidence
   Beat grid      first downbeat at 0.412 s, 149.82 BPM
@@ -78,7 +90,7 @@ Intro.m4a
   Length         2:00
 ```
 
-One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
+One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
 
 ### The plain table
 
@@ -101,12 +113,13 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
 | `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
-| `--needs-review` | List only the tracks whose key or tempo is rated low confidence, and the files that could not be analyzed. |
-| `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
+| `--needs-review` | List only the tracks whose key or tempo is rated low confidence or whose tags name another key, and the files that could not be analyzed. |
+| `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `limited`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
 | `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table and JSON are unchanged. |
 | `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
 | `--tempo-range <SLOWEST-FASTEST>` | Report tempos from SLOWEST up to, not including, FASTEST beats per minute, such as `70-140` for hip hop or `120-200` for drum and bass. The default is `90-180`. FASTEST can be at most twice SLOWEST. See [choosing the range](../concepts/accuracy.md#choosing-the-range). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `--audio-budget <MINUTES>` | Hold at most MINUTES of audio in memory at once, over all files being analyzed. The default is 60. See [memory](#memory-and-long-files). |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `--key-engine <ENGINE>` | Which detector decides the key. `auto`, the default, uses the drone-v1 network for the key and libkeyfinder for the tuning and the key over time. `drone` uses the network alone, which is faster and has no key over time. `keyfinder` uses libkeyfinder alone, as Euphoria did before drone-v1. Each engine's results are cached apart. See [key detection](../concepts/accuracy.md#key-detection-with-drone-v1). |
@@ -115,11 +128,15 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 
 A tempo is stored as it was estimated and placed in the range when it is shown, so running again with another `--tempo-range` takes every result from the cache. A tempo with no octave inside a range narrower than an octave, such as 105 BPM with `120-200`, is shown at the octave nearest to the range, here 210.
 
-Analyzing one seven minute track peaks near 0.6 GB of memory. On full length tracks, 4 workers peaked near 2 GB in total and 8 workers between 4.8 and 6.2 GB, which is why the default stops at 8. Lower `--jobs` on a machine with 8 GB of memory or less.
+#### Memory and long files
+
+Analyzing one seven minute track peaks near 0.6 GB of memory, about 86 MB for each minute of audio. On full length tracks, 4 workers peaked near 2 GB in total and 8 workers between 4.8 and 6.2 GB, which is why the default stops at 8 workers. Lower `--jobs` on a machine with 8 GB of memory or less.
+
+A count of workers does not bound memory when the files are long, so analysis also limits the audio in flight. Before a file is decoded, its length is read from its header, or estimated from its size when the header has none. The file waits until the minutes already being analyzed plus its own fit in `--audio-budget`, 60 minutes by default, about 5 GB. Seven minute tracks never meet the limit with 8 workers. Eight one hour mixes meet it, and run one at a time. A single file longer than the budget is analyzed alone, and still needs memory for its whole length, about 5 GB for one hour: give a computer with little memory shorter files or a lower budget with fewer workers. Key, tempo and energy are not yet measured on an excerpt of a very long file.
 
 ### JSON output
 
-One object per file, in path order, including files that failed:
+One object per file, in path order, including files that failed, then one for each unreadable folder and skipped file:
 
 ```json
 [
@@ -128,6 +145,7 @@ One object per file, in path order, including files that failed:
     "duration_seconds": 408.4,
     "key": { "camelot": "8A", "name": "A minor", "open_key": "1m", "confidence": "high" },
     "runner_up_key": { "camelot": "8B", "name": "C major", "open_key": "1d" },
+    "tag_key": { "text": "8A", "key": { "camelot": "8A", "name": "A minor", "open_key": "1m" }, "agreement": "same" },
     "bpm": 170.0,
     "bpm_confidence": "medium",
     "bpm_alternative": 85.0,
@@ -176,6 +194,7 @@ One object per file, in path order, including files that failed:
     "duration_seconds": null,
     "key": null,
     "runner_up_key": null,
+    "tag_key": null,
     "bpm": null,
     "bpm_confidence": null,
     "bpm_alternative": null,
@@ -192,15 +211,19 @@ One object per file, in path order, including files that failed:
 ]
 ```
 
-`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
+After the files come entries for what the scan left out. A folder that could not be read has `"unreadable": true`, its path, and an `error` with the reason. An audio file of a format Euphoria cannot decode yet, found in a folder, has `"skipped": true` and an `error`. Both fields are absent from every other entry, and neither entry has an analysis.
+
+`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
 A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
 
 `bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
 
-`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
+`tag_key` is the key field of the file's tags, or `null` when the file has none or it is empty. `text` is the field as written. `key` is the key it names, or `null` when the text is not a key Euphoria reads. `agreement` compares it with the key of the track: `same`, `fifth`, `relative`, `parallel`, `other`, or `unreadable` when `key` is `null`; it is `null` when no key was detected. The tags are read fresh on every run, since other programs change them, and are never written by `analyze`.
 
-`set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
+`needs_review` is `true` when the key or the tempo is rated low or the tags name another key, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
+
+`set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"`, `"energy"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
@@ -224,8 +247,12 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 | `clipped_share` | The share of samples in runs of three or more at full scale, from 0 to 1. |
 | `integrated_loudness_lufs` | Integrated loudness, as EBU R128 describes, on the mono mixdown. `null` for silence. |
 | `true_peak_dbtp` | The highest true peak in any channel, in dB relative to full scale. |
-| `verdict` | `lossless`, `good`, `acceptable`, `weak-on-a-big-system` or `likely-reencoded`. |
+| `verdict` | `lossless`, `limited-bandwidth`, `good`, `acceptable`, `weak-on-a-big-system` or `likely-reencoded`. `limited-bandwidth` is new: a lossless file whose content stops below 19 kHz with a gradual roll-off, which earlier versions reported as `likely-reencoded`. A script that counts `likely-reencoded` among lossless files now sees fewer; no other field or value changed. |
 | `reason` | One or two sentences that explain the verdict. |
+| `damaged` | `true` when packets could not be decoded or the audio is shorter than the file declares. See [damaged files](../concepts/audio-quality.md#damaged-files). |
+| `damage` | The numbers behind `damaged`: `dropped_packets`, `concealed_seconds` (silence put in place of dropped packets), `ended_on_error`, `declared_seconds` (`null` when the file declares no length) and `decoded_seconds`. |
+| `notes` | Sentences about damage and about stereo channels that cancelled in the mono mixdown. Empty for a sound file. |
+| `cancelled_share` | The share of a stereo file, from 0 to 1, whose channels cancelled in the mono mixdown, so the left channel was analyzed there. |
 
 ### Progress and exit status
 
@@ -235,7 +262,35 @@ A debug build analyzes many times slower than a release build. When a run of a d
 
 When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
 
+The exit status is 0 when every file was analyzed, 1 when any file failed, and 3 when the only problem is files that are missing or folders that could not be read.
+
 The command exits with status 0 when every file was analyzed. If any file failed, each one is listed on standard error as `error: <path>: <reason>` after the table, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
+
+A folder inside a path you gave that cannot be read, because its permission is denied or a network drive fails, no longer stops the scan. The command goes on with everything else, and writes a warning with a count and the reason for each folder, after the table:
+
+```
+warning: 2 folders could not be read: /Volumes/NAS/Crates/Old, /Volumes/NAS/Crates/Locked
+  /Volumes/NAS/Crates/Old: Input/output error (os error 5)
+  /Volumes/NAS/Crates/Locked: Permission denied (os error 13)
+hint: The files in them were not analyzed. Fix the permissions or reconnect the drive, then run the command again.
+```
+
+The files in those folders were not analyzed, so when folders could not be read and nothing failed the command exits with status 3, as for missing files. Status 1 still wins when a file failed. The same warning and exit status apply to `euphoria tags write`, `euphoria tags set`, `euphoria export` and `euphoria set`, which scan folders in the same way. A path named on the command line that cannot be examined at all is still an error.
+
+Files in a folder with an extension for audio that Euphoria cannot decode yet (`.opus`, `.wma`, `.wv`, `.ape`, `.dsf`, `.dff`, `.mpc`, `.tta`, `.aac`, `.ac3`, `.dts`, `.amr`, `.mka`, `.mp2`, `.oga`, `.webm` and `.caf`) are counted by extension and reported in one warning, which does not change the exit status:
+
+```
+warning: 14 files skipped: 9 .opus, 5 .wma, which Euphoria can't decode yet
+```
+
+Pictures, playlists and other files that are not audio are not counted.
+
+A file that is no longer there, because it was moved, deleted, or is on a drive that is not connected, is not a failure. It is listed after the errors as `missing: <path>`, followed by a count, and when files are missing and nothing failed the command exits with status 3, even when every file named is missing. A path named on the command line that does not exist is reported this way, and the other paths are still analyzed:
+
+```
+missing: /Volumes/USB/Crates/Low Tide.flac
+1 file is missing: moved, deleted, or on a drive that is not connected.
+```
 
 ## euphoria export rekordbox
 
@@ -269,7 +324,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
 | `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written, or the cues you [edited](#edited-cues) in the desktop app in their place. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
-| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. It is never replaced by the export, even with `--force`. |
+| `--collection <FILE>` | Your rekordbox collection exported as XML. Needs `--beat-grid`. Tracks there with a constant beat grid are exported with that grid and their cues on its bars: see [use your rekordbox beat grid](../guides/export-to-rekordbox.md#use-your-rekordbox-beat-grid). With `--cues`, tracks that have cues or loops there are also left out of the file. It is never replaced by the export, even with `--force`. |
 | `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
@@ -348,7 +403,10 @@ The command also exits with status 1, and writes no file, when:
 - the output file exists and `--force` was not given, or its folder does not exist,
 - the output file is one of the audio files to export, reached by any path or symbolic link, or it has an audio file extension and is inside a folder to export. `--force` does not change this, so an export never replaces a track,
 - no audio file was found, or none could be exported,
+- a file or folder to export does not exist; the error says it is missing,
 - folders are nested more than 32 levels deep, the most a rekordbox XML file can hold. The error names the first folder beyond the limit.
+
+With `--playlist`, a track of the playlist that is no longer anywhere, even where the cache last saw it, is left out and listed as `missing: <path>`; when tracks are missing and nothing failed, the command exits with status 3. A track whose path now holds other audio is left out with a warning, and the command exits with status 1. A file that disappears while the export runs is listed as missing in the same way. When every track of the playlist is missing, nothing is exported and the exit status is 1, as when no audio file is found.
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
@@ -393,7 +451,8 @@ Tracks are matched by the path Engine DJ stores. It refuses to write while Engin
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
 | `--dry-run` | Checks the library and says what would change, writing nothing. |
 
-The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library or a file could not be analyzed.
+The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
+
 ## euphoria export virtualdj
 
 Analyzes audio files and writes the results into the songs of your VirtualDJ `database.xml`, after saving a copy of it. [Export to VirtualDJ](../guides/export-to-virtualdj.md) explains what is written and kept. **Not tested in VirtualDJ.**
@@ -414,7 +473,7 @@ Songs are matched by path, and only songs the database holds are changed. Every 
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
 | `--dry-run` | Says what would change and writes nothing. |
 
-The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database or a file could not be analyzed.
+The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
 
 ## euphoria export m3u8
 
@@ -438,7 +497,7 @@ The file starts with `#EXTM3U` and `#PLAYLIST:` and the playlist's name, then gi
 | `--force` | Replace the output file if it exists. |
 | `--no-cache` | Neither look for files that moved where the cache last saw them, nor read lengths from it. |
 
-Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere, or whose file was replaced at its path by other audio, is left out with a warning, and the command then exits with status 1. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere is left out and listed as `missing: <path>`, and the command exits with status 3. A track whose file was replaced at its path by other audio is left out with a warning, and the command exits with status 1. When every track is missing, the file is written with no tracks and the exit status is 3. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
 
 ## euphoria playlists
 
@@ -483,6 +542,30 @@ The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, en
 
 The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
 
+## euphoria plan
+
+Plans the mix from one track into the next: how B lines up with A, where the two clash, and the best windows to mix in.
+
+```
+euphoria plan [OPTIONS] <A> <B>
+```
+
+`A` is the track that is playing and `B` the one that follows. Both are analyzed first or read from the cache, with your corrections applied. The [concept page](../concepts/plan-a-transition.md) explains how the plan is made and scored.
+
+Energy over time and the levels of the [stems](../concepts/stems.md) take a moment to measure the first time, and are kept in a `plan-signals` folder beside the [cache](#where-the-cache-is-stored), named by the content of each file, so the next plan is instant. Stems are used when `euphoria stems` has already separated the track; plan never separates one. Without them vocals, bass and drums are unknown and clashes are not checked.
+
+| Option | Meaning |
+| --- | --- |
+| `--json` | Print JSON instead of the summary. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output has the tempo change of B and the key move, then the top 3 windows. Each has its score, its sections and first bars, a strip of one cell per bar (`█` both sing, `▄` both play bass, `·` no clash, `?` not known), the reason for its rank and its steps. Last come the cues suggested for the best window, which are not written.
+
+The JSON object has `a`, `b`, `elapsed_milliseconds` and `plan`: the `alignment` (bpm_a, bpm_b, rate, tempo_change_percent, bar_seconds), the bars of both tracks as `lanes_a` and `lanes_b` (section, energy, vocals, bass and drums per bar, each `present`, `absent` or `unknown`), up to 10 `windows` and the `cues` for the first one.
+
+The exit status is 0 when a plan was made, even one with no window, and 1 when none could be, such as when a track has no beat grid or B cannot reach the tempo of A on a deck.
+
 ## euphoria tags write
 
 Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.
@@ -511,22 +594,28 @@ hint: To put the old tags back, run `euphoria tags undo`.
 | Option | Effect |
 | --- | --- |
 | `--dry-run` | Show the preview and write nothing. Cannot be combined with `--yes`. |
-| `-y`, `--yes` | Write without asking for confirmation. |
+| `-y`, `--yes` | Write without asking for confirmation. Also needed when rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running: the command warns that the program may lose the change and writes nothing without `--yes`. |
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. Applies to the key field and to the label. |
 | `--no-tempo` | Leave the tempo field alone. |
 | `--tempo` | Write the tempo with the `serato` preset, which leaves it out otherwise. Cannot be combined with `--no-tempo`. |
-| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start` (the default), `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. |
+| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start`, `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. The default is `none` with the `generic` preset and `comment-start` with a DJ program's preset. Before this changed, `comment-start` was the default for every preset. |
+| `--overwrite` | Replace a key or tempo the file already has. Without it, one that can be read is kept, unless an earlier `tags write` wrote it and it is unchanged. The preview lists each one kept. |
+| `--include-low-confidence` | Also write a key or tempo rated low confidence. Without it, those are left out and listed. A key or tempo you corrected counts as high confidence. |
 | `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
-| `--serato-markers` | Also write each track's cue points and beat grid where Serato DJ reads them, in MP3, AIFF, M4A and FLAC files, keeping every cue and grid the files already have. Not tested in Serato. See [cue points and beat grids for Serato](../guides/serato-cues.md). |
+| `--serato-markers` | Also write each track's cue points and beat grid where Serato DJ reads them, in MP3, AIFF, M4A and FLAC files, keeping every cue and grid the files already have. The cues you set in the desktop app are written instead of the automatic ones, on their pads. Not tested in Serato. See [cue points and beat grids for Serato](../guides/serato-cues.md). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `-h`, `--help` | Show help. |
 
+### Safe defaults
+
+The defaults of `tags write` changed so that it never silently damages a tag that is right: an existing readable key or tempo is kept (`--overwrite` restores the old replacing), a key or tempo rated low confidence is left out (`--include-low-confidence` restores writing them), the `generic` preset writes no label (`--label comment-start` restores it) and a running DJ program needs `--yes`. [Write tags](../guides/write-tags.md#safe-by-default) explains each and how Euphoria tells its own earlier values from yours.
+
 ### Preview and confirmation
 
-The preview goes to standard output: the path of each file that would change, then one line per field with the value it has and the value it would get. `(none)` stands for a field the file does not have. Files that already hold the values are not listed and are never touched. Producing the preview only reads the files.
+The preview goes to standard output: the path of each file that would change, then one line per field with the value it has and the value it would get, then a line for each key or tempo left out, such as `key kept (already tagged 8A)` or `tempo not written (rated low confidence)`. A file with nothing to change that has such a line is listed too. `(none)` stands for a field the file does not have. Files that already hold the values are not listed and are never touched. Producing the preview only reads the files.
 
 Standard error then gets one line with the number of files to change, the number already up to date and the number left out because of errors, and the question. Only `y` or `yes` writes. With `--dry-run` there is no question. When there is nothing to change there is no question either.
 
@@ -671,14 +760,17 @@ Vocals  /Users/you/Music/stems/vocals.wav
 | `<FILE>` | The audio file to separate. |
 | `-o`, `--output <DIR>` | The folder to write the stems to, created when missing. Required. |
 | `--force` | Replace stem files already in the folder. |
+| `--mix <MIX>` | Write one file instead of the four stems: `acapella` or `instrumental`, named after the track, into the folder. |
 
 The stems are written as `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav`, 16 bit stereo WAV files at 44.1 kHz. Each one is listed on standard output with its path, and standard error gets a note: how long the separation took, or that the stems came from the cache. Separated tracks are cached, so separating the same track again is instant.
+
+With `--mix acapella` or `--mix instrumental`, one file is written into the folder instead of the four stems: `<file name without extension> (Acapella).wav` or `<file name without extension> (Instrumental).wav`, the same 16 bit stereo WAV files at 44.1 kHz. The acapella is the vocals stem, and the instrumental is the drums, bass and other stems summed in 32 bit floating point; when the sum goes past full scale it is scaled down as a whole so its peak is exactly full scale, and standard error gets a note with the dB it was scaled down by. `--force` replaces the file when it already exists.
 
 The command exits with status 0 when the stems are written. It exits with status 1 with a message on standard error when the file is not there, a stem file already exists in the folder without `--force`, an output would replace the input file, or the model download or the separation fails.
 
 ## euphoria corrections export
 
-Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
+Writes every key, tempo and energy you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key, tempo or energy model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
 
 ```
 euphoria corrections export [--output <FILE>] [--force] [--include-paths]
@@ -702,18 +794,20 @@ Nothing is analyzed and no audio file is read: the lines come from the [cache](#
 By default a line names its track only by the hash of the file's content: no path and no file name. A program that has the same files finds each one by hashing it the same way. The hash does not hide which track a line is about from someone who has the same file, since they can hash it and look for the result, so treat an export as a list of the tracks you own.
 
 ```json
-{"schema_version":1,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
+{"schema_version":2,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_energy":8,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"detected_energy":6,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `schema_version` | `1`. It goes up when a field is removed or changes meaning; a new field can appear without it changing. |
+| `schema_version` | `2`. It goes up whenever the fields change; ignore fields you don't know. Version 2 added `corrected_energy` and `detected_energy`; version 1 lines have neither. |
 | `content_hash` | The BLAKE3 hash of every byte of the file, tags and artwork included, as 64 lowercase hexadecimal digits: what `b3sum` prints for the file. |
-| `corrected_key` | The key you set, or `null` when you corrected only the tempo. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
-| `corrected_bpm` | The tempo you set, as you typed it, or `null` when you corrected only the key. |
+| `corrected_key` | The key you set, or `null` when you did not correct the key. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
+| `corrected_bpm` | The tempo you set, as you typed it, or `null` when you did not correct the tempo. |
+| `corrected_energy` | The energy rating you set, from 1 to 10, or `null` when you did not correct it. |
 | `corrected_at` | When you set the correction, in seconds since 1 January 1970 UTC. |
 | `detected_key` | The key Euphoria detected for the same content, in the same shape, or `null` when it found none or the track has no stored analysis. |
 | `detected_bpm` | The tempo Euphoria detected, between 90 and 180 BPM, or `null`. |
+| `detected_energy` | The energy rating Euphoria detected, from 1 to 10, or `null` when it rated none or the track has no stored analysis. |
 | `analyzer_version` | The version of the analyzer that detected them, which can be older than the one you run, or `null` when the track has no stored analysis. |
 | `analyzed_at` | When that analysis was stored, in seconds since 1 January 1970 UTC, or `null`. |
 | `path` | Only with `--include-paths`: the absolute path the file was last seen at, or `null` when the cache never recorded one. The file may have moved since. |
@@ -736,7 +830,7 @@ A file found where it was last seen, with the same size and modification time, i
 
 ### Corrections
 
-When you correct a key or a tempo in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
+When you correct a key, a tempo or an energy in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
 
 Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction. [`euphoria corrections export`](#euphoria-corrections-export) writes them all out, to train a key model on.
 
@@ -801,6 +895,7 @@ Every command writes its results to standard output and everything else to stand
 | Starts with | Means |
 | --- | --- |
 | `error:` | Something failed: the file, if there is one, then the reason. The exit status is 1. |
+| `missing:` | A file that is no longer there: moved, deleted, or on a drive that is not connected. When nothing else failed, the exit status is 3. |
 | `warning:` | Something went wrong that did not stop the command, such as a cache that could not be used. |
 | `hint:` | What to do next. |
 | `note:` | Something worth knowing that needs no action. |

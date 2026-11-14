@@ -1,0 +1,25 @@
+name: Linux dependencies
+description: Installs what install-linux-dependencies.sh installs, restoring the apt packages from a cache.
+
+runs:
+  using: composite
+  steps:
+    - name: List the apt packages
+      id: packages
+      shell: bash
+      run: |
+        echo "names=$(./.github/scripts/install-linux-dependencies.sh --list-packages | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+    - name: Restore or install the apt packages
+      id: apt
+      # If the cache action fails, the script below installs them itself.
+      continue-on-error: true
+      uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+      with:
+        packages: ${{ steps.packages.outputs.names }}
+        version: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/scripts/install-linux-dependencies.sh') }}
+        execute_install_scripts: true
+    - name: Install libkeyfinder and the ONNX Runtime
+      shell: bash
+      env:
+        EUPHORIA_APT_PACKAGES_INSTALLED: ${{ steps.apt.outcome == 'success' && '1' || '0' }}
+      run: ./.github/scripts/install-linux-dependencies.sh

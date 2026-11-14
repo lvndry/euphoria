@@ -32,7 +32,7 @@ pub(crate) const DEFAULT_STRIP_HEIGHT: u32 = 180;
 
 /// The shortest the strip gets: the summary, the statistics and a waveform
 /// of the usual height fit.
-pub(crate) const SHORTEST_STRIP: f32 = 124.0;
+pub(crate) const SHORTEST_STRIP: f32 = 142.0;
 
 /// The tallest the strip gets.
 pub(crate) const TALLEST_STRIP: f32 = 420.0;
@@ -250,11 +250,11 @@ mod tests {
             strip_height,
             ..Panels::default()
         };
-        assert_eq!(chosen(10).strip_height_in(800.0), 124.0);
+        assert_eq!(chosen(10).strip_height_in(800.0), 142.0);
         assert_eq!(chosen(5_000).strip_height_in(1_200.0), 420.0);
         assert_eq!(chosen(300).strip_height_in(800.0), 300.0);
         assert_eq!(chosen(420).strip_height_in(500.0), 300.0);
-        assert_eq!(chosen(420).strip_height_in(250.0), 124.0);
+        assert_eq!(chosen(420).strip_height_in(250.0), 142.0);
     }
 
     #[test]
@@ -263,7 +263,7 @@ mod tests {
         panels.drag_strip_edge_to(600.0, 860.0, 760.0);
         assert_eq!(panels.strip_height, 260);
         panels.drag_strip_edge_to(850.0, 860.0, 760.0);
-        assert_eq!(panels.strip_height, 124);
+        assert_eq!(panels.strip_height, 142);
         panels.drag_strip_edge_to(0.0, 860.0, 760.0);
         assert_eq!(panels.strip_height, 420);
     }

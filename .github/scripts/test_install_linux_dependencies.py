@@ -14,7 +14,7 @@ SCRIPT = Path(__file__).with_name("install-linux-dependencies.sh")
 
 
 class InstallTests(unittest.TestCase):
-    def run_install(self, mode):
+    def run_install(self, mode, extra_env=None, arguments=()):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             shutil.copy(SCRIPT, root / SCRIPT.name)
@@ -47,12 +47,12 @@ fi
                 path.write_text(source)
                 path.chmod(0o755)
             result = subprocess.run(
-                ["bash", str(root / SCRIPT.name)],
+                ["bash", str(root / SCRIPT.name), *arguments],
                 env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
-                     "TEST_STATE": str(root), "TEST_MODE": mode},
+                     "TEST_STATE": str(root), "TEST_MODE": mode, **(extra_env or {})},
                 capture_output=True, text=True, check=False,
             )
-            count = int((root / "count").read_text())
+            count = int((root / "count").read_text()) if (root / "count").exists() else 0
             installed = (root / "installed").read_text() if (root / "installed").exists() else ""
             pauses = (root / "pauses").read_text().splitlines() if (root / "pauses").exists() else []
             return result, count, installed, pauses
@@ -77,3 +77,18 @@ fi
         self.assertEqual(installed.splitlines(),
                      ["install", "keyfinder", "onnxruntime"])
         self.assertEqual(pauses, ["15"])
+
+    def test_cached_packages_skip_apt_but_not_the_other_installs(self):
+        result, count, installed, _ = self.run_install(
+            "failure", {"EUPHORIA_APT_PACKAGES_INSTALLED": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count, 0)
+        self.assertEqual(installed.splitlines(), ["keyfinder", "onnxruntime"])
+
+    def test_package_list_is_printed_without_installing_anything(self):
+        result, count, installed, _ = self.run_install(
+            "failure", arguments=["--list-packages"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count, 0)
+        self.assertEqual(installed, "")
+        self.assertIn("libfftw3-dev", result.stdout.split())

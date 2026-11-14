@@ -140,16 +140,26 @@ impl Display for TempoRange {
     }
 }
 
+/// The text with a single decimal comma read as a point.
+fn decimal_point(text: &str) -> String {
+    let text = text.trim();
+    if text.matches(',').count() == 1 && !text.contains('.') {
+        text.replace(',', ".")
+    } else {
+        text.to_string()
+    }
+}
+
 /// Reads a range written as two numbers joined by a hyphen, such as
-/// `70-140`.
+/// `70-140`. A decimal comma works like a point: `87,5-175`.
 impl FromStr for TempoRange {
     type Err = EuphoriaError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let unreadable = || EuphoriaError::UnreadableTempoRange(text.to_string());
         let (slowest, fastest) = text.split_once('-').ok_or_else(unreadable)?;
-        let slowest: f32 = slowest.trim().parse().map_err(|_| unreadable())?;
-        let fastest: f32 = fastest.trim().parse().map_err(|_| unreadable())?;
+        let slowest: f32 = decimal_point(slowest).parse().map_err(|_| unreadable())?;
+        let fastest: f32 = decimal_point(fastest).parse().map_err(|_| unreadable())?;
         Self::new(slowest, fastest)
     }
 }
@@ -296,6 +306,10 @@ mod tests {
     #[test]
     fn reads_a_range_written_with_a_hyphen() {
         assert_eq!("70-140".parse::<TempoRange>().unwrap(), range(70.0, 140.0));
+        assert_eq!(
+            "87,5-175".parse::<TempoRange>().unwrap(),
+            range(87.5, 175.0)
+        );
         assert_eq!(
             " 120 - 200 ".parse::<TempoRange>().unwrap(),
             range(120.0, 200.0)

@@ -444,6 +444,7 @@ fn full_options() -> TagWriteOptions {
         write_bpm: true,
         label: LabelPlacement::CommentStart,
         preset: DjSoftware::Generic,
+        ..TagWriteOptions::default()
     }
 }
 

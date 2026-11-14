@@ -57,6 +57,19 @@ impl StemFiles {
     pub fn directory(&self) -> &Path {
         &self.directory
     }
+
+    /// Deletes the four files and their folder, so the track has to be
+    /// separated again. Stems already gone count as removed.
+    pub fn remove(&self) -> Result<(), EuphoriaError> {
+        match fs::remove_dir_all(&self.directory) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(EuphoriaError::StemFiles {
+                path: self.directory.clone(),
+                source,
+            }),
+        }
+    }
 }
 
 impl StemCache {
@@ -381,6 +394,20 @@ mod tests {
             .unwrap()
             .set_modified(SystemTime::now() - Duration::from_secs(seconds_ago))
             .unwrap();
+    }
+
+    #[test]
+    fn removed_stems_are_no_longer_cached_and_removing_twice_is_fine() {
+        let folder = TemporaryFolder::new("remove");
+        let cache = StemCache::new(folder.0.clone(), u64::MAX);
+        let files = cache.store(&hash(7), &stems(10)).unwrap();
+        let other = cache.store(&hash(8), &stems(10)).unwrap();
+
+        files.remove().unwrap();
+        assert!(!files.directory().exists());
+        assert_eq!(cache.cached(&hash(7)), None);
+        assert_eq!(cache.cached(&hash(8)), Some(other));
+        files.remove().unwrap();
     }
 
     #[cfg(unix)]

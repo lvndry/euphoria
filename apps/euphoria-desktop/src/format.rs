@@ -79,6 +79,7 @@ pub(crate) fn track_summary(shown: usize, total: usize, from_cache: usize) -> St
 pub(crate) fn quality_verdict(verdict: QualityVerdict) -> &'static str {
     match verdict {
         QualityVerdict::Lossless => "Lossless",
+        QualityVerdict::LimitedBandwidth => "Limited BW",
         QualityVerdict::Good => "Good",
         QualityVerdict::Acceptable => "Acceptable",
         QualityVerdict::WeakOnABigSystem => "Weak",
@@ -145,6 +146,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-9.25),
             true_peak_dbtp: Some(0.8),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict: QualityVerdict::WeakOnABigSystem,
         };
         assert_eq!(
@@ -161,6 +164,10 @@ mod tests {
         assert_eq!(
             quality_details(&report),
             "FLAC, 128 kbit/s, 44.1 kHz, 24 bit, mono. Content across the whole spectrum."
+        );
+        assert_eq!(
+            quality_verdict(QualityVerdict::LimitedBandwidth),
+            "Limited BW"
         );
         assert_eq!(
             quality_verdict(QualityVerdict::LikelyReencoded),

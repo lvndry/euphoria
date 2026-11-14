@@ -947,7 +947,7 @@ fn paths_that_cannot_be_used_are_errors() {
         text(&output_folder.path().join("library.xml")),
     ]);
     assert_eq!(missing_input.status.code(), Some(1));
-    assert!(standard_error(&missing_input).contains("cannot read /definitely/not/here"));
+    assert!(standard_error(&missing_input).contains("/definitely/not/here is missing"));
 
     let missing_output_folder = euphoria.run(&[
         "export",
@@ -969,6 +969,18 @@ fn paths_that_cannot_be_used_are_errors() {
     ]);
     assert_eq!(output_is_a_folder.status.code(), Some(1));
     assert!(standard_error(&output_is_a_folder).contains("is a folder"));
+
+    let folder_without_force = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&fixture),
+        "-o",
+        text(output_folder.path()),
+    ]);
+    assert_eq!(folder_without_force.status.code(), Some(1));
+    let errors = standard_error(&folder_without_force);
+    assert!(errors.contains("is a folder"), "{errors}");
+    assert!(!errors.contains("--force to replace"), "{errors}");
 
     let no_output = euphoria.run(&["export", "rekordbox", text(&fixture)]);
     assert_eq!(no_output.status.code(), Some(2));
@@ -1491,6 +1503,41 @@ fn the_collection_is_never_the_output_even_with_force() {
             contents
         );
     }
+}
+
+#[test]
+fn the_collection_is_never_the_output_without_cues_either() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let collection = resolved(output_folder.path()).join("collection.xml");
+    let contents = "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>";
+    std::fs::write(&collection, contents).expect("the collection is written");
+
+    let refused = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&collection),
+        "--force",
+        "--beat-grid",
+        "--collection",
+        text(&collection),
+    ]);
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        standard_error(&refused).contains("is the rekordbox collection in"),
+        "{}",
+        standard_error(&refused)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&collection).expect("the collection is read"),
+        contents
+    );
 }
 
 #[test]

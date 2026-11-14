@@ -16,7 +16,7 @@ use crate::deck_audio::DeckId;
 use crate::decks::DeckMode;
 use crate::format;
 use crate::mashup::{INSTRUMENTAL_ONLY, VOCALS_ONLY};
-use crate::views::decks::{deck_part, fader, scope_buttons};
+use crate::views::decks::{deck_part, fader, filter_controls, scope_buttons};
 use crate::views::key_chip::key_chip;
 use crate::views::tag_panel::choice_button;
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
@@ -260,6 +260,7 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
         .child(div().flex_1())
         .children(scopes);
 
+    let filters = filter_controls(app, cx);
     let hover_background = palette.raised;
     let chosen_background = palette.raised;
     let rows = decks
@@ -363,7 +364,19 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
     } else {
         None
     };
-    div().flex().flex_col().gap(px(4.0)).child(heading).child(
+    let mut root = div().flex().flex_col().gap(px(4.0)).child(heading);
+    if !filters.is_empty() {
+        root = root.child(
+            div()
+                .id("suggestion-filters")
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.0))
+                .children(filters),
+        );
+    }
+    root.child(
         div()
             .id("mashup-ideas")
             .flex()

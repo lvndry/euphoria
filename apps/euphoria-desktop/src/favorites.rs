@@ -154,6 +154,40 @@ impl Favorites {
         self.applied_rewrites = rewrites.len();
     }
 
+    /// Moves the star and the transitions of the missing file `old` to
+    /// `new`, where the same audio, `content`, is now. Returns whether
+    /// anything moved.
+    pub(crate) fn relink(&mut self, old: &Path, new: &Path, content: ContentHash) -> bool {
+        let revision = self.revision;
+        self.follow_rewrite(&PlaylistRewrite {
+            path: new.to_path_buf(),
+            before: content,
+            after: content,
+            paths: HashMap::from([(old.to_path_buf(), new.to_path_buf())]),
+        });
+        self.revision != revision
+    }
+
+    /// Takes the star and every transition of `paths` away. Returns whether
+    /// any of them was a favorite.
+    pub(crate) fn forget(&mut self, paths: &[PathBuf]) -> bool {
+        let forgotten: HashSet<&PathBuf> = paths.iter().collect();
+        let tracks_before = self.tracks.len();
+        let transitions_before = self.transitions.len();
+        self.tracks.retain(|path| !forgotten.contains(path));
+        self.starred.retain(|path| !forgotten.contains(path));
+        self.transitions.retain(|transition| {
+            !forgotten.contains(&transition.from) && !forgotten.contains(&transition.to)
+        });
+        let changed =
+            self.tracks.len() != tracks_before || self.transitions.len() != transitions_before;
+        if changed {
+            self.forget_unreferenced_contents();
+            self.revision += 1;
+        }
+        changed
+    }
+
     fn follow_rewrite(&mut self, rewrite: &PlaylistRewrite) {
         for (old, new) in &rewrite.paths {
             let is_other_content = self
@@ -305,10 +339,12 @@ mod tests {
     }
 
     fn fake_content(byte: u8) -> ContentHash {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let folder =
             std::env::temp_dir().join(format!("euphoria-favorites-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
-        let file = folder.join(format!("{byte}.bin"));
+        let file = folder.join(format!("{byte}-{number}.bin"));
         std::fs::write(&file, [byte]).unwrap();
         ContentHash::of_file(&file).unwrap()
     }

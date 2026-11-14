@@ -9,6 +9,7 @@
 pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
+pub mod audio_budget;
 /// Decoding audio files a little at a time, for playback.
 pub mod audio_stream;
 /// Remembering analyses between runs.
@@ -37,10 +38,16 @@ pub mod key_engine;
 pub mod library;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
+/// The energy and stem levels the transition planner reads.
+pub mod plan_signals;
 /// Playlists the user builds, kept by the content of their files.
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// The beat grid a DJ fixed in rekordbox, read from the collection XML.
+pub mod rekordbox_grid;
+/// Linking a track whose file went missing to where the file is now.
+pub mod relink;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
@@ -49,6 +56,8 @@ mod signalsmith;
 /// Separating tracks into vocals, drums, bass and the rest.
 #[cfg(feature = "stems")]
 pub mod stems;
+/// The key a file's tags carry, compared with the detected key.
+pub mod tag_key;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;
@@ -56,7 +65,7 @@ pub mod tags;
 pub mod tempo_range;
 /// The cues of a track: those analysis placed, or the user's.
 pub mod track_cues;
-/// Reading the title and artist stored in audio files.
+/// Reading the title, artist and key stored in audio files.
 pub mod track_name;
 
 pub use analysis::{
@@ -64,7 +73,14 @@ pub use analysis::{
     Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
     analyzer_version,
 };
-pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
+pub use audio::{
+    AudioBuffer, DecodeDamage, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, SEVERE_LOST_SHARE,
+    declared_duration_seconds, decode_mono,
+};
+pub use audio_budget::{
+    AudioBudget, AudioPermit, DEFAULT_AUDIO_BUDGET_MINUTES, global_audio_budget,
+    set_audio_budget_minutes,
+};
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
@@ -95,11 +111,16 @@ pub use harmony::{
 };
 pub use key::{Key, Mode};
 pub use key_engine::{KeyEngine, KeySource, key_engine, set_key_engine};
-pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
+pub use library::{
+    AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
+    find_audio_files, is_supported_audio_file, scan_audio_files,
+};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,
 };
+pub use relink::{RelinkMatch, check_relink, find_in_folder};
+pub use tag_key::{KeyDifference, TagKey, TagKeyAgreement};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
 pub use track_name::{TrackName, read_track_name};

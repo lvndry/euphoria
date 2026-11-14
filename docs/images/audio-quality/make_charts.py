@@ -24,7 +24,8 @@ GOOD_FROM_KBPS = 200
 
 # "Where the thresholds come from": below these cutoffs, in kHz, a file of
 # that average bit rate is likely re-encoded, as (lowest bit rate, cutoff).
-# A lossless file is likely re-encoded below 19 kHz.
+# A lossless file is likely re-encoded below 19 kHz only when the fall is a
+# brick wall; a gradual roll-off there is a limited bandwidth.
 EXPECTED_CUTOFF_STEPS = [(0, 14.5), (144, 15.5), (200, 18.0), (288, 19.5)]
 LOSSLESS_EXPECTED_CUTOFF_KHZ = 19.0
 
@@ -67,6 +68,22 @@ ENCODING_ERROR_DB = [
     ("MP3 (LAME)", [-24.1, -25.6, -30.3, -46.7, -52.1]),
     ("FFmpeg AAC", [-25.5, -31.0, -36.0, -42.4, -44.1]),
     ("Apple AAC", [-29.4, -32.6, -39.7, -42.2, -43.4]),
+]
+
+# crates/euphoria-core/src/quality/cutoff.rs tests, "an_encoder_lowpass_is_a_brickwall"
+# and "the_roll_off_of_tape_or_vinyl_is_a_cutoff_but_not_a_brickwall": noise
+# through a raised cosine lowpass that falls 80 dB over the width in the label,
+# as (label, fall in dB from the 250 Hz below the cutoff to the 250 Hz above,
+# at its steepest near the cutoff, whether it counts as a brick wall).
+BRICKWALL_EDGE_FALL_DB = 15.0
+EDGE_FALLS = [
+    ("Zeroed above 16 kHz", 69.9, True),
+    ("Falls over 600 Hz", 44.6, True),
+    ("Falls over 1 kHz", 30.0, True),
+    ("Falls over 1.5 kHz", 20.2, True),
+    ("Falls over 4 kHz, from 12 kHz", 8.0, False),
+    ("Falls over 5 kHz, from 10 kHz", 6.3, False),
+    ("Falls over 6 kHz, from 13 kHz", 5.7, False),
 ]
 
 STYLE = """
@@ -338,7 +355,7 @@ def verdicts_chart():
         "lossless source sits above the line, MP3 at 256 kbit/s closest at 19.3 kHz, 1.3 kHz above it. "
         "The lowest cutoff of each transcode to a higher bit rate sits below it. "
         "Some files have no cutoff and cannot be identified as re-encoded. Lossless files, not shown, "
-        "are likely re-encoded below 19 kHz."
+        "are likely re-encoded below 19 kHz only when the fall is a brick wall."
     )
     return document(width, height, "How bit rate and cutoff make the verdict", description, body)
 
@@ -391,7 +408,50 @@ def encoding_error_chart():
     return document(width, height, "How much the encoder changes below 15 kHz", description, body)
 
 
+def edge_chart():
+    width = 800
+    row_height = 28
+    plot_left = 240
+    plot_right = 700
+    plot_top = 118
+    plot_bottom = plot_top + row_height * len(EDGE_FALLS)
+    height = plot_bottom + 60
+    to_x = scale(0, 80, plot_left, plot_right)
+
+    body = [
+        text(24, 36, "How abruptly the content stops", "title"),
+        text(24, 58, "Fall in level across 250 Hz at the cutoff, for noise through a lowpass that falls 80 dB.", "subtitle"),
+        swatch(24, 90, "series-2-fill"),
+        text(44, 90, "Brick wall, likely re-encoded", "label"),
+        swatch(236, 90, "series-1-fill"),
+        text(256, 90, "Gradual, limited bandwidth", "label"),
+    ]
+    for decibels in range(0, 81, 20):
+        body.append(line(to_x(decibels), plot_top - 6, to_x(decibels), plot_bottom, "grid"))
+        body.append(text(to_x(decibels), plot_bottom + 20, f"{decibels} dB", "tick", "middle"))
+    body.append(text((plot_left + plot_right) / 2, plot_bottom + 44, "Fall across 250 Hz at the steepest point", "label", "middle"))
+    for index, (label, fall, brickwall) in enumerate(EDGE_FALLS):
+        middle = plot_top + row_height * index + row_height / 2
+        body.append(text(plot_left - 14, middle + 4.5, label, "label", "end"))
+        css_class = "series-2-fill" if brickwall else "series-1-fill"
+        body.append(range_bar(plot_left, to_x(fall), middle, 14, css_class))
+        body.append(text(to_x(fall) + 10, middle + 4.5, f"{fall:.1f} dB", "tick"))
+    threshold = to_x(BRICKWALL_EDGE_FALL_DB)
+    body.append(line(threshold, plot_top - 6, threshold, plot_bottom, "reference"))
+    body.append(text(threshold + 6, plot_top - 12, "Brick wall from 15 dB", "value"))
+
+    description = (
+        "Bar chart of the fall in level across 250 Hz at the cutoff, for noise through "
+        "a lowpass that falls 80 dB. Zeroed above 16 kHz, 69.9 dB. Falling over 600 Hz, "
+        "44.6 dB, over 1 kHz 30.0 dB and over 1.5 kHz 20.2 dB: all above the 15 dB line "
+        "and so a brick wall. Falling over 4 to 6 kHz, as tape or vinyl does, 5.7 to "
+        "8.0 dB: all below it, so a limited bandwidth."
+    )
+    return document(width, height, "How abruptly the content stops", description, body)
+
+
 CHARTS = {
+    "edge.svg": edge_chart,
     "cutoffs.svg": cutoffs_chart,
     "verdicts.svg": verdicts_chart,
     "encoding-error.svg": encoding_error_chart,

@@ -53,6 +53,25 @@ pub fn percentile(values: &[f64], fraction: f64) -> Option<f64> {
     Some(sorted[position])
 }
 
+/// The 95% Wilson score interval for a share, as fractions of 1. Returns
+/// `None` when `total` is zero.
+pub fn wilson_interval(successes: usize, total: usize) -> Option<(f64, f64)> {
+    const Z: f64 = 1.959_963_984_540_054;
+    if total == 0 {
+        return None;
+    }
+    let count = total as f64;
+    let share = successes as f64 / count;
+    let denominator = 1.0 + Z * Z / count;
+    let centre = (share + Z * Z / (2.0 * count)) / denominator;
+    let half_width =
+        Z * (share * (1.0 - share) / count + Z * Z / (4.0 * count * count)).sqrt() / denominator;
+    Some((
+        (centre - half_width).max(0.0),
+        (centre + half_width).min(1.0),
+    ))
+}
+
 /// The arithmetic mean, or `None` for an empty list.
 pub fn mean(values: &[f64]) -> Option<f64> {
     (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
@@ -152,6 +171,16 @@ mod tests {
         assert_eq!(percentile(&values, 0.6), Some(3.0));
         assert_eq!(percentile(&values, 1.0), Some(5.0));
         assert_eq!(percentile(&[], 0.5), None);
+    }
+
+    #[test]
+    fn wilson_interval_matches_known_values() {
+        let (low, high) = wilson_interval(50, 100).unwrap();
+        assert!((low - 0.403_8).abs() < 1e-3 && (high - 0.596_2).abs() < 1e-3);
+        let (low, high) = wilson_interval(0, 10).unwrap();
+        assert_eq!(low, 0.0);
+        assert!((high - 0.277_5).abs() < 1e-3);
+        assert_eq!(wilson_interval(0, 0), None);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The underlying cause of an error, kept so callers can walk the chain
 /// without depending on the libraries the core uses internally.
@@ -92,6 +92,14 @@ pub enum EuphoriaError {
         path: PathBuf,
         /// The underlying input or output error.
         source: std::io::Error,
+    },
+    /// The file is no longer where it was when it was last read: it was
+    /// deleted, or its folder was moved. The saved analysis is kept, so the
+    /// track can be found again when the file comes back.
+    #[error("{path} is no longer there")]
+    Missing {
+        /// The file that is no longer there.
+        path: PathBuf,
     },
     /// The file was opened but its audio could not be decoded.
     #[error("cannot decode {path}: {failure}")]
@@ -373,6 +381,14 @@ pub enum EuphoriaError {
 }
 
 impl EuphoriaError {
+    /// The file this error is about, when the error is a missing file.
+    pub fn missing_path(&self) -> Option<&Path> {
+        match self {
+            EuphoriaError::Missing { path } => Some(path),
+            _ => None,
+        }
+    }
+
     /// The error and every cause beneath it, joined with ": ".
     pub fn chain(&self) -> String {
         let mut description = self.to_string();

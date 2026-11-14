@@ -47,7 +47,7 @@ euphoria analyze --needs-review ~/Music/DJ
 euphoria analyze --quality weak,reencoded ~/Music/DJ
 ```
 
-The first lists the tracks whose key or tempo is rated low, the second the files whose sound quality is weak on a big system or that were likely made from a lower quality file. The summary says how many of the tracks are shown.
+The first lists the tracks whose key or tempo is rated low, or whose tags name another key than the detected one, the second the files whose sound quality is weak on a big system or that were likely made from a lower quality file. The summary says how many of the tracks are shown.
 
 ## Analyze again after adding music
 
@@ -73,11 +73,31 @@ If the remembered results cannot be used, for example because their file is dama
 
 ## Large libraries and memory
 
-Euphoria analyzes several tracks at once: as many as your computer has cores, up to 8. Each one peaks near 0.6 GB of memory on a seven minute track, and 8 at once peaked between 4.8 and 6.2 GB on full length tracks. On a computer with 8 GB of memory or less, analyze fewer tracks at once:
+Euphoria analyzes several tracks at once: as many as your computer has cores, up to 8. Each one peaks near 0.6 GB of memory on a seven minute track, and 8 at once peaked between 4.8 and 6.2 GB on full length tracks. The minutes of audio in flight are limited as well, so a folder of long mixes cannot use more memory than a folder of tracks (see [long files and mixes](#long-files-and-mixes)). On a computer with 8 GB of memory or less, analyze fewer tracks at once:
 
 ```
 euphoria analyze --jobs 4 ~/Music/DJ
 ```
+
+### Long files and mixes
+
+A count of workers does not bound memory when files are long: eight one hour mixes at once would need about 40 GB. Euphoria therefore also limits the minutes of audio in flight. A file waits until the files being analyzed plus its own length fit in 60 minutes of audio, about 5 GB; seven minute tracks never wait, and one hour mixes are analyzed one at a time. Change the limit with `--audio-budget`:
+
+```
+euphoria analyze --audio-budget 30 ~/Music/Mixes
+```
+
+A single file longer than the limit is analyzed alone, and still needs memory for its whole length, near 86 MB for each minute: about 5 GB for a one hour mix and 15 GB for three hours. The desktop app uses the same limit. Analyzing key, tempo and energy on a part of a very long file would cut this, but the beat grid and sections need the whole track, so it is not done yet.
+
+## When a folder cannot be read or a file is skipped
+
+A folder that cannot be read, because its permission is denied or a network drive fails partway through, no longer stops the scan. Euphoria analyzes everything else and ends with a warning that counts the folders and gives the reason for each, such as `2 folders could not be read: ...`. The command then exits with status 3 when nothing else failed, so a script knows the scan was incomplete. The desktop app shows the same sentence as a notice.
+
+Audio in formats Euphoria cannot decode yet, such as `.opus` and `.wma`, is counted and reported too, as in `14 files skipped: 9 .opus, 5 .wma, which Euphoria can't decode yet`. See [supported formats](../reference/supported-formats.md).
+
+## Damaged files
+
+A truncated download or a corrupt file is analyzed as far as it can be and marked damaged, with how much is missing, in the detailed view, in the JSON and in the desktop inspector. A file that has lost 2% or more of its audio gets no beat grid and no cues, since they would be wrong. See [damaged files](../concepts/audio-quality.md#damaged-files).
 
 ## When a file fails
 

@@ -54,7 +54,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         choice_button(
             ("label-place", index),
             place.label(),
-            settings.label == place,
+            settings.effective_label() == place,
             &palette,
         )
         .on_click(cx.listener(move |this, _, _, cx| this.set_label_place(place, cx)))
@@ -136,6 +136,36 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     .child(problem)
                     .test_support()
             }))
+    });
+
+    let metronome = app.metronome.settings;
+    let metronome_sounds =
+        crate::metronome::ClickSound::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, sound)| {
+                let sound = *sound;
+                choice_button(
+                    ("metronome-sound", index),
+                    sound.label(),
+                    metronome.sound == sound,
+                    &palette,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_sound(sound, cx)))
+                .test_support()
+            });
+    let metronome_volumes = (1..=crate::metronome_controls::VOLUME_STEPS).map(|step| {
+        choice_button(
+            ("metronome-volume", usize::from(step)),
+            format!(
+                "{}%",
+                u32::from(step) * 100 / u32::from(crate::metronome_controls::VOLUME_STEPS)
+            ),
+            app.metronome.volume_step() == step,
+            &palette,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_volume(step, cx)))
+        .test_support()
     });
 
     let tempo_hint = if settings.program == ProgramChoice::Serato {
@@ -233,6 +263,104 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     ),
                     &palette,
                 ))
+                .child(setting(
+                    "Existing key and tempo",
+                    "A key or tempo a file already has is kept, so a correct tag is never \
+                     replaced by a guess. One that Euphoria wrote earlier is still updated.",
+                    div().flex().child(
+                        choice_button(
+                            "replace-existing",
+                            if settings.replace_existing {
+                                "\u{2713} Replace existing key and tempo"
+                            } else {
+                                "Replace existing key and tempo"
+                            },
+                            settings.replace_existing,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_replace_existing(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(setting(
+                    "Low confidence",
+                    "A key or tempo rated low confidence is left out and listed in the \
+                     preview. A key or tempo you corrected counts as high.",
+                    div().flex().child(
+                        choice_button(
+                            "include-low-confidence",
+                            if settings.include_low_confidence {
+                                "\u{2713} Also write low confidence values"
+                            } else {
+                                "Also write low confidence values"
+                            },
+                            settings.include_low_confidence,
+                            &palette,
+                        )
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx)),
+                        )
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(setting(
+                    "Cue markers",
+                    "The track's cues and beat grid are written as Serato cue \
+                     points, which Serato DJ, Mixxx and VirtualDJ read too. \
+                     Memory cues, on no pad, are left out. Formats that cannot \
+                     hold them are skipped.",
+                    div().flex().child(
+                        choice_button(
+                            "write-cue-markers",
+                            if settings.write_cue_markers {
+                                "\u{2713} Write the cue markers"
+                            } else {
+                                "Write the cue markers"
+                            },
+                            settings.write_cue_markers,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(part_heading("Metronome", &palette))
+                .child(setting(
+                    "Sound",
+                    "The click of the metronome button in the toolbar. Choosing a sound plays \
+                     one click of it.",
+                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_sounds),
+                    &palette,
+                ))
+                .child(setting(
+                    "Volume",
+                    "How loud the clicks are next to the music.",
+                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_volumes),
+                    &palette,
+                ))
+                .child(setting(
+                    "Accent",
+                    "The first beat of every bar of four is higher and louder.",
+                    div().flex().child(
+                        choice_button(
+                            "metronome-accent",
+                            if metronome.accent {
+                                "\u{2713} Accent the first beat"
+                            } else {
+                                "Accent the first beat"
+                            },
+                            metronome.accent,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .test_support()
                 )
                 .child(
                     div()

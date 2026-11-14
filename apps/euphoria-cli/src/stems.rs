@@ -10,8 +10,11 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use clap::Args;
-use euphoria_core::stems::{CachedSeparator, SeparationObserver, SeparationStage, Stem, StemFiles};
+use clap::{Args, ValueEnum};
+use euphoria_core::stems::{
+    CachedSeparator, MixExport, Mixdown, SeparationObserver, SeparationStage, Stem, export_mix,
+    publish_stems,
+};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use crate::batch::write_time_left;
@@ -32,13 +35,51 @@ pub struct StemsArguments {
     /// Replace stem files already in the folder.
     #[arg(long)]
     force: bool,
+    /// Write one file, the acapella or the instrumental, named after the
+    /// track, instead of the four stems.
+    #[arg(long, value_enum, value_name = "MIX")]
+    mix: Option<MixArgument>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MixArgument {
+    /// The vocals alone.
+    Acapella,
+    /// Drums, bass and the rest, without the vocals.
+    Instrumental,
+}
+
+impl From<MixArgument> for Mixdown {
+    fn from(argument: MixArgument) -> Self {
+        match argument {
+            MixArgument::Acapella => Mixdown::Acapella,
+            MixArgument::Instrumental => Mixdown::Instrumental,
+        }
+    }
+}
+
+fn mix_file_name(file: &Path, mixdown: Mixdown) -> String {
+    let name = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "track".to_string());
+    format!("{name} ({}).wav", mixdown.label())
 }
 
 pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
-    let destinations: Vec<(Stem, PathBuf)> = Stem::ALL
-        .iter()
-        .map(|stem| (*stem, arguments.output.join(format!("{}.wav", stem.name()))))
-        .collect();
+    let mixdown = arguments.mix.map(Mixdown::from);
+    let destinations: Vec<(Stem, PathBuf)> = match mixdown {
+        Some(_) => Vec::new(),
+        None => Stem::ALL
+            .iter()
+            .map(|stem| (*stem, arguments.output.join(format!("{}.wav", stem.name()))))
+            .collect(),
+    };
+    let mix_destination = mixdown.map(|mixdown| {
+        arguments
+            .output
+            .join(mix_file_name(&arguments.file, mixdown))
+    });
     if !arguments.force
         && let Some((_, existing)) = destinations.iter().find(|(_, path)| path.exists())
     {
@@ -54,7 +95,11 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
 
     let input = std::fs::canonicalize(&arguments.file)
         .with_context(|| format!("cannot use {}", Printable(arguments.file.display())))?;
-    for (_, destination) in &destinations {
+    for destination in destinations
+        .iter()
+        .map(|(_, path)| path)
+        .chain(mix_destination.as_ref())
+    {
         if std::fs::canonicalize(destination).ok().as_ref() == Some(&input) {
             bail!(
                 "{} is the original input, which cannot be replaced by a stem",
@@ -73,111 +118,56 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
 
     std::fs::create_dir_all(&arguments.output)
         .with_context(|| format!("cannot create {}", Printable(arguments.output.display())))?;
-    publish_stems(&files, &destinations, arguments.force)?;
+    if let (Some(mixdown), Some(destination)) = (mixdown, &mix_destination) {
+        let mix =
+            export_mix(&files, mixdown, destination, arguments.force, None).map_err(with_causes)?;
+        write_mix_summary(mixdown, &mix, was_cached, started.elapsed())?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    publish_stems(&files, &destinations, arguments.force).map_err(with_causes)?;
     write_summary(&destinations, was_cached, started.elapsed())?;
     Ok(ExitCode::SUCCESS)
 }
 
-/// Stages every stem before replacing any output. A failed publication
-/// removes the new files and restores the previous directory entries.
-fn publish_stems(files: &StemFiles, destinations: &[(Stem, PathBuf)], force: bool) -> Result<()> {
-    publish_stems_using(files, destinations, force, install_stem)
-}
-
-fn install_stem(
-    temporary: tempfile::NamedTempFile,
-    destination: &Path,
-    force: bool,
-) -> std::io::Result<()> {
-    if force {
-        temporary.persist(destination)
-    } else {
-        temporary.persist_noclobber(destination)
-    }
-    .map(|_| ())
-    .map_err(|error| error.error)
-}
-
-fn publish_stems_using(
-    files: &StemFiles,
-    destinations: &[(Stem, PathBuf)],
-    force: bool,
-    mut install: impl FnMut(tempfile::NamedTempFile, &Path, bool) -> std::io::Result<()>,
+fn write_mix_summary(
+    mixdown: Mixdown,
+    mix: &MixExport,
+    was_cached: bool,
+    elapsed: Duration,
 ) -> Result<()> {
-    let mut staged = Vec::new();
-    for (stem, destination) in destinations {
-        let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        let mut source = std::fs::File::open(files.path(*stem))
-            .with_context(|| format!("cannot read the cached {} stem", stem.name()))?;
-        std::io::copy(&mut source, temporary.as_file_mut())?;
-        temporary.as_file().sync_all()?;
-        match std::fs::symlink_metadata(destination) {
-            Ok(metadata) if !force || metadata.is_dir() => {
-                bail!("cannot replace {}", Printable(destination.display()))
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("cannot check {}", Printable(destination.display())));
-            }
-        }
-        staged.push(temporary);
+    let standard_output_theme = Theme::stdout();
+    let mut standard_output = std::io::stdout().lock();
+    writeln!(
+        standard_output,
+        "{}  {}",
+        standard_output_theme.bold(format!("{:<12}", mixdown.label())),
+        Printable(mix.path.display())
+    )?;
+    standard_output.flush()?;
+    let theme = Theme::stderr();
+    let mut standard_error = std::io::stderr().lock();
+    if let Some(gain) = mix.gain {
+        output::write_note(
+            &mut standard_error,
+            &theme,
+            format_args!(
+                "the sum would have clipped, so it was scaled down by {:.1} dB.",
+                -20.0 * gain.log10()
+            ),
+        )?;
     }
-    let parent = destinations
-        .first()
-        .and_then(|(_, path)| path.parent())
-        .unwrap_or_else(|| Path::new("."));
-    let backups = tempfile::Builder::new()
-        .prefix(".euphoria-stems-")
-        .tempdir_in(parent)?;
-    let mut saved = Vec::new();
-    let mut published = Vec::new();
-    let result: Result<()> = (|| {
-        if force {
-            for (index, (_, destination)) in destinations.iter().enumerate() {
-                match std::fs::symlink_metadata(destination) {
-                    Ok(metadata) if metadata.is_dir() => {
-                        bail!("cannot replace {}", Printable(destination.display()))
-                    }
-                    Ok(_) => {
-                        let backup = backups.path().join(index.to_string());
-                        std::fs::rename(destination, &backup)?;
-                        saved.push((destination, backup));
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
-                }
-            }
-        }
-        for ((_, destination), temporary) in destinations.iter().zip(staged) {
-            install(temporary, destination, force)
-                .with_context(|| format!("cannot write {}", Printable(destination.display())))?;
-            published.push(destination);
-        }
-        Ok(())
-    })();
-    if let Err(error) = result {
-        let mut rollback_errors = Vec::new();
-        for destination in published.into_iter().rev() {
-            if let Err(error) = std::fs::remove_file(destination) {
-                rollback_errors.push(error);
-            }
-        }
-        for (destination, backup) in saved.into_iter().rev() {
-            if let Err(error) = std::fs::rename(backup, destination) {
-                rollback_errors.push(error);
-            }
-        }
-        if !rollback_errors.is_empty() {
-            let retained = backups.keep();
-            bail!(
-                "{error:#}; could not completely restore the previous stems: {rollback_errors:?}; backups kept at {}",
-                Printable(retained.display())
-            );
-        }
-        return Err(error);
+    if was_cached {
+        output::write_note(
+            &mut standard_error,
+            &theme,
+            "these stems were separated before and came from the cache.",
+        )?;
+    } else {
+        output::write_note(
+            &mut standard_error,
+            &theme,
+            format_args!("separated in {}.", format_elapsed(elapsed)),
+        )?;
     }
     Ok(())
 }
@@ -331,116 +321,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_output_created_after_the_preflight_check_is_not_replaced() {
-        use euphoria_core::{
-            ContentHash,
-            stems::{STEMS_MODEL, StemCache},
-        };
-        let folder =
-            std::env::temp_dir().join(format!("euphoria-stems-publish-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
-        let cache = StemCache::new(folder.join("cache"), u64::MAX);
-        let hash = ContentHash::of_file(
-            &Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav"),
-        )
-        .unwrap();
-        let entry = cache.directory().join(format!(
-            "{STEMS_MODEL}-{}",
-            hash.as_bytes()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        ));
-        std::fs::create_dir_all(&entry).unwrap();
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
-        for stem in Stem::ALL {
-            std::fs::copy(&fixture, entry.join(format!("{}.wav", stem.name()))).unwrap();
-        }
-        let files = cache.lookup(&hash).unwrap();
-        let destination = folder.join("vocals.wav");
-        assert!(!destination.exists());
-        std::fs::write(&destination, b"created by another writer").unwrap();
-        let result = publish_stems(&files, &[(Stem::Vocals, destination.clone())], false);
-        let bytes = std::fs::read(&destination).unwrap();
-        std::fs::remove_dir_all(folder).unwrap();
-        assert!(
-            result.is_err(),
-            "a late output must not be silently overwritten"
-        );
-        assert_eq!(bytes, b"created by another writer");
-    }
-
-    #[test]
-    fn a_late_publication_error_rolls_back_new_and_replaced_outputs() {
-        use euphoria_core::{
-            ContentHash,
-            stems::{STEMS_MODEL, StemCache},
-        };
-        let folder = tempfile::tempdir().unwrap();
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
-        let hash = ContentHash::of_file(&fixture).unwrap();
-        let cache = StemCache::new(folder.path().join("cache"), u64::MAX);
-        let hex: String = hash
-            .as_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        let entry = cache.directory().join(format!("{STEMS_MODEL}-{hex}"));
-        std::fs::create_dir_all(&entry).unwrap();
-        for stem in Stem::ALL {
-            std::fs::copy(&fixture, entry.join(format!("{}.wav", stem.name()))).unwrap();
-        }
-        let files = cache.lookup(&hash).unwrap();
-        for force in [false, true] {
-            let output = folder.path().join(format!("output-{force}"));
-            std::fs::create_dir(&output).unwrap();
-            let destinations: Vec<_> = Stem::ALL
-                .iter()
-                .map(|stem| (*stem, output.join(format!("{}.wav", stem.name()))))
-                .collect();
-            if force {
-                for (_, destination) in &destinations {
-                    std::fs::write(destination, b"previous stem").unwrap();
-                }
-            }
-            let mut installed = 0;
-            let result = publish_stems_using(
-                &files,
-                &destinations,
-                force,
-                |temporary, destination, force| {
-                    installed += 1;
-                    if installed == 3 {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::PermissionDenied,
-                            "simulated publication failure",
-                        ));
-                    }
-                    install_stem(temporary, destination, force)
-                },
-            );
-            assert!(result.is_err());
-            assert_eq!(installed, 3, "two outputs were installed before failure");
-            for (_, destination) in destinations {
-                if force {
-                    assert_eq!(std::fs::read(destination).unwrap(), b"previous stem");
-                } else {
-                    assert!(!destination.exists());
-                }
-            }
-            assert_eq!(
-                std::fs::read_dir(output).unwrap().count(),
-                if force { 4 } else { 0 }
-            );
-        }
-    }
-
-    #[test]
     fn elapsed_time_is_shown_in_seconds_then_minutes() {
         assert_eq!(format_elapsed(Duration::from_secs(42)), "42s");
         assert_eq!(format_elapsed(Duration::from_secs(125)), "2:05");
+    }
+
+    #[test]
+    fn a_mix_is_named_after_the_track_and_the_mix() {
+        assert_eq!(
+            mix_file_name(Path::new("/music/Low Tide.mp3"), Mixdown::Acapella),
+            "Low Tide (Acapella).wav"
+        );
+        assert_eq!(
+            mix_file_name(Path::new("/music/Low Tide.mp3"), Mixdown::Instrumental),
+            "Low Tide (Instrumental).wav"
+        );
     }
 }

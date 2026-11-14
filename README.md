@@ -37,7 +37,8 @@ In development: an export for Serato DJ.
 On a Mac with Apple Silicon and macOS 15 or later, with [Homebrew](https://brew.sh):
 
 ```
-brew install --cask lvndry/euphoria/euphoria
+brew tap lvndry/euphoria
+brew install --cask euphoria
 ```
 
 or download the newest release instead:

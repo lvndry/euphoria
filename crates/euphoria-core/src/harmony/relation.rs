@@ -8,7 +8,10 @@ use crate::key::{Key, Mode};
 ///
 /// Variants are declared and ordered from the smoothest mix to the boldest,
 /// so sorting relations puts the safest move first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
 pub enum Relation {
     /// The same key, such as 8A to 8A.
     Same,

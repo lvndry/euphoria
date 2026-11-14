@@ -15,13 +15,15 @@ mod drone;
 mod key_sections;
 #[cfg(feature = "libkeyfinder")]
 mod keyfinder;
+mod sections;
 mod stratum;
 #[cfg(test)]
 mod synthesis;
+mod tempo_choice;
 mod tuning;
 
 pub use beat_grid::{BeatGrid, detect_beat_grid};
-pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, detect_beat_grid_and_cues};
+pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, cues_on_grid, detect_beat_grid_and_cues};
 #[cfg(feature = "drone")]
 pub use drone::{DroneDetector, KeyProbabilities};
 #[cfg(feature = "libkeyfinder")]

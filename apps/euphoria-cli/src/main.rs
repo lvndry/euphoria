@@ -4,13 +4,15 @@
 //! The `euphoria` command line tool.
 
 mod batch;
-mod collection;
 mod corrections;
 mod export;
+mod grid_import;
 mod help;
 mod output;
+mod plan;
 mod playlists;
 mod rewrites;
+mod scan;
 mod set;
 mod set_view;
 mod shift;
@@ -19,13 +21,13 @@ mod stages;
 mod stems;
 mod style;
 mod tag_edit;
+mod tag_key;
 mod tags;
 mod terminal;
-mod traktor_collection;
 mod view;
 
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
@@ -33,7 +35,6 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use euphoria_core::quality::QualityVerdict;
 use euphoria_core::{
     CachedBatch, EuphoriaError, FileResult, TrackAnalysis, clear_cache, default_cache_path,
-    find_audio_files,
 };
 
 use crate::batch::AnalysisOptions;
@@ -41,8 +42,9 @@ use crate::corrections::CorrectionsCommand;
 use crate::export::ExportTarget;
 use crate::output::Narrowing;
 use crate::style::{ColorChoice, Theme};
+use crate::tag_key::TagKeys;
 use crate::tags::TagsCommand;
-use crate::view::{KeyNotationChoice, ViewOptions};
+use crate::view::{FileFacts, KeyNotationChoice, ViewOptions};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -115,11 +117,24 @@ enum Command {
         long_about = "Separate a track into vocals, drums, bass and the rest, with the Demucs \
                       htdemucs model, and write one WAV file per stem.\n\n\
                       The model, 84 MB, is downloaded the first time. Separation runs on this \
-                      computer and takes about a minute for a track of a few minutes. The stems \
-                      are saved, so separating the same track again is instant.",
+                      computer, about 20 to 30 seconds per minute of audio on a recent Mac, \
+                      and needs about 2.5 GB of free memory. The stems are saved, so separating \
+                      the same track again is instant.",
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Plan how to mix one track into the next: tempo, clashes and the best windows.
+    #[command(
+        long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
+                      B is stretched to the tempo of A within what a deck can play and laid \
+                      on the bars of A, downbeat to downbeat. Both tracks are read bar by bar, \
+                      and the windows of 16, 32 or 64 bars where A can go out and B come in \
+                      are ranked, with the bar to swap the bass and bring in the vocals. \
+                      Vocals, bass and drums come from cached stems (euphoria stems); \
+                      without them they are unknown and clashes are not checked.",
+        after_help = help::plan_examples(),
+    )]
+    Plan(plan::PlanArguments),
     /// Order tracks into a set that follows an energy curve, every mix in key.
     #[command(after_help = help::set_examples())]
     Set {
@@ -147,8 +162,9 @@ struct AnalyzeArguments {
     /// terminal is always shown this way.
     #[arg(long)]
     detail: bool,
-    /// List only the tracks whose key or tempo is rated low confidence,
-    /// and the files that could not be analyzed.
+    /// List only the tracks whose key or tempo is rated low confidence or
+    /// whose tags name another key, and the files that could not be
+    /// analyzed.
     #[arg(long)]
     needs_review: bool,
     /// List only the tracks with one of these sound qualities, separated by
@@ -158,6 +174,12 @@ struct AnalyzeArguments {
     /// How keys are shown in the table and the detailed view.
     #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
     key_notation: KeyNotationChoice,
+    /// Your rekordbox collection exported as XML (File > Export Collection
+    /// in xml format). Tracks in it with a constant beat grid use that grid
+    /// in place of the detected one, and their cues are placed on its bars.
+    /// A tempo you set yourself wins over it.
+    #[arg(long, value_name = "FILE")]
+    collection: Option<PathBuf>,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -167,6 +189,9 @@ struct AnalyzeArguments {
 enum QualityChoice {
     /// Lossless files with a full spectrum.
     Lossless,
+    /// Lossless files whose content stops below 19 kHz with a gradual roll-off.
+    #[value(alias = "limited-bandwidth")]
+    Limited,
     /// High bit rate files with the spectrum that bit rate keeps.
     Good,
     /// Medium bit rate files, fine in most rooms.
@@ -183,6 +208,7 @@ impl QualityChoice {
     fn verdict(self) -> QualityVerdict {
         match self {
             QualityChoice::Lossless => QualityVerdict::Lossless,
+            QualityChoice::Limited => QualityVerdict::LimitedBandwidth,
             QualityChoice::Good => QualityVerdict::Good,
             QualityChoice::Acceptable => QualityVerdict::Acceptable,
             QualityChoice::Weak => QualityVerdict::WeakOnABigSystem,
@@ -248,6 +274,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Corrections { command } => corrections::run(command),
         Command::Shift(arguments) => shift::run(&arguments),
         Command::Set { command } => set::run(command),
+        Command::Plan(arguments) => plan::run(&arguments),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
         Command::Stems(arguments) => stems::run(&arguments),
@@ -293,37 +320,72 @@ enum Layout {
 
 fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let analysis = &arguments.analysis;
-    let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let (missing_paths, present_paths): (Vec<PathBuf>, Vec<PathBuf>) = arguments
+        .paths
+        .iter()
+        .cloned()
+        .partition(|path| matches!(path.try_exists(), Ok(false)));
+    let scan = scan::scan_quietly(&present_paths)?;
     let standard_error_theme = Theme::stderr();
-    if audio_files.is_empty() {
-        output::write_no_audio_files(&mut std::io::stderr().lock(), &standard_error_theme)?;
-        return Ok(ExitCode::SUCCESS);
+    if scan.files.is_empty() && missing_paths.is_empty() {
+        let mut standard_error = std::io::stderr().lock();
+        scan::write_notices(&mut standard_error, &standard_error_theme, &scan)?;
+        output::write_no_audio_files(&mut standard_error, &standard_error_theme)?;
+        return Ok(output::exit_status(false, scan.has_unreadable()));
     }
+    let audio_files = scan.files.clone();
+    let collection_grids = arguments
+        .collection
+        .as_deref()
+        .map(grid_import::CollectionGrids::read)
+        .transpose()?;
     let CachedBatch {
-        results,
+        mut results,
         cached_count,
         store_error,
-    } = batch::analyze(
-        &audio_files,
-        analysis,
-        if arguments.json {
-            batch::Display::CountOnly
-        } else {
-            batch::Display::Stages
-        },
-    )?;
+    } = if audio_files.is_empty() {
+        CachedBatch {
+            results: Vec::new(),
+            cached_count: 0,
+            store_error: None,
+        }
+    } else {
+        batch::analyze(
+            &audio_files,
+            analysis,
+            if arguments.json {
+                batch::Display::CountOnly
+            } else {
+                batch::Display::Stages
+            },
+        )?
+    };
+    results.extend(missing_paths.into_iter().map(|path| FileResult {
+        outcome: Err(EuphoriaError::Missing { path: path.clone() }),
+        path,
+    }));
+    results.sort_by(|first, second| first.path.cmp(&second.path));
     let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
+    let (results, grid_infos) =
+        grid_import::apply(results, &user_edits, collection_grids.as_ref(), analysis)?;
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
+    let tag_keys = TagKeys::read(&results, &user_edits);
     let analyzed_count = results.len();
+    let import_summary = arguments.collection.as_ref().map(|_| {
+        let files: Vec<PathBuf> = results.iter().map(|result| result.path.clone()).collect();
+        grid_import::ImportSummary::of(&files, &grid_infos)
+    });
 
     let verdicts: Vec<QualityVerdict> = arguments
         .quality
         .iter()
         .map(|choice| choice.verdict())
         .collect();
-    let is_listed = |analysis: &TrackAnalysis| {
-        (!arguments.needs_review || analysis.needs_review())
+    let is_listed = |path: &Path, analysis: &TrackAnalysis| {
+        (!arguments.needs_review
+            || analysis.needs_review()
+            || tag_keys.conflict(path, analysis).is_some())
             && (verdicts.is_empty()
                 || analysis
                     .quality
@@ -335,9 +397,18 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         verdicts: verdicts.clone(),
         shown_count: results
             .iter()
-            .filter(|result| result.outcome.as_ref().is_ok_and(is_listed))
+            .filter(|result| {
+                result
+                    .outcome
+                    .as_ref()
+                    .is_ok_and(|analysis| is_listed(&result.path, analysis))
+            })
             .count(),
     };
+    let missing_count = results
+        .iter()
+        .filter(|result| output::is_missing(result))
+        .count();
     let failure_count = results
         .iter()
         .filter(|result| result.outcome.is_err())
@@ -390,16 +461,26 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                 &standard_error_theme,
                 &results,
                 &narrowing,
+                &tag_keys,
             )?;
         }
     }
+    scan::write_notices(&mut report, &standard_error_theme, &scan)?;
     if cached_count > 0 {
         output::write_cache_summary(&mut report, cached_count, analyzed_count)?;
+    }
+    if let (Some(summary), Some(collection)) = (&import_summary, &arguments.collection) {
+        output::write_grid_import_summary(&mut report, &standard_error_theme, summary, collection)?;
     }
 
     let listed_results: Vec<FileResult> = results
         .into_iter()
-        .filter(|result| result.outcome.as_ref().map_or(true, is_listed))
+        .filter(|result| {
+            result
+                .outcome
+                .as_ref()
+                .map_or(true, |analysis| is_listed(&result.path, analysis))
+        })
         .collect();
     let standard_output_theme = Theme::stdout();
     let mut standard_output = std::io::stdout().lock();
@@ -409,6 +490,9 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &listed_results,
             analysis.tempo_range(),
             &user_edits,
+            &tag_keys,
+            &grid_infos,
+            &scan,
         )?,
         Layout::PlainTable => {
             output::write_plain_table(&mut standard_output, &listed_results, &user_edits)?
@@ -419,6 +503,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &listed_results,
             &view_options,
             &corrections,
+            &tag_keys,
         )?,
         Layout::Detail => {
             let mut first = true;
@@ -437,6 +522,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                         corrections
                             .get(&result.path)
                             .and_then(|looked_up| looked_up.as_ref().ok()),
+                        FileFacts {
+                            tag_key: tag_keys.get(&result.path),
+                            grid_info: grid_infos.get(&result.path),
+                        },
                     )?;
                 }
             }
@@ -455,11 +544,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(if failure_count == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(output::exit_status(
+        failure_count > missing_count,
+        missing_count > 0 || scan.has_unreadable(),
+    ))
 }
 
 pub(crate) fn with_causes(error: EuphoriaError) -> anyhow::Error {
@@ -501,6 +589,7 @@ mod tests {
             .collect();
         for verdict in [
             QualityVerdict::Lossless,
+            QualityVerdict::LimitedBandwidth,
             QualityVerdict::Good,
             QualityVerdict::Acceptable,
             QualityVerdict::WeakOnABigSystem,

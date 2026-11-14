@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.0.0" Company="AlphaTheta"/>
+  <COLLECTION Entries="8">
+    <TRACK TrackID="1" Name="Constant" Artist="Fixture" Location="file://localhost/Users/dj/Music/constant.wav">
+      <TEMPO Inizio="0.500" Bpm="120.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="2" Name="Constant off the downbeat" Artist="Fixture" Location="file://localhost/Users/dj/Music/offbeat.wav">
+      <TEMPO Inizio="1.000" Bpm="120.00" Metro="4/4" Battito="3"/>
+    </TRACK>
+    <TRACK TrackID="3" Name="Constant with a repeated marker" Artist="Fixture" Location="file://localhost/Users/dj/Music/repeated.wav">
+      <TEMPO Inizio="0.500" Bpm="120.00" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="16.500" Bpm="120.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="4" Name="Variable tempo" Artist="Fixture" Location="file://localhost/Users/dj/Music/variable.wav">
+      <TEMPO Inizio="0.500" Bpm="120.00" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="32.500" Bpm="126.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="5" Name="Shifted grid" Artist="Fixture" Location="file://localhost/Users/dj/Music/shifted.wav">
+      <TEMPO Inizio="0.500" Bpm="120.00" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="16.750" Bpm="120.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="6" Name="Waltz" Artist="Fixture" Location="file://localhost/Users/dj/Music/waltz.wav">
+      <TEMPO Inizio="0.500" Bpm="90.00" Metro="3/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="7" Name="No grid" Artist="Fixture" Location="file://localhost/Users/dj/Music/none.wav"/>
+    <TRACK TrackID="8" Name="Broken" Artist="Fixture" Location="file://localhost/Users/dj/Music/broken.wav">
+      <TEMPO Inizio="soon" Bpm="120.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+  </COLLECTION>
+</DJ_PLAYLISTS>

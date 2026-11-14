@@ -14,8 +14,12 @@ actions!(
         Quit,
         /// Opens the folder picker.
         AddFolder,
+        /// Opens the sheet that exports the library to a DJ program.
+        ExportLibrary,
         /// Plays the selected track, or pauses it.
         TogglePlayback,
+        /// Starts the metronome, or stops it.
+        ToggleMetronome,
         /// Folds the sidebar away, or brings it back.
         ToggleSidebar,
         /// Moves the keyboard to the search field.
@@ -34,6 +38,10 @@ actions!(
         OpenSettings,
         /// Shows the two decks, or hides them.
         ToggleDecks,
+        /// Gives the selected track the whole window.
+        OpenFocusView,
+        /// Leaves the focus view for the library.
+        CloseFocusView,
         /// Opens the set builder page.
         OpenSetBuilder,
         /// Builds the set on the set builder page.

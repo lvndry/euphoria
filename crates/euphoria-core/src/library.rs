@@ -23,27 +23,151 @@ pub fn is_supported_audio_file(path: &Path) -> bool {
         })
 }
 
+/// Audio file extensions Euphoria recognises but cannot decode, in lower
+/// case. A folder scan counts the files with these extensions so it can say
+/// what it left out; other files, such as artwork and playlists, are not
+/// audio and are not counted.
+pub const UNSUPPORTED_AUDIO_EXTENSIONS: [&str; 17] = [
+    "opus", "wma", "wv", "ape", "dsf", "dff", "mpc", "tta", "aac", "ac3", "dts", "amr", "mka",
+    "mp2", "oga", "webm", "caf",
+];
+
+/// A file or folder a scan could not read, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanWarning {
+    /// The file or folder that could not be read.
+    pub path: PathBuf,
+    /// What the system said, such as "Permission denied (os error 13)".
+    pub reason: String,
+    /// True when `path` is a folder.
+    pub is_folder: bool,
+}
+
+/// How many files a scan left out for one unsupported extension.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedExtension {
+    /// The extension in lower case, without the dot.
+    pub extension: String,
+    /// How many files had it.
+    pub count: usize,
+}
+
+/// What a scan of files and folders found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AudioScan {
+    /// The audio files to analyze, sorted and without duplicates.
+    pub files: Vec<PathBuf>,
+    /// The folders and files that could not be read. The scan went on
+    /// without them, so the files in them are not in `files`.
+    pub unreadable: Vec<ScanWarning>,
+    /// The audio files of formats Euphoria cannot decode yet, counted by
+    /// extension, most numerous first.
+    pub skipped: Vec<SkippedExtension>,
+    /// Those files, sorted.
+    pub skipped_files: Vec<PathBuf>,
+}
+
+impl AudioScan {
+    /// True when some folder or file could not be read.
+    pub fn has_unreadable(&self) -> bool {
+        !self.unreadable.is_empty()
+    }
+
+    /// How many files were left out for their format.
+    pub fn skipped_count(&self) -> usize {
+        self.skipped.iter().map(|skipped| skipped.count).sum()
+    }
+
+    /// "2 folders could not be read: /a, /b", or `None` when all were read.
+    pub fn unreadable_summary(&self) -> Option<String> {
+        if self.unreadable.is_empty() {
+            return None;
+        }
+        let count = self.unreadable.len();
+        let all_folders = self.unreadable.iter().all(|warning| warning.is_folder);
+        let paths: Vec<String> = self
+            .unreadable
+            .iter()
+            .map(|warning| warning.path.display().to_string())
+            .collect();
+        Some(format!(
+            "{count} {} could not be read: {}",
+            match (count == 1, all_folders) {
+                (true, true) => "folder",
+                (false, true) => "folders",
+                (true, false) => "folder or file",
+                (false, false) => "folders or files",
+            },
+            paths.join(", ")
+        ))
+    }
+
+    /// "14 files skipped: 9 .opus, 5 .wma, which Euphoria can't decode yet",
+    /// or `None` when nothing was skipped.
+    pub fn skipped_summary(&self) -> Option<String> {
+        let total = self.skipped_count();
+        if total == 0 {
+            return None;
+        }
+        let parts: Vec<String> = self
+            .skipped
+            .iter()
+            .map(|skipped| format!("{} .{}", skipped.count, skipped.extension))
+            .collect();
+        Some(format!(
+            "{total} {} skipped: {}, which Euphoria can't decode yet",
+            if total == 1 { "file" } else { "files" },
+            parts.join(", ")
+        ))
+    }
+}
+
 /// Expands files and folders into the audio files to analyze, sorted and
-/// without duplicates.
+/// without duplicates. See [`scan_audio_files`] for what is left out and
+/// what is reported.
+///
+/// This returns only the files. A caller that should tell the user about
+/// folders it could not read, or files it skipped, uses [`scan_audio_files`].
+pub fn find_audio_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, EuphoriaError> {
+    scan_audio_files(paths).map(|scan| scan.files)
+}
+
+/// Expands files and folders into the audio files to analyze, sorted and
+/// without duplicates, and reports what it could not read or left out.
 ///
 /// A file named directly is always kept, so an unsupported one is reported
 /// when it fails to decode rather than skipped silently. Folders are searched
 /// recursively for supported files; hidden files and folders, such as the
-/// `._` copies macOS leaves on external drives, are skipped.
+/// `._` copies macOS leaves on external drives, are skipped. Files in a
+/// folder whose extension is in [`UNSUPPORTED_AUDIO_EXTENSIONS`] are counted
+/// in [`AudioScan::skipped`].
+///
+/// A folder or entry inside a folder that cannot be read, because the
+/// permission is denied or a network drive fails, does not stop the scan: it
+/// is listed in [`AudioScan::unreadable`] and the rest is searched. A path
+/// that is named directly and does not exist is still an error, as is one
+/// that cannot be examined at all.
 ///
 /// A symbolic link to an audio file is included. A symbolic link to a folder
 /// is not entered, so a scan stays inside the folders that were named and a
 /// link that points back up the tree cannot make it loop. To include a linked
 /// folder, name it as one of `paths`.
-pub fn find_audio_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, EuphoriaError> {
-    let mut audio_files = Vec::new();
+pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
+    let mut scan = AudioScan::default();
+    let mut skipped: std::collections::BTreeMap<String, usize> = Default::default();
     for path in paths {
-        let metadata = std::fs::metadata(path).map_err(|source| EuphoriaError::Scan {
-            path: path.clone(),
-            source,
+        let metadata = std::fs::metadata(path).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::NotFound {
+                EuphoriaError::Missing { path: path.clone() }
+            } else {
+                EuphoriaError::Scan {
+                    path: path.clone(),
+                    source,
+                }
+            }
         })?;
         if !metadata.is_dir() {
-            audio_files.push(path.clone());
+            scan.files.push(path.clone());
             continue;
         }
         let entries = WalkDir::new(path)
@@ -51,18 +175,53 @@ pub fn find_audio_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, EuphoriaError
             .into_iter()
             .filter_entry(|entry| entry.depth() == 0 || !is_hidden(entry.file_name()));
         for entry in entries {
-            let entry = entry.map_err(|error| EuphoriaError::Scan {
-                path: error.path().unwrap_or(path).to_path_buf(),
-                source: error.into(),
-            })?;
-            if is_supported_audio_file(entry.path()) && is_file_or_link_to_file(&entry) {
-                audio_files.push(entry.into_path());
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    let unreadable_path = error.path().unwrap_or(path).to_path_buf();
+                    scan.unreadable.push(ScanWarning {
+                        is_folder: std::fs::symlink_metadata(&unreadable_path)
+                            .is_ok_and(|metadata| metadata.is_dir()),
+                        path: unreadable_path,
+                        reason: error
+                            .io_error()
+                            .map_or_else(|| error.to_string(), |source| source.to_string()),
+                    });
+                    continue;
+                }
+            };
+            if !is_file_or_link_to_file(&entry) {
+                continue;
+            }
+            if is_supported_audio_file(entry.path()) {
+                scan.files.push(entry.into_path());
+            } else if let Some(extension) = unsupported_audio_extension(entry.path()) {
+                *skipped.entry(extension).or_default() += 1;
+                scan.skipped_files.push(entry.into_path());
             }
         }
     }
-    audio_files.sort();
-    audio_files.dedup();
-    Ok(audio_files)
+    scan.files.sort();
+    scan.files.dedup();
+    scan.skipped_files.sort();
+    scan.skipped_files.dedup();
+    scan.unreadable
+        .sort_by(|first, second| first.path.cmp(&second.path));
+    scan.unreadable.dedup();
+    let mut skipped: Vec<SkippedExtension> = skipped
+        .into_iter()
+        .map(|(extension, count)| SkippedExtension { extension, count })
+        .collect();
+    skipped.sort_by_key(|skipped| std::cmp::Reverse(skipped.count));
+    scan.skipped = skipped;
+    Ok(scan)
+}
+
+fn unsupported_audio_extension(path: &Path) -> Option<String> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    UNSUPPORTED_AUDIO_EXTENSIONS
+        .contains(&extension.as_str())
+        .then_some(extension)
 }
 
 fn is_file_or_link_to_file(entry: &walkdir::DirEntry) -> bool {
@@ -165,12 +324,86 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn a_missing_path_is_a_scan_error() {
+    fn an_unreadable_folder_is_reported_and_the_rest_is_still_scanned() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root =
+            std::env::temp_dir().join(format!("euphoria-library-denied-{}", std::process::id()));
+        let locked = root.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(locked.join("hidden-from-us.mp3"), b"").unwrap();
+        std::fs::write(root.join("readable.mp3"), b"").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let can_still_read = std::fs::read_dir(&locked).is_ok();
+
+        let scan = scan_audio_files(std::slice::from_ref(&root));
+        let through_wrapper = find_audio_files(std::slice::from_ref(&root));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        if can_still_read {
+            return;
+        }
+        let scan = scan.unwrap();
+        assert_eq!(scan.files, vec![root.join("readable.mp3")]);
+        assert_eq!(scan.unreadable.len(), 1);
+        assert_eq!(scan.unreadable[0].path, locked);
+        assert!(scan.unreadable[0].reason.contains("Permission denied"));
+        assert_eq!(
+            scan.unreadable_summary().unwrap(),
+            format!("1 folder could not be read: {}", locked.display())
+        );
+        assert_eq!(through_wrapper.unwrap(), vec![root.join("readable.mp3")]);
+    }
+
+    #[test]
+    fn unsupported_audio_files_are_counted_by_extension() {
+        let root =
+            std::env::temp_dir().join(format!("euphoria-library-skipped-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("deep")).unwrap();
+        for file in [
+            "a.opus",
+            "b.OPUS",
+            "deep/c.opus",
+            "d.wma",
+            "deep/e.wma",
+            "f.ape",
+            "kept.mp3",
+            "cover.jpg",
+            "notes.txt",
+            ".hidden.opus",
+        ] {
+            std::fs::write(root.join(file), b"").unwrap();
+        }
+
+        let scan = scan_audio_files(std::slice::from_ref(&root)).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(scan.files, vec![root.join("kept.mp3")]);
+        assert_eq!(scan.skipped_count(), 6);
+        assert_eq!(
+            scan.skipped_summary().unwrap(),
+            "6 files skipped: 3 .opus, 2 .wma, 1 .ape, which Euphoria can't decode yet"
+        );
+        assert!(scan.unreadable_summary().is_none());
+    }
+
+    #[test]
+    fn a_scan_with_nothing_to_report_has_no_summaries() {
+        let scan = AudioScan::default();
+        assert!(scan.skipped_summary().is_none());
+        assert!(scan.unreadable_summary().is_none());
+        assert!(!scan.has_unreadable());
+    }
+
+    #[test]
+    fn a_missing_path_is_reported_as_missing() {
         let missing = PathBuf::from("/definitely/not/here");
         assert!(matches!(
-            find_audio_files(&[missing]),
-            Err(EuphoriaError::Scan { .. })
+            find_audio_files(std::slice::from_ref(&missing)),
+            Err(EuphoriaError::Missing { path }) if path == missing
         ));
     }
 }

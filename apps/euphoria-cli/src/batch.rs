@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::io::IsTerminal;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -36,6 +36,11 @@ pub struct AnalysisOptions {
     /// cores, at most 8.
     #[arg(long, short = 'j')]
     jobs: Option<NonZeroUsize>,
+    /// Minutes of audio to hold in memory at once, over all files being
+    /// analyzed. A file waits when it would pass the limit, and a file longer
+    /// than the limit runs alone. Defaults to 60, about 5 GB.
+    #[arg(long, value_name = "MINUTES")]
+    audio_budget: Option<NonZeroU32>,
     /// Analyze every file and neither read nor update the cache.
     #[arg(long, conflicts_with = "reanalyze")]
     no_cache: bool,
@@ -65,6 +70,13 @@ fn parse_key_engine(text: &str) -> Result<KeyEngine, String> {
 }
 
 impl AnalysisOptions {
+    /// How many files are worked on at once.
+    pub fn job_count(&self) -> usize {
+        self.jobs
+            .map(NonZeroUsize::get)
+            .unwrap_or_else(default_job_count)
+    }
+
     /// The range tempos are reported in.
     pub fn tempo_range(&self) -> TempoRange {
         self.tempo_range
@@ -127,6 +139,9 @@ pub fn analyze_in_default_range(
         },
     };
 
+    if let Some(minutes) = options.audio_budget {
+        euphoria_core::set_audio_budget_minutes(f64::from(minutes.get()));
+    }
     let job_count = options
         .jobs
         .map(NonZeroUsize::get)

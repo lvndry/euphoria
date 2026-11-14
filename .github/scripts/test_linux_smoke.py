@@ -35,7 +35,7 @@ class LinuxSmokeTests(unittest.TestCase):
     def test_artifact_producers_match_the_clean_package_baseline(self):
         baseline = re.search(r"^    runs-on: (\S+)", job("linux-packages"), re.M).group(1)
         desktop = re.search(r"^    runs-on: (\S+)", job("desktop-linux"), re.M).group(1)
-        cli = re.search(r"name: Linux, runner: ([^,}]+)", job("test")).group(1)
+        cli = re.search(r"^    runs-on: (\S+)", job("test-linux"), re.M).group(1)
         self.assertEqual(cli, baseline, "CLI artifact cannot require a newer glibc than its runtime")
         self.assertEqual(desktop, baseline, "desktop artifact cannot require a newer glibc than its runtime")
 

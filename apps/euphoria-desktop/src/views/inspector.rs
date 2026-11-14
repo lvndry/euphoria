@@ -5,23 +5,28 @@
 //! waveform and, when analysis failed, why. Shown as a column on the right
 //! or as a strip under the table, depending on the theme's layout.
 
-use euphoria_core::Confidence;
+use std::rc::Rc;
+
+use euphoria_core::harmony::Relation;
+use euphoria_core::{Confidence, TagKeyAgreement};
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, SharedString,
-    Stateful, TestSupportExt, Window, div, px,
+    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, Pixels,
+    SharedString, Stateful, TestSupportExt, Window, div, px,
 };
 
 use crate::app::EuphoriaApp;
 use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
+use crate::decks::SuggestionScope;
 use crate::format;
 use crate::library::{Track, TrackStatus};
-use crate::mixes::compatible_keys;
+use crate::mixes::keys_related_by;
+use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
-use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
+use crate::track_overview::{key_stretches, shows_key_timeline};
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -29,14 +34,19 @@ use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::stems;
-use crate::views::track_overview;
+use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
-use crate::views::wheel::{emphasis_for, wheel};
+use crate::views::wheel::{
+    COLUMN_WHEEL_SIZE, LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE, emphasis_for, wheel,
+};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
 
 /// Space around the contents of the inspector.
 const PADDING: f32 = 16.0;
+
+/// Height of the line between the table and the strip.
+const STRIP_BORDER: f32 = 1.0;
 
 /// Height of the line above the waveform and above the mixes list, with the
 /// gap under it.
@@ -70,6 +80,18 @@ impl Room {
             Room::Column => px(WAVEFORM_HEIGHT),
             Room::Strip { inner_height } => {
                 px((inner_height - HEADING_HEIGHT - others).max(SMALLEST_STRIP_WAVEFORM))
+            }
+        }
+    }
+
+    /// How wide and tall to draw the Camelot wheel: its usual size in the
+    /// column, and the height the strip leaves inside its padding, within
+    /// limits, so the wheel never hides.
+    fn wheel_size(self) -> f32 {
+        match self {
+            Room::Column => COLUMN_WHEEL_SIZE,
+            Room::Strip { inner_height } => {
+                (inner_height - STRIP_BORDER).clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE)
             }
         }
     }
@@ -154,15 +176,28 @@ pub(crate) fn render(
         }
     };
 
+    let strip_wheel = (!is_column)
+        .then(|| {
+            key_wheel(
+                track,
+                theme,
+                room,
+                &app.decks.filter.mix_options().relations,
+            )
+        })
+        .flatten()
+        .map(|section| sized(divided(section), Some(room.wheel_size())));
+
     container
         .child(sized(
             summary(track, &palette)
                 .child(div().flex_1())
+                .child(focus_button(app, cx))
                 .child(track_star(app, cx)),
             Some(220.0),
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
-        .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
+        .children(strip_wheel)
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
@@ -182,6 +217,40 @@ pub(crate) fn render(
         })
         .test_support()
         .into_any_element()
+}
+
+/// The button that gives the selected track the whole window.
+fn focus_button(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl IntoElement {
+    let palette = app.theme.palette;
+    let hover_background = palette.line;
+    div()
+        .id("focus-open")
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(5.0))
+        .h(px(24.0))
+        .px(px(8.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(palette.line)
+        .bg(palette.raised)
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover_background))
+        .tooltip(|window, cx| {
+            Tooltip::new("Give this track the whole window (Enter)").build(window, cx)
+        })
+        .child(
+            Icon::default()
+                .path(crate::assets::EXPAND_ICON_PATH)
+                .size(px(12.0))
+                .text_color(palette.text_secondary),
+        )
+        .child("Focus")
+        .on_click(cx.listener(|this, _, window, cx| this.open_focus_view(window, cx)))
+        .test_support()
 }
 
 /// The star of the selected track.
@@ -276,6 +345,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         TrackStatus::Queued => "queued",
         TrackStatus::Analyzing => "analyzing",
         TrackStatus::Failed(_) => "not analyzed",
+        TrackStatus::Missing => "file missing",
         TrackStatus::Analyzed(_) => "not detected",
     };
     let analysis = track.analysis();
@@ -381,11 +451,36 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             quiet_note(not_known_yet, palette).into_any_element(),
         ),
     };
-    let (energy, energy_note) = match track.energy() {
-        Some(rating) => (rating.to_string(), "of 10"),
-        None if track.analysis().is_some() => ("\u{2013}".to_string(), "not rated"),
-        None => ("\u{2013}".to_string(), not_known_yet),
+    let (energy, energy_note) = match (track.energy(), correction.energy) {
+        (Some(rating), Some(_)) => (
+            rating.to_string(),
+            reset_note(
+                "energy-reset",
+                match track.detected_energy() {
+                    Some(detected) => format!("reset to {detected}"),
+                    None => "reset".to_string(),
+                },
+                palette,
+                cx,
+                |this, cx| this.reset_energy(cx),
+            ),
+        ),
+        (Some(rating), None) => (
+            rating.to_string(),
+            quiet_note("of 10", palette).into_any_element(),
+        ),
+        (None, _) if track.analysis().is_some() => (
+            "\u{2013}".to_string(),
+            quiet_note("not rated", palette).into_any_element(),
+        ),
+        (None, _) => (
+            "\u{2013}".to_string(),
+            quiet_note(not_known_yet, palette).into_any_element(),
+        ),
     };
+    let energy_trust = correction
+        .energy
+        .map(|_| set_by_you("energy-set-by-you", "energy", palette));
 
     let key_trust = match (correction.key, key_confidence) {
         (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
@@ -408,43 +503,127 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         (None, None) => None,
     };
 
+    let is_column = theme.layout == Layout::InspectorRight;
+    let boxes = if is_column {
+        let compact =
+            |label, trust, value, note| statistic_compact(label, trust, value, note, palette);
+        let key_box = compact("Key", key_trust, key_value, key_note);
+        let tempo_box = compact("BPM", tempo_trust, statistic_value(tempo), tempo_note)
+            .border_t_1()
+            .border_color(palette.line);
+        let energy_box = compact("Energy", energy_trust, statistic_value(energy), energy_note)
+            .border_t_1()
+            .border_color(palette.line);
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .rounded(px(8.0))
+                    .border_1()
+                    .border_color(palette.line)
+                    .child(key_box)
+                    .child(tempo_box)
+                    .child(energy_box),
+            )
+            .children(key_wheel_of(
+                track,
+                theme,
+                &app.decks.filter.mix_options().relations,
+                COLUMN_WHEEL_SIZE,
+            ))
+    } else {
+        div()
+            .flex()
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(palette.line)
+            .child(statistic("Key", key_trust, key_value, key_note, palette))
+            .child(
+                statistic(
+                    "BPM",
+                    tempo_trust,
+                    statistic_value(tempo),
+                    tempo_note,
+                    palette,
+                )
+                .border_l_1()
+                .border_color(palette.line),
+            )
+            .child(
+                statistic(
+                    "Energy",
+                    energy_trust,
+                    statistic_value(energy),
+                    energy_note,
+                    palette,
+                )
+                .border_l_1()
+                .border_color(palette.line),
+            )
+    };
+
     div()
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .child(
-            div()
-                .flex()
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(palette.line)
-                .child(statistic("Key", key_trust, key_value, key_note, palette))
-                .child(
-                    statistic(
-                        "BPM",
-                        tempo_trust,
-                        statistic_value(tempo),
-                        tempo_note,
-                        palette,
-                    )
-                    .border_l_1()
-                    .border_color(palette.line),
-                )
-                .child(
-                    statistic(
-                        "Energy",
-                        None,
-                        statistic_value(energy),
-                        quiet_note(energy_note, palette).into_any_element(),
-                        palette,
-                    )
-                    .border_l_1()
-                    .border_color(palette.line),
-                ),
-        )
+        .child(boxes)
+        .children(tag_key_line(track, notation, palette))
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
+}
+
+/// What the key field of the file's tags says next to the key above: the
+/// same key, another key with how it differs and which reading to trust,
+/// or text that is not a key. Nothing when the file has no key field.
+fn tag_key_line(track: &Track, notation: NotationChoice, palette: &Palette) -> Option<AnyElement> {
+    let tag_key = track.tag_key.as_ref()?;
+    let spelled = tag_key
+        .key
+        .map(|tagged| format!("{} ({tagged})", notation.spell(&tagged)));
+    let (headline, advice, is_conflict) = match (track.tag_key_agreement(), spelled) {
+        (Some(TagKeyAgreement::Differs(difference)), Some(spelled)) => {
+            let is_conflict = track.key_conflict().is_some();
+            (
+                format!("Tags say {spelled}, {}.", difference.label()),
+                is_conflict.then_some(difference.advice()),
+                is_conflict,
+            )
+        }
+        (Some(TagKeyAgreement::Same), _) => ("Tags agree.".to_string(), None, false),
+        (_, Some(spelled)) => (format!("Tags say {spelled}."), None, false),
+        (_, None) => (
+            format!(
+                "Tags hold \u{201C}{}\u{201D}, not a key Euphoria reads.",
+                tag_key.text
+            ),
+            None,
+            false,
+        ),
+    };
+    Some(
+        div()
+            .id("tag-key")
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .text_size(LABEL_TEXT_SIZE)
+            .text_color(if is_conflict {
+                palette.danger
+            } else {
+                palette.text_tertiary
+            })
+            .child(headline)
+            .children(advice.map(|advice| div().text_color(palette.text_secondary).child(advice)))
+            .test_support()
+            .into_any_element(),
+    )
 }
 
 /// The runner up key, offered beside the key when the key is not rated
@@ -577,6 +756,42 @@ fn statistic(
         .child(note)
 }
 
+/// Width of the label column of the compact statistics, room for the
+/// longest label ("Energy") at its size.
+const STATISTIC_LABEL_WIDTH: f32 = 46.0;
+
+/// One line of the column: the label, the value, its note, and how far to
+/// trust the value, so the three lines are as tall as the wheel beside them.
+fn statistic_compact(
+    label: &'static str,
+    trust: Option<AnyElement>,
+    value: Div,
+    note: AnyElement,
+    palette: &Palette,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .min_w_0()
+        .px(px(8.0))
+        .py(px(3.0))
+        .child(
+            div()
+                .id(SharedString::from(format!("statistic-label-{label}")))
+                .w(px(STATISTIC_LABEL_WIDTH))
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(LABEL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child(label)
+                .test_support(),
+        )
+        .child(value)
+        .child(div().flex_1().min_w_0().overflow_hidden().child(note))
+        .children(trust.map(|trust| div().flex_shrink_0().child(trust)))
+}
+
 /// The waveform, which is also where to seek: a press or a drag on it moves
 /// playing to that point. In the strip under the table the play button and
 /// the position sit beside it, since that layout has no player bar.
@@ -602,6 +817,7 @@ fn waveform_section(
         (_, TrackStatus::Queued) => (None, "Waiting for analysis".into()),
         (_, TrackStatus::Analyzing) => (None, "Analyzing now".into()),
         (_, TrackStatus::Failed(_)) => (None, "Not available".into()),
+        (_, TrackStatus::Missing) => (None, "The file is missing".into()),
         (Some(Waveform::Reading) | None, TrackStatus::Analyzed(_)) => {
             (None, "Reading audio".into())
         }
@@ -613,15 +829,21 @@ fn waveform_section(
     };
 
     let progress = app.player.progress();
-    let energy = match state {
-        Some(Waveform::Ready(_, Some(EnergyCurve::Steps(steps)))) if !steps.is_empty() => {
-            Some(track_overview::energy_curve(steps, progress, &palette))
-        }
-        Some(Waveform::Ready(_, Some(EnergyCurve::Unavailable(reason)))) => {
-            Some(track_overview::energy_unavailable(reason, &palette))
-        }
-        _ => None,
-    };
+    let duration_seconds = track.duration_seconds().unwrap_or(0.0);
+    let separated_path = track.path.clone();
+    let lanes = track_overview::overview_lanes(&LaneInputs {
+        energy: match state {
+            Some(Waveform::Ready(_, energy)) => energy.as_ref(),
+            _ => None,
+        },
+        vocals: app.vocal_lane_of(&track.path),
+        stems: app.stems.status(&track.path),
+        frame: LaneFrame::whole(duration_seconds, progress, app.waveform_bounds.clone()),
+        palette,
+        on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.request_stems_of(separated_path.clone(), cx)
+        })),
+    });
     // The timeline is the detector's. Once the user corrects the key, the
     // detector's sections are the very thing they disagreed with, and a
     // strip of them under a different key reads as a contradiction, so it
@@ -644,7 +866,6 @@ fn waveform_section(
         })
     });
     let shown_cues = cues::shown_cues(track, app);
-    let duration_seconds = track.duration_seconds().unwrap_or(0.0);
     let cue_fractions = cues::fractions(&shown_cues, duration_seconds);
     // The waveform's width as last drawn; the lane is as wide.
     let lane_width = app
@@ -661,9 +882,10 @@ fn waveform_section(
     let cue_lane = (!marker_places.is_empty())
         .then(|| cues::lane(&shown_cues, duration_seconds, &marker_places, &palette, cx));
     // The rows other than the waveform, which takes the height left.
-    let others = energy
-        .as_ref()
-        .map_or(0.0, |_| track_overview::ENERGY_HEIGHT + WAVEFORM_ROW_GAP)
+    let others = lanes
+        .iter()
+        .map(|lane| lane.height + WAVEFORM_ROW_GAP)
+        .sum::<f32>()
         + key_timeline.as_ref().map_or(0.0, |_| {
             track_overview::KEY_TIMELINE_HEIGHT + WAVEFORM_ROW_GAP
         })
@@ -711,7 +933,7 @@ fn waveform_section(
         )
         .children(cue_lane)
         .child(scrubber)
-        .children(energy)
+        .children(lanes.into_iter().map(|lane| lane.element))
         .children(key_timeline)
         .children(match state {
             Some(Waveform::Unreadable(reason)) => Some(
@@ -770,6 +992,14 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
         return None;
     }
 
+    let mut narrowing = app.decks.filter.narrowing();
+    match app.decks.scope {
+        SuggestionScope::Library => {}
+        SuggestionScope::Shown => narrowing.push("pool: tracks shown".to_string()),
+        SuggestionScope::Favorites => narrowing.push("pool: favorites".to_string()),
+        SuggestionScope::Playlist(_) => narrowing.push("pool: a playlist".to_string()),
+    }
+    let is_narrowed = !narrowing.is_empty();
     let shown_count = room.mix_count(app.mixes.len());
     let rows: Vec<Stateful<Div>> = app
         .mixes
@@ -866,50 +1096,63 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
             .flex_col()
             .gap(px(4.0))
             .child(section_label("Mixes well with", &palette).pb(px(4.0)))
+            .when(is_narrowed, |section| {
+                section.child(reset_note(
+                    "mixes-filter",
+                    format!("Filtered: {}. Show the controls.", narrowing.join("; ")),
+                    &palette,
+                    cx,
+                    |this, cx| {
+                        if !this.decks.is_open {
+                            this.toggle_decks(cx);
+                        }
+                        cx.notify();
+                    },
+                ))
+            })
             .when(rows.is_empty(), |section| {
                 section.child(
                     div()
+                        .id("mixes-empty")
                         .text_color(palette.text_tertiary)
-                        .child("No track in the library mixes with this one yet."),
+                        .child(if is_narrowed {
+                            "No track in the suggestion pool mixes with this one under that filter."
+                        } else {
+                            "No track in the library mixes with this one yet."
+                        })
+                        .test_support(),
                 )
             })
             .children(rows),
     )
 }
 
-/// The Camelot wheel, in themes that show it, for a track with a key.
-fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
-    if !theme.shows_wheel {
-        return None;
-    }
+/// The Camelot wheel of the track's key, `size` pixels square, with the
+/// keys the suggestion filter's moves reach tinted.
+fn key_wheel_of(
+    track: &Track,
+    theme: &AppTheme,
+    relations: &[Relation],
+    size: f32,
+) -> Option<AnyElement> {
     let key = track.key()?;
-    let palette = &theme.palette;
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(14.0))
-            .child(wheel(
-                key.camelot(),
-                emphasis_for(
-                    CamelotPosition::of(&key),
-                    compatible_keys(&key).iter().map(CamelotPosition::of),
-                ),
-                palette,
-            ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(SMALL_TEXT_SIZE)
-                    .text_color(palette.text_secondary)
-                    .child(format!(
-                        "Highlighted keys mix with {}, {}.",
-                        key.camelot(),
-                        key
-                    )),
-            ),
-    )
+    Some(wheel(
+        key.camelot(),
+        emphasis_for(
+            CamelotPosition::of(&key),
+            keys_related_by(&key, relations)
+                .iter()
+                .map(CamelotPosition::of),
+        ),
+        &theme.palette,
+        size,
+    ))
+}
+
+/// The wheel alone, as tall as the strip allows, for the Deck strip.
+fn key_wheel(track: &Track, theme: &AppTheme, room: Room, relations: &[Relation]) -> Option<Div> {
+    key_wheel_of(track, theme, relations, room.wheel_size())
+        .map(|key_wheel| div().flex().items_center().child(key_wheel))
 }
 
 /// Why a failed track failed, or that an unfinished one is queued or
@@ -947,12 +1190,30 @@ fn status(track: &Track, palette: &Palette) -> Option<Div> {
                         .child(reason.clone()),
                 ),
         ),
+        TrackStatus::Missing => Some(
+            section
+                .child(section_label("File", palette))
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(palette.danger)
+                        .child("This file is missing"),
+                )
+                .child(div().text_color(palette.text_secondary).child(format!(
+                    "It is no longer at {}. It was moved, deleted, or is on a drive that is \
+                     not connected. Right click the track and choose Locate\u{2026} to point \
+                     Euphoria at where it is now, or Remove from Library. Its playlists, \
+                     favorites and edited cues are kept until it is removed.",
+                    track.path.display()
+                ))),
+        ),
     }
 }
 
 /// The sound quality verdict, why, and what it is based on.
 fn quality(track: &Track, palette: &Palette) -> Option<Div> {
     let report = track.quality()?;
+    let notes = report.notes();
     Some(
         div()
             .flex()
@@ -974,7 +1235,13 @@ fn quality(track: &Track, palette: &Palette) -> Option<Div> {
                     .text_size(SMALL_TEXT_SIZE)
                     .text_color(palette.text_tertiary)
                     .child(format::quality_details(report)),
-            ),
+            )
+            .children(notes.into_iter().map(|note| {
+                div()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.danger)
+                    .child(note)
+            })),
     )
 }
 
