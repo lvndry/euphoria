@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::{
-    BeatGrid, Confidence, Correction, Cue, Key, TempoRange, TrackAnalysis, TrackCues,
+    BeatGrid, Confidence, Correction, Cue, Key, KeyDifference, TagKey, TagKeyAgreement, TempoRange,
+    TrackAnalysis, TrackCues, TrackName,
 };
 
 use crate::camelot::CamelotPosition;
@@ -43,6 +44,8 @@ pub(crate) struct Track {
     pub(crate) tag_title: Option<String>,
     /// The artist in the file's tags, once read.
     pub(crate) artist: Option<String>,
+    /// The key field of the file's tags, once read, when it has one.
+    pub(crate) tag_key: Option<TagKey>,
     /// The genre in the file's tags, once read.
     pub(crate) genre: Option<String>,
     /// The file extension in upper case, for example "FLAC".
@@ -90,6 +93,7 @@ impl Track {
             path,
             tag_title: None,
             artist: None,
+            tag_key: None,
             file_name,
             format,
             folder,
@@ -105,13 +109,18 @@ impl Track {
         self.tag_title.as_deref().unwrap_or(&self.file_name)
     }
 
-    /// Takes the title, artist and genre from the file's tags.
-    fn set_names(&mut self, title: Option<String>, artist: Option<String>, genre: Option<String>) {
-        self.title_lowercase = title.as_deref().unwrap_or(&self.file_name).to_lowercase();
-        self.artist_lowercase = artist.as_deref().map(str::to_lowercase);
-        self.tag_title = title;
-        self.artist = artist;
-        self.genre = genre;
+    /// Takes the title, artist, genre and key field from the file's tags.
+    fn set_names(&mut self, name: TrackName) {
+        self.title_lowercase = name
+            .title
+            .as_deref()
+            .unwrap_or(&self.file_name)
+            .to_lowercase();
+        self.artist_lowercase = name.artist.as_deref().map(str::to_lowercase);
+        self.tag_title = name.title;
+        self.artist = name.artist;
+        self.tag_key = name.key;
+        self.genre = name.genre;
     }
 
     /// The genre in the file's tags, once read.
@@ -141,6 +150,24 @@ impl Track {
     /// the tempo range on show.
     pub(crate) fn bpm(&self) -> Option<f32> {
         self.correction.bpm.or_else(|| self.detected_bpm())
+    }
+
+    /// How the key field of the tags compares with the key of the track,
+    /// the user's or the detected one, once both are known.
+    pub(crate) fn tag_key_agreement(&self) -> Option<TagKeyAgreement> {
+        Some(self.tag_key.as_ref()?.compare(self.key()?))
+    }
+
+    /// How the tags differ from the detected key, when they name another
+    /// key and the user has not set one: a reason to review the track.
+    pub(crate) fn key_conflict(&self) -> Option<KeyDifference> {
+        if self.correction.key.is_some() {
+            return None;
+        }
+        match self.tag_key_agreement()? {
+            TagKeyAgreement::Differs(difference) => Some(difference),
+            TagKeyAgreement::Same | TagKeyAgreement::Unreadable => None,
+        }
     }
 
     /// The key analysis found, whatever the user set.
@@ -185,8 +212,14 @@ impl Track {
         self.analysis().map(|analysis| analysis.duration_seconds)
     }
 
-    /// The energy rating from 1 to 10, when the track has one.
+    /// The energy rating from 1 to 10: the one the user set, or the
+    /// detected one.
     pub(crate) fn energy(&self) -> Option<u8> {
+        self.correction.energy.or_else(|| self.detected_energy())
+    }
+
+    /// The energy rating analysis found, whatever the user set.
+    pub(crate) fn detected_energy(&self) -> Option<u8> {
         self.analysis().and_then(|analysis| analysis.energy)
     }
 
@@ -214,8 +247,8 @@ impl Track {
         value.or_else(|| self.analysis().map(|_| NOT_FOUND.to_string()))
     }
 
-    /// Whether the track is worth checking: its analysis failed, or the
-    /// core rates its key or its tempo low.
+    /// Whether the track is worth checking: its analysis failed, the core
+    /// rates its key or its tempo low, or its tags name another key.
     pub(crate) fn needs_review(&self) -> bool {
         match &self.status {
             TrackStatus::Failed(_) => true,
@@ -224,7 +257,7 @@ impl Track {
                     && analysis.key_confidence() == Some(Confidence::Low);
                 let doubtful_tempo = self.correction.bpm.is_none()
                     && analysis.tempo_confidence() == Some(Confidence::Low);
-                doubtful_key || doubtful_tempo
+                doubtful_key || doubtful_tempo || self.key_conflict().is_some()
             }
             TrackStatus::Queued | TrackStatus::Analyzing => false,
         }
@@ -317,8 +350,8 @@ pub(crate) enum LibraryFilter {
     /// Every track.
     #[default]
     AllTracks,
-    /// Tracks whose key or tempo is rated low, and tracks whose analysis
-    /// failed.
+    /// Tracks whose key or tempo is rated low, whose tags name another key,
+    /// and tracks whose analysis failed.
     NeedsReview,
     /// Tracks with a low bit rate, or likely made from a lower quality file.
     QualityToCheck,
@@ -329,7 +362,8 @@ pub(crate) enum LibraryFilter {
 pub(crate) struct LibraryCounts {
     /// Every track.
     pub(crate) total: usize,
-    /// Tracks that need review: a key or tempo rated low, or a failure.
+    /// Tracks that need review: a key or tempo rated low, a key that differs
+    /// from the tags, or a failure.
     pub(crate) needs_review: usize,
     /// Tracks with a low bit rate, or likely made from a lower quality file.
     pub(crate) quality_to_check: usize,
@@ -459,7 +493,7 @@ impl Library {
         true
     }
 
-    /// Sets the key and tempo the user chose for the track at `path`; an
+    /// Sets the key, tempo and energy the user chose for the track at `path`; an
     /// empty correction goes back to the detected values. Returns false when
     /// the file is not in the library.
     pub(crate) fn set_correction(&mut self, path: &Path, correction: Correction) -> bool {
@@ -520,7 +554,7 @@ impl Library {
     }
 
     /// A number that changes whenever a folder or a track is added or a
-    /// track's result comes in.
+    /// track's result or tags come in.
     pub(crate) fn revision(&self) -> u64 {
         self.revision
     }
@@ -531,15 +565,9 @@ impl Library {
         self.structure_revision
     }
 
-    /// Takes the title and artist of the track at `path` from its tags.
-    /// Returns false when the file is not in the library.
-    pub(crate) fn set_names(
-        &mut self,
-        path: &Path,
-        title: Option<String>,
-        artist: Option<String>,
-        genre: Option<String>,
-    ) -> bool {
+    /// Takes the title, artist, genre and key field of the track at `path` from
+    /// its tags. Returns false when the file is not in the library.
+    pub(crate) fn set_names(&mut self, path: &Path, name: TrackName) -> bool {
         let Some(track) = self
             .index_by_path
             .get(path)
@@ -547,7 +575,14 @@ impl Library {
         else {
             return false;
         };
-        track.set_names(title, artist, genre);
+        if track.needs_review() {
+            self.review_count -= 1;
+        }
+        track.set_names(name);
+        if track.needs_review() {
+            self.review_count += 1;
+        }
+        self.revision += 1;
         true
     }
 
@@ -716,6 +751,14 @@ fn compare_optional<Value>(
 mod tests {
     use super::*;
 
+    fn tag_names(title: Option<String>, artist: Option<String>) -> TrackName {
+        TrackName {
+            title,
+            artist,
+            ..TrackName::default()
+        }
+    }
+
     fn analysis(key: Option<&str>, bpm: Option<f32>, duration_seconds: f32) -> TrackAnalysis {
         TrackAnalysis {
             duration_seconds,
@@ -820,11 +863,15 @@ mod tests {
         assert_eq!(library.tracks()[0].title(), "Low Tide.aiff");
         assert!(library.set_names(
             Path::new("/music/house/Low Tide.aiff"),
-            Some("Low Tide (Extended Mix)".to_string()),
-            Some("Marine Layer".to_string()),
-            Some("Deep House".to_string()),
+            TrackName {
+                genre: Some("Deep House".to_string()),
+                ..tag_names(
+                    Some("Low Tide (Extended Mix)".to_string()),
+                    Some("Marine Layer".to_string()),
+                )
+            },
         ));
-        assert!(!library.set_names(Path::new("/nowhere.mp3"), None, None, None));
+        assert!(!library.set_names(Path::new("/nowhere.mp3"), tag_names(None, None)));
         let track = &library.tracks()[0];
         assert_eq!(track.title(), "Low Tide (Extended Mix)");
         assert_eq!(track.artist.as_deref(), Some("Marine Layer"));
@@ -837,9 +884,10 @@ mod tests {
         let mut library = sample_library();
         library.set_names(
             Path::new("/music/techno/Undertow.wav"),
-            Some("Deep Water".to_string()),
-            Some("Kaito Sato".to_string()),
-            None,
+            tag_names(
+                Some("Deep Water".to_string()),
+                Some("Kaito Sato".to_string()),
+            ),
         );
         assert_eq!(visible(&library, "kaito", None), ["Undertow.wav"]);
         assert_eq!(visible(&library, "deep water", None), ["Undertow.wav"]);
@@ -851,15 +899,14 @@ mod tests {
         let mut library = sample_library();
         library.set_names(
             Path::new("/music/techno/waiting.m4a"),
-            Some("Aaa first by title".to_string()),
-            Some("Zed".to_string()),
-            None,
+            tag_names(
+                Some("Aaa first by title".to_string()),
+                Some("Zed".to_string()),
+            ),
         );
         library.set_names(
             Path::new("/music/house/saffron.mp3"),
-            None,
-            Some("anna".to_string()),
-            None,
+            tag_names(None, Some("anna".to_string())),
         );
         assert_eq!(
             visible(&library, "", ascending(SortColumn::Title))[0],
@@ -962,6 +1009,84 @@ mod tests {
         library.record_outcome(path, Ok(rated(0.001, 124.0, 0.01)));
         assert_eq!(library.counts().needs_review, 0);
         assert_eq!(library.tracks()[0].key(), Some("E minor".parse().unwrap()));
+    }
+
+    fn with_tag_key(text: &str) -> TrackName {
+        TrackName {
+            key: TagKey::from_text(text),
+            ..TrackName::default()
+        }
+    }
+
+    #[test]
+    fn a_key_that_differs_from_the_tags_needs_review_until_the_user_sets_one() {
+        let mut library = Library::default();
+        let path = Path::new("/music/sure.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        assert_eq!(library.counts().needs_review, 0);
+
+        library.set_names(path, with_tag_key("9A"));
+        let track = &library.tracks()[0];
+        assert_eq!(track.key_conflict(), Some(KeyDifference::Fifth));
+        assert_eq!(library.counts().needs_review, 1);
+        let listed = library.visible_tracks(
+            LibraryFilter::NeedsReview,
+            None,
+            "",
+            None,
+            &FolderColumn::default(),
+        );
+        assert_eq!(names(&library, &listed), ["sure.mp3"]);
+
+        let a_minor: Key = "A minor".parse().unwrap();
+        library.set_correction(path, Correction::of_key(a_minor));
+        assert_eq!(library.tracks()[0].key_conflict(), None);
+        assert_eq!(
+            library.tracks()[0].tag_key_agreement(),
+            Some(TagKeyAgreement::Differs(KeyDifference::Fifth)),
+            "the difference is still shown"
+        );
+        assert_eq!(library.counts().needs_review, 0);
+    }
+
+    #[test]
+    fn tags_that_agree_or_cannot_be_read_do_not_need_review() {
+        let mut library = Library::default();
+        let path = Path::new("/music/sure.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+
+        library.set_names(path, with_tag_key("8A - Energy 7"));
+        assert_eq!(
+            library.tracks()[0].tag_key_agreement(),
+            Some(TagKeyAgreement::Same)
+        );
+        library.set_names(path, with_tag_key("banger"));
+        assert_eq!(
+            library.tracks()[0].tag_key_agreement(),
+            Some(TagKeyAgreement::Unreadable)
+        );
+        library.set_names(path, with_tag_key(""));
+        assert_eq!(library.tracks()[0].tag_key, None);
+        assert_eq!(library.counts().needs_review, 0);
+    }
+
+    #[test]
+    fn tags_read_before_the_analysis_count_once_it_arrives() {
+        let mut library = Library::default();
+        let path = Path::new("/music/sure.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.set_names(path, with_tag_key("8B"));
+        assert_eq!(library.counts().needs_review, 0);
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        assert_eq!(
+            library.tracks()[0].key_conflict(),
+            Some(KeyDifference::Relative)
+        );
+        assert_eq!(library.counts().needs_review, 1);
+        library.set_names(path, with_tag_key("Am"));
+        assert_eq!(library.counts().needs_review, 0, "the tags were rewritten");
     }
 
     #[test]

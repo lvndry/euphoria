@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The keys and tempos users set by hand, in a table of their own.
+//! The keys, tempos and energies users set by hand, in a table of their own.
 //!
 //! A correction is stored under the content hash of the file, like an
 //! analysis, but with no analyzer version: a new version of the analyzer
@@ -16,7 +16,9 @@ use std::path::Path;
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::identity::{ContentHash, FileStamp};
-use super::{Cache, cache_error, key_in_column, seconds_since_epoch, tempo_in_column};
+use super::{
+    Cache, cache_error, energy_in_column, key_in_column, seconds_since_epoch, tempo_in_column,
+};
 use crate::correction::Correction;
 use crate::error::EuphoriaError;
 use crate::key::Key;
@@ -37,7 +39,7 @@ pub struct StoredCorrection {
     pub detected: Option<DetectedValues>,
 }
 
-/// The key and tempo an analysis found, as the cache stored them.
+/// The key, tempo and energy an analysis found, as the cache stored them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetectedValues {
     /// The detected key, or `None` when the track had no detectable key.
@@ -45,6 +47,8 @@ pub struct DetectedValues {
     /// The detected tempo in the default tempo range, or `None` when the
     /// track had no detectable tempo.
     pub bpm: Option<f32>,
+    /// The detected energy from 1 to 10, or `None` when the track had none.
+    pub energy: Option<u8>,
     /// The version of the analyzer that detected them, which may be older
     /// than the running one.
     pub analyzer_version: String,
@@ -89,7 +93,7 @@ impl Cache {
         correction: &Correction,
     ) -> Result<(), EuphoriaError> {
         // Public fields also allow callers to bypass the constructors.
-        correction.with_bpm(correction.bpm)?;
+        correction.validated()?;
         let content_hash = self.content_at(path)?;
         let result = if correction.is_empty() {
             self.connection.execute(
@@ -98,13 +102,15 @@ impl Cache {
             )
         } else {
             self.connection.execute(
-                "INSERT OR REPLACE INTO corrections (content_hash, key, bpm, corrected_at)
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT OR REPLACE INTO corrections
+                     (content_hash, key, bpm, corrected_at, energy)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     content_hash.as_bytes(),
                     correction.key.map(|key| key.to_string()),
                     correction.bpm,
                     seconds_since_epoch(),
+                    correction.energy,
                 ],
             )
         };
@@ -138,7 +144,8 @@ impl Cache {
     ///
     /// [`EuphoriaError::Cache`] when the database cannot be read, and
     /// [`EuphoriaError::InvalidCorrection`] when it holds a tempo that is
-    /// not a positive number no faster than 999.
+    /// not a positive number no faster than 999, or an energy outside 1 to
+    /// 10.
     pub fn stored_corrections(&self) -> Result<Vec<StoredCorrection>, EuphoriaError> {
         let mut statement = self
             .connection
@@ -146,7 +153,8 @@ impl Cache {
                 "SELECT corrections.content_hash, corrections.key, corrections.bpm,
                         corrections.corrected_at, analyses.analyzer_version,
                         analyses.key, analyses.bpm, analyses.analyzed_at,
-                        analyses.last_known_path
+                        analyses.last_known_path, corrections.energy,
+                        analyses.energy
                  FROM corrections
                  LEFT JOIN analyses ON analyses.content_hash = corrections.content_hash
                  ORDER BY corrections.corrected_at, corrections.content_hash",
@@ -157,7 +165,7 @@ impl Cache {
             .and_then(Iterator::collect)
             .map_err(cache_error(&self.path))?;
         for entry in &stored {
-            entry.correction.with_bpm(entry.correction.bpm)?;
+            entry.correction.validated()?;
         }
         Ok(stored)
     }
@@ -236,20 +244,19 @@ impl Cache {
         let correction: Option<Correction> = self
             .connection
             .query_row(
-                "SELECT key, bpm FROM corrections WHERE content_hash = ?1",
+                "SELECT key, bpm, energy FROM corrections WHERE content_hash = ?1",
                 params![content_hash.as_bytes()],
                 |row| {
                     Ok(Correction {
                         key: key_in_column(row, 0)?,
                         bpm: row.get(1)?,
+                        energy: stored_energy(row, 2)?,
                     })
                 },
             )
             .optional()
             .map_err(cache_error(&self.path))?;
-        correction
-            .map(|value| value.with_bpm(value.bpm))
-            .transpose()
+        correction.map(Correction::validated).transpose()
     }
 }
 
@@ -259,6 +266,7 @@ fn stored_correction_in_row(row: &Row<'_>) -> rusqlite::Result<StoredCorrection>
         Some(analyzer_version) => Some(DetectedValues {
             key: key_in_column(row, 5)?,
             bpm: tempo_in_column(row, 6)?,
+            energy: energy_in_column(row, 10)?,
             analyzer_version,
             analyzed_at_seconds: row.get(7)?,
             last_known_path: row.get(8)?,
@@ -270,10 +278,18 @@ fn stored_correction_in_row(row: &Row<'_>) -> rusqlite::Result<StoredCorrection>
         correction: Correction {
             key: key_in_column(row, 1)?,
             bpm: row.get(2)?,
+            energy: stored_energy(row, 9)?,
         },
         corrected_at_seconds: row.get(3)?,
         detected,
     })
+}
+
+/// The energy stored in `column`. A value that does not fit a `u8` becomes
+/// 255, which [`Correction::validated`] refuses as an invalid correction.
+fn stored_energy(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<u8>> {
+    let stored: Option<i64> = row.get(column)?;
+    Ok(stored.map(|energy| u8::try_from(energy).unwrap_or(u8::MAX)))
 }
 
 pub(super) fn unreadable(path: &Path) -> impl Fn(std::io::Error) -> EuphoriaError {
@@ -329,8 +345,8 @@ mod tests {
         cache.set_correction(&track, &e_minor()).unwrap();
         for bpm in [f32::NAN, f32::INFINITY, -1.0, 0.0, 1000.0] {
             let invalid = Correction {
-                key: None,
                 bpm: Some(bpm),
+                ..Correction::default()
             };
             assert!(matches!(
                 cache.set_correction(&track, &invalid),
@@ -349,6 +365,59 @@ mod tests {
             cache.verified_correction_for(&track),
             Err(EuphoriaError::InvalidCorrection { .. })
         ));
+    }
+
+    #[test]
+    fn an_energy_is_kept_with_the_key_and_tempo_and_an_invalid_one_is_refused() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("track.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        let correction = e_minor().with_energy(Some(9)).unwrap();
+        cache.set_correction(&track, &correction).unwrap();
+        assert_eq!(
+            open(&folder).verified_correction_for(&track).unwrap(),
+            Some(correction)
+        );
+        assert_eq!(
+            cache.stored_corrections().unwrap()[0].correction,
+            correction
+        );
+
+        let energy_only = Correction::of_energy(3).unwrap();
+        cache.set_correction(&track, &energy_only).unwrap();
+        assert_eq!(cache.correction_for(&track).unwrap(), Some(energy_only));
+
+        for energy in [0, 11] {
+            let invalid = Correction {
+                energy: Some(energy),
+                ..Correction::default()
+            };
+            assert!(matches!(
+                cache.set_correction(&track, &invalid),
+                Err(EuphoriaError::InvalidCorrection { .. })
+            ));
+        }
+        for stored in [0_i64, 11, 300, -1] {
+            cache
+                .connection
+                .execute("UPDATE corrections SET energy = ?1", params![stored])
+                .unwrap();
+            assert!(
+                matches!(
+                    cache.stored_corrections(),
+                    Err(EuphoriaError::InvalidCorrection { .. })
+                ),
+                "{stored}"
+            );
+            assert!(
+                matches!(
+                    cache.verified_correction_for(&track),
+                    Err(EuphoriaError::InvalidCorrection { .. })
+                ),
+                "{stored}"
+            );
+        }
     }
 
     #[test]
@@ -558,6 +627,7 @@ mod tests {
         let detected = stored[1].detected.as_ref().unwrap();
         assert_eq!(detected.key, Some(Key::new(9, Mode::Minor)));
         assert_eq!(detected.bpm, Some(124.0));
+        assert_eq!(detected.energy, Some(7));
         assert_eq!(detected.analyzer_version, crate::ANALYZER_VERSION);
         assert_eq!(
             detected.last_known_path.as_deref(),

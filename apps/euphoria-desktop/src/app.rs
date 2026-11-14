@@ -1209,6 +1209,11 @@ impl EuphoriaApp {
         self.remember_tag_settings(cx);
     }
 
+    pub(crate) fn toggle_write_cue_markers(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.write_cue_markers = !self.tag_settings.write_cue_markers;
+        self.remember_tag_settings(cx);
+    }
+
     fn remember_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
         if let Some(problem) = self.save_settings() {
             self.report(problem);

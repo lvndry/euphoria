@@ -1,12 +1,12 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! A key or a tempo the user set by hand, after checking a track by ear.
+//! A key, a tempo or an energy rating the user set by hand, after checking a track by ear.
 //!
 //! A correction is kept apart from the analysis: the cache stores it in a
 //! table of its own, under the content of the file, with no analyzer
 //! version, so analyzing again with a newer Euphoria never loses it. It wins
-//! over the analysis wherever a key or a tempo is shown or written.
+//! over the analysis wherever a key, a tempo or an energy is shown or written.
 
 use crate::analysis::TrackAnalysis;
 use crate::error::EuphoriaError;
@@ -21,6 +21,9 @@ pub struct Correction {
     /// The tempo the user set, in beats per minute. It is shown as set,
     /// never moved into a tempo range.
     pub bpm: Option<f32>,
+    /// The energy the user set, from 1 (calm) to 10 (intense), the scale the
+    /// analysis reports.
+    pub energy: Option<u8>,
 }
 
 impl Correction {
@@ -28,7 +31,7 @@ impl Correction {
     pub fn of_key(key: Key) -> Self {
         Self {
             key: Some(key),
-            bpm: None,
+            ..Self::default()
         }
     }
 
@@ -60,6 +63,45 @@ impl Correction {
         Ok(Self { bpm, ..self })
     }
 
+    /// A correction of the energy only.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::InvalidCorrection`] when `energy` is not from 1 to
+    /// 10.
+    pub fn of_energy(energy: u8) -> Result<Self, EuphoriaError> {
+        Self::default().with_energy(Some(energy))
+    }
+
+    /// The same correction with the energy set to `energy`, or back to the
+    /// detected energy with `None`.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::InvalidCorrection`] when `energy` is not from 1 to
+    /// 10.
+    pub fn with_energy(self, energy: Option<u8>) -> Result<Self, EuphoriaError> {
+        if let Some(energy) = energy
+            && !(1..=10).contains(&energy)
+        {
+            return Err(EuphoriaError::InvalidCorrection {
+                reason: "an energy must be a whole number from 1 to 10",
+            });
+        }
+        Ok(Self { energy, ..self })
+    }
+
+    /// The same correction, checked: public fields allow values the
+    /// constructors refuse.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::InvalidCorrection`] for a tempo that is not a
+    /// positive number no faster than 999, or an energy outside 1 to 10.
+    pub fn validated(self) -> Result<Self, EuphoriaError> {
+        self.with_bpm(self.bpm)?.with_energy(self.energy)
+    }
+
     /// The same correction with the key set to `key`, or back to the
     /// detected key with `None`.
     pub fn with_key(self, key: Option<Key>) -> Self {
@@ -68,7 +110,7 @@ impl Correction {
 
     /// True when nothing is corrected.
     pub fn is_empty(&self) -> bool {
-        self.key.is_none() && self.bpm.is_none()
+        self.key.is_none() && self.bpm.is_none() && self.energy.is_none()
     }
 
     /// `analysis` with the corrected values in place of the detected ones.
@@ -94,6 +136,9 @@ impl Correction {
             // the corrected tempo has none; a DJ program builds its own.
             analysis.beat_grid = None;
             analysis.cues.clear();
+        }
+        if let Some(energy) = self.energy {
+            analysis.energy = Some(energy);
         }
         analysis
     }
@@ -171,6 +216,49 @@ mod tests {
         assert_eq!(corrected.bpm, Some(174.0));
         assert_eq!(corrected.tempo_confidence(), Some(Confidence::Low));
         assert!(corrected.needs_review(), "the tempo is still doubtful");
+    }
+
+    #[test]
+    fn a_corrected_energy_sets_only_the_energy() {
+        let grid = crate::detect::BeatGrid {
+            first_downbeat_seconds: 0.1,
+            bpm: 174.0,
+            salience: 2.0,
+            drift_seconds: Some(0.01),
+        };
+        let analysis = TrackAnalysis {
+            beat_grid: Some(grid),
+            ..doubtful()
+        };
+        let corrected = Correction::of_energy(9).unwrap().apply(analysis.clone());
+        assert_eq!(corrected.energy, Some(9));
+        assert_eq!(
+            corrected,
+            TrackAnalysis {
+                energy: Some(9),
+                ..analysis
+            }
+        );
+        assert!(!Correction::of_energy(9).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_energy_outside_one_to_ten_is_refused() {
+        for energy in [0, 11, 255] {
+            assert!(
+                matches!(
+                    Correction::of_energy(energy),
+                    Err(EuphoriaError::InvalidCorrection { .. })
+                ),
+                "{energy}"
+            );
+        }
+        assert_eq!(Correction::of_energy(1).unwrap().energy, Some(1));
+        assert_eq!(Correction::of_energy(10).unwrap().energy, Some(10));
+        assert_eq!(
+            Correction::of_energy(4).unwrap().with_energy(None).unwrap(),
+            Correction::default()
+        );
     }
 
     #[test]

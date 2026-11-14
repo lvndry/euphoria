@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! How tags are written: for which DJ program, in which key notation, where
-//! the energy label goes and whether the tempo is written. Kept in the
-//! settings file under names that stay the same between versions, and
-//! turned into the core's write options.
+//! the energy label goes, whether the tempo is written and whether the
+//! track's cues go in as Serato cue points. Kept in the settings file under
+//! names that stay the same between versions, and turned into the core's
+//! write options.
 
 use euphoria_core::tags::{DjSoftware, KeyNotation, LabelPlacement, TagWriteOptions};
 use serde::{Deserialize, Serialize};
@@ -182,6 +183,9 @@ pub(crate) struct TagSettings {
     pub(crate) label: LabelChoice,
     /// Whether the tempo is written.
     pub(crate) write_tempo: bool,
+    /// Whether the track's cues and beat grid are written as Serato cue
+    /// points, which Serato DJ, Mixxx and VirtualDJ read too.
+    pub(crate) write_cue_markers: bool,
 }
 
 impl Default for TagSettings {
@@ -193,6 +197,7 @@ impl Default for TagSettings {
             write_tempo: ProgramChoice::default()
                 .dj_software()
                 .writes_bpm_by_default(),
+            write_cue_markers: false,
         }
     }
 }
@@ -267,6 +272,7 @@ mod tests {
             key_notation: NotationChoice::OpenKey,
             label: LabelChoice::Grouping,
             write_tempo: false,
+            write_cue_markers: false,
         };
         assert_eq!(
             settings.write_options(),
@@ -286,17 +292,22 @@ mod tests {
             key_notation: NotationChoice::OpenKey,
             label: LabelChoice::CommentEnd,
             write_tempo: true,
+            write_cue_markers: true,
         };
         assert_eq!(
             serde_json::to_string(&settings).unwrap(),
             concat!(
                 r#"{"program":"virtualdj","key_notation":"open-key","#,
-                r#""label":"comment-end","write_tempo":true}"#
+                r#""label":"comment-end","write_tempo":true,"write_cue_markers":true}"#
             )
         );
         let engine: TagSettings = serde_json::from_str(r#"{"program":"engine-dj"}"#).unwrap();
         assert_eq!(engine.program, ProgramChoice::EngineDj);
         assert_eq!(engine.key_notation, NotationChoice::Camelot);
         assert!(engine.write_tempo);
+        assert!(
+            !engine.write_cue_markers,
+            "a setting that was not there takes its default"
+        );
     }
 }

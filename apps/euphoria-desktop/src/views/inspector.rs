@@ -5,7 +5,7 @@
 //! waveform and, when analysis failed, why. Shown as a column on the right
 //! or as a strip under the table, depending on the theme's layout.
 
-use euphoria_core::Confidence;
+use euphoria_core::{Confidence, TagKeyAgreement};
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
@@ -20,6 +20,7 @@ use crate::camelot::CamelotPosition;
 use crate::format;
 use crate::library::{Track, TrackStatus};
 use crate::mixes::compatible_keys;
+use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
 use crate::views::by_ear;
@@ -381,11 +382,36 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             quiet_note(not_known_yet, palette).into_any_element(),
         ),
     };
-    let (energy, energy_note) = match track.energy() {
-        Some(rating) => (rating.to_string(), "of 10"),
-        None if track.analysis().is_some() => ("\u{2013}".to_string(), "not rated"),
-        None => ("\u{2013}".to_string(), not_known_yet),
+    let (energy, energy_note) = match (track.energy(), correction.energy) {
+        (Some(rating), Some(_)) => (
+            rating.to_string(),
+            reset_note(
+                "energy-reset",
+                match track.detected_energy() {
+                    Some(detected) => format!("reset to {detected}"),
+                    None => "reset".to_string(),
+                },
+                palette,
+                cx,
+                |this, cx| this.reset_energy(cx),
+            ),
+        ),
+        (Some(rating), None) => (
+            rating.to_string(),
+            quiet_note("of 10", palette).into_any_element(),
+        ),
+        (None, _) if track.analysis().is_some() => (
+            "\u{2013}".to_string(),
+            quiet_note("not rated", palette).into_any_element(),
+        ),
+        (None, _) => (
+            "\u{2013}".to_string(),
+            quiet_note(not_known_yet, palette).into_any_element(),
+        ),
     };
+    let energy_trust = correction
+        .energy
+        .map(|_| set_by_you("energy-set-by-you", "energy", palette));
 
     let key_trust = match (correction.key, key_confidence) {
         (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
@@ -433,18 +459,66 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 .child(
                     statistic(
                         "Energy",
-                        None,
+                        energy_trust,
                         statistic_value(energy),
-                        quiet_note(energy_note, palette).into_any_element(),
+                        energy_note,
                         palette,
                     )
                     .border_l_1()
                     .border_color(palette.line),
                 ),
         )
+        .children(tag_key_line(track, notation, palette))
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
+}
+
+/// What the key field of the file's tags says next to the key above: the
+/// same key, another key with how it differs and which reading to trust,
+/// or text that is not a key. Nothing when the file has no key field.
+fn tag_key_line(track: &Track, notation: NotationChoice, palette: &Palette) -> Option<AnyElement> {
+    let tag_key = track.tag_key.as_ref()?;
+    let spelled = tag_key
+        .key
+        .map(|tagged| format!("{} ({tagged})", notation.spell(&tagged)));
+    let (headline, advice, is_conflict) = match (track.tag_key_agreement(), spelled) {
+        (Some(TagKeyAgreement::Differs(difference)), Some(spelled)) => {
+            let is_conflict = track.key_conflict().is_some();
+            (
+                format!("Tags say {spelled}, {}.", difference.label()),
+                is_conflict.then_some(difference.advice()),
+                is_conflict,
+            )
+        }
+        (Some(TagKeyAgreement::Same), _) => ("Tags agree.".to_string(), None, false),
+        (_, Some(spelled)) => (format!("Tags say {spelled}."), None, false),
+        (_, None) => (
+            format!(
+                "Tags hold \u{201C}{}\u{201D}, not a key Euphoria reads.",
+                tag_key.text
+            ),
+            None,
+            false,
+        ),
+    };
+    Some(
+        div()
+            .id("tag-key")
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .text_size(LABEL_TEXT_SIZE)
+            .text_color(if is_conflict {
+                palette.danger
+            } else {
+                palette.text_tertiary
+            })
+            .child(headline)
+            .children(advice.map(|advice| div().text_color(palette.text_secondary).child(advice)))
+            .test_support()
+            .into_any_element(),
+    )
 }
 
 /// The runner up key, offered beside the key when the key is not rated

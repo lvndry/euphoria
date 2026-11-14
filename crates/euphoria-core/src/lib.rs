@@ -40,6 +40,8 @@ pub mod mashup;
 pub mod playlists;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
+/// The beat grid a DJ fixed in rekordbox, read from the collection XML.
+pub mod rekordbox_grid;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
@@ -48,6 +50,8 @@ mod signalsmith;
 /// Separating tracks into vocals, drums, bass and the rest.
 #[cfg(feature = "stems")]
 pub mod stems;
+/// The key a file's tags carry, compared with the detected key.
+pub mod tag_key;
 /// Reading audio file tags and writing analysis results into them, with a
 /// preview before and an undo after.
 pub mod tags;
@@ -55,7 +59,7 @@ pub mod tags;
 pub mod tempo_range;
 /// The cues of a track: those analysis placed, or the user's.
 pub mod track_cues;
-/// Reading the title and artist stored in audio files.
+/// Reading the title, artist and key stored in audio files.
 pub mod track_name;
 
 pub use analysis::{
@@ -97,6 +101,7 @@ pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,
 };
+pub use tag_key::{KeyDifference, TagKey, TagKeyAgreement};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
 pub use track_name::{TrackName, read_track_name};

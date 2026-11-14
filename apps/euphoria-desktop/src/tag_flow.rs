@@ -114,6 +114,9 @@ pub(crate) struct Preview {
     pub(crate) not_analyzed: Vec<LeftOut>,
     /// Files whose tags could not be read or written safely.
     pub(crate) failures: Vec<LeftOut>,
+    /// Files whose Serato cue points or beat grid do not all go where they
+    /// were meant to, a line for each note.
+    pub(crate) serato_notes: Vec<LeftOut>,
 }
 
 /// The tag panel over the window, at one step of a write or an undo.
@@ -198,6 +201,7 @@ impl EuphoriaApp {
                 path: track.path.clone(),
                 analysis: track.analysis().cloned(),
                 correction: track.correction,
+                edited_cues: track.edited_cues.clone(),
             })
             .collect();
         let settings = self.tag_settings;
@@ -213,7 +217,7 @@ impl EuphoriaApp {
                 .spawn(async move {
                     let (targets, unchecked) =
                         verified_corrections(targets, cache.as_deref(), &writer);
-                    let mut planned = plan_writes(&targets, &settings.write_options());
+                    let mut planned = plan_writes(&targets, &settings);
                     planned.failures.extend(unchecked);
                     planned
                 })
@@ -231,6 +235,7 @@ impl EuphoriaApp {
                     up_to_date: planned.up_to_date,
                     not_analyzed: planned.not_analyzed,
                     failures: planned.failures,
+                    serato_notes: planned.serato_notes,
                 }));
                 cx.notify();
             })
@@ -466,6 +471,7 @@ mod tests {
                 path: track.clone(),
                 analysis: Some(tag_testing::analysis()),
                 correction,
+                edited_cues: None,
             }]
         };
         let writer = CorrectionWriter::default();
@@ -508,6 +514,7 @@ mod tests {
                 path: track.clone(),
                 analysis: Some(tag_testing::analysis()),
                 correction: Correction::default(),
+                edited_cues: None,
             }]
         };
         std::fs::write(&track, b"audio").unwrap();

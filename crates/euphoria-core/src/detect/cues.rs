@@ -117,6 +117,13 @@ pub fn detect_beat_grid_and_cues(
     (Some(grid), cues)
 }
 
+/// The cues of `audio` on `grid`, which was not fitted to it, in order, at
+/// most [`MAXIMUM_CUES`]: each falls on a bar of that grid. Empty when the
+/// audio is too short or too silent to measure.
+pub fn cues_on_grid(audio: &AudioBuffer, grid: &BeatGrid) -> Vec<SectionCue> {
+    OnsetEnvelope::of_audio(audio).map_or_else(Vec::new, |envelope| find_cues(&envelope, grid))
+}
+
 /// How a bar sounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BarLevel {
