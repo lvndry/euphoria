@@ -22,9 +22,15 @@ use crate::playback::Voice;
 pub(crate) const VOLUME_STEPS: u8 = 5;
 
 /// The tempo field's tooltip, which is also the rule in the docs.
-pub(crate) const TEMPO_RULE: &str = "Tempo: type 30 to 300 (127,5 and 127.5 both work), or scroll \
-     over it. Until you type a value it follows the selected track's tempo, starting at 120. \
-     Once you type one, it stays until you change it.";
+pub(crate) const TEMPO_RULE: &str = "Tempo: type 30 to 300 (127,5 and 127.5 both work), scroll \
+     over it, or use the arrows (Alt: 0.1). Until you set a value it follows the selected \
+     track's tempo, starting at 120. Once you set one, it stays until you change it.";
+
+/// The step of the tempo arrows, in beats per minute.
+pub(crate) const BPM_STEP: f32 = 1.0;
+
+/// The step of the tempo arrows with Alt held.
+pub(crate) const BPM_FINE_STEP: f32 = 0.1;
 
 /// What the metronome holds in the window.
 pub(crate) struct MetronomeState {
@@ -138,6 +144,45 @@ impl EuphoriaApp {
     pub(crate) fn nudge_metronome_bpm(&mut self, beats: f32, cx: &mut Context<'_, Self>) {
         self.metronome.typed_bpm = Some(clamp_bpm(self.metronome_bpm() + beats));
         self.sync_metronome_tempo();
+        cx.notify();
+    }
+
+    /// Whether the tempo can go up, or down when `is_down`, from where it is.
+    pub(crate) fn can_step_metronome_bpm(&self, is_down: bool) -> bool {
+        let bpm = self.metronome_bpm();
+        if is_down {
+            bpm > clamp_bpm(f32::MIN)
+        } else {
+            bpm < clamp_bpm(f32::MAX)
+        }
+    }
+
+    /// Moves the tempo by one beat, or a tenth when `is_fine`, keeping the
+    /// decimals and the limits. While the field is open it starts from what
+    /// is typed there and shows the result.
+    pub(crate) fn step_metronome_bpm(
+        &mut self,
+        is_down: bool,
+        is_fine: bool,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let start = if self.metronome.is_editing {
+            let typed = self.metronome_input.read(cx).value().to_string();
+            parse_bpm(&typed).unwrap_or_else(|| self.metronome_bpm())
+        } else {
+            self.metronome_bpm()
+        };
+        let step = if is_fine { BPM_FINE_STEP } else { BPM_STEP };
+        let signed = if is_down { -step } else { step };
+        let stepped = (clamp_bpm(start + signed) * 10.0).round() / 10.0;
+        self.metronome.typed_bpm = Some(stepped);
+        self.sync_metronome_tempo();
+        if self.metronome.is_editing {
+            let shown = format::bpm(stepped);
+            self.metronome_input
+                .update(cx, |input, cx| input.set_value(shown, window, cx));
+        }
         cx.notify();
     }
 
