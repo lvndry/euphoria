@@ -2200,6 +2200,11 @@ impl Render for EuphoriaApp {
             .id("euphoria")
             .track_focus(&self.window_focus)
             .key_context(views::LIBRARY_KEY_CONTEXT)
+            .on_action(
+                cx.listener(|this, _: &crate::actions::OpenFocusView, window, cx| {
+                    this.open_focus_view(window, cx);
+                }),
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     if this.close_panels(cx) {

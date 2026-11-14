@@ -5,6 +5,7 @@
 //! one time axis with one playhead and one cursor, the tracks it mixes into
 //! below on the left, and the plan for the transition on the right.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use euphoria_core::rekordbox_grid::choose_grid;
@@ -13,8 +14,9 @@ use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
-    Pixels, ScrollEvent, SharedString, TestSupportExt, Window, canvas, div, px, relative,
+    AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, ScrollEvent, SharedString, TestSupportExt, Window, canvas, div, px,
+    relative,
 };
 
 use crate::app::EuphoriaApp;
@@ -27,10 +29,12 @@ use crate::library::Track;
 use crate::peaks::BandPeaks;
 use crate::stems::StemStatus;
 use crate::theme::Palette;
+use crate::track_overview::TimeRange;
 use crate::views::cues;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::tag_panel::choice_button;
+use crate::views::track_overview::{LaneFrame, LaneInputs, VOCALS_HEIGHT, overview_lanes};
 use crate::views::waveform::{WaveformColours, waveform};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
@@ -301,7 +305,11 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                 .flex()
                 .flex_wrap()
                 .gap(px(8.0))
-                .child(chip("Key", key, &palette).id("focus-chip-key"))
+                .child(
+                    chip("Key", key, &palette)
+                        .id("focus-chip-key")
+                        .test_support(),
+                )
                 .child(
                     chip(
                         "BPM",
@@ -310,7 +318,8 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                             .child(track.bpm().map_or_else(dash, format::bpm)),
                         &palette,
                     )
-                    .id("focus-chip-bpm"),
+                    .id("focus-chip-bpm")
+                    .test_support(),
                 )
                 .child(
                     chip(
@@ -322,7 +331,8 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                         ),
                         &palette,
                     )
-                    .id("focus-chip-energy"),
+                    .id("focus-chip-energy")
+                    .test_support(),
                 )
                 .child(
                     chip(
@@ -330,7 +340,8 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                         div().text_color(palette.text_secondary).child(grid),
                         &palette,
                     )
-                    .id("focus-chip-grid"),
+                    .id("focus-chip-grid")
+                    .test_support(),
                 ),
         )
 }
@@ -565,8 +576,43 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         lane_row(lane_name(Lane::Detail, &palette), DETAIL_HEIGHT, content)
     });
 
-    let energy = lanes.energy.then(|| energy_slot(&palette));
-    let vocals = lanes.vocals.then(|| vocals_slot(&palette));
+    let separated_path = track.path.clone();
+    let frame = LaneFrame {
+        duration_seconds: duration as f32,
+        range: TimeRange {
+            start_seconds: viewport.start as f32,
+            end_seconds: viewport.end() as f32,
+        },
+        width: None,
+        progress: None,
+        bounds: app.focus.lane_bounds.clone(),
+    };
+    let mut data_lanes = overview_lanes(&LaneInputs {
+        energy: match app.waveform_of(&track.path) {
+            Some(Waveform::Ready(_, energy)) => energy.as_ref(),
+            _ => None,
+        },
+        vocals: app.vocal_lane_of(&track.path),
+        stems: app.stems.status(&track.path),
+        frame,
+        palette,
+        on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.request_stems_of(separated_path.clone(), cx)
+        })),
+    });
+    let vocals_data = data_lanes
+        .iter()
+        .position(|lane| lane.height == VOCALS_HEIGHT)
+        .map(|position| data_lanes.remove(position));
+    let energy_data = data_lanes.pop();
+    let energy = lanes.energy.then(|| match energy_data {
+        Some(data) => lane_row(div(), data.height, data.element),
+        None => energy_slot(&palette),
+    });
+    let vocals = lanes.vocals.then(|| match vocals_data {
+        Some(data) => lane_row(div(), data.height, data.element),
+        None => vocals_slot(&palette),
+    });
     let stems = lanes
         .stems
         .then(|| stems_lane(track, app, &viewport, duration, cx));
@@ -691,23 +737,22 @@ fn visible_columns(
     (last > first).then(|| Arc::from(&columns[first.min(last - 1)..last]))
 }
 
-/// Where the Energy lane mounts. The lane is built as a reusable component
-/// on another branch; until it lands, this holds its place on the axis.
-pub(crate) fn energy_slot(palette: &Palette) -> Div {
+/// What the Energy lane shows before the track has an energy curve.
+fn energy_slot(palette: &Palette) -> Div {
     slot(
         Lane::Energy,
         "focus-energy-slot",
-        "Energy lane to come",
+        "Not worked out yet",
         palette,
     )
 }
 
-/// Where the Vocals lane mounts, as the Energy lane does.
-pub(crate) fn vocals_slot(palette: &Palette) -> Div {
+/// What the Vocals lane shows before the track has an energy curve.
+fn vocals_slot(palette: &Palette) -> Div {
     slot(
         Lane::Vocals,
         "focus-vocals-slot",
-        "Vocals lane to come",
+        "Not worked out yet",
         palette,
     )
 }
@@ -1021,7 +1066,7 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                                 })
                                 .test_support(),
                         )
-                        .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                             this.focus.selected_match = Some(track_index);
                             if event.click_count() >= 2 {
                                 this.select_and_reveal(track_index, cx);

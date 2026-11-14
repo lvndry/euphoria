@@ -284,7 +284,6 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<ToggleFavorite>(view, cx, |view, cx| {
         view.toggle_star_on_selection(cx);
     });
-    register_view_command::<OpenFocusView>(view, cx, |view, cx| view.open_focus_view(cx));
     register_view_command::<CloseFocusView>(view, cx, |view, cx| view.close_focus_view(cx));
     register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
         view.reset_column_widths(cx);

@@ -223,7 +223,7 @@ fn focus_button(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl In
                 .text_color(palette.text_secondary),
         )
         .child("Focus")
-        .on_click(cx.listener(|this, _, _, cx| this.open_focus_view(cx)))
+        .on_click(cx.listener(|this, _, window, cx| this.open_focus_view(window, cx)))
         .test_support()
 }
 

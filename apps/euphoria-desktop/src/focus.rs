@@ -457,6 +457,8 @@ pub(crate) struct FocusView {
     pub(crate) selected_match: Option<usize>,
     /// Where the time axis shared by the lanes was last drawn.
     pub(crate) axis_bounds: SeenBounds,
+    /// Where the energy and vocals lanes were last drawn, for their tooltips.
+    pub(crate) lane_bounds: SeenBounds,
     /// Where the overview was last drawn.
     pub(crate) overview_bounds: SeenBounds,
     pub(crate) is_moving_window: bool,
@@ -478,6 +480,7 @@ impl FocusView {
             lanes,
             selected_match: None,
             axis_bounds: SeenBounds::default(),
+            lane_bounds: SeenBounds::default(),
             overview_bounds: SeenBounds::default(),
             is_moving_window: false,
             stems: HashMap::new(),
@@ -509,10 +512,17 @@ impl EuphoriaApp {
     }
 
     /// Gives the selected track the whole window.
-    pub(crate) fn open_focus_view(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn open_focus_view(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         if self.focus.is_open || self.selected_track().is_none() {
             return;
         }
+        // The table that held the keyboard is replaced, so the window takes it
+        // and Enter, Esc, F and the space bar keep working.
+        self.window_focus.focus(window, cx);
         let duration = self.selected_duration();
         let is_playing_selected =
             self.selected_track().map(|track| track.path.as_path()) == self.player.track();
@@ -864,7 +874,7 @@ mod tests {
             start: 100.0,
             span: 90.0,
         };
-        let zoomed = view.zoomed(0.5, 0.25, 360.0);
+        let zoomed = view.zoomed(0.8, 0.25, 360.0);
         assert!((zoomed.seconds_at(0.25) - view.seconds_at(0.25)).abs() < 1e-9);
     }
 
