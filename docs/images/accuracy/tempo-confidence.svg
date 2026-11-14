@@ -16,6 +16,7 @@
 .series-fill { fill: #2a78d6; }
 .series-1-fill { fill: #2a78d6; }
 .series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 .halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
 @media (prefers-color-scheme: dark) {
@@ -27,6 +28,7 @@
   .bracket { stroke: #c3c2b7; }
   .series-fill, .series-1-fill { fill: #3987e5; }
   .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
   .ring, .halo { stroke: #1a1a19; }
 }
 </style>

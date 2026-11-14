@@ -90,6 +90,9 @@ pub enum SectionLabel {
     Drop,
     /// The closing section.
     Outro,
+    /// A section of a track whose level does not follow a DJ's breakdowns
+    /// and drops, such as a ballad or a jam.
+    Section,
 }
 
 impl SectionLabel {
@@ -101,6 +104,7 @@ impl SectionLabel {
             Self::Breakdown => "Breakdown",
             Self::Drop => "Drop",
             Self::Outro => "Outro",
+            Self::Section => "Section",
         }
     }
 }
@@ -113,6 +117,7 @@ impl From<CueSection> for SectionLabel {
             CueSection::Breakdown => Self::Breakdown,
             CueSection::Drop => Self::Drop,
             CueSection::Outro => Self::Outro,
+            CueSection::Section(_) => Self::Section,
         }
     }
 }

@@ -68,6 +68,7 @@ fn kind_of(label: SectionLabel) -> SectionKind {
         SectionLabel::Breakdown => SectionKind::Breakdown,
         SectionLabel::Drop => SectionKind::Drop,
         SectionLabel::Outro => SectionKind::Outro,
+        SectionLabel::Section => SectionKind::Section,
     }
 }
 

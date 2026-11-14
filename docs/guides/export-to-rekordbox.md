@@ -74,7 +74,7 @@ For each track:
 | Tempo | When Euphoria found one | The average BPM with two decimals, such as `128.00`. |
 | Energy | When Euphoria rated the track | In the comments, as `Energy 7`. See [energy](../concepts/energy.md). |
 | Beat grid | With `--beat-grid`, when the grid is rated medium or high | The first downbeat and the tempo of the grid, which is then the tempo written. See [beat grids](#beat-grids). |
-| Cue points | With `--cues`, on tracks with no cues in your collection, and a beat grid in the file or cues you edited in the app | Memory cues and hot cues A to H named Start, Main, Breakdown, Drop and Outro, or the cues you edited. See [cue points](#cue-points). |
+| Cue points | With `--cues`, on tracks with no cues in your collection, and a beat grid in the file or cues you edited in the app | Memory cues and hot cues A to H named Start, Main, Breakdown, Drop and Outro (or Section 2, Section 3 and so on, see [cue points](../concepts/accuracy.md#cue-points)), or the cues you edited. See [cue points](#cue-points). |
 
 A track with no key or no tempo has no key or tempo in the file. Euphoria never writes an empty key or a tempo of zero.
 

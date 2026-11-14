@@ -282,7 +282,7 @@ The header shows the title, artist, length, format and sound quality, with chips
 **The timeline** stacks these lanes, top to bottom:
 
 - **Overview**, the whole track as a small waveform, with the part the other lanes show outlined. Click or drag it to move that window.
-- **Sections**, coloured bands named Intro, Main, Breakdown, Drop and Outro. They come from the track's automatic cues (Start, Main, Breakdown, Drop and Outro), and follow a cue you drag. The lane reads them through one small interface, so a better section detector replaces only that.
+- **Sections**, coloured bands named Intro, Main, Breakdown, Drop and Outro, or Section on a track whose cues are numbered sections. They come from the track's automatic cues (Start, Main, Breakdown, Drop and Outro, or Section 2, Section 3 and so on), and follow a cue you drag. The lane reads them through one small interface, so a better section detector replaces only that.
 - **Detail**, a zoomed waveform of the outlined window, tinted by section, with the cue flags on top. Drag a flag to move its cue, as in the inspector: it lands on a beat, or on a bar with Shift. Double-click to add a cue, click to play from there. The **+** and **−** buttons zoom, Command and the wheel zoom about the pointer, and the wheel alone moves along the track. The waveform keeps 720 columns for a track, so the detail zooms in to a sixth of the track at most.
 - **Energy** and **Vocals**, the lanes described under [The lanes under the waveform](#the-lanes-under-the-waveform), over the same window.
 - **Stems**, four thin rows (vocals, drums, bass, other) showing where each stem sounds, measured second by second from the track's separated stems. A track without stems has the quiet link **Separate the stems**.

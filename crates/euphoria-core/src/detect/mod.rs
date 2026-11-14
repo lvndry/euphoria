@@ -13,6 +13,7 @@ mod decimate;
 mod key_sections;
 #[cfg(feature = "libkeyfinder")]
 mod keyfinder;
+mod sections;
 mod stratum;
 #[cfg(test)]
 mod synthesis;

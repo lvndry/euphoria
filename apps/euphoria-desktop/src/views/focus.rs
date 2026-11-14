@@ -412,7 +412,9 @@ fn lane_name(lane: Lane, palette: &Palette) -> Div {
 
 pub(crate) fn section_colour(kind: SectionKind, palette: &Palette) -> (gpui::Hsla, gpui::Hsla) {
     match kind {
-        SectionKind::Intro | SectionKind::Outro => (palette.waveform.opacity(0.55), palette.text),
+        SectionKind::Intro | SectionKind::Outro | SectionKind::Section => {
+            (palette.waveform.opacity(0.55), palette.text)
+        }
         SectionKind::Main => (palette.accent.opacity(0.45), palette.text),
         SectionKind::Breakdown => (palette.text_secondary.opacity(0.28), palette.text),
         SectionKind::Drop => (palette.accent.opacity(0.9), palette.accent_ink),

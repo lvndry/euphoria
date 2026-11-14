@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="544" viewBox="0 0 800 544" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Section boundaries by genre, SALAMI live recordings</title>
+<desc id="chart-desc">Dot plot, one row per genre group of the SALAMI test tracks: All test tracks (216 tracks), previous 21.3%, Euphoria 48.8%, Foote 45.1%; Dance-like (138 tracks), previous 21.5%, Euphoria 48.4%, Foote 45.6%; Rock (37 tracks), previous 21.4%, Euphoria 52.4%, Foote 45.8%; Folk and country (20 tracks), previous 25.1%, Euphoria 56.3%, Foote 49.9%; Funk and soul (12 tracks), previous 29.2%, Euphoria 49.8%, Foote 44.2%; Jazz (11 tracks), previous 14.7%, Euphoria 40.2%, Foote 38.9%; Jam band (12 tracks), previous 16.3%, Euphoria 48.0%, Foote 47.9%; Blues (6 tracks), previous 29.9%, Euphoria 46.7%, Foote 42.5%; Electronic (8 tracks), previous 23.6%, Euphoria 53.4%, Foote 45.8%. Euphoria's boundaries score above its previous section changes in every group.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.bracket { stroke: #52514e; stroke-width: 1.5; fill: none; }
+.connector { stroke: #c3c2b7; stroke-width: 2; fill: none; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis, .connector { stroke: #383835; }
+  .bracket { stroke: #c3c2b7; }
+  .series-fill, .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
+  .ring, .halo { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="543" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Section boundaries by genre, SALAMI live recordings</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">F-measure within 3 s against the functional annotations, test tracks. Tracks in brackets.</text>
+<circle cx="30" cy="86" r="6" class="series-2-fill ring"/>
+<text x="44" y="90" class="label" text-anchor="start">Previous section changes</text>
+<circle cx="260" cy="86" r="6" class="series-1-fill ring"/>
+<text x="274" y="90" class="label" text-anchor="start">Euphoria's boundaries</text>
+<circle cx="490" cy="86" r="6" class="series-3-fill ring"/>
+<text x="504" y="90" class="label" text-anchor="start">Foote, librosa features</text>
+<line x1="250" y1="120" x2="250" y2="480" class="grid"/>
+<text x="250" y="500" class="tick" text-anchor="middle">0%</text>
+<line x1="335" y1="120" x2="335" y2="480" class="grid"/>
+<text x="335" y="500" class="tick" text-anchor="middle">10%</text>
+<line x1="420" y1="120" x2="420" y2="480" class="grid"/>
+<text x="420" y="500" class="tick" text-anchor="middle">20%</text>
+<line x1="505" y1="120" x2="505" y2="480" class="grid"/>
+<text x="505" y="500" class="tick" text-anchor="middle">30%</text>
+<line x1="590" y1="120" x2="590" y2="480" class="grid"/>
+<text x="590" y="500" class="tick" text-anchor="middle">40%</text>
+<line x1="675" y1="120" x2="675" y2="480" class="grid"/>
+<text x="675" y="500" class="tick" text-anchor="middle">50%</text>
+<line x1="760" y1="120" x2="760" y2="480" class="grid"/>
+<text x="760" y="500" class="tick" text-anchor="middle">60%</text>
+<text x="505" y="524" class="label" text-anchor="middle">F-measure of the boundaries within 3 s</text>
+<text x="236" y="144.5" class="label" text-anchor="end">All test tracks (216)</text>
+<line x1="431.05" y1="140" x2="664.8" y2="140" class="connector"/>
+<circle cx="431.05" cy="140" r="6" class="series-2-fill ring"/>
+<circle cx="633.35" cy="140" r="6" class="series-3-fill ring"/>
+<circle cx="664.8" cy="140" r="6" class="series-1-fill ring"/>
+<text x="676.8" y="144.5" class="value halo" text-anchor="start">49%</text>
+<text x="236" y="184.5" class="label" text-anchor="end">Dance-like (138)</text>
+<line x1="432.75" y1="180" x2="661.4" y2="180" class="connector"/>
+<circle cx="432.75" cy="180" r="6" class="series-2-fill ring"/>
+<circle cx="637.6" cy="180" r="6" class="series-3-fill ring"/>
+<circle cx="661.4" cy="180" r="6" class="series-1-fill ring"/>
+<text x="673.4" y="184.5" class="value halo" text-anchor="start">48%</text>
+<text x="236" y="224.5" class="label" text-anchor="end">Rock (37)</text>
+<line x1="431.9" y1="220" x2="695.4" y2="220" class="connector"/>
+<circle cx="431.9" cy="220" r="6" class="series-2-fill ring"/>
+<circle cx="639.3" cy="220" r="6" class="series-3-fill ring"/>
+<circle cx="695.4" cy="220" r="6" class="series-1-fill ring"/>
+<text x="707.4" y="224.5" class="value halo" text-anchor="start">52%</text>
+<text x="236" y="264.5" class="label" text-anchor="end">Folk and country (20)</text>
+<line x1="463.35" y1="260" x2="728.55" y2="260" class="connector"/>
+<circle cx="463.35" cy="260" r="6" class="series-2-fill ring"/>
+<circle cx="674.15" cy="260" r="6" class="series-3-fill ring"/>
+<circle cx="728.55" cy="260" r="6" class="series-1-fill ring"/>
+<text x="740.55" y="264.5" class="value halo" text-anchor="start">56%</text>
+<text x="236" y="304.5" class="label" text-anchor="end">Funk and soul (12)</text>
+<line x1="498.2" y1="300" x2="673.3" y2="300" class="connector"/>
+<circle cx="498.2" cy="300" r="6" class="series-2-fill ring"/>
+<circle cx="625.7" cy="300" r="6" class="series-3-fill ring"/>
+<circle cx="673.3" cy="300" r="6" class="series-1-fill ring"/>
+<text x="685.3" y="304.5" class="value halo" text-anchor="start">50%</text>
+<text x="236" y="344.5" class="label" text-anchor="end">Jazz (11)</text>
+<line x1="374.95" y1="340" x2="591.7" y2="340" class="connector"/>
+<circle cx="374.95" cy="340" r="6" class="series-2-fill ring"/>
+<circle cx="580.65" cy="340" r="6" class="series-3-fill ring"/>
+<circle cx="591.7" cy="340" r="6" class="series-1-fill ring"/>
+<text x="603.7" y="344.5" class="value halo" text-anchor="start">40%</text>
+<text x="236" y="384.5" class="label" text-anchor="end">Jam band (12)</text>
+<line x1="388.55" y1="380" x2="658" y2="380" class="connector"/>
+<circle cx="388.55" cy="380" r="6" class="series-2-fill ring"/>
+<circle cx="657.15" cy="380" r="6" class="series-3-fill ring"/>
+<circle cx="658" cy="380" r="6" class="series-1-fill ring"/>
+<text x="670" y="384.5" class="value halo" text-anchor="start">48%</text>
+<text x="236" y="424.5" class="label" text-anchor="end">Blues (6)</text>
+<line x1="504.15" y1="420" x2="646.95" y2="420" class="connector"/>
+<circle cx="504.15" cy="420" r="6" class="series-2-fill ring"/>
+<circle cx="611.25" cy="420" r="6" class="series-3-fill ring"/>
+<circle cx="646.95" cy="420" r="6" class="series-1-fill ring"/>
+<text x="658.95" y="424.5" class="value halo" text-anchor="start">47%</text>
+<text x="236" y="464.5" class="label" text-anchor="end">Electronic (8)</text>
+<line x1="450.6" y1="460" x2="703.9" y2="460" class="connector"/>
+<circle cx="450.6" cy="460" r="6" class="series-2-fill ring"/>
+<circle cx="639.3" cy="460" r="6" class="series-3-fill ring"/>
+<circle cx="703.9" cy="460" r="6" class="series-1-fill ring"/>
+<text x="715.9" y="464.5" class="value halo" text-anchor="start">53%</text>
+</svg>

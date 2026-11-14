@@ -50,7 +50,7 @@ The [command reference](../reference/cli.md#euphoria-export-traktor) lists every
 | Tempo | `TEMPO BPM`, with six decimals | When Euphoria found one |
 | Energy | `INFO COMMENT`, as `Energy 7` | When Euphoria rated the track |
 | Beat grid | A grid marker (`CUE_V2` type 4) at the first downbeat, with the grid's tempo | With `--beat-grid`, for grids rated medium or high |
-| Cue points | Hot cues 1 to 8 (`CUE_V2` type 0) named Start, Main, Breakdown, Drop and Outro | With `--cues`, on tracks with a grid in the file and no cues in your collection |
+| Cue points | Hot cues 1 to 8 (`CUE_V2` type 0) named Start, Main, Breakdown, Drop and Outro, or Section 2, Section 3 and so on | With `--cues`, on tracks with a grid in the file and no cues in your collection |
 
 Traktor's own **Key** column is filled from `MUSICAL_KEY`, numbered 0 to 11 for the major keys from C and 12 to 23 for the minor keys from C minor. That numbering was checked against five tracks of the real Traktor Pro 4 collection, where `INFO KEY` and `MUSICAL_KEY` are both present. Mixxx's Traktor reader uses a numbering one semitone off from it; Euphoria follows the real file.
 
@@ -78,7 +78,7 @@ Traktor's analysis replaces an imported grid. Before analyzing imported tracks, 
 
 ## Cue points
 
-With `--cues`, each track whose beat grid is written gets hot cues 1 to 8 at the starts of its sections: Start, Main, Breakdown, Drop and Outro, at most 8, each on the first beat of a bar. Traktor lists hot cues among its cues, so the export does not add a second, memory copy of each one, as the rekordbox export does. dj-data-converter does the same.
+With `--cues`, each track whose beat grid is written gets hot cues 1 to 8 at the starts of its sections: Start, Main, Breakdown, Drop and Outro, or numbered sections on a track without that arc, at most 8, each on the first beat of a bar. Traktor lists hot cues among its cues, so the export does not add a second, memory copy of each one, as the rekordbox export does. dj-data-converter does the same.
 
 Euphoria never changes cues you set. `--cues` needs `--collection`, naming your Traktor `collection.nml`, which is only read:
 

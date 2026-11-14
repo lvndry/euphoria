@@ -157,6 +157,7 @@ pub(crate) enum SectionKind {
     Breakdown,
     Drop,
     Outro,
+    Section,
 }
 
 impl SectionKind {
@@ -167,6 +168,7 @@ impl SectionKind {
             SectionKind::Breakdown => "Breakdown",
             SectionKind::Drop => "Drop",
             SectionKind::Outro => "Outro",
+            SectionKind::Section => "Section",
         }
     }
 }
@@ -179,6 +181,7 @@ impl From<CueSection> for SectionKind {
             CueSection::Breakdown => SectionKind::Breakdown,
             CueSection::Drop => SectionKind::Drop,
             CueSection::Outro => SectionKind::Outro,
+            CueSection::Section(_) => SectionKind::Section,
         }
     }
 }
