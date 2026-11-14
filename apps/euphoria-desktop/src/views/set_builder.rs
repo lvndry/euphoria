@@ -20,11 +20,13 @@ use crate::format;
 use crate::set_builder::{FEWEST_TRACKS, MOST_TRACKS, PlannedSet, SetPool};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
+use crate::views::player::{GLYPH_SIZE, paint_pause_glyph, paint_play_glyph};
 use crate::views::tag_panel::choice_button;
 use crate::views::{
     LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, primary_button, secondary_button, section_label,
 };
 
+const SET_ROW_GROUP: &str = "set-row";
 const CURVE_HEIGHT: f32 = 200.0;
 const ENERGY_GRID: [f32; 4] = [1.0, 4.0, 7.0, 10.0];
 
@@ -39,6 +41,13 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .min_w_0()
         .min_h_0()
         .overflow_y_scroll()
+        .track_focus(&app.table_focus)
+        .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+            if matches!(event.keystroke.key.as_str(), "delete" | "backspace") {
+                this.remove_selected_set_row(cx);
+                cx.stop_propagation();
+            }
+        }))
         .bg(palette.background)
         .px(px(24.0))
         .py(px(20.0))
@@ -609,8 +618,34 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                         .child(format!("of {:.1}", planned_track.target_energy)),
                 )
         });
+        let is_sounding = app.is_set_row_sounding(position);
+        let is_current = app.set_playing_position() == Some(position);
+        let is_selected = app.set_builder.selected_row == Some(position);
+        let neighbour_locked = |other: Option<usize>| {
+            other
+                .and_then(|other| planned.locked.get(other))
+                .copied()
+                .unwrap_or(false)
+        };
+        let can_move_earlier =
+            position > 0 && !is_locked && !neighbour_locked(position.checked_sub(1));
+        let can_move_later =
+            position + 1 < count && !is_locked && !neighbour_locked(Some(position + 1));
+        let play_colour = if is_current {
+            palette.accent
+        } else {
+            palette.text_secondary
+        };
         let row = div()
             .id(("set-row", position))
+            .group(SET_ROW_GROUP)
+            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                this.table_focus.focus(window, cx);
+                this.select_set_row(position, cx);
+                if event.click_count() == 2 {
+                    this.play_set_track(position, 0.0, cx);
+                }
+            }))
             .flex()
             .items_center()
             .gap(px(10.0))
@@ -620,12 +655,56 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .when(position > 0, |row| {
                 row.border_t_1().border_color(palette.line)
             })
+            .when(is_selected, |row| row.bg(palette.raised))
             .when(is_locked, |row| row.bg(palette.selection.opacity(0.5)))
             .child(
                 div()
                     .w(px(22.0))
-                    .text_color(palette.text_tertiary)
+                    .text_color(if is_current {
+                        palette.accent
+                    } else {
+                        palette.text_tertiary
+                    })
                     .child((position + 1).to_string()),
+            )
+            .child(
+                div()
+                    .id(("set-play", position))
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .size(px(24.0))
+                    .rounded(px(12.0))
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(raised))
+                    .when(!is_current, |button| {
+                        button
+                            .invisible()
+                            .group_hover(SET_ROW_GROUP, |style| style.visible())
+                    })
+                    .tooltip(move |window, cx| {
+                        Tooltip::new(if is_sounding { "Pause" } else { "Play from the start" })
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_set_row(position, cx);
+                        cx.stop_propagation();
+                    }))
+                    .child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds: Bounds<Pixels>, _, window, _| {
+                                if is_sounding {
+                                    paint_pause_glyph(bounds, play_colour, window);
+                                } else {
+                                    paint_play_glyph(bounds, play_colour, window);
+                                }
+                            },
+                        )
+                        .size(px(GLYPH_SIZE)),
+                    )
+                    .test_support(),
             )
             .child(
                 choice_button(
@@ -638,7 +717,10 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                     Tooltip::new("Keep this track here when the set is built again.")
                         .build(window, cx)
                 })
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_set_lock(position, cx)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_set_lock(position, cx);
+                    cx.stop_propagation();
+                }))
                 .test_support(),
             )
             .child(
@@ -658,6 +740,29 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .child(div().w(px(44.0)).children(step))
             .child(div().w(px(96.0)).children(movement))
             .child(div().w(px(64.0)).children(energy))
+            .child(div().w(px(104.0)).when(position > 0, |cell| {
+                cell.child(
+                    div()
+                        .id(("set-transition", position))
+                        .px(px(6.0))
+                        .rounded(px(4.0))
+                        .cursor_pointer()
+                        .text_color(palette.text_secondary)
+                        .hover(move |style| style.bg(raised))
+                        .tooltip(|window, cx| {
+                            Tooltip::new(
+                                "Hear the last 20 seconds of the track before, then this track from its start.",
+                            )
+                            .build(window, cx)
+                        })
+                        .child("Play transition")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_set_transition(position, cx);
+                            cx.stop_propagation();
+                        }))
+                        .test_support(),
+                )
+            }))
             .child(
                 div()
                     .flex()
@@ -677,29 +782,51 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .child(row_button(
                 ("set-earlier", position),
                 IconName::ArrowUp,
-                position > 0,
+                can_move_earlier,
                 &palette,
-                cx.listener(move |this, _, _, cx| this.move_set_track(position, false, cx)),
+                cx.listener(move |this, _, _, cx| {
+                    this.move_set_track(position, false, cx);
+                    cx.stop_propagation();
+                }),
             ))
             .child(row_button(
                 ("set-later", position),
                 IconName::ArrowDown,
-                position + 1 < count,
+                can_move_later,
                 &palette,
-                cx.listener(move |this, _, _, cx| this.move_set_track(position, true, cx)),
+                cx.listener(move |this, _, _, cx| {
+                    this.move_set_track(position, true, cx);
+                    cx.stop_propagation();
+                }),
             ))
             .child(
                 div()
                     .id(("set-remove", position))
                     .px(px(6.0))
                     .rounded(px(4.0))
-                    .cursor_pointer()
                     .text_color(palette.text_tertiary)
-                    .hover(move |style| style.bg(raised))
+                    .map(|button| {
+                        if is_locked {
+                            button
+                                .opacity(0.4)
+                                .tooltip(|window, cx| {
+                                    Tooltip::new("Unlock to remove").build(window, cx)
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.remove_set_track(position, cx);
+                                    cx.stop_propagation();
+                                }))
+                        } else {
+                            button
+                                .cursor_pointer()
+                                .hover(move |style| style.bg(raised))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.remove_set_track(position, cx);
+                                    cx.stop_propagation();
+                                }))
+                        }
+                    })
                     .child("Remove")
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.remove_set_track(position, cx)),
-                    )
                     .test_support(),
             )
             .test_support();

@@ -460,8 +460,11 @@ Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [dat
 
 The chart then draws the energy of each track of the set over the curve, with tracks more than a point away in red. Under it, a summary gives the length of the set, how close it follows the curve and whether every mix keeps the rules, then one line for each place it falls short. Each row of the set shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
 
-- **Lock** keeps a track where it is. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
-- The arrows move a track one place, and **Remove** takes it out. The set is explained again at once: the moves, the steps and the curve follow your order.
+- **Lock** pins a track. A locked row cannot be removed (**Remove** is greyed, with "Unlock to remove", and Delete skips it with a notice), and the arrows are off for it and for the rows beside it, so nothing moves it. Click **Locked** to unlock it. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
+- The arrows move a track one place, and **Remove** takes it out (or select a row and press Delete). The set is explained again at once: the moves, the steps and the curve follow your order.
+- **Play the set.** Point at a row and press its play button, double-click the row, or select it and press Space: the track plays from the start in the player at the bottom of the window, and the playing row is marked with the accent colour and a pause button. Press the button again, or the player's own button, to pause and resume. When a track ends, the set goes on with the next track in set order, not library order, and stops after the last one.
+- **Play transition** on a row plays the last 20 seconds of the track before it, then goes on into that track from its start. The 20 seconds is fixed: the set builder does not plan mix points, and this is a plain one-after-the-other preview with no crossfade. To hear a mix with both tracks at once, use the transition planner on the decks.
+- While the decks are open they hold the player, so the play buttons show "Close the decks to use the track player." and do nothing.
 - **Save as playlist** keeps the set as a playlist named after its curve, such as "Set: Journey, 20 tracks", in the sidebar with the others. **Export M3U8…** saves it first if needed, then asks where to write the file.
 
 A pool with more than 4,000 tracks that have a key, a tempo and an energy is refused: choose a folder or a playlist.

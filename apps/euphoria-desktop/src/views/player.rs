@@ -18,7 +18,7 @@ use crate::views::SMALL_TEXT_SIZE;
 use crate::views::waveform::SeenBounds;
 
 const BUTTON_SIZE: f32 = 30.0;
-const GLYPH_SIZE: f32 = 10.0;
+pub(crate) const GLYPH_SIZE: f32 = 10.0;
 
 /// The round play and pause button. It is faint and does nothing while no
 /// track is selected.
@@ -65,7 +65,7 @@ pub(crate) fn play_button(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
 }
 
 /// Two upright bars.
-fn paint_pause_glyph(bounds: Bounds<Pixels>, colour: Hsla, window: &mut gpui::Window) {
+pub(crate) fn paint_pause_glyph(bounds: Bounds<Pixels>, colour: Hsla, window: &mut gpui::Window) {
     let bar_width = GLYPH_SIZE * 0.3;
     for left in [GLYPH_SIZE * 0.12, GLYPH_SIZE * 0.58] {
         let bar = Bounds::new(
@@ -77,7 +77,7 @@ fn paint_pause_glyph(bounds: Bounds<Pixels>, colour: Hsla, window: &mut gpui::Wi
 }
 
 /// A triangle pointing right, nudged right so that it looks centred.
-fn paint_play_glyph(bounds: Bounds<Pixels>, colour: Hsla, window: &mut gpui::Window) {
+pub(crate) fn paint_play_glyph(bounds: Bounds<Pixels>, colour: Hsla, window: &mut gpui::Window) {
     let corner = |across: f32, down: f32| {
         bounds.origin + point(px(GLYPH_SIZE * across), px(GLYPH_SIZE * down))
     };

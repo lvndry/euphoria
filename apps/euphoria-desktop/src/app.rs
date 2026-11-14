@@ -64,10 +64,10 @@ const PLAYHEAD_INTERVAL: Duration = Duration::from_millis(33);
 const STEM_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// The sound of the track that is playing or paused.
-struct ActiveVoice {
+pub(crate) struct ActiveVoice {
     /// Dropping this stops the sound.
-    voice: Box<dyn Voice>,
-    state: Arc<VoiceState>,
+    pub(crate) voice: Box<dyn Voice>,
+    pub(crate) state: Arc<VoiceState>,
 }
 
 /// The root view of the window.
@@ -244,7 +244,7 @@ pub(crate) struct EuphoriaApp {
     pub(crate) focus: crate::focus::FocusView,
     /// The plans of the selected track into the tracks it mixes into.
     pub(crate) planner: crate::transition_plan::Planner,
-    voice: Option<ActiveVoice>,
+    pub(crate) voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
     is_following_playhead: bool,
@@ -1497,7 +1497,7 @@ impl EuphoriaApp {
 
     /// Gives the player the selected track. While a track is playing, the
     /// newly selected one plays in its place.
-    fn point_player_at_selection(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn point_player_at_selection(&mut self, cx: &mut Context<'_, Self>) {
         self.stop_drone_of_other_tracks();
         let selected = self
             .selected_track()
@@ -1525,6 +1525,10 @@ impl EuphoriaApp {
         if self.decks.is_open {
             self.notice = Some(crate::decks::PLAYER_HELD_BY_DECKS.to_string());
             cx.notify();
+            return;
+        }
+        if let Some(position) = self.set_row_to_play() {
+            self.play_set_track(position, 0.0, cx);
             return;
         }
         let request = self.player.toggle();
@@ -1790,8 +1794,7 @@ impl EuphoriaApp {
             self.player.interrupted(problem.message().to_string());
             self.voice = None;
         } else if active.state.is_finished() {
-            self.player.finished();
-            self.voice = None;
+            self.track_finished(cx);
         } else {
             self.player.advance_to(active.state.position_seconds());
             self.follow_playhead_in_focus();
