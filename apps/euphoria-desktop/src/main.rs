@@ -83,6 +83,8 @@ mod tag_writing;
 mod theme;
 mod toast;
 mod toast_flow;
+#[cfg(test)]
+mod toast_ui_tests;
 mod track_filter_flow;
 #[cfg(test)]
 mod track_filter_ui_tests;
