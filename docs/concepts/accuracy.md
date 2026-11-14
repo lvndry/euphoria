@@ -277,10 +277,12 @@ Sections shorter than 8 bars, such as a one bar break before a drop, belong to t
 
 ### What has been checked
 
-No dataset with both audio and labelled sections of dance music was found, so the cues are not scored against labels. What was checked:
+No dataset with both audio and labelled sections of dance music was found (the public annotations of the Harmonix Set and SALAMI come without audio that can be redistributed), so the cues are not scored against labels. What was checked:
 
-- **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none.
-- **The 604 GiantSteps Key previews.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
+- **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none. So do a groove without an on-beat kick after a kick intro, which gets a Main and no Outro, a loud intro before a quieter steady body, which gets no Outro, and a few silent bars at the end of a track.
+- **Boundaries on synthesized arrangements.** On 9 arrangements with 32 known section starts, the previous method placed 21 within one bar with the right name (66%) and this one all 32. The arrangements include the cases the previous method got wrong, so this shows the fix and is not an estimate of accuracy on real music.
+- **575 full length tracks of one DJ library, without labels.** Counting cues, not scoring them: tracks with an Outro in the first half fell from 14 to 0, and in the first three quarters from 23 to 3; tracks with an Outro at all rose from 131 to 169, since most tracks with a clear ending had none; tracks with only the Start cue fell from 190 to 31. In the early Outro tracks inspected, the section was one the kick detector lost, not an outro: the kick of a bar was measured on the grid's beats, which drift from the music over a long track and after a breakdown, so it read as absent for the rest of the track.
+- **The 604 GiantSteps Key previews, before the cues were changed to this method and not measured again.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
 
 It cannot show how often the cues fall where a DJ would put them on full length tracks.
 
