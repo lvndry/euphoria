@@ -244,6 +244,13 @@ pub(crate) struct EuphoriaApp {
     start_task: Option<Task<()>>,
     is_following_playhead: bool,
     pub(crate) query: String,
+    /// The tempo, quality and energy filters on the track list.
+    pub(crate) track_filters: crate::track_filters::TrackFilters,
+    /// The fields the filters' ranges are typed in.
+    pub(crate) track_filter_inputs: crate::track_filters::TrackFilterInputs,
+    /// Whether the filter bar is open under the heading. It also shows
+    /// while a filter is set.
+    pub(crate) is_filter_bar_open: bool,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
     vocal_lanes: HashMap<PathBuf, VocalLane>,
@@ -286,6 +293,25 @@ impl EuphoriaApp {
                 }
             },
         );
+        let track_filter_inputs = crate::track_filters::TrackFilterInputs {
+            bpm_from: cx.new(|cx| InputState::new(window, cx).placeholder("min")),
+            bpm_to: cx.new(|cx| InputState::new(window, cx).placeholder("max")),
+            energy_from: cx.new(|cx| InputState::new(window, cx).placeholder("min")),
+            energy_to: cx.new(|cx| InputState::new(window, cx).placeholder("max")),
+        };
+        let track_filters_typed = [
+            &track_filter_inputs.bpm_from,
+            &track_filter_inputs.bpm_to,
+            &track_filter_inputs.energy_from,
+            &track_filter_inputs.energy_to,
+        ]
+        .map(|input| {
+            cx.subscribe(input, |this: &mut Self, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.apply_track_filter_inputs(cx);
+                }
+            })
+        });
         let quitting = cx.on_app_quit(|this: &mut Self, cx| {
             let stop_signal = this.session.stop_signal();
             stop_signal.skip_queued_files();
@@ -491,6 +517,9 @@ impl EuphoriaApp {
             start_task: None,
             is_following_playhead: false,
             query: String::new(),
+            track_filters: settings.track_filters.clone(),
+            track_filter_inputs,
+            is_filter_bar_open: settings.track_filters.is_active(),
             settings_path,
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
             vocal_lanes: HashMap::new(),
@@ -515,8 +544,12 @@ impl EuphoriaApp {
                 filter_energy_from_changed,
                 filter_energy_to_changed,
                 filter_genre_changed,
-            ],
+            ]
+            .into_iter()
+            .chain(track_filters_typed)
+            .collect(),
         };
+        this.show_track_filters(window, cx);
         this.show_suggestion_filter(&settings.suggestion_filter, window, cx);
         if !settings.folders.is_empty() {
             this.add_paths(settings.folders, false, cx);
@@ -812,13 +845,18 @@ impl EuphoriaApp {
             .map(|playlist| playlist.tracks.as_slice())
             .or(favorites)
         {
-            Some(paths) => {
-                library.playlist_rows(paths, &self.query, self.sort_order, &self.folder_column)
-            }
+            Some(paths) => library.playlist_rows(
+                paths,
+                &self.query,
+                &self.track_filters,
+                self.sort_order,
+                &self.folder_column,
+            ),
             None => library.visible_tracks(
                 self.filter,
                 self.folder.as_deref(),
                 &self.query,
+                &self.track_filters,
                 self.sort_order,
                 &self.folder_column,
             ),
@@ -2009,6 +2047,7 @@ impl EuphoriaApp {
             suggestion_filter: self.decks.filter.clone(),
             focus_lanes: self.focus.lanes,
             metronome: self.metronome.settings,
+            track_filters: self.track_filters.clone(),
         };
         settings
             .save(settings_path)

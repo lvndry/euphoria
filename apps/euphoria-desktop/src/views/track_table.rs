@@ -137,6 +137,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .min_w_0()
         .min_h_0()
         .child(heading(app, &palette, cx))
+        .children(super::track_filter_bar::render(app, cx))
         .child(header(app, &palette, cx))
         .child(rows)
 }
@@ -161,6 +162,8 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
         "No missing files: every track is where it was"
     } else if app.filter == LibraryFilter::QualityToCheck {
         "No tracks with a low bit rate or likely re-encoded"
+    } else if app.track_filters.is_active() {
+        "No tracks match the filters"
     } else {
         "No tracks match"
     }
@@ -190,25 +193,46 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
             format!("Quality to check in {folder}").into()
         }
     };
-    let count = match playlist {
-        None if app.showing_favorites => {
-            let shown = app.visible.len();
+    let is_filtered = app.track_filters.is_active();
+    let of_all = |shown: usize, all: usize| {
+        let tracks = if all == 1 { "track" } else { "tracks" };
+        if is_filtered {
+            format!(
+                "{} of {} {tracks}",
+                format::count(shown),
+                format::count(all)
+            )
+        } else {
             let tracks = if shown == 1 { "track" } else { "tracks" };
             format!("{} {tracks}", format::count(shown))
+        }
+    };
+    let count = match playlist {
+        None if app.showing_favorites => {
+            let library = app.session.library();
+            let all = app
+                .session
+                .favorites()
+                .tracks()
+                .iter()
+                .filter(|path| library.index_of(path).is_some())
+                .count();
+            of_all(app.visible.len(), all)
         }
         Some(playlist) => {
             let shown = app.visible.len();
             let not_in_library = playlist.tracks.len() - app.playlist_positions.len();
-            let tracks = if shown == 1 { "track" } else { "tracks" };
+            let counted = of_all(shown, app.playlist_positions.len());
             match not_in_library {
-                0 => format!("{} {tracks}", format::count(shown)),
-                missing => format!(
-                    "{} {tracks}, {} not in the library",
-                    format::count(shown),
-                    format::count(missing)
-                ),
+                0 => counted,
+                missing => format!("{counted}, {} not in the library", format::count(missing)),
             }
         }
+        None if is_filtered => format::track_summary_filtered(
+            app.visible.len(),
+            app.session.library().counts().total,
+            app.session.cached_count(),
+        ),
         None => format::track_summary(
             app.visible.len(),
             app.session.library().counts().total,
@@ -257,10 +281,19 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
         )
         .child(
             div()
+                .flex()
                 .flex_shrink_0()
-                .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.text_tertiary)
-                .child(count),
+                .items_center()
+                .gap(px(8.0))
+                .child(super::track_filter_bar::toggle(app, cx))
+                .child(
+                    div()
+                        .id("track-count")
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_tertiary)
+                        .child(count)
+                        .test_support(),
+                ),
         )
 }
 
