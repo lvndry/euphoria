@@ -28,6 +28,9 @@ mod format;
 mod key_by_ear;
 mod key_shift;
 mod library;
+mod library_export;
+#[cfg(test)]
+mod library_export_ui_tests;
 mod mashup;
 #[cfg(test)]
 mod missing_ui_tests;
@@ -72,10 +75,10 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, BuildSet, EditTags, FocusSearch, OpenSetBuilder, OpenSettings,
-    Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, ToggleDecks, ToggleFavorite,
-    TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
-    UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    AddCueAtPlayhead, AddFolder, BuildSet, EditTags, ExportLibrary, FocusSearch, OpenSetBuilder,
+    OpenSettings, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, ToggleDecks,
+    ToggleFavorite, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
+    UseGraphiteTheme, UseKeyFirstTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -258,6 +261,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<ExportLibrary>(view, cx, |view, cx| view.open_library_export(cx));
     register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
     register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
     register_view_command::<OpenSetBuilder>(view, cx, |view, cx| view.open_set_builder(cx));
@@ -367,7 +371,11 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::separator(),
             MenuItem::action("Quit Euphoria", Quit),
         ]),
-        Menu::new("File").items([MenuItem::action("Add Folder\u{2026}", AddFolder)]),
+        Menu::new("File").items([
+            MenuItem::action("Add Folder\u{2026}", AddFolder),
+            MenuItem::separator(),
+            MenuItem::action("Export Library\u{2026}", ExportLibrary),
+        ]),
         Menu::new("View").items([
             MenuItem::action(sidebar_item, ToggleSidebar),
             MenuItem::action("Decks", ToggleDecks),

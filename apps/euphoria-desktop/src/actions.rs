@@ -14,6 +14,8 @@ actions!(
         Quit,
         /// Opens the folder picker.
         AddFolder,
+        /// Opens the sheet that exports the library to a DJ program.
+        ExportLibrary,
         /// Plays the selected track, or pauses it.
         TogglePlayback,
         /// Folds the sidebar away, or brings it back.

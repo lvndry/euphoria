@@ -970,6 +970,18 @@ fn paths_that_cannot_be_used_are_errors() {
     assert_eq!(output_is_a_folder.status.code(), Some(1));
     assert!(standard_error(&output_is_a_folder).contains("is a folder"));
 
+    let folder_without_force = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&fixture),
+        "-o",
+        text(output_folder.path()),
+    ]);
+    assert_eq!(folder_without_force.status.code(), Some(1));
+    let errors = standard_error(&folder_without_force);
+    assert!(errors.contains("is a folder"), "{errors}");
+    assert!(!errors.contains("--force to replace"), "{errors}");
+
     let no_output = euphoria.run(&["export", "rekordbox", text(&fixture)]);
     assert_eq!(no_output.status.code(), Some(2));
     assert!(standard_error(&no_output).contains("--output <FILE>"));

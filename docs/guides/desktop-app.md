@@ -353,6 +353,24 @@ Select one track or thousands and click **Edit tags** in the toolbar, or choose 
 
 The edit is written with the same safety as a tag write and shares its backups, so **Undo this write**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. The titles and artists in the table follow the edit. A comment or a grouping keeps the key and energy label a tag write put there, as [`euphoria tags set`](../reference/cli.md#euphoria-tags-set) explains, and the comment field shows only your own text. The key and BPM fields are the tags in the files; the key and tempo Euphoria detected stay as they were.
 
+## Export the library
+
+**File > Export Library...** opens a sheet that exports every track of the library, or only the tracks the table shows, to a DJ program. The analysis, corrections and cues you edited in the app are what is exported; nothing is analyzed again.
+
+1. Pick the program: rekordbox (an XML file to import), Traktor (an NML file to import), Engine DJ or VirtualDJ (the program's own database, edited in place), or any program (an M3U8 playlist).
+2. Pick the tracks: the whole library or the tracks shown.
+3. Set the options the program has, as in `euphoria export`: key notation, the beat grid, cues, a playlist per folder (rekordbox and Traktor), and where the key and energy label goes (Engine DJ and VirtualDJ).
+4. Choose the file to write, or the Engine Library folder or VirtualDJ `database.xml` to edit. The app proposes the ones it finds in your home folder.
+5. **Review** checks everything and shows what would be written. It writes nothing. **Export** then writes, and the result appears in the notice strip.
+
+For rekordbox and Traktor, cues need the beat grid and your own collection file (rekordbox: File > Export Collection in xml format; Traktor: `collection.nml`). Tracks that already have cues there are left out of the file so importing it cannot change them, and the export is refused when cued tracks of that collection match no file on this computer, unless you tick the box that allows it. The file is never written over your Traktor collection.
+
+Engine DJ and VirtualDJ keep every safety of the command line, because the app calls the same code: a copy of the database is saved first and its path is shown in the review, the export is refused while the program is running, an Engine DJ library whose schema version Euphoria was not checked against is refused, and tracks with cues of their own in the program keep them.
+
+The export runs off the main thread, but it has no per-track counter: the sheet says whether it is checking or writing and cannot be closed meanwhile.
+
+The headless interface tests cover the sheet opening, a rekordbox export of a small fixture library, and the refusal of an Engine DJ database of an unknown version or while the program runs. The Engine DJ and VirtualDJ writes themselves are tested in the core, not against the real programs, and the file dialogs have not been checked by an automated test.
+
 ## Settings
 
 Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.
@@ -465,5 +483,4 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - Rating favorites (more than one star), and exporting favorite transitions with their notes.
 - Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
-- Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
 - Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

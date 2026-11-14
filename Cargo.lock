@@ -2034,6 +2034,7 @@ dependencies = [
  "png 0.18.1",
  "rayon",
  "rodio",
+ "roxmltree 0.21.2",
  "rusqlite",
  "serde",
  "serde_json",

@@ -6,9 +6,9 @@
 
 use std::path::{Path, PathBuf, absolute};
 
-use anyhow::{Context, Result, bail};
+use super::checks::{CheckError, Result};
 
-use crate::collection::CuedTracks;
+use super::rekordbox_collection::CuedTracks;
 
 /// The type of a `CUE_V2` that marks the beat grid.
 const GRID_CUE_TYPE: &str = "4";
@@ -22,10 +22,18 @@ const AUTOMATIC_CUE_NAME: &str = "AutoGrid";
 /// a DOM at once, so memory follows the collection's size; only the
 /// cue-bearing entries survive the parse.
 pub fn tracks_with_cues(path: &Path, startup_volume: &str) -> Result<CuedTracks> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("cannot read the Traktor collection {}", path.display()))?;
-    let cued = parse(&text, startup_volume)
-        .with_context(|| format!("cannot read the Traktor collection {}", path.display()))?;
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        CheckError::new(
+            format!("cannot read the Traktor collection {}", path.display()),
+            error,
+        )
+    })?;
+    let cued = parse(&text, startup_volume).map_err(|error| {
+        error.context(format!(
+            "cannot read the Traktor collection {}",
+            path.display()
+        ))
+    })?;
     let mut tracks = CuedTracks::default();
     for (listed, description) in cued {
         let found = listed
@@ -45,14 +53,17 @@ pub fn tracks_with_cues(path: &Path, startup_volume: &str) -> Result<CuedTracks>
 /// The entries of the collection with cues set by the user: each one's path
 /// on this computer when its location names one, and how to name it.
 fn parse(text: &str, startup_volume: &str) -> Result<Vec<(Option<PathBuf>, String)>> {
-    let document = roxmltree::Document::parse(text).context("it is not well formed XML")?;
+    let document = roxmltree::Document::parse(text)
+        .map_err(|error| CheckError::new("it is not well formed XML", error))?;
     let root = document.root_element();
     let Some(collection) = root
         .has_tag_name("NML")
         .then(|| root.children().find(|node| node.has_tag_name("COLLECTION")))
         .flatten()
     else {
-        bail!("it is not a Traktor collection: it has no NML and COLLECTION");
+        return Err(CheckError::message(
+            "it is not a Traktor collection: it has no NML and COLLECTION",
+        ));
     };
     let entries = collection
         .children()
@@ -166,7 +177,7 @@ pub fn startup_volume_name() -> String {
             std::fs::canonicalize(entry.path()).is_ok_and(|resolved| resolved.as_path() == root)
         })
         .and_then(|entry| entry.file_name().into_string().ok())
-        .unwrap_or_else(|| euphoria_core::export::traktor::DEFAULT_STARTUP_VOLUME.to_string())
+        .unwrap_or_else(|| super::traktor::DEFAULT_STARTUP_VOLUME.to_string())
 }
 
 /// The `collection.nml` files of the Traktor programs installed on this

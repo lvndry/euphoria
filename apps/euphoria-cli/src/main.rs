@@ -4,7 +4,6 @@
 //! The `euphoria` command line tool.
 
 mod batch;
-mod collection;
 mod corrections;
 mod export;
 mod grid_import;
@@ -23,7 +22,6 @@ mod tag_edit;
 mod tag_key;
 mod tags;
 mod terminal;
-mod traktor_collection;
 mod view;
 
 use std::io::{IsTerminal, Write};

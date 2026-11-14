@@ -11,11 +11,13 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand, ValueEnum};
+use euphoria_core::export::checks;
 use euphoria_core::export::engine::{
     EngineOptions, EngineTrack, library_database, preview_library_update, update_library,
 };
+use euphoria_core::export::program_files;
 use euphoria_core::export::rekordbox::{
-    ExistingFile, ExportOptions, KeyNotation, Library, PlaylistNode, write_xml_file,
+    ExistingFile, ExportOptions, KeyNotation, Library, write_xml_file,
 };
 use euphoria_core::export::traktor::{ModifiedTime, TraktorOptions, write_nml_file};
 use euphoria_core::export::virtualdj::{
@@ -24,16 +26,17 @@ use euphoria_core::export::virtualdj::{
 use euphoria_core::tags::{KeyNotation as TagKeyNotation, LabelPlacement};
 use euphoria_core::{
     AssembledLibrary, CachedAnalyzer, CachedBatch, EntryLocation, EuphoriaError, ExportContents,
-    M3uTrack, PlaylistLayout, assemble_library_with, find_audio_files, is_supported_audio_file,
-    playlist_count, read_track_name, write_m3u8_file,
+    M3uTrack, PlaylistLayout, assemble_library_with, find_audio_files, playlist_count,
+    read_track_name, write_m3u8_file,
 };
 
 use crate::batch::{self, AnalysisOptions};
-use crate::collection::{self, CuedTracks};
 use crate::playlists::find_playlist;
 use crate::style::Theme;
 use crate::terminal::Printable;
-use crate::{grid_import, output, traktor_collection, with_causes};
+use crate::{grid_import, output, with_causes};
+use euphoria_core::export::rekordbox_collection::{self as collection, CuedTracks};
+use euphoria_core::export::traktor_collection;
 
 /// Used for the playlist of files named directly when the output file has no
 /// name to borrow.
@@ -450,7 +453,7 @@ fn export_to_traktor(arguments: &TraktorArguments) -> Result<ExitCode> {
 
 fn export_library(
     request: &ExportRequest<'_>,
-    read_cued_tracks: impl Fn(&Path) -> Result<CuedTracks>,
+    read_cued_tracks: impl Fn(&Path) -> checks::Result<CuedTracks>,
     write: impl FnOnce(&Path, &Library, ExistingFile) -> Result<(), EuphoriaError>,
 ) -> Result<ExitCode> {
     let program = request.program;
@@ -464,7 +467,12 @@ fn export_library(
     // Checked before the analysis, which can take hours on a large library.
     check_output_file(&output_file, existing)?;
     if let Some(collection) = request.collection {
-        check_output_is_not_a_collection(&output_file, &[collection.to_path_buf()], program)?;
+        checks::check_output_is_not_a_collection(
+            &output_file,
+            &[collection.to_path_buf()],
+            program.name(),
+            "--force does not change this",
+        )?;
     }
     let grids = match request.collection {
         Some(collection) if request.import_grids => {
@@ -488,7 +496,12 @@ fn export_library(
     // The user's installed collection is protected even without --collection,
     // so --force never overwrites the real one.
     if !request.protected_collections.is_empty() {
-        check_output_is_not_a_collection(&output_file, &request.protected_collections, program)?;
+        checks::check_output_is_not_a_collection(
+            &output_file,
+            &request.protected_collections,
+            program.name(),
+            "--force does not change this",
+        )?;
     }
     let already_cued = &cued_tracks.paths;
 
@@ -561,7 +574,7 @@ fn export_library(
     );
     // A track that has cues of its own is left out of the file, so that no
     // import of the file can change them.
-    let left_out = leave_out(&mut library, already_cued);
+    let left_out = checks::leave_out(&mut library, already_cued);
 
     // The file is written before anything is reported, so that a reader of
     // standard error that goes away cannot stop the export.
@@ -644,47 +657,10 @@ fn export_library(
         missing_count > 0,
     ))
 }
-fn default_virtualdj_database() -> Option<PathBuf> {
-    let home = if cfg!(windows) {
-        std::env::var_os("USERPROFILE")?
-    } else {
-        std::env::var_os("HOME")?
-    };
-    let home = PathBuf::from(home);
-    [
-        home.join("Library/Application Support/VirtualDJ/database.xml"),
-        home.join("Documents/VirtualDJ/database.xml"),
-        home.join("OneDrive/Documents/VirtualDJ/database.xml"),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.is_file())
-}
-
-/// Whether VirtualDJ is running on this computer, or `None` when it cannot
-/// be checked.
-fn virtualdj_is_running() -> Option<bool> {
-    let (program, arguments): (&str, &[&str]) = if cfg!(windows) {
-        ("tasklist", &["/FI", "IMAGENAME eq virtualdj.exe", "/NH"])
-    } else {
-        ("pgrep", &["-x", "VirtualDJ"])
-    };
-    let output = std::process::Command::new(program)
-        .args(arguments)
-        .output()
-        .ok()?;
-    Some(if cfg!(windows) {
-        String::from_utf8_lossy(&output.stdout)
-            .to_lowercase()
-            .contains("virtualdj.exe")
-    } else {
-        output.status.success()
-    })
-}
-
 fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     let database = match &arguments.database {
         Some(path) => std::path::absolute(path)?,
-        None => default_virtualdj_database().ok_or_else(|| {
+        None => program_files::default_virtualdj_database().ok_or_else(|| {
             anyhow!(
                 "no VirtualDJ database.xml was found in your home folder; give it with --database"
             )
@@ -697,7 +673,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
         );
     }
     if !arguments.dry_run {
-        match virtualdj_is_running() {
+        match program_files::virtualdj_is_running() {
             Some(true) => bail!(
                 "VirtualDJ is running. It saves its database when it closes, which would undo the export. Close VirtualDJ and export again."
             ),
@@ -774,13 +750,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     };
 
     let now = ModifiedTime::now();
-    let backup = database
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(format!(
-            "database.xml.euphoria-backup-{:04}{:02}{:02}-{:06}",
-            now.year, now.month, now.day, now.seconds_of_day
-        ));
+    let backup = program_files::virtualdj_backup_path(&database, now);
     let merge = if library.tracks.is_empty() {
         Err(anyhow!(
             "none of the files could be exported, so nothing was written"
@@ -890,43 +860,11 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     ))
 }
 
-fn default_engine_library() -> Option<PathBuf> {
-    let home = if cfg!(windows) {
-        std::env::var_os("USERPROFILE")?
-    } else {
-        std::env::var_os("HOME")?
-    };
-    let library = PathBuf::from(home).join("Music").join("Engine Library");
-    library.is_dir().then_some(library)
-}
-
-/// Whether Engine DJ is running on this computer, or `None` when that
-/// cannot be checked.
-fn engine_is_running() -> Option<bool> {
-    if cfg!(windows) {
-        let output = std::process::Command::new("tasklist")
-            .args(["/FI", "IMAGENAME eq Engine DJ.exe", "/NH"])
-            .output()
-            .ok()?;
-        Some(
-            String::from_utf8_lossy(&output.stdout)
-                .to_lowercase()
-                .contains("engine dj.exe"),
-        )
-    } else {
-        let output = std::process::Command::new("pgrep")
-            .args(["-x", "Engine DJ"])
-            .output()
-            .ok()?;
-        Some(output.status.success())
-    }
-}
-
 fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
     let library = match &arguments.library {
         Some(folder) => std::path::absolute(folder)
             .with_context(|| format!("cannot use {} as the library", folder.display()))?,
-        None => default_engine_library().ok_or_else(|| {
+        None => program_files::default_engine_library().ok_or_else(|| {
             anyhow!(
                 "no Engine Library folder was found in your Music folder; give it with --library"
             )
@@ -940,7 +878,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
         );
     }
     if !arguments.dry_run {
-        match engine_is_running() {
+        match program_files::engine_is_running() {
             Some(true) => bail!(
                 "Engine DJ is running. Writing its library while it is open can damage it. \
                  Close Engine DJ and export again."
@@ -1015,15 +953,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
         label_notation: arguments.key_notation.into(),
     };
     let now = ModifiedTime::now();
-    let backup = library
-        .parent()
-        .unwrap_or(&library)
-        .join(format!(
-            "Engine Library backup by Euphoria {:04}-{:02}-{:02} {:05}",
-            now.year, now.month, now.day, now.seconds_of_day
-        ))
-        .join("Database2")
-        .join("m.db");
+    let backup = program_files::engine_backup_path(&library, now);
     let update = if tracks.is_empty() {
         Err(anyhow!(
             "none of the files could be exported, so nothing was written"
@@ -1287,75 +1217,6 @@ fn unmatched_cued_tracks_message(
     message
 }
 
-/// Fails when `output_file` is one of `collections`, whatever the spelling
-/// of either path, so that not even `--force` replaces the user's
-/// collection with the export. A collection that cannot be read is skipped:
-/// the guard is about the file the user is about to overwrite, and a missing
-/// file is not that.
-fn check_output_is_not_a_collection(
-    output_file: &Path,
-    collections: &[PathBuf],
-    program: Program,
-) -> Result<()> {
-    let output = match std::fs::canonicalize(output_file) {
-        Ok(output) => output,
-        Err(_) => {
-            let folder = output_file.parent().unwrap_or(Path::new("."));
-            let name = output_file.file_name().unwrap_or_default();
-            std::fs::canonicalize(folder)
-                .map(|folder| folder.join(name))
-                .unwrap_or_else(|_| output_file.to_path_buf())
-        }
-    };
-    for collection in collections {
-        let Ok(collection) = std::fs::canonicalize(collection) else {
-            continue;
-        };
-        if output == collection {
-            bail!(
-                "the output {} is the {} collection in {}; choose another output \
-                 file. --force does not change this",
-                output_file.display(),
-                program.name(),
-                collection.display()
-            );
-        }
-    }
-    Ok(())
-}
-
-/// Removes the tracks at `paths` from the collection and from every
-/// playlist of `library`, and returns how many tracks it removed.
-fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
-    fn from_nodes(nodes: &mut [PlaylistNode], is_cued: &impl Fn(&Path) -> bool) {
-        for node in nodes {
-            match node {
-                PlaylistNode::Folder(folder) => from_nodes(&mut folder.children, is_cued),
-                PlaylistNode::Playlist(playlist) => {
-                    playlist.tracks.retain(|path| !is_cued(path));
-                }
-            }
-        }
-    }
-    if paths.is_empty() {
-        return 0;
-    }
-    // A collection may list a file by the path its symbolic links lead to
-    // while the library reached it through a link, or the other way round.
-    // Comparing both spellings keeps a track with cues from being exported
-    // over them.
-    let is_cued = |path: &Path| {
-        paths.contains(path)
-            || path
-                .canonicalize()
-                .is_ok_and(|resolved| paths.contains(&resolved))
-    };
-    let before = library.tracks.len();
-    library.tracks.retain(|track| !is_cued(&track.path));
-    from_nodes(&mut library.playlists, &is_cued);
-    before - library.tracks.len()
-}
-
 pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {
     if output_file.is_dir() {
         bail!(
@@ -1369,69 +1230,25 @@ pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> R
             output_file.display()
         );
     }
-    if let Some(folder) = output_file.parent()
-        && !folder.is_dir()
-    {
-        bail!(
-            "cannot write {}: the folder {} does not exist",
-            output_file.display(),
-            folder.display()
-        );
-    }
-    Ok(())
+    Ok(checks::check_output_file(output_file, existing)?)
 }
 
 /// Refuses an output file that is one of the audio files, or that would be
-/// taken for one the next time its folder is exported. Paths are compared
-/// once resolved, so a symbolic link to an audio file and another spelling of
-/// its path are refused too.
+/// taken for one the next time its folder is exported.
 pub fn check_output_is_not_an_input(
     output_file: &Path,
     audio_files: &[PathBuf],
     folders: &[PathBuf],
 ) -> Result<()> {
-    let resolved_output = resolve_output(output_file)?;
-    for audio_file in audio_files {
-        // A file that cannot be resolved cannot be opened either, and is
-        // reported when its analysis fails.
-        if audio_file
-            .canonicalize()
-            .is_ok_and(|resolved_input| resolved_input == resolved_output)
-        {
-            bail!(
-                "{} is one of the files to export, and the export would replace it. Choose another output file.",
-                output_file.display()
-            );
-        }
-    }
-    if is_supported_audio_file(&resolved_output)
-        && let Some(folder) = folders
-            .iter()
-            .find(|folder| resolved_output.starts_with(folder))
-    {
-        bail!(
-            "{} has the extension of an audio file and is inside {}, a folder to export. Give the output file another extension, such as .xml.",
-            output_file.display(),
-            folder.display()
-        );
-    }
-    Ok(())
+    Ok(checks::check_output_is_not_an_input(
+        output_file,
+        audio_files,
+        folders,
+    )?)
 }
 
-/// Where the output file really is: the file a symbolic link at that path
-/// leads to, or for a file that does not exist yet, its name in its resolved
-/// folder.
 pub(crate) fn resolve_output(output_file: &Path) -> Result<PathBuf> {
-    if let Ok(resolved) = output_file.canonicalize() {
-        return Ok(resolved);
-    }
-    let cannot_use = || format!("cannot use {} as the output", output_file.display());
-    let folder = output_file.parent().with_context(cannot_use)?;
-    let file_name = output_file.file_name().with_context(cannot_use)?;
-    Ok(folder
-        .canonicalize()
-        .with_context(cannot_use)?
-        .join(file_name))
+    Ok(checks::resolve_output(output_file)?)
 }
 
 /// The full path of each argument, with `..` and symbolic links in the

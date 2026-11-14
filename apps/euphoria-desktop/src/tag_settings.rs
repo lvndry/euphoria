@@ -109,7 +109,16 @@ impl NotationChoice {
         }
     }
 
-    fn key_notation(self) -> KeyNotation {
+    pub(crate) fn export_notation(self) -> euphoria_core::export::rekordbox::KeyNotation {
+        use euphoria_core::export::rekordbox::KeyNotation as ExportNotation;
+        match self {
+            NotationChoice::Camelot => ExportNotation::Camelot,
+            NotationChoice::Musical => ExportNotation::Musical,
+            NotationChoice::OpenKey => ExportNotation::OpenKey,
+        }
+    }
+
+    pub(crate) fn key_notation(self) -> KeyNotation {
         match self {
             NotationChoice::Camelot => KeyNotation::Camelot,
             NotationChoice::Musical => KeyNotation::Musical,
@@ -152,7 +161,7 @@ impl LabelChoice {
         }
     }
 
-    fn placement(self) -> LabelPlacement {
+    pub(crate) fn placement(self) -> LabelPlacement {
         match self {
             LabelChoice::CommentStart => LabelPlacement::CommentStart,
             LabelChoice::CommentEnd => LabelPlacement::CommentEnd,
