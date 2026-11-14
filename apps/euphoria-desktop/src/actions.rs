@@ -54,6 +54,13 @@ actions!(
         SelectAllTracks,
         /// Returns every column of the table to its usual width.
         ResetColumnWidths,
+        /// Opens the command palette, the one box for tracks and commands.
+        OpenCommandPalette,
+        /// Opens the focus view on the playing track and plans a transition
+        /// into its best match.
+        PlanTransition,
+        /// Separates the stems of the selected track.
+        SeparateStems,
         /// Switches to the Slate theme.
         UseSlateTheme,
         /// Switches to the Paper theme.

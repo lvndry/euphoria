@@ -19,6 +19,9 @@ mod busy;
 mod busy_ui_tests;
 mod camelot;
 mod columns;
+mod command_palette;
+#[cfg(test)]
+mod command_palette_ui_tests;
 mod cue_editing;
 mod deck_audio;
 mod decks;
@@ -52,6 +55,7 @@ mod metronome_ui_tests;
 mod missing_ui_tests;
 mod mixes;
 mod output_stream;
+mod palette_flow;
 mod panels;
 mod peaks;
 #[cfg(test)]
@@ -104,10 +108,10 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
-    OpenFocusView, OpenSetBuilder, OpenSettings, Quit, ResetColumnWidths, RevealTrack,
-    SelectAllTracks, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
-    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
-    WriteTags,
+    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition, Quit,
+    ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, ToggleDecks, ToggleFavorite,
+    ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
+    UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -230,6 +234,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-o", AddFolder, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
+        // Command K was already Search, so the palette is on Command P.
+        KeyBinding::new("cmd-p", OpenCommandPalette, None),
         KeyBinding::new("cmd-k", FocusSearch, None),
         // Control Command S is what macOS apps use to show and hide a sidebar.
         #[cfg(target_os = "macos")]
@@ -270,6 +276,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-i", EditTags, None),
         #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-p", OpenCommandPalette, None),
+        #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-o", AddFolder, None),
@@ -299,7 +307,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
     register_view_command::<OpenSetBuilder>(view, cx, |view, cx| view.open_set_builder(cx));
     register_view_command::<BuildSet>(view, cx, |view, cx| {
-        if view.set_builder.is_open && !view.set_builder.is_building {
+        if view.set_builder.is_open && !view.set_builder.is_building && view.palette.open.is_none()
+        {
             view.build_set(cx);
         }
     });
@@ -349,6 +358,32 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<SeparateStems>(view, cx, |view, cx| view.separate_selected_stems(cx));
+
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &OpenCommandPalette, cx| {
+        let weak_view = weak_view.clone();
+        window
+            .update(cx, |_, window, cx| {
+                weak_view
+                    .update(cx, |view, cx| view.open_command_palette(window, cx))
+                    .ok();
+            })
+            .ok();
+    });
+
+    let weak_view = view.downgrade();
+    cx.on_action(move |_: &PlanTransition, cx| {
+        let weak_view = weak_view.clone();
+        window
+            .update(cx, |_, window, cx| {
+                weak_view
+                    .update(cx, |view, cx| view.plan_transition_from_playing(window, cx))
+                    .ok();
+            })
+            .ok();
+    });
+
     register_theme_command::<UseSlateTheme>(ThemeName::Slate, view, cx);
     register_theme_command::<UsePaperTheme>(ThemeName::Paper, view, cx);
     register_theme_command::<UseDeckTheme>(ThemeName::Deck, view, cx);
@@ -383,6 +418,11 @@ fn register_theme_command<Command: gpui::Action>(
 /// Sets the menu bar, with a tick beside the theme in use and the sidebar
 /// item worded for what it will do.
 pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: &mut App) {
+    cx.set_menus(build_menus(current_theme, sidebar_folded));
+}
+
+/// The menus: what the command palette lists must be what they carry.
+pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec<Menu> {
     let sidebar_item = if sidebar_folded {
         "Show Sidebar"
     } else {
@@ -398,7 +438,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         };
         item.checked(theme == current_theme)
     });
-    cx.set_menus([
+    vec![
         Menu::new(WINDOW_TITLE).items([
             MenuItem::action("Settings\u{2026}", OpenSettings),
             MenuItem::separator(),
@@ -415,6 +455,7 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
             MenuItem::action("Set Builder", OpenSetBuilder),
             MenuItem::action("Focus View", OpenFocusView),
             MenuItem::separator(),
+            MenuItem::action("Command Palette\u{2026}", OpenCommandPalette),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
             MenuItem::action("Star or Unstar Selection", ToggleFavorite),
@@ -432,9 +473,11 @@ pub(crate) fn install_menus(current_theme: ThemeName, sidebar_folded: bool, cx: 
         Menu::new("Playback").items([
             MenuItem::action("Play or Pause", TogglePlayback),
             MenuItem::action("Metronome", ToggleMetronome),
+            MenuItem::action("Plan Transition from Playing Track", PlanTransition),
+            MenuItem::action("Separate Stems", SeparateStems),
             MenuItem::separator(),
             MenuItem::action("Add Cue at Playhead", AddCueAtPlayhead),
             MenuItem::action("Undo Cue Edit", UndoCueEdit),
         ]),
-    ]);
+    ]
 }

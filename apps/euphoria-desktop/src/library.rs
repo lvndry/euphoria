@@ -161,6 +161,16 @@ impl Track {
         self.genre = name.genre;
     }
 
+    /// The lowercase title, artist and file name, which the command palette
+    /// matches against. The artist is empty when the tags have none.
+    pub(crate) fn search_fields(&self) -> [&str; 3] {
+        [
+            &self.title_lowercase,
+            self.artist_lowercase.as_deref().unwrap_or_default(),
+            &self.file_name_lowercase,
+        ]
+    }
+
     /// The genre in the file's tags, once read.
     pub(crate) fn genre(&self) -> Option<&str> {
         self.genre.as_deref()
