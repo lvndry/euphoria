@@ -427,6 +427,7 @@ impl EuphoriaApp {
                     up_to_date,
                     not_analyzed: Vec::new(),
                     failures,
+                    serato_notes: Vec::new(),
                 }));
                 cx.notify();
             })
