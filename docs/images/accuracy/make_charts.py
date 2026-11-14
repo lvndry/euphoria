@@ -49,6 +49,16 @@ KEY_EXACT_ALL_PREVIEWS = 60.6
 # and the share of it whose tempo is right modulo octaves.
 TEMPO_CONFIDENCE = [("High", 39, 97.7), ("Medium", 42, 89.8), ("Low", 19, 62.5)]
 
+# "What has been checked", the SALAMI row: F-measure of section boundaries
+# against the functional annotations on the 227 test tracks, as
+# (method, boundaries per track, F within 3 s, F within 0.5 s).
+SECTION_BOUNDARIES = [
+    ("Euphoria cues", 2.7, 13.2, 3.2),
+    ("Euphoria sections", 6.2, 21.2, 4.8),
+    ("Foote, librosa features", 16.5, 45.1, 20.7),
+    ("A boundary every 20 s", 16.9, 25.6, 4.5),
+]
+
 STYLE = """
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -237,6 +247,45 @@ def tempo_methods_chart():
     return document(width, height, title, description, body)
 
 
+def section_boundaries_chart():
+    width = 800
+    row_height = 44
+    chart_top = 120
+    chart_bottom = chart_top + row_height * len(SECTION_BOUNDARIES)
+    height = chart_bottom + 64
+    to_x = scale(0, 50, 290, 740)
+    title = "Section boundaries against SALAMI, live recordings"
+    body = [
+        text(24, 36, title, "title"),
+        text(24, 58, "227 test tracks, functional annotations. Boundaries per track in brackets.", "subtitle"),
+    ]
+    legend_y = 90
+    body.append(dot(30, legend_y - 4, "series-1-fill"))
+    body.append(text(44, legend_y, "F-measure, within 3 s", "label"))
+    body.append(dot(230, legend_y - 4, "series-2-fill"))
+    body.append(text(244, legend_y, "F-measure, within 0.5 s", "label"))
+    for share_tick in (0, 10, 20, 30, 40, 50):
+        body.append(line(to_x(share_tick), chart_top, to_x(share_tick), chart_bottom, "grid"))
+        body.append(text(to_x(share_tick), chart_bottom + 20, f"{share_tick}%", "tick", "middle"))
+    body.append(text(to_x(25), chart_bottom + 44, "F-measure of the boundaries", "label", "middle"))
+    for index, (method, per_track, within_3, within_half) in enumerate(SECTION_BOUNDARIES):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(0) - 14, row_middle + 4.5, f"{method} ({per_track})", "label", "end"))
+        body.append(line(to_x(within_half), row_middle, to_x(within_3), row_middle, "connector"))
+        body.append(dot(to_x(within_3), row_middle, "series-1-fill"))
+        body.append(dot(to_x(within_half), row_middle, "series-2-fill"))
+        body.append(text(to_x(within_3) + 12, row_middle + 4.5, f"{within_3:.1f}%", "value halo"))
+        body.append(text(to_x(within_half) - 12, row_middle + 4.5, f"{within_half:.1f}%", "value halo", "end"))
+    description = (
+        "Dot plot of the F-measure of section boundaries on the 227 SALAMI Internet Archive "
+        "test tracks, against the functional annotations. Euphoria's cues score 13.2% within "
+        "3 seconds and 3.2% within half a second, its section changes 21.2% and 4.8%, a Foote "
+        "novelty baseline on librosa features 45.1% and 20.7%, and a boundary every 20 seconds "
+        "25.6% and 4.5%."
+    )
+    return document(width, height, title, description, body)
+
+
 def confidence_chart(title, subtitle, levels, axis_label, reference, description):
     width = 800
     row_height = 44
@@ -293,6 +342,7 @@ def tempo_confidence_chart():
 CHARTS = {
     "key-outcomes.svg": key_outcomes_chart,
     "tempo-range.svg": tempo_methods_chart,
+    "section-boundaries.svg": section_boundaries_chart,
     "key-confidence.svg": key_confidence_chart,
     "tempo-confidence.svg": tempo_confidence_chart,
 }

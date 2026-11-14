@@ -277,14 +277,48 @@ Sections shorter than 8 bars, such as a one bar break before a drop, belong to t
 
 ### What has been checked
 
-No dataset with both audio and labelled sections of dance music was found (the public annotations of the Harmonix Set and SALAMI come without audio that can be redistributed), so the cues are not scored against labels. What was checked:
+No dataset with both audio and labelled sections of dance music was found (the public annotations of the Harmonix Set come without audio, and the audio of SALAMI that can be fetched is live rock, folk and jam recordings), so the cues are not scored on dance music. What was checked:
 
 - **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none. So do a groove without an on-beat kick after a kick intro, which gets a Main and no Outro, a loud intro before a quieter steady body, which gets no Outro, and a few silent bars at the end of a track.
 - **Boundaries on synthesized arrangements.** On 9 arrangements with 32 known section starts, the previous method placed 21 within one bar with the right name (66%) and this one all 32. The arrangements include the cases the previous method got wrong, so this shows the fix and is not an estimate of accuracy on real music.
 - **575 full length tracks of one DJ library, without labels.** Counting cues, not scoring them: tracks with an Outro in the first half fell from 14 to 0, and in the first three quarters from 23 to 3; tracks with an Outro at all rose from 131 to 169, since most tracks with a clear ending had none; tracks with only the Start cue fell from 190 to 31. In the early Outro tracks inspected, the section was one the kick detector lost, not an outro: the kick of a bar was measured on the grid's beats, which drift from the music over a long track and after a breakdown, so it read as absent for the rest of the track.
 - **The 604 GiantSteps Key previews, before the cues were changed to this method and not measured again.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
 
-It cannot show how often the cues fall where a DJ would put them on full length tracks.
+- **462 live recordings annotated in SALAMI, which are not dance music.** See [against SALAMI](#against-salami) below.
+
+It cannot show how often the cues fall where a DJ would put them on dance tracks.
+
+### Against SALAMI
+
+SALAMI is a set of structure annotations made by trained listeners: each track has a large scale layer (A, B, C), a small scale layer (a, b, c) and a layer of functions (intro, verse, chorus, bridge, outro and so on), by one or two annotators. Its annotations are released under CC0. Its Internet Archive part is 476 live recordings from the Live Music Archive, 462 of which could still be fetched, which are mostly rock, folk, jam and blues bands, not music for DJs. Their pages carry no machine readable licence, so the audio was used to measure and deleted afterwards and is not redistributed. Only 5 of the recordings are tagged electronic or trance on the Archive, too few to score on their own.
+
+The tracks were split by recording, so that songs of one concert stay on one side: 235 to choose settings on and 227 to report. Boundaries are scored as `mir_eval` does, as the precision, the recall and the F-measure of boundaries that fall within 0.5 s or 3 s of an annotated one, averaged over every annotator and track, after dropping the silence at the start and the end of the annotations. A boundary every 20 s is the reference for what counts as nothing learned about the music, and a Foote novelty curve on beat-synchronous chroma and MFCC features, from librosa, is the baseline that finds sections in the usual way. Its kernel size, peak threshold and minimum spacing were chosen on the 235 tracks.
+
+On the 227 test tracks, against the functional annotations:
+
+| Boundaries | Per track | Precision, 3 s | Recall, 3 s | F, 3 s | F, 0.5 s |
+| --- | --- | --- | --- | --- | --- |
+| Euphoria's cues, without the Start | 2.7 | 28% | 10% | 13.2% | 3.2% |
+| Euphoria's section changes, before the cues merge sections | 6.2 | 31% | 18% | 21.2% | 4.8% |
+| Foote on librosa features | 16.5 | 41% | 56% | 45.1% | 20.7% |
+| A boundary every 20 s | 16.9 | 23% | 31% | 25.6% | 4.5% |
+
+Against the large scale layer the F-measures within 3 s are 15.0% for the cues, 22.4% for the section changes, 46.0% for Foote and 24.2% for a boundary every 20 s. On the 286 tracks whose bars have a kick in at least half of them, the closest this data has to dance-like music, the section changes score 21.4% against the functions and Foote 46.7%, no different from the whole set; the 5 tagged recordings are too few to say anything.
+
+![F-measure of section boundaries within 3 s and within 0.5 s on the 227 SALAMI test tracks: Euphoria's cues 13.2% and 3.2%, Euphoria's section changes 21.2% and 4.8%, Foote on librosa features 45.1% and 20.7%, a boundary every 20 seconds 25.6% and 4.5%.](../images/accuracy/section-boundaries.svg)
+
+What this says. When Euphoria places a section change it is right a little more often than a boundary every 20 s is (31% precision against 23%), but it places few: the cues are the energy changes a DJ cues, and the sections behind them find about a fifth of the boundaries a person marks within 3 s. Euphoria measures four numbers a bar, the loudness, the low end, the high end and the kick, on a constant 4/4 grid, and a band that plays in free time or changes the harmony without changing the loudness gives it nothing to see; the baseline hears timbre and harmony. Within half a second Euphoria is no better than a boundary every 20 s, since each section start is moved onto a phrase of 8 bars of the grid, which a live band does not play to. Letting the kernel see 4 bars and the threshold fall to 0.3 raises the F-measure within 3 s to 33.5% on the test tracks and 37.5% without the move onto phrases, but by finding 22 boundaries a track instead of 6, which a count of boundaries rewards and a DJ does not. The settings were not changed: the gain is the number of boundaries, not better placed ones, nothing here shows it carries over to dance music, and it would change which cues a track gets.
+
+The labels do not map one to one, so only two are scored. Start is the first bar with sound, and counts when it falls within 3 s of the start of the first labelled section: 72% of the annotations. Outro is the cue after the last section at the level of the body of the track, and counts when it falls within 3 s of an annotated outro, coda or fade-out: 21 of the 441 annotations that have one (5%), and 69 within 10 s (16%). The live recordings fade, end on applause or play a coda in the same loudness, so the cue and the label seldom mean the same stretch. Main, Breakdown and Drop have no label to compare with: SALAMI says nothing about energy, and a chorus is not a drop. For them the table gives only how often the cue falls within 3 s of any annotated boundary, where a random time in the music does so 21% of the time.
+
+| Cue | Cues | Within 3 s of an annotated boundary |
+| --- | --- | --- |
+| Main | 331 | 45% |
+| Breakdown | 491 | 44% |
+| Drop | 491 | 31% |
+| Outro | 419 | 10% |
+
+These numbers show where the section finding stands on a kind of music it was not made for. They do not show how often the cues fall where a DJ would put them.
 
 The cues sit on the bars of the grid, so they share its weaknesses. When the [downbeat](#the-downbeat) is wrong, which on the benchmark is about half the time, the bars start one to three beats away from where the music's do. Every cue is then that many beats away from the start of its section. When the grid is rated low, the cues are not exported.
 
