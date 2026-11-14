@@ -6,7 +6,8 @@
 
 use std::path::PathBuf;
 
-use euphoria_core::{Key, Mode, TrackAnalysis};
+use euphoria_core::quality::{QualityReport, QualityVerdict};
+use euphoria_core::{DecodeDamage, Key, Mode, TrackAnalysis};
 
 /// Environment variable holding how many made up tracks to open with.
 pub(crate) const DEMO_TRACKS_VARIABLE: &str = "EUPHORIA_DEMO_TRACKS";
@@ -86,7 +87,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 beat_grid: None,
                 cues: Vec::new(),
                 key_timeline: Vec::new(),
-                quality: None,
+                quality: Some(demo_quality(extension, number)),
             };
             let outcome = if next(150) == 0 {
                 Err(format!(
@@ -99,6 +100,42 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
             DemoTrack { path, outcome }
         })
         .collect()
+}
+
+/// An invented quality report: lossless formats are lossless, and the rest
+/// cycle through the lossy verdicts by track number, with an occasional
+/// damaged file.
+fn demo_quality(extension: &str, number: usize) -> QualityReport {
+    let is_lossless = matches!(extension, "flac" | "aiff");
+    let verdict = if is_lossless {
+        QualityVerdict::Lossless
+    } else {
+        [
+            QualityVerdict::Good,
+            QualityVerdict::Good,
+            QualityVerdict::Acceptable,
+            QualityVerdict::WeakOnABigSystem,
+            QualityVerdict::LikelyReencoded,
+        ][number % 5]
+    };
+    QualityReport {
+        codec: extension.to_string(),
+        lossless: is_lossless,
+        bitrate_kbps: (!is_lossless).then_some(320),
+        sample_rate: 44_100,
+        bit_depth: is_lossless.then_some(16),
+        channels: Some(2),
+        cutoff_hz: None,
+        clipped_share: 0.0,
+        integrated_loudness_lufs: None,
+        true_peak_dbtp: None,
+        verdict,
+        damage: DecodeDamage {
+            dropped_packets: u32::from(number.is_multiple_of(37)),
+            ..DecodeDamage::default()
+        },
+        cancelled_share: 0.0,
+    }
 }
 
 #[cfg(test)]

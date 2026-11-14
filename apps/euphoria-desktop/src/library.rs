@@ -16,6 +16,7 @@ use euphoria_core::{
 use crate::camelot::CamelotPosition;
 use crate::folder_tree::FolderColumn;
 use crate::format;
+use crate::track_filters::TrackFilters;
 
 /// The dash shown where analysis found no value.
 pub(crate) const NOT_FOUND: &str = "\u{2013}";
@@ -795,13 +796,15 @@ impl Library {
     /// Without a sort order tracks stay in the order they were added. With
     /// one, tracks that have no value in the sorted column come last in
     /// either direction, and ties keep the order they were added in.
-    /// Only tracks inside `folder` are shown when it is given, and the
+    /// Only tracks inside `folder` are shown when it is given, `track_filters`
+    /// narrow the rest, and the
     /// Folder column sorts by `folder_column`.
     pub(crate) fn visible_tracks(
         &self,
         filter: LibraryFilter,
         folder: Option<&Path>,
         query: &str,
+        track_filters: &TrackFilters,
         sort_order: Option<SortOrder>,
         folder_column: &FolderColumn,
     ) -> Vec<usize> {
@@ -817,6 +820,7 @@ impl Library {
             })
             .filter(|(_, track)| folder.is_none_or(|folder| track.path.starts_with(folder)))
             .filter(|(_, track)| track.matches(&query_lowercase))
+            .filter(|(_, track)| track_filters.matches(track))
             .map(|(index, _)| index)
             .collect();
         if let Some(sort_order) = sort_order {
@@ -837,6 +841,7 @@ impl Library {
         &self,
         paths: &[PathBuf],
         query: &str,
+        track_filters: &TrackFilters,
         sort_order: Option<SortOrder>,
         folder_column: &FolderColumn,
     ) -> Vec<usize> {
@@ -845,6 +850,7 @@ impl Library {
             .iter()
             .filter_map(|path| self.index_of(path))
             .filter(|index| self.tracks[*index].matches(&query_lowercase))
+            .filter(|index| track_filters.matches(&self.tracks[*index]))
             .collect();
         if let Some(sort_order) = sort_order {
             rows.sort_by(|first, second| match sort_order.column {
@@ -1027,6 +1033,7 @@ mod tests {
                 LibraryFilter::AllTracks,
                 None,
                 query,
+                &TrackFilters::default(),
                 sort_order,
                 &FolderColumn::new(library.tracks(), library.folders(), None),
             ),
@@ -1140,8 +1147,14 @@ mod tests {
         assert_eq!(track.detected_bpm(), Some(124.0));
         assert!(library.revision() > revision);
         let folder_column = FolderColumn::new(library.tracks(), library.folders(), None);
-        let found =
-            library.visible_tracks(LibraryFilter::AllTracks, None, "9a", None, &folder_column);
+        let found = library.visible_tracks(
+            LibraryFilter::AllTracks,
+            None,
+            "9a",
+            &TrackFilters::default(),
+            None,
+            &folder_column,
+        );
         assert_eq!(found.len(), 1, "search finds the key the user set");
 
         library.set_tempo_range(TempoRange::new(70.0, 140.0).unwrap());
@@ -1225,6 +1238,7 @@ mod tests {
             LibraryFilter::NeedsReview,
             None,
             "",
+            &TrackFilters::default(),
             None,
             &FolderColumn::default(),
         );
@@ -1418,6 +1432,7 @@ mod tests {
             LibraryFilter::NeedsReview,
             None,
             "",
+            &TrackFilters::default(),
             None,
             &FolderColumn::default(),
         );
@@ -1956,6 +1971,7 @@ mod tests {
             LibraryFilter::AllTracks,
             Some(Path::new("/music/house")),
             "",
+            &TrackFilters::default(),
             None,
             &no_column,
         );
@@ -1963,13 +1979,20 @@ mod tests {
             names(&library, &in_folder),
             ["Low Tide.aiff", "saffron.mp3"]
         );
-        let needing_review =
-            library.visible_tracks(LibraryFilter::NeedsReview, None, "", None, &no_column);
+        let needing_review = library.visible_tracks(
+            LibraryFilter::NeedsReview,
+            None,
+            "",
+            &TrackFilters::default(),
+            None,
+            &no_column,
+        );
         assert_eq!(names(&library, &needing_review), ["broken.mp3"]);
         let needing_review_in_house = library.visible_tracks(
             LibraryFilter::NeedsReview,
             Some(Path::new("/music/house")),
             "",
+            &TrackFilters::default(),
             None,
             &no_column,
         );
@@ -1978,6 +2001,7 @@ mod tests {
             LibraryFilter::AllTracks,
             Some(Path::new("/music/techno")),
             "glass",
+            &TrackFilters::default(),
             None,
             &no_column,
         );
@@ -2027,6 +2051,7 @@ mod tests {
                     LibraryFilter::AllTracks,
                     None,
                     "track",
+                    &TrackFilters::default(),
                     descending(SortColumn::Key),
                     &FolderColumn::default(),
                 );
