@@ -43,7 +43,7 @@ cargo app                          # the desktop app
 cargo cli -- analyze path/to/music # the command line tool
 ```
 
-Both use the `fast` profile in `Cargo.toml`: optimised like a release, so audio and analysis run at full speed, but with thin link-time optimisation, parallel code generation and incremental builds, so a rebuild after a small change is quick. `cargo build --release` keeps the full optimisation the downloads are built with, and takes several minutes.
+Both use the `fast` profile in `Cargo.toml`: optimised like a release, so audio and analysis run at full speed, but without link-time optimisation and with parallel, incremental builds, so a rebuild after a small change takes a few seconds. `cargo build --release` keeps the full optimisation the downloads are built with, and takes several minutes.
 
 ## Formatting on commit
 
