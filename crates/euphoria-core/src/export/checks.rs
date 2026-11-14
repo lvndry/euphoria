@@ -65,13 +65,14 @@ pub fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<(
 
 /// Fails when `output_file` is one of `collections`, whatever the spelling
 /// of either path, so that not even replacing the file overwrites the
-/// user's collection with the export. A collection that cannot be read is
+/// user's collection with the export. `note` ends the message. A collection that cannot be read is
 /// skipped: the guard is about the file the user is about to overwrite, and a
 /// missing file is not that.
 pub fn check_output_is_not_a_collection(
     output_file: &Path,
     collections: &[PathBuf],
     program_name: &str,
+    note: &str,
 ) -> Result<()> {
     let output = match std::fs::canonicalize(output_file) {
         Ok(output) => output,
@@ -90,7 +91,7 @@ pub fn check_output_is_not_a_collection(
         if output == collection {
             return Err(CheckError::message(format!(
                 "the output {} is the {program_name} collection in {}; choose another output \
-                 file. Replacing it is not offered",
+                 file. {note}",
                 output_file.display(),
                 collection.display()
             )));

@@ -394,9 +394,9 @@ impl LibraryExportJob {
             protected.extend(traktor_collection::installed_collections());
         }
         let startup_volume = traktor_collection::startup_volume_name();
+        protected.extend(setup.collection.clone());
         let cued_tracks = match &setup.collection {
             Some(collection) if setup.cues => {
-                protected.push(collection.clone());
                 let cued = if program == ExportProgram::Rekordbox {
                     rekordbox_collection::tracks_with_cues(collection)
                 } else {
@@ -411,8 +411,13 @@ impl LibraryExportJob {
             _ => CuedTracks::default(),
         };
         if !protected.is_empty() {
-            checks::check_output_is_not_a_collection(&output, &protected, name)
-                .map_err(|error| error.to_string())?;
+            checks::check_output_is_not_a_collection(
+                &output,
+                &protected,
+                name,
+                "Replacing it is not offered",
+            )
+            .map_err(|error| error.to_string())?;
         }
         let audio_files: Vec<PathBuf> = self
             .export
@@ -910,6 +915,8 @@ impl EuphoriaApp {
         change(&mut panel.setup);
         if !panel.setup.beat_grid {
             panel.setup.cues = false;
+            panel.setup.collection = None;
+            panel.setup.allow_unmatched_cued_tracks = false;
         }
         if !panel.setup.can_write_cues() {
             panel.setup.cues = false;

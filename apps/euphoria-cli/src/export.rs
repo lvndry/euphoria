@@ -466,6 +466,7 @@ fn export_library(
                 &output_file,
                 &[collection.to_path_buf()],
                 program.name(),
+                "--force does not change this",
             )?;
             let cued_tracks = read_cued_tracks(collection)?;
             if !cued_tracks.unmatched.is_empty() && !request.allow_unmatched_cued_tracks {
@@ -485,6 +486,7 @@ fn export_library(
             &output_file,
             &request.protected_collections,
             program.name(),
+            "--force does not change this",
         )?;
     }
     let already_cued = &cued_tracks.paths;
@@ -1179,6 +1181,12 @@ fn unmatched_cued_tracks_message(
 }
 
 pub(crate) fn check_output_file(output_file: &Path, existing: ExistingFile) -> Result<()> {
+    if output_file.is_dir() {
+        bail!(
+            "{} is a folder. Give --output the name of a file.",
+            output_file.display()
+        );
+    }
     if existing == ExistingFile::Keep && output_file.symlink_metadata().is_ok() {
         bail!(
             "{} already exists. Pass --force to replace it.",

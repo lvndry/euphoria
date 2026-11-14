@@ -177,3 +177,41 @@ fn an_engine_export_is_refused_while_engine_dj_runs(cx: &mut TestAppContext) {
     assert!(message.contains("Engine DJ is running"), "{message}");
     assert!(is_shown(window, "export-problem", cx));
 }
+
+#[gpui::test]
+fn the_collection_is_protected_even_when_cues_are_off(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("library-export-protected-collection");
+    let collection = scratch.0.join("collection.xml");
+    std::fs::write(&collection, "my own collection").unwrap();
+    let (window, view) = open_fixture_library(cx);
+    open_sheet(&view, cx);
+    let chosen = collection.clone();
+    change(
+        &view,
+        move |setup| {
+            setup.beat_grid = true;
+            setup.collection = Some(chosen.clone());
+            setup.output = Some(chosen);
+        },
+        cx,
+    );
+    cx.update(|cx| {
+        let setup = &view.read(cx).library_export.as_ref().unwrap().setup;
+        assert!(!setup.cues);
+        assert!(setup.collection.is_some());
+    });
+
+    click(window, "export-review", cx);
+    let message = problem(&view, cx).expect("the review refuses");
+    assert!(message.contains("collection"), "{message}");
+    assert_eq!(
+        std::fs::read_to_string(&collection).unwrap(),
+        "my own collection"
+    );
+
+    change(&view, |setup| setup.beat_grid = false, cx);
+    cx.update(|cx| {
+        let setup = &view.read(cx).library_export.as_ref().unwrap().setup;
+        assert!(setup.collection.is_none(), "a hidden collection is dropped");
+    });
+}
