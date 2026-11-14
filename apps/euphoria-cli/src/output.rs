@@ -508,6 +508,7 @@ pub fn write_plain_table(
 fn plain_verdict(verdict: QualityVerdict) -> &'static str {
     match verdict {
         QualityVerdict::Lossless => "Lossless",
+        QualityVerdict::LimitedBandwidth => "Limited BW",
         QualityVerdict::Good => "Good",
         QualityVerdict::Acceptable => "Acceptable",
         QualityVerdict::WeakOnABigSystem => "Weak",
@@ -525,8 +526,9 @@ fn confidence_letter(confidence: Option<Confidence>) -> &'static str {
 }
 
 /// The verdicts from best to worst.
-const VERDICT_ORDER: [QualityVerdict; 5] = [
+const VERDICT_ORDER: [QualityVerdict; 6] = [
     QualityVerdict::Lossless,
+    QualityVerdict::LimitedBandwidth,
     QualityVerdict::Good,
     QualityVerdict::Acceptable,
     QualityVerdict::WeakOnABigSystem,
@@ -1686,6 +1688,25 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
             "Key and tempo: no track is rated low confidence.\n"
         );
         assert_eq!(summary(&[], &Narrowing::default()), "");
+    }
+
+    #[test]
+    fn a_limited_bandwidth_is_named_in_json_and_not_sent_to_review() {
+        let mut results = sample_results();
+        let mut limited = sample_quality();
+        limited.lossless = true;
+        limited.codec = "flac".to_string();
+        limited.verdict = QualityVerdict::LimitedBandwidth;
+        if let Ok(analysis) = &mut results[1].outcome {
+            analysis.quality = Some(limited);
+        }
+        let mut buffer = Vec::new();
+        write_json_in_default_range(&mut buffer, &results).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&buffer).unwrap();
+        assert_eq!(parsed[1]["quality"]["verdict"], "limited-bandwidth");
+        let text = summary(&results, &Narrowing::default());
+        assert!(text.contains("1 track limited bandwidth"), "{text}");
+        assert!(text.contains("--quality weak lists"), "{text}");
     }
 
     #[test]

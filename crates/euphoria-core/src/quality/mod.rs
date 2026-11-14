@@ -21,6 +21,7 @@ use symphonia::core::codecs::audio::{AudioCodecId, AudioCodecParameters};
 use crate::audio::{AudioBuffer, DecodeObserver, decode_mono_observed};
 use crate::energy::measure_loudness;
 use crate::error::EuphoriaError;
+pub use cutoff::Cutoff;
 use cutoff::SpectralCutoffMeter;
 use peak::TruePeakMeter;
 
@@ -53,10 +54,16 @@ pub const VORBIS_ACCEPTABLE_BITRATE_KBPS: u32 = 110;
 /// A file with at least this share of its samples clipped gets a note in
 /// its reason. Lossy encoding hides most clipping, so this is a lower bound.
 pub const NOTICEABLE_CLIPPED_SHARE: f32 = 0.001;
-/// A lossless file whose content stops below this frequency, in Hz, was made
-/// from a lossy source. Lossy encoders at 320 kbit/s keep content up to
-/// about 20 kHz.
+/// A lossless file whose content stops below this frequency, in Hz, has a
+/// limited bandwidth. Lossy encoders at 320 kbit/s keep content up to about
+/// 20 kHz. A file made from a lossy source is told apart from tape, vinyl
+/// and dark mastering by the shape of the fall, not by this frequency alone.
 pub const LOSSLESS_LOWEST_CUTOFF_HZ: f32 = 19_000.0;
+/// The share of the Nyquist frequency above which no cutoff is expected:
+/// below the Nyquist frequency of a low sample rate an encoder's filter
+/// still leaves content up to its own limit, and the meter ignores the top
+/// kilohertz.
+const HIGHEST_EXPECTED_CUTOFF_SHARE: f32 = 0.9;
 
 /// The verdict for DJ use, from best to worst.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,6 +71,10 @@ pub const LOSSLESS_LOWEST_CUTOFF_HZ: f32 = 19_000.0;
 pub enum QualityVerdict {
     /// A lossless file with a full spectrum.
     Lossless,
+    /// A lossless file whose content stops below 19 kHz with the gradual
+    /// roll-off of tape, vinyl or a dark mastering, not an encoder's brick
+    /// wall. Information, not a defect.
+    LimitedBandwidth,
     /// High bit rate lossy audio with the spectrum that bit rate keeps.
     Good,
     /// Medium bit rate lossy audio. Fine in most rooms.
@@ -82,6 +93,7 @@ impl QualityVerdict {
     pub fn label(self) -> &'static str {
         match self {
             QualityVerdict::Lossless => "Lossless",
+            QualityVerdict::LimitedBandwidth => "Limited bandwidth",
             QualityVerdict::Good => "Good",
             QualityVerdict::Acceptable => "Acceptable",
             QualityVerdict::WeakOnABigSystem => "Weak on a big system",
@@ -150,8 +162,17 @@ impl QualityReport {
                     self.codec.to_uppercase()
                 )
             }
+            (QualityVerdict::LimitedBandwidth, Some(hz)) => format!(
+                "Lossless {}. Content stops at {}, with the gradual roll-off of tape, vinyl or a dark mastering, not an encoder's brick wall.",
+                self.codec.to_uppercase(),
+                cutoff(hz)
+            ),
+            (QualityVerdict::LimitedBandwidth, None) => format!(
+                "Lossless {} with a limited bandwidth.",
+                self.codec.to_uppercase()
+            ),
             (QualityVerdict::LikelyReencoded, Some(hz)) if self.lossless => format!(
-                "A lossless file, but its sound stops at {}, as a lossy file's does: it was most likely made from one.",
+                "A lossless file, but its sound drops off a cliff at {}, as a lossy encoder's lowpass does: it was most likely made from a lossy file.",
                 cutoff(hz)
             ),
             (QualityVerdict::LikelyReencoded, Some(hz)) => format!(
@@ -190,6 +211,21 @@ pub fn expected_cutoff_hz(bitrate_kbps: u32) -> f32 {
     }
 }
 
+/// The bit rate to judge a lossy file by: per channel, in the unit of a
+/// stereo file. A mono file at half the bit rate keeps as much per channel.
+fn stereo_equivalent_bitrate(bitrate_kbps: u32, channels: Option<u32>) -> u32 {
+    if channels == Some(1) {
+        bitrate_kbps.saturating_mul(2)
+    } else {
+        bitrate_kbps
+    }
+}
+
+/// `expected_hz` held below what a file of `sample_rate` can show.
+fn capped_expected_cutoff_hz(expected_hz: f32, sample_rate: u32) -> f32 {
+    expected_hz.min(sample_rate as f32 / 2.0 * HIGHEST_EXPECTED_CUTOFF_SHARE)
+}
+
 /// The bit rate whose files typically stop near `cutoff_hz`, for the
 /// explanation of a re-encoded file.
 fn typical_bitrate_for_cutoff(cutoff_hz: f32) -> u32 {
@@ -216,14 +252,21 @@ pub fn expected_vorbis_cutoff_hz(bitrate_kbps: u32) -> f32 {
 /// The verdict for a Vorbis file with these properties. Vorbis gets lines of
 /// its own because its bit rates run lower than those of MP3 and AAC for the
 /// same quality.
-pub fn vorbis_verdict(bitrate_kbps: Option<u32>, cutoff_hz: Option<f32>) -> QualityVerdict {
-    let Some(bitrate) = bitrate_kbps else {
+pub fn vorbis_verdict(
+    bitrate_kbps: Option<u32>,
+    channels: Option<u32>,
+    sample_rate: u32,
+    cutoff_hz: Option<f32>,
+) -> QualityVerdict {
+    let Some(bitrate) = bitrate_kbps.map(|rate| stereo_equivalent_bitrate(rate, channels)) else {
         return QualityVerdict::Acceptable;
     };
     if bitrate < VORBIS_ACCEPTABLE_BITRATE_KBPS {
         return QualityVerdict::WeakOnABigSystem;
     }
-    if cutoff_hz.is_some_and(|hz| hz < expected_vorbis_cutoff_hz(bitrate)) {
+    if cutoff_hz.is_some_and(|hz| {
+        hz < capped_expected_cutoff_hz(expected_vorbis_cutoff_hz(bitrate), sample_rate)
+    }) {
         return QualityVerdict::LikelyReencoded;
     }
     if bitrate >= VORBIS_GOOD_BITRATE_KBPS {
@@ -233,25 +276,36 @@ pub fn vorbis_verdict(bitrate_kbps: Option<u32>, cutoff_hz: Option<f32>) -> Qual
     }
 }
 
-/// The verdict for a file with these properties.
+/// The verdict for a file with these properties. A lossless file whose
+/// content stops early is only called likely re-encoded when it stops like
+/// an encoder's lowpass; a lossy file is judged by its bit rate per channel.
 pub fn verdict(
     lossless: bool,
     bitrate_kbps: Option<u32>,
-    cutoff_hz: Option<f32>,
+    channels: Option<u32>,
+    sample_rate: u32,
+    cutoff: Option<Cutoff>,
 ) -> QualityVerdict {
+    let cutoff_hz = cutoff.map(|cutoff| cutoff.hz);
     if lossless {
-        return match cutoff_hz {
-            Some(hz) if hz < LOSSLESS_LOWEST_CUTOFF_HZ => QualityVerdict::LikelyReencoded,
+        let lowest = capped_expected_cutoff_hz(LOSSLESS_LOWEST_CUTOFF_HZ, sample_rate);
+        return match cutoff {
+            Some(cutoff) if cutoff.hz < lowest && cutoff.brickwall => {
+                QualityVerdict::LikelyReencoded
+            }
+            Some(cutoff) if cutoff.hz < lowest => QualityVerdict::LimitedBandwidth,
             _ => QualityVerdict::Lossless,
         };
     }
-    let Some(bitrate) = bitrate_kbps else {
+    let Some(bitrate) = bitrate_kbps.map(|rate| stereo_equivalent_bitrate(rate, channels)) else {
         return QualityVerdict::Acceptable;
     };
     if bitrate < ACCEPTABLE_BITRATE_KBPS {
         return QualityVerdict::WeakOnABigSystem;
     }
-    if cutoff_hz.is_some_and(|hz| hz < expected_cutoff_hz(bitrate)) {
+    if cutoff_hz
+        .is_some_and(|hz| hz < capped_expected_cutoff_hz(expected_cutoff_hz(bitrate), sample_rate))
+    {
         return QualityVerdict::LikelyReencoded;
     }
     if bitrate >= GOOD_BITRATE_KBPS {
@@ -380,17 +434,25 @@ impl QualityProbe {
         let duration = f64::from(audio.duration_seconds());
         let bitrate_kbps = (duration > 0.0 && self.payload_bytes > 0)
             .then(|| (self.payload_bytes as f64 * 8.0 / duration / 1000.0).round() as u32);
-        let cutoff_hz = self.cutoff.finish();
+        let cutoff = self.cutoff.finish();
+        let cutoff_hz = cutoff.map(|cutoff| cutoff.hz);
+        let sample_rate = audio.sample_rate().get();
         QualityReport {
             verdict: if self.is_vorbis {
-                vorbis_verdict(bitrate_kbps, cutoff_hz)
+                vorbis_verdict(bitrate_kbps, self.channels, sample_rate, cutoff_hz)
             } else {
-                verdict(self.lossless, bitrate_kbps, cutoff_hz)
+                verdict(
+                    self.lossless,
+                    bitrate_kbps,
+                    self.channels,
+                    sample_rate,
+                    cutoff,
+                )
             },
             codec: self.codec,
             lossless: self.lossless,
             bitrate_kbps,
-            sample_rate: audio.sample_rate().get(),
+            sample_rate,
             bit_depth: self.bit_depth,
             channels: self.channels,
             cutoff_hz,
@@ -490,12 +552,15 @@ mod tests {
             (130, Some(16_000.0), QualityVerdict::LikelyReencoded),
         ] {
             assert_eq!(
-                vorbis_verdict(Some(bitrate), cutoff),
+                vorbis_verdict(Some(bitrate), Some(2), 44_100, cutoff),
                 expected,
                 "{bitrate} kbit/s, cutoff {cutoff:?}"
             );
         }
-        assert_eq!(vorbis_verdict(None, None), QualityVerdict::Acceptable);
+        assert_eq!(
+            vorbis_verdict(None, Some(2), 44_100, None),
+            QualityVerdict::Acceptable
+        );
     }
 
     #[test]
@@ -598,15 +663,106 @@ mod tests {
         assert_eq!(analysis.quality.unwrap().verdict, QualityVerdict::Lossless);
     }
 
+    fn edge(hz: f32, brickwall: bool) -> Option<Cutoff> {
+        Some(Cutoff { hz, brickwall })
+    }
+
+    fn stereo_verdict(bitrate: u32, cutoff_hz: Option<f32>) -> QualityVerdict {
+        verdict(
+            false,
+            Some(bitrate),
+            Some(2),
+            44_100,
+            cutoff_hz.map(|hz| Cutoff {
+                hz,
+                brickwall: true,
+            }),
+        )
+    }
+
     #[test]
     fn lossless_files_are_lossless_unless_their_sound_stops_early() {
-        assert_eq!(verdict(true, Some(900), None), QualityVerdict::Lossless);
+        let lossless = |cutoff| verdict(true, Some(900), Some(2), 44_100, cutoff);
+        assert_eq!(lossless(None), QualityVerdict::Lossless);
+        assert_eq!(lossless(edge(20_500.0, true)), QualityVerdict::Lossless);
         assert_eq!(
-            verdict(true, Some(900), Some(20_500.0)),
-            QualityVerdict::Lossless
+            lossless(edge(16_000.0, true)),
+            QualityVerdict::LikelyReencoded
+        );
+    }
+
+    #[test]
+    fn a_lossless_file_with_a_gradual_roll_off_has_a_limited_bandwidth() {
+        let lossless = |cutoff| verdict(true, Some(900), Some(2), 44_100, cutoff);
+        for hz in [12_000.0, 14_500.0, 18_900.0] {
+            assert_eq!(
+                lossless(edge(hz, false)),
+                QualityVerdict::LimitedBandwidth,
+                "{hz}"
+            );
+        }
+        assert_eq!(lossless(edge(19_500.0, false)), QualityVerdict::Lossless);
+    }
+
+    #[test]
+    fn a_low_sample_rate_lossless_file_is_not_judged_by_a_cutoff_it_cannot_reach() {
+        let lossless = |cutoff| verdict(true, Some(300), Some(2), 22_050, cutoff);
+        assert_eq!(lossless(edge(10_000.0, true)), QualityVerdict::Lossless);
+        assert_eq!(
+            lossless(edge(9_000.0, true)),
+            QualityVerdict::LikelyReencoded
+        );
+    }
+
+    #[test]
+    fn mono_files_are_judged_by_their_bit_rate_per_channel() {
+        let mono = |bitrate: u32, cutoff_hz: Option<f32>| {
+            verdict(
+                false,
+                Some(bitrate),
+                Some(1),
+                44_100,
+                cutoff_hz.map(|hz| Cutoff {
+                    hz,
+                    brickwall: true,
+                }),
+            )
+        };
+        assert_eq!(mono(96, Some(17_000.0)), QualityVerdict::Acceptable);
+        assert_eq!(mono(96, Some(15_000.0)), QualityVerdict::LikelyReencoded);
+        assert_eq!(mono(128, Some(19_000.0)), QualityVerdict::Good);
+        assert_eq!(mono(64, Some(16_000.0)), QualityVerdict::WeakOnABigSystem);
+        assert_eq!(mono(64, None), QualityVerdict::WeakOnABigSystem);
+        assert_eq!(stereo_verdict(96, None), QualityVerdict::WeakOnABigSystem);
+        assert_eq!(
+            vorbis_verdict(Some(70), Some(1), 44_100, Some(18_600.0)),
+            QualityVerdict::Acceptable
+        );
+    }
+
+    #[test]
+    fn low_sample_rate_lossy_files_are_not_expected_to_reach_a_cutoff_above_their_band() {
+        // MPEG-2 MP3 at 22.05 kHz, 160 kbit/s, content up to 10 kHz of its
+        // 11.025 kHz Nyquist; and at 32 kHz up to 14.5 kHz of 16 kHz.
+        for (sample_rate, cutoff_hz) in [(22_050, 10_000.0), (32_000, 14_600.0)] {
+            assert_eq!(
+                verdict(
+                    false,
+                    Some(160),
+                    Some(2),
+                    sample_rate,
+                    edge(cutoff_hz, true)
+                ),
+                QualityVerdict::Acceptable,
+                "{sample_rate}"
+            );
+        }
+        assert_eq!(
+            verdict(false, Some(160), Some(2), 22_050, edge(8_500.0, true)),
+            QualityVerdict::LikelyReencoded
         );
         assert_eq!(
-            verdict(true, Some(900), Some(16_000.0)),
+            verdict(false, Some(160), Some(2), 44_100, edge(10_000.0, true)),
             QualityVerdict::LikelyReencoded
         );
     }
@@ -624,7 +780,7 @@ mod tests {
         ];
         for (bitrate, cutoff, expected) in cases {
             assert_eq!(
-                verdict(false, Some(bitrate), cutoff),
+                stereo_verdict(bitrate, cutoff),
                 expected,
                 "{bitrate} {cutoff:?}"
             );
@@ -640,7 +796,7 @@ mod tests {
             (192, 15_200.0),
         ] {
             assert_eq!(
-                verdict(false, Some(bitrate), Some(cutoff)),
+                stereo_verdict(bitrate, Some(cutoff)),
                 QualityVerdict::LikelyReencoded,
                 "{bitrate} {cutoff}"
             );
@@ -650,7 +806,7 @@ mod tests {
     #[test]
     fn a_low_bit_rate_is_weak_whatever_its_cutoff() {
         assert_eq!(
-            verdict(false, Some(128), Some(11_000.0)),
+            stereo_verdict(128, Some(11_000.0)),
             QualityVerdict::WeakOnABigSystem
         );
     }
@@ -735,6 +891,7 @@ mod tests {
         report.clipped_share = 0.0;
         for verdict in [
             QualityVerdict::Lossless,
+            QualityVerdict::LimitedBandwidth,
             QualityVerdict::Good,
             QualityVerdict::Acceptable,
             QualityVerdict::WeakOnABigSystem,
@@ -742,5 +899,29 @@ mod tests {
             report.verdict = verdict;
             assert!(!report.reason().is_empty());
         }
+        report.lossless = true;
+        report.codec = "flac".to_string();
+        report.verdict = QualityVerdict::LimitedBandwidth;
+        assert_eq!(
+            report.reason(),
+            "Lossless FLAC. Content stops at 16.4 kHz, with the gradual roll-off of tape, vinyl or a dark mastering, not an encoder's brick wall."
+        );
+    }
+
+    #[test]
+    fn the_verdict_is_written_in_kebab_case_json() {
+        let json = |verdict| serde_json::to_string(&verdict).unwrap();
+        assert_eq!(
+            json(QualityVerdict::LimitedBandwidth),
+            "\"limited-bandwidth\""
+        );
+        assert_eq!(
+            json(QualityVerdict::LikelyReencoded),
+            "\"likely-reencoded\""
+        );
+        assert_eq!(
+            serde_json::from_str::<QualityVerdict>("\"likely-reencoded\"").unwrap(),
+            QualityVerdict::LikelyReencoded
+        );
     }
 }

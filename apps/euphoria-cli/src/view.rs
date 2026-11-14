@@ -145,6 +145,7 @@ fn energy_bar(theme: &Theme, energy: u8) -> String {
 pub fn quality_word(verdict: QualityVerdict) -> &'static str {
     match verdict {
         QualityVerdict::Lossless => "lossless",
+        QualityVerdict::LimitedBandwidth => "limited bandwidth",
         QualityVerdict::Good => "good",
         QualityVerdict::Acceptable => "acceptable",
         QualityVerdict::WeakOnABigSystem => "weak",
@@ -156,6 +157,7 @@ pub fn quality_word(verdict: QualityVerdict) -> &'static str {
 fn quality_coloured(theme: &Theme, verdict: QualityVerdict, text: &str) -> String {
     match verdict {
         QualityVerdict::Lossless | QualityVerdict::Good => theme.good(text),
+        QualityVerdict::LimitedBandwidth => text.to_string(),
         QualityVerdict::Acceptable => text.to_string(),
         QualityVerdict::WeakOnABigSystem => theme.caution(text),
         QualityVerdict::LikelyReencoded => theme.bad(text),
