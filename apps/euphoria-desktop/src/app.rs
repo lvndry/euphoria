@@ -770,6 +770,16 @@ impl EuphoriaApp {
     /// the filter, the folder on show or the sort order changed, and the
     /// folder tree and the Folder column when they depend on what changed.
     pub(crate) fn refresh_visible(&mut self) {
+        if self.filter == LibraryFilter::Missing
+            && !self
+                .session
+                .library()
+                .tracks()
+                .iter()
+                .any(|track| track.is_missing())
+        {
+            self.filter = LibraryFilter::AllTracks;
+        }
         let library = self.session.library();
         let revisions = (library.structure_revision(), library.revision());
         match self.folder_tree_revisions {
@@ -1333,10 +1343,6 @@ impl EuphoriaApp {
         LibraryCounts {
             total: counts.total,
             needs_review: failed_in_folder.unwrap_or(counts.needs_review),
-            quality_to_check: self
-                .session
-                .library()
-                .quality_to_check_in(self.folder.as_deref()),
             missing: counts.missing,
         }
     }
@@ -1371,17 +1377,6 @@ impl EuphoriaApp {
         self.playlist = None;
         self.showing_favorites = false;
         self.filter = LibraryFilter::NeedsReview;
-        self.refresh_visible();
-        cx.notify();
-    }
-
-    /// Shows only the tracks whose quality is weak on a big system or likely
-    /// re-encoded, within the folder on show.
-    pub(crate) fn show_tracks_with_quality_to_check(&mut self, cx: &mut Context<'_, Self>) {
-        self.close_set_builder();
-        self.playlist = None;
-        self.showing_favorites = false;
-        self.filter = LibraryFilter::QualityToCheck;
         self.refresh_visible();
         cx.notify();
     }

@@ -16,6 +16,7 @@ use crate::playback::testing::SilentOutput;
 use crate::settings::Settings;
 use crate::state::Session;
 use crate::tag_writing::testing::ScratchFolder;
+use crate::ui_tests::is_shown;
 
 struct MissingLibrary {
     _scratch: ScratchFolder,
@@ -25,6 +26,7 @@ struct MissingLibrary {
     deleted: PathBuf,
     other_audio: PathBuf,
     view: Entity<EuphoriaApp>,
+    window: gpui::AnyWindowHandle,
 }
 
 /// A playlist of three tracks, the second starred, where the first was
@@ -60,9 +62,9 @@ fn open_with_missing_files(name: &str, cx: &mut TestAppContext) -> MissingLibrar
     std::fs::remove_file(&files[1]).unwrap();
 
     let session_store_path = store_path.clone();
-    let view = cx.update(|cx| {
+    let (window, view) = cx.update(|cx| {
         gpui::init(cx);
-        let (_, view) = gpui::open_window(WindowOptions::default(), cx, |window, cx| {
+        let (window, view) = gpui::open_window(WindowOptions::default(), cx, |window, cx| {
             cx.new(|cx| {
                 let mut session = Session::start(None).unwrap();
                 session
@@ -80,7 +82,7 @@ fn open_with_missing_files(name: &str, cx: &mut TestAppContext) -> MissingLibrar
             })
         })
         .unwrap();
-        view
+        (window, view)
     });
     MissingLibrary {
         moved_from: files[0].clone(),
@@ -89,6 +91,7 @@ fn open_with_missing_files(name: &str, cx: &mut TestAppContext) -> MissingLibrar
         moved_to,
         store_path,
         view,
+        window,
         _scratch: scratch,
     }
 }
@@ -400,4 +403,32 @@ fn a_remembered_folder_that_is_gone_is_kept_for_the_next_launch(cx: &mut TestApp
     });
     cx.run_until_parked();
     cx.update(|cx| assert_eq!(view.read(cx).unavailable_folders, vec![gone.clone()]));
+}
+
+#[gpui::test]
+fn the_missing_files_entry_shows_only_while_a_file_is_missing(cx: &mut TestAppContext) {
+    let library = open_with_missing_files("ui-missing-entry", cx);
+    let view = library.view.clone();
+    assert!(is_shown(library.window, "missing-files", cx));
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.show_missing_tracks(cx);
+            assert_eq!(app.filter, LibraryFilter::Missing);
+        })
+    });
+    for path in [library.deleted.clone(), library.moved_from.clone()] {
+        cx.update(|cx| {
+            view.update(cx, |app, cx| {
+                app.selected = app.session.library().index_of(&path);
+                app.remove_missing_tracks_of_selection(cx);
+            })
+        });
+        cx.run_until_parked();
+    }
+
+    assert!(missing_paths(&view, cx).is_empty());
+    cx.update(|cx| assert_eq!(view.read(cx).filter, LibraryFilter::AllTracks));
+    assert!(!is_shown(library.window, "missing-files", cx));
+    assert!(is_shown(library.window, "all-tracks", cx));
 }

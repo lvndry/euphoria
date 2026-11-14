@@ -159,8 +159,6 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
          analyzed"
     } else if app.filter == LibraryFilter::Missing {
         "No missing files: every track is where it was"
-    } else if app.filter == LibraryFilter::QualityToCheck {
-        "No tracks with a low bit rate or likely re-encoded"
     } else {
         "No tracks match"
     }
@@ -185,10 +183,6 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
         (LibraryFilter::NeedsReview, Some(folder)) => format!("Needs review in {folder}").into(),
         (LibraryFilter::Missing, None) => "Missing files".into(),
         (LibraryFilter::Missing, Some(folder)) => format!("Missing files in {folder}").into(),
-        (LibraryFilter::QualityToCheck, None) => "Quality to check".into(),
-        (LibraryFilter::QualityToCheck, Some(folder)) => {
-            format!("Quality to check in {folder}").into()
-        }
     };
     let count = match playlist {
         None if app.showing_favorites => {
