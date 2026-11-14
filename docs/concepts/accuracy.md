@@ -258,10 +258,10 @@ Euphoria marks where the sections of a track start, the places a DJ sets cues at
 | Cue | Where |
 | --- | --- |
 | Start | The first bar with sound. |
-| Main | The first bar of the first section at full energy, when the track does not start at full energy. |
-| Breakdown | The first bar of a section without the kick, after a section at full energy. |
-| Drop | The first bar at full energy after a breakdown. |
-| Outro | The first bar after the last section at full energy, when at least 8 bars follow it. |
+| Main | The first bar of the first section at the level of the body of the track, when the track does not start at that level. |
+| Breakdown | The first bar of a section below the level of the body of the track, after a section at that level. |
+| Drop | The first bar back at the level of the body after a breakdown. |
+| Outro | The first bar of the section below the level of the body that follows the last section at that level and runs to the end, when it is at least 8 bars. A track whose body runs to the end has no Outro, so the cue is never placed early in a track that plays steadily after its intro. |
 
 A track gets at most 8 cues, one per hot cue pad from A to H. When there would be more, the start, the main section and the outro are kept, and then the earliest breakdowns and drops. `euphoria analyze --json` reports the cues, and `euphoria export rekordbox --beat-grid --cues` writes them; see [the command reference](../reference/cli.md#cue-points). Where a cue is off, move it, or add, rename and delete cues, in the [desktop app](../guides/desktop-app.md#cue-points); your cues then replace these everywhere.
 
@@ -269,16 +269,20 @@ A track gets at most 8 cues, one per hot cue pad from A to H. When there would b
 
 ### How they are found
 
-Every bar of the [beat grid](#beat-grid) is measured three ways: how loud it is, how loud it is below 150 Hz, where the kick and the bass are, and how much louder that band is just after each beat than halfway between beats. A kick on the beat makes that last difference large. A sustained bass line or pad sounds as loud between the beats and does not, so a breakdown that keeps its bass is still a breakdown. A bar has a kick when the band is at least 3 dB louder on the beats, and plays at full energy when it also has its usual low end, within 6 dB, and its usual loudness, within 4 dB. The usual level is the level that 90% of the track's bars with sound stay below or reach.
+Every bar of the [beat grid](#beat-grid) is measured four ways: how loud it is, how loud it is below 150 Hz, where the kick and the bass are, how loud it is above 2 kHz, where the hats and percussion are, and how much louder the low band is just after each beat than halfway between beats. A kick on the beat makes that last difference large; a sustained bass line or pad does not. A bar has a kick when the difference is at least 3 dB. The kick of each bar is searched for within 40 ms of where the kick of the bar before was found, since the grid has one tempo for the whole track and the beats of the music drift from it, which on long tracks put the kick between the measuring windows and made a steady groove read as having none.
 
-Runs of bars at one level shorter than 8 bars, such as a one bar break before a drop, belong to the section around them. Each section start is then placed on a phrase: a multiple of 8 bars from the first bar with sound, or of 4 bars when the change is more than 2 bars from the nearest multiple of 8, since sections sometimes start half a phrase off the count. The cues use the grid in the default tempo range, so they do not move with `--tempo-range`.
+The sections are then found the way structure analysis usually does it: the four numbers of each bar, scaled by how much they vary over the track, are compared bar to bar, and a section starts where the 8 bars before a bar differ most from the 8 after it, the checkerboard kernel novelty of Foote. Peaks of that novelty at least 8 bars apart are section changes. Each section is then judged against the level the track plays at for most of its length, the loudness and low end that 75% of its bars reach: it is at that level when it is within 3 dB of the loudness and 6 dB of the low end of the body, and, when the body has a kick, plays it for half of its bars. Sections at the same level that follow each other are one. The Outro is therefore the section below the body that follows the last section at the body level, instead of whatever comes after the last bar with the kick, and a track that plays steadily to its end has none. Earlier versions judged bars against the loudest 10% of the track and required the kick, so a groove whose kick was not found counted as a breakdown, and the Outro came right after the intro.
+
+Sections shorter than 8 bars, such as a one bar break before a drop, belong to the section around them. Each section start is then placed on a phrase: a multiple of 8 bars from the first bar with sound, or of 4 bars when the change is more than 2 bars from the nearest multiple of 8, since sections sometimes start half a phrase off the count. The cues use the grid in the default tempo range, so they do not move with `--tempo-range`.
 
 ### What has been checked
 
-No dataset with both audio and labelled sections of dance music was found, so the cues are not scored against labels. What was checked:
+No dataset with both audio and labelled sections of dance music was found (the public annotations of the Harmonix Set and SALAMI come without audio that can be redistributed), so the cues are not scored against labels. What was checked:
 
-- **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none.
-- **The 604 GiantSteps Key previews.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
+- **Synthesized arrangements.** An intro of kick alone, a full section with kick, bass, pad and claps, a breakdown with pad only, a drop and an outro each get their cue on the right bar. So does a breakdown that keeps the bass, while a two bar break before a drop gets none. So do a groove without an on-beat kick after a kick intro, which gets a Main and no Outro, a loud intro before a quieter steady body, which gets no Outro, and a few silent bars at the end of a track.
+- **Boundaries on synthesized arrangements.** On 9 arrangements with 32 known section starts, the previous method placed 21 within one bar with the right name (66%) and this one all 32. The arrangements include the cases the previous method got wrong, so this shows the fix and is not an estimate of accuracy on real music.
+- **575 full length tracks of one DJ library, without labels.** Counting cues, not scoring them: tracks with an Outro in the first half fell from 14 to 0, and in the first three quarters from 23 to 3; tracks with an Outro at all rose from 131 to 169, since most tracks with a clear ending had none; tracks with only the Start cue fell from 190 to 31. In the early Outro tracks inspected, the section was one the kick detector lost, not an outro: the kick of a bar was measured on the grid's beats, which drift from the music over a long track and after a breakdown, so it read as absent for the rest of the track.
+- **The 604 GiantSteps Key previews, before the cues were changed to this method and not measured again.** These two minute excerpts from the middle of dance tracks mostly play at one level throughout. 435 get only the Start cue, 58 also an Outro, 52 a Main, 33 a breakdown and a drop, and the rest up to 5 cues. On the preview in the chart above, the cues fall where the energy curve changes.
 
 It cannot show how often the cues fall where a DJ would put them on full length tracks.
 

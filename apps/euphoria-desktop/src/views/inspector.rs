@@ -5,14 +5,16 @@
 //! waveform and, when analysis failed, why. Shown as a column on the right
 //! or as a strip under the table, depending on the theme's layout.
 
+use std::rc::Rc;
+
 use euphoria_core::harmony::Relation;
 use euphoria_core::{Confidence, TagKeyAgreement};
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, SharedString,
-    Stateful, TestSupportExt, Window, div, px,
+    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, Pixels,
+    SharedString, Stateful, TestSupportExt, Window, div, px,
 };
 
 use crate::app::EuphoriaApp;
@@ -24,7 +26,7 @@ use crate::library::{Track, TrackStatus};
 use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
-use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
+use crate::track_overview::{key_stretches, shows_key_timeline};
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -32,7 +34,7 @@ use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::stems;
-use crate::views::track_overview;
+use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
@@ -729,15 +731,21 @@ fn waveform_section(
     };
 
     let progress = app.player.progress();
-    let energy = match state {
-        Some(Waveform::Ready(_, Some(EnergyCurve::Steps(steps)))) if !steps.is_empty() => {
-            Some(track_overview::energy_curve(steps, progress, &palette))
-        }
-        Some(Waveform::Ready(_, Some(EnergyCurve::Unavailable(reason)))) => {
-            Some(track_overview::energy_unavailable(reason, &palette))
-        }
-        _ => None,
-    };
+    let duration_seconds = track.duration_seconds().unwrap_or(0.0);
+    let separated_path = track.path.clone();
+    let lanes = track_overview::overview_lanes(&LaneInputs {
+        energy: match state {
+            Some(Waveform::Ready(_, energy)) => energy.as_ref(),
+            _ => None,
+        },
+        vocals: app.vocal_lane_of(&track.path),
+        stems: app.stems.status(&track.path),
+        frame: LaneFrame::whole(duration_seconds, progress, app.waveform_bounds.clone()),
+        palette,
+        on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.request_stems_of(separated_path.clone(), cx)
+        })),
+    });
     // The timeline is the detector's. Once the user corrects the key, the
     // detector's sections are the very thing they disagreed with, and a
     // strip of them under a different key reads as a contradiction, so it
@@ -760,7 +768,6 @@ fn waveform_section(
         })
     });
     let shown_cues = cues::shown_cues(track, app);
-    let duration_seconds = track.duration_seconds().unwrap_or(0.0);
     let cue_fractions = cues::fractions(&shown_cues, duration_seconds);
     // The waveform's width as last drawn; the lane is as wide.
     let lane_width = app
@@ -777,9 +784,10 @@ fn waveform_section(
     let cue_lane = (!marker_places.is_empty())
         .then(|| cues::lane(&shown_cues, duration_seconds, &marker_places, &palette, cx));
     // The rows other than the waveform, which takes the height left.
-    let others = energy
-        .as_ref()
-        .map_or(0.0, |_| track_overview::ENERGY_HEIGHT + WAVEFORM_ROW_GAP)
+    let others = lanes
+        .iter()
+        .map(|lane| lane.height + WAVEFORM_ROW_GAP)
+        .sum::<f32>()
         + key_timeline.as_ref().map_or(0.0, |_| {
             track_overview::KEY_TIMELINE_HEIGHT + WAVEFORM_ROW_GAP
         })
@@ -827,7 +835,7 @@ fn waveform_section(
         )
         .children(cue_lane)
         .child(scrubber)
-        .children(energy)
+        .children(lanes.into_iter().map(|lane| lane.element))
         .children(key_timeline)
         .children(match state {
             Some(Waveform::Unreadable(reason)) => Some(

@@ -130,14 +130,14 @@ pub fn stem_activity(files: &StemFiles) -> Result<StemActivity, EuphoriaError> {
     Ok(StemActivity { active })
 }
 
-struct StemWav {
+pub(super) struct StemWav {
     path: std::path::PathBuf,
     reader: hound::WavReader<BufReader<File>>,
     channels: usize,
 }
 
 impl StemWav {
-    fn open(path: &Path) -> Result<Self, EuphoriaError> {
+    pub(super) fn open(path: &Path) -> Result<Self, EuphoriaError> {
         let reader = hound::WavReader::open(path).map_err(|error| wav_error(path, error))?;
         let spec = reader.spec();
         if spec.sample_format != hound::SampleFormat::Int || spec.bits_per_sample != 16 {
@@ -161,7 +161,7 @@ impl StemWav {
 
     /// Reads up to `frames` frames into `channels`, one buffer per
     /// channel, so that channels in opposite phase do not cancel.
-    fn read_channels(
+    pub(super) fn read_channels(
         &mut self,
         channels: &mut Vec<Vec<f32>>,
         frames: usize,
