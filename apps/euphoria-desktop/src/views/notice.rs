@@ -4,7 +4,7 @@
 //! A strip along the bottom of the window that reports a problem.
 
 use gpui::prelude::*;
-use gpui::{Context, Div, SharedString, Stateful, div, px};
+use gpui::{Context, Div, SharedString, Stateful, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::views::SMALL_TEXT_SIZE;
@@ -111,5 +111,73 @@ pub(crate) fn render_link_confirmation(
                 button("cancel-link", "Cancel")
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_pending_link(cx))),
             ),
+    )
+}
+
+/// The strip that asks whether to replace the files an export of stems
+/// would overwrite, while one waits for an answer.
+pub(crate) fn render_stem_export_confirmation(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<impl IntoElement> {
+    let palette = app.theme.palette;
+    let request = app.pending_stem_export.as_ref()?;
+    let existing = request.existing();
+    let first = existing
+        .first()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let question: SharedString = match existing.len() {
+        0 | 1 => format!("{first} already exists. Replace it?"),
+        count => format!(
+            "{first} and {} more files already exist. Replace them?",
+            count - 1
+        ),
+    }
+    .into();
+    let button = |id: &'static str, label: &'static str| {
+        div()
+            .id(id)
+            .flex_shrink_0()
+            .px(px(8.0))
+            .py(px(2.0))
+            .rounded(px(4.0))
+            .text_color(palette.text_secondary)
+            .cursor_pointer()
+            .hover(move |style| style.bg(palette.raised).text_color(palette.text))
+            .child(label)
+    };
+    Some(
+        div()
+            .id("stem-export-confirmation")
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(12.0))
+            .px(px(14.0))
+            .py(px(8.0))
+            .border_t_1()
+            .border_color(palette.line)
+            .bg(palette.sidebar)
+            .text_size(SMALL_TEXT_SIZE)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(palette.text)
+                    .child(question),
+            )
+            .child(
+                button("replace-stem-export", "Replace")
+                    .on_click(cx.listener(|this, _, _, cx| this.confirm_pending_stem_export(cx)))
+                    .test_support(),
+            )
+            .child(
+                button("cancel-stem-export", "Cancel")
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_pending_stem_export(cx)))
+                    .test_support(),
+            )
+            .test_support(),
     )
 }

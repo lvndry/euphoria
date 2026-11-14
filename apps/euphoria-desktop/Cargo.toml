@@ -33,6 +33,7 @@ objc2-foundation.workspace = true
 [dev-dependencies]
 rusqlite.workspace = true
 roxmltree.workspace = true
+hound.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 png.workspace = true
 

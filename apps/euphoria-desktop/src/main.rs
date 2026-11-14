@@ -50,6 +50,9 @@ mod set_builder;
 mod set_builder_ui_tests;
 mod settings;
 mod state;
+mod stem_export;
+#[cfg(test)]
+mod stem_export_ui_tests;
 mod stems;
 #[cfg(test)]
 mod suggestion_filter_ui_tests;
