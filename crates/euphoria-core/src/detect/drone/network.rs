@@ -376,8 +376,7 @@ impl Convolution {
                 );
             }
         }
-        for channel in 0..self.output_channels {
-            let bias = self.bias[channel];
+        for (channel, &bias) in self.bias.iter().enumerate() {
             for row in 0..output.rows {
                 for value in output.row_mut(channel, row) {
                     let shifted = *value + bias;
