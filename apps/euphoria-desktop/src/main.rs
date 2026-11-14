@@ -53,6 +53,8 @@ mod metronome_ui_tests;
 mod missing_ui_tests;
 mod mixes;
 mod next_rail;
+#[cfg(test)]
+mod next_rail_ui_tests;
 mod output_stream;
 mod panels;
 mod peaks;

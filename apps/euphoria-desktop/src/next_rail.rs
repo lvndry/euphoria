@@ -207,7 +207,10 @@ mod tests {
 
     fn names(library: &Library, rows: &[NextRow]) -> Vec<String> {
         rows.iter()
-            .map(|row| library.tracks()[row.track_index].title().to_string())
+            .map(|row| {
+                let name = &library.tracks()[row.track_index].file_name;
+                name.trim_end_matches(".flac").to_string()
+            })
             .collect()
     }
 
