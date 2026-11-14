@@ -486,11 +486,29 @@ fn plan(
                 names
             });
 
-    let rows: Vec<(i64, String, Option<String>)> = connection
-        .prepare("SELECT id, path, comment FROM Track WHERE path IS NOT NULL")
+    let rows: Vec<(
+        i64,
+        String,
+        Option<i64>,
+        Option<i64>,
+        Option<f64>,
+        Option<String>,
+    )> = connection
+        .prepare(
+            "SELECT id, path, key, bpm, bpmAnalyzed, comment FROM Track WHERE path IS NOT NULL",
+        )
         .and_then(|mut statement| {
             statement
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })?
                 .collect()
         })
         .map_err(|error| fail(format!("its tracks cannot be read ({error})")))?;
@@ -502,7 +520,7 @@ fn plan(
         kept_own_cues: vec![false; tracks.len()],
         ..Plan::default()
     };
-    for (track_id, stored_path, comment) in rows {
+    for (track_id, stored_path, existing_key, existing_bpm, existing_exact_bpm, comment) in rows {
         let absolute = lexically_normal(&library.join(&stored_path));
         let index = by_path.get(absolute.as_path()).copied().or_else(|| {
             let name = absolute.file_name()?.to_string_lossy().to_lowercase();
@@ -533,6 +551,9 @@ fn plan(
             })?;
         let row = row_update(
             track_id,
+            existing_key,
+            existing_bpm,
+            existing_exact_bpm,
             comment.as_deref(),
             performance,
             tracks[index],
@@ -554,6 +575,9 @@ fn plan(
 
 fn row_update(
     track_id: i64,
+    existing_key: Option<i64>,
+    existing_bpm: Option<i64>,
+    existing_exact_bpm: Option<f64>,
     comment: Option<&str>,
     performance: Option<PerformanceBlobs>,
     entry: EngineTrack<'_>,
@@ -562,17 +586,22 @@ fn row_update(
     index: usize,
 ) -> Result<RowUpdate, String> {
     let track = entry.track;
-    let key = track.key.map(engine_key_value);
-    let bpm = track
+    let desired_key = track.key.map(engine_key_value);
+    let key = desired_key.filter(|key| Some(*key) != existing_key);
+    let desired_bpm = track
         .bpm
         .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
         .map(|bpm| (bpm.round() as i64, bpm));
+    let bpm = desired_bpm.filter(|(rounded, exact)| {
+        Some(*rounded) != existing_bpm || Some(*exact) != existing_exact_bpm
+    });
     let label = label_text(track.key, entry.energy, options.label_notation);
     let comment = match (options.label, label) {
         (LabelPlacement::CommentStart, Some(label)) => Some(with_label(&label, comment, false)),
         (LabelPlacement::CommentEnd, Some(label)) => Some(with_label(&label, comment, true)),
         _ => None,
-    };
+    }
+    .filter(|updated| Some(updated.as_str()) != comment);
     let mut update = RowUpdate {
         track_id,
         key,
@@ -594,14 +623,14 @@ fn row_update(
         plan.not_analysed[index] = wants_performance;
         return Ok(update);
     };
-    if let Some(key) = key
+    if let Some(key) = desired_key
         && i64::from(track_data.key) != key
     {
         track_data.key = key as i32;
         update.track_data = Some(compress(&track_data.encode()));
     }
 
-    if let (Some(first_beat), Some((_, bpm))) = (track.first_beat, bpm) {
+    if let (Some(first_beat), Some((_, bpm))) = (track.first_beat, desired_bpm) {
         let grid = constant_beat_grid(
             track_data.sample_rate,
             track_data.samples,
@@ -618,9 +647,13 @@ fn row_update(
             is_beatgrid_set: 1,
             default_grid: grid.clone(),
             adjusted_grid: grid,
-            extra: existing.map_or_else(|| vec![0; 9], |existing| existing.extra),
+            extra: existing
+                .as_ref()
+                .map_or_else(|| vec![0; 9], |existing| existing.extra.clone()),
         };
-        update.beat_data = Some(compress(&beat_data.encode()));
+        if existing.as_ref() != Some(&beat_data) {
+            update.beat_data = Some(compress(&beat_data.encode()));
+        }
     }
 
     if !track.cue_points.is_empty() {
@@ -666,13 +699,13 @@ fn row_update(
                     }
                 }
             }
-            let (adjusted_main_cue, is_main_cue_adjusted, default_main_cue, extra) = match existing
+            let (adjusted_main_cue, is_main_cue_adjusted, default_main_cue, extra) = match &existing
             {
                 Some(existing) => (
                     existing.adjusted_main_cue,
                     existing.is_main_cue_adjusted,
                     existing.default_main_cue,
-                    existing.extra,
+                    existing.extra.clone(),
                 ),
                 None => (
                     EMPTY_QUICK_CUE_OFFSET,
@@ -681,16 +714,16 @@ fn row_update(
                     Vec::new(),
                 ),
             };
-            update.quick_cues = Some(compress(
-                &QuickCues {
-                    cues,
-                    adjusted_main_cue,
-                    is_main_cue_adjusted,
-                    default_main_cue,
-                    extra,
-                }
-                .encode(),
-            ));
+            let quick_cues = QuickCues {
+                cues,
+                adjusted_main_cue,
+                is_main_cue_adjusted,
+                default_main_cue,
+                extra,
+            };
+            if existing.as_ref() != Some(&quick_cues) {
+                update.quick_cues = Some(compress(&quick_cues.encode()));
+            }
         }
     }
     Ok(update)

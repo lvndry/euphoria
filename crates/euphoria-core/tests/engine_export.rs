@@ -208,6 +208,43 @@ fn exported_track(path: PathBuf) -> Track {
     }
 }
 
+#[test]
+fn exporting_the_same_values_twice_does_not_write_or_make_another_backup() {
+    for (schema_file, _) in SCHEMAS {
+        let library = Library::new(schema_file);
+        library.add_track("a.mp3", true);
+        let tracks = [exported_track(library.track_path("a.mp3"))];
+        let options = EngineOptions::default();
+        update_library(
+            &library.database,
+            &library.backup("first-backup"),
+            &entries(&tracks),
+            &options,
+        )
+        .unwrap();
+        let before = std::fs::read(&library.database).unwrap();
+
+        let preview =
+            preview_library_update(&library.database, &entries(&tracks), &options).unwrap();
+        assert!(preview.updated.is_empty(), "{schema_file}");
+        let second_backup = library.backup("second-backup");
+        let update = update_library(
+            &library.database,
+            &second_backup,
+            &entries(&tracks),
+            &options,
+        )
+        .unwrap();
+        assert!(update.updated.is_empty(), "{schema_file}");
+        assert!(!second_backup.exists(), "{schema_file}");
+        assert_eq!(
+            std::fs::read(&library.database).unwrap(),
+            before,
+            "{schema_file}"
+        );
+    }
+}
+
 fn entries(tracks: &[Track]) -> Vec<EngineTrack<'_>> {
     tracks
         .iter()
