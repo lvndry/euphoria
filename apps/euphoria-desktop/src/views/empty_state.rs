@@ -40,8 +40,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .text_center()
                 .text_color(palette.text_secondary)
                 .child(
-                    "Euphoria reads each track and finds its key and tempo. \
-                     Your files are never changed.",
+                    "Euphoria reads each track and finds its key and tempo, \
+                     then fills in any key and tempo tags your files are missing. \
+                     Tags you already have are kept, and every write can be undone.",
                 ),
         )
         .child(
