@@ -65,7 +65,7 @@ pub(crate) struct Player {
     position_seconds: f32,
     duration_seconds: Option<f32>,
     starts_asked_for: u64,
-    /// The track's stems are separated and can be played in place of it.
+    /// The track plays from its separated stems rather than its file.
     offers_stems: bool,
 }
 
@@ -115,14 +115,14 @@ impl Player {
         self.duration_seconds
     }
 
-    /// Whether the track's stems are separated and can be played in place
-    /// of the track.
+    /// Whether the track plays from its separated stems rather than its
+    /// file.
     pub(crate) fn offers_stems(&self) -> bool {
         self.offers_stems
     }
 
-    /// The stems of the track are separated, or they are not: the track
-    /// detail shows and hides its stem switch from this.
+    /// The track plays from its separated stems, or from its file: the
+    /// next start opens one or the other.
     pub(crate) fn stems_ready(&mut self, ready: bool) {
         self.offers_stems = ready;
     }
@@ -202,6 +202,23 @@ impl Player {
                 }
                 Some(self.start(path, self.offers_stems))
             }
+        }
+    }
+
+    /// Plays the track again from the current position, for a change of
+    /// what it plays from to be heard. A paused track lets go of its sound
+    /// and starts afresh when played.
+    pub(crate) fn restart(&mut self) -> Option<PlayerRequest> {
+        match self.status {
+            PlayerStatus::Playing | PlayerStatus::Starting => {
+                let path = self.track.clone()?;
+                Some(self.start(path, self.offers_stems))
+            }
+            PlayerStatus::Paused => {
+                self.status = PlayerStatus::Stopped;
+                Some(PlayerRequest::Stop)
+            }
+            PlayerStatus::Stopped | PlayerStatus::Failed(_) => None,
         }
     }
 
@@ -401,6 +418,36 @@ mod tests {
 
         player.stems_ready(false);
         starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+    }
+
+    #[test]
+    fn a_restart_plays_on_from_the_same_moment_or_lets_go_when_paused() {
+        let mut player = playing();
+        player.advance_to(64.0);
+        player.stems_ready(true);
+        match player.restart() {
+            Some(PlayerRequest::Start {
+                path,
+                from_seconds,
+                with_stems: true,
+                ..
+            }) => {
+                assert_eq!(path, first());
+                assert_eq!(from_seconds, 64.0);
+            }
+            other => panic!("expected the stems from 64 s, got {other:?}"),
+        }
+
+        let mut player = playing();
+        player.advance_to(30.0);
+        assert_eq!(player.toggle(), Some(PlayerRequest::Pause));
+        assert_eq!(player.restart(), Some(PlayerRequest::Stop));
+        assert_eq!(player.status(), &PlayerStatus::Stopped);
+        assert_eq!(player.position_seconds(), 30.0);
+        starts(player.toggle(), first(), 30.0);
+
+        let mut player = Player::default();
+        assert_eq!(player.restart(), None);
     }
 
     #[test]

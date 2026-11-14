@@ -103,6 +103,12 @@ impl StemMode {
         }
     }
 
+    /// Whether it is played from the stems. The full track is played from
+    /// the file itself, which is what the stems were separated from.
+    pub(crate) fn plays_stems(self) -> bool {
+        self != StemMode::Full
+    }
+
     /// Which stems it is made of.
     pub(crate) fn audible_stems(self) -> [bool; 4] {
         match self {
@@ -236,6 +242,31 @@ impl StemSession {
             Some(StemStatus::Ready(files)) => Some(files.clone()),
             _ => None,
         }
+    }
+
+    /// The stem files to play in place of the track at `path`: its stems
+    /// once they are separated, unless the full track is to be heard.
+    pub(crate) fn files_to_play(&self, path: &Path) -> Option<StemFiles> {
+        self.ready_files(path).filter(|_| self.mode.plays_stems())
+    }
+
+    /// Deletes the separated stems of the track at `path`, so that it can
+    /// be separated again. Returns why when they could not be deleted.
+    pub(crate) fn remove(&mut self, path: &Path) -> Result<(), String> {
+        if let Some(files) = self.ready_files(path) {
+            files.remove().map_err(|error| error.chain())?;
+        }
+        if !matches!(self.statuses.get(path), Some(StemStatus::Separating)) {
+            self.statuses.remove(path);
+        }
+        Ok(())
+    }
+
+    /// Marks the track at `path` as separated into `files`.
+    #[cfg(test)]
+    pub(crate) fn mark_ready(&mut self, path: &Path, files: StemFiles) {
+        self.statuses
+            .insert(path.to_path_buf(), StemStatus::Ready(files));
     }
 
     /// Where the separation has got to, when one is running.
@@ -395,6 +426,39 @@ mod tests {
                 .enumerate()
                 .all(|(index, _)| mix.gain(index) > 0.99)
         );
+    }
+
+    #[test]
+    fn only_acapella_and_instrumental_play_the_stems() {
+        let mut session = StemSession::new(failing);
+        let track = Path::new("/music/track.mp3");
+        let files = StemFiles::in_directory(PathBuf::from("/stems/track"));
+        assert_eq!(session.files_to_play(track), None);
+        session.mark_ready(track, files.clone());
+        assert_eq!(session.files_to_play(track), None);
+        session.set_mode(StemMode::Acapella);
+        assert_eq!(session.files_to_play(track), Some(files.clone()));
+        session.set_mode(StemMode::Instrumental);
+        assert_eq!(session.files_to_play(track), Some(files));
+        assert_eq!(session.files_to_play(Path::new("/music/other.mp3")), None);
+    }
+
+    #[test]
+    fn removed_stems_are_deleted_and_forgotten() {
+        let directory = std::env::temp_dir().join(format!(
+            "euphoria-desktop-remove-stems-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("vocals.wav"), b"stem").unwrap();
+        let mut session = StemSession::new(failing);
+        let track = Path::new("/music/track.mp3");
+        session.mark_ready(track, StemFiles::in_directory(directory.clone()));
+
+        session.remove(track).unwrap();
+        assert!(!directory.exists());
+        assert_eq!(session.status(track), None);
+        session.remove(track).unwrap();
     }
 
     #[test]
