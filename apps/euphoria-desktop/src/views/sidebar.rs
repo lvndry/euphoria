@@ -354,3 +354,14 @@ fn row_after(
                 .child(format::count(count))
         }))
 }
+
+/// The sidebar with `width` of it on show. It keeps its full width inside
+/// and slides, so the text leaves with it instead of wrapping.
+pub(crate) fn sliding(app: &EuphoriaApp, width: f32, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .overflow_hidden()
+        .w(px(width))
+        .child(render(app, cx).ml(px(width - SIDEBAR_WIDTH)))
+}
