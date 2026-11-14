@@ -389,3 +389,6 @@ jobs:
     uses: ./.github/workflows/publish-homebrew.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
+    secrets:
+      JAZZ_GITHUB_APP_ID: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+      JAZZ_GITHUB_APP_PRIVATE_KEY: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
