@@ -201,8 +201,8 @@ pub(crate) struct TagSettings {
     /// Whether a key or tempo rated low confidence is written.
     pub(crate) include_low_confidence: bool,
     /// Whether each track's key and tempo are written into its file once
-    /// its analysis finishes. Off until chosen, since it changes files DJ
-    /// programs read.
+    /// its analysis finishes. On by default: the safe defaults above keep
+    /// any key or tempo a file already has.
     pub(crate) write_after_analysis: bool,
     pub(crate) schema: u32,
 }
@@ -277,7 +277,7 @@ impl Default for TagSettings {
             write_cue_markers: false,
             replace_existing: false,
             include_low_confidence: false,
-            write_after_analysis: false,
+            write_after_analysis: true,
             schema: CURRENT_SCHEMA,
         }
     }
@@ -456,7 +456,7 @@ mod tests {
                 r#"{"program":"virtualdj","key_notation":"open-key","#,
                 r#""label":"comment-end","write_tempo":true,"write_cue_markers":true,"#,
                 r#""replace_existing":false,"include_low_confidence":false,"#,
-                r#""write_after_analysis":false,"schema":1}"#
+                r#""write_after_analysis":true,"schema":1}"#
             )
         );
         let engine: TagSettings = serde_json::from_str(r#"{"program":"engine-dj"}"#).unwrap();
@@ -470,17 +470,17 @@ mod tests {
     }
 
     #[test]
-    fn writing_after_analysis_is_off_for_old_files_and_remembered_once_chosen() {
+    fn writing_after_analysis_is_on_for_old_files_and_remembered_once_turned_off() {
         let old: TagSettings = serde_json::from_str(
             r#"{"program":"rekordbox","replace_existing":true,"include_low_confidence":false,"schema":1}"#,
         )
         .unwrap();
-        assert!(!old.write_after_analysis);
+        assert!(old.write_after_analysis);
         assert!(old.replace_existing, "the other choices survive");
-        assert!(!TagSettings::default().write_after_analysis);
+        assert!(TagSettings::default().write_after_analysis);
 
         let chosen = TagSettings {
-            write_after_analysis: true,
+            write_after_analysis: false,
             ..TagSettings::default()
         };
         let stored = serde_json::to_string(&chosen).unwrap();

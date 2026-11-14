@@ -137,7 +137,7 @@ If you changed the tags of a file after the write, undo leaves that file alone r
 
 The desktop app can write each track's key and tempo into its file as soon as the track has been analyzed, so the tags are filled without a click on **Write tags**. It is the setting **Write key and tempo to files after analysis** under **Settings > Writing tags**.
 
-It is off by default. Writing changes your files, and DJ programs read them: turning it on is a decision to let Euphoria touch every track it analyzes, so it is yours to make.
+It is on by default, because a key or tempo in the file is what DJ programs read, and the safe defaults below never overwrite one the file already has. The first analysis of a library therefore fills the empty key and tempo fields of every track it analyzes. Turn the setting off to write only when you choose **Write tags**.
 
 When it is on, each newly analyzed track goes through the same planning and writing as **Write tags**, so every safe default above applies:
 

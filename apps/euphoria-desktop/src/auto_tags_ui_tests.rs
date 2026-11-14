@@ -66,7 +66,7 @@ fn with_the_setting_off_nothing_is_written_after_analysis(cx: &mut TestAppContex
     let files = scratch.copy_fixtures();
     let before = tag_testing::contents(&files);
     let (_, view) = open_taggable_files(&scratch, &files, None, cx);
-    assert!(!cx.update(|cx| view.read(cx).tag_settings.write_after_analysis));
+    cx.update(|cx| view.update(cx, |app, _| app.tag_settings.write_after_analysis = false));
 
     analysed(&view, &files, cx);
     cx.run_until_parked();
@@ -218,9 +218,9 @@ fn the_setting_is_a_button_in_the_settings_and_is_remembered(cx: &mut TestAppCon
     let (window, view) = open_taggable_files(&scratch, &files, Some(settings_path.clone()), cx);
     click(window, "tag-program", cx);
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_write_after_analysis(cx)));
-    cx.update(|cx| assert!(view.read(cx).tag_settings.write_after_analysis));
+    cx.update(|cx| assert!(!view.read(cx).tag_settings.write_after_analysis));
     assert!(
-        Settings::load(&settings_path)
+        !Settings::load(&settings_path)
             .unwrap()
             .tags
             .write_after_analysis
