@@ -57,7 +57,7 @@ pub(crate) fn render(
 pub(crate) fn render_held_tags(
     app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
-) -> Option<Stateful<Div>> {
+) -> Option<impl IntoElement> {
     let palette = app.theme.palette;
     let programs = app.auto_tags.held_by();
     if programs.is_empty() || app.auto_tags.pending_count() == 0 {
@@ -106,7 +106,8 @@ pub(crate) fn render_held_tags(
                 button("dismiss-held-tags", "Dismiss")
                     .on_click(cx.listener(|this, _, _, cx| this.dismiss_held_tags(cx)))
                     .test_support(),
-            ),
+            )
+            .test_support(),
     )
 }
 

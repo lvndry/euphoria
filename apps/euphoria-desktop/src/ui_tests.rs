@@ -1724,9 +1724,19 @@ const FORMAT_COLUMN: usize = 10;
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
 /// scratch folder.
-fn open_taggable_files(
+pub(crate) fn open_taggable_files(
     scratch: &ScratchFolder,
     files: &[PathBuf],
+    settings_path: Option<PathBuf>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    open_taggable_files_analysed(scratch, files, tag_testing::analysis(), settings_path, cx)
+}
+
+pub(crate) fn open_taggable_files_analysed(
+    scratch: &ScratchFolder,
+    files: &[PathBuf],
+    analysis: TrackAnalysis,
     settings_path: Option<PathBuf>,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
@@ -1734,7 +1744,7 @@ fn open_taggable_files(
         .iter()
         .map(|path| DemoTrack {
             path: path.clone(),
-            outcome: Ok(tag_testing::analysis()),
+            outcome: Ok(analysis.clone()),
         })
         .collect();
     let (window, view) = open_window_with(

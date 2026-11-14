@@ -226,6 +226,29 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                 ))
                 .child(part_heading("Writing tags", &palette))
                 .child(setting(
+                    "After analysis",
+                    "Writes each track's key and tempo into its file once it is analyzed, using \
+                     the choices below. Off by default because it changes files that DJ \
+                     programs read. Undo tag write puts them back.",
+                    div().flex().child(
+                        choice_button(
+                            "write-after-analysis",
+                            if settings.write_after_analysis {
+                                "\u{2713} Write key and tempo to files after analysis"
+                            } else {
+                                "Write key and tempo to files after analysis"
+                            },
+                            settings.write_after_analysis,
+                            &palette,
+                        )
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.toggle_write_after_analysis(cx)),
+                        )
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(setting(
                     "DJ program",
                     "Tags are written to the fields this program reads.",
                     div().flex().flex_wrap().gap(px(6.0)).children(programs),
@@ -300,29 +323,6 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                         )
                         .on_click(
                             cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx)),
-                        )
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .child(setting(
-                    "After analysis",
-                    "Writes each track's key and tempo into its file once it is analyzed, with \
-                     the choices above, in batches. Off by default because it changes files \
-                     DJ programs read. Undo tag write puts them back.",
-                    div().flex().child(
-                        choice_button(
-                            "write-after-analysis",
-                            if settings.write_after_analysis {
-                                "\u{2713} Write key and tempo to files after analysis"
-                            } else {
-                                "Write key and tempo to files after analysis"
-                            },
-                            settings.write_after_analysis,
-                            &palette,
-                        )
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.toggle_write_after_analysis(cx)),
                         )
                         .test_support(),
                     ),

@@ -133,6 +133,27 @@ The backup of every file is saved on disk before the file is changed, so a write
 
 If you changed the tags of a file after the write, undo leaves that file alone rather than overwrite your change, reports it, and restores the others. Running `euphoria tags undo` again tries that file again.
 
+## Writing tags automatically after analysis
+
+The desktop app can write each track's key and tempo into its file as soon as the track has been analyzed, so the tags are filled without a click on **Write tags**. It is the setting **Write key and tempo to files after analysis** under **Settings > Writing tags**.
+
+It is off by default. Writing changes your files, and DJ programs read them: turning it on is a decision to let Euphoria touch every track it analyzes, so it is yours to make.
+
+When it is on, each newly analyzed track goes through the same planning and writing as **Write tags**, so every safe default above applies:
+
+- A key or tempo the file already has is kept, unless **Replace existing key and tempo** is on. A value Euphoria wrote earlier is still updated.
+- A key or tempo rated low confidence is left out, unless **Also write low confidence values** is on. A key or tempo you corrected counts as high confidence, and a correction you make is written the same way.
+- Your DJ program and key notation, the energy label place and the tempo choice are respected.
+- Every write is logged with its backups, so **Undo this write**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. An automatic write is undone as one write per batch.
+
+Only new analysis is written: a track whose result was loaded from the [cache](../reference/cli.md#where-the-cache-is-stored) is not touched, while a track analyzed again after an analyzer update, or corrected, is.
+
+**Batches.** Files are not written the moment each track finishes. Tracks wait and are written together when 25 of them are waiting, when the oldest has waited 10 seconds, or when analysis ends, whichever comes first. A long analysis therefore writes a few times a minute, never once per track, and the last tracks are written as soon as analysis is over. The logo in the toolbar shows "Writing tags" while a batch is written.
+
+**A DJ program is running.** Euphoria never writes automatically while rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, because the program may save a file at the same moment and lose the change. The tracks are held and a strip says "N tracks are ready to tag. Close <program> and choose Write tags, or write now." **Write now** writes them anyway; **Dismiss** forgets them, and **Write tags** can still do them later. The process names Euphoria looks for were not tested against the real programs.
+
+**Errors.** A file that cannot be written, such as a read-only file, a file in a format that takes no tags or a file that is gone, is skipped. When analysis is over one notice says how many tracks were left out and why for the first one. **Write tags** lists each of them with its reason.
+
 ## Edit other fields
 
 `euphoria tags set` edits the title, artist, album, genre, year, track number, comment, grouping, key and BPM fields by hand across many files, with find and replace and prefixes and suffixes, through the same preview, safety and undo. The [command reference](../reference/cli.md#euphoria-tags-set) lists its options, and the desktop app does the same with **Edit tags**.
