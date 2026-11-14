@@ -11,9 +11,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::tags::{
-    GridOutcome, SeratoReport, SeratoSkip, WritePlan, describe_serato_value, serato_field_name,
-};
+use euphoria_core::tags::{SeratoReport, WritePlan, describe_serato_value, serato_field_name};
 use euphoria_core::{
     BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference, KeySection,
     SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange, TrackAnalysis, UnreadTags,
@@ -1038,48 +1036,7 @@ pub fn write_serato_reports(
     for (path, report) in reports {
         placed += report.placed.len();
         kept += report.kept;
-        let mut problems = Vec::new();
-        match &report.skipped {
-            Some(SeratoSkip::Wav) => {
-                problems.push("no Serato cues or grid: Serato reads none from WAV tags".to_string())
-            }
-            Some(SeratoSkip::Ogg) => problems.push(
-                "no Serato cues or grid: Serato's layout in Ogg files is not known well enough to write"
-                    .to_string(),
-            ),
-            Some(SeratoSkip::OldId3) => problems
-                .push("no Serato cues or grid: its ID3v2.2 tag cannot hold them".to_string()),
-            Some(SeratoSkip::Unreadable { field, reason }) => problems.push(format!(
-                "no Serato cues or grid: its {} could not be read ({reason}), so it is left as it is",
-                serato_field_name(field).unwrap_or(field)
-            )),
-            None => {}
-        }
-        for cue in &report.placed {
-            if cue.pad != cue.wanted_pad {
-                problems.push(format!(
-                    "{} went to pad {}, since pad {} holds a cue of yours",
-                    if cue.name.is_empty() {
-                        "a cue"
-                    } else {
-                        &cue.name
-                    },
-                    cue.pad + 1,
-                    cue.wanted_pad + 1
-                ));
-            }
-        }
-        if !report.no_free_pad.is_empty() {
-            problems.push(format!(
-                "{} left out: every pad holds a cue of yours",
-                report.no_free_pad.join(", ")
-            ));
-        }
-        if let GridOutcome::KeptYours { position, bpm } = report.grid {
-            problems.push(format!(
-                "your Serato beat grid ({bpm:.2} BPM from {position:.3} s) is kept, not replaced"
-            ));
-        }
+        let problems = report.notes();
         for problem in problems {
             write_warning(
                 writer,

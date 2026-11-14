@@ -1850,9 +1850,10 @@ fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
             path: path.clone(),
             analysis: Some(tag_testing::analysis()),
             correction: euphoria_core::Correction::default(),
+            edited_cues: None,
         })
         .collect();
-    let planned = tag_writing::plan_writes(&targets, &TagSettings::default().write_options());
+    let planned = tag_writing::plan_writes(&targets, &TagSettings::default());
     let mut log = euphoria_core::tags::WriteLog::new(&scratch.log_directory());
     for plan in &planned.plans {
         assert!(matches!(
@@ -1943,6 +1944,7 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
             key_notation: crate::tag_settings::NotationChoice::OpenKey,
             label: crate::tag_settings::LabelChoice::Grouping,
             write_tempo: true,
+            write_cue_markers: false,
         }
     );
 
@@ -1967,6 +1969,159 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         assert!(app.settings_open);
         assert!(app.tag_panel.is_none());
     });
+}
+
+#[gpui::test]
+fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_every_byte(
+    cx: &mut TestAppContext,
+) {
+    let scratch = ScratchFolder::new("ui-cue-markers");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let mut analysis = tag_testing::analysis();
+    analysis.beat_grid = Some(euphoria_core::detect::BeatGrid {
+        first_downbeat_seconds: 0.1,
+        bpm: 124.0,
+        salience: 10.0,
+        drift_seconds: None,
+    });
+    analysis.cues = vec![euphoria_core::detect::SectionCue {
+        seconds: 0.1,
+        section: euphoria_core::detect::CueSection::Start,
+    }];
+    let tracks = files
+        .iter()
+        .map(|path| DemoTrack {
+            path: path.clone(),
+            outcome: Ok(analysis.clone()),
+        })
+        .collect();
+    let settings_path = scratch.0.join("settings.json");
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(SilentOutput),
+        Settings::default(),
+        Some(settings_path.clone()),
+        USUAL_WINDOW,
+        cx,
+    );
+    let log_directory = scratch.log_directory();
+    let mp3 = files[0].clone();
+    let wav = files[2].clone();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.write_log_directory = Some(log_directory);
+            app.session.set_edited_cues(
+                &mp3,
+                Some(vec![
+                    euphoria_core::Cue {
+                        seconds: 0.5,
+                        name: "Mine".to_string(),
+                        hot_cue: euphoria_core::track_cues::HotCue::from_pad(3),
+                    },
+                    euphoria_core::Cue {
+                        seconds: 0.25,
+                        name: "Memory".to_string(),
+                        hot_cue: None,
+                    },
+                ]),
+            );
+        })
+    });
+
+    click(window, "tag-program", cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.scroll(
+            "settings-body",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-100_000.0))),
+            cx,
+        );
+    })
+    .unwrap();
+    click(window, "write-cue-markers", cx);
+    click(window, "close-settings", cx);
+    assert!(
+        Settings::load(&settings_path)
+            .unwrap()
+            .tags
+            .write_cue_markers
+    );
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    let described = cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => {
+            assert!(preview.settings.write_cue_markers);
+            assert!(
+                crate::views::tag_panel::settings_sentence(&preview.settings)
+                    .contains("the cue markers written for Serato")
+            );
+            assert_eq!(preview.serato_notes.len(), 1, "{:?}", preview.serato_notes);
+            assert_eq!(preview.serato_notes[0].path, wav);
+            assert!(preview.serato_notes[0].reason.contains("WAV"));
+            preview
+                .plans
+                .iter()
+                .find(|plan| plan.path() == mp3)
+                .unwrap()
+                .changes()
+                .iter()
+                .filter(|change| euphoria_core::tags::serato_field_name(&change.field).is_some())
+                .map(|change| {
+                    crate::views::tag_panel::shown_value(&change.field, change.new.as_deref())
+                })
+                .collect::<Vec<_>>()
+        }
+        other => panic!("{other:?}"),
+    });
+    assert!(
+        described.contains(&"cue points 4 Mine at 0:00.500".to_string()),
+        "{described:?}"
+    );
+    assert!(
+        described
+            .iter()
+            .any(|value| value.starts_with("beat grid from 0.100 s at 124")),
+        "{described:?}"
+    );
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("serato-notes-section").is_some());
+    })
+    .unwrap();
+    assert_eq!(
+        tag_testing::contents(&files),
+        before,
+        "a preview writes nothing"
+    );
+
+    click(window, "confirm-tag-write", cx);
+    let written = cx.update(|cx| view.read(cx).written_files());
+    assert_eq!(written, Some(files.clone()));
+    assert_ne!(tag_testing::contents(&files), before);
+    click(window, "close-tag-panel", cx);
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    assert_eq!(
+        preview_file_count(&view, cx),
+        Some(0),
+        "the markers are already there"
+    );
+    click(window, "cancel-tag-write", cx);
+
+    click(window, "tag-program", cx);
+    click(window, "settings-undo", cx);
+    click(window, "confirm-tag-undo", cx);
+    cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Undone(Ok(Some(report)))) => {
+            assert_eq!(report.restored.len(), files.len());
+            assert!(report.failures.is_empty(), "{:?}", report.failures);
+        }
+        other => panic!("{other:?}"),
+    });
+    assert_eq!(tag_testing::contents(&files), before);
 }
 
 #[gpui::test]
@@ -3900,6 +4055,7 @@ fn a_correction_wins_in_the_mixes_and_the_tags_to_write(cx: &mut TestAppContext)
             path: track.path.clone(),
             analysis: track.analysis().cloned(),
             correction: track.correction,
+            edited_cues: track.edited_cues.clone(),
         }
     });
     let written = target.correction.apply(target.analysis.clone().unwrap());

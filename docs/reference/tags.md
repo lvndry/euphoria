@@ -189,7 +189,7 @@ RIFF INFO has no field for the key or the tempo, so those stay in the ID3 chunk 
 
 ### Serato cue points and beat grid
 
-Only with `euphoria tags write --serato-markers`. Euphoria writes these fields where Serato DJ reads them. It writes nothing for WAV or Ogg Vorbis files, or for ID3v2.2 tags. **Not tested in Serato.** [Cue points and beat grids for Serato](../guides/serato-cues.md) explains how your own cues are kept.
+Only with `euphoria tags write --serato-markers`, or in the desktop app with the **Cue markers** setting on ([Write tags](../guides/desktop-app.md#write-tags)). Euphoria writes these fields where Serato DJ reads them. It writes nothing for WAV or Ogg Vorbis files, or for ID3v2.2 tags. **Not tested in Serato.** [Cue points and beat grids for Serato](../guides/serato-cues.md) explains how your own cues are kept.
 
 | Data | ID3v2 (MP3, AIFF) | MP4 | Vorbis comments (FLAC) |
 | --- | --- | --- | --- |
@@ -200,6 +200,8 @@ Only with `euphoria tags write --serato-markers`. Euphoria writes these fields w
 - In the preview, these fields are named `Serato cue points`, `Serato beat grid` and `Serato cue points, older copy`. Their values are described instead of being shown as stored, for example `cue points 1 Start at 0:00.146, 2 Drop at 1:03.500`.
 - Every entry the field already holds keeps its bytes: cue points, loops, flips, the track colour and the grid lock. Euphoria's cues are added on free pads only, and a beat grid already in the file is never replaced.
 - Undo puts each of these fields back byte for byte, like every other field.
+- The cues written are the ones you set in the desktop app when you edited the track's cues, each on the pad you gave it, and otherwise the cues analysis placed. A memory cue, on no pad, and a cue of yours past the end of the track are not written.
+- The cues and grid come from the analysis with your corrections applied. A track whose tempo you set gets no beat grid and none of the automatic cues, which sit on the grid of the detected tempo; your own cues are still written. The same holds for a grid rated low confidence. The preview and the command say so for each such file.
 
 ## How well each field is confirmed
 
