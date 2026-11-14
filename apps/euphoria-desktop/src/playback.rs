@@ -1021,6 +1021,7 @@ pub(crate) trait AudioOutput {
 #[derive(Default)]
 pub(crate) struct SystemOutput {
     device: Option<rodio::MixerDeviceSink>,
+    underruns: crate::output_stream::Underruns,
 }
 
 impl SystemOutput {
@@ -1030,7 +1031,7 @@ impl SystemOutput {
         let device = match &mut self.device {
             Some(device) => device,
             unopened => {
-                let mut device = rodio::DeviceSinkBuilder::open_default_sink()
+                let mut device = crate::output_stream::open_output(&self.underruns)
                     .map_err(|_| PlaybackProblem::NoOutput)?;
                 device.log_on_drop(false);
                 unopened.insert(device)

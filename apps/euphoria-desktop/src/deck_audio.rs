@@ -1977,6 +1977,63 @@ mod tests {
             }
         }
     }
+    /// Run with `cargo test --release -p euphoria-desktop -- --ignored
+    /// --nocapture underruns_under_load`. Plays the two decks through the
+    /// real output at each buffer size in `EUPHORIA_BUFFER_FRAMES` (comma
+    /// separated) for `EUPHORIA_SECONDS` seconds while
+    /// `EUPHORIA_BUSY_THREADS` threads analyze on the other cores, and
+    /// counts the underruns the system reports.
+    #[test]
+    #[ignore = "plays through the real audio output under CPU load, run by hand in release"]
+    fn underruns_under_load() {
+        let Some((a, b)) = measurement_tracks() else {
+            eprintln!("no tracks to measure with");
+            return;
+        };
+        let read = |name: &str, default: &str| std::env::var(name).unwrap_or(default.to_string());
+        let sizes: Vec<u32> = read("EUPHORIA_BUFFER_FRAMES", "512,1024,2048,4096,8192")
+            .split(',')
+            .filter_map(|size| size.trim().parse().ok())
+            .collect();
+        let seconds: u64 = read("EUPHORIA_SECONDS", "30").parse().unwrap();
+        let busy_threads: usize = read("EUPHORIA_BUSY_THREADS", "20").parse().unwrap();
+        for frames in sizes {
+            let underruns = crate::output_stream::Underruns::default();
+            let sink = crate::output_stream::open_with_buffer(Some(frames), &underruns).unwrap();
+            let (link, mix) = two_playing_decks(&a, &b, false);
+            let player = rodio::Player::connect_new(sink.mixer());
+            player.append(mix);
+            std::thread::sleep(Duration::from_secs(2));
+            let before = underruns.count();
+            let stop = Arc::new(AtomicBool::new(false));
+            let workers: Vec<_> = (0..busy_threads)
+                .map(|worker| {
+                    let stop = Arc::clone(&stop);
+                    let path = [a.clone(), b.clone()][worker % 2].clone();
+                    std::thread::spawn(move || {
+                        while !stop.load(Ordering::Relaxed) {
+                            let _ = euphoria_core::analyze_file(&path);
+                        }
+                    })
+                })
+                .collect();
+            let starved_before = link.meter(DeckId::A).starved_frames();
+            std::thread::sleep(Duration::from_secs(seconds));
+            stop.store(true, Ordering::Relaxed);
+            for worker in workers {
+                worker.join().unwrap();
+            }
+            eprintln!(
+                "buffer {frames} frames ({:.1} ms at 44.1 kHz): {} underruns in {seconds} s with \
+                 {busy_threads} busy threads, deck A starved {} frames",
+                f64::from(frames) / 44.1,
+                underruns.count() - before,
+                link.meter(DeckId::A).starved_frames() - starved_before
+            );
+            drop(player);
+        }
+    }
+
     #[test]
     fn capture_does_not_store_decoder_starvation_as_part_of_a_bar() {
         let (source, feed) = crate::playback::testing::controlled_source(vec![0.25; 64], 0);
