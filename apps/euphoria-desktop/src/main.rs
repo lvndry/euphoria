@@ -241,9 +241,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-o", AddFolder, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
-        // Command K was already Search, so the palette is on Command P.
+        KeyBinding::new("cmd-k", OpenCommandPalette, None),
         KeyBinding::new("cmd-p", OpenCommandPalette, None),
-        KeyBinding::new("cmd-k", FocusSearch, None),
         KeyBinding::new(
             "cmd-enter",
             PlayPaletteTrack,
@@ -294,6 +293,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("ctrl-shift-t", WriteTags, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-i", EditTags, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-k", OpenCommandPalette, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-p", OpenCommandPalette, None),
         #[cfg(not(target_os = "macos"))]

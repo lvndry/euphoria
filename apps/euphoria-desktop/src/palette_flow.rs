@@ -15,7 +15,13 @@ use crate::command_palette::{COMMANDS, OpenPalette, PaletteRow, answer, motion_i
 pub(crate) fn shortcut_label(action: &dyn Action, cx: &App) -> Option<String> {
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
-    let binding = keymap.bindings_for_action(action).next()?;
+    let binding = keymap.bindings_for_action(action).find(|binding| {
+        cfg!(target_os = "macos")
+            || binding
+                .keystrokes()
+                .iter()
+                .all(|keystroke| !keystroke.modifiers().platform)
+    })?;
     let label: Vec<String> = binding
         .keystrokes()
         .iter()

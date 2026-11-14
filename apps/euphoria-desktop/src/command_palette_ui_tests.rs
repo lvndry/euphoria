@@ -19,10 +19,52 @@ use crate::ui_tests::{click, is_shown, open_fixture_library, open_library, track
 use crate::views::command_palette::row_id;
 
 const OPEN: &str = if cfg!(target_os = "macos") {
+    "cmd-k"
+} else {
+    "ctrl-k"
+};
+
+const OPEN_ALSO: &str = if cfg!(target_os = "macos") {
     "cmd-p"
 } else {
     "ctrl-p"
 };
+
+#[gpui::test]
+fn command_k_and_command_p_both_open_and_the_hint_chip_clicks_open(cx: &mut TestAppContext) {
+    let (window, view) = open_library(30, cx);
+    press(window, OPEN_ALSO, cx);
+    assert!(is_open(&view, cx));
+    press(window, "escape", cx);
+    assert!(!is_open(&view, cx));
+    click(window, "palette-hint", cx);
+    assert!(is_open(&view, cx));
+    press(window, "escape", cx);
+    press(window, OPEN, cx);
+    assert!(is_open(&view, cx));
+}
+
+#[gpui::test]
+fn command_f_still_searches_and_command_k_no_longer_does(cx: &mut TestAppContext) {
+    cx.update(|_| {});
+    let (_, _) = open_library(10, cx);
+    cx.update(|cx| {
+        let keymap = cx.key_bindings();
+        let keymap = keymap.borrow();
+        let search = crate::actions::FocusSearch;
+        let search_keys: Vec<String> = keymap
+            .bindings_for_action(&search)
+            .flat_map(|binding| {
+                binding
+                    .keystrokes()
+                    .iter()
+                    .map(|key| key.unparse(gpui::OperatingSystem::Mac))
+            })
+            .collect();
+        assert!(search_keys.iter().any(|key| key == "cmd-f"));
+        assert!(!search_keys.iter().any(|key| key == "cmd-k"));
+    });
+}
 
 const PLAY: &str = if cfg!(target_os = "macos") {
     "cmd-enter"
@@ -295,7 +337,7 @@ fn a_command_shows_its_shortcut_as_the_keymap_has_it(cx: &mut TestAppContext) {
         let palette = crate::palette_flow::shortcut_label(&OpenCommandPalette, cx).unwrap();
         if cfg!(target_os = "macos") {
             assert_eq!(write, "\u{21e7}\u{2318}T");
-            assert_eq!(palette, "\u{2318}P");
+            assert_eq!(palette, "\u{2318}K");
         }
         assert!(crate::palette_flow::shortcut_label(&crate::actions::UsePaperTheme, cx).is_none());
     });

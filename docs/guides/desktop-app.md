@@ -90,9 +90,9 @@ Type in the search field, or press Command F first, to filter as you type. Each 
 
 Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move the selection. Command click adds a track to the selection or takes it out, Shift click selects every row between, and Command A selects every track on show.
 
-## Find anything with ⌘P
+## Find anything with ⌘K
 
-Press **⌘P** (**Ctrl+P** on Linux), or choose **View > Command Palette**, to open one box over the window that finds tracks and runs commands. Type, move with **Up** and **Down**, press **Enter** to run the highlighted row and **Esc** to close. The panel eases in over a moment, and appears at once with macOS **Reduce motion** on. ⌘K was already Search, an alias of ⌘F, so the palette took the next key.
+Press **⌘K** (**Ctrl+K** on Linux), click the **⌘K** chip in the search field, or choose **View > Command Palette**, to open one box over the window that finds tracks and runs commands. Type, move with **Up** and **Down**, press **Enter** to run the highlighted row and **Esc** to close. The panel eases in over a moment, and appears at once with macOS **Reduce motion** on. ⌘P opens it too. Search keeps ⌘F.
 
 Tracks are matched on title, artist and file name, loosely: `glsig` finds *Glass Signal*. The box also understands what a DJ asks for. Mix these in any order with words:
 

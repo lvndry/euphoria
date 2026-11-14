@@ -262,7 +262,7 @@ pub(crate) struct EuphoriaApp {
     /// Whether the filter bar is open under the heading. It also shows
     /// while a filter is set.
     pub(crate) is_filter_bar_open: bool,
-    /// The command palette, opened with Command P.
+    /// The command palette, opened with Command K or Command P.
     pub(crate) palette: crate::command_palette::CommandPalette,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
