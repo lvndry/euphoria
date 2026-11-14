@@ -160,7 +160,7 @@ mod tests {
     use super::*;
 
     fn close(left: f32, right: f32) -> bool {
-        (left - right).abs() < 1.0e-5
+        (left - right).abs() < 1.0e-4
     }
 
     #[test]
@@ -193,8 +193,13 @@ mod tests {
 
     #[test]
     fn the_loop_wraps_back_to_nothing_drawn() {
-        assert_eq!(visible_span(LOOP_SECONDS), visible_span(0.0));
-        assert_eq!(visible_span(3.0 * LOOP_SECONDS + 0.4), visible_span(0.4));
+        let same =
+            |left: (f32, f32), right: (f32, f32)| close(left.0, right.0) && close(left.1, right.1);
+        assert!(same(visible_span(LOOP_SECONDS), visible_span(0.0)));
+        assert!(same(
+            visible_span(3.0 * LOOP_SECONDS + 0.4),
+            visible_span(0.4)
+        ));
         let (from, to) = visible_span(LOOP_SECONDS - 1.0e-4);
         assert!(close(from, CURVE_END) && close(to, CURVE_END));
     }

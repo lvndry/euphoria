@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use gpui::{AppContext, Entity, TestAppContext};
+use gpui::{Entity, TestAppContext};
 
 use crate::app::EuphoriaApp;
 use crate::library_export::{
@@ -17,8 +17,8 @@ use crate::library_export::{
 use crate::tag_flow::TagPanel;
 use crate::ui_tests::{is_shown, open_library};
 
-fn fails_to_separate()
--> Result<Box<dyn euphoria_core::stems::StemSeparation>, euphoria_core::EuphoriaError> {
+fn fails_to_separate() -> Result<Box<dyn crate::stems::StemSeparation>, euphoria_core::EuphoriaError>
+{
     Err(euphoria_core::EuphoriaError::NoDataDirectory)
 }
 
