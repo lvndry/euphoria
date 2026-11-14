@@ -928,7 +928,7 @@ impl EuphoriaApp {
     }
 
     /// The tracks the scope covers, as a job for the export.
-    fn library_export_job(&self, setup: &ExportSetup) -> LibraryExportJob {
+    pub(crate) fn library_export_job(&self, setup: &ExportSetup) -> LibraryExportJob {
         let library = self.session.library();
         let paths: Vec<PathBuf> = match setup.scope {
             ExportScope::Library => library

@@ -1355,12 +1355,12 @@ impl EuphoriaApp {
         }
     }
 
-    /// Opens the settings at the key notation, over whatever is open, as
-    /// the export sheet's link does.
+    /// Opens the settings at the key notation, the first row of the body,
+    /// over whatever is open, as the export sheet's link does.
     pub(crate) fn open_key_notation_setting(&mut self, cx: &mut Context<'_, Self>) {
         self.open_settings(cx);
         self.settings_scroll
-            .scroll_to_top_of_item(views::settings_panel::KEY_NOTATION_ITEM);
+            .set_offset(gpui::point(px(0.0), px(0.0)));
     }
 
     /// Chooses where the key and energy label goes.

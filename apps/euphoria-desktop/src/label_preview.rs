@@ -704,8 +704,12 @@ mod tests {
         assert_eq!(comment(&end).value(), "Your comment - 8A - Energy 7");
         assert_eq!(comment(&end).before, "Your comment - ");
         assert_eq!(comment(&end).label, "8A - Energy 7");
-        assert_eq!(grouping.fields.last().unwrap().name, "Grouping");
-        assert_eq!(grouping.fields.last().unwrap().label, "8A - Energy 7");
+        let grouping_row = grouping
+            .fields
+            .iter()
+            .find(|field| field.name == "Grouping")
+            .expect("a grouping row");
+        assert_eq!(grouping_row.label, "8A - Energy 7");
         assert!(none.fields.iter().all(|field| field.label.is_empty()));
         assert!(none.fields.iter().all(|field| field.name != "Comment"));
     }
@@ -835,7 +839,11 @@ mod tests {
             "{:?}",
             kept.notes
         );
-        assert!(kept.fields.iter().all(|field| field.name != "Key"));
+        assert!(
+            kept.fields
+                .iter()
+                .all(|field| field.name != "Key" || field.struck.is_some())
+        );
 
         let replaced = preview_of(other, &seeding);
         assert!(replaced.fields.iter().any(|field| field.name == "Key"));

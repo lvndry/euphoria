@@ -1830,6 +1830,17 @@ pub(crate) fn open_taggable_files_analysed(
     settings_path: Option<PathBuf>,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    open_taggable_files_sized(scratch, files, analysis, settings_path, USUAL_WINDOW, cx)
+}
+
+pub(crate) fn open_taggable_files_sized(
+    scratch: &ScratchFolder,
+    files: &[PathBuf],
+    analysis: TrackAnalysis,
+    settings_path: Option<PathBuf>,
+    window_size: gpui::Size<gpui::Pixels>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
     let tracks = files
         .iter()
         .map(|path| DemoTrack {
@@ -1842,7 +1853,7 @@ pub(crate) fn open_taggable_files_analysed(
         Box::new(SilentOutput),
         Settings::default(),
         settings_path,
-        USUAL_WINDOW,
+        window_size,
         cx,
     );
     let log_directory = scratch.log_directory();

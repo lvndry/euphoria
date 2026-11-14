@@ -16,9 +16,6 @@ use crate::theme::Palette;
 use crate::views::tag_panel::choice_button;
 use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, section_label};
 
-/// The place of the key notation among the parts of the settings body.
-pub(crate) const KEY_NOTATION_ITEM: usize = 1;
-
 /// The settings panel.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let palette = app.theme.palette;
@@ -183,8 +180,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .test_support()
     };
 
-    let mut parts: Vec<AnyElement> = Vec::new();
-    parts.push(part_heading("Showing keys and tempos", &palette).into_any_element());
+    let mut parts: Vec<AnyElement> =
+        vec![part_heading("Showing keys and tempos", &palette).into_any_element()];
     parts.push(
         setting(
             "Key notation",
@@ -499,6 +496,7 @@ fn setting(
                 .gap(px(6.0))
                 .text_size(SMALL_TEXT_SIZE)
                 .text_color(text_color)
+                .test_support()
                 .child(div().min_w_0().child(hint))
                 .children(detail.map(|detail| {
                     div()
@@ -525,7 +523,7 @@ fn setting(
 
 /// Whether the "In your files" box is out of view above the settings body
 /// while the writing options are still on show, so a copy is pinned over
-/// the top. `box_index` and `next_part_index` are the places in the body
+/// the top. The bounds of the body's parts are where they sit unscrolled. `box_index` and `next_part_index` are the places in the body
 /// of the in-flow box and of the part after the writing options.
 fn settings_box_is_pinned(scroll: &ScrollHandle, box_index: usize, next_part_index: usize) -> bool {
     let body_top = scroll.bounds().origin.y;
@@ -536,7 +534,9 @@ fn settings_box_is_pinned(scroll: &ScrollHandle, box_index: usize, next_part_ind
         return false;
     };
     let pinned_height = in_flow.size.height + px(8.0);
-    in_flow.origin.y < body_top && next_part.origin.y > body_top + pinned_height
+    let scrolled_by = scroll.offset().y;
+    in_flow.origin.y + scrolled_by < body_top
+        && next_part.origin.y + scrolled_by > body_top + pinned_height
 }
 
 /// The box at the top of the writing options: what the choices write to

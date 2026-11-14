@@ -57,6 +57,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
     )
 }
 
+/// What the export says about the notation it uses.
+pub(crate) fn keys_line(notation: crate::tag_settings::NotationChoice) -> String {
+    format!("Keys as {}", notation.label())
+}
+
 /// The key notation the export uses, which is the one in the settings.
 fn key_notation_line(
     app: &EuphoriaApp,
@@ -74,7 +79,7 @@ fn key_notation_line(
         .child(
             div()
                 .id("export-key-notation")
-                .child(format!("Keys as {}", app.tag_settings.key_notation.label()))
+                .child(keys_line(app.tag_settings.key_notation))
                 .test_support(),
         )
         .child(div().text_color(palette.text_tertiary).child("\u{b7}"))
