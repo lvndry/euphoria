@@ -38,9 +38,6 @@ FEATURE_WEIGHTS = [
 # tempo" for ratings 1 to 10 of the 604 GiantSteps Key previews.
 GIANTSTEPS_TRACKS_PER_RATING = [26, 22, 53, 67, 86, 91, 102, 79, 42, 36]
 
-# "How well it works", One DJ's folders: the average rating of each folder.
-DJ_FOLDER_AVERAGES = [("Warm up", 5.0), ("Build", 5.9), ("Peak", 6.3)]
-
 # "Energy curve": energy_curve on a two minute preview from the GiantSteps
 # benchmark set, 8 second windows every 4 seconds, as (window centre in
 # seconds, rating), and the rating of the whole preview.
@@ -307,36 +304,6 @@ def giantsteps_spread_chart():
     return document(width, height, "How the GiantSteps previews spread over the scale", description, body)
 
 
-def dj_folders_chart():
-    width = 800
-    row_height = 40
-    chart_top = 96
-    height = chart_top + row_height * len(DJ_FOLDER_AVERAGES) + 60
-    to_x = scale(1, 10, 130, 760)
-    chart_bottom = chart_top + row_height * len(DJ_FOLDER_AVERAGES)
-    body = [
-        text(24, 36, "Average rating of one DJ's folders", "title"),
-        text(24, 58, "494 house tracks sorted by their owner. The order is right, the steps are small.", "subtitle"),
-    ]
-    for rating_tick in range(1, 11):
-        body.append(line(to_x(rating_tick), chart_top, to_x(rating_tick), chart_bottom, "grid"))
-        body.append(text(to_x(rating_tick), chart_bottom + 20, str(rating_tick), "tick", "middle"))
-    body.append(text(to_x(5.5), chart_bottom + 44, "Energy rating", "label", "middle"))
-    for index, (folder, average) in enumerate(DJ_FOLDER_AVERAGES):
-        row_middle = chart_top + row_height * index + row_height / 2
-        body.append(text(to_x(1) - 18, row_middle + 4.5, folder, "label", "end"))
-        body.append(dot(to_x(average), row_middle, radius=6))
-        body.append(text(to_x(average) + 14, row_middle + 4.5, f"{average:.1f}", "value"))
-
-    description = (
-        "Dot plot on the rating scale from 1 to 10 of the average rating of three "
-        "folders in one DJ's library of 494 house tracks: warm up 5.0, build 5.9 and "
-        "peak 6.3. The rating rises in the right order, but the three averages sit "
-        "within about one point of each other."
-    )
-    return document(width, height, "Average rating of one DJ's folders", description, body)
-
-
 def minutes_and_seconds(seconds):
     return f"{seconds // 60}:{seconds % 60:02d}"
 
@@ -423,7 +390,6 @@ CHARTS = {
     "feature-to-rating.svg": feature_to_score_chart,
     "weights.svg": weights_chart,
     "giantsteps-spread.svg": giantsteps_spread_chart,
-    "dj-folders.svg": dj_folders_chart,
     "agreement-by-genre.svg": agreement_by_genre_chart,
     "energy-curve.svg": energy_curve_chart,
 }
