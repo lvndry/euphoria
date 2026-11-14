@@ -364,6 +364,9 @@ fn set_by_user(edits: &UserEdits) -> Vec<&'static str> {
     if edits.correction.bpm.is_some() {
         names.push("bpm");
     }
+    if edits.correction.energy.is_some() {
+        names.push("energy");
+    }
     if edits.cues.is_some() {
         names.push("cues");
     }

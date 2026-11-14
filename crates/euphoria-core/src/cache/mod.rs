@@ -85,7 +85,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 9] = [
+const MIGRATIONS: [&str; 10] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -140,6 +140,9 @@ const MIGRATIONS: [&str; 9] = [
         cues         TEXT    NOT NULL,
         edited_at    INTEGER NOT NULL
     ) WITHOUT ROWID;
+",
+    "
+    ALTER TABLE corrections ADD COLUMN energy INTEGER;
 ",
 ];
 
@@ -1405,7 +1408,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 9);
+        assert_eq!(SCHEMA_VERSION, 10);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1417,6 +1420,32 @@ mod tests {
             .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
             .unwrap();
         assert_eq!(corrections, 0);
+    }
+
+    #[test]
+    fn a_version_9_database_gains_a_correction_energy_and_keeps_its_corrections() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..9] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 9).unwrap();
+        connection
+            .execute(
+                "INSERT INTO corrections VALUES (?1, 'C major', 87.0, 0)",
+                params![[7u8; 32]],
+            )
+            .unwrap();
+        drop(connection);
+
+        let cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        let stored = cache.stored_corrections().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].correction.bpm, Some(87.0));
+        assert_eq!(stored[0].correction.energy, None);
     }
 
     #[test]
@@ -1448,7 +1477,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 9);
+        assert_eq!(SCHEMA_VERSION, 10);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1502,7 +1531,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 9);
+        assert_eq!(SCHEMA_VERSION, 10);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),

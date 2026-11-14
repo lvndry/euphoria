@@ -4013,6 +4013,71 @@ fn the_key_is_picked_and_the_tempo_typed_by_hand(cx: &mut TestAppContext) {
     assert!(is_shown(window, "tempo-set-by-you", cx));
 }
 
+fn selected_energy_and_detected(
+    view: &Entity<EuphoriaApp>,
+    cx: &mut TestAppContext,
+) -> (Option<u8>, Option<u8>) {
+    cx.update(|cx| {
+        let track = view.read(cx).selected_track().unwrap();
+        (track.energy(), track.detected_energy())
+    })
+}
+
+#[gpui::test]
+fn the_energy_is_picked_marked_by_you_and_reset_to_the_detected_one(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert_eq!(selected_energy_and_detected(&view, cx), (Some(6), Some(6)));
+    assert!(!is_shown(window, ("pick-energy", 1_usize), cx));
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+
+    click(window, "edit-values", cx);
+    assert!(is_shown(window, ("pick-energy", 10_usize), cx));
+    assert!(!is_shown(window, ("pick-energy", 11_usize), cx));
+    assert!(!is_shown(window, "reset-energy", cx));
+
+    click(window, ("pick-energy", 9_usize), cx);
+    assert_eq!(selected_energy_and_detected(&view, cx), (Some(9), Some(6)));
+    assert!(is_shown(window, "energy-set-by-you", cx));
+    assert!(is_shown(window, "energy-reset", cx));
+    assert!(is_shown(window, "reset-energy", cx));
+    cx.update(|cx| {
+        let correction = view.read(cx).selected_track().unwrap().correction;
+        assert_eq!(correction.energy, Some(9));
+        assert_eq!(correction.key, None);
+        assert_eq!(correction.bpm, None);
+    });
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(124.0));
+
+    click(window, "reset-energy", cx);
+    assert_eq!(selected_energy_and_detected(&view, cx), (Some(6), Some(6)));
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+    assert!(!is_shown(window, "reset-energy", cx));
+
+    click(window, ("pick-energy", 2_usize), cx);
+    assert_eq!(selected_energy_and_detected(&view, cx).0, Some(2));
+    click(window, "energy-reset", cx);
+    assert_eq!(selected_energy_and_detected(&view, cx).0, Some(6));
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+}
+
+#[gpui::test]
+fn a_corrected_energy_is_a_correction_that_is_kept_for_that_track_only(cx: &mut TestAppContext) {
+    let (window, view, _) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, "edit-values", cx);
+    click(window, ("pick-energy", 3_usize), cx);
+    click(window, track(0), cx);
+    assert!(!is_shown(window, "energy-set-by-you", cx));
+    cx.update(|cx| {
+        let library = view.read(cx).session.library();
+        assert_eq!(library.track(0).unwrap().energy(), Some(6));
+        assert_eq!(library.track(1).unwrap().energy(), Some(3));
+        assert!(!library.track(1).unwrap().correction.is_empty());
+    });
+}
+
 #[gpui::test]
 fn selecting_another_track_discards_the_previous_tracks_tempo_draft(cx: &mut TestAppContext) {
     let (window, view, _) = open_tracks_to_check_by_ear(cx);

@@ -130,8 +130,10 @@ Both follow the tuning analysis measured, so a track tuned a little sharp or fla
 When your ear disagrees with Euphoria, correct the value:
 
 1. Click the runner up chip ("or 9A") to take that key, or the other tempo ("or 87.0") to take that tempo.
-2. Or click **Correct the key or BPM** to pick any of the 24 keys, laid out in Camelot order, or type a tempo such as 124 or 87.5 and press Return or **Use this tempo**.
-3. The box then says **by you** where it said how sure the value was, and the line under it offers **reset to 8A**, the detected value, to undo your correction.
+2. Or click **Correct the key, BPM or energy** to pick any of the 24 keys, laid out in Camelot order, type a tempo such as 124 or 87.5 and press Return or **Use this tempo**, or pick an energy from 1 to 10.
+3. The box then says **by you** where it said how sure the value was, and the line under it offers **reset to 8A**, the detected value, to undo your correction. For the energy, **Reset to detected** in the editor does the same.
+
+An energy you pick is the same 1 to 10 rating the analysis reports, for the tracks whose energy you disagree with, for example a quiet track that lifts a room. It is kept and used like a corrected key or tempo, and a track with a corrected energy keeps its detected key, tempo, beat grid and cues.
 
 A value you set wins everywhere: in the table and search, in **Mixes well with**, in **Needs review**, which no longer lists a track for a value you corrected, in the tags you write, and in `euphoria analyze` and `euphoria export rekordbox` on the command line, which mark it as set by you. Corrections are kept in the [analysis cache](../reference/cli.md#corrections), apart from the analyses: analyzing a track again, or a new version of Euphoria analyzing everything again, never loses them, and they follow a file that was moved, renamed or had its tags written. `euphoria cache clear` keeps them too.
 
@@ -447,5 +449,4 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
-- Filters for key and tempo ranges.
 - Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

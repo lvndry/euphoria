@@ -212,8 +212,14 @@ impl Track {
         self.analysis().map(|analysis| analysis.duration_seconds)
     }
 
-    /// The energy rating from 1 to 10, when the track has one.
+    /// The energy rating from 1 to 10: the one the user set, or the
+    /// detected one.
     pub(crate) fn energy(&self) -> Option<u8> {
+        self.correction.energy.or_else(|| self.detected_energy())
+    }
+
+    /// The energy rating analysis found, whatever the user set.
+    pub(crate) fn detected_energy(&self) -> Option<u8> {
         self.analysis().and_then(|analysis| analysis.energy)
     }
 
@@ -487,7 +493,7 @@ impl Library {
         true
     }
 
-    /// Sets the key and tempo the user chose for the track at `path`; an
+    /// Sets the key, tempo and energy the user chose for the track at `path`; an
     /// empty correction goes back to the detected values. Returns false when
     /// the file is not in the library.
     pub(crate) fn set_correction(&mut self, path: &Path, correction: Correction) -> bool {

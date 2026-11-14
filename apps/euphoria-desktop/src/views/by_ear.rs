@@ -3,8 +3,8 @@
 
 //! Checking the key by ear in the track detail: a drone of the key, and of
 //! the runner up when one is offered, a one octave piano with the key's
-//! scale marked, a volume for both, and the editor that corrects the key or
-//! the tempo by hand.
+//! scale marked, a volume for both, and the editor that corrects the key, the
+//! tempo or the energy by hand.
 
 use euphoria_core::{Key, Mode};
 use gpui::component::input::Input;
@@ -67,7 +67,7 @@ pub(crate) fn corrector(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) ->
         .child(if is_editing {
             "Done correcting"
         } else {
-            "Correct the key or BPM"
+            "Correct the key, BPM or energy"
         })
         .on_click(cx.listener(|this, _, window, cx| this.toggle_value_editor(window, cx)))
         .test_support();
@@ -138,6 +138,49 @@ fn editor(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .child(problem)
                 .test_support()
         }))
+        .child(section_label("Energy", &palette))
+        .child(energy_picker(app, cx))
+}
+
+/// The energy ratings 1 to 10 to pick from, and a way back to the detected
+/// one while the user has set one.
+fn energy_picker(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let palette = app.theme.palette;
+    let track = app.selected_track();
+    let shown = track.and_then(Track::energy);
+    let detected = track.and_then(Track::detected_energy);
+    let is_set = track.is_some_and(|track| track.correction.energy.is_some());
+    let ratings = (1..=10_u8).map(|rating| {
+        choice_button(
+            ("pick-energy", usize::from(rating)),
+            rating.to_string(),
+            shown == Some(rating),
+            &palette,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.accept_energy(rating, cx)))
+        .test_support()
+    });
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(4.0))
+        .children(ratings)
+        .when(is_set, |row| {
+            row.child(
+                choice_button(
+                    "reset-energy",
+                    match detected {
+                        Some(detected) => format!("Reset to detected ({detected})"),
+                        None => "Reset to detected".to_string(),
+                    },
+                    false,
+                    &palette,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.reset_energy(cx)))
+                .test_support(),
+            )
+        })
 }
 
 /// The section for checking the key by ear, for a track with a key.
