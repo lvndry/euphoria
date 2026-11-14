@@ -274,6 +274,8 @@ pub(crate) struct EuphoriaApp {
     /// Whether the filter bar is open under the heading. It also shows
     /// while a filter is set.
     pub(crate) is_filter_bar_open: bool,
+    /// The command palette, opened with Command K or Command P.
+    pub(crate) palette: crate::command_palette::CommandPalette,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
     vocal_lanes: HashMap<PathBuf, VocalLane>,
@@ -335,6 +337,20 @@ impl EuphoriaApp {
                 }
             })
         });
+        let palette_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search tracks, keys, tempos or commands")
+        });
+        let palette_typed = cx.subscribe_in(
+            &palette_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => this.palette_query_changed(cx),
+                InputEvent::PressEnter { secondary, .. } => {
+                    this.run_palette_selection(*secondary, window, cx);
+                }
+                InputEvent::Focus | InputEvent::Blur => {}
+            },
+        );
         let quitting = cx.on_app_quit(|this: &mut Self, cx| {
             let stop_signal = this.session.stop_signal();
             stop_signal.skip_queued_files();
@@ -560,6 +576,13 @@ impl EuphoriaApp {
             track_filters: settings.track_filters.clone(),
             track_filter_inputs,
             is_filter_bar_open: settings.track_filters.is_active(),
+            palette: crate::command_palette::CommandPalette {
+                input: palette_input,
+                open: None,
+                recent: crate::command_palette::RecentTracks::default(),
+                usage: crate::command_palette::CommandUsage::default(),
+                scroll: gpui::ScrollHandle::new(),
+            },
             settings_path,
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
             vocal_lanes: HashMap::new(),
@@ -575,6 +598,7 @@ impl EuphoriaApp {
                 metronome_entered,
                 cue_named,
                 search_changed,
+                palette_typed,
                 quitting,
                 tempo_from_changed,
                 tempo_to_changed,
@@ -794,6 +818,9 @@ impl EuphoriaApp {
             && let Some(first) = self.visible.first().copied()
         {
             self.select(first, cx);
+            if let Some(path) = self.selected_track().map(|track| track.path.clone()) {
+                self.palette.recent.forget(&path);
+            }
         }
     }
 
@@ -1557,6 +1584,14 @@ impl EuphoriaApp {
         self.by_ear.is_editing = false;
         self.by_ear.bpm_problem = None;
         self.selected = Some(index);
+        if let Some(path) = self
+            .session
+            .library()
+            .track(index)
+            .map(|track| track.path.clone())
+        {
+            self.palette.recent.record(&path);
+        }
         self.key_shift = 0;
         self.cue_editor.forget_selection();
         self.refresh_mixes();
@@ -2459,6 +2494,20 @@ impl Render for EuphoriaApp {
                     this.open_focus_view(window, cx);
                 }),
             )
+            .on_action(
+                cx.listener(|this, _: &crate::actions::OpenCommandPalette, window, cx| {
+                    if this.palette.open.is_some() {
+                        this.close_command_palette(window, cx);
+                    } else {
+                        this.open_command_palette(window, cx);
+                    }
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::actions::PlanTransition, window, cx| {
+                    this.plan_transition_from_playing(window, cx);
+                }),
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     if this.close_panels(cx) {
@@ -2531,6 +2580,7 @@ impl Render for EuphoriaApp {
             .when(self.settings_open, |window| {
                 window.child(views::settings_panel::render(self, cx))
             })
+            .children(views::command_palette::render(self, window, cx))
     }
 }
 

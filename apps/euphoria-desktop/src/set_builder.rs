@@ -76,6 +76,8 @@ pub(crate) struct SetBuilder {
     /// The place in the set the player was last sent to. The set goes on
     /// from there when that track ends, for as long as the player holds it.
     pub(crate) playing: Option<usize>,
+    /// Whether the list of where the set falls short is open.
+    pub(crate) details_open: bool,
     build_generation: u64,
     build_task: Option<Task<()>>,
 }
@@ -96,6 +98,7 @@ impl Default for SetBuilder {
             saved_as: None,
             selected_row: None,
             playing: None,
+            details_open: false,
             build_generation: 0,
             build_task: None,
         }
@@ -261,7 +264,16 @@ impl EuphoriaApp {
         if bounds.size.width <= gpui::px(0.0) || bounds.size.height <= gpui::px(0.0) {
             return;
         }
-        let along = ((position.x - bounds.origin.x) / bounds.size.width).clamp(0.0, 1.0);
+        let count = self
+            .set_builder
+            .planned
+            .as_ref()
+            .map(|planned| planned.paths.len());
+        let along = crate::journey::curve_fraction_at(
+            f32::from(position.x - bounds.origin.x),
+            f32::from(bounds.size.width),
+            count,
+        );
         let down = ((position.y - bounds.origin.y) / bounds.size.height).clamp(0.0, 1.0);
         let level = level_at_height(down);
         let builder = &mut self.set_builder;
@@ -546,6 +558,11 @@ impl EuphoriaApp {
         };
         self.resync_set_playing();
         self.explain_planned_set();
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_set_details(&mut self, cx: &mut Context<'_, Self>) {
+        self.set_builder.details_open = !self.set_builder.details_open;
         cx.notify();
     }
 

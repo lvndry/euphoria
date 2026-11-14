@@ -134,7 +134,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .child("Euphoria"),
         )
         .when(has_tracks, |toolbar| {
-            toolbar.child(search_field(app, &palette))
+            toolbar.child(search_field(app, &palette, cx))
         })
         .child(
             div()
@@ -421,7 +421,8 @@ fn write_tags(palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         )
 }
 
-fn search_field(app: &EuphoriaApp, palette: &Palette) -> Div {
+fn search_field(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let hover_colour = palette.text;
     div()
         .flex()
         .flex_1()
@@ -447,6 +448,32 @@ fn search_field(app: &EuphoriaApp, palette: &Palette) -> Div {
                     .appearance(false)
                     .cleanable(true),
             ),
+        )
+        .child(
+            div()
+                .id("palette-hint")
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .px(px(5.0))
+                .rounded(px(4.0))
+                .border_1()
+                .border_color(palette.line)
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .cursor_pointer()
+                .hover(move |style| style.text_color(hover_colour))
+                .child(if cfg!(target_os = "macos") {
+                    "\u{2318}K"
+                } else {
+                    "Ctrl+K"
+                })
+                .on_click(cx.listener(|this, _, window, cx| {
+                    if this.palette.open.is_none() {
+                        this.open_command_palette(window, cx);
+                    }
+                }))
+                .test_support(),
         )
 }
 

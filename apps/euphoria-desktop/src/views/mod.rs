@@ -5,6 +5,7 @@
 //! it into elements, taking every colour from the theme.
 
 pub(crate) mod by_ear;
+pub(crate) mod command_palette;
 pub(crate) mod cues;
 pub(crate) mod decks;
 pub(crate) mod empty_state;
@@ -47,6 +48,10 @@ use crate::theme::Palette;
 /// The key context of the window, which keyboard shortcuts for the library
 /// and the player are bound in.
 pub(crate) const LIBRARY_KEY_CONTEXT: &str = "Library";
+
+/// The key context of the command palette, where Command Enter plays the
+/// selected track.
+pub(crate) const PALETTE_KEY_CONTEXT: &str = "CommandPalette";
 
 /// Size of ordinary interface text.
 pub(crate) const TEXT_SIZE: Pixels = px(13.0);

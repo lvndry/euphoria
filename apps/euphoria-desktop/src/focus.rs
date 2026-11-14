@@ -567,6 +567,7 @@ impl EuphoriaApp {
         }
         self.focus.is_open = false;
         self.planner.is_open = false;
+        self.planner.open_when_ready = false;
         self.focus.is_moving_window = false;
         self.focus.hover_seconds = None;
         self.focus.lanes_menu_open = false;

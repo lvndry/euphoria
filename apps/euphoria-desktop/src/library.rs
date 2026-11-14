@@ -106,6 +106,8 @@ pub(crate) struct Track {
     file_name_lowercase: String,
     title_lowercase: String,
     artist_lowercase: Option<String>,
+    folder_lowercase: String,
+    genre_lowercase: Option<String>,
 }
 
 impl Track {
@@ -124,6 +126,8 @@ impl Track {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
         Self {
+            folder_lowercase: folder.to_lowercase(),
+            genre_lowercase: None,
             file_name_lowercase: file_name.to_lowercase(),
             title_lowercase: file_name.to_lowercase(),
             artist_lowercase: None,
@@ -155,10 +159,24 @@ impl Track {
             .unwrap_or(&self.file_name)
             .to_lowercase();
         self.artist_lowercase = name.artist.as_deref().map(str::to_lowercase);
+        self.genre_lowercase = name.genre.as_deref().map(str::to_lowercase);
         self.tag_title = name.title;
         self.artist = name.artist;
         self.tag_key = name.key;
         self.genre = name.genre;
+    }
+
+    /// The lowercase title, artist, file name, folder name and genre, which
+    /// the command palette matches against. The artist and the genre are
+    /// empty when the tags have none.
+    pub(crate) fn search_fields(&self) -> [&str; 5] {
+        [
+            &self.title_lowercase,
+            self.artist_lowercase.as_deref().unwrap_or_default(),
+            &self.file_name_lowercase,
+            &self.folder_lowercase,
+            self.genre_lowercase.as_deref().unwrap_or_default(),
+        ]
     }
 
     /// The genre in the file's tags, once read.

@@ -106,6 +106,9 @@ pub(crate) struct Planner {
     pub(crate) is_open: bool,
     /// The window the planner shows, as an index into the plan's windows.
     pub(crate) window: usize,
+    /// True while the planner is to open as soon as the plan of the picked
+    /// match is worked out.
+    pub(crate) open_when_ready: bool,
 }
 
 impl Planner {
@@ -417,6 +420,7 @@ impl EuphoriaApp {
                             },
                         );
                     }
+                    this.open_planner_when_ready(cx);
                     this.pump_plans(cx);
                     cx.notify();
                 })
@@ -460,6 +464,30 @@ impl EuphoriaApp {
         self.planner.is_open = true;
         self.planner.window = 0;
         cx.notify();
+    }
+
+    /// Opens the planner once the plan of the picked match has an answer,
+    /// when it was asked to.
+    pub(crate) fn open_planner_when_ready(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.planner.open_when_ready {
+            return;
+        }
+        let state = self
+            .focus
+            .selected_match
+            .and_then(|index| self.plan_state(index));
+        match state {
+            Some(PlanState::Computing) => {}
+            Some(_) => {
+                self.planner.open_when_ready = false;
+                self.open_planner(cx);
+            }
+            None => {
+                self.planner.open_when_ready = false;
+                self.notice = Some("This pair of tracks cannot be planned yet.".to_string());
+                cx.notify();
+            }
+        }
     }
 
     pub(crate) fn close_planner(&mut self, cx: &mut Context<'_, Self>) {

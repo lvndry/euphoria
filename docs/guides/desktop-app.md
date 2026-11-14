@@ -114,6 +114,30 @@ Type in the search field, or press Command F first, to filter as you type. Each 
 
 Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move the selection. Command click adds a track to the selection or takes it out, Shift click selects every row between, and Command A selects every track on show.
 
+## Find anything with ⌘K
+
+Press **⌘K** (**Ctrl+K** on Linux), click the **⌘K** chip in the search field, or choose **View > Command Palette**, to open one box over the window that finds tracks and runs commands. Type, move with **Up** and **Down**, press **Enter** to run the highlighted row and **Esc** to close. The panel eases in over a moment, and appears at once with macOS **Reduce motion** on. ⌘P opens it too. Search keeps ⌘F.
+
+Tracks are matched on title, artist and file name, loosely: `glsig` finds *Glass Signal*. The box also understands what a DJ asks for. Mix these in any order with words:
+
+| Type | It means | Example |
+| --- | --- | --- |
+| `8A`, `8a`, `Am`, `A minor` | The track's key, and the keys that mix with it | `8A` lists 8A first, then 7A and 9A (pill **one step**) and 8B (pill **relative**) |
+| `124`, `124,5`, `124bpm` | A tempo within one beat, or within half a beat when you type a decimal | `124` lists 123.0 to 125.0 |
+| `120-126`, `120–126`, `120,5-125,5` | A range of tempos | `120-126` |
+| `e6`, `e6+`, `e7-9`, `energy 6+` | The [energy rating](../concepts/energy.md): exactly 6, 6 or more, 7 to 9 | `energy 6+` |
+| Anything else | Words that must all be in the title, artist or file name | `deep`, `glass sig` |
+
+Combined, `8A 124 deep` lists the tracks in 8A or a key that mixes with it, near 124 BPM, with *deep* in the name, the exact key first and the nearest tempo first. Tempos are the corrected values: a tempo or key you set in the inspector is the one that counts. The palette searches the whole library, whatever the table is showing.
+
+**Enter** selects the track and shows it in the table. If a search, a filter, a folder or a playlist hid it, they are taken off first. **⌘Enter** (**Ctrl+Enter** on Linux) does the same and plays it.
+
+Under the tracks, **Actions** lists the commands of the menus, each with its shortcut, so the palette teaches the keyboard: Write tags, Edit tags, Undo last tag write, Add folder, Open decks, Open set builder, Plan a transition from the playing track, Toggle metronome, Separate stems, Export library, Settings, each theme, Toggle sidebar, Focus view and the rest. Search them by name or by what they do: `tag` finds the three tag commands, `key` and `bpm` find Write tags, `vocals` finds Separate stems, `dark` finds the dark themes. **Plan a transition from the playing track** opens the focus view on the playing track, or the selected one when nothing plays, and the planner for its best match as soon as the plan is worked out.
+
+With nothing typed the palette lists the last 8 tracks you selected or played, then the 6 commands you used most in this session, starting with Write tags, Edit tags, Add folder, Open decks, Open set builder and Settings. Neither list is saved: both start empty at each launch.
+
+Limits: typing a bare note such as `a` or `c` is a word, not a key; add `m` or `minor` (`Am`, `C major`). The list shows the 8 best tracks with the number that match. Not tested: how the animation looks at a real frame rate.
+
 ## The sidebar
 
 - **All tracks** shows the whole library.
@@ -538,7 +562,16 @@ Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [dat
 2. **Choose the pool.** All tracks, one of the folders you added, or a playlist. The pool starts as what the library showed when you opened the page.
 3. **Set the length** with **−** and **+**, from 2 to 60 tracks, then **Build set** or press Command Return (Control Return on Linux). The length starts at 20, or at the size of the pool when it is smaller.
 
-The chart then draws the energy of each track of the set over the curve, with tracks more than a point away in red. Under it, a summary gives the length of the set, how close it follows the curve and whether every mix keeps the rules, then one line for each place it falls short. Each row of the set shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
+Once the set is built, the chart is its energy journey. The curve you drew stays as a line, and each track of the set is a bar at its place with its energy as the height, so a bar that reaches the line is a track that fits there.
+
+- A bar more than a point from the curve (the tolerance the builder works to) is tinted warm. A locked track has a small lock on its bar, and the track playing is in the accent colour.
+- Point at a bar for its title, key, BPM, energy and what the curve wants there, such as "wants 4.9". Click a bar to select its row (double-click plays it). Click between two bars to play that transition: the last 20 seconds of the track before, then the next track from its start, as **Play transition** does.
+- Under the chart, **Warm-up**, **Peak** and **Close** mark the stretches of the curve, found from its shape: the peak is where it stays within a level of its highest point, and the other two are the rise before and the fall after. A curve that is flat, or has no rise or fall, gets no names. The times along the bottom are how far into the set each quarter starts.
+- Drag on the chart above the bars to draw the curve again.
+
+Under the chart one row of chips sums the set up: how far the furthest track is from the curve ("Energy within 1.9 of the curve"), how many rules it breaks ("2 rule breaks": a key clash, a tempo step over 5 BPM or an artist twice in a row), and its length ("1 h 32 · 14 tracks"). A chip is tinted warm when something falls short, and a fourth chip appears when the pool was too small for the length asked. **Show details** lists the average distance from the curve and every place the set falls short, each with the reason it counts.
+
+In the table, a row that is off the curve or reached by a mix that breaks a rule has a thin warm bar at its left. An energy off the curve is tinted and reads "6 (wants 4.9)", and the key move, the tempo step or the title of a row that breaks a rule shows the rule when you point at it. Each row shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
 
 - **Lock** pins a track. A locked row cannot be removed (**Remove** is greyed, with "Unlock to remove", and Delete skips it with a notice), and the arrows are off for it and for the rows beside it, so nothing moves it. Click **Locked** to unlock it. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
 - The arrows move a track one place, and **Remove** takes it out (or select a row and press Delete). The set is explained again at once: the moves, the steps and the curve follow your order.
@@ -653,7 +686,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+The palette's recent tracks and most used commands are kept in memory only. Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |
