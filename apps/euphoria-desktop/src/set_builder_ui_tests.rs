@@ -253,7 +253,7 @@ fn double_clicking_a_row_plays_it_and_space_plays_the_selected_row(cx: &mut Test
     let paths = planned_paths(&view, cx);
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
-        window.double_click(("set-row", 2usize), cx);
+        window.double_click(("set-row-title", 2usize), cx);
     })
     .unwrap();
     cx.run_until_parked();
@@ -422,4 +422,270 @@ fn building_again_keeps_locked_tracks_in_place_and_locked(cx: &mut TestAppContex
     click(window, "build-set", cx);
     assert_eq!(planned_paths(&view, cx)[0], before[0]);
     assert_eq!(locked_set_count(&view, cx), 1);
+}
+
+fn open_flat_set(
+    level: f32,
+    adjust: impl Fn(usize, &mut euphoria_core::TrackAnalysis),
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let tracks: Vec<_> = playable_tracks()
+        .into_iter()
+        .enumerate()
+        .map(|(number, mut track)| {
+            if let Ok(analysis) = &mut track.outcome {
+                adjust(number, analysis);
+            }
+            track
+        })
+        .collect();
+    let (window, view) = crate::ui_tests::open_window_on(
+        tracks,
+        Box::new(crate::playback::testing::SilentOutput),
+        cx,
+    );
+    click(window, "set-builder-entry", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.set_builder.curve = vec![level; crate::set_builder::CURVE_SAMPLES];
+        })
+    });
+    click(window, "build-set", cx);
+    assert_eq!(planned_paths(&view, cx).len(), 3);
+    (window, view)
+}
+
+fn bars(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Vec<crate::journey::Bar> {
+    cx.update(|cx| view.read(cx).journey_bars())
+}
+
+fn bar_bounds(
+    window: AnyWindowHandle,
+    id: (&'static str, usize),
+    cx: &mut TestAppContext,
+) -> gpui::Bounds<gpui::Pixels> {
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.find(id).bounds()
+    })
+    .unwrap()
+}
+
+#[gpui::test]
+fn each_track_is_a_bar_as_high_as_its_energy_and_off_the_curve_past_the_tolerance(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_flat_set(6.0, |_, _| {}, cx);
+    let set_bars = bars(&view, cx);
+    assert_eq!(set_bars.len(), 3);
+    let chart = cx
+        .update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.find("set-curve").bounds()
+        })
+        .unwrap();
+    for bar in &set_bars {
+        let bounds = bar_bounds(window, ("journey-bar", bar.position), cx);
+        let expected = crate::journey::bar_height(bar.energy, f32::from(chart.size.height));
+        assert!(
+            (f32::from(bounds.size.height) - expected).abs() < 0.5,
+            "{} against {expected}",
+            f32::from(bounds.size.height)
+        );
+        assert_eq!(bounds.bottom(), chart.bottom());
+        assert_eq!(bar.target, 6.0);
+        assert!(bar.tooltip.contains("wants 6.0"), "{}", bar.tooltip);
+    }
+    let off_curve: Vec<(f32, bool)> = set_bars
+        .iter()
+        .map(|bar| (bar.energy, bar.off_curve))
+        .collect();
+    assert!(off_curve.contains(&(5.0, false)), "{off_curve:?}");
+    assert!(off_curve.contains(&(6.0, false)), "{off_curve:?}");
+    assert!(off_curve.contains(&(7.0, false)), "{off_curve:?}");
+
+    let (_, view) = open_flat_set(5.0, |_, _| {}, cx);
+    let off_curve: Vec<(f32, bool)> = bars(&view, cx)
+        .iter()
+        .map(|bar| (bar.energy, bar.off_curve))
+        .collect();
+    assert!(off_curve.contains(&(5.0, false)), "{off_curve:?}");
+    assert!(
+        off_curve.contains(&(6.0, false)),
+        "exactly the tolerance away"
+    );
+    assert!(off_curve.contains(&(7.0, true)), "past the tolerance");
+}
+
+#[gpui::test]
+fn a_bar_shows_when_its_track_is_locked_playing_or_selected(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    assert!(
+        bars(&view, cx)
+            .iter()
+            .all(|bar| !bar.is_locked && !bar.is_playing && !bar.is_selected)
+    );
+    for position in 0..3usize {
+        assert!(!is_shown(window, ("journey-lock", position), cx));
+    }
+
+    click(window, ("set-lock", 1usize), cx);
+    assert!(is_shown(window, ("journey-lock", 1usize), cx));
+    assert!(!is_shown(window, ("journey-lock", 0usize), cx));
+    assert!(!is_shown(window, ("journey-lock", 2usize), cx));
+    let locked: Vec<bool> = bars(&view, cx).iter().map(|bar| bar.is_locked).collect();
+    assert_eq!(locked, [false, true, false]);
+
+    click_play(window, 2, cx);
+    let playing: Vec<bool> = bars(&view, cx).iter().map(|bar| bar.is_playing).collect();
+    assert_eq!(playing, [false, false, true]);
+    let selected: Vec<bool> = bars(&view, cx).iter().map(|bar| bar.is_selected).collect();
+    assert_eq!(selected, [false, false, true]);
+}
+
+#[gpui::test]
+fn clicking_a_bar_selects_its_row(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    click(window, ("journey-bar", 2usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).set_builder.selected_row, Some(2)));
+    click(window, ("journey-bar", 0usize), cx);
+    cx.update(|cx| assert_eq!(view.read(cx).set_builder.selected_row, Some(0)));
+    cx.update(|cx| assert!(view.read(cx).set_builder.planned.is_some()));
+    cx.update(|cx| assert!(view.read(cx).set_builder.preset.is_some()));
+}
+
+#[gpui::test]
+fn clicking_between_two_bars_plays_that_transition(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    let paths = planned_paths(&view, cx);
+    assert!(!is_shown(window, ("journey-gap", 0usize), cx));
+    click(window, ("journey-gap", 1usize), cx);
+    assert_eq!(held_track(&view, cx), Some(paths[0].clone()));
+    assert!(is_sounding(&view, 0, cx));
+    let position = sound_position(&view, &mut *cx);
+    assert!((position - 0.5).abs() < 0.05, "{position}");
+
+    cx.update(|cx| view.update(cx, |app, cx| app.track_finished(cx)));
+    cx.run_until_parked();
+    assert_eq!(held_track(&view, cx), Some(paths[1].clone()));
+    assert_eq!(sound_position(&view, cx), 0.0);
+}
+
+#[gpui::test]
+fn the_summary_is_chips_and_the_details_open_on_demand(cx: &mut TestAppContext) {
+    let (window, view) = open_flat_set(5.0, |_, _| {}, cx);
+    for index in 0..3usize {
+        assert!(is_shown(window, ("set-chip", index), cx));
+    }
+    assert!(!is_shown(window, ("set-chip", 3usize), cx));
+    let chips = cx.update(|cx| {
+        let app = view.read(cx);
+        let planned = app.set_builder.planned.as_ref().unwrap();
+        let seconds: f32 = app.set_track_seconds(planned).iter().sum();
+        crate::journey::summary_chips(&planned.plan, seconds)
+    });
+    let texts: Vec<&str> = chips.iter().map(|chip| chip.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "Energy within 2.0 of the curve",
+            "No rule breaks",
+            "1 min · 3 tracks"
+        ]
+    );
+
+    assert!(!is_shown(window, "set-details", cx));
+    click(window, "set-details-toggle", cx);
+    assert!(is_shown(window, "set-details", cx));
+    let lines = cx.update(|cx| {
+        crate::journey::detail_lines(&view.read(cx).set_builder.planned.as_ref().unwrap().plan)
+    });
+    for index in 0..lines.len() {
+        assert!(is_shown(window, ("set-detail", index), cx), "{index}");
+    }
+    assert!(!is_shown(window, ("set-detail", lines.len()), cx));
+    click(window, "set-details-toggle", cx);
+    assert!(!is_shown(window, "set-details", cx));
+}
+
+#[gpui::test]
+fn rows_off_the_curve_or_breaking_a_rule_are_flagged(cx: &mut TestAppContext) {
+    let (window, view) = open_flat_set(5.0, |_, _| {}, cx);
+    let flagged: Vec<(f32, bool)> = bars(&view, cx)
+        .iter()
+        .map(|bar| (bar.energy, is_shown_sync(window, bar.position, cx)))
+        .collect();
+    assert!(flagged.contains(&(7.0, true)), "{flagged:?}");
+    assert!(flagged.contains(&(5.0, false)), "{flagged:?}");
+    assert!(flagged.contains(&(6.0, false)), "{flagged:?}");
+    for bar in bars(&view, cx) {
+        assert!(is_shown(window, ("set-energy", bar.position), cx));
+        let text = crate::journey::energy_text(bar.energy, bar.target, bar.off_curve);
+        if bar.off_curve {
+            assert_eq!(text, "7 (wants 5.0)");
+        } else {
+            assert!(text.contains(" of 5.0"), "{text}");
+        }
+        cx.update(|cx| {
+            let planned = view.read(cx).set_builder.planned.clone().unwrap();
+            assert!(crate::journey::rule_breaks_into(&planned.plan, bar.position).is_empty());
+        });
+    }
+
+    let (window, view) = open_flat_set(
+        6.0,
+        |number, analysis| analysis.bpm = Some(100.0 + 30.0 * number as f32),
+        cx,
+    );
+    let broken = cx.update(|cx| {
+        let planned = view.read(cx).set_builder.planned.clone().unwrap();
+        (0..3)
+            .map(|position| crate::journey::rule_breaks_into(&planned.plan, position).len())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(broken[0], 0);
+    assert_eq!(broken[1], 1);
+    assert_eq!(broken[2], 1);
+    assert!(!is_shown(window, ("set-row-flag", 0usize), cx));
+    for position in 1..3usize {
+        assert!(is_shown(window, ("set-row-flag", position), cx));
+        assert!(is_shown(window, ("set-row-tempo", position), cx));
+        assert!(is_shown(window, ("set-row-title", position), cx));
+    }
+    assert!(!is_shown(window, ("set-row-tempo", 0usize), cx));
+    let chips = cx.update(|cx| {
+        let app = view.read(cx);
+        let planned = app.set_builder.planned.as_ref().unwrap();
+        crate::journey::summary_chips(&planned.plan, 0.0)
+    });
+    assert_eq!(chips[1].text, "2 rule breaks");
+}
+
+fn is_shown_sync(window: AnyWindowHandle, position: usize, cx: &mut TestAppContext) -> bool {
+    is_shown(window, ("set-row-flag", position), cx)
+}
+
+#[gpui::test]
+fn the_chart_the_summary_and_six_rows_fit_without_scrolling(cx: &mut TestAppContext) {
+    let (window, _view) = open_builder(cx);
+    click(window, "build-set", cx);
+    let (page, chart, summary, sixth_row) = cx
+        .update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            (
+                window.find("set-builder").bounds(),
+                window.find("set-curve").bounds(),
+                window.find("set-summary").bounds(),
+                window.find(("set-row", 5usize)).bounds(),
+            )
+        })
+        .unwrap();
+    assert!(chart.bottom() <= summary.top());
+    assert!(summary.bottom() <= sixth_row.top());
+    assert!(
+        sixth_row.bottom() <= page.bottom(),
+        "sixth row ends at {:?}, page at {:?}",
+        sixth_row.bottom(),
+        page.bottom()
+    );
 }

@@ -38,6 +38,7 @@ mod focus_ui_tests;
 mod folder_tree;
 mod format;
 mod inspector_sections;
+mod journey;
 mod key_by_ear;
 mod key_shift;
 mod label_preview;

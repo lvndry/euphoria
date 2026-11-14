@@ -39,6 +39,8 @@ pub(crate) struct Palette {
     pub(crate) waveform: Hsla,
     /// Failed tracks and error text.
     pub(crate) danger: Hsla,
+    /// Tracks and rows that need a look but are not failures.
+    pub(crate) warning: Hsla,
     /// True for palettes with a dark background.
     pub(crate) is_dark: bool,
 }
@@ -60,6 +62,7 @@ impl Palette {
             selection: hex(0x1B2740),
             waveform: hex(0x4A4E57),
             danger: oklch(0.74, 0.14, 25.0),
+            warning: oklch(0.8, 0.13, 65.0),
             is_dark: true,
         }
     }
@@ -80,6 +83,7 @@ impl Palette {
             selection: hex(0xE6EEFD),
             waveform: hex(0xB9BCC4),
             danger: oklch(0.5, 0.17, 25.0),
+            warning: oklch(0.5, 0.12, 60.0),
             is_dark: false,
         }
     }
@@ -100,6 +104,7 @@ impl Palette {
             selection: hex(0x33291A),
             waveform: hex(0x57534B),
             danger: oklch(0.74, 0.14, 25.0),
+            warning: oklch(0.76, 0.14, 48.0),
             is_dark: true,
         }
     }
@@ -514,6 +519,10 @@ mod tests {
                     assert!(ratio >= 4.5, "{name:?}: contrast {ratio:.2}");
                 }
                 assert!(contrast(palette.danger, surface) >= 4.5, "{name:?} danger");
+                assert!(
+                    contrast(palette.warning, surface) >= 4.5,
+                    "{name:?} warning"
+                );
             }
             assert!(contrast(palette.accent_ink, palette.accent) >= 4.5);
         }
