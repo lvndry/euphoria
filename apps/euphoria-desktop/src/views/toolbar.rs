@@ -154,7 +154,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                     )
                 })
                 .when(has_tracks, |commands| {
-                    commands.child(write_tags(app, &palette, cx))
+                    commands.child(write_tags(&palette, cx))
                 })
                 .when(has_tracks, |commands| {
                     commands.child(
@@ -398,11 +398,9 @@ fn paint_metronome_glyph(bounds: Bounds<Pixels>, colour: gpui::Hsla, window: &mu
     stroke(3.4, &[(0.64, 0.32), (0.67, 0.24)], false);
 }
 
-/// Write tags, with the DJ program they are written for beside it, so the
-/// fields of the wrong program are not written by mistake. Clicking the
-/// program opens the settings.
-fn write_tags(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
-    let hover_colour = palette.text;
+/// Edit tags and Write tags. The DJ program the tags are written for is named
+/// in the Write tags preview, and chosen in the settings.
+fn write_tags(palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     div()
         .flex()
         .flex_shrink_0()
@@ -419,20 +417,6 @@ fn write_tags(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphori
             secondary_button("Write tags", palette)
                 .id("write-tags")
                 .on_click(cx.listener(|this, _, _, cx| this.open_tag_writer(cx)))
-                .test_support(),
-        )
-        .child(
-            div()
-                .id("tag-program")
-                .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.text_tertiary)
-                .cursor_pointer()
-                .hover(move |style| style.text_color(hover_colour))
-                .on_click(cx.listener(|this, _, _, cx| this.open_settings(cx)))
-                .child(format!(
-                    "for {}",
-                    app.tag_settings.program.label_in_sentence()
-                ))
                 .test_support(),
         )
 }

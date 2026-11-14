@@ -383,7 +383,7 @@ The app can write the key, tempo and energy it found into the files themselves, 
 ![The Write tags preview over the window, for rekordbox. It says keys are written in Camelot, the energy label at the start of the comment and the tempo, and that nothing is written until you confirm. Buttons choose between the 11 selected tracks and all 11 shown. A list gives each file with its changes, such as TKEY from none to 8A, TBPM from none to 125, and the comment from "Purchased at Beatport.com" to "8A - Energy 5 - Purchased at Beatport.com". Cancel and Write 11 files buttons close it.](../images/desktop-app/write-tags-preview.png)
 
 1. Select the tracks to write, or choose a folder in the sidebar.
-2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The DJ program the tags are written for is shown beside the button.
+2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The preview is titled with the DJ program the tags are written for, such as "Write tags for rekordbox"; choose it in the [settings](#settings), or with **Change settings** in the preview.
 3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
 4. Click **Write** to write them. Nothing is written before that, and **Cancel** or Escape closes the preview without writing. A key or tempo left as it is, because the file already has one or because it is rated low confidence, is listed in the preview with the reason. When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the click first shows a strip that says the program may lose the change; **Write anyway** goes on.
 5. The app shows how far it has got, then the files written and any it could not write, with the reason. Those are left as they were.
@@ -476,7 +476,7 @@ The headless interface tests cover the sheet opening, a rekordbox export of a sm
 
 ## Settings
 
-Open the settings with **Euphoria > Settings…** (Command comma), or click the program name beside **Write tags**.
+Open the settings with **Euphoria > Settings…** (Command comma), or choose **Change settings** in the Write tags preview.
 
 How keys and tempos are shown:
 
