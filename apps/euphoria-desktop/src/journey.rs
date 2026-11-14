@@ -489,3 +489,152 @@ mod tests {
         assert_eq!(energy_text(6.0, 5.5, false), "6 of 5.5");
     }
 }
+
+#[cfg(test)]
+mod plan_tests {
+    use euphoria_core::{Key, Mode, PlannedTrack, SetPlan, Transition};
+
+    use super::*;
+
+    fn plan_of(errors: &[f32], deviations: Vec<Deviation>) -> SetPlan {
+        SetPlan {
+            tracks: errors
+                .iter()
+                .enumerate()
+                .map(|(index, error)| PlannedTrack {
+                    track: index,
+                    position: index as f32 / (errors.len() - 1) as f32,
+                    target_energy: 5.0,
+                    energy: 5.0 + error,
+                    key: Key::new(0, Mode::Minor),
+                    bpm: 120.0,
+                    pinned: false,
+                })
+                .collect(),
+            transitions: Vec::<Transition>::new(),
+            deviations,
+            left_out: Vec::new(),
+            cost: 0.0,
+            lower_bound: 0.0,
+        }
+    }
+
+    fn every_kind() -> Vec<Deviation> {
+        vec![
+            Deviation::ShortPool {
+                requested: 20,
+                available: 14,
+            },
+            Deviation::EnergyOffTarget {
+                position: 4,
+                target: 4.9,
+                actual: 7.0,
+            },
+            Deviation::KeyClash {
+                position: 2,
+                relation: None,
+            },
+            Deviation::TempoJump {
+                position: 3,
+                bpm_change: 6.5,
+            },
+            Deviation::RepeatedArtist { position: 5 },
+        ]
+    }
+
+    #[test]
+    fn the_chips_say_how_close_the_energy_is_how_many_rules_break_and_how_long() {
+        let mut errors = vec![0.2; 14];
+        errors[3] = 1.9;
+        errors[8] = -1.4;
+        let deviations = vec![
+            Deviation::EnergyOffTarget {
+                position: 3,
+                target: 5.0,
+                actual: 6.9,
+            },
+            Deviation::KeyClash {
+                position: 6,
+                relation: None,
+            },
+            Deviation::TempoJump {
+                position: 9,
+                bpm_change: 6.0,
+            },
+        ];
+        let chips = summary_chips(&plan_of(&errors, deviations), 92.0 * 60.0);
+        let texts: Vec<&str> = chips.iter().map(|chip| chip.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Energy within 1.9 of the curve",
+                "2 rule breaks",
+                "1 h 32 · 14 tracks"
+            ]
+        );
+        assert_eq!(chips[0].tone, ChipTone::Warm);
+        assert_eq!(chips[1].tone, ChipTone::Warm);
+        assert_eq!(chips[2].tone, ChipTone::Neutral);
+    }
+
+    #[test]
+    fn a_clean_set_has_neutral_chips_and_one_rule_break_is_singular() {
+        let chips = summary_chips(&plan_of(&[0.5, -0.5], Vec::new()), 600.0);
+        assert_eq!(chips[1].text, "No rule breaks");
+        assert!(chips.iter().all(|chip| chip.tone == ChipTone::Neutral));
+        let one = vec![Deviation::RepeatedArtist { position: 1 }];
+        let chips = summary_chips(&plan_of(&[0.0, 0.0], one), 600.0);
+        assert_eq!(chips[1].text, "1 rule break");
+    }
+
+    #[test]
+    fn a_short_pool_gets_its_own_chip() {
+        let short = vec![Deviation::ShortPool {
+            requested: 20,
+            available: 14,
+        }];
+        let chips = summary_chips(&plan_of(&[0.0; 14], short), 600.0);
+        assert_eq!(chips.len(), 4);
+        assert_eq!(chips[3].text, "Pool short: 14 of 20 tracks");
+    }
+
+    #[test]
+    fn the_details_hold_every_line_the_summary_used_to_show_with_a_reason() {
+        let plan = plan_of(&[0.0, 0.0, 0.0, 0.0, 2.1, 0.0], every_kind());
+        let lines = detail_lines(&plan);
+        let former = [
+            "The pool has 14 usable tracks, so the set has 14 instead of 20.",
+            "Track 5 is at energy 7 where the curve asks for 4.9.",
+            "Track 2 to 3 is a key clash, not an allowed key move.",
+            "Track 3 to 4 changes tempo by +6.5 BPM.",
+            "Tracks 5 and 6 are by the same artist.",
+        ];
+        for sentence in former {
+            let line = lines
+                .iter()
+                .find(|line| line.message == sentence)
+                .unwrap_or_else(|| panic!("missing {sentence}"));
+            assert!(!line.reason.is_empty(), "{sentence}");
+        }
+        assert_eq!(lines.len(), former.len() + 2);
+        assert!(lines[0].message.starts_with("Energy is "));
+        assert_eq!(lines[1].message, "Some mixes break a rule.");
+    }
+
+    #[test]
+    fn rows_are_flagged_by_the_deviation_that_reaches_them() {
+        let plan = plan_of(&[0.0; 7], every_kind());
+        assert!(is_flagged(&plan, 4));
+        assert!(is_flagged(&plan, 2));
+        assert!(is_flagged(&plan, 3));
+        assert!(is_flagged(&plan, 5));
+        assert!(!is_flagged(&plan, 0));
+        assert!(!is_flagged(&plan, 1));
+        assert!(!is_flagged(&plan, 6));
+        assert_eq!(rule_breaks_into(&plan, 4), Vec::<String>::new());
+        let tempo = rule_breaks_into(&plan, 3);
+        assert_eq!(tempo.len(), 1);
+        assert!(tempo[0].starts_with("Track 3 to 4 changes tempo by +6.5 BPM."));
+        assert_eq!(rule_break_count(&plan), 3);
+    }
+}

@@ -29,7 +29,7 @@ use crate::views::{
 };
 
 const SET_ROW_GROUP: &str = "set-row";
-const CURVE_HEIGHT: f32 = 200.0;
+const CURVE_HEIGHT: f32 = 176.0;
 const MIN_GAP_HEIGHT: f32 = 24.0;
 const ENERGY_GRID: [f32; 4] = [1.0, 4.0, 7.0, 10.0];
 
@@ -761,13 +761,13 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .unwrap_or_default()
             .into();
         let with_rule_tooltip = |cell: Div, id: &'static str| -> AnyElement {
+            let cell = cell.id((id, position));
             match rule_tooltip.clone() {
                 Some(text) => cell
-                    .id((id, position))
                     .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
                     .test_support()
                     .into_any_element(),
-                None => cell.into_any_element(),
+                None => cell.test_support().into_any_element(),
             }
         };
         let step = transition.map(|transition| {
