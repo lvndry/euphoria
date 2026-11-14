@@ -86,7 +86,12 @@ impl Panels {
     /// leaving the table its narrowest width. When the window is too small
     /// for both, the inspector keeps its narrowest width.
     pub(crate) fn inspector_width_in(&self, window_width: f32) -> f32 {
-        let left_for_inspector = window_width - self.sidebar_width() - NARROWEST_TABLE;
+        self.inspector_width_beside(window_width, self.sidebar_width())
+    }
+
+    /// Like `inspector_width_in`, with the sidebar `sidebar_width` wide.
+    pub(crate) fn inspector_width_beside(&self, window_width: f32, sidebar_width: f32) -> f32 {
+        let left_for_inspector = window_width - sidebar_width - NARROWEST_TABLE;
         let widest = WIDEST_INSPECTOR
             .min(left_for_inspector)
             .max(NARROWEST_INSPECTOR);

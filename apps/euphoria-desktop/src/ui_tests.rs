@@ -801,6 +801,100 @@ fn fold_and_unfold(
     cx.update(|cx| assert!(!view.read(cx).panels.sidebar_folded));
 }
 
+fn use_slide_clock(
+    view: &Entity<EuphoriaApp>,
+    reduces_motion: bool,
+    cx: &mut TestAppContext,
+) -> std::rc::Rc<std::cell::Cell<f32>> {
+    let origin = std::time::Instant::now();
+    let seconds = std::rc::Rc::new(std::cell::Cell::new(0.0_f32));
+    let clock = seconds.clone();
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let folded = app.panels.sidebar_folded;
+            app.sidebar_slide = crate::sidebar_slide::SidebarSlide::at_rest(folded).with_sources(
+                move || origin + std::time::Duration::from_secs_f32(clock.get()),
+                move || reduces_motion,
+            );
+        })
+    });
+    seconds
+}
+
+#[gpui::test]
+fn the_sidebar_slides_out_while_the_table_grows_into_the_space(cx: &mut TestAppContext) {
+    let (window, view) = open_arranged(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    let seconds = use_slide_clock(&view, false, cx);
+    let table_left = |seconds: f32, cx: &mut TestAppContext| {
+        let _ = seconds;
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.find(track(0)).bounds().left()
+        })
+        .unwrap()
+    };
+    assert_eq!(table_left(0.0, cx), px(220.0));
+
+    cx.update_window(window, |_, window, cx| window.click("sidebar-toggle", cx))
+        .unwrap();
+    seconds.set(crate::sidebar_slide::SLIDE_SECONDS / 2.0);
+    let middle = table_left(0.0, cx);
+    assert!(middle > px(0.0) && middle < px(220.0), "{middle:?}");
+    let clipped = cx
+        .update_window(window, |_, window, _| {
+            window.find("all-tracks").bounds().left()
+        })
+        .unwrap();
+    assert!(clipped < px(0.0), "the text slides out: {clipped:?}");
+
+    seconds.set(1.0);
+    assert_eq!(table_left(1.0, cx), px(0.0));
+    cx.update(|cx| assert!(view.read(cx).panels.sidebar_folded));
+    assert!(
+        cx.update_window(window, |_, window, _| window
+            .try_find("all-tracks")
+            .is_none())
+            .unwrap()
+    );
+
+    cx.update_window(window, |_, window, cx| window.click("sidebar-toggle", cx))
+        .unwrap();
+    seconds.set(1.0 + crate::sidebar_slide::SLIDE_SECONDS * 2.0);
+    assert_eq!(table_left(0.0, cx), px(220.0));
+}
+
+#[gpui::test]
+fn with_motion_reduced_the_sidebar_folds_at_once(cx: &mut TestAppContext) {
+    let (window, view) = open_arranged(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);
+    let _seconds = use_slide_clock(&view, true, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("sidebar-toggle", cx);
+        window.render_frame(cx);
+        assert_eq!(window.find(track(0)).bounds().left(), px(0.0));
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn a_sidebar_restored_folded_does_not_animate(cx: &mut TestAppContext) {
+    let panels = Panels {
+        sidebar_folded: true,
+        ..Panels::default()
+    };
+    let (window, view) = open_arranged(ThemeName::Slate, panels, USUAL_WINDOW, cx);
+    let _seconds = use_slide_clock(&view, false, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(window.find(track(0)).bounds().left(), px(0.0));
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(!app.sidebar_slide.is_moving(app.sidebar_slide.now()));
+    });
+}
+
 #[gpui::test]
 fn the_toolbar_has_no_program_button_beside_write_tags(cx: &mut TestAppContext) {
     let scratch = ScratchFolder::new("ui-no-program-button");

@@ -68,6 +68,7 @@ mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
 mod settings;
+mod sidebar_slide;
 mod state;
 mod stem_export;
 #[cfg(test)]

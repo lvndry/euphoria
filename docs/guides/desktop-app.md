@@ -105,6 +105,8 @@ To give the table more room, fold the sidebar away. Any of these folds it, and t
 - Control Command S (Control Alt S on Linux and Windows)
 - **View > Hide Sidebar**, which reads **Show Sidebar** while it is folded
 
+The sidebar slides out to the left in about a fifth of a second while the table grows into the space, and slides back the same way. A click while it is moving turns it around from where it is. With **Reduce motion** on in macOS Accessibility settings, it folds and unfolds at once. The window opens with the sidebar as you left it, without sliding.
+
 ## The inspector
 
 The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track. Below them, **Sound quality** gives the quality verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak.
