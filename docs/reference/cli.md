@@ -36,17 +36,21 @@ A `-` means nothing was detected, for example in silence or a track shorter than
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key                  BPM       Energy              Quality   Time  File
- 8A  A minor  ●●●  124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
-10B  D major  ●○○  149.8  ●●●       6  ━━━━━━────  weak      2:00  edits/Intro.m4a
+Key                  Tags      BPM       Energy              Quality   Time  File
+ 8A  A minor  ●●●  =         124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
+10B  D major  ●○○  9A other  149.8  ●●●       6  ━━━━━━────  weak      2:00  edits/Intro.m4a
 
 Key and tempo: 1 of 2 tracks rated low confidence (●○○), worth checking by ear.
+Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1 different key).
 Sound quality: 1 track lossless, 1 weak on a big system.
-hint: --needs-review lists only the tracks to check by ear.
+hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key.
+hint: --detail says which reading to trust.
 hint: --quality weak lists the tracks worth replacing, and --detail says why.
 ```
 
-The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those. A key or tempo you set yourself in the desktop app shows `you` in place of the dots: see [Corrections](#corrections).
+The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those, along with the tracks whose tags name another key (see the Tags column below). A key or tempo you set yourself in the desktop app shows `you` in place of the dots: see [Corrections](#corrections).
+
+The Tags column compares the key already written in each file's tags with the detected key. Euphoria reads the key field of every format it writes: `TKEY` in MP3, AIFF and WAV files, `initialkey` or `KEY` in M4A files, and `INITIALKEY` or `KEY` in FLAC and Ogg files, in Camelot (`8A`, `08A`), Open Key (`1m`) or musical notation (`Am`, `A min`, `A minor`, `Abm`), so a key written by Euphoria, rekordbox, Mixed In Key or Traktor is read alike. A tempo after the key, as in `8A 114`, and an energy label, as in `8A - Energy 7`, are ignored. `=` means the tags name the detected key, `?` that the field holds text that is not a key, and otherwise the column shows the key from the tags and how it differs: `fifth` (one step on the Camelot wheel), `relative` (the same number, the other letter), `parallel` (the same home note, the other mode) or `other`. A track whose tags name another key is listed by `--needs-review`, unless you set its key yourself. The column is left out when no file has a key in its tags. Analyzing only reads the tags: it never changes them.
 
 Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
@@ -54,9 +58,9 @@ Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use 
 
 The folder that holds every file is left out of the File column, so a folder shows its file names and the subfolders below it. A name too long for the window is shortened in the middle, keeping its end and extension.
 
-In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the confidence dots, the quality, then the energy. With the dots left out, a key or tempo rated low is marked with a `?`. The key, the tempo and the file always stay.
+In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the Tags column, the confidence dots, the quality, then the energy. With the dots left out, a key or tempo rated low is marked with a `?`. The key, the tempo and the file always stay.
 
-After the table, standard error gets a summary in plain sentences: how many tracks have a key or tempo rated low, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
+After the table, standard error gets a summary in plain sentences: how many tracks have a key or tempo rated low, how many have a key in their tags that differs from the detected one and in which way, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
 
 ### The detailed view
 
@@ -68,6 +72,10 @@ Intro.m4a
   Key            10B  D major
                  ●○○ low confidence, worth checking by ear
                  runner up 9A  E minor
+  Key in tags    9A  E minor
+                 different key, differs from the detected key
+                 The keys share few notes, so one reading is wrong or the track changes key.
+                 Check by ear before you mix on it.
   Tempo          149.8 BPM
                  ●●● high confidence
   Beat grid      first downbeat at 0.412 s, 149.82 BPM
@@ -82,7 +90,7 @@ Intro.m4a
   Length         2:00
 ```
 
-One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
+One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
 
 ### The plain table
 
@@ -105,7 +113,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
 | `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
-| `--needs-review` | List only the tracks whose key or tempo is rated low confidence, and the files that could not be analyzed. |
+| `--needs-review` | List only the tracks whose key or tempo is rated low confidence or whose tags name another key, and the files that could not be analyzed. |
 | `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
 | `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table and JSON are unchanged. |
 | `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
@@ -131,6 +139,7 @@ One object per file, in path order, including files that failed:
     "duration_seconds": 408.4,
     "key": { "camelot": "8A", "name": "A minor", "open_key": "1m", "confidence": "high" },
     "runner_up_key": { "camelot": "8B", "name": "C major", "open_key": "1d" },
+    "tag_key": { "text": "8A", "key": { "camelot": "8A", "name": "A minor", "open_key": "1m" }, "agreement": "same" },
     "bpm": 170.0,
     "bpm_confidence": "medium",
     "bpm_alternative": 85.0,
@@ -179,6 +188,7 @@ One object per file, in path order, including files that failed:
     "duration_seconds": null,
     "key": null,
     "runner_up_key": null,
+    "tag_key": null,
     "bpm": null,
     "bpm_confidence": null,
     "bpm_alternative": null,
@@ -201,7 +211,9 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
 
-`needs_review` is `true` when the key or the tempo is rated low, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
+`tag_key` is the key field of the file's tags, or `null` when the file has none or it is empty. `text` is the field as written. `key` is the key it names, or `null` when the text is not a key Euphoria reads. `agreement` compares it with the key of the track: `same`, `fifth`, `relative`, `parallel`, `other`, or `unreadable` when `key` is `null`; it is `null` when no key was detected. The tags are read fresh on every run, since other programs change them, and are never written by `analyze`.
+
+`needs_review` is `true` when the key or the tempo is rated low or the tags name another key, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
 
 `set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
 

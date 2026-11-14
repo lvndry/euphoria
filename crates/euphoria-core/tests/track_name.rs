@@ -17,7 +17,7 @@ fn reads_title_and_artist_in_every_supported_format() {
     let expected = TrackName {
         title: Some("Low Tide".to_string()),
         artist: Some("Saffron & Co".to_string()),
-        genre: None,
+        ..Default::default()
     };
     for name in [
         "tagged.mp3",

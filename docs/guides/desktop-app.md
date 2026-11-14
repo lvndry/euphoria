@@ -65,7 +65,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** is a placeholder and always shows 0.
@@ -105,6 +105,17 @@ The inspector shows the selected track: its name, format and length, its key, te
 The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, beside the box's name. Low is shown in red, and puts the track under **Needs review**. Point at the word for what it means.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
+
+### When the tags name another key
+
+Euphoria reads the key already written in each file's tags, by Euphoria, rekordbox, Mixed In Key, Traktor or any other program, in Camelot, Open Key or musical notation. When it names another key than the one detected, a red **≠** sits beside the key in the table, the track is listed under **Needs review**, and the inspector says under the Key box what the tags say and how the two keys differ:
+
+- **a fifth apart**: one step on the Camelot wheel, such as 8A and 9A. The keys share six of their seven notes, the most common mix-up between detectors, and both mix well with the same tracks.
+- **relative key**: the same number with the other letter, such as 8A and 8B. The keys share all seven notes; listen for whether the track sounds minor or major.
+- **parallel key**: the same home note in the other mode, such as A minor and A major. Listen for minor or major before you trust either.
+- **different key**: the keys share few notes, so one reading is wrong or the track changes key. Check by ear before you mix on it.
+
+Point at the **≠** for the key from the tags. When the tags agree, the inspector says so quietly; text that is not a key, such as a word typed into the key field, is shown as it is and does not put the track under Needs review. Setting the key yourself, as the next section explains, takes the track off the list. The tags are only read: nothing changes them until you [write tags](#write-tags), after which they name the key you see.
 
 ### Check the key by ear and correct it
 

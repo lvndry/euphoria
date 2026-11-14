@@ -14,8 +14,8 @@ use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::tags::{SeratoReport, WritePlan, describe_serato_value, serato_field_name};
 use euphoria_core::{
-    BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeySection, SUPPORTED_EXTENSIONS,
-    SkippedTrack, TempoRange, UnreadTags,
+    BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference, KeySection,
+    SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange, TrackAnalysis, UnreadTags,
 };
 use serde::Serialize;
 
@@ -23,6 +23,7 @@ use crate::batch::{UserEdits, UserEditsByFile};
 use crate::export::Program;
 use crate::grid_import::{GridInfo, GridInfos, ImportSummary};
 use crate::style::Theme;
+use crate::tag_key::TagKeys;
 use crate::tags::Failure;
 use crate::terminal::Printable;
 use crate::view::format_duration;
@@ -119,6 +120,8 @@ struct JsonTrack<'result> {
     duration_seconds: Option<f32>,
     key: Option<JsonKey>,
     runner_up_key: Option<JsonKey>,
+    /// The key field of the file's tags, when it has one.
+    tag_key: Option<JsonTagKey>,
     bpm: Option<f32>,
     bpm_confidence: Option<&'static str>,
     bpm_alternative: Option<f32>,
@@ -140,6 +143,17 @@ struct JsonTrack<'result> {
     /// any of "key", "bpm" and "cues".
     set_by_user: Vec<&'static str>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonTagKey {
+    /// The text of the field as written.
+    text: String,
+    /// The key the text names, or `None` when it is not a key.
+    key: Option<JsonKey>,
+    /// "same", "fifth", "relative", "parallel", "other" or "unreadable", or
+    /// `None` when no key was detected to compare with.
+    agreement: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -250,6 +264,7 @@ pub fn write_json(
     results: &[FileResult],
     range: TempoRange,
     user_edits: &UserEditsByFile,
+    tag_keys: &TagKeys,
     grid_infos: &GridInfos,
 ) -> io::Result<()> {
     let no_edits = UserEdits::default();
@@ -268,6 +283,13 @@ pub fn write_json(
                         .key
                         .map(|key| JsonKey::rated(key, analysis.key_confidence())),
                     runner_up_key: analysis.key_runner_up.map(JsonKey::from),
+                    tag_key: tag_keys.get(&result.path).map(|tag_key| JsonTagKey {
+                        text: tag_key.text.clone(),
+                        key: tag_key.key.map(JsonKey::from),
+                        agreement: tag_keys
+                            .agreement(&result.path, analysis)
+                            .map(TagKeyAgreement::as_str),
+                    }),
                     bpm: analysis.bpm.map(round_to_tenths),
                     bpm_confidence: analysis.tempo_confidence().map(Confidence::as_str),
                     bpm_alternative: analysis
@@ -298,7 +320,10 @@ pub fn write_json(
                         .map(JsonCue::from)
                         .collect(),
                     quality: analysis.quality.as_ref().map(JsonQuality::from),
-                    needs_review: Some(analysis.needs_review()),
+                    needs_review: Some(
+                        analysis.needs_review()
+                            || tag_keys.conflict(&result.path, analysis).is_some(),
+                    ),
                     set_by_user: set_by_user(edits),
                     error: None,
                 }
@@ -308,6 +333,7 @@ pub fn write_json(
                 duration_seconds: None,
                 key: None,
                 runner_up_key: None,
+                tag_key: None,
                 bpm: None,
                 bpm_confidence: None,
                 bpm_alternative: None,
@@ -488,6 +514,7 @@ pub fn write_analysis_summary(
     theme: &Theme,
     results: &[FileResult],
     narrowing: &Narrowing,
+    tag_keys: &TagKeys,
 ) -> io::Result<()> {
     let analyses: Vec<_> = results
         .iter()
@@ -495,11 +522,23 @@ pub fn write_analysis_summary(
         .collect();
     let failure_count = results.len() - analyses.len();
     let mut hints: Vec<String> = Vec::new();
+    let mut review_hint_given = false;
+    let has_conflicts = results.iter().any(|result| {
+        result
+            .outcome
+            .as_ref()
+            .is_ok_and(|analysis| tag_keys.conflict(&result.path, analysis).is_some())
+    });
 
     if narrowing.is_narrowed() {
         let mut reasons = Vec::new();
         if narrowing.needs_review {
-            reasons.push("a key or tempo rated low confidence".to_string());
+            reasons.push(if has_conflicts {
+                "a key or tempo rated low confidence or a key that differs from the tags"
+                    .to_string()
+            } else {
+                "a key or tempo rated low confidence".to_string()
+            });
         }
         if !narrowing.verdicts.is_empty() {
             let labels: Vec<String> = narrowing
@@ -534,8 +573,79 @@ pub fn write_analysis_summary(
                 theme.caution("●○○")
             )?;
             if !narrowing.needs_review {
-                hints.push("--needs-review lists only the tracks to check by ear.".to_string());
+                hints.push(if has_conflicts {
+                    "--needs-review lists only the tracks to check by ear, with those whose tags name another key."
+                        .to_string()
+                } else {
+                    "--needs-review lists only the tracks to check by ear.".to_string()
+                });
+                review_hint_given = true;
             }
+        }
+    }
+
+    let analyzed: Vec<(&Path, &TrackAnalysis)> = results
+        .iter()
+        .filter_map(|result| Some((result.path.as_path(), result.outcome.as_ref().ok()?)))
+        .collect();
+    let agreements: Vec<TagKeyAgreement> = analyzed
+        .iter()
+        .filter_map(|(path, analysis)| tag_keys.compared(path, analysis))
+        .collect();
+    let compared_count = agreements.len();
+    if compared_count > 0 {
+        let conflicts: Vec<KeyDifference> = agreements
+            .iter()
+            .filter_map(|agreement| match agreement {
+                TagKeyAgreement::Differs(difference) => Some(*difference),
+                TagKeyAgreement::Same | TagKeyAgreement::Unreadable => None,
+            })
+            .collect();
+        let count_of = |wanted: TagKeyAgreement| {
+            agreements
+                .iter()
+                .filter(|agreement| **agreement == wanted)
+                .count()
+        };
+        let same_count = count_of(TagKeyAgreement::Same);
+        let unreadable_count = count_of(TagKeyAgreement::Unreadable);
+        if conflicts.is_empty() && same_count > 0 {
+            writeln!(
+                writer,
+                "Tag keys: the key in the tags of {} matches the detected key.",
+                counted(same_count, "track", "tracks")
+            )?;
+        } else if !conflicts.is_empty() {
+            let kinds: Vec<String> = KeyDifference::ALL
+                .iter()
+                .filter_map(|difference| {
+                    let count = conflicts
+                        .iter()
+                        .filter(|found| *found == difference)
+                        .count();
+                    (count > 0).then(|| format!("{count} {}", difference.label()))
+                })
+                .collect();
+            writeln!(
+                writer,
+                "Tag keys: {} of {} with a key in their tags differ from the detected key ({}).",
+                theme.bold(conflicts.len()),
+                counted(compared_count, "track", "tracks"),
+                kinds.join(", ")
+            )?;
+            let lists_them = if narrowing.needs_review || review_hint_given {
+                ""
+            } else {
+                "--needs-review lists them, and "
+            };
+            hints.push(format!("{lists_them}--detail says which reading to trust."));
+        }
+        if unreadable_count > 0 {
+            writeln!(
+                writer,
+                "{} a key field Euphoria cannot read; --json shows its text.",
+                counted(unreadable_count, "track has", "tracks have")
+            )?;
         }
     }
 
@@ -1259,13 +1369,21 @@ mod tests {
             results,
             TempoRange::DEFAULT,
             &UserEditsByFile::new(),
+            &TagKeys::default(),
             &GridInfos::new(),
         )
     }
 
     fn summary(results: &[FileResult], narrowing: &Narrowing) -> String {
         let mut buffer = Vec::new();
-        write_analysis_summary(&mut buffer, &Theme::PLAIN, results, narrowing).unwrap();
+        write_analysis_summary(
+            &mut buffer,
+            &Theme::PLAIN,
+            results,
+            narrowing,
+            &TagKeys::default(),
+        )
+        .unwrap();
         String::from_utf8(buffer).unwrap()
     }
 
@@ -1368,6 +1486,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
             &results,
             TempoRange::DEFAULT,
             &user_edits,
+            &TagKeys::default(),
             &GridInfos::new(),
         )
         .unwrap();
@@ -1392,6 +1511,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
                 &results,
                 TempoRange::DEFAULT,
                 user_edits,
+                &TagKeys::default(),
                 &GridInfos::new(),
             )
             .unwrap();
@@ -1666,6 +1786,159 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert_eq!(
             String::from_utf8(buffer).unwrap(),
             "error: music/broken.mp3: unrecognised key text: \"example\"\n"
+        );
+    }
+
+    fn confident_results() -> Vec<FileResult> {
+        let mut results = sample_results();
+        if let Ok(analysis) = &mut results[0].outcome {
+            analysis.key_score_margin = Some(1.0);
+            analysis.tempo_score_margin = Some(1.0);
+        }
+        results
+    }
+
+    fn json_with(results: &[FileResult], tag_keys: &TagKeys) -> serde_json::Value {
+        let mut json = Vec::new();
+        write_json(
+            &mut json,
+            results,
+            TempoRange::DEFAULT,
+            &UserEditsByFile::new(),
+            tag_keys,
+            &GridInfos::new(),
+        )
+        .unwrap();
+        serde_json::from_slice(&json).unwrap()
+    }
+
+    #[test]
+    fn the_json_gives_the_tag_key_and_flags_a_conflict_for_review() {
+        let results = confident_results();
+        let untagged = json_with(&results, &TagKeys::default());
+        assert_eq!(untagged[0]["needs_review"], false);
+        assert_eq!(untagged[0]["tag_key"], serde_json::Value::Null);
+
+        let tag_keys = TagKeys::from_texts(&[
+            (Path::new("music/low tide.flac"), "8B"),
+            (Path::new("music/intro.wav"), "Am"),
+        ]);
+        let tagged = json_with(&results, &tag_keys);
+        assert_eq!(tagged[0]["tag_key"]["text"], "8B");
+        assert_eq!(tagged[0]["tag_key"]["key"]["camelot"], "8B");
+        assert_eq!(tagged[0]["tag_key"]["agreement"], "relative");
+        assert_eq!(tagged[0]["needs_review"], true);
+        assert_eq!(tagged[1]["tag_key"]["agreement"], serde_json::Value::Null);
+        assert_eq!(tagged[2]["tag_key"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn the_json_keeps_an_unreadable_tag_key_as_text() {
+        let tag_keys = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "banger")]);
+        let json = json_with(&confident_results(), &tag_keys);
+        assert_eq!(json[0]["tag_key"]["text"], "banger");
+        assert_eq!(json[0]["tag_key"]["key"], serde_json::Value::Null);
+        assert_eq!(json[0]["tag_key"]["agreement"], "unreadable");
+        assert_eq!(json[0]["needs_review"], false);
+    }
+
+    fn summary_with(results: &[FileResult], tag_keys: &TagKeys) -> String {
+        let mut buffer = Vec::new();
+        write_analysis_summary(
+            &mut buffer,
+            &Theme::PLAIN,
+            results,
+            &Narrowing::default(),
+            tag_keys,
+        )
+        .unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn the_summary_counts_tag_keys_that_differ_by_kind() {
+        let tag_keys = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "9A")]);
+        let summary = summary_with(&confident_results(), &tag_keys);
+        assert!(
+            summary.contains(
+                "Tag keys: 1 of 1 track with a key in their tags differ from the detected key (1 a fifth apart)."
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains(
+                "hint: --needs-review lists them, and --detail says which reading to trust."
+            ),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn the_summary_says_when_the_tags_agree_and_counts_unreadable_fields() {
+        let agrees = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "A minor")]);
+        let summary = summary_with(&confident_results(), &agrees);
+        assert!(
+            summary.contains("Tag keys: the key in the tags of 1 track matches the detected key."),
+            "{summary}"
+        );
+        let garbage = TagKeys::from_texts(&[(Path::new("music/low tide.flac"), "banger")]);
+        let summary = summary_with(&confident_results(), &garbage);
+        assert!(!summary.contains("matches"), "{summary}");
+        assert!(
+            summary
+                .contains("1 track has a key field Euphoria cannot read; --json shows its text."),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_neither_counted_as_matching_nor_as_differing() {
+        let low_tide = Path::new("music/low tide.flac");
+        let tag_keys = TagKeys::from_texts(&[(low_tide, "8B")]).with_key_set_by_user(low_tide);
+        let summary = summary_with(&confident_results(), &tag_keys);
+        assert!(!summary.contains("Tag keys"), "{summary}");
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_left_out_of_the_counts_beside_other_tracks() {
+        let mut results = confident_results();
+        let copy = |name: &str| FileResult {
+            path: PathBuf::from(name),
+            outcome: Ok(results[0].outcome.as_ref().unwrap().clone()),
+        };
+        let agrees = copy("music/agrees.flac");
+        let differs = copy("music/differs.flac");
+        results.push(agrees);
+        results.push(differs);
+        let low_tide = Path::new("music/low tide.flac");
+
+        let only_agreeing =
+            TagKeys::from_texts(&[(low_tide, "8B"), (Path::new("music/agrees.flac"), "8A")])
+                .with_key_set_by_user(low_tide);
+        let summary = summary_with(&results, &only_agreeing);
+        assert!(
+            summary.contains("Tag keys: the key in the tags of 1 track matches the detected key."),
+            "{summary}"
+        );
+
+        let with_a_conflict = TagKeys::from_texts(&[
+            (low_tide, "8B"),
+            (Path::new("music/agrees.flac"), "8A"),
+            (Path::new("music/differs.flac"), "9A"),
+        ])
+        .with_key_set_by_user(low_tide);
+        let summary = summary_with(&results, &with_a_conflict);
+        assert!(
+            summary.contains(
+                "Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1 a fifth apart)."
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains(
+                "hint: --needs-review lists them, and --detail says which reading to trust."
+            ),
+            "{summary}"
         );
     }
 }
