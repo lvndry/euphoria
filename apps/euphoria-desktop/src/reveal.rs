@@ -53,6 +53,18 @@ pub(crate) fn reveal_label() -> &'static str {
     }
 }
 
+/// The label of a toast action that reveals what was just written.
+pub(crate) fn show_label() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "Show in Finder"
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "Show in File Manager"
+    }
+}
+
 /// True when the row at `track_index` may be revealed: it must be the row
 /// the selection points at and nothing else may be marked, so a multi-track
 /// selection never points the file manager at one of its files.

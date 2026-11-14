@@ -36,6 +36,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
+use crate::toast::Toasts;
 use crate::track_overview::{VocalLane, energy_curve_from, vocal_lane_from};
 use crate::views;
 use crate::views::waveform::SeenBounds;
@@ -177,6 +178,11 @@ pub(crate) struct EuphoriaApp {
     pub(crate) logo_clock: crate::logo_motion::LogoClock,
     /// The sidebar sliding in or out.
     pub(crate) sidebar_slide: SidebarSlide,
+    pub(crate) toasts: Toasts,
+    #[cfg(test)]
+    pub(crate) revealed: Vec<PathBuf>,
+    #[cfg(test)]
+    pub(crate) last_written: Vec<PathBuf>,
     /// Which sections of the track detail are open, and their motion.
     pub(crate) inspector_sections: crate::inspector_sections::InspectorSections,
     /// The section the Deck strip shows, when the user picked one.
@@ -500,6 +506,11 @@ impl EuphoriaApp {
             pending_stem_export: None,
             toolbar_drag_armed: false,
             sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
+            toasts: Toasts::default(),
+            #[cfg(test)]
+            revealed: Vec::new(),
+            #[cfg(test)]
+            last_written: Vec::new(),
             inspector_sections: crate::inspector_sections::InspectorSections::new(
                 settings.inspector_sections,
             ),
@@ -2284,6 +2295,10 @@ impl Render for EuphoriaApp {
         if self.sidebar_slide.is_moving(now) {
             window.request_animation_frame();
         }
+        let toast_now = self.toasts.now();
+        if self.toasts.is_animating(toast_now) {
+            window.request_animation_frame();
+        }
         let selected_track = self
             .selected
             .and_then(|index| self.session.library().track(index));
@@ -2422,6 +2437,7 @@ impl Render for EuphoriaApp {
             )
             .child(views::toolbar::render(self, cx))
             .child(body)
+            .child(views::toast::render(self, toast_now, cx))
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })

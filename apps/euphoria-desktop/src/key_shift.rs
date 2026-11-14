@@ -97,23 +97,34 @@ impl EuphoriaApp {
                 if let Some(running) = running {
                     this.background_jobs.finish(running);
                 }
-                this.notice = Some(match outcome {
-                    Ok(copy) => format!(
-                        "Saved a copy {} {} {} to {}{}",
-                        if semitones > 0 { "up" } else { "down" },
-                        semitones.unsigned_abs(),
-                        if semitones.unsigned_abs() == 1 {
-                            "semitone"
-                        } else {
-                            "semitones"
-                        },
-                        copy.path.display(),
-                        copy.key
-                            .map(|key| format!(", in {} ({})", key.camelot(), key))
-                            .unwrap_or_default()
-                    ),
-                    Err(error) => format!("The shifted copy could not be saved: {}", error.chain()),
-                });
+                match outcome {
+                    Ok(copy) => {
+                        let message = format!(
+                            "Saved a copy {} {} {}{}",
+                            if semitones > 0 { "up" } else { "down" },
+                            semitones.unsigned_abs(),
+                            if semitones.unsigned_abs() == 1 {
+                                "semitone"
+                            } else {
+                                "semitones"
+                            },
+                            copy.key
+                                .map(|key| format!(", in {} ({})", key.camelot(), key))
+                                .unwrap_or_default()
+                        );
+                        this.show_toast(
+                            message,
+                            Some(crate::toast::ToastAction::Reveal(copy.path.clone())),
+                            cx,
+                        );
+                    }
+                    Err(error) => {
+                        this.notice = Some(format!(
+                            "The shifted copy could not be saved: {}",
+                            error.chain()
+                        ));
+                    }
+                }
                 cx.notify();
             })
             .ok();
