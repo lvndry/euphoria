@@ -1910,7 +1910,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         );
         assert!(
             summary.contains(
-                "hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key."
+                "hint: --needs-review lists them, and --detail says which reading to trust."
             ),
             "{summary}"
         );
