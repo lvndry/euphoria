@@ -3130,7 +3130,12 @@ fn every_theme_shows_the_wheel_in_the_inspector_under_the_waveform_in_the_column
     cx: &mut TestAppContext,
 ) {
     for theme in ThemeName::ALL {
-        let (window, _) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
+        let (window, _) = open_track_changing_key(
+            theme,
+            Panels::default(),
+            gpui::size(px(1440.0), px(1500.0)),
+            cx,
+        );
         cx.update_window(window, |_, window, cx| {
             window.render_frame(cx);
             window.render_frame(cx);
