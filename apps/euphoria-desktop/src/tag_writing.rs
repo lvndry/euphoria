@@ -613,7 +613,7 @@ mod tests {
 
     fn low_confidence_analysis() -> TrackAnalysis {
         TrackAnalysis {
-            key_runner_up: Some(Key::new(4, euphoria_core::Mode::Minor)),
+            key_runner_up: Some(euphoria_core::Key::new(4, euphoria_core::Mode::Minor)),
             key_score_margin: Some(0.0),
             tempo_estimate: Some(75.0),
             tempo_score_margin: Some(0.01),
@@ -621,9 +621,9 @@ mod tests {
         }
     }
 
-    fn only(path: &PathBuf, analysis: TrackAnalysis, correction: Correction) -> Vec<WriteTarget> {
+    fn only(path: &Path, analysis: TrackAnalysis, correction: Correction) -> Vec<WriteTarget> {
         vec![WriteTarget {
-            path: path.clone(),
+            path: path.to_path_buf(),
             analysis: Some(analysis),
             correction,
             edited_cues: None,
@@ -636,7 +636,7 @@ mod tests {
         let files = scratch.copy_fixtures();
         let path = &files[0];
         let other_key = TrackAnalysis {
-            key: Some(Key::new(4, euphoria_core::Mode::Minor)),
+            key: Some(euphoria_core::Key::new(4, euphoria_core::Mode::Minor)),
             bpm: Some(150.0),
             ..analysis()
         };
@@ -680,27 +680,28 @@ mod tests {
             &only(path, low_confidence_analysis(), Correction::default()),
             &TagSettings::default(),
         );
-        let rows = preview_rows(&skipped.plans);
-        let lines: Vec<&String> = rows
-            .iter()
-            .filter_map(|row| match row {
-                PreviewRow::Skipped(line) => Some(line),
-                _ => None,
-            })
-            .collect();
+        assert!(skipped.plans.is_empty());
         assert_eq!(
-            lines,
-            [
-                "key not written (rated low confidence)",
-                "tempo not written (rated low confidence)"
-            ]
+            skipped.left_alone[0].reason,
+            "key not written (rated low confidence); tempo not written (rated low confidence)"
         );
+        let with_label = plan_writes(
+            &only(path, low_confidence_analysis(), Correction::default()),
+            &TagSettings {
+                label: Some(crate::tag_settings::LabelChoice::CommentStart),
+                ..TagSettings::default()
+            },
+        );
+        let rows = preview_rows(&with_label.plans);
+        assert!(rows.contains(&PreviewRow::Skipped(
+            "key not written (rated low confidence)".to_string()
+        )));
 
         let corrected = plan_writes(
             &only(
                 path,
                 low_confidence_analysis(),
-                Correction::of_key(Key::new(4, euphoria_core::Mode::Minor))
+                Correction::of_key(euphoria_core::Key::new(4, euphoria_core::Mode::Minor))
                     .with_bpm(Some(87.0))
                     .unwrap(),
             ),
@@ -895,7 +896,11 @@ mod tests {
     fn the_preview_lists_each_file_then_each_field_with_old_and_new_values() {
         let scratch = ScratchFolder::new("preview");
         let files = scratch.copy_fixtures();
-        let planned = plan_writes(&targets(&files[..1]), &TagSettings::default());
+        let with_label = TagSettings {
+            label: Some(crate::tag_settings::LabelChoice::CommentStart),
+            ..TagSettings::default()
+        };
+        let planned = plan_writes(&targets(&files[..1]), &with_label);
         let rows = preview_rows(&planned.plans);
         assert_eq!(
             rows[0],

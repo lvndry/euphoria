@@ -5,6 +5,8 @@
 //! tempo already in the file is kept unless Euphoria wrote it itself, and a
 //! value rated low confidence is left out.
 
+#![allow(clippy::unwrap_used)]
+
 use std::path::{Path, PathBuf};
 
 use euphoria_core::tags::{
