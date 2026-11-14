@@ -16,10 +16,22 @@
 # libkeyfinder and FFTW are copied into Contents/Frameworks by
 # scripts/macos_libraries.py, with their install names changed so the app
 # finds them there, and the script then checks that every library of every
-# binary in the bundle is part of macOS or of the bundle. The bundle is signed
-# with an ad hoc signature, which lets it run on the Mac that built it. It is
-# not notarized: that needs a paid Apple Developer account. On another Mac,
-# Gatekeeper asks once before opening it.
+# binary in the bundle is part of macOS or of the bundle.
+#
+# Signing, by the environment:
+#   nothing set            an ad hoc signature, which lets the app run on the Mac
+#                          that built it. On another Mac, Gatekeeper asks once.
+#   EUPHORIA_SIGN_IDENTITY a Developer ID Application identity, such as
+#                          "Developer ID Application: Name (TEAMID)", or its
+#                          hash. Every Mach-O file is signed from the inside
+#                          out with the hardened runtime and a secure
+#                          timestamp (scripts/macos_sign.py), and so is the
+#                          disk image.
+#   EUPHORIA_NOTARY_KEY_PATH, EUPHORIA_NOTARY_KEY_ID, EUPHORIA_NOTARY_ISSUER_ID
+#                          with an identity: the app is notarized and stapled
+#                          before it goes into the disk image, then the disk
+#                          image is notarized and stapled too, and Gatekeeper
+#                          assesses both (scripts/release/notarize-macos.sh).
 #
 # The disk image is laid out with dmgbuild, run through uv, because writing
 # the window layout with only the tools macOS ships needs Finder scripting,
@@ -151,18 +163,29 @@ cat > "$bundle/Contents/Info.plist" << PLIST
 PLIST
 plutil -lint "$bundle/Contents/Info.plist" > /dev/null
 
+sign_identity=${EUPHORIA_SIGN_IDENTITY:--}
+notarize=no
+if [ "$sign_identity" != "-" ] && [ -n "${EUPHORIA_NOTARY_KEY_PATH:-}" ]; then
+  notarize=yes
+fi
+if [ "$sign_identity" = "-" ]; then
+  echo "Signing with an ad hoc signature; set EUPHORIA_SIGN_IDENTITY to sign with a Developer ID."
+fi
+
 # Libraries first, then the bundle, which seals them in its signature.
-for file in "$frameworks"/*.dylib; do
-  [ -e "$file" ] || continue
-  codesign --force --sign - --timestamp=none "$file"
-done
-codesign --force --sign - --timestamp=none "$bundle"
-codesign --verify --strict --verbose=1 "$bundle"
+python3 "$repository/scripts/macos_sign.py" bundle --identity "$sign_identity" "$bundle"
+codesign --verify --deep --strict --verbose=1 "$bundle"
 
 # Proves the result rather than trusting how it was made: every library of
 # every binary in the bundle is a system library or a file in the bundle.
 python3 "$repository/scripts/macos_libraries.py" verify --root "$bundle" --executable "$executable"
 echo "Built $bundle (macOS $minimum_system or later)"
+
+if [ "$notarize" = yes ]; then
+  "$repository/scripts/release/notarize-macos.sh" "$bundle"
+  codesign --verify --deep --strict --verbose=1 "$bundle"
+  spctl -a -vvv "$bundle"
+fi
 
 if [ "$make_dmg" = no ]; then
   exit 0
@@ -176,4 +199,12 @@ uv tool run --quiet --from "dmgbuild==$dmgbuild_version" dmgbuild \
   -D "icon=$bundle/Contents/Resources/AppIcon.icns" \
   "Euphoria $version" "$dmg"
 hdiutil verify "$dmg" > /dev/null
+if [ "$sign_identity" != "-" ]; then
+  codesign --force --sign "$sign_identity" --timestamp "$dmg"
+  codesign --verify --strict --verbose=1 "$dmg"
+fi
+if [ "$notarize" = yes ]; then
+  "$repository/scripts/release/notarize-macos.sh" "$dmg"
+  spctl -a -vvv -t install "$dmg"
+fi
 echo "Built $dmg"

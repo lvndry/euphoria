@@ -21,7 +21,7 @@ class PackagedLicenseTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
         self.repo = self.root / "repo with spaces"
-        for relative in ("scripts/bundle-macos.sh", "scripts/release/package-cli.sh"):
+        for relative in ("scripts/bundle-macos.sh", "scripts/macos_sign.py", "scripts/release/package-cli.sh"):
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY / relative, target)
@@ -45,7 +45,7 @@ class PackagedLicenseTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY / "licenses" / name, target)
         (self.repo / "scripts/macos_libraries.py").write_text(
-            "import sys\nif sys.argv[1] == 'minimum-macos': print('11.0')\n"
+            "import sys\ndef mach_o_files(root): return []\nif sys.argv[1] == 'minimum-macos': print('11.0')\n"
         )
         tools = self.root / "tools"
         tools.mkdir()

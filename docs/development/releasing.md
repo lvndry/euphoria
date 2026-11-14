@@ -104,6 +104,72 @@ The Linux files are built for x86_64. An arm64 build would work the same way, si
 
 The release is built for Apple Silicon. A build for Intel Macs would need libkeyfinder and FFTW built for Intel too, which Homebrew on the Apple Silicon runners does not provide, and a universal binary would need both. Apple no longer sells Intel Macs. The app needs at least the macOS version of the runner, because Homebrew builds its libraries for the macOS it runs on; the release notes and the app's `Info.plist` say which.
 
+## Signing and notarization
+
+The macOS job signs the app, the disk image and the command line tool with a Developer ID Application certificate and the hardened runtime, and has Apple notarize them. A notarized app opens without the "Apple could not verify" warning, also after a Homebrew install or upgrade.
+
+When the six secrets below are set, the job:
+
+1. Imports the certificate into a temporary keychain with a random password, which an `if: always()` step deletes at the end, together with the notary key. It fails unless the certificate holds exactly one Developer ID Application identity, with the team in `APPLE_TEAM_ID`.
+2. Signs every Mach-O file in the app from the inside out with `--options runtime --timestamp`: the dylibs in `Contents/Frameworks` first, deepest folders first, then the app (`scripts/macos_sign.py`; `scripts/test_macos_sign.py` tests the order and flags).
+3. Submits the app to `xcrun notarytool submit --wait` and staples the ticket, so the app inside the disk image is stapled. Then builds the disk image, signs it, notarizes it and staples it (`scripts/release/notarize-macos.sh`). The job fails unless Apple answers Accepted.
+4. Signs `bin/euphoria` and `lib/*.dylib` of the command line tarball the same way and submits a zip of `bin/` and `lib/`. **Command line files cannot be stapled**: Gatekeeper looks up the ticket at Apple the first time it runs a downloaded file, so the first run needs an internet connection. The `@executable_path/../lib` and `@rpath` loading is unchanged by signing, because the run path is written before signing and the job runs the unpacked tool afterwards.
+5. Verifies, and fails the job if any check fails: `codesign --verify --deep --strict` on the app, `spctl -a -vvv -t install` on the disk image, `spctl -a -vvv` and `stapler validate` on the app inside it, and the hardened runtime flag on every signed file.
+6. Only then computes `SHA256SUMS`, over the final stapled disk image and the signed tarball. `publish_homebrew.py` hashes the files it downloads and checks them against `SHA256SUMS`, so the tap needs no change.
+
+Without the secrets, as in a fork, the job prints a notice naming the missing ones and signs ad hoc, as before. The release notes then say that the app is not notarized.
+
+### When signing or notarization fails
+
+A release is never held back by Apple. If the Developer ID path fails in the macOS job, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned, the certificate was revoked or notarytool rejects a file, the job prints a `::warning::`, deletes everything it built, and builds the app, the disk image and the tarball again with the ad hoc signature. The release notes then say "This release is not notarized: macOS will ask you to confirm the first time you open it", so no Developer ID signed app is ever left in an un-notarized disk image that claims otherwise. A real problem, such as a binary that fails `codesign --verify` after the ad hoc signing, fails the job as before.
+
+Notarizing needs an active Apple Developer Program membership at the time of every release, and renewing it is yours to do. Releases notarized earlier keep working after the membership lapses, and the certificate lasts five years.
+
+### Entitlements
+
+None. The app is signed with the hardened runtime and no entitlements file, because nothing needs an exception:
+
+- No JIT and no unsigned executable memory: ONNX Runtime is linked statically and runs its kernels as compiled code, and nothing generates code at run time.
+- Library validation passes: libkeyfinder, FFTW and the other dylibs are re-signed with the same Developer ID as the app, so they are loaded by a binary of the same team.
+- No audio input: the app only plays audio, so `com.apple.security.device.audio-input` is not needed.
+- No App Sandbox: it is not distributed through the Mac App Store.
+
+This was reasoned from the code and is not yet tested on a notarized build. If the first signed app crashes at start or in stem separation, read the crash report for a code signing or `EXC_BAD_ACCESS` on executable memory and add the one entitlement it points to.
+
+### Secrets
+
+Set these repository secrets (Settings > Secrets and variables > Actions, or `gh secret set NAME < file`). Names are exact.
+
+| Secret | Holds |
+| --- | --- |
+| `APPLE_DEVELOPER_ID_P12_BASE64` | the Developer ID Application certificate with its private key, as a base64 encoded `.p12` |
+| `APPLE_DEVELOPER_ID_P12_PASSWORD` | the password chosen when exporting the `.p12` |
+| `APPLE_TEAM_ID` | the 10 character Team ID |
+| `APPLE_NOTARY_KEY_P8_BASE64` | the App Store Connect API key `.p8`, base64 encoded |
+| `APPLE_NOTARY_KEY_ID` | the key's ID |
+| `APPLE_NOTARY_ISSUER_ID` | the issuer ID of the App Store Connect team |
+
+Step by step:
+
+1. **Certificate.** In Xcode, open Settings > Accounts, choose the team, Manage Certificates, and add a **Developer ID Application** certificate. Or on developer.apple.com, Certificates, Identifiers & Profiles > Certificates > +, choose **Developer ID Application**, upload a certificate signing request made with Keychain Access and install the downloaded certificate. Only the Account Holder can create it. The private key stays on the Mac that made the request.
+2. **Export.** In Keychain Access, under My Certificates, select "Developer ID Application: Name (TEAMID)" with its private key below it, choose File > Export Items and save a `.p12` with a strong password.
+3. **Encode and store.**
+   ```
+   base64 -i DeveloperID.p12 -o DeveloperID.p12.base64
+   gh secret set APPLE_DEVELOPER_ID_P12_BASE64 < DeveloperID.p12.base64
+   gh secret set APPLE_DEVELOPER_ID_P12_PASSWORD
+   ```
+   The second command asks for the password. Delete the local `.p12` and `.base64` files afterwards, or keep them in a password manager.
+4. **Team ID.** developer.apple.com > Account > Membership details, Team ID. `gh secret set APPLE_TEAM_ID`.
+5. **Notary key.** On appstoreconnect.apple.com, open Users and Access > Integrations > App Store Connect API > Team Keys, choose Generate API Key (or +), name it, give it the **Developer** role and generate. Download the `AuthKey_<KeyID>.p8` now: Apple offers it once. The Key ID is in the key's row and the Issuer ID at the top of the page.
+   ```
+   base64 -i AuthKey_XXXXXXXXXX.p8 -o AuthKey.p8.base64
+   gh secret set APPLE_NOTARY_KEY_P8_BASE64 < AuthKey.p8.base64
+   gh secret set APPLE_NOTARY_KEY_ID
+   gh secret set APPLE_NOTARY_ISSUER_ID
+   ```
+
+The Developer ID certificate expires after five years, and the signed releases stay valid after that. Revoking the API key does not affect notarization tickets already issued.
+
 ## Not done yet
-- **Notarization.** Without it, macOS shows a warning the first time the app is opened on a Mac other than the one that built it, and the user has to choose Open from the right click menu. Notarizing needs a paid Apple Developer Program membership, a Developer ID Application certificate and an app specific password or API key, stored as repository secrets. The workflow would then sign with that certificate and the hardened runtime, submit the disk image with `xcrun notarytool` and staple the result.
 - **Homebrew.** A cask for the app and a formula for the command line tool need a tap repository, such as `lvndry/homebrew-euphoria`, which is the owner's call. The formula can install the tarball's `bin/` and `lib/`. The workflow would then update the tap after each release, with a token that can push to it.

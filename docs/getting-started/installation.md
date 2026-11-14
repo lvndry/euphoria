@@ -27,7 +27,7 @@ and the app:
 brew install --cask euphoria
 ```
 
-The tap, [lvndry/homebrew-euphoria](https://github.com/lvndry/homebrew-euphoria), is updated after each release. A Homebrew install runs the app like a downloaded one: open it the first time as described [below](#opening-the-app-for-the-first-time).
+The tap, [lvndry/homebrew-euphoria](https://github.com/lvndry/homebrew-euphoria), is updated after each release. Releases are signed with a Developer ID and notarized by Apple, so Homebrew installs and upgrades open without a warning. Only releases made before notarization need the steps [below](#opening-the-app-for-the-first-time).
 
 ## Download for macOS
 
@@ -35,7 +35,7 @@ The app:
 
 1. Download [Euphoria.dmg](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), the newest release. Every release is also on the releases page as `Euphoria-<version>.dmg`.
 2. Open it and drag Euphoria onto Applications.
-3. Open Euphoria from Applications the first time as described [below](#opening-the-app-for-the-first-time).
+3. Open Euphoria from Applications. Releases are notarized by Apple, so it opens without a warning. [Builds from before notarization and copies you built yourself](#opening-the-app-for-the-first-time) need one extra step.
 
 The app needs a Mac with Apple Silicon, and at least the macOS version the release notes give, which is the newest minimum of any binary in the app: macOS 15 for the current release.
 
@@ -49,7 +49,7 @@ cd euphoria-*-aarch64-apple-darwin
 
 Keep `bin` and `lib` together, and add the `bin` folder to your `PATH` to run `euphoria` from anywhere.
 
-A tarball downloaded with a browser is marked as coming from the internet, and macOS holds back a program from it that is not notarized, as the command line tool is not. A download made with `curl` is not marked, so the simplest way is:
+The files of the tarball are signed with a Developer ID and notarized, but a command line tool cannot carry the notarization ticket inside it, so the first time macOS runs a file downloaded with a browser, it checks Apple's service online and needs an internet connection. Releases made before notarization are not notarized at all, and macOS holds back their tool. A download made with `curl` is not marked as coming from the internet, so the simplest way is:
 
 ```
 curl -LO https://github.com/lvndry/euphoria/releases/download/v<version>/SHA256SUMS
@@ -146,7 +146,7 @@ The app carries its own copy of libkeyfinder and FFTW, so it keeps working if yo
 
 ## Opening the app for the first time
 
-The app is signed only with an ad hoc signature, not with an Apple Developer ID, and it is not notarized by Apple. An app you built yourself opens like any other. A downloaded app, or one built on another Mac, makes macOS say the first time that it cannot check the app for malicious software. To open it anyway:
+These steps apply only to releases made before notarization and to copies you built yourself without a Developer ID, which carry an ad hoc signature and are not notarized by Apple. Current releases from GitHub or Homebrew open without them. An app you built yourself opens like any other on the Mac that built it. Elsewhere, macOS says the first time that it cannot check the app for malicious software. To open it anyway:
 
 1. In Finder, open Applications, right click Euphoria and choose **Open**.
 2. Choose **Open** in the dialog.

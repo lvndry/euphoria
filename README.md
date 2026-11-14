@@ -45,7 +45,7 @@ or download the newest release instead:
 
 1. [Download Euphoria](https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg), the newest release.
 2. Open the disk image and drag Euphoria onto Applications.
-3. The first time, right click Euphoria in Applications and choose **Open**, because the app is not notarized by Apple yet. If macOS offers no **Open** button, choose **Done**, then **System Settings > Privacy & Security > Open Anyway**. After that it opens normally.
+3. Open Euphoria from Applications. Releases are signed and notarized by Apple, so it opens normally. Only a release made before notarization, or a copy you built yourself, needs a right click > **Open** (or **System Settings > Privacy & Security > Open Anyway**) the first time.
 
 On Linux (x86_64, glibc 2.35 or later, such as Ubuntu 22.04 and newer):
 
