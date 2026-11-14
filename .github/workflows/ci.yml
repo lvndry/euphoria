@@ -173,13 +173,13 @@ jobs:
         suite:
           - name: Unit tests
             key: unit
-            command: cargo nextest run --workspace --lib --bins --locked
+            command: cargo test --workspace --lib --bins --locked
           - name: Audio decoding and detector integration tests
             key: integration
-            command: cargo nextest run --workspace --test '*' --locked
+            command: cargo test --workspace --test '*' --locked
           - name: Core tests without libkeyfinder
             key: core-without-libkeyfinder
-            command: cargo nextest run -p euphoria-core --no-default-features --locked
+            command: cargo test -p euphoria-core --no-default-features --locked
           - name: App packaging library tests
             key: packaging
             # The debug build of the euphoria command links libkeyfinder and
@@ -202,10 +202,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: macos-${{ matrix.suite.key }}
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
-        if: matrix.suite.key != 'packaging'
-        with:
-          tool: nextest
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: matrix.suite.key == 'packaging'
       - name: ${{ matrix.suite.name }}
@@ -223,13 +219,13 @@ jobs:
           # so these test every other crate.
           - name: Unit tests
             key: unit
-            command: cargo nextest run --workspace --exclude euphoria-desktop --lib --bins --locked
+            command: cargo test --workspace --exclude euphoria-desktop --lib --bins --locked
           - name: Audio decoding and detector integration tests
             key: integration
-            command: cargo nextest run --workspace --exclude euphoria-desktop --test '*' --locked
+            command: cargo test --workspace --exclude euphoria-desktop --test '*' --locked
           - name: Core tests without libkeyfinder
             key: core-without-libkeyfinder
-            command: cargo nextest run -p euphoria-core --no-default-features --locked
+            command: cargo test -p euphoria-core --no-default-features --locked
     # These debug binaries are also packaged and exercised on 22.04.
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -250,9 +246,6 @@ jobs:
         with:
           # Do not restore native objects built against a newer Ubuntu ABI.
           key: ubuntu-22.04-${{ matrix.suite.key }}
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
-        with:
-          tool: nextest
       - name: ${{ matrix.suite.name }}
         run: ${{ matrix.suite.command }}
       - name: Linux packaging library tests
@@ -323,16 +316,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ubuntu-22.04-desktop
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
-        with:
-          tool: nextest
       - name: Build with the X11 and Wayland back ends
         run: cargo build -p euphoria-desktop --locked
       - name: Clippy
         # The code behind cfg(not(target_os = "macos")) is linted only here.
         run: cargo clippy -p euphoria-desktop --all-targets --locked -- -D warnings
       - name: Unit and headless UI tests
-        run: cargo nextest run -p euphoria-desktop --locked
+        run: cargo test -p euphoria-desktop --locked
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # The clean-system smoke test packs this binary without rebuilding it.
         with:
