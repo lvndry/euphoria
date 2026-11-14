@@ -63,7 +63,7 @@ libkeyfinder = ["dep:cc", "dep:pkg-config"]
 pitch-shift = ["dep:cc"]
 # Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
 # which is linked statically and adds tens of megabytes to the binary.
-stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
+stems = ["pitch-shift", "dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
 
 [build-dependencies]
 cc = { workspace = true, optional = true }

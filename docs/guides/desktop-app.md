@@ -166,6 +166,14 @@ In most themes the player is a bar along the bottom of the window, with the play
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
+## Stems
+
+The track detail can separate a track into its four stems with the Demucs model, and then you can hear any part of it on its own. Select a track and click **Separate the stems** in the track detail: while it runs the button says so, and when it is done the player offers what to hear.
+
+- Choose **Full track**, **Acapella** or **Instrumental** to play the file itself, the vocals stem, or the drums, bass and other stems added together. The position in seconds is kept, so switching between them lands at the same moment of the track.
+- **Remove stems** deletes the saved stems of the track. The track detail then offers to separate it again.
+- **Export stems…**, **Export acapella…** and **Export instrumental…** save the stems to disk as WAV files. When the key shift is not zero, a second row exports them in the shifted key. [Saving stems](../concepts/stems.md#saving-stems) describes the file names and the rules.
+
 ## Decks
 
 Two decks under the table let you try a transition before the set: **Decks** in the toolbar, **View > Decks** or Command Shift D shows them, and the same again hides them and stops their sound. While they are on screen they take the sound, so the player pauses. Close the decks to use the track player again.

@@ -10,6 +10,7 @@
 //! triangular weights, as Demucs does without random shifts.
 
 mod cache;
+mod export;
 mod input;
 mod model;
 mod profile;
@@ -33,6 +34,9 @@ use spectrogram::{
 };
 
 pub use cache::{DEFAULT_STEM_CACHE_LIMIT_BYTES, STEM_CACHE_LIMIT_VARIABLE, StemCache, StemFiles};
+pub use export::{
+    MixExport, Mixdown, StemShift, StemsExport, export_mix, export_stems, publish_stems,
+};
 pub use model::{WEIGHTS_BYTES, WEIGHTS_SHA256, WEIGHTS_URL, default_weights_path};
 pub use profile::profile_stems;
 pub use vocal_activity::{

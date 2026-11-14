@@ -172,6 +172,7 @@ pub(crate) struct EuphoriaApp {
     /// A missing track and the file picked for it, waiting for the user to
     /// confirm the link because nothing recorded can check it.
     pub(crate) pending_link: Option<crate::relink_flow::PendingLink>,
+    pub(crate) pending_stem_export: Option<crate::stem_export::StemExportRequest>,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
     /// Whether the sidebar is folded and how large the track detail is.
@@ -416,6 +417,7 @@ impl EuphoriaApp {
             unavailable_folders: Vec::new(),
             remembered_folders: settings.folders.clone(),
             pending_link: None,
+            pending_stem_export: None,
             toolbar_drag_armed: false,
             panels: settings.panels,
             resizing: None,
@@ -2233,6 +2235,7 @@ impl Render for EuphoriaApp {
                 window.child(views::player::bar(self, cx))
             })
             .children(views::notice::render_link_confirmation(self, cx))
+            .children(views::notice::render_stem_export_confirmation(self, cx))
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
             .children(views::library_export_panel::render(self, cx))
