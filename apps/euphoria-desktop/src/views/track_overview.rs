@@ -11,8 +11,8 @@ use std::rc::Rc;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, ClickEvent, Div, FontWeight, SharedString, TestSupportExt, Window, div, px,
-    relative,
+    AnyElement, App, ClickEvent, Div, FontWeight, SharedString, Stateful, TestSupportExt, Window,
+    div, px, relative,
 };
 
 use crate::camelot::CamelotPosition;
@@ -20,7 +20,7 @@ use crate::format;
 use crate::stems::StemStatus;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Palette};
-use crate::track_overview::{self, EnergyCurve, EnergyStep, KeyStretch, VocalLane};
+use crate::track_overview::{self, EnergyCurve, EnergyStep, KeyStretch, TimeRange, VocalLane};
 use crate::views::waveform::SeenBounds;
 
 /// Height of the energy curve.
@@ -43,14 +43,55 @@ pub(crate) struct Lane {
 /// What a press on the link that starts separating the stems does.
 pub(crate) type SeparateHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
+/// Where and how wide the lanes are drawn: the part of the track they show,
+/// whole or zoomed, and how wide they are. A lane has the width of its
+/// container unless `width` is given.
+#[derive(Clone)]
+pub(crate) struct LaneFrame {
+    pub(crate) duration_seconds: f32,
+    pub(crate) range: TimeRange,
+    pub(crate) width: Option<f32>,
+    pub(crate) progress: Option<f32>,
+    /// Where the lanes were last drawn, read for the tooltips.
+    pub(crate) bounds: SeenBounds,
+}
+
+impl LaneFrame {
+    /// The lanes over the whole of a track as wide as their container.
+    pub(crate) fn whole(duration_seconds: f32, progress: Option<f32>, bounds: SeenBounds) -> Self {
+        Self {
+            duration_seconds,
+            range: TimeRange::whole(duration_seconds),
+            width: None,
+            progress,
+            bounds,
+        }
+    }
+
+    fn lane_span(&self, start: f32, end: f32) -> Option<(f32, f32)> {
+        self.range.lane_span(start, end, self.duration_seconds)
+    }
+
+    fn pointer_track_fraction(&self, window: &Window) -> f32 {
+        let lane_fraction = pointer_fraction_in(window, &self.bounds);
+        self.range
+            .track_fraction(lane_fraction, self.duration_seconds)
+    }
+
+    fn sized(&self, lane: Stateful<Div>) -> Stateful<Div> {
+        match self.width {
+            Some(width) => lane.w(px(width)),
+            None => lane.w_full(),
+        }
+    }
+}
+
 /// What the lanes under a track's waveform are drawn from.
 pub(crate) struct LaneInputs<'a> {
     pub(crate) energy: Option<&'a EnergyCurve>,
     pub(crate) vocals: &'a VocalLane,
     pub(crate) stems: Option<&'a StemStatus>,
-    pub(crate) duration_seconds: f32,
-    pub(crate) progress: Option<f32>,
-    pub(crate) waveform_bounds: SeenBounds,
+    pub(crate) frame: LaneFrame,
     pub(crate) palette: Palette,
     pub(crate) on_separate: SeparateHandler,
 }
@@ -60,13 +101,7 @@ pub(crate) fn overview_lanes(inputs: &LaneInputs<'_>) -> Vec<Lane> {
     let mut lanes = Vec::new();
     match inputs.energy {
         Some(EnergyCurve::Steps(steps)) if !steps.is_empty() => lanes.push(Lane {
-            element: energy_curve(
-                steps,
-                inputs.duration_seconds,
-                inputs.progress,
-                &inputs.waveform_bounds,
-                &inputs.palette,
-            ),
+            element: energy_curve(steps, &inputs.frame, &inputs.palette),
             height: ENERGY_HEIGHT,
         }),
         Some(EnergyCurve::Unavailable(reason)) => lanes.push(Lane {
@@ -113,31 +148,30 @@ const LANE_LABEL_SIZE: f32 = 9.0;
 /// says the energy where the pointer is.
 pub(crate) fn energy_curve(
     steps: &[EnergyStep],
-    duration_seconds: f32,
-    progress: Option<f32>,
-    waveform_bounds: &SeenBounds,
+    frame: &LaneFrame,
     palette: &Palette,
 ) -> AnyElement {
     let colour = palette.accent;
+    let progress = frame.progress;
     let bars = steps.iter().filter_map(|step| {
         let rating = step.rating?;
+        let (start, end) = frame.lane_span(step.start, step.end)?;
         let is_played = progress.is_some_and(|progress| step.end <= progress);
         Some(
             div()
                 .absolute()
                 .bottom_0()
-                .left(relative(step.start))
-                .w(relative(step.end - step.start))
+                .left(relative(start))
+                .w(relative(end - start))
                 .h(relative(f32::from(rating) / 10.0))
                 .bg(colour.opacity(if is_played { 0.3 } else { 0.7 })),
         )
     });
     let steps: Vec<EnergyStep> = steps.to_vec();
-    let bounds = waveform_bounds.clone();
-    div()
-        .id("energy-curve")
+    let tooltip_frame = frame.clone();
+    frame
+        .sized(div().id("energy-curve"))
         .relative()
-        .w_full()
         .h(px(ENERGY_HEIGHT))
         .flex_shrink_0()
         .overflow_hidden()
@@ -150,12 +184,12 @@ pub(crate) fn energy_curve(
             track_overview::ENERGY_EXPLANATION,
             palette,
         )))
-        .children(playhead(progress, palette))
+        .children(lane_playhead(frame, palette))
         .tooltip(move |window, cx| {
-            let fraction = pointer_fraction_in(window, &bounds);
+            let fraction = tooltip_frame.pointer_track_fraction(window);
             Tooltip::new(track_overview::energy_reading(
                 &steps,
-                duration_seconds,
+                tooltip_frame.duration_seconds,
                 fraction,
             ))
             .build(window, cx)
@@ -206,13 +240,13 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
         track_overview::VOCALS_EXPLANATION,
         palette,
     );
-    let lane = div()
-        .id("vocals-lane")
+    let frame = &inputs.frame;
+    let lane = frame
+        .sized(div().id("vocals-lane"))
         .relative()
         .flex()
         .items_center()
         .gap(px(6.0))
-        .w_full()
         .h(px(VOCALS_HEIGHT))
         .flex_shrink_0()
         .overflow_hidden()
@@ -221,30 +255,32 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
     let label = div().absolute().top_0().left_0().child(label);
     match inputs.vocals {
         VocalLane::Ready(windows) => {
-            let stretches = track_overview::vocal_stretches(windows, inputs.duration_seconds);
-            let progress = inputs.progress;
-            let fills = stretches.iter().enumerate().map(|(index, stretch)| {
+            let stretches = track_overview::vocal_stretches(windows, frame.duration_seconds);
+            let progress = frame.progress;
+            let fills = stretches.iter().enumerate().filter_map(|(index, stretch)| {
+                let (start, end) = frame.lane_span(stretch.start, stretch.end)?;
                 let is_played = progress.is_some_and(|progress| stretch.end <= progress);
-                div()
-                    .id(("vocal-stretch", index))
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(relative(stretch.start))
-                    .w(relative(stretch.end - stretch.start))
-                    .bg(palette.accent.opacity(if is_played { 0.3 } else { 0.7 }))
-                    .test_support()
+                Some(
+                    div()
+                        .id(("vocal-stretch", index))
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(relative(start))
+                        .w(relative(end - start))
+                        .bg(palette.accent.opacity(if is_played { 0.3 } else { 0.7 }))
+                        .test_support(),
+                )
             });
-            let bounds = inputs.waveform_bounds.clone();
-            let duration_seconds = inputs.duration_seconds;
+            let tooltip_frame = frame.clone();
             lane.children(fills)
                 .child(label)
-                .children(playhead(inputs.progress, palette))
+                .children(lane_playhead(frame, palette))
                 .tooltip(move |window, cx| {
-                    let fraction = pointer_fraction_in(window, &bounds);
+                    let fraction = tooltip_frame.pointer_track_fraction(window);
                     Tooltip::new(track_overview::vocal_reading(
                         &stretches,
-                        duration_seconds,
+                        tooltip_frame.duration_seconds,
                         fraction,
                     ))
                     .build(window, cx)
@@ -368,6 +404,14 @@ pub(crate) fn key_timeline(
         .children(playhead(progress, palette))
         .test_support()
         .into_any_element()
+}
+
+/// The playhead of a lane showing part of the track, when playing is in it.
+fn lane_playhead(frame: &LaneFrame, palette: &Palette) -> Option<Div> {
+    let progress = frame
+        .range
+        .lane_point(frame.progress?, frame.duration_seconds)?;
+    playhead(Some(progress), palette)
 }
 
 /// A thin line where playing is, as on the waveform.

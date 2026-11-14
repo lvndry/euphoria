@@ -150,7 +150,7 @@ Drag the left edge of the inspector to make it wider or narrower. The pointer tu
 | Narrowest | 288 |
 | Widest | 640, or less when the window is small: the table always keeps at least 400 |
 
-In the Deck theme the track detail is a strip under the table, and you drag its top edge to change its height in the same way. The waveform grows with the strip, and a taller strip lists more mixes. The strip is 180 high to begin with, and goes from 124 to 420, always leaving at least 200 for the table.
+In the Deck theme the track detail is a strip under the table, and you drag its top edge to change its height in the same way. The waveform grows with the strip, and a taller strip lists more mixes. The strip is 180 high to begin with, and goes from 142 to 420, always leaving at least 200 for the table.
 
 A size you chose in a large window is kept when the window gets smaller. It is only drawn smaller while the window has no room for it.
 

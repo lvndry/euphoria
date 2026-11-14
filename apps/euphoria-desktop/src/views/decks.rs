@@ -26,7 +26,7 @@ use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::mashup;
 use crate::views::tag_panel::choice_button;
-use crate::views::track_overview::{self, LaneInputs};
+use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
 use crate::waveforms::Waveform;
@@ -206,9 +206,11 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
             },
             vocals: app.vocal_lane_of(path),
             stems: app.stems.status(path),
-            duration_seconds: view.duration_seconds.unwrap_or(0.0) as f32,
-            progress,
-            waveform_bounds: decks.waveform_bounds[deck_number(deck)].clone(),
+            frame: LaneFrame::whole(
+                view.duration_seconds.unwrap_or(0.0) as f32,
+                progress,
+                decks.waveform_bounds[deck_number(deck)].clone(),
+            ),
             palette,
             on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.request_stems_of(separated_path.clone(), cx)

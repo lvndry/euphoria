@@ -917,7 +917,7 @@ fn everything_in_the_strip_fits_at_its_shortest(cx: &mut TestAppContext) {
             window.render_frame(cx);
             window.render_frame(cx);
             let strip = window.find("inspector").bounds();
-            assert_eq!(strip.size.height, px(124.0));
+            assert_eq!(strip.size.height, px(142.0));
             let inside_bottom = strip.bottom() - px(16.0);
             for part in ["waveform", "play-button"] {
                 let bounds = window.find(part).bounds();
@@ -1035,7 +1035,7 @@ fn dragging_the_edge_of_the_strip_resizes_it_and_the_waveform_grows_with_it(
         assert_eq!(taller_waveform_height - usual_waveform_height, px(160.0));
 
         drag_edge_to(window, gpui::point(px(700.0), px(890.0)), cx);
-        assert_eq!(window.find("inspector").bounds().size.height, px(124.0));
+        assert_eq!(window.find("inspector").bounds().size.height, px(142.0));
 
         drag_edge_to(window, gpui::point(px(700.0), px(10.0)), cx);
         assert_eq!(window.find("inspector").bounds().size.height, px(420.0));
@@ -1094,7 +1094,7 @@ fn the_smallest_window_keeps_table_rows_whatever_strip_height_was_remembered(
         let inspector = window.find("inspector").bounds();
         let first_row = window.find(track(0)).bounds();
         assert_eq!(inspector.bottom(), px(560.0));
-        assert!(inspector.size.height >= px(124.0));
+        assert!(inspector.size.height >= px(142.0));
         assert!(
             inspector.top() - first_row.top() >= px(200.0 - 70.0),
             "{:?} of table above a strip of {:?}",
@@ -3097,7 +3097,7 @@ fn the_strip_at_its_shortest_still_holds_the_waveform_the_curve_and_the_timeline
             window.render_frame(cx);
             window.render_frame(cx);
             let strip = window.find("inspector").bounds();
-            assert_eq!(strip.size.height, px(124.0));
+            assert_eq!(strip.size.height, px(142.0));
             let inside_bottom = strip.bottom() - px(16.0);
             for part in ["waveform", "energy-curve", "key-timeline", "play-button"] {
                 let bounds = window.find(part).bounds();

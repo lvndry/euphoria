@@ -34,7 +34,7 @@ use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::stems;
-use crate::views::track_overview::{self, LaneInputs};
+use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
@@ -705,9 +705,7 @@ fn waveform_section(
         },
         vocals: app.vocal_lane_of(&track.path),
         stems: app.stems.status(&track.path),
-        duration_seconds,
-        progress,
-        waveform_bounds: app.waveform_bounds.clone(),
+        frame: LaneFrame::whole(duration_seconds, progress, app.waveform_bounds.clone()),
         palette,
         on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.request_stems_of(separated_path.clone(), cx)

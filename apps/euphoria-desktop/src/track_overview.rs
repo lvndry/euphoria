@@ -210,6 +210,83 @@ pub(crate) fn vocal_reading(
     format!("No vocals from {} to {}", time(gap_start), time(gap_end))
 }
 
+/// The part of a track a lane shows: all of it, or a zoomed window of it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TimeRange {
+    pub(crate) start_seconds: f32,
+    pub(crate) end_seconds: f32,
+}
+
+impl TimeRange {
+    /// The whole of a track `duration_seconds` long.
+    pub(crate) fn whole(duration_seconds: f32) -> Self {
+        Self {
+            start_seconds: 0.0,
+            end_seconds: duration_seconds,
+        }
+    }
+
+    /// The window from `start_seconds` to `end_seconds`.
+    #[cfg(test)]
+    pub(crate) fn between(start_seconds: f32, end_seconds: f32) -> Self {
+        Self {
+            start_seconds,
+            end_seconds,
+        }
+    }
+
+    fn length(self) -> f32 {
+        self.end_seconds - self.start_seconds
+    }
+
+    fn is_usable(self, duration_seconds: f32) -> bool {
+        duration_seconds > 0.0
+            && duration_seconds.is_finite()
+            && self.length() > 0.0
+            && self.length().is_finite()
+    }
+
+    /// Where a stretch of the track, from `start` to `end` as fractions of
+    /// a track `duration_seconds` long, lies along a lane showing this
+    /// range, as fractions of the lane clipped to it. `None` when none of
+    /// it is in the range.
+    pub(crate) fn lane_span(
+        self,
+        start: f32,
+        end: f32,
+        duration_seconds: f32,
+    ) -> Option<(f32, f32)> {
+        if !self.is_usable(duration_seconds) {
+            return None;
+        }
+        let to_lane =
+            |fraction: f32| (fraction * duration_seconds - self.start_seconds) / self.length();
+        let lane_start = to_lane(start).max(0.0);
+        let lane_end = to_lane(end).min(1.0);
+        (lane_end > lane_start).then_some((lane_start, lane_end))
+    }
+
+    /// Where the point `track_fraction` of the way along the track lies
+    /// along a lane showing this range, or `None` outside the range.
+    pub(crate) fn lane_point(self, track_fraction: f32, duration_seconds: f32) -> Option<f32> {
+        if !self.is_usable(duration_seconds) {
+            return None;
+        }
+        let fraction = (track_fraction * duration_seconds - self.start_seconds) / self.length();
+        (0.0..=1.0).contains(&fraction).then_some(fraction)
+    }
+
+    /// How far along the track the point `lane_fraction` of the way along a
+    /// lane showing this range is.
+    pub(crate) fn track_fraction(self, lane_fraction: f32, duration_seconds: f32) -> f32 {
+        if duration_seconds <= 0.0 {
+            return 0.0;
+        }
+        ((self.start_seconds + lane_fraction.clamp(0.0, 1.0) * self.length()) / duration_seconds)
+            .clamp(0.0, 1.0)
+    }
+}
+
 /// How far along a lane `bounds` wide the pointer is, from 0 to 1.
 pub(crate) fn pointer_fraction(pointer_x: f32, left: f32, width: f32) -> f32 {
     if width <= 0.0 {
@@ -507,6 +584,32 @@ mod tests {
         assert_eq!(pointer_fraction(50.0, 100.0, 200.0), 0.0);
         assert_eq!(pointer_fraction(500.0, 100.0, 200.0), 1.0);
         assert_eq!(pointer_fraction(150.0, 100.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn a_zoomed_range_maps_track_fractions_onto_the_lane_and_clips_to_it() {
+        let range = TimeRange::between(40.0, 80.0);
+        let duration = 160.0;
+        assert_eq!(range.lane_span(0.25, 0.5, duration), Some((0.0, 1.0)));
+        assert_eq!(range.lane_span(0.3, 0.4, duration), Some((0.2, 0.6)));
+        assert_eq!(range.lane_span(0.0, 0.25, duration), None);
+        assert_eq!(range.lane_span(0.5, 1.0, duration), None);
+        assert_eq!(range.lane_span(0.2, 0.3, duration), Some((0.0, 0.2)));
+        assert_eq!(range.lane_point(0.375, duration), Some(0.5));
+        assert_eq!(range.lane_point(0.9, duration), None);
+        assert_eq!(range.track_fraction(0.5, duration), 0.375);
+        assert_eq!(range.track_fraction(2.0, duration), 0.5);
+    }
+
+    #[test]
+    fn the_whole_range_is_the_identity_and_an_empty_one_shows_nothing() {
+        let whole = TimeRange::whole(100.0);
+        assert_eq!(whole.lane_span(0.2, 0.7, 100.0), Some((0.2, 0.7)));
+        assert_eq!(whole.lane_point(0.4, 100.0), Some(0.4));
+        assert_eq!(whole.track_fraction(0.4, 100.0), 0.4);
+        let empty = TimeRange::between(10.0, 10.0);
+        assert_eq!(empty.lane_span(0.0, 1.0, 100.0), None);
+        assert_eq!(whole.lane_span(0.0, 1.0, 0.0), None);
     }
 
     fn section(start_seconds: f32, end_seconds: f32, tonic: u8) -> KeySection {
