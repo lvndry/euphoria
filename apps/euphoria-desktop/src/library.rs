@@ -28,7 +28,7 @@ pub(crate) enum TrackStatus {
     /// A worker is analyzing the file now.
     Analyzing,
     /// The core returned a result.
-    Analyzed(TrackAnalysis),
+    Analyzed(Box<TrackAnalysis>),
     /// The core could not analyze the file; the text says why.
     Failed(String),
     /// The file is no longer where it was: moved, deleted, or on a drive
@@ -160,7 +160,7 @@ impl Track {
     /// The analysis, when the track has one.
     pub(crate) fn analysis(&self) -> Option<&TrackAnalysis> {
         match &self.status {
-            TrackStatus::Analyzed(analysis) => Some(analysis),
+            TrackStatus::Analyzed(analysis) => Some(&**analysis),
             TrackStatus::Queued
             | TrackStatus::Analyzing
             | TrackStatus::Failed(_)
@@ -618,7 +618,7 @@ impl Library {
         track.status = match outcome {
             Ok(analysis) => {
                 track.canonical_beat_grid = analysis.beat_grid;
-                TrackStatus::Analyzed(analysis.with_tempo_range(self.tempo_range))
+                TrackStatus::Analyzed(Box::new(analysis.with_tempo_range(self.tempo_range)))
             }
             Err(TrackFailure::Failed(reason)) => {
                 track.canonical_beat_grid = None;
