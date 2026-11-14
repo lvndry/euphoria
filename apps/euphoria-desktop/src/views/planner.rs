@@ -1036,18 +1036,9 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                     .child(
                         div()
                             .id("focus-transition-summary")
+                            .text_size(SMALL_TEXT_SIZE)
                             .text_color(palette.text_secondary)
                             .child(summary)
-                            .test_support(),
-                    )
-                    .child(compact_strip(planned, window, &palette))
-                    .child(
-                        div()
-                            .id("focus-transition-verdict")
-                            .text_size(LABEL_TEXT_SIZE)
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(verdict_colour(verdict, &palette))
-                            .child(verdict.label())
                             .test_support(),
                     )
                     .child(
@@ -1082,6 +1073,16 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                                     .on_click(cx.listener(|this, _, _, cx| this.open_planner(cx)))
                                     .test_support(),
                             ),
+                    )
+                    .child(compact_strip(planned, window, &palette))
+                    .child(
+                        div()
+                            .id("focus-transition-verdict")
+                            .text_size(LABEL_TEXT_SIZE)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(verdict_colour(verdict, &palette))
+                            .child(verdict.label())
+                            .test_support(),
                     )
                     .test_support()
                     .into_any_element()

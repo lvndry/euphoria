@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use euphoria_core::harmony::transition::{PlanError, Side};
 use euphoria_core::{BeatGrid, CueSection, EuphoriaError, SectionCue, TrackAnalysis};
 use gpui::test::TestWindowExt;
 use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext, px};
@@ -21,7 +22,7 @@ use crate::tag_writing::testing::ScratchFolder;
 use crate::transition_plan::PlanState;
 use crate::ui_tests::{click, is_shown, open_window_with, write_stems_with_vocals_for};
 
-const TRACK_SECONDS: f32 = 48.0;
+const TRACK_SECONDS: f32 = 64.0;
 
 fn plan_track(name: &str, key: &str, bpm: f32) -> DemoTrack {
     let fixtures =
@@ -48,7 +49,8 @@ fn plan_track(name: &str, key: &str, bpm: f32) -> DemoTrack {
             cues: vec![
                 section_cue(0.0, CueSection::Start),
                 section_cue(16.0, CueSection::Main),
-                section_cue(32.0, CueSection::Outro),
+                section_cue(32.0, CueSection::Breakdown),
+                section_cue(48.0, CueSection::Outro),
             ],
             key_timeline: Vec::new(),
             quality: None,
@@ -68,6 +70,7 @@ struct Setup {
     window: AnyWindowHandle,
     view: Entity<EuphoriaApp>,
     scratch: ScratchFolder,
+    stem_folders: Vec<ScratchFolder>,
     a: PathBuf,
     b: PathBuf,
     c: PathBuf,
@@ -105,15 +108,16 @@ fn open_plans(name: &str, stems_for: &[usize], cx: &mut TestAppContext) -> Setup
             app.planner.signals_directory = Some(scratch.0.join("signals"));
         })
     });
+    let mut stem_folders = Vec::new();
     for index in stems_for {
         let folder = ScratchFolder::new(&format!("{name}-stems-{index}"));
-        let files = write_stems_with_vocals_for(&folder, 48, 6);
+        let files = write_stems_with_vocals_for(&folder, 64, 6);
         cx.update(|cx| {
             view.update(cx, |app, _| {
                 app.stems.mark_ready(&paths[*index], files.clone());
             })
         });
-        std::mem::forget(folder);
+        stem_folders.push(folder);
     }
     cx.update(|cx| view.update(cx, |app, cx| app.select(0, cx)));
     cx.run_until_parked();
@@ -121,6 +125,7 @@ fn open_plans(name: &str, stems_for: &[usize], cx: &mut TestAppContext) -> Setup
         window,
         view,
         scratch,
+        stem_folders,
         a: paths[0].clone(),
         b: paths[1].clone(),
         c: paths[2].clone(),
@@ -232,26 +237,12 @@ fn the_transition_tab_gives_the_best_window_in_a_sentence(cx: &mut TestAppContex
         assert!(is_shown(setup.window, id, cx), "{id}");
     }
     let text = summary(&setup, cx).unwrap();
-    let title = cx.update(|cx| {
-        let app = setup.view.read(cx);
-        let index = app.focus.selected_match.unwrap();
-        app.session
-            .library()
-            .track(index)
-            .unwrap()
-            .title()
-            .to_string()
-    });
-    assert!(
-        text.starts_with(&format!(
-            "Mix out of this track's Main (0:16) into {title}'s Intro. 16 bars, "
-        )) || text.starts_with(&format!(
-            "Mix out of this track's Outro (0:32) into {title}'s Intro. 16 bars, "
-        )),
-        "{text}"
+    assert_eq!(
+        text,
+        "Mix out of this track's Main (0:16) into sine-440hz-stereo.wav's Intro. 16 bars, \
+         vocals on B only, no bass clash. sine-440hz-stereo.wav plays at 120.0 BPM (+1.7%), \
+         key 9A, one step up the wheel."
     );
-    assert!(text.contains(&format!("{title} plays at 120.0 BPM (+1.7%), key ")));
-    assert!(text.ends_with("one step up the wheel."), "{text}");
 }
 
 #[gpui::test]
@@ -437,6 +428,7 @@ fn missing_stems_show_not_checked_and_links_that_start_separation(cx: &mut TestA
     cx.update(|cx| {
         assert!(setup.view.read(cx).stems.status(&setup.a).is_some());
     });
+    drop(setup.stem_folders);
     drop(setup.scratch);
 }
 
@@ -444,7 +436,9 @@ fn missing_stems_show_not_checked_and_links_that_start_separation(cx: &mut TestA
 fn a_plan_that_fails_says_why_in_words(cx: &mut TestAppContext) {
     let scratch = ScratchFolder::new("plan-failure");
     let mut tracks = plan_tracks();
-    tracks[1] = plan_track("sine-440hz-stereo.wav", "E minor", 40.0);
+    if let Ok(analysis) = &mut tracks[1].outcome {
+        analysis.beat_grid = None;
+    }
     let (window, view) = open_window_with(
         tracks,
         Box::new(SilentOutput),
@@ -453,10 +447,12 @@ fn a_plan_that_fails_says_why_in_words(cx: &mut TestAppContext) {
         gpui::size(px(1440.0), px(900.0)),
         cx,
     );
+    let a = path_of(&view, 0, cx);
     let b = path_of(&view, 1, cx);
     cx.update(|cx| {
-        view.update(cx, |app, _| {
+        view.update(cx, |app, cx| {
             app.planner.signals_directory = Some(scratch.0.join("signals"));
+            app.select(0, cx);
         })
     });
     click(window, "focus-open", cx);
@@ -474,23 +470,63 @@ fn a_plan_that_fails_says_why_in_words(cx: &mut TestAppContext) {
         let b_index = app.session.library().index_of(&b).unwrap();
         assert!(matches!(
             app.plan_state(b_index),
-            Some(PlanState::Failed(_))
+            Some(PlanState::Failed(PlanError::NoBeatGrid(Side::B)))
         ));
         assert_eq!(app.clash_label(b_index), "No plan");
         view.update(cx, |app, cx| app.open_planner(cx));
     });
     settle(window, cx);
     assert!(is_shown(window, "planner-failure", cx));
+    let failure_text = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            let Some(PlanState::Failed(error)) =
+                app.plan_state(app.focus.selected_match.unwrap()).cloned()
+            else {
+                panic!("the plan should have failed");
+            };
+            crate::views::planner::failure_message(app, error)
+        })
+    };
+    let text = failure_text(cx);
+    assert!(text.starts_with("No beat grid for "), "{text}");
+
     cx.update(|cx| {
-        let app = view.read(cx);
-        let PlanState::Failed(error) = app
-            .plan_state(app.focus.selected_match.unwrap())
-            .cloned()
-            .unwrap()
-        else {
-            panic!("the plan should have failed");
-        };
-        let text = crate::views::planner::failure_message(app, error);
-        assert!(text.starts_with("Tempo out of reach: "), "{text}");
+        view.update(cx, |app, _| {
+            app.planner.force_state(
+                &a,
+                &b,
+                PlanState::Failed(PlanError::TempoOutOfReach { rate: 2.4 }),
+            );
+        })
+    });
+    settle(window, cx);
+    assert!(is_shown(window, "planner-failure", cx));
+    let text = failure_text(cx);
+    assert!(
+        text.starts_with("Tempo out of reach: ") && text.contains("2.40 times its speed"),
+        "{text}"
+    );
+}
+
+#[gpui::test]
+fn previewing_loads_both_tracks_on_the_decks_with_sync_on(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-preview", &[0, 1], cx);
+    open_focus_with_plans(&setup, cx);
+    let b_index = pick(&setup, &setup.b.clone(), cx);
+    click(setup.window, "plan-preview", cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.decks.is_open);
+        assert!(app.decks.sync);
+        assert_eq!(
+            app.decks.view(crate::deck_audio::DeckId::A).track_index,
+            Some(0)
+        );
+        assert_eq!(
+            app.decks.view(crate::deck_audio::DeckId::B).track_index,
+            Some(b_index)
+        );
+        assert!(!app.focus.is_open, "the decks are in the library layout");
     });
 }

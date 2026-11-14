@@ -120,6 +120,19 @@ impl Planner {
     }
 }
 
+#[cfg(test)]
+impl Planner {
+    pub(crate) fn force_state(&mut self, from: &Path, to: &Path, state: PlanState) {
+        self.entries.insert(
+            (from.to_path_buf(), to.to_path_buf()),
+            PlanEntry {
+                fingerprint: 0,
+                state,
+            },
+        );
+    }
+}
+
 /// The sections of `cues` on `grid`, as bars, for the planner.
 pub(crate) fn plan_sections(cues: &[Cue], grid: &BeatGrid) -> Vec<PlanSection> {
     let bar_seconds = grid.bar_seconds();
