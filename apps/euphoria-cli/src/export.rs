@@ -33,7 +33,7 @@ use crate::collection::{self, CuedTracks};
 use crate::playlists::find_playlist;
 use crate::style::Theme;
 use crate::terminal::Printable;
-use crate::{output, traktor_collection, with_causes};
+use crate::{grid_import, output, traktor_collection, with_causes};
 
 /// Used for the playlist of files named directly when the output file has no
 /// name to borrow.
@@ -111,9 +111,11 @@ pub struct RekordboxArguments {
     #[arg(long, requires_all = ["beat_grid", "collection"])]
     cues: bool,
     /// Your rekordbox collection exported as XML (File > Export Collection
-    /// in xml format). Tracks that already have cues or loops there are
-    /// left out of the file, so that importing it cannot change them.
-    #[arg(long, value_name = "FILE", requires = "cues")]
+    /// in xml format). Tracks there with a constant beat grid are exported
+    /// with that grid in place of the detected one, and their cues sit on
+    /// its bars. With --cues, tracks that already have cues or loops there
+    /// are left out of the file, so that importing it cannot change them.
+    #[arg(long, value_name = "FILE", requires = "beat_grid")]
     collection: Option<PathBuf>,
     /// Export even though some tracks with cues in the collection match no
     /// file on this computer, so they cannot be recognised and protected.
@@ -381,6 +383,8 @@ struct ExportRequest<'arguments> {
     beat_grid: bool,
     cues: bool,
     collection: Option<&'arguments Path>,
+    /// Whether the beat grids of `collection` replace the detected ones.
+    import_grids: bool,
     /// The collection files an export must never overwrite: the installed
     /// collections of the program on this computer.
     protected_collections: Vec<PathBuf>,
@@ -403,6 +407,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             collection: arguments.collection.as_deref(),
+            import_grids: true,
             protected_collections: Vec::new(),
             allow_unmatched_cued_tracks: arguments.allow_unmatched_cued_tracks,
             analysis: &arguments.analysis,
@@ -433,6 +438,7 @@ fn export_to_traktor(arguments: &TraktorArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             collection: arguments.collection.as_deref(),
+            import_grids: false,
             protected_collections: traktor_collection::installed_collections(),
             allow_unmatched_cued_tracks: arguments.allow_unmatched_cued_tracks,
             analysis: &arguments.analysis,
@@ -457,7 +463,13 @@ fn export_library(
     };
     // Checked before the analysis, which can take hours on a large library.
     check_output_file(&output_file, existing)?;
-    let cued_tracks = match request.collection {
+    let grids = match request.collection {
+        Some(collection) if request.import_grids => {
+            Some(grid_import::CollectionGrids::read(collection)?)
+        }
+        _ => None,
+    };
+    let cued_tracks = match request.collection.filter(|_| request.cues) {
         Some(collection) => {
             check_output_is_not_a_collection(&output_file, &[collection.to_path_buf()], program)?;
             let cued_tracks = read_cued_tracks(collection)?;
@@ -511,6 +523,8 @@ fn export_library(
     let user_edits =
         batch::user_edits(&results, request.analysis, batch::CorrectionCheck::ReadFile)?;
     let results = batch::corrected(results, &user_edits);
+    let (results, grid_infos) =
+        grid_import::apply(results, &user_edits, grids.as_ref(), request.analysis)?;
 
     let loose_playlist_name = output_file
         .file_stem()
@@ -565,6 +579,12 @@ fn export_library(
     let mut standard_error = std::io::stderr().lock();
     let theme = Theme::stderr();
     output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
+    if let (true, Some(collection)) = (grids.is_some(), request.collection) {
+        let summary = grid_import::ImportSummary::of(&audio_files, &grid_infos);
+        if summary.used > 0 || !summary.skipped.is_empty() {
+            output::write_grid_import_summary(&mut standard_error, &theme, &summary, collection)?;
+        }
+    }
     written?;
     output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
     output::write_export_summary(
