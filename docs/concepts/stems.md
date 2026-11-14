@@ -11,7 +11,7 @@ A stem is one part of a mix: the vocals, the drums, the bass, or everything else
 euphoria stems track.mp3 --output stems
 ```
 
-This writes `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav` into `stems/`. In the desktop app, the track detail has a button that separates the selected track, and the player switches between the full track, the acapella and the instrumental. The [command reference](../reference/cli.md#euphoria-stems) lists the options.
+This writes `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav` into `stems/`. In the desktop app, the track detail has a button that separates the selected track; the player switches between the full track, the acapella and the instrumental, a lane under the waveform shows [where the vocals are](../guides/desktop-app.md#the-lanes-under-the-waveform), and the stems, the acapella and the instrumental can be saved as WAV files. The [command reference](../reference/cli.md#euphoria-stems) lists the options.
 
 ## How it works
 
@@ -38,6 +38,20 @@ Once a track is separated, the track detail offers **Full track**, **Acapella** 
 Acapella and Instrumental added together give back the track, apart from the model's own mistakes: on generated test stems at 44.1 kHz, 48 kHz and in mono, their sum matches the track to about 76 dB, the limit of rounding each stem to 16 bits, and lasts as long as the track to within a millisecond.
 
 **Remove stems**, under the three choices, deletes the saved stems of the track. The track detail then offers to separate it again. Stems are also removed on their own when the saved stems pass the size limit below.
+
+## Saving stems
+
+Once a track is separated, the track detail offers **Export stems…**, **Export acapella…** and **Export instrumental…**.
+
+**Export stems…** opens a folder picker and writes the four stems into the chosen folder as 16 bit stereo WAV files at 44.1 kHz, one per stem, named after the track's title, which is the title in the tags or the file name without its extension: `<title> - vocals.wav`, `<title> - drums.wav`, `<title> - bass.wav` and `<title> - other.wav`. Characters file systems refuse ( / \ : * ? " < > | ) become underscores. The files are the separated stems exactly, written by the same code as `euphoria stems`: all four are staged first, and if any fails the others are removed and a file that was replaced is restored. If any of the four names is already taken in the folder, nothing is written and a strip at the bottom of the window asks `<file> and N more files already exist. Replace them?` with **Replace** and **Cancel**.
+
+**Export acapella…** and **Export instrumental…** open a save dialog, which asks about replacing a file itself. The default names are `<title> (Acapella).wav` and `<title> (Instrumental).wav`. The acapella is the vocals stem as it is. The instrumental is the drums, bass and other stems added together in 32 bit floating point, and written out as a 16 bit stereo WAV file at 44.1 kHz. When the sum goes past full scale it is scaled down as a whole so its peak is exactly full scale, and the strip at the bottom says "The sum would have clipped, so it was scaled down by X dB".
+
+The exports run off the main thread. The strip at the bottom shows "Saving …" while one runs, and then what was saved, or why it failed.
+
+When the track has a key and the key shift in the **Change key** section is not zero, a second row of three buttons appears: **Export stems in <new key>…**, **Export acapella in <new key>…** and **Export instrumental in <new key>…**. Each stem is shifted by the same pitch shifter as "Export shifted copy…" (tempo unchanged, length unchanged), so the file is what is heard with the shift on, and the instrumental is summed after the shift. The files are tagged with the new key, and keep the tempo and energy, like the shifted copy. The names carry the shift: `<title> - vocals (+2).wav`, `<title> (Acapella, +2).wav`.
+
+The command line writes a single file the same way: `euphoria stems <FILE> -o <DIR> --mix acapella` or `--mix instrumental` writes the acapella or the instrumental into the folder instead of the four stems; see the [command reference](../reference/cli.md#euphoria-stems).
 
 ## How close it is to Demucs
 

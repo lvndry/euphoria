@@ -35,7 +35,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
-use crate::track_overview::energy_curve_from;
+use crate::track_overview::{VocalLane, energy_curve_from, vocal_lane_from};
 use crate::views;
 use crate::views::waveform::SeenBounds;
 use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
@@ -172,6 +172,7 @@ pub(crate) struct EuphoriaApp {
     /// A missing track and the file picked for it, waiting for the user to
     /// confirm the link because nothing recorded can check it.
     pub(crate) pending_link: Option<crate::relink_flow::PendingLink>,
+    pub(crate) pending_stem_export: Option<crate::stem_export::StemExportRequest>,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
     /// Whether the sidebar is folded and how large the track detail is.
@@ -218,6 +219,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
     /// The field the name of a cue is typed in.
     pub(crate) cue_name_input: Entity<InputState>,
+    /// The focus view that gives one track the whole window.
+    pub(crate) focus: crate::focus::FocusView,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -225,6 +228,7 @@ pub(crate) struct EuphoriaApp {
     pub(crate) query: String,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
+    vocal_lanes: HashMap<PathBuf, VocalLane>,
     waveform_task: Option<Task<()>>,
     /// The file the waveform task is decoding.
     waveform_task_path: Option<PathBuf>,
@@ -415,6 +419,7 @@ impl EuphoriaApp {
             unavailable_folders: Vec::new(),
             remembered_folders: settings.folders.clone(),
             pending_link: None,
+            pending_stem_export: None,
             toolbar_drag_armed: false,
             panels: settings.panels,
             resizing: None,
@@ -427,6 +432,7 @@ impl EuphoriaApp {
             by_ear: crate::key_by_ear::ByEar::default(),
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
             decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
+            focus: crate::focus::FocusView::new(settings.focus_lanes),
             set_builder: crate::set_builder::SetBuilder::default(),
             filter_window_input,
             filter_bpm_from_input,
@@ -443,6 +449,7 @@ impl EuphoriaApp {
             query: String::new(),
             settings_path,
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
+            vocal_lanes: HashMap::new(),
             waveform_task: None,
             waveform_task_path: None,
             is_collecting: false,
@@ -1420,6 +1427,9 @@ impl EuphoriaApp {
         self.refresh_mixes();
         self.load_selected_waveform(cx);
         self.point_player_at_selection(cx);
+        if self.focus.is_open {
+            self.focus_selection_changed(cx);
+        }
         cx.notify();
     }
 
@@ -1638,6 +1648,7 @@ impl EuphoriaApp {
         if let Err(problem) = self.stems.remove(&path) {
             self.report(format!("Could not remove the stems: {problem}"));
         }
+        self.vocal_lanes.insert(path.clone(), VocalLane::NoStems);
         self.stems_changed(cx);
         self.decks.stem_library.recheck(&path);
         cx.notify();
@@ -1650,6 +1661,11 @@ impl EuphoriaApp {
             return;
         };
         let path = track.path.clone();
+        self.request_stems_of(path, cx);
+    }
+
+    /// Asks the stems of the track at `path` to be separated.
+    pub(crate) fn request_stems_of(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
         if self.stems.start(&path) {
             cx.spawn(async move |this, cx| {
                 loop {
@@ -1663,6 +1679,8 @@ impl EuphoriaApp {
                                 this.stems_changed(cx);
                             }
                             this.decks.stem_library.recheck(&path);
+                            this.load_vocal_lane(path.clone(), cx);
+                            this.focus_stems_separated(&path, cx);
                             if this.decks.is_open
                                 && this.decks.mode == crate::decks::DeckMode::Mashup
                             {
@@ -1711,6 +1729,7 @@ impl EuphoriaApp {
             self.voice = None;
         } else {
             self.player.advance_to(active.state.position_seconds());
+            self.follow_playhead_in_focus();
         }
         cx.notify();
     }
@@ -1914,7 +1933,7 @@ impl EuphoriaApp {
 
     /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user
     /// when that fails.
-    fn save_settings(&self) -> Option<String> {
+    pub(crate) fn save_settings(&self) -> Option<String> {
         let settings_path = self.settings_path.as_ref()?;
         let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
         expanded.sort();
@@ -1932,6 +1951,7 @@ impl EuphoriaApp {
             tags: self.tag_settings,
             display: self.display,
             suggestion_filter: self.decks.filter.clone(),
+            focus_lanes: self.focus.lanes,
         };
         settings
             .save(settings_path)
@@ -1983,6 +2003,51 @@ impl EuphoriaApp {
     /// The waveform of the track at `path`, when it was read.
     pub(crate) fn waveform_of(&self, path: &Path) -> Option<&Waveform> {
         self.waveforms.get(path)
+    }
+
+    /// The vocals lane of the track at `path`: where the vocals are, once
+    /// its stems have been found and measured.
+    pub(crate) fn vocal_lane_of(&self, path: &Path) -> &VocalLane {
+        self.vocal_lanes.get(path).unwrap_or(&VocalLane::Checking)
+    }
+
+    /// Shows `lane` as the vocals lane of the track at `path`.
+    #[cfg(test)]
+    pub(crate) fn show_vocal_lane(&mut self, path: PathBuf, lane: VocalLane) {
+        self.vocal_lanes.insert(path, lane);
+    }
+
+    /// Looks for the stems of the track at `path`, in this session and in
+    /// the stem cache, and measures where the vocals are in them, off the
+    /// main thread. Measuring is done once: the result is kept with the
+    /// stems. Separation is never started from here.
+    pub(crate) fn load_vocal_lane(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        if !matches!(self.vocal_lanes.get(&path), Some(VocalLane::Ready(_))) {
+            self.vocal_lanes.insert(path.clone(), VocalLane::Checking);
+        }
+        let session_files = self.stems.ready_files(&path);
+        let analyzer = self.session.cache();
+        cx.spawn(async move |this, cx| {
+            let lane_path = path.clone();
+            let lane = cx
+                .background_executor()
+                .spawn(async move {
+                    let files = session_files.or_else(|| {
+                        let content = analyzer.as_ref()?.known_content(&lane_path)?;
+                        euphoria_core::stems::StemCache::open_default()
+                            .ok()?
+                            .cached(&content)
+                    });
+                    vocal_lane_from(files)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.vocal_lanes.insert(path, lane);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Loads the waveform of the track on a deck, when it is not loaded
@@ -2060,6 +2125,7 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.set_energy(&path, curve);
+                this.load_vocal_lane(path, cx);
                 cx.notify();
             })
             .ok();
@@ -2116,11 +2182,13 @@ impl Render for EuphoriaApp {
                 .flex()
                 .flex_1()
                 .min_h_0()
-                .when(shows_sidebar, |body| {
+                .when(shows_sidebar && !self.focus.is_open, |body| {
                     body.child(views::sidebar::render(self, cx))
                 })
                 .map(|body| {
-                    if self.set_builder.is_open {
+                    if self.focus.is_open {
+                        body.child(views::focus::render(self, window, cx))
+                    } else if self.set_builder.is_open {
                         body.child(views::set_builder::render(self, cx))
                     } else {
                         body.child(library_and_detail)
@@ -2134,9 +2202,25 @@ impl Render for EuphoriaApp {
             .id("euphoria")
             .track_focus(&self.window_focus)
             .key_context(views::LIBRARY_KEY_CONTEXT)
+            .on_action(
+                cx.listener(|this, _: &crate::actions::OpenFocusView, window, cx| {
+                    this.open_focus_view(window, cx);
+                }),
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" && this.close_panels(cx) {
-                    return;
+                if event.keystroke.key == "escape" {
+                    if this.close_panels(cx) {
+                        return;
+                    }
+                    if this.focus.lanes_menu_open {
+                        this.focus.lanes_menu_open = false;
+                        cx.notify();
+                        return;
+                    }
+                    if this.focus.is_open {
+                        this.close_focus_view(cx);
+                        return;
+                    }
                 }
                 // With the keyboard on the window itself, the arrow keys
                 // move through the table as they do when the table has it.
@@ -2157,11 +2241,14 @@ impl Render for EuphoriaApp {
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
-                    if !this.drag_cue_to(event.position.x, event.modifiers, cx) {
+                    if !this.drag_cue_to(event.position.x, event.modifiers, cx)
+                        && !this.drag_window_to(event.position.x, cx)
+                    {
                         this.resize_to(event.position, window, cx);
                     }
                 } else {
                     this.finish_resizing(cx);
+                    this.finish_moving_window();
                     this.release_cue(cx);
                 }
             }))
@@ -2169,6 +2256,7 @@ impl Render for EuphoriaApp {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.finish_resizing(cx);
+                    this.finish_moving_window();
                     this.release_cue(cx);
                 }),
             )
@@ -2178,6 +2266,7 @@ impl Render for EuphoriaApp {
                 window.child(views::player::bar(self, cx))
             })
             .children(views::notice::render_link_confirmation(self, cx))
+            .children(views::notice::render_stem_export_confirmation(self, cx))
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
             .children(views::library_export_panel::render(self, cx))

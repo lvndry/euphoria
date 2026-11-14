@@ -150,7 +150,7 @@ Drag the left edge of the inspector to make it wider or narrower. The pointer tu
 | Narrowest | 288 |
 | Widest | 640, or less when the window is small: the table always keeps at least 400 |
 
-In the Deck theme the track detail is a strip under the table, and you drag its top edge to change its height in the same way. The waveform grows with the strip, and a taller strip lists more mixes. The strip is 180 high to begin with, and goes from 124 to 420, always leaving at least 200 for the table.
+In the Deck theme the track detail is a strip under the table, and you drag its top edge to change its height in the same way. The waveform grows with the strip, and a taller strip lists more mixes. The strip is 180 high to begin with, and goes from 142 to 420, always leaving at least 200 for the table.
 
 A size you chose in a large window is kept when the window gets smaller. It is only drawn smaller while the window has no room for it.
 
@@ -165,6 +165,14 @@ Select a track and press Space, or click the round play button, to hear it. Pres
 In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, a thin progress line and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
+
+## Stems
+
+The track detail can separate a track into its four stems with the Demucs model, and then you can hear any part of it on its own. Select a track and click **Separate the stems** in the track detail: while it runs the button says so, and when it is done the player offers what to hear.
+
+- Choose **Full track**, **Acapella** or **Instrumental** to play the file itself, the vocals stem, or the drums, bass and other stems added together. The position in seconds is kept, so switching between them lands at the same moment of the track.
+- **Remove stems** deletes the saved stems of the track. The track detail then offers to separate it again.
+- **Export stems…**, **Export acapella…** and **Export instrumental…** save the stems to disk as WAV files. When the key shift is not zero, a second row exports them in the shifted key. [Saving stems](../concepts/stems.md#saving-stems) describes the file names and the rules.
 
 ## Decks
 
@@ -233,13 +241,51 @@ The first change makes the track's cues yours: the list says **by you**, and you
 
 In the Deck theme the list sits in the strip beside the waveform once the track has cues, and scrolls when they do not fit.
 
-### Energy over time
+### The lanes under the waveform
 
-Under the waveform, across the same width, a row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of about 4 seconds, as tall as the rating. Breakdowns show as low bars and drops as a jump back to full height, right under the part of the waveform they belong to. Silent stretches have no bar. The playhead runs through the curve too, and the part already played is fainter. The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
+Under the waveform, each across the same width, run the lanes that say what the track does over time. They line up with the waveform, so what is under a part of it belongs to it, and the playhead runs through all of them. The part already played is fainter.
+
+![A waveform with two lanes under it. The Energy lane has a bar every 4 seconds, as tall as the rating, falling to 1 in a breakdown around 40 to 60 seconds and back to 10 at the drop. The Vocals lane is filled from 0:08 to 0:38 and from 1:04 to 1:44. Two labels show what pointing shows: Energy 1 at 0:48 and Vocals from 1:04 to 1:44.](../images/lanes/lanes.svg)
+
+**Energy.** A row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of the track, as tall as the rating, with the label **Energy** at its left. The core rates an 8 second window every 4 seconds, so each bar is one rating, and the tooltip on the label says "Energy over time, 1 to 10, rated every 4 seconds". Point anywhere on the row to read the rating under the pointer, for example "Energy 3 at 2:15". Breakdowns show as low bars and drops as a jump back to full height. Silent stretches have no bar and read "Silent". The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
+
+**Vocals.** A thinner row under the energy, labelled **Vocals**, is filled where there are vocals and empty where there are none. Point at a filled stretch to read where it starts and ends, for example "Vocals from 1:02 to 1:48", or at an empty one to read "No vocals from 1:48 to 2:30". It is drawn from the track's [separated stems](../concepts/stems.md), with no separate detector: the level of the vocals stem is measured in the same 8 second windows as the energy, so a vocal stretch starts and ends on the same 4 second steps as the energy bars.
+
+![The level of the vocals stem in each window of one separated track. Windows with vocals sit between about -16 and -31 dB below full scale and windows without between about -69 and -79 dB. A threshold line at -37 dB, 20 dB under the track's own vocal level, falls in the empty space between them.](../images/lanes/vocal-threshold.svg)
+
+A window counts as vocals when its level is within 20 dB of the level the loudest tenth of the track's windows reach, which is the track's own vocal level, and above -50 dB below full scale. Judging against the track's own level means a quietly mixed vocal and a loud one are both found, and the floor keeps the faint leak of other instruments into the stem of an instrumental from drawing as vocals. A window where vocals sound for only a second or two of its 8 seconds can fall under the line, so a stretch can start or end a step later than the first note. The levels are measured once, off the main thread, and kept in the folder of the track's stems, so the lane appears at once the next time. It is drawn for a track whose stems are separated, in this session or an earlier one.
+
+A track whose stems are not separated has the lane empty, with the quiet link **Separate the stems to see the vocals**. Pressing it separates the track, with the progress shown as for **Separate** in the track detail; the lane fills in when it finishes. Euphoria never starts a separation by itself. **Remove stems** empties the lane again. If the vocals stem cannot be read, the lane says "Vocals not available" and pointing at it shows why.
+
+The decks draw the same two lanes under each deck's waveform, and the link there separates the track on that deck. The [focus view](#focus-view) draws them over a zoomed window, with a Sections lane beside them.
 
 ### Key changes
 
-When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
+When a track changes key, a strip under the lanes shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
+
+## Focus view
+
+The focus view gives the selected track the whole window: its lanes on one time axis, the tracks it mixes into, and a place to plan the transition. It replaces the table and the inspector, and hides the sidebar while it is open.
+
+**Open it** with the **Focus** button at the top of the inspector, by double-clicking a row, or with **Enter** (the F key already stars a track, so it is not used). **Esc** or the **Library** button goes back to the library with the same track selected.
+
+The header shows the title, artist, length, format and sound quality, with chips for the key (code and name), the tempo, the energy and the source of the beat grid: **detected**, **rekordbox** or **you** when you set the tempo yourself. The app does not read a rekordbox collection yet, so it shows **rekordbox** only once it does; a track without a grid shows **none**.
+
+**The timeline** stacks these lanes, top to bottom:
+
+- **Overview**, the whole track as a small waveform, with the part the other lanes show outlined. Click or drag it to move that window.
+- **Sections**, coloured bands named Intro, Main, Breakdown, Drop and Outro. They come from the track's automatic cues (Start, Main, Breakdown, Drop and Outro), and follow a cue you drag. The lane reads them through one small interface, so a better section detector replaces only that.
+- **Detail**, a zoomed waveform of the outlined window, tinted by section, with the cue flags on top. Drag a flag to move its cue, as in the inspector: it lands on a beat, or on a bar with Shift. Double-click to add a cue, click to play from there. The **+** and **−** buttons zoom, Command and the wheel zoom about the pointer, and the wheel alone moves along the track. The waveform keeps 720 columns for a track, so the detail zooms in to a sixth of the track at most.
+- **Energy** and **Vocals**, the lanes described under [The lanes under the waveform](#the-lanes-under-the-waveform), over the same window.
+- **Stems**, four thin rows (vocals, drums, bass, other) showing where each stem sounds, measured second by second from the track's separated stems. A track without stems has the quiet link **Separate the stems**.
+
+Every lane shares one playhead and one cursor. Point anywhere over the lanes and a single vertical line runs through all of them, with a line under them such as "2:51 · Breakdown · Energy 3 · no vocals · bass out", built from the lanes that have data. The **Lanes** menu shows or hides each lane, and the choice is kept in `settings.json`.
+
+**Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row has a star, the title with the transition note or the artist, the key and how it relates, the tempo change and a verdict: **Smooth**, **Workable** or **Stretch** from the key and the tempo alone, or **Your mix** for a transition you starred whose keys do not mix by the rules. The Clash column is empty until the transition planner is built. Click a row to pick it for the plan, double-click to focus on it.
+
+**Plan**, bottom right, has three tabs. **Transition** shows a placeholder, "Transition planner coming next", with the pick. **Mashup** opens the decks in mashup mode. **Cues** is the cue list of the inspector.
+
+Not tested outside the headless window: the look on a real display, and the lanes on tracks over an hour long.
 
 ## Favorites
 
@@ -430,7 +476,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the lanes of the focus view you hid, the folders you opened in the tree, the folder on show, the column widths you chose, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |

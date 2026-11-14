@@ -5,12 +5,14 @@
 //! waveform, beat grid, cues, energy and transport, the mixer between them,
 //! and the tracks to play next under them.
 
+use std::rc::Rc;
+
 use euphoria_core::harmony::{EnergyDirection, Relation};
 use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
+    AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
     SharedString, Stateful, TestSupportExt, div, px, relative,
 };
 
@@ -20,13 +22,13 @@ use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
 use crate::player::fraction_along;
 use crate::theme::Palette;
-use crate::track_overview::EnergyCurve;
 use crate::views::favorites;
 use crate::views::key_chip::key_chip;
+use crate::views::mashup;
 use crate::views::tag_panel::choice_button;
+use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
-use crate::views::{mashup, track_overview};
 use crate::waveforms::Waveform;
 
 /// Height of a deck's waveform.
@@ -195,12 +197,26 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         Some(Waveform::Ready(columns, _)) => Some(columns.clone()),
         _ => None,
     };
-    let energy = match state {
-        Some(Waveform::Ready(_, Some(EnergyCurve::Steps(steps)))) if !steps.is_empty() => {
-            Some(track_overview::energy_curve(steps, progress, &palette))
-        }
-        _ => None,
-    };
+    let lanes = view.path.as_ref().map(|path| {
+        let separated_path = path.clone();
+        track_overview::overview_lanes(&LaneInputs {
+            energy: match state {
+                Some(Waveform::Ready(_, energy)) => energy.as_ref(),
+                _ => None,
+            },
+            vocals: app.vocal_lane_of(path),
+            stems: app.stems.status(path),
+            frame: LaneFrame::whole(
+                view.duration_seconds.unwrap_or(0.0) as f32,
+                progress,
+                decks.waveform_bounds[deck_number(deck)].clone(),
+            ),
+            palette,
+            on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.request_stems_of(separated_path.clone(), cx)
+            })),
+        })
+    });
 
     let title: SharedString = track
         .map(|track| track.title().to_string())
@@ -392,7 +408,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .gap(px(6.0))
         .child(header)
         .child(waveform_area)
-        .children(energy)
+        .children(lanes.into_iter().flatten().map(|lane| lane.element))
         .child(div().flex().flex_wrap().gap(px(4.0)).children(cues))
         .child(mashup::deck_controls(app, deck, cx))
         .children(view.problem.clone().map(|problem| {

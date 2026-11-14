@@ -339,10 +339,12 @@ mod tests {
     }
 
     fn fake_content(byte: u8) -> ContentHash {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let folder =
             std::env::temp_dir().join(format!("euphoria-favorites-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
-        let file = folder.join(format!("{byte}.bin"));
+        let file = folder.join(format!("{byte}-{number}.bin"));
         std::fs::write(&file, [byte]).unwrap();
         ContentHash::of_file(&file).unwrap()
     }
