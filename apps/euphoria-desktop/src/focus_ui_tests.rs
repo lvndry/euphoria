@@ -114,7 +114,7 @@ fn the_focus_view_shows_the_wheel_of_the_selected_tracks_key_in_every_theme(
             let wheel = window.find("camelot-wheel").bounds();
             assert!(focus.contains(&wheel.center()), "{theme:?}");
             assert_eq!(wheel.size.width, wheel.size.height, "{theme:?}");
-            assert!(wheel.size.width >= px(96.0), "{theme:?}");
+            assert!(wheel.size.width >= px(76.0), "{theme:?}");
         })
         .unwrap();
     }

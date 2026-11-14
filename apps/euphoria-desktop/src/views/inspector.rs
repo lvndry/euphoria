@@ -45,6 +45,9 @@ use crate::waveforms::Waveform;
 /// Space around the contents of the inspector.
 const PADDING: f32 = 16.0;
 
+/// Height of the line between the table and the strip.
+const STRIP_BORDER: f32 = 1.0;
+
 /// Height of the line above the waveform and above the mixes list, with the
 /// gap under it.
 const HEADING_HEIGHT: f32 = 26.0;
@@ -88,7 +91,7 @@ impl Room {
         match self {
             Room::Column => WHEEL_SIZE,
             Room::Strip { inner_height } => {
-                inner_height.clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE)
+                (inner_height - STRIP_BORDER).clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE)
             }
         }
     }
@@ -173,6 +176,19 @@ pub(crate) fn render(
         }
     };
 
+    let wheel_section = key_wheel(
+        track,
+        theme,
+        room,
+        &app.decks.filter.mix_options().relations,
+    )
+    .map(|section| sized(divided(section), Some(room.wheel_size())));
+    let (strip_wheel, column_wheel) = if is_column {
+        (None, wheel_section)
+    } else {
+        (wheel_section, None)
+    };
+
     container
         .child(sized(
             summary(track, &palette)
@@ -182,15 +198,7 @@ pub(crate) fn render(
             Some(220.0),
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
-        .children(
-            key_wheel(
-                track,
-                theme,
-                room,
-                &app.decks.filter.mix_options().relations,
-            )
-            .map(|section| sized(divided(section), Some(room.wheel_size()))),
-        )
+        .children(strip_wheel)
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
@@ -199,6 +207,7 @@ pub(crate) fn render(
             key_shift::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
         )
         .child(sized(waveform_section(track, app, room, cx), None))
+        .children(column_wheel)
         .children(
             cue_section(track, app, room, cx).map(|section| sized(divided(section), Some(280.0))),
         )

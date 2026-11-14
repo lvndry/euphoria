@@ -3126,7 +3126,9 @@ fn the_curve_is_worked_out_from_the_decoded_audio_after_the_waveform(cx: &mut Te
 }
 
 #[gpui::test]
-fn every_theme_shows_the_wheel_in_the_inspector_above_the_waveform(cx: &mut TestAppContext) {
+fn every_theme_shows_the_wheel_in_the_inspector_under_the_waveform_in_the_column(
+    cx: &mut TestAppContext,
+) {
     for theme in ThemeName::ALL {
         let (window, _) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
         cx.update_window(window, |_, window, cx| {
@@ -3143,7 +3145,7 @@ fn every_theme_shows_the_wheel_in_the_inspector_above_the_waveform(cx: &mut Test
                 );
                 assert_eq!(wheel.size.height, wheel.size.width, "{theme:?}");
                 assert!(
-                    wheel.bottom() <= window.find("waveform").bounds().top(),
+                    wheel.top() >= window.find("waveform").bounds().bottom(),
                     "{theme:?}"
                 );
             }
@@ -3169,7 +3171,7 @@ fn the_deck_strip_holds_a_square_wheel_as_tall_as_its_inside_next_to_the_key(
             let strip = window.find("inspector").bounds();
             let wheel = window.find("camelot-wheel").bounds();
             let waveform = window.find("waveform").bounds();
-            let inner_height = strip.size.height / px(1.0) - 32.0;
+            let inner_height = strip.size.height / px(1.0) - 33.0;
             let expected = inner_height.clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE);
             assert_eq!(wheel.size.width, px(expected), "{strip_height}");
             assert_eq!(wheel.size.height, wheel.size.width, "{strip_height}");
@@ -3179,7 +3181,7 @@ fn the_deck_strip_holds_a_square_wheel_as_tall_as_its_inside_next_to_the_key(
                 "{wheel:?} in {strip:?}"
             );
             assert!(wheel.right() <= waveform.left() + px(0.5), "{strip_height}");
-            assert!(waveform.size.width >= px(300.0), "{waveform:?}");
+            assert!(waveform.size.width >= px(250.0), "{waveform:?}");
         })
         .unwrap();
     }

@@ -144,7 +144,7 @@ A value you set wins everywhere: in the table and search, in **Mixes well with**
 
 Every theme shows the Camelot wheel for the selected track's key, in its own colours. The minor keys (A) are on the inner ring and the major keys (B) on the outer ring. The selected key is filled in the accent colour, and the keys that your key moves reach (by default the neighbours and the relative major or minor) are in a lighter tint, following the saved controls under [Narrow the suggestions](#narrow-the-suggestions). Rest the pointer on a key to see its Camelot code and its name.
 
-In the column themes the wheel sits under the key and tempo. In the Deck theme it is a square next to the key and tempo in the strip, as tall as the strip allows inside its padding, between 100 and 220 pixels, so it shrinks with the strip and is never hidden. The focus view shows a smaller wheel in its header. The wheel keeps Camelot codes whatever notation the table uses.
+In the column themes the wheel sits under the waveform and its lanes. In the Deck theme it is a square next to the key and tempo in the strip, as tall as the strip allows inside its padding, between 100 and 220 pixels, so it shrinks with the strip and is never hidden. The focus view shows a smaller wheel in its header. The wheel keeps Camelot codes whatever notation the table uses.
 
 ### Resize the inspector
 

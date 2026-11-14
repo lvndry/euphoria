@@ -356,7 +356,7 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
 }
 
 /// The side of the Camelot wheel in the header.
-const HEADER_WHEEL_SIZE: f32 = 104.0;
+const HEADER_WHEEL_SIZE: f32 = 76.0;
 
 /// The Camelot wheel of the track's key, with the keys the suggestion filter
 /// moves to tinted.
