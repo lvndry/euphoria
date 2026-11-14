@@ -381,11 +381,36 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             quiet_note(not_known_yet, palette).into_any_element(),
         ),
     };
-    let (energy, energy_note) = match track.energy() {
-        Some(rating) => (rating.to_string(), "of 10"),
-        None if track.analysis().is_some() => ("\u{2013}".to_string(), "not rated"),
-        None => ("\u{2013}".to_string(), not_known_yet),
+    let (energy, energy_note) = match (track.energy(), correction.energy) {
+        (Some(rating), Some(_)) => (
+            rating.to_string(),
+            reset_note(
+                "energy-reset",
+                match track.detected_energy() {
+                    Some(detected) => format!("reset to {detected}"),
+                    None => "reset".to_string(),
+                },
+                palette,
+                cx,
+                |this, cx| this.reset_energy(cx),
+            ),
+        ),
+        (Some(rating), None) => (
+            rating.to_string(),
+            quiet_note("of 10", palette).into_any_element(),
+        ),
+        (None, _) if track.analysis().is_some() => (
+            "\u{2013}".to_string(),
+            quiet_note("not rated", palette).into_any_element(),
+        ),
+        (None, _) => (
+            "\u{2013}".to_string(),
+            quiet_note(not_known_yet, palette).into_any_element(),
+        ),
     };
+    let energy_trust = correction
+        .energy
+        .map(|_| set_by_you("energy-set-by-you", "energy", palette));
 
     let key_trust = match (correction.key, key_confidence) {
         (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
@@ -433,9 +458,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 .child(
                     statistic(
                         "Energy",
-                        None,
+                        energy_trust,
                         statistic_value(energy),
-                        quiet_note(energy_note, palette).into_any_element(),
+                        energy_note,
                         palette,
                     )
                     .border_l_1()
