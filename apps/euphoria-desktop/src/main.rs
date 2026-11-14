@@ -29,6 +29,8 @@ mod key_by_ear;
 mod key_shift;
 mod library;
 mod library_export;
+#[cfg(test)]
+mod library_export_ui_tests;
 mod mashup;
 mod mixes;
 mod panels;
