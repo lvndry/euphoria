@@ -495,11 +495,7 @@ const MODE_WORDS: [&str; 4] = ["min", "minor", "maj", "major"];
 
 fn is_note_name(token: &str) -> bool {
     let mut characters = token.chars();
-    matches!(characters.next(), Some('a'..='g'))
-        && match characters.as_str() {
-            "" | "#" | "b" => true,
-            _ => false,
-        }
+    matches!(characters.next(), Some('a'..='g')) && matches!(characters.as_str(), "" | "#" | "b")
 }
 
 fn key_from_token(token: &str) -> Option<Key> {
