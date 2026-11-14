@@ -2818,7 +2818,11 @@ fn a_track_without_stems_has_an_empty_vocals_lane_that_offers_to_separate_them(
         assert_eq!(app.stems.status(&path), None, "nothing starts by itself");
     });
 
-    click(window, "vocals-separate", cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("vocals-separate", cx);
+    })
+    .unwrap();
     cx.update(|cx| {
         let app = view.read(cx);
         let path = app.selected_track().unwrap().path.clone();
@@ -2830,6 +2834,47 @@ fn a_track_without_stems_has_an_empty_vocals_lane_that_offers_to_separate_them(
     assert!(!is_shown(window, "vocals-separate", cx));
     assert!(is_shown(window, "vocals-separating", cx));
     assert!(is_shown(window, "vocals-lane", cx));
+}
+
+fn write_stems_with_vocals_for(
+    folder: &ScratchFolder,
+    seconds: usize,
+    sounding_seconds: usize,
+) -> euphoria_core::stems::StemFiles {
+    let rate = euphoria_core::stems::STEMS_SAMPLE_RATE as usize;
+    let files = euphoria_core::stems::StemFiles::in_directory(folder.0.join("stems"));
+    std::fs::create_dir_all(files.directory()).unwrap();
+    for stem in euphoria_core::stems::Stem::ALL {
+        let frames = seconds * rate;
+        let data_bytes = frames * 4;
+        let mut bytes = Vec::with_capacity(44 + data_bytes);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_bytes as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&2_u16.to_le_bytes());
+        bytes.extend_from_slice(&(rate as u32).to_le_bytes());
+        bytes.extend_from_slice(&(rate as u32 * 4).to_le_bytes());
+        bytes.extend_from_slice(&4_u16.to_le_bytes());
+        bytes.extend_from_slice(&16_u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(data_bytes as u32).to_le_bytes());
+        for frame in 0..frames {
+            let sounds =
+                stem == euphoria_core::stems::Stem::Vocals && frame < sounding_seconds * rate;
+            let sample = if sounds {
+                let time = frame as f32 / rate as f32;
+                ((std::f32::consts::TAU * 220.0 * time).sin() * 9_000.0) as i16
+            } else {
+                0
+            };
+            bytes.extend_from_slice(&sample.to_le_bytes());
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(files.path(stem), bytes).unwrap();
+    }
+    files
 }
 
 #[gpui::test]
@@ -2851,10 +2896,11 @@ fn the_lane_fills_in_once_the_stems_exist(cx: &mut TestAppContext) {
     assert!(is_shown(window, "vocals-separate", cx));
     assert!(!is_shown(window, ("vocal-stretch", 0_usize), cx));
 
-    separate_selected_track(&view, &folder, cx);
+    let files = write_stems_with_vocals_for(&folder, 16, 6);
     cx.update(|cx| {
         view.update(cx, |app, cx| {
             let path = app.selected_track().unwrap().path.clone();
+            app.stems.mark_ready(&path, files.clone());
             app.load_vocal_lane(path, cx);
         })
     });
@@ -2931,16 +2977,17 @@ fn the_decks_draw_the_energy_strip_and_the_vocals_lane_under_each_waveform(
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         window.render_frame(cx);
-        let deck = window.find(deck_part("deck", DeckId::A)).bounds();
-        let waveform = window.find(deck_part("deck-waveform", DeckId::A)).bounds();
-        let energy = window.find("energy-curve").bounds();
-        let vocals = window.find("vocals-lane").bounds();
-        assert!(window.try_find("energy-label").is_some());
-        assert!(window.try_find("vocals-label").is_some());
+        let deck_bounds = window.find(deck_part("deck", DeckId::A)).bounds();
+        let mut deck = window.within(deck_part("deck", DeckId::A));
+        let waveform = deck.find(deck_part("deck-waveform", DeckId::A)).bounds();
+        let energy = deck.find("energy-curve").bounds();
+        let vocals = deck.find("vocals-lane").bounds();
+        assert!(deck.try_find("energy-label").is_some());
+        assert!(deck.try_find("vocals-label").is_some());
         assert!(energy.top() >= waveform.bottom());
         assert!(vocals.top() >= energy.bottom());
         assert_eq!(vocals.left(), waveform.left());
-        assert!(vocals.bottom() <= deck.bottom());
+        assert!(vocals.bottom() <= deck_bounds.bottom());
     })
     .unwrap();
 }

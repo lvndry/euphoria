@@ -11,7 +11,7 @@ A stem is one part of a mix: the vocals, the drums, the bass, or everything else
 euphoria stems track.mp3 --output stems
 ```
 
-This writes `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav` into `stems/`. In the desktop app, the track detail has a button that separates the selected track, and the player switches between the full track, the acapella and the instrumental. The [command reference](../reference/cli.md#euphoria-stems) lists the options.
+This writes `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav` into `stems/`. In the desktop app, the track detail has a button that separates the selected track, and the player switches between the full track, the acapella and the instrumental, and a lane under the waveform shows [where the vocals are](../guides/desktop-app.md#the-lanes-under-the-waveform). The [command reference](../reference/cli.md#euphoria-stems) lists the options.
 
 ## How it works
 

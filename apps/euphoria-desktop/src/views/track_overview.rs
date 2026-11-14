@@ -11,8 +11,8 @@ use std::rc::Rc;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, ClickEvent, Div, FontWeight, SharedString, Stateful, TestSupportExt, Window,
-    div, px, relative,
+    AnyElement, App, ClickEvent, Div, FontWeight, SharedString, TestSupportExt, Window, div, px,
+    relative,
 };
 
 use crate::camelot::CamelotPosition;
@@ -90,7 +90,7 @@ fn lane_label(
     text: &'static str,
     explanation: &'static str,
     palette: &Palette,
-) -> Stateful<Div> {
+) -> AnyElement {
     div()
         .id(id)
         .flex_shrink_0()
@@ -98,9 +98,12 @@ fn lane_label(
         .rounded(px(2.0))
         .bg(palette.panel.opacity(0.7))
         .text_size(px(LANE_LABEL_SIZE))
+        .line_height(px(LANE_LABEL_SIZE + 2.0))
         .text_color(palette.text_tertiary)
         .child(text)
         .tooltip(move |window, cx| Tooltip::new(explanation).build(window, cx))
+        .test_support()
+        .into_any_element()
 }
 
 const LANE_LABEL_SIZE: f32 = 9.0;
@@ -256,6 +259,7 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
                 div()
                     .id("vocals-separating")
                     .child("Separating the stems")
+                    .test_support()
                     .into_any_element()
             } else {
                 let on_separate = Rc::clone(&inputs.on_separate);

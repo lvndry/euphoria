@@ -233,13 +233,27 @@ The first change makes the track's cues yours: the list says **by you**, and you
 
 In the Deck theme the list sits in the strip beside the waveform once the track has cues, and scrolls when they do not fit.
 
-### Energy over time
+### The lanes under the waveform
 
-Under the waveform, across the same width, a row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of about 4 seconds, as tall as the rating. Breakdowns show as low bars and drops as a jump back to full height, right under the part of the waveform they belong to. Silent stretches have no bar. The playhead runs through the curve too, and the part already played is fainter. The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
+Under the waveform, each across the same width, run the lanes that say what the track does over time. They line up with the waveform, so what is under a part of it belongs to it, and the playhead runs through all of them. The part already played is fainter.
+
+![A waveform with two lanes under it. The Energy lane has a bar every 4 seconds, as tall as the rating, falling to 1 in a breakdown around 40 to 60 seconds and back to 10 at the drop. The Vocals lane is filled from 0:08 to 0:38 and from 1:04 to 1:44. Two labels show what pointing shows: Energy 1 at 0:48 and Vocals from 1:04 to 1:44.](../images/lanes/lanes.svg)
+
+**Energy.** A row of bars shows the [energy curve](../concepts/energy.md#energy-curve): the energy rating from 1 to 10 of each stretch of the track, as tall as the rating, with the label **Energy** at its left. The core rates an 8 second window every 4 seconds, so each bar is one rating, and the tooltip on the label says "Energy over time, 1 to 10, rated every 4 seconds". Point anywhere on the row to read the rating under the pointer, for example "Energy 3 at 2:15". Breakdowns show as low bars and drops as a jump back to full height. Silent stretches have no bar and read "Silent". The curve is worked out from the same decoded audio as the waveform, so it appears a moment after it. When it cannot be worked out, the row says "Energy over time not available", and pointing at it shows why.
+
+**Vocals.** A thinner row under the energy, labelled **Vocals**, is filled where there are vocals and empty where there are none. Point at a filled stretch to read where it starts and ends, for example "Vocals from 1:02 to 1:48", or at an empty one to read "No vocals from 1:48 to 2:30". It is drawn from the track's [separated stems](../concepts/stems.md), with no separate detector: the level of the vocals stem is measured in the same 8 second windows as the energy, so a vocal stretch starts and ends on the same 4 second steps as the energy bars.
+
+![The level of the vocals stem in each window of one separated track. Windows with vocals sit between about -16 and -31 dB below full scale and windows without between about -69 and -79 dB. A threshold line at -37 dB, 20 dB under the track's own vocal level, falls in the empty space between them.](../images/lanes/vocal-threshold.svg)
+
+A window counts as vocals when its level is within 20 dB of the level the loudest tenth of the track's windows reach, which is the track's own vocal level, and above -50 dB below full scale. Judging against the track's own level means a quietly mixed vocal and a loud one are both found, and the floor keeps the faint leak of other instruments into the stem of an instrumental from drawing as vocals. A window where vocals sound for only a second or two of its 8 seconds can fall under the line, so a stretch can start or end a step later than the first note. The levels are measured once, off the main thread, and kept in the folder of the track's stems, so the lane appears at once the next time. It is drawn for a track whose stems are separated, in this session or an earlier one.
+
+A track whose stems are not separated has the lane empty, with the quiet link **Separate the stems to see the vocals**. Pressing it separates the track, with the progress shown as for **Separate** in the track detail; the lane fills in when it finishes. Euphoria never starts a separation by itself. **Remove stems** empties the lane again. If the vocals stem cannot be read, the lane says "Vocals not available" and pointing at it shows why.
+
+The decks draw the same two lanes under each deck's waveform, and the link there separates the track on that deck. Lanes for the sections of a track, such as intro, breakdown, drop and outro, will join them in the same place.
 
 ### Key changes
 
-When a track changes key, a strip under the energy curve shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
+When a track changes key, a strip under the lanes shows each stretch in its key's colour with its Camelot code, aligned with the waveform. Point at a stretch to read its key and where it starts and ends. Silences between stretches stay empty. A track that stays in one key shows no strip, since its key is in the box above. For now the strip is also left out when the track's key is none of its stretches or a stretch is shorter than 30 seconds, because such a timeline can contradict the key above it. The strip is the detector's view, so it is also hidden while you have [corrected the key](#check-the-key-by-ear-and-correct-it), and comes back when you reset it.
 
 ## Favorites
 
