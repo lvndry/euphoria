@@ -386,6 +386,11 @@ jobs:
     name: Publish to Homebrew
     needs: [prepare, publish]
     if: needs.publish.result == 'success'
+    # A called workflow gets at most the permissions its caller grants, and
+    # this file grants none by default, so without this GitHub refuses to
+    # start the release at all.
+    permissions:
+      contents: read
     uses: ./.github/workflows/publish-homebrew.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
