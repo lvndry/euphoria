@@ -190,7 +190,9 @@ The tempo field beside it takes the tempo of the metronome, from 30 to 300 beats
 
 - Click the field and type a value, then press Return. "127,5" and "127.5" both work.
 - Scroll over the field to move it by one beat a notch, or by a tenth with Alt held.
-- The field starts at 120. Until you type or scroll to a value, it takes the tempo shown for the selected track, so the usual case needs no typing. Once you type a value, it stays until you change it, whichever track you select.
+- Click the small up or down arrow at the right edge of the field to move it by 1 BPM, or by 0.1 with Alt held. A value with decimals keeps them (127.5 becomes 128.5). The arrow that would pass 30 or 300 is dimmed. Holding a button down does not repeat; click again.
+- While the field is open for typing, the Up and Down keys do the same (Alt for 0.1) and the field stays open. When the field is not open, Up and Down still move through the track table.
+- The field starts at 120. Until you type, scroll or step to a value, it takes the tempo shown for the selected track, so the usual case needs no typing. Once you set a value, it stays until you change it, whichever track you select.
 - A new tempo is used from the next beat, without restarting the bar.
 
 Under **Settings > Metronome** you choose the sound (Classic click, Woodblock, Hi-hat or Beep, with a click played when you choose one), the volume in five steps, and whether the first beat of every bar is accented. They are kept in `settings.json`.

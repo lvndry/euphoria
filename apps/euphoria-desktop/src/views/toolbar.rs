@@ -11,8 +11,8 @@ use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName, InteractiveElementExt};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, Div, FontWeight, MouseButton, PathBuilder, Pixels, ScrollEvent,
-    Stateful, TestSupportExt, canvas, div, point, px, relative,
+    AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, KeyDownEvent, MouseButton,
+    PathBuilder, Pixels, ScrollEvent, Stateful, TestSupportExt, canvas, div, point, px, relative,
 };
 
 use crate::actions;
@@ -171,7 +171,10 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
 const METRONOME_GLYPH_SIZE: f32 = 14.0;
 
 /// Width of the tempo field, room for "300.0 BPM".
-const METRONOME_FIELD_WIDTH: f32 = 84.0;
+const METRONOME_FIELD_WIDTH: f32 = 94.0;
+
+/// Width of the column of arrows at the field's right edge.
+const METRONOME_STEPPER_WIDTH: f32 = 14.0;
 
 /// The metronome: a toggle button that starts and stops the clicks, and
 /// the tempo beside it. The tempo is typed after a click on it or moved
@@ -225,11 +228,21 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             .relative()
             .w(px(METRONOME_FIELD_WIDTH))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let is_down = match event.keystroke.key.as_str() {
+                    "up" => false,
+                    "down" => true,
+                    _ => return,
+                };
+                cx.stop_propagation();
+                this.step_metronome_bpm(is_down, event.keystroke.modifiers.alt, window, cx);
+            }))
             .child(Input::new(&app.metronome_input).id("metronome-field"))
+            .child(stepper(app, palette, cx))
             .child(
                 div()
                     .absolute()
-                    .right(px(8.0))
+                    .right(px(METRONOME_STEPPER_WIDTH + 4.0))
                     .top_0()
                     .bottom_0()
                     .flex()
@@ -247,6 +260,8 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             .items_center()
             .justify_center()
             .gap(px(4.0))
+            .relative()
+            .pr(px(METRONOME_STEPPER_WIDTH))
             .w(px(METRONOME_FIELD_WIDTH))
             .h(CONTROL_HEIGHT)
             .rounded(CONTROL_RADIUS)
@@ -270,6 +285,7 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             .tooltip(|window, cx| Tooltip::new(TEMPO_RULE).build(window, cx))
             .child(crate::format::bpm(bpm))
             .child(div().text_color(palette.text_tertiary).child("BPM"))
+            .child(stepper(app, palette, cx))
             .test_support()
             .into_any_element()
     };
@@ -280,6 +296,71 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
         .gap(px(4.0))
         .child(button)
         .child(field)
+}
+
+/// The up and down arrows at the right edge of the tempo field. Each steps
+/// the tempo by a beat, or a tenth with Alt held, and dims at its limit.
+fn stepper(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let arrow = |is_down: bool, cx: &mut Context<'_, EuphoriaApp>| {
+        let can_step = app.can_step_metronome_bpm(is_down);
+        let hover_background = palette.selection;
+        let hover_colour = palette.text;
+        div()
+            .id(if is_down {
+                "metronome-down"
+            } else {
+                "metronome-up"
+            })
+            .flex()
+            .flex_1()
+            .items_center()
+            .justify_center()
+            .w_full()
+            .text_color(if can_step {
+                palette.text_secondary
+            } else {
+                palette.text_tertiary.opacity(0.4)
+            })
+            .when(can_step, |arrow| {
+                arrow
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(hover_background).text_color(hover_colour))
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                if this.can_step_metronome_bpm(is_down) {
+                    this.step_metronome_bpm(is_down, event.modifiers().alt, window, cx);
+                }
+            }))
+            .tooltip(move |window, cx| {
+                Tooltip::new(if is_down {
+                    "Down 1 BPM (Alt: 0.1)"
+                } else {
+                    "Up 1 BPM (Alt: 0.1)"
+                })
+                .build(window, cx)
+            })
+            .child(
+                Icon::new(if is_down {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronUp
+                })
+                .size(px(10.0)),
+            )
+            .test_support()
+    };
+    div()
+        .absolute()
+        .right(px(1.0))
+        .top(px(1.0))
+        .bottom(px(1.0))
+        .w(px(METRONOME_STEPPER_WIDTH))
+        .flex()
+        .flex_col()
+        .child(arrow(false, cx))
+        .child(arrow(true, cx))
 }
 
 /// A metronome: a trapezoid body on a base, with a slanted arm that rises

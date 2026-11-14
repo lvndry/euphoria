@@ -5,7 +5,7 @@
 //! the real root view in a headless window.
 
 use gpui::test::TestWindowExt;
-use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext};
+use gpui::{AnyWindowHandle, AppContext, Entity, Modifiers, TestAppContext};
 
 use crate::app::EuphoriaApp;
 use crate::demo;
@@ -72,6 +72,108 @@ fn the_tempo_follows_the_selected_track_until_one_is_typed(cx: &mut TestAppConte
 
     type_tempo(window, "98.3", cx);
     assert_eq!(tempo(&view, cx), 98.3);
+}
+
+fn alt_click(window: AnyWindowHandle, id: &'static str, cx: &mut TestAppContext) {
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click_with_modifiers(id, Modifiers::alt(), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+fn press(window: AnyWindowHandle, key: &str, cx: &mut TestAppContext) {
+    cx.update_window(window, |_, window, cx| window.press(key, cx))
+        .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_arrows_step_the_tempo_by_one_and_keep_the_decimals(cx: &mut TestAppContext) {
+    let (window, view, _) = open_listening(cx);
+    type_tempo(window, "127.5", cx);
+    click(window, "metronome-up", cx);
+    assert_eq!(tempo(&view, cx), 128.5);
+    click(window, "metronome-down", cx);
+    click(window, "metronome-down", cx);
+    assert_eq!(tempo(&view, cx), 126.5);
+}
+
+#[gpui::test]
+fn alt_steps_the_tempo_by_a_tenth(cx: &mut TestAppContext) {
+    let (window, view, _) = open_listening(cx);
+    type_tempo(window, "127.5", cx);
+    alt_click(window, "metronome-up", cx);
+    assert_eq!(tempo(&view, cx), 127.6);
+    alt_click(window, "metronome-down", cx);
+    alt_click(window, "metronome-down", cx);
+    assert_eq!(tempo(&view, cx), 127.4);
+}
+
+#[gpui::test]
+fn the_arrows_stop_at_30_and_300(cx: &mut TestAppContext) {
+    let (window, view, _) = open_listening(cx);
+    type_tempo(window, "299.5", cx);
+    click(window, "metronome-up", cx);
+    assert_eq!(tempo(&view, cx), 300.0);
+    click(window, "metronome-up", cx);
+    assert_eq!(tempo(&view, cx), 300.0);
+    cx.update(|cx| assert!(!view.read(cx).can_step_metronome_bpm(false)));
+
+    type_tempo(window, "30.2", cx);
+    alt_click(window, "metronome-down", cx);
+    alt_click(window, "metronome-down", cx);
+    assert_eq!(tempo(&view, cx), 30.0);
+    click(window, "metronome-down", cx);
+    assert_eq!(tempo(&view, cx), 30.0);
+    cx.update(|cx| assert!(!view.read(cx).can_step_metronome_bpm(true)));
+}
+
+#[gpui::test]
+fn up_and_down_step_the_tempo_while_it_is_being_edited(cx: &mut TestAppContext) {
+    let (window, view, _) = open_listening(cx);
+    click(window, "metronome-toggle", cx);
+    click(window, "metronome-bpm", cx);
+    retype(window, "metronome-field", "140.5", cx);
+    press(window, "up", cx);
+    assert_eq!(tempo(&view, cx), 141.5);
+    press(window, "down", cx);
+    press(window, "down", cx);
+    assert_eq!(tempo(&view, cx), 139.5);
+    press(window, "alt-up", cx);
+    assert_eq!(tempo(&view, cx), 139.6);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.metronome.is_editing, "the field stays open");
+        assert_eq!(app.metronome_input.read(cx).value().to_string(), "139.6");
+        assert_eq!(app.metronome.control.bpm(), 139.6);
+    });
+}
+
+#[gpui::test]
+fn stepping_stops_following_the_selected_track(cx: &mut TestAppContext) {
+    let (window, view, _) = open_listening(cx);
+    click(window, track(0), cx);
+    let followed = tempo(&view, cx);
+    click(window, "metronome-up", cx);
+    let stepped = tempo(&view, cx);
+    assert_eq!(stepped, crate::metronome::clamp_bpm(followed + 1.0));
+    cx.update(|cx| assert_eq!(view.read(cx).metronome.typed_bpm, Some(stepped)));
+    click(window, track(3), cx);
+    assert_eq!(tempo(&view, cx), stepped);
+}
+
+#[gpui::test]
+fn up_and_down_still_move_the_selection_when_the_field_is_not_focused(cx: &mut TestAppContext) {
+    let (window, view, _) = open_listening(cx);
+    type_tempo(window, "120", cx);
+    click(window, track(5), cx);
+    press(window, "down", cx);
+    press(window, "down", cx);
+    press(window, "up", cx);
+    cx.update(|cx| assert_eq!(view.read(cx).selected, Some(6)));
+    assert_eq!(tempo(&view, cx), 120.0);
 }
 
 #[gpui::test]
