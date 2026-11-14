@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="374" viewBox="0 0 800 374" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">How abruptly the content stops</title>
+<desc id="chart-desc">Bar chart of the fall in level across 250 Hz at the cutoff, for noise through a lowpass that falls 80 dB. Zeroed above 16 kHz, 69.9 dB. Falling over 600 Hz, 44.6 dB, over 1 kHz 30.0 dB and over 1.5 kHz 20.2 dB: all above the 15 dB line and so a brick wall. Falling over 4 to 6 kHz, as tape or vinyl does, 5.7 to 8.0 dB: all below it, so a limited bandwidth.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #52514e; stroke-width: 2; fill: none; stroke-linecap: round; }
+.zone { fill: #898781; fill-opacity: 0.12; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
+.series-1-line { stroke: #2a78d6; }
+.series-2-line { stroke: #eb6834; }
+.series-3-line { stroke: #1baf7a; }
+.line { stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .reference { stroke: #c3c2b7; }
+  .zone { fill-opacity: 0.18; }
+  .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
+  .series-1-line { stroke: #3987e5; }
+  .series-2-line { stroke: #d95926; }
+  .series-3-line { stroke: #199e70; }
+  .ring { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="373" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">How abruptly the content stops</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Fall in level across 250 Hz at the cutoff, for noise through a lowpass that falls 80 dB.</text>
+<rect x="24" y="81" width="14" height="10" rx="3" class="series-2-fill"/>
+<text x="44" y="90" class="label" text-anchor="start">Brick wall, likely re-encoded</text>
+<rect x="236" y="81" width="14" height="10" rx="3" class="series-1-fill"/>
+<text x="256" y="90" class="label" text-anchor="start">Gradual, limited bandwidth</text>
+<line x1="240" y1="112" x2="240" y2="314" class="grid"/>
+<text x="240" y="334" class="tick" text-anchor="middle">0 dB</text>
+<line x1="355" y1="112" x2="355" y2="314" class="grid"/>
+<text x="355" y="334" class="tick" text-anchor="middle">20 dB</text>
+<line x1="470" y1="112" x2="470" y2="314" class="grid"/>
+<text x="470" y="334" class="tick" text-anchor="middle">40 dB</text>
+<line x1="585" y1="112" x2="585" y2="314" class="grid"/>
+<text x="585" y="334" class="tick" text-anchor="middle">60 dB</text>
+<line x1="700" y1="112" x2="700" y2="314" class="grid"/>
+<text x="700" y="334" class="tick" text-anchor="middle">80 dB</text>
+<text x="470" y="358" class="label" text-anchor="middle">Fall across 250 Hz at the steepest point</text>
+<text x="226" y="136.5" class="label" text-anchor="end">Zeroed above 16 kHz</text>
+<rect x="240" y="125" width="401.92" height="14" rx="4" class="series-2-fill"/>
+<text x="651.92" y="136.5" class="tick" text-anchor="start">69.9 dB</text>
+<text x="226" y="164.5" class="label" text-anchor="end">Falls over 600 Hz</text>
+<rect x="240" y="153" width="256.45" height="14" rx="4" class="series-2-fill"/>
+<text x="506.45" y="164.5" class="tick" text-anchor="start">44.6 dB</text>
+<text x="226" y="192.5" class="label" text-anchor="end">Falls over 1 kHz</text>
+<rect x="240" y="181" width="172.5" height="14" rx="4" class="series-2-fill"/>
+<text x="422.5" y="192.5" class="tick" text-anchor="start">30.0 dB</text>
+<text x="226" y="220.5" class="label" text-anchor="end">Falls over 1.5 kHz</text>
+<rect x="240" y="209" width="116.15" height="14" rx="4" class="series-2-fill"/>
+<text x="366.15" y="220.5" class="tick" text-anchor="start">20.2 dB</text>
+<text x="226" y="248.5" class="label" text-anchor="end">Falls over 4 kHz, from 12 kHz</text>
+<rect x="240" y="237" width="46" height="14" rx="4" class="series-1-fill"/>
+<text x="296" y="248.5" class="tick" text-anchor="start">8.0 dB</text>
+<text x="226" y="276.5" class="label" text-anchor="end">Falls over 5 kHz, from 10 kHz</text>
+<rect x="240" y="265" width="36.23" height="14" rx="4" class="series-1-fill"/>
+<text x="286.23" y="276.5" class="tick" text-anchor="start">6.3 dB</text>
+<text x="226" y="304.5" class="label" text-anchor="end">Falls over 6 kHz, from 13 kHz</text>
+<rect x="240" y="293" width="32.77" height="14" rx="4" class="series-1-fill"/>
+<text x="282.77" y="304.5" class="tick" text-anchor="start">5.7 dB</text>
+<line x1="326.25" y1="112" x2="326.25" y2="314" class="reference"/>
+<text x="332.25" y="106" class="value" text-anchor="start">Brick wall from 15 dB</text>
+</svg>

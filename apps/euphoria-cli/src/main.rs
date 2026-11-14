@@ -189,6 +189,9 @@ struct AnalyzeArguments {
 enum QualityChoice {
     /// Lossless files with a full spectrum.
     Lossless,
+    /// Lossless files whose content stops below 19 kHz with a gradual roll-off.
+    #[value(alias = "limited-bandwidth")]
+    Limited,
     /// High bit rate files with the spectrum that bit rate keeps.
     Good,
     /// Medium bit rate files, fine in most rooms.
@@ -205,6 +208,7 @@ impl QualityChoice {
     fn verdict(self) -> QualityVerdict {
         match self {
             QualityChoice::Lossless => QualityVerdict::Lossless,
+            QualityChoice::Limited => QualityVerdict::LimitedBandwidth,
             QualityChoice::Good => QualityVerdict::Good,
             QualityChoice::Acceptable => QualityVerdict::Acceptable,
             QualityChoice::Weak => QualityVerdict::WeakOnABigSystem,
@@ -580,6 +584,7 @@ mod tests {
             .collect();
         for verdict in [
             QualityVerdict::Lossless,
+            QualityVerdict::LimitedBandwidth,
             QualityVerdict::Good,
             QualityVerdict::Acceptable,
             QualityVerdict::WeakOnABigSystem,

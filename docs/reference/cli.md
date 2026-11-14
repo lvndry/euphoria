@@ -54,7 +54,7 @@ The Tags column compares the key already written in each file's tags with the de
 
 Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
-Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use in a word: `lossless`, `good`, `acceptable`, `weak` (weak on a big system) or `re-encoded?` (likely made from a lower quality file). The detailed view gives the reason.
+Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use in a word: `lossless`, `limited bw` (a lossless file whose content stops below 19 kHz with a gradual roll-off: information, not a defect), `good`, `acceptable`, `weak` (weak on a big system) or `re-encoded?` (likely made from a lower quality file). The detailed view gives the reason.
 
 The folder that holds every file is left out of the File column, so a folder shows its file names and the subfolders below it. A name too long for the window is shortened in the middle, keeping its end and extension.
 
@@ -114,7 +114,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--json` | Print a JSON array instead of a table. |
 | `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
 | `--needs-review` | List only the tracks whose key or tempo is rated low confidence or whose tags name another key, and the files that could not be analyzed. |
-| `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
+| `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `limited`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
 | `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table and JSON are unchanged. |
 | `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
 | `--tempo-range <SLOWEST-FASTEST>` | Report tempos from SLOWEST up to, not including, FASTEST beats per minute, such as `70-140` for hip hop or `120-200` for drum and bass. The default is `90-180`. FASTEST can be at most twice SLOWEST. See [choosing the range](../concepts/accuracy.md#choosing-the-range). |
@@ -239,7 +239,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 | `clipped_share` | The share of samples in runs of three or more at full scale, from 0 to 1. |
 | `integrated_loudness_lufs` | Integrated loudness, as EBU R128 describes, on the mono mixdown. `null` for silence. |
 | `true_peak_dbtp` | The highest true peak in any channel, in dB relative to full scale. |
-| `verdict` | `lossless`, `good`, `acceptable`, `weak-on-a-big-system` or `likely-reencoded`. |
+| `verdict` | `lossless`, `limited-bandwidth`, `good`, `acceptable`, `weak-on-a-big-system` or `likely-reencoded`. `limited-bandwidth` is new: a lossless file whose content stops below 19 kHz with a gradual roll-off, which earlier versions reported as `likely-reencoded`. A script that counts `likely-reencoded` among lossless files now sees fewer; no other field or value changed. |
 | `reason` | One or two sentences that explain the verdict. |
 
 ### Progress and exit status

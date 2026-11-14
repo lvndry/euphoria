@@ -873,7 +873,8 @@ fn quality_rank(verdict: QualityVerdict) -> u8 {
         QualityVerdict::WeakOnABigSystem => 1,
         QualityVerdict::Acceptable => 2,
         QualityVerdict::Good => 3,
-        QualityVerdict::Lossless => 4,
+        QualityVerdict::LimitedBandwidth => 4,
+        QualityVerdict::Lossless => 5,
     }
 }
 
@@ -1515,6 +1516,24 @@ mod tests {
             &reversed[..3],
             ["saffron.mp3", "Low Tide.aiff", "Glasshouse.flac"]
         );
+    }
+
+    #[test]
+    fn a_limited_bandwidth_is_information_and_not_a_reason_to_check() {
+        let mut library = sample_library();
+        library.record_outcome(
+            Path::new("/music/house/saffron.mp3"),
+            Ok(with_quality(QualityVerdict::LimitedBandwidth)),
+        );
+        library.record_outcome(
+            Path::new("/music/house/Low Tide.aiff"),
+            Ok(with_quality(QualityVerdict::Lossless)),
+        );
+        assert_eq!(library.counts().quality_to_check, 0);
+        let by_quality = visible(&library, "", ascending(SortColumn::Quality));
+        let limited = by_quality.iter().position(|name| name == "saffron.mp3");
+        let lossless = by_quality.iter().position(|name| name == "Low Tide.aiff");
+        assert!(limited < lossless);
     }
 
     #[test]
