@@ -18,7 +18,7 @@ use symphonia::core::codecs::audio::well_known::{
 };
 use symphonia::core::codecs::audio::{AudioCodecId, AudioCodecParameters};
 
-use crate::audio::{AudioBuffer, DecodeObserver, decode_mono_observed};
+use crate::audio::{AudioBuffer, DecodeDamage, DecodeHealth, DecodeObserver, decode_mono_observed};
 use crate::energy::measure_loudness;
 use crate::error::EuphoriaError;
 pub use cutoff::Cutoff;
@@ -136,9 +136,56 @@ pub struct QualityReport {
     pub true_peak_dbtp: Option<f32>,
     /// The verdict for DJ use.
     pub verdict: QualityVerdict,
+    /// Packets that could not be decoded and audio missing against the length
+    /// the file declares. See [`QualityReport::is_damaged`].
+    #[serde(default)]
+    pub damage: DecodeDamage,
+    /// The share of a stereo file, from 0 to 1, whose channels cancelled in
+    /// the mono mixdown, as when one is the other with its phase inverted.
+    /// The left channel stands in for that part of the audio.
+    #[serde(default)]
+    pub cancelled_share: f32,
 }
 
+/// A stereo file is noted for cancelling channels from this share of its
+/// length, which is more than a short out of phase stretch or an odd block of bass.
+pub const NOTICEABLE_CANCELLED_SHARE: f32 = 0.05;
+
 impl QualityReport {
+    /// True when the file is damaged: packets could not be decoded, or the
+    /// audio is shorter than the file declares, as when it was truncated.
+    pub fn is_damaged(&self) -> bool {
+        self.damage.is_damaged()
+    }
+
+    /// True when so much of the file is lost that its beat grid and cues are
+    /// not written. See [`SEVERE_LOST_SHARE`](crate::SEVERE_LOST_SHARE).
+    pub fn is_heavily_damaged(&self) -> bool {
+        self.damage.is_severe()
+    }
+
+    /// Sentences about the decoding that the verdict does not cover: damage,
+    /// and channels that cancelled in the mono mixdown. Empty for a file
+    /// with neither.
+    pub fn notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if let Some(damage) = self.damage.description() {
+            notes.push(damage);
+            if self.is_heavily_damaged() {
+                notes.push(
+                    "So much is lost that the beat grid and cues were not written.".to_string(),
+                );
+            }
+        }
+        if self.cancelled_share >= NOTICEABLE_CANCELLED_SHARE {
+            notes.push(format!(
+                "The stereo channels cancel each other in {:.0}% of the file, as when one is inverted in phase, so the left channel was analyzed there.",
+                self.cancelled_share * 100.0
+            ));
+        }
+        notes
+    }
+
     /// One or two sentences that explain the verdict, and mention clipping
     /// when there is much of it.
     pub fn reason(&self) -> String {
@@ -366,12 +413,21 @@ impl<Report: FnMut(f32)> DecodeObserver for ReportingProbe<Report> {
     fn decoded_share(&mut self, share: f32) {
         (self.on_decoded_share)(share);
     }
+
+    fn finished(&mut self, health: &DecodeHealth) {
+        self.probe.finished(health);
+    }
 }
 
 /// A quality report that waits for the loudness.
 pub(crate) struct PendingQuality(QualityProbe);
 
 impl PendingQuality {
+    /// What went wrong while the file was decoded.
+    pub(crate) fn damage(&self) -> &DecodeDamage {
+        &self.0.health.damage
+    }
+
     /// The report, with `integrated_loudness_lufs` measured on `audio`.
     pub(crate) fn finish(
         self,
@@ -394,6 +450,7 @@ struct QualityProbe {
     clipping: ClippingCounter,
     true_peak: TruePeakMeter,
     cutoff: SpectralCutoffMeter,
+    health: DecodeHealth,
 }
 
 impl DecodeObserver for QualityProbe {
@@ -427,6 +484,10 @@ impl DecodeObserver for QualityProbe {
         self.clipping.add(interleaved, channel_count);
         self.true_peak.add(interleaved, channel_count);
     }
+
+    fn finished(&mut self, health: &DecodeHealth) {
+        self.health = *health;
+    }
 }
 
 impl QualityProbe {
@@ -459,6 +520,8 @@ impl QualityProbe {
             clipped_share: self.clipping.share(),
             integrated_loudness_lufs,
             true_peak_dbtp: self.true_peak.decibels(),
+            damage: self.health.damage,
+            cancelled_share: self.health.cancelled_share,
         }
     }
 }
@@ -876,6 +939,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-8.0),
             true_peak_dbtp: Some(0.3),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict: QualityVerdict::LikelyReencoded,
         };
         assert_eq!(

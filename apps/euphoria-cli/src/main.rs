@@ -12,6 +12,7 @@ mod output;
 mod plan;
 mod playlists;
 mod rewrites;
+mod scan;
 mod set;
 mod set_view;
 mod shift;
@@ -34,7 +35,6 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use euphoria_core::quality::QualityVerdict;
 use euphoria_core::{
     CachedBatch, EuphoriaError, FileResult, TrackAnalysis, clear_cache, default_cache_path,
-    find_audio_files,
 };
 
 use crate::batch::AnalysisOptions;
@@ -325,12 +325,15 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         .iter()
         .cloned()
         .partition(|path| matches!(path.try_exists(), Ok(false)));
-    let audio_files = find_audio_files(&present_paths).map_err(with_causes)?;
+    let scan = scan::scan_quietly(&present_paths)?;
     let standard_error_theme = Theme::stderr();
-    if audio_files.is_empty() && missing_paths.is_empty() {
-        output::write_no_audio_files(&mut std::io::stderr().lock(), &standard_error_theme)?;
-        return Ok(ExitCode::SUCCESS);
+    if scan.files.is_empty() && missing_paths.is_empty() {
+        let mut standard_error = std::io::stderr().lock();
+        scan::write_notices(&mut standard_error, &standard_error_theme, &scan)?;
+        output::write_no_audio_files(&mut standard_error, &standard_error_theme)?;
+        return Ok(output::exit_status(false, scan.has_unreadable()));
     }
+    let audio_files = scan.files.clone();
     let collection_grids = arguments
         .collection
         .as_deref()
@@ -462,6 +465,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             )?;
         }
     }
+    scan::write_notices(&mut report, &standard_error_theme, &scan)?;
     if cached_count > 0 {
         output::write_cache_summary(&mut report, cached_count, analyzed_count)?;
     }
@@ -488,6 +492,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &user_edits,
             &tag_keys,
             &grid_infos,
+            &scan,
         )?,
         Layout::PlainTable => {
             output::write_plain_table(&mut standard_output, &listed_results, &user_edits)?
@@ -541,7 +546,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     }
     Ok(output::exit_status(
         failure_count > missing_count,
-        missing_count > 0,
+        missing_count > 0 || scan.has_unreadable(),
     ))
 }
 

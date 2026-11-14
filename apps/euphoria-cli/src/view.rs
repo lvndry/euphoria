@@ -921,6 +921,9 @@ pub fn write_detail(
         )?;
         write_wrapped(writer, theme, "", &quality.reason(), width)?;
         write_wrapped(writer, theme, "", &theme.dim(format_words(quality)), width)?;
+        for note in quality.notes() {
+            write_wrapped(writer, theme, "", &note, width)?;
+        }
         if let Some(loudness) = quality.integrated_loudness_lufs {
             let mut text = format!("{loudness:.1} LUFS");
             if let Some(peak) = quality.true_peak_dbtp {
@@ -981,6 +984,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-12.36),
             true_peak_dbtp: Some(1.04),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict,
         }
     }

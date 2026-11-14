@@ -14,8 +14,9 @@ use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::tags::{SeratoReport, WritePlan, describe_serato_value, serato_field_name};
 use euphoria_core::{
-    BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference, KeySection,
-    SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange, TrackAnalysis, UnreadTags,
+    AudioScan, BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference,
+    KeySection, SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange, TrackAnalysis,
+    UnreadTags,
 };
 use serde::Serialize;
 
@@ -78,11 +79,12 @@ pub fn write_warning(
 pub const MISSING_FILES_EXIT_STATUS: u8 = 3;
 
 /// The exit status of a run: 1 when something failed, 3 when the only
-/// problem is files that are no longer there, and 0 otherwise.
+/// problem is files that are no longer there or folders that could not be
+/// read, and 0 otherwise.
 pub fn exit_status(failed: bool, missing: bool) -> std::process::ExitCode {
     if failed {
         std::process::ExitCode::FAILURE
-    } else if missing {
+    } else if missing || crate::scan::was_incomplete() {
         std::process::ExitCode::from(MISSING_FILES_EXIT_STATUS)
     } else {
         std::process::ExitCode::SUCCESS
@@ -183,6 +185,44 @@ struct JsonTrack<'result> {
     /// there but failed.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     missing: bool,
+    /// True for a folder the scan could not read: `path` is the folder and
+    /// `error` says why. The files in it are not in the list.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unreadable: bool,
+    /// True for an audio file of a format Euphoria cannot decode yet, which
+    /// a scan of a folder left out.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    skipped: bool,
+}
+
+impl<'result> JsonTrack<'result> {
+    /// An entry for `path` with nothing analyzed.
+    fn bare(path: &'result Path, error: Option<String>) -> Self {
+        Self {
+            path,
+            duration_seconds: None,
+            key: None,
+            runner_up_key: None,
+            tag_key: None,
+            bpm: None,
+            bpm_confidence: None,
+            bpm_alternative: None,
+            energy: None,
+            tuning_cents: None,
+            key_timeline: Vec::new(),
+            beat_grid: None,
+            beat_grid_source: None,
+            rekordbox_grid: None,
+            cues: Vec::new(),
+            quality: None,
+            needs_review: None,
+            set_by_user: Vec::new(),
+            error,
+            missing: false,
+            unreadable: false,
+            skipped: false,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -239,6 +279,13 @@ struct JsonQuality<'result> {
     #[serde(flatten)]
     report: &'result QualityReport,
     reason: String,
+    /// True when packets could not be decoded or the audio is shorter than
+    /// the file declares. `damage` says how much; a heavily damaged file has
+    /// no beat grid and no cues.
+    damaged: bool,
+    /// Sentences about damage and about channels that cancelled in the mono
+    /// mixdown.
+    notes: Vec<String>,
 }
 
 impl<'result> From<&'result QualityReport> for JsonQuality<'result> {
@@ -246,6 +293,8 @@ impl<'result> From<&'result QualityReport> for JsonQuality<'result> {
         Self {
             report,
             reason: report.reason(),
+            damaged: report.is_damaged(),
+            notes: report.notes(),
         }
     }
 }
@@ -297,7 +346,8 @@ impl From<Key> for JsonKey {
 }
 
 /// Writes one JSON array with an object per file, including failed files with
-/// their error. Tempos are taken to be reported in `range`, which decides
+/// their error, then an object for each folder the scan could not read and
+/// each audio file it left out for its format. Tempos are taken to be reported in `range`, which decides
 /// the half or double tempo offered as an alternative.
 pub fn write_json(
     writer: &mut impl Write,
@@ -306,6 +356,7 @@ pub fn write_json(
     user_edits: &UserEditsByFile,
     tag_keys: &TagKeys,
     grid_infos: &GridInfos,
+    scan: &AudioScan,
 ) -> io::Result<()> {
     let no_edits = UserEdits::default();
     let tracks: Vec<JsonTrack<'_>> = results
@@ -367,31 +418,29 @@ pub fn write_json(
                     set_by_user: set_by_user(edits),
                     error: None,
                     missing: false,
+                    unreadable: false,
+                    skipped: false,
                 }
             }
             Err(error) => JsonTrack {
-                path: &result.path,
-                duration_seconds: None,
-                key: None,
-                runner_up_key: None,
-                tag_key: None,
-                bpm: None,
-                bpm_confidence: None,
-                bpm_alternative: None,
-                energy: None,
-                tuning_cents: None,
-                key_timeline: Vec::new(),
-                beat_grid: None,
-                beat_grid_source: None,
-                rekordbox_grid: None,
-                cues: Vec::new(),
-                quality: None,
-                needs_review: None,
-                set_by_user: Vec::new(),
-                error: Some(error.chain()),
                 missing: error.missing_path().is_some(),
+                ..JsonTrack::bare(&result.path, Some(error.chain()))
             },
         })
+        .chain(scan.unreadable.iter().map(|warning| JsonTrack {
+            unreadable: true,
+            ..JsonTrack::bare(
+                &warning.path,
+                Some(format!("cannot read: {}", warning.reason)),
+            )
+        }))
+        .chain(scan.skipped_files.iter().map(|path| JsonTrack {
+            skipped: true,
+            ..JsonTrack::bare(
+                path,
+                Some("not decoded: Euphoria can't decode this format yet".to_string()),
+            )
+        }))
         .collect();
     serde_json::to_writer_pretty(&mut *writer, &tracks)?;
     writeln!(writer)
@@ -1416,6 +1465,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-9.25),
             true_peak_dbtp: Some(0.8),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict: QualityVerdict::WeakOnABigSystem,
         }
     }
@@ -1490,6 +1541,7 @@ mod tests {
             &UserEditsByFile::new(),
             &TagKeys::default(),
             &GridInfos::new(),
+            &AudioScan::default(),
         )
     }
 
@@ -1607,6 +1659,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
             &user_edits,
             &TagKeys::default(),
             &GridInfos::new(),
+            &AudioScan::default(),
         )
         .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
@@ -1632,6 +1685,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
                 user_edits,
                 &TagKeys::default(),
                 &GridInfos::new(),
+                &AudioScan::default(),
             )
             .unwrap();
             serde_json::from_slice::<serde_json::Value>(&json).unwrap()
@@ -1945,6 +1999,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
             &UserEditsByFile::new(),
             tag_keys,
             &GridInfos::new(),
+            &AudioScan::default(),
         )
         .unwrap();
         serde_json::from_slice(&json).unwrap()

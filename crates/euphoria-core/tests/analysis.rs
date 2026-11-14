@@ -14,6 +14,30 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
+/// Two seconds of digital silence in a stereo WAV.
+fn silent_file(name: &str) -> PathBuf {
+    let sample_rate = 44_100_u32;
+    let data_bytes = sample_rate * 2 * 4;
+    let mut bytes = Vec::new();
+    bytes.extend(b"RIFF");
+    bytes.extend((36 + data_bytes).to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16_u32.to_le_bytes());
+    bytes.extend(1_u16.to_le_bytes());
+    bytes.extend(2_u16.to_le_bytes());
+    bytes.extend(sample_rate.to_le_bytes());
+    bytes.extend((sample_rate * 4).to_le_bytes());
+    bytes.extend(4_u16.to_le_bytes());
+    bytes.extend(16_u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(data_bytes.to_le_bytes());
+    bytes.resize(bytes.len() + data_bytes as usize, 0);
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("silence-stereo-{name}.wav"));
+    std::fs::write(&path, bytes).expect("cannot write the scratch file");
+    path
+}
+
 #[test]
 fn a_tone_at_concert_pitch_has_a_tuning_of_about_zero() {
     let analysis = analyze_file(&fixture("sine-440hz-mono.wav")).unwrap();
@@ -23,7 +47,7 @@ fn a_tone_at_concert_pitch_has_a_tuning_of_about_zero() {
 
 #[test]
 fn silence_has_no_tuning_and_no_key_over_time() {
-    let analysis = analyze_file(&fixture("sine-440hz-opposite-phase-stereo.flac")).unwrap();
+    let analysis = analyze_file(&silent_file("tuning")).unwrap();
     assert_eq!(analysis.key, None);
     assert_eq!(analysis.tuning_cents, None);
     assert!(analysis.key_timeline.is_empty());
@@ -61,7 +85,7 @@ fn an_analysis_rates_its_tempo_and_keeps_the_estimate_behind_it() {
 
 #[test]
 fn silence_has_no_confidence_and_nothing_to_review() {
-    let analysis = analyze_file(&fixture("sine-440hz-opposite-phase-stereo.flac")).unwrap();
+    let analysis = analyze_file(&silent_file("confidence")).unwrap();
     assert_eq!(analysis.key_confidence(), None);
     assert_eq!(analysis.tempo_confidence(), None);
     assert_eq!(analysis.key_runner_up, None);
@@ -251,4 +275,13 @@ fn grid_octave_projection_uses_f64_at_both_extremes_of_valid_tempo_ranges() {
         let restored = shown.with_tempo_range(TempoRange::DEFAULT);
         assert!((restored.beat_grid.unwrap().bpm - grid.bpm).abs() < 1e-9);
     }
+}
+
+#[test]
+fn an_opposite_phase_file_is_analyzed_from_its_left_channel_and_noted() {
+    let analysis = analyze_file(&fixture("sine-440hz-opposite-phase-stereo.flac")).unwrap();
+    assert!(analysis.key.is_some());
+    let quality = analysis.quality.unwrap();
+    assert!(quality.cancelled_share > 0.99);
+    assert!(!quality.notes().is_empty());
 }

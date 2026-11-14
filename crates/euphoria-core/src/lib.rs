@@ -9,6 +9,7 @@
 pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
+pub mod audio_budget;
 /// Decoding audio files a little at a time, for playback.
 pub mod audio_stream;
 /// Remembering analyses between runs.
@@ -70,7 +71,14 @@ pub use analysis::{
     ANALYZER_VERSION, AnalysisObserver, AnalysisStage, FileResult, Progress, TrackAnalysis,
     Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
 };
-pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
+pub use audio::{
+    AudioBuffer, DecodeDamage, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, SEVERE_LOST_SHARE,
+    declared_duration_seconds, decode_mono,
+};
+pub use audio_budget::{
+    AudioBudget, AudioPermit, DEFAULT_AUDIO_BUDGET_MINUTES, global_audio_budget,
+    set_audio_budget_minutes,
+};
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
@@ -100,7 +108,10 @@ pub use harmony::{
     TempoScaling, TrackFeatures, Transition, build_set, evaluate_set, mixes_into,
 };
 pub use key::{Key, Mode};
-pub use library::{SUPPORTED_EXTENSIONS, find_audio_files, is_supported_audio_file};
+pub use library::{
+    AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
+    find_audio_files, is_supported_audio_file, scan_audio_files,
+};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,

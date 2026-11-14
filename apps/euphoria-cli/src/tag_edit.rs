@@ -14,7 +14,7 @@ use euphoria_core::tags::{
     FieldEdit, LoggedWrite, TagField, TextChange, WriteLog, WritePlan, default_write_log_directory,
     plan_edit,
 };
-use euphoria_core::{CachedAnalyzer, TrackAnalysis, default_cache_path, find_audio_files};
+use euphoria_core::{CachedAnalyzer, TrackAnalysis, default_cache_path};
 
 use crate::batch::open_cache;
 use crate::rewrites::RewriteIdentities;
@@ -159,7 +159,7 @@ impl SetArguments {
 
 pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
     let edits = arguments.edits()?;
-    let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let audio_files = crate::scan::find_files(&arguments.paths)?;
     let theme = Theme::stderr();
     if audio_files.is_empty() {
         output::write_no_audio_files(&mut std::io::stderr().lock(), &theme)?;
@@ -263,9 +263,5 @@ pub fn set(arguments: &SetArguments) -> Result<ExitCode> {
 }
 
 fn exit_code(failed: bool) -> ExitCode {
-    if failed {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    output::exit_status(failed, false)
 }

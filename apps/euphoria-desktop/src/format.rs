@@ -146,6 +146,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-9.25),
             true_peak_dbtp: Some(0.8),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict: QualityVerdict::WeakOnABigSystem,
         };
         assert_eq!(

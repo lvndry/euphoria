@@ -119,6 +119,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
 | `--tempo-range <SLOWEST-FASTEST>` | Report tempos from SLOWEST up to, not including, FASTEST beats per minute, such as `70-140` for hip hop or `120-200` for drum and bass. The default is `90-180`. FASTEST can be at most twice SLOWEST. See [choosing the range](../concepts/accuracy.md#choosing-the-range). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `--audio-budget <MINUTES>` | Hold at most MINUTES of audio in memory at once, over all files being analyzed. The default is 60. See [memory](#memory-and-long-files). |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `-h`, `--help` | Show help. |
@@ -126,11 +127,15 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 
 A tempo is stored as it was estimated and placed in the range when it is shown, so running again with another `--tempo-range` takes every result from the cache. A tempo with no octave inside a range narrower than an octave, such as 105 BPM with `120-200`, is shown at the octave nearest to the range, here 210.
 
-Analyzing one seven minute track peaks near 0.6 GB of memory. On full length tracks, 4 workers peaked near 2 GB in total and 8 workers between 4.8 and 6.2 GB, which is why the default stops at 8. Lower `--jobs` on a machine with 8 GB of memory or less.
+#### Memory and long files
+
+Analyzing one seven minute track peaks near 0.6 GB of memory, about 86 MB for each minute of audio. On full length tracks, 4 workers peaked near 2 GB in total and 8 workers between 4.8 and 6.2 GB, which is why the default stops at 8 workers. Lower `--jobs` on a machine with 8 GB of memory or less.
+
+A count of workers does not bound memory when the files are long, so analysis also limits the audio in flight. Before a file is decoded, its length is read from its header, or estimated from its size when the header has none. The file waits until the minutes already being analyzed plus its own fit in `--audio-budget`, 60 minutes by default, about 5 GB. Seven minute tracks never meet the limit with 8 workers. Eight one hour mixes meet it, and run one at a time. A single file longer than the budget is analyzed alone, and still needs memory for its whole length, about 5 GB for one hour: give a computer with little memory shorter files or a lower budget with fewer workers. Key, tempo and energy are not yet measured on an excerpt of a very long file.
 
 ### JSON output
 
-One object per file, in path order, including files that failed:
+One object per file, in path order, including files that failed, then one for each unreadable folder and skipped file:
 
 ```json
 [
@@ -205,6 +210,8 @@ One object per file, in path order, including files that failed:
 ]
 ```
 
+After the files come entries for what the scan left out. A folder that could not be read has `"unreadable": true`, its path, and an `error` with the reason. An audio file of a format Euphoria cannot decode yet, found in a folder, has `"skipped": true` and an `error`. Both fields are absent from every other entry, and neither entry has an analysis.
+
 `key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
 A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
@@ -241,6 +248,10 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 | `true_peak_dbtp` | The highest true peak in any channel, in dB relative to full scale. |
 | `verdict` | `lossless`, `limited-bandwidth`, `good`, `acceptable`, `weak-on-a-big-system` or `likely-reencoded`. `limited-bandwidth` is new: a lossless file whose content stops below 19 kHz with a gradual roll-off, which earlier versions reported as `likely-reencoded`. A script that counts `likely-reencoded` among lossless files now sees fewer; no other field or value changed. |
 | `reason` | One or two sentences that explain the verdict. |
+| `damaged` | `true` when packets could not be decoded or the audio is shorter than the file declares. See [damaged files](../concepts/audio-quality.md#damaged-files). |
+| `damage` | The numbers behind `damaged`: `dropped_packets`, `concealed_seconds` (silence put in place of dropped packets), `ended_on_error`, `declared_seconds` (`null` when the file declares no length) and `decoded_seconds`. |
+| `notes` | Sentences about damage and about stereo channels that cancelled in the mono mixdown. Empty for a sound file. |
+| `cancelled_share` | The share of a stereo file, from 0 to 1, whose channels cancelled in the mono mixdown, so the left channel was analyzed there. |
 
 ### Progress and exit status
 
@@ -250,7 +261,28 @@ A debug build analyzes many times slower than a release build. When a run of a d
 
 When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
 
+The exit status is 0 when every file was analyzed, 1 when any file failed, and 3 when the only problem is files that are missing or folders that could not be read.
+
 The command exits with status 0 when every file was analyzed. If any file failed, each one is listed on standard error as `error: <path>: <reason>` after the table, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
+
+A folder inside a path you gave that cannot be read, because its permission is denied or a network drive fails, no longer stops the scan. The command goes on with everything else, and writes a warning with a count and the reason for each folder, after the table:
+
+```
+warning: 2 folders could not be read: /Volumes/NAS/Crates/Old, /Volumes/NAS/Crates/Locked
+  /Volumes/NAS/Crates/Old: Input/output error (os error 5)
+  /Volumes/NAS/Crates/Locked: Permission denied (os error 13)
+hint: The files in them were not analyzed. Fix the permissions or reconnect the drive, then run the command again.
+```
+
+The files in those folders were not analyzed, so when folders could not be read and nothing failed the command exits with status 3, as for missing files. Status 1 still wins when a file failed. The same warning and exit status apply to `euphoria tags write`, `euphoria tags set`, `euphoria export` and `euphoria set`, which scan folders in the same way. A path named on the command line that cannot be examined at all is still an error.
+
+Files in a folder with an extension for audio that Euphoria cannot decode yet (`.opus`, `.wma`, `.wv`, `.ape`, `.dsf`, `.dff`, `.mpc`, `.tta`, `.aac`, `.ac3`, `.dts`, `.amr`, `.mka`, `.mp2`, `.oga`, `.webm` and `.caf`) are counted by extension and reported in one warning, which does not change the exit status:
+
+```
+warning: 14 files skipped: 9 .opus, 5 .wma, which Euphoria can't decode yet
+```
+
+Pictures, playlists and other files that are not audio are not counted.
 
 A file that is no longer there, because it was moved, deleted, or is on a drive that is not connected, is not a failure. It is listed after the errors as `missing: <path>`, followed by a count, and when files are missing and nothing failed the command exits with status 3, even when every file named is missing. A path named on the command line that does not exist is reported this way, and the other paths are still analyzed:
 

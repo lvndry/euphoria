@@ -16,9 +16,7 @@ use euphoria_core::tags::{
     TagWriteOptions, WriteLog, WritePlan, WrittenValues, add_serato_markers,
     default_write_log_directory, plan_write_with_history, undo_last_write_with_observer,
 };
-use euphoria_core::{
-    CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
-};
+use euphoria_core::{CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path};
 
 use crate::batch::{self, AnalysisOptions, UserEdits};
 use crate::rewrites::RewriteIdentities;
@@ -178,7 +176,7 @@ pub struct Failure {
 }
 
 fn write(arguments: &WriteArguments) -> Result<ExitCode> {
-    let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let audio_files = crate::scan::find_files(&arguments.paths)?;
     let theme = Theme::stderr();
     if audio_files.is_empty() {
         output::write_no_audio_files(&mut std::io::stderr().lock(), &theme)?;
@@ -355,11 +353,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(if failed {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
+    Ok(output::exit_status(failed, false))
 }
 
 /// Warns when a DJ program is running, because it can save the same file

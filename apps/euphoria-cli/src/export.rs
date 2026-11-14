@@ -26,8 +26,8 @@ use euphoria_core::export::virtualdj::{
 use euphoria_core::tags::{KeyNotation as TagKeyNotation, LabelPlacement};
 use euphoria_core::{
     AssembledLibrary, CachedAnalyzer, CachedBatch, EntryLocation, EuphoriaError, ExportContents,
-    M3uTrack, PlaylistLayout, assemble_library_with, find_audio_files, playlist_count,
-    read_track_name, write_m3u8_file,
+    M3uTrack, PlaylistLayout, assemble_library_with, playlist_count, read_track_name,
+    write_m3u8_file,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -515,7 +515,7 @@ fn export_library(
             let paths = resolve(request.paths)?;
             let folders: Vec<PathBuf> =
                 paths.iter().filter(|path| path.is_dir()).cloned().collect();
-            let audio_files = find_audio_files(&paths).map_err(with_causes)?;
+            let audio_files = crate::scan::find_files(&paths)?;
             (folders, audio_files)
         }
     };
@@ -692,7 +692,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     };
     let audio_files = match &playlist {
         Some(playlist) => playlist.files.clone(),
-        None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
+        None => crate::scan::find_files(&resolve(&arguments.paths)?)?,
     };
     let left_out_of_playlist = match &playlist {
         Some(playlist) => write_missing_files(&playlist.missing)?,
@@ -898,7 +898,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
     };
     let audio_files = match &playlist {
         Some(playlist) => playlist.files.clone(),
-        None => find_audio_files(&resolve(&arguments.paths)?).map_err(with_causes)?,
+        None => crate::scan::find_files(&resolve(&arguments.paths)?)?,
     };
     let left_out_of_playlist = match &playlist {
         Some(playlist) => write_missing_files(&playlist.missing)?,
