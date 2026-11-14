@@ -802,6 +802,15 @@ fn fold_and_unfold(
 }
 
 #[gpui::test]
+fn the_toolbar_has_no_program_button_beside_write_tags(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-no-program-button");
+    let files = scratch.copy_fixtures();
+    let (window, _view) = open_taggable_files(&scratch, &files, None, cx);
+    assert!(is_shown(window, "write-tags", cx));
+    assert!(!is_shown(window, "tag-program", cx));
+}
+
+#[gpui::test]
 fn the_toolbar_button_folds_the_sidebar_and_brings_it_back(cx: &mut TestAppContext) {
     fold_and_unfold(
         ThemeName::Slate,
@@ -1943,7 +1952,7 @@ fn opening_settings_discards_a_tag_preview_still_being_planned(cx: &mut TestAppC
 }
 
 #[gpui::test]
-fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
+fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
     cx: &mut TestAppContext,
 ) {
     let scratch = ScratchFolder::new("ui-settings");
@@ -1951,7 +1960,7 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
     let settings_path = scratch.0.join("settings.json");
     let (window, view) = open_taggable_files(&scratch, &files, Some(settings_path.clone()), cx);
 
-    click(window, "tag-program", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     cx.update(|cx| assert!(view.read(cx).settings_open));
     click(window, ("program", 1_usize), cx);
     click(window, ("notation", 2_usize), cx);
@@ -2100,7 +2109,7 @@ fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_e
         })
     });
 
-    click(window, "tag-program", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         window.scroll(
@@ -2182,7 +2191,7 @@ fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_e
     );
     click(window, "cancel-tag-write", cx);
 
-    click(window, "tag-program", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     click(window, "settings-undo", cx);
     click(window, "confirm-tag-undo", cx);
     cx.update(|cx| match &view.read(cx).tag_panel {

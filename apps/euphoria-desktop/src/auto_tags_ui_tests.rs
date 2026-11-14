@@ -215,8 +215,8 @@ fn the_setting_is_a_button_in_the_settings_and_is_remembered(cx: &mut TestAppCon
     let scratch = ScratchFolder::new("auto-setting");
     let files = scratch.copy_fixtures();
     let settings_path = scratch.0.join("settings.json");
-    let (window, view) = open_taggable_files(&scratch, &files, Some(settings_path.clone()), cx);
-    click(window, "tag-program", cx);
+    let (_window, view) = open_taggable_files(&scratch, &files, Some(settings_path.clone()), cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_write_after_analysis(cx)));
     cx.update(|cx| assert!(!view.read(cx).tag_settings.write_after_analysis));
     assert!(
