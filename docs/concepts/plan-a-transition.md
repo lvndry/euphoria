@@ -21,7 +21,7 @@ B is stretched to the tempo of A, with its pitch kept, and laid on the bars of A
 
 For each bar of each track the plan holds:
 
-- **Section**: Start, Main, Breakdown, Drop or Outro, from the [cues](accuracy.md#cue-points) placed by analysis.
+- **Section**: Start, Main, Breakdown, Drop or Outro, from the [cues](accuracy.md#cue-points) placed by analysis, or Section for a track whose cues are numbered sections because its level does not rise and fall like a DJ arrangement.
 - **Energy**: the [energy rating](energy.md#energy-curve) of the bar, from 1 to 10.
 - **Vocals, bass and drums**: whether each sounds, read from the [stems](stems.md).
 

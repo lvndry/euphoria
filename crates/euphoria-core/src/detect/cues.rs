@@ -50,6 +50,15 @@ const PHRASE_BARS: usize = 8;
 /// changes where they are heard.
 const PHRASE_SNAP_BARS: f64 = 1.0;
 const SNAPPING_CONFIDENCE: Confidence = Confidence::Medium;
+/// Shorter runs of bars than this are not a section of their own: a fill,
+/// a short break before a drop or the last bar before silence belongs to
+/// the section around it.
+const MINIMUM_SECTION_BARS: usize = 4;
+/// A track without an energy arc gets a numbered cue only where its
+/// sections change this much, on the scale where the largest change of the
+/// track is 1. Music that barely changes, such as a steady loop, has only
+/// smaller changes and keeps the Start cue alone.
+const NUMBERED_SECTION_STRENGTH: f32 = 0.4;
 /// A bar is silent when it is this far below the loudest bar of the track.
 const SILENT_BELOW_LOUDEST_DB: f32 = 40.0;
 /// A bar has a kick when the band below 150 Hz is at least this much louder
@@ -300,15 +309,17 @@ fn low_passed(samples: &[f32], sample_rate: f32) -> Vec<f32> {
         .collect()
 }
 
-/// The first bar with sound, or `None` when the track is silent.
-fn first_bar_with_sound(measures: &[BarMeasure]) -> Option<usize> {
+/// The first and the last bar with sound, or `None` when the track is
+/// silent.
+fn bars_with_sound(measures: &[BarMeasure]) -> Option<(usize, usize)> {
     let loudest = measures
         .iter()
         .map(|measure| measure.loudness)
         .fold(f32::NEG_INFINITY, f32::max);
-    measures
-        .iter()
-        .position(|measure| measure.loudness >= loudest - SILENT_BELOW_LOUDEST_DB)
+    let has_sound = |measure: &BarMeasure| measure.loudness >= loudest - SILENT_BELOW_LOUDEST_DB;
+    let first = measures.iter().position(has_sound)?;
+    let last = measures.iter().rposition(has_sound)?;
+    Some((first, last))
 }
 
 /// The bar a section change falls in, and the seconds its cue goes to. On
@@ -350,7 +361,7 @@ fn segments(
     for boundary in boundaries {
         let (bar, seconds) = placed(boundary, grid, first);
         let last = starts.last().map_or(first, |segment| segment.start);
-        if bar > last && bar < bar_count {
+        if bar >= last + MINIMUM_SECTION_BARS && bar + MINIMUM_SECTION_BARS <= bar_count {
             starts.push(Segment {
                 start: bar,
                 bars: 0,
@@ -501,13 +512,17 @@ fn energy_cues(sections: &[(Segment, SectionEnergy)]) -> Vec<(f64, CueSection)> 
 }
 
 /// The cues of a track whose level does not follow an energy arc: the
-/// start, then the start of each section, numbered from 2, keeping the
+/// start, then the start of each section that a change of at least
+/// [`NUMBERED_SECTION_STRENGTH`] begins, numbered from 2, keeping the
 /// largest changes when there are more than [`MAXIMUM_CUES`].
 fn numbered_cues(segments: &[Segment]) -> Vec<(f64, CueSection)> {
     let Some((first, rest)) = segments.split_first() else {
         return Vec::new();
     };
-    let mut kept: Vec<&Segment> = rest.iter().collect();
+    let mut kept: Vec<&Segment> = rest
+        .iter()
+        .filter(|segment| segment.strength >= NUMBERED_SECTION_STRENGTH)
+        .collect();
     kept.sort_by(|left, right| right.strength.total_cmp(&left.strength));
     kept.truncate(MAXIMUM_CUES - 1);
     kept.sort_by(|left, right| left.seconds.total_cmp(&right.seconds));
@@ -557,11 +572,11 @@ fn keep_most_useful(cues: Vec<(f64, CueSection)>) -> Vec<(f64, CueSection)> {
 
 pub(crate) fn find_cues(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<SectionCue> {
     let measures = bar_measures(envelope, grid);
-    let Some(first) = first_bar_with_sound(&measures) else {
+    let Some((first, last)) = bars_with_sound(&measures) else {
         return Vec::new();
     };
     let boundaries = section_boundaries(envelope, Some(grid));
-    let segments = segments(&boundaries, grid, first, measures.len());
+    let segments = segments(&boundaries, grid, first, last + 1);
     let energy = energy_cues(&section_energies(&segments, &measures));
     let cues = if follows_energy_arc(&energy) {
         keep_most_useful(energy)
@@ -671,12 +686,22 @@ mod tests {
     }
 
     fn assert_cues(found: &[(f64, CueSection)], expected: &[(f64, CueSection)]) {
+        assert_cues_within(found, expected, 0.05);
+    }
+
+    /// Without a kick the grid is not trusted, and the cues stay where the
+    /// changes are heard, to within a unit of the section finder.
+    fn assert_cues_within(
+        found: &[(f64, CueSection)],
+        expected: &[(f64, CueSection)],
+        tolerance: f64,
+    ) {
         assert_eq!(found.len(), expected.len(), "{found:?}");
         for ((seconds, section), (expected_seconds, expected_section)) in found.iter().zip(expected)
         {
             assert_eq!(section, expected_section, "{found:?}");
             assert!(
-                (seconds - expected_seconds).abs() < 0.05,
+                (seconds - expected_seconds).abs() < tolerance,
                 "{section:?} at {seconds}, expected {expected_seconds}"
             );
         }
@@ -776,12 +801,15 @@ mod tests {
     }
 
     #[test]
-    fn a_loud_intro_before_a_quieter_steady_body_does_not_start_an_outro() {
+    fn a_loud_intro_before_a_quieter_steady_body_is_a_numbered_section_not_an_outro() {
         let audio = arrangement(0.0, &[(16, FULL), (48, KICK_AND_BASS)]);
 
         let cues = cues_of(&audio);
 
-        assert_cues(&cues, &[(0.0, CueSection::Start)]);
+        assert_cues(
+            &cues,
+            &[(0.0, CueSection::Start), (32.0, CueSection::Section(2))],
+        );
     }
 
     #[test]
@@ -799,7 +827,7 @@ mod tests {
 
         let cues = cues_of(&audio);
 
-        assert_cues(
+        assert_cues_within(
             &cues,
             &[
                 (0.0, CueSection::Start),
@@ -808,6 +836,7 @@ mod tests {
                 (128.0, CueSection::Drop),
                 (192.0, CueSection::Outro),
             ],
+            0.55,
         );
     }
 
@@ -945,7 +974,7 @@ mod tests {
     fn a_track_without_an_energy_arc_gets_numbered_sections_at_its_largest_changes() {
         let mut segments = vec![segment(0.0, 1.0)];
         for index in 1..=9 {
-            segments.push(segment(f64::from(index) * 20.0, 0.1 * index as f32));
+            segments.push(segment(f64::from(index) * 20.0, 0.3 + 0.1 * index as f32));
         }
 
         let cues = numbered_cues(&segments);

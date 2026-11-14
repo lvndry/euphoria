@@ -207,6 +207,10 @@ const MEL_FLOOR_DB: f32 = 80.0;
 /// The timbre is the shape of the mel spectrum: its cepstral coefficients
 /// from the first to this one, without the zeroth, which is the level.
 const TIMBRE_COEFFICIENTS: usize = 13;
+/// Each cepstral coefficient varies at least this much over a track, in
+/// decibels, so that a steady track does not turn small differences into
+/// section changes. Every SALAMI recording varies more than twice as much.
+const TIMBRE_MINIMUM_SPREAD_DB: f32 = 1.0;
 /// The level, the low end and the high end further below their loudest unit
 /// than this count as this far below it.
 const LEVEL_FLOOR_DB: f32 = 30.0;
@@ -219,6 +223,13 @@ const ONSET_MINIMUM_SPREAD: f32 = 0.05;
 const KERNEL_SECONDS: f64 = 32.0;
 /// How much each kind of change counts: harmony, timbre and level.
 const NOVELTY_WEIGHTS: [f32; 3] = [1.0, 2.0, 2.0];
+/// Each novelty curve is scaled to its largest value away from the ends of
+/// the track, where a fade or silence would set the scale, or to this when that
+/// is smaller, so that a track that hardly changes keeps small novelty
+/// instead of having its smallest wobble scaled up into a section change.
+/// They sit near the smallest largest values of the SALAMI recordings, and
+/// leave their scores unchanged.
+const NOVELTY_FLOORS: [f32; 3] = [0.02, 0.25, 0.25];
 /// A change counts when its novelty reaches this share of the largest
 /// change of the track.
 const BOUNDARY_SHARE: f32 = 0.05;
@@ -268,12 +279,15 @@ pub(crate) fn section_boundaries(
     ];
     let weight_sum: f32 = NOVELTY_WEIGHTS.iter().sum();
     let mut novelty = vec![0.0_f32; starts.len()];
-    for (curve, weight) in curves.iter().zip(NOVELTY_WEIGHTS) {
-        let largest = curve.iter().copied().fold(0.0_f32, f32::max);
-        if largest > 0.0 {
-            for (total, value) in novelty.iter_mut().zip(curve) {
-                *total += weight * value.max(0.0) / largest / weight_sum;
-            }
+    let inside = |unit: &usize| (EDGE_SECONDS..=duration - EDGE_SECONDS).contains(&starts[*unit]);
+    for ((curve, weight), floor) in curves.iter().zip(NOVELTY_WEIGHTS).zip(NOVELTY_FLOORS) {
+        let largest = (0..curve.len())
+            .filter(inside)
+            .map(|unit| curve[unit])
+            .fold(0.0_f32, f32::max)
+            .max(floor);
+        for (total, value) in novelty.iter_mut().zip(curve) {
+            *total += weight * value.max(0.0) / largest / weight_sum;
         }
     }
     peaks(&starts, &novelty, unit_seconds, duration)
@@ -444,7 +458,7 @@ fn unit_features(units: &[Frame]) -> (Vec<Harmony>, Vec<Timbre>, Vec<Level>) {
             })
         })
         .collect();
-    standardise(&mut timbre, [1e-6; TIMBRE_COEFFICIENTS]);
+    standardise(&mut timbre, [TIMBRE_MINIMUM_SPREAD_DB; TIMBRE_COEFFICIENTS]);
 
     let mut level: Vec<Level> = units
         .iter()
@@ -595,4 +609,118 @@ fn peaks(
             strength: novelty[unit],
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU32;
+
+    use super::*;
+    use crate::audio::AudioBuffer;
+
+    const SAMPLE_RATE: u32 = 22_050;
+
+    /// Stretches of (seconds, partials as (frequency, amplitude)), with a
+    /// little noise so no unit is exactly silent.
+    fn piece(stretches: &[(f64, &[(f64, f64)])]) -> AudioBuffer {
+        let mut samples = Vec::new();
+        let mut noise_state = 0x9e37_79b9_7f4a_7c15_u64;
+        for (seconds, partials) in stretches {
+            let count = (seconds * f64::from(SAMPLE_RATE)) as usize;
+            for _ in 0..count {
+                let time = samples.len() as f64 / f64::from(SAMPLE_RATE);
+                noise_state ^= noise_state << 13;
+                noise_state ^= noise_state >> 7;
+                noise_state ^= noise_state << 17;
+                let noise = ((noise_state >> 40) as f64 / (1_u64 << 24) as f64 - 0.5) * 0.002;
+                let value: f64 = partials
+                    .iter()
+                    .map(|(frequency, amplitude)| {
+                        amplitude * (std::f64::consts::TAU * frequency * time).sin()
+                    })
+                    .sum();
+                samples.push((value + noise) as f32);
+            }
+        }
+        AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap())
+    }
+
+    fn boundaries_of(audio: &AudioBuffer) -> Vec<f64> {
+        let envelope = OnsetEnvelope::of_audio(audio).unwrap();
+        section_boundaries(&envelope, None)
+            .into_iter()
+            .map(|boundary| boundary.seconds)
+            .collect()
+    }
+
+    const C_MAJOR: &[(f64, f64)] = &[(261.6, 0.2), (329.6, 0.2), (392.0, 0.2)];
+    const F_SHARP_MAJOR: &[(f64, f64)] = &[(370.0, 0.2), (466.2, 0.2), (277.2, 0.2)];
+    const BRIGHT_C: &[(f64, f64)] = &[
+        (261.6, 0.2),
+        (523.2, 0.15),
+        (784.8, 0.12),
+        (1_046.4, 0.1),
+        (1_569.6, 0.08),
+        (2_092.8, 0.06),
+    ];
+
+    #[test]
+    fn a_change_of_chord_at_the_same_level_starts_a_section() {
+        let audio = piece(&[(40.0, C_MAJOR), (40.0, F_SHARP_MAJOR)]);
+
+        let found = boundaries_of(&audio);
+
+        assert!(
+            found.iter().any(|seconds| (seconds - 40.0).abs() <= 1.0),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_change_of_timbre_on_the_same_note_starts_a_section() {
+        let audio = piece(&[(40.0, &[(261.6, 0.3)]), (40.0, BRIGHT_C)]);
+
+        let found = boundaries_of(&audio);
+
+        assert!(
+            found.iter().any(|seconds| (seconds - 40.0).abs() <= 1.0),
+            "{found:?}"
+        );
+    }
+
+    fn strengths_of(audio: &AudioBuffer) -> Vec<f32> {
+        let envelope = OnsetEnvelope::of_audio(audio).unwrap();
+        section_boundaries(&envelope, None)
+            .into_iter()
+            .map(|boundary| boundary.strength)
+            .collect()
+    }
+
+    #[test]
+    fn music_that_does_not_change_has_only_weak_changes() {
+        let steady = strengths_of(&piece(&[(90.0, C_MAJOR)]));
+        let changing = strengths_of(&piece(&[(45.0, C_MAJOR), (45.0, F_SHARP_MAJOR)]));
+
+        let strongest = |strengths: &[f32]| strengths.iter().copied().fold(0.0_f32, f32::max);
+        assert!(strongest(&steady) < 0.4, "{steady:?}");
+        assert!(strongest(&changing) > 0.8, "{changing:?}");
+    }
+
+    #[test]
+    fn a_trusted_grid_measures_beats_and_an_untrusted_one_fixed_units() {
+        let trusted = BeatGrid::imported(0.25, 120.0);
+        let starts = unit_starts(Some(&trusted), 4.0);
+        assert_eq!(
+            starts,
+            [0.0, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]
+        );
+
+        let untrusted = BeatGrid {
+            salience: 0.0,
+            ..trusted
+        };
+        let starts = unit_starts(Some(&untrusted), 2.0);
+        assert_eq!(starts, [0.0, 0.5, 1.0, 1.5]);
+        assert_eq!(unit_starts(None, 1.0), [0.0, 0.5]);
+    }
 }
