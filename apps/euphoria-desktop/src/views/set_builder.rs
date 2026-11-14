@@ -4,19 +4,21 @@
 //! The set builder page: the curve to draw, the pool, the length, and the
 //! set built from them with how each track meets the curve.
 
-use euphoria_core::harmony::set::DEFAULT_MAX_BPM_STEP;
-use euphoria_core::{CurvePreset, Deviation, SetPlan};
+use euphoria_core::CurvePreset;
 use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Bounds, Context, Div, FontWeight, Hsla, MouseButton, MouseDownEvent,
     MouseMoveEvent, PathBuilder, Pixels, SharedString, TestSupportExt, canvas, div, fill, point,
-    px, size,
+    px, relative, size,
 };
 
 use crate::app::EuphoriaApp;
 use crate::format;
+use crate::journey::{
+    self, BAR_SHARE, Bar, CHART_PAD, ChipTone, MAX_BAR_WIDTH, Phase, SummaryChip, bar_height,
+};
 use crate::set_builder::{FEWEST_TRACKS, MOST_TRACKS, PlannedSet, SetPool};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
@@ -28,6 +30,7 @@ use crate::views::{
 
 const SET_ROW_GROUP: &str = "set-row";
 const CURVE_HEIGHT: f32 = 200.0;
+const MIN_GAP_HEIGHT: f32 = 24.0;
 const ENERGY_GRID: [f32; 4] = [1.0, 4.0, 7.0, 10.0];
 
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
@@ -66,8 +69,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             )
         })
         .when_some(builder.planned.as_ref(), |page, planned| {
-            page.child(summary(app, planned))
-                .child(set_actions(app, cx))
+            page.child(summary(app, planned, cx))
                 .child(set_rows(app, planned, cx))
         })
         .test_support()
@@ -233,38 +235,20 @@ fn pool_choices(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     labelled("Pool", row, &palette)
 }
 
-/// The curve to draw on, and once a set is built, its energy over it.
+/// The curve to draw on, and once a set is built, a bar for each track of
+/// it standing at its energy.
 fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let builder = &app.set_builder;
     let curve = builder.curve.clone();
-    let set_points: Vec<(f32, f32, bool)> = builder
-        .planned
-        .as_ref()
-        .map(|planned| {
-            planned
-                .plan
-                .tracks
-                .iter()
-                .enumerate()
-                .map(|(position, track)| {
-                    (
-                        track.position,
-                        track.energy,
-                        is_off_target(&planned.plan, position),
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let bars = app.journey_bars();
+    let count = (!bars.is_empty()).then_some(bars.len());
     let seen_bounds = builder.curve_bounds.clone();
     let colours = CurveColours {
         grid: palette.line,
         curve: palette.accent,
-        set: palette.text,
-        miss: palette.danger,
     };
-    let drawing = div()
+    let mut drawing = div()
         .id("set-curve")
         .relative()
         .h(px(CURVE_HEIGHT))
@@ -274,7 +258,7 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             canvas(
                 move |bounds, _, _| seen_bounds.set(Some(bounds)),
                 move |bounds, (), window, _| {
-                    paint_curve(window, bounds, &curve, &set_points, colours);
+                    paint_curve(window, bounds, &curve, count, colours);
                 },
             )
             .size_full(),
@@ -302,8 +286,11 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .on_mouse_up_out(
             MouseButton::Left,
             cx.listener(|this, _, _, cx| this.finish_curve_stroke(cx)),
-        )
-        .test_support();
+        );
+    if !bars.is_empty() {
+        drawing = drawing.child(journey_bars(&bars, &palette, cx));
+    }
+    let drawing = drawing.test_support();
 
     let legend = div()
         .flex()
@@ -316,8 +303,8 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .child(legend_swatch("Curve", palette.accent))
         .when(builder.planned.is_some(), |legend| {
             legend
-                .child(legend_swatch("Set", palette.text))
-                .child(legend_swatch("Off the curve", palette.danger))
+                .child(legend_swatch("Track", palette.waveform))
+                .child(legend_swatch("Off the curve", palette.warning))
         });
 
     let mut axis = div()
@@ -338,6 +325,16 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .child(format!("{energy:.0}")),
         );
     }
+    let mut chart = div().flex_1().min_w_0().flex().flex_col().child(drawing);
+    if let Some(planned) = builder.planned.as_ref() {
+        let curve_phases = journey::phases(&builder.curve);
+        if !curve_phases.is_empty() {
+            chart = chart.child(phase_row(&curve_phases, planned.paths.len(), &palette));
+        }
+        if let Some(axis) = time_axis(app, planned, &palette) {
+            chart = chart.child(axis);
+        }
+    }
     div()
         .flex()
         .flex_col()
@@ -347,14 +344,200 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
-        .child(
-            div()
-                .flex()
-                .gap(px(8.0))
-                .child(axis)
-                .child(div().flex_1().min_w_0().child(drawing)),
-        )
+        .child(div().flex().gap(px(8.0)).child(axis).child(chart))
         .child(legend)
+}
+
+/// The bars over the chart, a column for each track so that the gaps between
+/// them can be pointed at.
+fn journey_bars(bars: &[Bar], palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let mut row = div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(px(CHART_PAD))
+        .right(px(CHART_PAD))
+        .flex();
+    let mut previous_height = 0.0;
+    for bar in bars {
+        let height = bar_height(bar.energy, CURVE_HEIGHT);
+        row = row.child(bar_column(bar, height, previous_height, palette, cx));
+        previous_height = height;
+    }
+    row
+}
+
+fn bar_column(
+    bar: &Bar,
+    height: f32,
+    previous_height: f32,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Div {
+    let position = bar.position;
+    let colour = if bar.is_playing {
+        palette.accent
+    } else if bar.off_curve {
+        palette.warning
+    } else {
+        palette.waveform
+    };
+    let tooltip: SharedString = bar.tooltip.clone().into();
+    let selection_colour = palette.text;
+    let mut column = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .justify_end()
+        .items_center();
+    if bar.is_locked {
+        column = column.child(
+            div()
+                .mb(px(2.0))
+                .text_color(if bar.is_playing {
+                    palette.accent
+                } else {
+                    palette.text_secondary
+                })
+                .child(
+                    Icon::default()
+                        .path(crate::assets::LOCK_ICON_PATH)
+                        .size(px(10.0)),
+                )
+                .id(("journey-lock", position))
+                .test_support(),
+        );
+    }
+    column = column.child(
+        div()
+            .id(("journey-bar", position))
+            .w(relative(BAR_SHARE))
+            .max_w(px(MAX_BAR_WIDTH))
+            .min_w(px(3.0))
+            .h(px(height))
+            .rounded_t(px(2.0))
+            .bg(colour)
+            .cursor_pointer()
+            .when(bar.is_selected, move |element| {
+                element.border_1().border_color(selection_colour)
+            })
+            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(
+                cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                    this.table_focus.focus(window, cx);
+                    this.select_set_row(position, cx);
+                    if event.click_count() == 2 {
+                        this.play_set_track(position, 0.0, cx);
+                    }
+                }),
+            )
+            .test_support(),
+    );
+    if position > 0 {
+        column = column.child(
+            div()
+                .id(("journey-gap", position))
+                .absolute()
+                .left(relative(-0.5 * (1.0 - BAR_SHARE)))
+                .bottom_0()
+                .w(relative(1.0 - BAR_SHARE))
+                .h(px(height.max(previous_height).max(MIN_GAP_HEIGHT)))
+                .cursor_pointer()
+                .tooltip(|window, cx| {
+                    Tooltip::new("Play the transition: the end of the track before, then this one.")
+                        .build(window, cx)
+                })
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_set_row(position, cx);
+                    this.play_set_transition(position, cx);
+                }))
+                .test_support(),
+        );
+    }
+    column
+}
+
+/// The names of the stretches of the curve, under the chart.
+fn phase_row(phases: &[Phase], count: usize, palette: &Palette) -> Div {
+    let mut row = div()
+        .relative()
+        .h(px(18.0))
+        .mx(px(CHART_PAD))
+        .text_size(LABEL_TEXT_SIZE)
+        .text_color(palette.text_tertiary);
+    for phase in phases {
+        let left = if phase.from <= 0.0 {
+            0.0
+        } else {
+            journey::share_at_curve(phase.from, count)
+        };
+        let right = if phase.to >= 1.0 {
+            1.0
+        } else {
+            journey::share_at_curve(phase.to, count)
+        };
+        row = row.child(
+            div()
+                .absolute()
+                .top_0()
+                .left(relative(left))
+                .w(relative(right - left))
+                .px(px(4.0))
+                .pt(px(2.0))
+                .border_t_1()
+                .border_color(palette.line)
+                .truncate()
+                .child(phase.label),
+        );
+    }
+    row
+}
+
+/// How far into the set each quarter of it starts, under the chart.
+fn time_axis(app: &EuphoriaApp, planned: &PlannedSet, palette: &Palette) -> Option<Div> {
+    let seconds = app.set_track_seconds(planned);
+    let total: f32 = seconds.iter().sum();
+    let count = seconds.len();
+    if total <= 0.0 || count < 2 {
+        return None;
+    }
+    let mut elapsed = vec![0.0];
+    for track_seconds in &seconds {
+        elapsed.push(elapsed.last().copied().unwrap_or(0.0) + track_seconds);
+    }
+    let mut boundaries: Vec<usize> = (0..4)
+        .map(|quarter| (count as f32 * quarter as f32 / 4.0).round() as usize)
+        .collect();
+    boundaries.dedup();
+    let mut axis = div()
+        .relative()
+        .h(px(16.0))
+        .mx(px(CHART_PAD))
+        .text_size(LABEL_TEXT_SIZE)
+        .text_color(palette.text_tertiary);
+    for boundary in boundaries {
+        axis = axis.child(
+            div()
+                .absolute()
+                .top_0()
+                .left(relative(boundary as f32 / count as f32))
+                .child(format::long_duration(elapsed[boundary])),
+        );
+    }
+    Some(
+        axis.child(
+            div()
+                .absolute()
+                .top_0()
+                .right_0()
+                .child(format::long_duration(total)),
+        ),
+    )
 }
 
 fn legend_swatch(label: &'static str, colour: Hsla) -> Div {
@@ -370,45 +553,49 @@ fn legend_swatch(label: &'static str, colour: Hsla) -> Div {
 struct CurveColours {
     grid: Hsla,
     curve: Hsla,
-    set: Hsla,
-    miss: Hsla,
 }
 
 fn paint_curve(
     window: &mut gpui::Window,
     bounds: Bounds<Pixels>,
     curve: &[f32],
-    set_points: &[(f32, f32, bool)],
+    count: Option<usize>,
     colours: CurveColours,
 ) {
+    let (start, span) = journey::curve_span(f32::from(bounds.size.width), count);
     let to_point = |along: f32, energy: f32| {
-        let up = ((energy - 1.0) / 9.0).clamp(0.0, 1.0);
         point(
-            bounds.origin.x + bounds.size.width * along.clamp(0.0, 1.0),
-            bounds.origin.y + bounds.size.height * (1.0 - up),
+            bounds.origin.x + px(start + span * along.clamp(0.0, 1.0)),
+            bounds.origin.y + bounds.size.height * (1.0 - journey::level_fraction(energy)),
         )
     };
     for energy in ENERGY_GRID {
         let at = to_point(0.0, energy);
         window.paint_quad(fill(
-            Bounds::new(point(at.x, at.y), size(bounds.size.width, px(1.0))),
+            Bounds::new(
+                point(bounds.origin.x, at.y),
+                size(bounds.size.width, px(1.0)),
+            ),
             colours.grid,
         ));
     }
     if curve.len() >= 2 {
         let last = (curve.len() - 1) as f32;
         let mut area = PathBuilder::fill();
-        area.move_to(point(bounds.origin.x, bounds.origin.y + bounds.size.height));
+        area.move_to(point(
+            to_point(0.0, 1.0).x,
+            bounds.origin.y + bounds.size.height,
+        ));
         for (index, level) in curve.iter().enumerate() {
             area.line_to(to_point(index as f32 / last, *level));
         }
         area.line_to(point(
-            bounds.origin.x + bounds.size.width,
+            to_point(1.0, 1.0).x,
             bounds.origin.y + bounds.size.height,
         ));
         area.close();
         if let Ok(path) = area.build() {
-            window.paint_path(path, colours.curve.opacity(0.12));
+            window.paint_path(path, colours.curve.opacity(0.08));
         }
         let mut line = PathBuilder::stroke(px(2.0));
         for (index, level) in curve.iter().enumerate() {
@@ -423,127 +610,120 @@ fn paint_curve(
             window.paint_path(path, colours.curve);
         }
     }
-    if set_points.len() >= 2 {
-        let mut line = PathBuilder::stroke(px(1.5));
-        for (index, (along, energy, _)) in set_points.iter().enumerate() {
-            let at = to_point(*along, *energy);
-            if index == 0 {
-                line.move_to(at);
-            } else {
-                line.line_to(at);
-            }
-        }
-        if let Ok(path) = line.build() {
-            window.paint_path(path, colours.set.opacity(0.7));
-        }
-    }
-    for (along, energy, missed) in set_points {
-        let at = to_point(*along, *energy);
-        let radius = if *missed { px(4.0) } else { px(3.0) };
-        window.paint_quad(
-            fill(
-                Bounds::new(
-                    point(at.x - radius, at.y - radius),
-                    size(radius * 2.0, radius * 2.0),
-                ),
-                if *missed { colours.miss } else { colours.set },
-            )
-            .corner_radii(radius),
-        );
-    }
 }
 
-fn is_off_target(plan: &SetPlan, position: usize) -> bool {
-    plan.deviations.iter().any(|deviation| {
-        matches!(deviation, Deviation::EnergyOffTarget { position: off, .. } if *off == position)
-    })
-}
-
-fn summary(app: &EuphoriaApp, planned: &PlannedSet) -> AnyElement {
-    let palette = app.theme.palette;
-    let library = app.session.library();
-    let seconds: f32 = planned
-        .paths
-        .iter()
-        .filter_map(|path| {
-            library
-                .index_of(path)
-                .and_then(|index| library.track(index))
-        })
-        .filter_map(|track| track.duration_seconds())
-        .sum();
-    let plan = &planned.plan;
-    let rules = if plan.every_transition_is_clean() {
-        format!("every mix in key and within {DEFAULT_MAX_BPM_STEP:.0} BPM")
-    } else {
-        "some mixes break a rule".to_string()
+fn chip(summary_chip: &SummaryChip, index: usize, palette: &Palette) -> AnyElement {
+    let (background, text) = match summary_chip.tone {
+        ChipTone::Neutral => (palette.raised, palette.text_secondary),
+        ChipTone::Warm => (palette.warning.opacity(0.16), palette.warning),
     };
-    let headline = format!(
-        "{} tracks, {}. Energy within {:.1} of the curve on average; {rules}.",
-        planned.paths.len(),
-        format::long_duration(seconds),
-        plan.mean_energy_error(),
-    );
-    let mut notes = div()
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .text_size(SMALL_TEXT_SIZE)
-        .text_color(palette.danger);
-    for message in deviation_messages(plan) {
-        notes = notes.child(message);
-    }
     div()
-        .id("set-summary")
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(div().font_weight(FontWeight::MEDIUM).child(headline))
-        .child(notes)
+        .id(("set-chip", index))
+        .px(px(10.0))
+        .py(px(3.0))
+        .rounded(px(12.0))
+        .bg(background)
+        .text_color(text)
+        .text_size(SMALL_TEXT_SIZE)
+        .child(summary_chip.text.clone())
         .test_support()
         .into_any_element()
 }
 
-/// One sentence per place the set falls short, positions counted from 1.
-pub(crate) fn deviation_messages(plan: &SetPlan) -> Vec<String> {
-    plan.deviations
-        .iter()
-        .map(|deviation| match *deviation {
-            Deviation::ShortPool {
-                requested,
-                available,
-            } => format!(
-                "The pool has {available} usable tracks, so the set has {available} instead of {requested}."
-            ),
-            Deviation::EnergyOffTarget {
-                position,
-                target,
-                actual,
-            } => format!(
-                "Track {} is at energy {actual:.0} where the curve asks for {target:.1}.",
-                position + 1
-            ),
-            Deviation::KeyClash { position, relation } => format!(
-                "Track {} to {} is {}, not an allowed key move.",
-                position,
-                position + 1,
-                relation.map_or("a key clash", |relation| relation.label())
-            ),
-            Deviation::TempoJump {
-                position,
-                bpm_change,
-            } => format!(
-                "Track {} to {} changes tempo by {bpm_change:+.1} BPM.",
-                position,
-                position + 1
-            ),
-            Deviation::RepeatedArtist { position } => format!(
-                "Tracks {} and {} are by the same artist.",
-                position,
-                position + 1
-            ),
+/// The set in a row of chips, the buttons that keep it, and under them the
+/// list of where it falls short when that is open.
+fn summary(
+    app: &EuphoriaApp,
+    planned: &PlannedSet,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let palette = app.theme.palette;
+    let seconds: f32 = app.set_track_seconds(planned).iter().sum();
+    let plan = &planned.plan;
+    let is_open = app.set_builder.details_open;
+    let mut chips = div().flex().flex_wrap().items_center().gap(px(6.0));
+    for (index, summary_chip) in journey::summary_chips(plan, seconds).iter().enumerate() {
+        chips = chips.child(chip(summary_chip, index, &palette));
+    }
+    let toggle = div()
+        .id("set-details-toggle")
+        .flex()
+        .items_center()
+        .gap(px(4.0))
+        .px(px(6.0))
+        .py(px(2.0))
+        .rounded(px(4.0))
+        .cursor_pointer()
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .hover({
+            let raised = palette.raised;
+            move |style| style.bg(raised)
         })
-        .collect()
+        .child(
+            Icon::new(if is_open {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronRight
+            })
+            .size(px(12.0)),
+        )
+        .child(if is_open {
+            "Hide details"
+        } else {
+            "Show details"
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_set_details(cx)))
+        .test_support();
+    let mut summary = div()
+        .id("set-summary")
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(10.0))
+                .child(chips)
+                .child(toggle)
+                .child(div().flex_1())
+                .child(set_actions(app, cx)),
+        );
+    if is_open {
+        let mut details = div()
+            .id("set-details")
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .p(px(10.0))
+            .rounded(px(8.0))
+            .bg(palette.panel)
+            .border_1()
+            .border_color(palette.line)
+            .text_size(SMALL_TEXT_SIZE)
+            .text_color(palette.text_secondary);
+        for (index, line) in journey::detail_lines(plan).into_iter().enumerate() {
+            details = details.child(
+                div()
+                    .id(("set-detail", index))
+                    .child(line.message)
+                    .when(!line.reason.is_empty(), |element| {
+                        element.child(
+                            div()
+                                .text_color(palette.text_tertiary)
+                                .child(format!(" {}", line.reason)),
+                        )
+                    })
+                    .flex()
+                    .flex_wrap()
+                    .test_support(),
+            );
+        }
+        summary = summary.child(details.test_support());
+    }
+    summary.test_support().into_any_element()
 }
 
 fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, EuphoriaApp>) -> Div {
@@ -567,7 +747,11 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .checked_sub(1)
             .and_then(|index| plan.transitions.get(index));
         let is_locked = planned.locked.get(position).copied().unwrap_or(false);
-        let off_target = is_off_target(plan, position);
+        let off_target = journey::is_off_target(plan, position);
+        let rule_breaks = journey::rule_breaks_into(plan, position);
+        let is_flagged = journey::is_flagged(plan, position);
+        let rule_tooltip: Option<SharedString> =
+            (!rule_breaks.is_empty()).then(|| rule_breaks.join("\n").into());
         let title: SharedString = track
             .map(|track| track.title().to_string())
             .unwrap_or_else(|| path.display().to_string())
@@ -576,47 +760,62 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .and_then(|track| track.artist.clone())
             .unwrap_or_default()
             .into();
+        let with_rule_tooltip = |cell: Div, id: &'static str| -> AnyElement {
+            match rule_tooltip.clone() {
+                Some(text) => cell
+                    .id((id, position))
+                    .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+                    .test_support()
+                    .into_any_element(),
+                None => cell.into_any_element(),
+            }
+        };
         let step = transition.map(|transition| {
             let colour = if transition.tempo_allowed {
                 palette.text_secondary
             } else {
-                palette.danger
+                palette.warning
             };
-            div()
-                .text_color(colour)
-                .child(format!("{:+.1}", transition.bpm_change))
+            with_rule_tooltip(
+                div()
+                    .text_color(colour)
+                    .child(format!("{:+.1}", transition.bpm_change)),
+                "set-row-tempo",
+            )
         });
         let movement = transition.map(|transition| {
             let colour = if transition.key_allowed {
                 palette.text_secondary
             } else {
-                palette.danger
+                palette.warning
             };
-            div().text_color(colour).child(
-                transition
-                    .relation
-                    .map_or("Key clash", |relation| relation.label()),
+            with_rule_tooltip(
+                div().text_color(colour).child(
+                    transition
+                        .relation
+                        .map_or("Key clash", |relation| relation.label()),
+                ),
+                "set-row-key",
             )
         });
         let energy = planned_track.map(|planned_track| {
             div()
+                .id(("set-energy", position))
                 .flex()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if off_target {
-                            palette.danger
-                        } else {
-                            palette.text
-                        })
-                        .child(format!("{:.0}", planned_track.energy)),
-                )
-                .child(
-                    div()
-                        .text_color(palette.text_tertiary)
-                        .child(format!("of {:.1}", planned_track.target_energy)),
-                )
+                .px(px(6.0))
+                .rounded(px(4.0))
+                .when(off_target, |cell| {
+                    cell.bg(palette.warning.opacity(0.16))
+                        .text_color(palette.warning)
+                })
+                .when(!off_target, |cell| cell.text_color(palette.text_tertiary))
+                .font_weight(FontWeight::MEDIUM)
+                .child(journey::energy_text(
+                    planned_track.energy,
+                    planned_track.target_energy,
+                    off_target,
+                ))
+                .test_support()
         });
         let is_sounding = app.is_set_row_sounding(position);
         let is_current = app.set_playing_position() == Some(position);
@@ -657,6 +856,20 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             })
             .when(is_selected, |row| row.bg(palette.raised))
             .when(is_locked, |row| row.bg(palette.selection.opacity(0.5)))
+            .relative()
+            .when(is_flagged, |row| {
+                row.child(
+                    div()
+                        .id(("set-row-flag", position))
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .bottom_0()
+                        .w(px(3.0))
+                        .bg(palette.warning)
+                        .test_support(),
+                )
+            })
             .child(
                 div()
                     .w(px(22.0))
@@ -739,7 +952,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             )
             .child(div().w(px(44.0)).children(step))
             .child(div().w(px(96.0)).children(movement))
-            .child(div().w(px(64.0)).children(energy))
+            .child(div().w(px(120.0)).children(energy))
             .child(div().w(px(104.0)).when(position > 0, |cell| {
                 cell.child(
                     div()
@@ -763,7 +976,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                         .test_support(),
                 )
             }))
-            .child(
+            .child(with_rule_tooltip(
                 div()
                     .flex()
                     .flex_col()
@@ -778,7 +991,8 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                                 .child(artist),
                         )
                     }),
-            )
+                "set-row-title",
+            ))
             .child(row_button(
                 ("set-earlier", position),
                 IconName::ArrowUp,
