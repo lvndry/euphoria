@@ -161,6 +161,7 @@ pub(crate) fn render(
         .child(sized(
             summary(track, &palette)
                 .child(div().flex_1())
+                .child(focus_button(app, cx))
                 .child(track_star(app, cx)),
             Some(220.0),
         ))
@@ -188,6 +189,40 @@ pub(crate) fn render(
         })
         .test_support()
         .into_any_element()
+}
+
+/// The button that gives the selected track the whole window.
+fn focus_button(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl IntoElement {
+    let palette = app.theme.palette;
+    let hover_background = palette.line;
+    div()
+        .id("focus-open")
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(5.0))
+        .h(px(24.0))
+        .px(px(8.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(palette.line)
+        .bg(palette.raised)
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover_background))
+        .tooltip(|window, cx| {
+            Tooltip::new("Give this track the whole window (Enter)").build(window, cx)
+        })
+        .child(
+            Icon::default()
+                .path(crate::assets::EXPAND_ICON_PATH)
+                .size(px(12.0))
+                .text_color(palette.text_secondary),
+        )
+        .child("Focus")
+        .on_click(cx.listener(|this, _, _, cx| this.open_focus_view(cx)))
+        .test_support()
 }
 
 /// The star of the selected track.

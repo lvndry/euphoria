@@ -218,6 +218,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
     /// The field the name of a cue is typed in.
     pub(crate) cue_name_input: Entity<InputState>,
+    /// The focus view that gives one track the whole window.
+    pub(crate) focus: crate::focus::FocusView,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -427,6 +429,7 @@ impl EuphoriaApp {
             by_ear: crate::key_by_ear::ByEar::default(),
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
             decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
+            focus: crate::focus::FocusView::new(settings.focus_lanes),
             set_builder: crate::set_builder::SetBuilder::default(),
             filter_window_input,
             filter_bpm_from_input,
@@ -1420,6 +1423,9 @@ impl EuphoriaApp {
         self.refresh_mixes();
         self.load_selected_waveform(cx);
         self.point_player_at_selection(cx);
+        if self.focus.is_open {
+            self.focus_selection_changed(cx);
+        }
         cx.notify();
     }
 
@@ -1663,6 +1669,7 @@ impl EuphoriaApp {
                                 this.stems_changed(cx);
                             }
                             this.decks.stem_library.recheck(&path);
+                            this.focus_stems_separated(&path, cx);
                             if this.decks.is_open
                                 && this.decks.mode == crate::decks::DeckMode::Mashup
                             {
@@ -1711,6 +1718,7 @@ impl EuphoriaApp {
             self.voice = None;
         } else {
             self.player.advance_to(active.state.position_seconds());
+            self.follow_playhead_in_focus();
         }
         cx.notify();
     }
@@ -1914,7 +1922,7 @@ impl EuphoriaApp {
 
     /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user
     /// when that fails.
-    fn save_settings(&self) -> Option<String> {
+    pub(crate) fn save_settings(&self) -> Option<String> {
         let settings_path = self.settings_path.as_ref()?;
         let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
         expanded.sort();
@@ -1932,6 +1940,7 @@ impl EuphoriaApp {
             tags: self.tag_settings,
             display: self.display,
             suggestion_filter: self.decks.filter.clone(),
+            focus_lanes: self.focus.lanes,
         };
         settings
             .save(settings_path)
@@ -2116,11 +2125,13 @@ impl Render for EuphoriaApp {
                 .flex()
                 .flex_1()
                 .min_h_0()
-                .when(shows_sidebar, |body| {
+                .when(shows_sidebar && !self.focus.is_open, |body| {
                     body.child(views::sidebar::render(self, cx))
                 })
                 .map(|body| {
-                    if self.set_builder.is_open {
+                    if self.focus.is_open {
+                        body.child(views::focus::render(self, window, cx))
+                    } else if self.set_builder.is_open {
                         body.child(views::set_builder::render(self, cx))
                     } else {
                         body.child(library_and_detail)
@@ -2135,8 +2146,14 @@ impl Render for EuphoriaApp {
             .track_focus(&self.window_focus)
             .key_context(views::LIBRARY_KEY_CONTEXT)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" && this.close_panels(cx) {
-                    return;
+                if event.keystroke.key == "escape" {
+                    if this.close_panels(cx) {
+                        return;
+                    }
+                    if this.focus.is_open {
+                        this.close_focus_view(cx);
+                        return;
+                    }
                 }
                 // With the keyboard on the window itself, the arrow keys
                 // move through the table as they do when the table has it.
@@ -2157,11 +2174,14 @@ impl Render for EuphoriaApp {
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
-                    if !this.drag_cue_to(event.position.x, event.modifiers, cx) {
+                    if !this.drag_cue_to(event.position.x, event.modifiers, cx)
+                        && !this.drag_window_to(event.position.x, cx)
+                    {
                         this.resize_to(event.position, window, cx);
                     }
                 } else {
                     this.finish_resizing(cx);
+                    this.finish_moving_window();
                     this.release_cue(cx);
                 }
             }))
@@ -2169,6 +2189,7 @@ impl Render for EuphoriaApp {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.finish_resizing(cx);
+                    this.finish_moving_window();
                     this.release_cue(cx);
                 }),
             )

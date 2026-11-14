@@ -490,6 +490,9 @@ fn row(
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.table_focus.focus(window, cx);
                 this.click_track(track_index, event.modifiers(), cx);
+                if event.click_count() == 2 {
+                    this.open_focus_view(cx);
+                }
             }))
             .on_drag(
                 DraggedTracks {

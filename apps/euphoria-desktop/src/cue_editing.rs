@@ -253,6 +253,9 @@ impl CueEditor {
 impl EuphoriaApp {
     /// The time in the selected track under `pointer_x`, along the waveform.
     fn seconds_under(&self, pointer_x: Pixels) -> Option<f64> {
+        if self.focus.is_open {
+            return self.focus.seconds_under(pointer_x);
+        }
         let bounds = self.waveform_bounds.get()?;
         let duration = self.selected_track()?.duration_seconds()?;
         let fraction = fraction_along(
