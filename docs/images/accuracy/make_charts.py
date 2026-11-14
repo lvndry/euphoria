@@ -50,14 +50,31 @@ KEY_EXACT_ALL_PREVIEWS = 60.6
 # and the share of it whose tempo is right modulo octaves.
 TEMPO_CONFIDENCE = [("High", 39, 98.4), ("Medium", 42, 95.6), ("Low", 19, 89.1)]
 
-# "What has been checked", the SALAMI row: F-measure of section boundaries
-# against the functional annotations on the 227 test tracks, as
-# (method, boundaries per track, F within 3 s, F within 0.5 s).
+# "Against SALAMI": F-measure of section boundaries against the functional
+# annotations on the 216 test tracks, as (method, boundaries per track, F
+# within 3 s, F within 0.5 s).
 SECTION_BOUNDARIES = [
-    ("Euphoria cues", 2.7, 13.2, 3.2),
-    ("Euphoria sections", 6.2, 21.2, 4.8),
-    ("Foote, librosa features", 16.5, 45.1, 20.7),
-    ("A boundary every 20 s", 16.9, 25.6, 4.5),
+    ("Previous cues", 2.6, 12.3, 3.0),
+    ("Previous section changes", 6.1, 21.3, 5.0),
+    ("Euphoria cues", 2.7, 15.6, 6.8),
+    ("Euphoria boundaries", 17.6, 48.8, 21.7),
+    ("Foote, librosa features", 16.6, 45.1, 20.7),
+    ("A boundary every 20 s", 17.0, 25.6, 4.5),
+]
+
+# "Against SALAMI", the table by genre: F-measure within 3 s against the
+# functional annotations on the test tracks, as (group, tracks, Euphoria's
+# previous section changes, Euphoria's boundaries, Foote on librosa features).
+SECTION_GENRES = [
+    ("All test tracks", 216, 21.3, 48.8, 45.1),
+    ("Dance-like", 138, 21.5, 48.4, 45.6),
+    ("Rock", 37, 21.4, 52.4, 45.8),
+    ("Folk and country", 20, 25.1, 56.3, 49.9),
+    ("Funk and soul", 12, 29.2, 49.8, 44.2),
+    ("Jazz", 11, 14.7, 40.2, 38.9),
+    ("Jam band", 12, 16.3, 48.0, 47.9),
+    ("Blues", 6, 29.9, 46.7, 42.5),
+    ("Electronic", 8, 23.6, 53.4, 45.8),
 ]
 
 STYLE = """
@@ -75,6 +92,7 @@ STYLE = """
 .series-fill { fill: #2a78d6; }
 .series-1-fill { fill: #2a78d6; }
 .series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 .halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
 @media (prefers-color-scheme: dark) {
@@ -86,6 +104,7 @@ STYLE = """
   .bracket { stroke: #c3c2b7; }
   .series-fill, .series-1-fill { fill: #3987e5; }
   .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
   .ring, .halo { stroke: #1a1a19; }
 }
 """
@@ -256,11 +275,11 @@ def section_boundaries_chart():
     chart_top = 120
     chart_bottom = chart_top + row_height * len(SECTION_BOUNDARIES)
     height = chart_bottom + 64
-    to_x = scale(0, 50, 290, 740)
+    to_x = scale(0, 50, 380, 740)
     title = "Section boundaries against SALAMI, live recordings"
     body = [
         text(24, 36, title, "title"),
-        text(24, 58, "227 test tracks, functional annotations. Boundaries per track in brackets.", "subtitle"),
+        text(24, 58, "216 test tracks, functional annotations. Boundaries per track in brackets.", "subtitle"),
     ]
     legend_y = 90
     body.append(dot(30, legend_y - 4, "series-1-fill"))
@@ -273,19 +292,60 @@ def section_boundaries_chart():
     body.append(text(to_x(25), chart_bottom + 44, "F-measure of the boundaries", "label", "middle"))
     for index, (method, per_track, within_3, within_half) in enumerate(SECTION_BOUNDARIES):
         row_middle = chart_top + row_height * index + row_height / 2
-        body.append(text(to_x(0) - 14, row_middle + 4.5, f"{method} ({per_track})", "label", "end"))
+        body.append(text(to_x(0) - 52, row_middle + 4.5, f"{method} ({per_track})", "label", "end"))
         body.append(line(to_x(within_half), row_middle, to_x(within_3), row_middle, "connector"))
         body.append(dot(to_x(within_3), row_middle, "series-1-fill"))
         body.append(dot(to_x(within_half), row_middle, "series-2-fill"))
         body.append(text(to_x(within_3) + 12, row_middle + 4.5, f"{within_3:.1f}%", "value halo"))
         body.append(text(to_x(within_half) - 12, row_middle + 4.5, f"{within_half:.1f}%", "value halo", "end"))
-    description = (
-        "Dot plot of the F-measure of section boundaries on the 227 SALAMI Internet Archive "
-        "test tracks, against the functional annotations. Euphoria's cues score 13.2% within "
-        "3 seconds and 3.2% within half a second, its section changes 21.2% and 4.8%, a Foote "
-        "novelty baseline on librosa features 45.1% and 20.7%, and a boundary every 20 seconds "
-        "25.6% and 4.5%."
-    )
+    description = "Dot plot of the F-measure of section boundaries on the 216 SALAMI Internet Archive test tracks, against the functional annotations: " + "; ".join(
+        f"{method} {within_3:.1f}% within 3 seconds and {within_half:.1f}% within half a second"
+        for method, _, within_3, within_half in SECTION_BOUNDARIES
+    ) + "."
+    return document(width, height, title, description, body)
+
+
+def section_genres_chart():
+    width = 800
+    row_height = 40
+    chart_top = 120
+    chart_bottom = chart_top + row_height * len(SECTION_GENRES)
+    height = chart_bottom + 64
+    to_x = scale(0, 60, 250, 760)
+    title = "Section boundaries by genre, SALAMI live recordings"
+    body = [
+        text(24, 36, title, "title"),
+        text(24, 58, "F-measure within 3 s against the functional annotations, test tracks. Tracks in brackets.", "subtitle"),
+    ]
+    legend_y = 90
+    for position, (css_class, label) in enumerate(
+        [
+            ("series-2-fill", "Previous section changes"),
+            ("series-1-fill", "Euphoria's boundaries"),
+            ("series-3-fill", "Foote, librosa features"),
+        ]
+    ):
+        left = 30 + position * 230
+        body.append(dot(left, legend_y - 4, css_class))
+        body.append(text(left + 14, legend_y, label, "label"))
+    for share_tick in (0, 10, 20, 30, 40, 50, 60):
+        body.append(line(to_x(share_tick), chart_top, to_x(share_tick), chart_bottom, "grid"))
+        body.append(text(to_x(share_tick), chart_bottom + 20, f"{share_tick}%", "tick", "middle"))
+    body.append(text(to_x(30), chart_bottom + 44, "F-measure of the boundaries within 3 s", "label", "middle"))
+    for index, (group, tracks, previous, ours, foote) in enumerate(SECTION_GENRES):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(0) - 14, row_middle + 4.5, f"{group} ({tracks})", "label", "end"))
+        low = min(previous, ours, foote)
+        high = max(previous, ours, foote)
+        body.append(line(to_x(low), row_middle, to_x(high), row_middle, "connector"))
+        body.append(dot(to_x(previous), row_middle, "series-2-fill"))
+        body.append(dot(to_x(foote), row_middle, "series-3-fill"))
+        body.append(dot(to_x(ours), row_middle, "series-1-fill"))
+        body.append(text(to_x(high) + 12, row_middle + 4.5, f"{ours:.0f}%", "value halo"))
+    description = "Dot plot, one row per genre group of the SALAMI test tracks: " + "; ".join(
+        f"{group} ({tracks} tracks), previous {previous:.1f}%, Euphoria {ours:.1f}%, Foote {foote:.1f}%"
+        for group, tracks, previous, ours, foote in SECTION_GENRES
+    ) + ". Euphoria's boundaries score above its previous section changes in every group."
     return document(width, height, title, description, body)
 
 
@@ -346,6 +406,7 @@ CHARTS = {
     "key-outcomes.svg": key_outcomes_chart,
     "tempo-range.svg": tempo_methods_chart,
     "section-boundaries.svg": section_boundaries_chart,
+    "section-genres.svg": section_genres_chart,
     "key-confidence.svg": key_confidence_chart,
     "tempo-confidence.svg": tempo_confidence_chart,
 }

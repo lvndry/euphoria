@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="448" viewBox="0 0 800 448" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">Section boundaries against SALAMI, live recordings</title>
-<desc id="chart-desc">Dot plot of the F-measure of section boundaries on the 227 SALAMI Internet Archive test tracks, against the functional annotations. Euphoria's cues score 13.2% within 3 seconds and 3.2% within half a second, its section changes 21.2% and 4.8%, a Foote novelty baseline on librosa features 45.1% and 20.7%, and a boundary every 20 seconds 25.6% and 4.5%.</desc>
+<desc id="chart-desc">Dot plot of the F-measure of section boundaries on the 216 SALAMI Internet Archive test tracks, against the functional annotations: Previous cues 12.3% within 3 seconds and 3.0% within half a second; Previous section changes 21.3% within 3 seconds and 5.0% within half a second; Euphoria cues 15.6% within 3 seconds and 6.8% within half a second; Euphoria boundaries 48.8% within 3 seconds and 21.7% within half a second; Foote, librosa features 45.1% within 3 seconds and 20.7% within half a second; A boundary every 20 s 25.6% within 3 seconds and 4.5% within half a second.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -16,6 +16,7 @@
 .series-fill { fill: #2a78d6; }
 .series-1-fill { fill: #2a78d6; }
 .series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 .halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
 @media (prefers-color-scheme: dark) {
@@ -27,51 +28,64 @@
   .bracket { stroke: #c3c2b7; }
   .series-fill, .series-1-fill { fill: #3987e5; }
   .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
   .ring, .halo { stroke: #1a1a19; }
 }
 </style>
-<rect x="0.5" y="0.5" width="799" height="359" rx="12" class="surface"/>
+<rect x="0.5" y="0.5" width="799" height="447" rx="12" class="surface"/>
 <text x="24" y="36" class="title" text-anchor="start">Section boundaries against SALAMI, live recordings</text>
-<text x="24" y="58" class="subtitle" text-anchor="start">227 test tracks, functional annotations. Boundaries per track in brackets.</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">216 test tracks, functional annotations. Boundaries per track in brackets.</text>
 <circle cx="30" cy="86" r="6" class="series-1-fill ring"/>
 <text x="44" y="90" class="label" text-anchor="start">F-measure, within 3 s</text>
 <circle cx="230" cy="86" r="6" class="series-2-fill ring"/>
 <text x="244" y="90" class="label" text-anchor="start">F-measure, within 0.5 s</text>
-<line x1="290" y1="120" x2="290" y2="296" class="grid"/>
-<text x="290" y="316" class="tick" text-anchor="middle">0%</text>
-<line x1="380" y1="120" x2="380" y2="296" class="grid"/>
-<text x="380" y="316" class="tick" text-anchor="middle">10%</text>
-<line x1="470" y1="120" x2="470" y2="296" class="grid"/>
-<text x="470" y="316" class="tick" text-anchor="middle">20%</text>
-<line x1="560" y1="120" x2="560" y2="296" class="grid"/>
-<text x="560" y="316" class="tick" text-anchor="middle">30%</text>
-<line x1="650" y1="120" x2="650" y2="296" class="grid"/>
-<text x="650" y="316" class="tick" text-anchor="middle">40%</text>
-<line x1="740" y1="120" x2="740" y2="296" class="grid"/>
-<text x="740" y="316" class="tick" text-anchor="middle">50%</text>
-<text x="515" y="340" class="label" text-anchor="middle">F-measure of the boundaries</text>
-<text x="276" y="146.5" class="label" text-anchor="end">Euphoria cues (2.7)</text>
-<line x1="318.8" y1="142" x2="408.8" y2="142" class="connector"/>
-<circle cx="408.8" cy="142" r="6" class="series-1-fill ring"/>
-<circle cx="318.8" cy="142" r="6" class="series-2-fill ring"/>
-<text x="420.8" y="146.5" class="value halo" text-anchor="start">13.2%</text>
-<text x="306.8" y="146.5" class="value halo" text-anchor="end">3.2%</text>
-<text x="276" y="190.5" class="label" text-anchor="end">Euphoria sections (6.2)</text>
-<line x1="333.2" y1="186" x2="480.8" y2="186" class="connector"/>
-<circle cx="480.8" cy="186" r="6" class="series-1-fill ring"/>
-<circle cx="333.2" cy="186" r="6" class="series-2-fill ring"/>
-<text x="492.8" y="190.5" class="value halo" text-anchor="start">21.2%</text>
-<text x="321.2" y="190.5" class="value halo" text-anchor="end">4.8%</text>
-<text x="276" y="234.5" class="label" text-anchor="end">Foote, librosa features (16.5)</text>
-<line x1="476.3" y1="230" x2="695.9" y2="230" class="connector"/>
-<circle cx="695.9" cy="230" r="6" class="series-1-fill ring"/>
-<circle cx="476.3" cy="230" r="6" class="series-2-fill ring"/>
-<text x="707.9" y="234.5" class="value halo" text-anchor="start">45.1%</text>
-<text x="464.3" y="234.5" class="value halo" text-anchor="end">20.7%</text>
-<text x="276" y="278.5" class="label" text-anchor="end">A boundary every 20 s (16.9)</text>
-<line x1="330.5" y1="274" x2="520.4" y2="274" class="connector"/>
-<circle cx="520.4" cy="274" r="6" class="series-1-fill ring"/>
-<circle cx="330.5" cy="274" r="6" class="series-2-fill ring"/>
-<text x="532.4" y="278.5" class="value halo" text-anchor="start">25.6%</text>
-<text x="318.5" y="278.5" class="value halo" text-anchor="end">4.5%</text>
+<line x1="380" y1="120" x2="380" y2="384" class="grid"/>
+<text x="380" y="404" class="tick" text-anchor="middle">0%</text>
+<line x1="452" y1="120" x2="452" y2="384" class="grid"/>
+<text x="452" y="404" class="tick" text-anchor="middle">10%</text>
+<line x1="524" y1="120" x2="524" y2="384" class="grid"/>
+<text x="524" y="404" class="tick" text-anchor="middle">20%</text>
+<line x1="596" y1="120" x2="596" y2="384" class="grid"/>
+<text x="596" y="404" class="tick" text-anchor="middle">30%</text>
+<line x1="668" y1="120" x2="668" y2="384" class="grid"/>
+<text x="668" y="404" class="tick" text-anchor="middle">40%</text>
+<line x1="740" y1="120" x2="740" y2="384" class="grid"/>
+<text x="740" y="404" class="tick" text-anchor="middle">50%</text>
+<text x="560" y="428" class="label" text-anchor="middle">F-measure of the boundaries</text>
+<text x="328" y="146.5" class="label" text-anchor="end">Previous cues (2.6)</text>
+<line x1="401.6" y1="142" x2="468.56" y2="142" class="connector"/>
+<circle cx="468.56" cy="142" r="6" class="series-1-fill ring"/>
+<circle cx="401.6" cy="142" r="6" class="series-2-fill ring"/>
+<text x="480.56" y="146.5" class="value halo" text-anchor="start">12.3%</text>
+<text x="389.6" y="146.5" class="value halo" text-anchor="end">3.0%</text>
+<text x="328" y="190.5" class="label" text-anchor="end">Previous section changes (6.1)</text>
+<line x1="416" y1="186" x2="533.36" y2="186" class="connector"/>
+<circle cx="533.36" cy="186" r="6" class="series-1-fill ring"/>
+<circle cx="416" cy="186" r="6" class="series-2-fill ring"/>
+<text x="545.36" y="190.5" class="value halo" text-anchor="start">21.3%</text>
+<text x="404" y="190.5" class="value halo" text-anchor="end">5.0%</text>
+<text x="328" y="234.5" class="label" text-anchor="end">Euphoria cues (2.7)</text>
+<line x1="428.96" y1="230" x2="492.32" y2="230" class="connector"/>
+<circle cx="492.32" cy="230" r="6" class="series-1-fill ring"/>
+<circle cx="428.96" cy="230" r="6" class="series-2-fill ring"/>
+<text x="504.32" y="234.5" class="value halo" text-anchor="start">15.6%</text>
+<text x="416.96" y="234.5" class="value halo" text-anchor="end">6.8%</text>
+<text x="328" y="278.5" class="label" text-anchor="end">Euphoria boundaries (17.6)</text>
+<line x1="536.24" y1="274" x2="731.36" y2="274" class="connector"/>
+<circle cx="731.36" cy="274" r="6" class="series-1-fill ring"/>
+<circle cx="536.24" cy="274" r="6" class="series-2-fill ring"/>
+<text x="743.36" y="278.5" class="value halo" text-anchor="start">48.8%</text>
+<text x="524.24" y="278.5" class="value halo" text-anchor="end">21.7%</text>
+<text x="328" y="322.5" class="label" text-anchor="end">Foote, librosa features (16.6)</text>
+<line x1="529.04" y1="318" x2="704.72" y2="318" class="connector"/>
+<circle cx="704.72" cy="318" r="6" class="series-1-fill ring"/>
+<circle cx="529.04" cy="318" r="6" class="series-2-fill ring"/>
+<text x="716.72" y="322.5" class="value halo" text-anchor="start">45.1%</text>
+<text x="517.04" y="322.5" class="value halo" text-anchor="end">20.7%</text>
+<text x="328" y="366.5" class="label" text-anchor="end">A boundary every 20 s (17.0)</text>
+<line x1="412.4" y1="362" x2="564.32" y2="362" class="connector"/>
+<circle cx="564.32" cy="362" r="6" class="series-1-fill ring"/>
+<circle cx="412.4" cy="362" r="6" class="series-2-fill ring"/>
+<text x="576.32" y="366.5" class="value halo" text-anchor="start">25.6%</text>
+<text x="400.4" y="366.5" class="value halo" text-anchor="end">4.5%</text>
 </svg>
