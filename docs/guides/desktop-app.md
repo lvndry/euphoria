@@ -536,11 +536,8 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 | Paper | Light with a blue accent. |
 | Deck | Slate colours, with the track detail and the player in a strip under the table and a wide waveform. |
 | Graphite | Warm dark grey with an amber accent, compact rows, and keys as coloured text. |
-| Key first | Slate colours with solid key chips and the table sorted by key. |
 
 ![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
-
-![The Key first theme: the table sorted by key from 1A to 12A, with solid key chips. The inspector shows the selected track in 5A with a Camelot wheel under its waveform, where 5A is filled in the accent colour and 4A, 6A and 5B, the keys that mix with it, are tinted.](../images/desktop-app/key-first.png)
 
 ## What the app remembers
 
