@@ -131,7 +131,7 @@ fn demo_quality(extension: &str, number: usize) -> QualityReport {
         true_peak_dbtp: None,
         verdict,
         damage: DecodeDamage {
-            dropped_packets: u32::from(number % 37 == 0),
+            dropped_packets: u32::from(number.is_multiple_of(37)),
             ..DecodeDamage::default()
         },
         cancelled_share: 0.0,
