@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="328" viewBox="0 0 800 328" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">How much each feature counts</title>
-<desc id="chart-desc">Horizontal bars of the weights: integrated loudness 0.25, onset rate 0.25, loudness range 0.20, spectral flux 0.20, low frequency share 0.10, and tempo, when known, 0.10.</desc>
+<desc id="chart-desc">Horizontal bars of the weights: spectral flux 0.65, integrated loudness 0.20, onset rate 0.10, loudness range 0.05, and low frequency share and tempo 0 each.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -14,6 +14,7 @@
 .series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .series-fill { fill: #2a78d6; }
 .series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.muted-fill { fill: #898781; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 @media (prefers-color-scheme: dark) {
   .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
@@ -23,29 +24,30 @@
   .axis { stroke: #383835; }
   .series-line { stroke: #3987e5; }
   .series-fill, .series-wash { fill: #3987e5; }
+  .muted-fill { fill: #898781; }
   .ring { stroke: #1a1a19; }
 }
 </style>
 <rect x="0.5" y="0.5" width="799" height="327" rx="12" class="surface"/>
 <text x="24" y="36" class="title" text-anchor="start">How much each feature counts</text>
-<text x="24" y="58" class="subtitle" text-anchor="start">Weights of the six features in the average. Onset rate and loudness count most.</text>
-<text x="206" y="114.5" class="label" text-anchor="end">Integrated loudness</text>
-<path class="series-fill" d="M220,100 H696 Q700,100 700,104 V116 Q700,120 696,120 H220 Z"/>
-<text x="710" y="114.5" class="value" text-anchor="start">0.25</text>
-<text x="206" y="150.5" class="label" text-anchor="end">Onset rate</text>
-<path class="series-fill" d="M220,136 H696 Q700,136 700,140 V152 Q700,156 696,156 H220 Z"/>
-<text x="710" y="150.5" class="value" text-anchor="start">0.25</text>
-<text x="206" y="186.5" class="label" text-anchor="end">Loudness range</text>
-<path class="series-fill" d="M220,172 H600 Q604,172 604,176 V188 Q604,192 600,192 H220 Z"/>
-<text x="614" y="186.5" class="value" text-anchor="start">0.20</text>
-<text x="206" y="222.5" class="label" text-anchor="end">Spectral flux</text>
-<path class="series-fill" d="M220,208 H600 Q604,208 604,212 V224 Q604,228 600,228 H220 Z"/>
-<text x="614" y="222.5" class="value" text-anchor="start">0.20</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Weights of the six features in the average. Spectral flux counts most, two features count nothing.</text>
+<text x="206" y="114.5" class="label" text-anchor="end">Spectral flux</text>
+<path class="series-fill" d="M220,100 H661.71 Q665.71,100 665.71,104 V116 Q665.71,120 661.71,120 H220 Z"/>
+<text x="675.71" y="114.5" class="value" text-anchor="start">0.65</text>
+<text x="206" y="150.5" class="label" text-anchor="end">Integrated loudness</text>
+<path class="series-fill" d="M220,136 H353.14 Q357.14,136 357.14,140 V152 Q357.14,156 353.14,156 H220 Z"/>
+<text x="367.14" y="150.5" class="value" text-anchor="start">0.20</text>
+<text x="206" y="186.5" class="label" text-anchor="end">Onset rate</text>
+<path class="series-fill" d="M220,172 H284.57 Q288.57,172 288.57,176 V188 Q288.57,192 284.57,192 H220 Z"/>
+<text x="298.57" y="186.5" class="value" text-anchor="start">0.10</text>
+<text x="206" y="222.5" class="label" text-anchor="end">Loudness range</text>
+<path class="series-fill" d="M220,208 H250.29 Q254.29,208 254.29,212 V224 Q254.29,228 250.29,228 H220 Z"/>
+<text x="264.29" y="222.5" class="value" text-anchor="start">0.05</text>
 <text x="206" y="258.5" class="label" text-anchor="end">Low frequency share</text>
-<path class="series-fill" d="M220,244 H408 Q412,244 412,248 V260 Q412,264 408,264 H220 Z"/>
-<text x="422" y="258.5" class="value" text-anchor="start">0.10</text>
+<path class="series-fill" d="M220,244 H220 Q220,244 220,244 V264 Q220,264 220,264 H220 Z"/>
+<text x="230" y="258.5" class="value" text-anchor="start">0.00</text>
 <text x="206" y="294.5" class="label" text-anchor="end">Tempo, when known</text>
-<path class="series-fill" d="M220,280 H408 Q412,280 412,284 V296 Q412,300 408,300 H220 Z"/>
-<text x="422" y="294.5" class="value" text-anchor="start">0.10</text>
+<path class="series-fill" d="M220,280 H220 Q220,280 220,280 V300 Q220,300 220,300 H220 Z"/>
+<text x="230" y="294.5" class="value" text-anchor="start">0.00</text>
 <line x1="220" y1="92" x2="220" y2="308" class="axis"/>
 </svg>

@@ -14,6 +14,7 @@
 .series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .series-fill { fill: #2a78d6; }
 .series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.muted-fill { fill: #898781; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 @media (prefers-color-scheme: dark) {
   .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
@@ -23,6 +24,7 @@
   .axis { stroke: #383835; }
   .series-line { stroke: #3987e5; }
   .series-fill, .series-wash { fill: #3987e5; }
+  .muted-fill { fill: #898781; }
   .ring { stroke: #1a1a19; }
 }
 </style>

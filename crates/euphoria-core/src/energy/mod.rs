@@ -336,31 +336,70 @@ mod tests {
         let base = features_at(0.5);
         let base_score = rate_features(&base, None).unwrap().score;
         let raised = [
-            EnergyFeatures {
-                integrated_loudness_lufs: base.integrated_loudness_lufs + 3.0,
-                ..base
-            },
-            EnergyFeatures {
-                loudness_range_lu: base.loudness_range_lu - 3.0,
-                ..base
-            },
-            EnergyFeatures {
-                onset_rate: base.onset_rate + 2.0,
-                ..base
-            },
-            EnergyFeatures {
-                low_frequency_share: base.low_frequency_share + 0.2,
-                ..base
-            },
-            EnergyFeatures {
-                spectral_flux: base.spectral_flux * 1.5,
-                ..base
-            },
+            (
+                ENERGY_MODEL.integrated_loudness.weight,
+                EnergyFeatures {
+                    integrated_loudness_lufs: base.integrated_loudness_lufs + 3.0,
+                    ..base
+                },
+            ),
+            (
+                ENERGY_MODEL.loudness_range.weight,
+                EnergyFeatures {
+                    loudness_range_lu: base.loudness_range_lu - 3.0,
+                    ..base
+                },
+            ),
+            (
+                ENERGY_MODEL.onset_rate.weight,
+                EnergyFeatures {
+                    onset_rate: base.onset_rate + 2.0,
+                    ..base
+                },
+            ),
+            (
+                ENERGY_MODEL.low_frequency_share.weight,
+                EnergyFeatures {
+                    low_frequency_share: base.low_frequency_share + 0.2,
+                    ..base
+                },
+            ),
+            (
+                ENERGY_MODEL.spectral_flux.weight,
+                EnergyFeatures {
+                    spectral_flux: base.spectral_flux * 1.5,
+                    ..base
+                },
+            ),
         ];
-        for features in raised {
-            assert!(
-                rate_features(&features, None).unwrap().score > base_score,
-                "{features:?}"
+        for (weight, features) in raised {
+            let score = rate_features(&features, None).unwrap().score;
+            if weight > 0.0 {
+                assert!(score > base_score, "{features:?}");
+            } else {
+                assert!(score >= base_score, "{features:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_feature_without_weight_leaves_the_rating_unchanged() {
+        let base = features_at(0.5);
+        let reference = rate_features(&base, None).unwrap();
+        if ENERGY_MODEL.low_frequency_share.weight == 0.0 {
+            let changed = EnergyFeatures {
+                low_frequency_share: 0.99,
+                ..base
+            };
+            assert_eq!(
+                rate_features(&changed, None).unwrap().score,
+                reference.score
+            );
+        }
+        if ENERGY_MODEL.tempo.weight == 0.0 {
+            assert_eq!(
+                rate_features(&base, Some(174.0)).unwrap().score,
+                reference.score
             );
         }
     }
@@ -380,7 +419,7 @@ mod tests {
         let fast = rate_features(&features, Some(ENERGY_MODEL.tempo.high))
             .unwrap()
             .score;
-        assert!(fast > slow);
+        assert!(fast >= slow);
     }
 
     #[test]

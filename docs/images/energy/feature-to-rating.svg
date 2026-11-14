@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">From a measurement to a rating</title>
-<desc id="chart-desc">Left: onset rate scores 0 at or below 2.5 percussive events per second, rises in a straight line, and scores 1 at or above 7 per second. Right: the weighted average of the feature scores maps to the rating as a staircase. An average of 0.2 or less gives 1, 0.8 or more gives 10, and the stretch between is cut into ten equal steps.</desc>
+<desc id="chart-desc">Left: onset rate scores 0 at or below 2.5 percussive events per second, rises in a straight line, and scores 1 at or above 7 per second. Right: the weighted average of the feature scores maps to the rating as a staircase. An average of 0.1 or less gives 1, 0.9 or more gives 10, and the stretch between is cut into ten equal steps.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -14,6 +14,7 @@
 .series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .series-fill { fill: #2a78d6; }
 .series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.muted-fill { fill: #898781; }
 .ring { stroke: #fcfcfb; stroke-width: 2; }
 @media (prefers-color-scheme: dark) {
   .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
@@ -23,6 +24,7 @@
   .axis { stroke: #383835; }
   .series-line { stroke: #3987e5; }
   .series-fill, .series-wash { fill: #3987e5; }
+  .muted-fill { fill: #898781; }
   .ring { stroke: #1a1a19; }
 }
 </style>
@@ -56,14 +58,14 @@
 <text x="480" y="114" class="tick" text-anchor="end">10</text>
 <line x1="490" y1="300" x2="766" y2="300" class="axis"/>
 <text x="490" y="320" class="tick" text-anchor="middle">0</text>
-<text x="545.2" y="320" class="tick" text-anchor="middle">0.2</text>
+<text x="517.6" y="320" class="tick" text-anchor="middle">0.1</text>
 <text x="628" y="320" class="tick" text-anchor="middle">0.5</text>
-<text x="710.8" y="320" class="tick" text-anchor="middle">0.8</text>
+<text x="738.4" y="320" class="tick" text-anchor="middle">0.9</text>
 <text x="766" y="320" class="tick" text-anchor="middle">1</text>
 <text x="628" y="342" class="label" text-anchor="middle">Weighted average of the scores</text>
-<line x1="545.2" y1="100" x2="545.2" y2="300" class="reference"/>
-<line x1="710.8" y1="100" x2="710.8" y2="300" class="reference"/>
-<polyline points="490,290 561.76,290 561.76,270 578.32,270 578.32,250 594.88,250 594.88,230 611.44,230 611.44,210 628,210 628,190 644.56,190 644.56,170 661.12,170 661.12,150 677.68,150 677.68,130 694.24,130 694.24,110 766,110" class="series-line"/>
-<text x="553.2" y="118" class="label" text-anchor="start">0.2 is the bottom</text>
-<text x="702.8" y="282" class="label" text-anchor="end">0.8 is the top</text>
+<line x1="517.6" y1="100" x2="517.6" y2="300" class="reference"/>
+<line x1="738.4" y1="100" x2="738.4" y2="300" class="reference"/>
+<polyline points="490,290 539.68,290 539.68,270 561.76,270 561.76,250 583.84,250 583.84,230 605.92,230 605.92,210 628,210 628,190 650.08,190 650.08,170 672.16,170 672.16,150 694.24,150 694.24,130 716.32,130 716.32,110 766,110" class="series-line"/>
+<text x="525.6" y="118" class="label" text-anchor="start">0.1 is the bottom</text>
+<text x="730.4" y="282" class="label" text-anchor="end">0.9 is the top</text>
 </svg>
