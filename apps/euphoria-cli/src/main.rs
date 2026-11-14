@@ -7,6 +7,7 @@ mod batch;
 mod collection;
 mod corrections;
 mod export;
+mod grid_import;
 mod help;
 mod output;
 mod playlists;
@@ -159,6 +160,12 @@ struct AnalyzeArguments {
     /// How keys are shown in the table and the detailed view.
     #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
     key_notation: KeyNotationChoice,
+    /// Your rekordbox collection exported as XML (File > Export Collection
+    /// in xml format). Tracks in it with a constant beat grid use that grid
+    /// in place of the detected one, and their cues are placed on its bars.
+    /// A tempo you set yourself wins over it.
+    #[arg(long, value_name = "FILE")]
+    collection: Option<PathBuf>,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -300,6 +307,11 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         output::write_no_audio_files(&mut std::io::stderr().lock(), &standard_error_theme)?;
         return Ok(ExitCode::SUCCESS);
     }
+    let collection_grids = arguments
+        .collection
+        .as_deref()
+        .map(grid_import::CollectionGrids::read)
+        .transpose()?;
     let CachedBatch {
         results,
         cached_count,
@@ -315,8 +327,14 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     )?;
     let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
+    let (results, grid_infos) =
+        grid_import::apply(results, &user_edits, collection_grids.as_ref(), analysis)?;
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
     let analyzed_count = results.len();
+    let import_summary = arguments.collection.as_ref().map(|_| {
+        let files: Vec<PathBuf> = results.iter().map(|result| result.path.clone()).collect();
+        grid_import::ImportSummary::of(&files, &grid_infos)
+    });
 
     let verdicts: Vec<QualityVerdict> = arguments
         .quality
@@ -397,6 +415,9 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     if cached_count > 0 {
         output::write_cache_summary(&mut report, cached_count, analyzed_count)?;
     }
+    if let (Some(summary), Some(collection)) = (&import_summary, &arguments.collection) {
+        output::write_grid_import_summary(&mut report, &standard_error_theme, summary, collection)?;
+    }
 
     let listed_results: Vec<FileResult> = results
         .into_iter()
@@ -410,6 +431,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &listed_results,
             analysis.tempo_range(),
             &user_edits,
+            &grid_infos,
         )?,
         Layout::PlainTable => {
             output::write_plain_table(&mut standard_output, &listed_results, &user_edits)?
@@ -438,6 +460,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                         corrections
                             .get(&result.path)
                             .and_then(|looked_up| looked_up.as_ref().ok()),
+                        grid_infos.get(&result.path),
                     )?;
                 }
             }

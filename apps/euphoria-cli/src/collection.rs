@@ -8,8 +8,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-
-const LOCATION_PREFIX: &str = "file://localhost";
+use euphoria_core::rekordbox_grid::rekordbox_location_path;
 
 /// The tracks of a collection that have at least one cue, memory cue, hot
 /// cue or loop.
@@ -83,41 +82,12 @@ fn parse(text: &str) -> Result<Vec<CuedTrack>> {
                 location.unwrap_or("(no location)"),
             );
             CuedTrack {
-                path: location.and_then(location_path),
+                path: location.and_then(rekordbox_location_path),
                 description,
             }
         })
         .collect();
     Ok(tracks)
-}
-
-/// The path of a `file://localhost/` URL as rekordbox writes it, with its
-/// percent escapes decoded: `/Users/dj/a.mp3` for a Mac location, and
-/// `C:/Music/a.mp3` for a Windows one. `None` for any other URL.
-fn location_path(location: &str) -> Option<PathBuf> {
-    let encoded = location.strip_prefix(LOCATION_PREFIX)?;
-    let mut bytes = Vec::with_capacity(encoded.len());
-    let mut rest = encoded.as_bytes();
-    while let Some((&byte, after)) = rest.split_first() {
-        if byte == b'%' {
-            let hex = std::str::from_utf8(after.get(..2)?).ok()?;
-            bytes.push(u8::from_str_radix(hex, 16).ok()?);
-            rest = &after[2..];
-        } else {
-            bytes.push(byte);
-            rest = after;
-        }
-    }
-    let path = String::from_utf8(bytes).ok()?;
-    let without_slash = path.strip_prefix('/')?;
-    let drive = without_slash.as_bytes();
-    let has_drive_letter =
-        drive.len() >= 3 && drive[0].is_ascii_alphabetic() && drive[1] == b':' && drive[2] == b'/';
-    Some(PathBuf::from(if has_drive_letter {
-        without_slash
-    } else {
-        &path
-    }))
 }
 
 #[cfg(test)]
@@ -208,20 +178,5 @@ mod tests {
         assert!(parse("not xml").is_err());
         assert!(parse("<DJ_PLAYLISTS/>").is_err());
         assert!(parse("<PLAYLISTS><COLLECTION/></PLAYLISTS>").is_err());
-    }
-
-    #[test]
-    fn locations_decode_percent_escapes_drive_letters_and_refuse_broken_ones() {
-        assert_eq!(
-            location_path("file://localhost/Volumes/My%20Disk/k%C3%AFt.wav"),
-            Some(PathBuf::from("/Volumes/My Disk/kït.wav"))
-        );
-        assert_eq!(
-            location_path("file://localhost/D:/DJ/My%20Track.flac"),
-            Some(PathBuf::from("D:/DJ/My Track.flac"))
-        );
-        assert_eq!(location_path("file://localhost/a%2"), None);
-        assert_eq!(location_path("file://localhost/a%zz"), None);
-        assert_eq!(location_path("file:///a.wav"), None);
     }
 }

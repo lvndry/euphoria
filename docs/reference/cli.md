@@ -28,6 +28,10 @@ How the results are shown depends on where they go:
 
 A `-` means nothing was detected, for example in silence or a track shorter than one second.
 
+### Beat grid from rekordbox
+
+`--collection <FILE>` takes your rekordbox collection exported as XML (**File > Export Collection in xml format**). A track listed there, matched by its file location, with a constant beat grid uses that grid in place of the detected one: `beat_grid` and `bpm` are the grid's, and the cues are placed again on its bars. The detailed view and the JSON say where each grid came from, `rekordbox`, `detected` or `you`; see [use your rekordbox beat grid](../guides/export-to-rekordbox.md#use-your-rekordbox-beat-grid) for the rules. JSON adds `beat_grid_source` and, with `--collection`, `rekordbox_grid`: `used`, `variable`, `unsupported meter`, `unreadable`, `no grid` or `not in collection`. The `confidence` of an imported grid is `null`. Standard error says how many tracks use the collection's grid and lists those whose grid could not be used, with the reason.
+
 ### The table on a terminal
 
 ```
@@ -268,7 +272,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
 | `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written, or the cues you [edited](#edited-cues) in the desktop app in their place. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
-| `--collection <FILE>` | Your rekordbox collection exported as XML. Tracks that have cues or loops there are left out of the file. Only with `--cues`. It is never replaced by the export, even with `--force`. |
+| `--collection <FILE>` | Your rekordbox collection exported as XML. Needs `--beat-grid`. Tracks there with a constant beat grid are exported with that grid and their cues on its bars: see [use your rekordbox beat grid](../guides/export-to-rekordbox.md#use-your-rekordbox-beat-grid). With `--cues`, tracks that have cues or loops there are also left out of the file. It is never replaced by the export, even with `--force`. |
 | `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
