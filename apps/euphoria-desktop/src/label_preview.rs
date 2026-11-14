@@ -17,7 +17,7 @@ use crate::tag_settings::{ProgramChoice, TagSettings};
 use crate::tag_writing::{PlannedWrite, WriteTarget};
 
 /// The comment of the built-in example file.
-const EXAMPLE_COMMENT: &str = "Great vocal intro";
+const EXAMPLE_COMMENT: &str = "Your comment";
 
 const EXAMPLE_FILE: &[u8] =
     include_bytes!("../../../crates/euphoria-core/tests/fixtures/sine-440hz-mono.mp3");
@@ -124,11 +124,35 @@ impl LabelPreview {
         }
         Self {
             source,
-            fields,
+            fields: merge_same_rows(fields),
             notes,
             cue_hints: cue_hints(settings),
         }
     }
+}
+
+/// Folds rows that show the same value under the same name into one row
+/// naming every tag: a program can read the key or tempo from several tags,
+/// and the write fills each of them with the same text.
+fn merge_same_rows(fields: Vec<PreviewField>) -> Vec<PreviewField> {
+    let mut merged: Vec<PreviewField> = Vec::new();
+    for field in fields {
+        let same = merged.iter_mut().find(|row| {
+            row.name == field.name
+                && row.before == field.before
+                && row.label == field.label
+                && row.after == field.after
+        });
+        match same {
+            Some(row) => {
+                if !row.tag.split(", ").any(|tag| tag == field.tag) {
+                    row.tag = format!("{}, {}", row.tag, field.tag);
+                }
+            }
+            None => merged.push(field),
+        }
+    }
+    merged
 }
 
 fn preview_field(
@@ -164,7 +188,23 @@ fn preview_field(
             after: String::new(),
         };
     }
-    let (before, label, after) = split_label(change.current.as_deref(), &new);
+    let (mut before, label, mut after) = split_label(change.current.as_deref(), &new);
+    // The text a file already holds is shown as a placeholder, not as itself:
+    // a comment can hold a link or a private note, and the preview is about
+    // where the label goes, not about that text.
+    if let Some(current) = change
+        .current
+        .as_deref()
+        .filter(|current| !current.is_empty())
+    {
+        let placeholder = if name == "Grouping" {
+            "Your grouping"
+        } else {
+            "Your comment"
+        };
+        before = before.replacen(current, placeholder, 1);
+        after = after.replacen(current, placeholder, 1);
+    }
     PreviewField {
         name,
         tag,
@@ -339,6 +379,40 @@ mod tests {
     use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
     use crate::tag_writing::testing::{ScratchFolder, analysis};
 
+    fn row(name: &'static str, tag: &str, value: &str) -> PreviewField {
+        PreviewField {
+            name,
+            tag: tag.to_string(),
+            before: value.to_string(),
+            label: String::new(),
+            after: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_value_written_to_several_tags_is_one_row_naming_each_tag() {
+        let merged = merge_same_rows(vec![
+            row("Key", "TKEY", "8A"),
+            row("BPM", "TBPM", "128"),
+            row("Key", "TXXX:INITIALKEY", "8A"),
+            row("BPM", "TXXX:BPM", "128"),
+            row("BPM", "TBPM", "128"),
+        ]);
+        assert_eq!(
+            merged,
+            vec![
+                row("Key", "TKEY, TXXX:INITIALKEY", "8A"),
+                row("BPM", "TBPM, TXXX:BPM", "128"),
+            ]
+        );
+    }
+
+    #[test]
+    fn different_values_under_one_name_stay_separate_rows() {
+        let merged = merge_same_rows(vec![row("Key", "TKEY", "8A"), row("Key", "TXXX:KEY", "Am")]);
+        assert_eq!(merged.len(), 2);
+    }
+
     fn settings_with(label: LabelChoice) -> TagSettings {
         TagSettings {
             program: ProgramChoice::Rekordbox,
@@ -392,7 +466,7 @@ mod tests {
         let comment = comment(&preview);
         assert_eq!(comment.label, "8A - Energy 7");
         assert_eq!(comment.before, "");
-        assert_eq!(comment.after, " - Great vocal intro");
+        assert_eq!(comment.after, " - Your comment");
         let names: Vec<&str> = preview.fields.iter().map(|field| field.name).collect();
         assert!(
             names.contains(&"Key") && names.contains(&"BPM"),
@@ -409,9 +483,9 @@ mod tests {
         let grouping = example(&settings_with(LabelChoice::Grouping));
         let none = example(&settings_with(LabelChoice::None));
 
-        assert_eq!(comment(&start).value(), "8A - Energy 7 - Great vocal intro");
-        assert_eq!(comment(&end).value(), "Great vocal intro - 8A - Energy 7");
-        assert_eq!(comment(&end).before, "Great vocal intro - ");
+        assert_eq!(comment(&start).value(), "8A - Energy 7 - Your comment");
+        assert_eq!(comment(&end).value(), "Your comment - 8A - Energy 7");
+        assert_eq!(comment(&end).before, "Your comment - ");
         assert_eq!(comment(&end).label, "8A - Energy 7");
         assert_eq!(grouping.fields.last().unwrap().name, "Grouping");
         assert_eq!(grouping.fields.last().unwrap().label, "8A - Energy 7");
@@ -432,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn the_selected_tracks_real_comment_is_used() {
+    fn the_selected_tracks_comment_is_shown_as_a_placeholder() {
         let scratch = ScratchFolder::new("label-preview-selected");
         let files = scratch.copy_fixtures();
         set_comment(&files[0], "Played at the warehouse");
@@ -443,9 +517,13 @@ mod tests {
             &settings_with(LabelChoice::CommentStart),
         );
         assert_eq!(preview.source, PreviewSource::SelectedTrack);
-        assert_eq!(
-            comment(&preview).value(),
-            "8A - Energy 7 - Played at the warehouse"
+        assert_eq!(comment(&preview).value(), "8A - Energy 7 - Your comment");
+        assert!(
+            !preview
+                .fields
+                .iter()
+                .any(|field| field.value().contains("warehouse")),
+            "the file's own text is never shown"
         );
         assert_eq!(std::fs::read(&files[0]).unwrap(), before);
     }
@@ -483,17 +561,19 @@ mod tests {
             )
             .unwrap();
             let preview = preview_of(selected_input(&files[0]), &settings);
-            let planned: Vec<(String, Option<String>)> = plan
-                .changes()
-                .iter()
-                .map(|change| {
-                    (
-                        euphoria_core::tags::serato_field_name(&change.field)
-                            .map_or_else(|| change.field.clone(), str::to_string),
-                        change.new.clone(),
-                    )
-                })
-                .collect();
+            let planned: Vec<(String, Option<String>)> =
+                plan.changes()
+                    .iter()
+                    .map(|change| {
+                        (
+                            euphoria_core::tags::serato_field_name(&change.field)
+                                .map_or_else(|| change.field.clone(), str::to_string),
+                            change.new.clone().map(|new| {
+                                new.replacen("Played at the warehouse", "Your comment", 1)
+                            }),
+                        )
+                    })
+                    .collect();
             let shown: Vec<(String, Option<String>)> = preview
                 .fields
                 .iter()
