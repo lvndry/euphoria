@@ -6,7 +6,7 @@
 
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{Context, Div, SharedString, div, px};
+use gpui::{Context, Div, SharedString, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::library::Track;
@@ -27,7 +27,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
             .child(
                 choice_button("stems-again", "Separate again", false, &palette)
                     .on_click(cx.listener(move |this, _, _, cx| this.request_stems(cx)))
-                    ,
+                    .test_support(),
             ),
         Some(StemStatus::Separating) => {
             let caption = app
@@ -42,6 +42,9 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
 
         }
         Some(StemStatus::Ready(_)) => div()
+            .flex_col()
+            .gap(px(8.0))
+            .child(div()
             .flex()
             .flex_wrap()
             .gap(px(8.0))
@@ -59,8 +62,22 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.set_stem_mode(*mode, cx)
                         }))
+                        .test_support()
 
                     }),
+            ))
+            .child(
+                div().flex().child(
+                    choice_button("stems-remove", "Remove stems", false, &palette)
+                        .tooltip(move |window, cx| {
+                            Tooltip::new(
+                                "Deletes the separated stems of this track. It plays from its file and can be separated again.",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| this.remove_stems(cx)))
+                        .test_support(),
+                ),
             ),
         None => div()
             .flex_col()
@@ -76,7 +93,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                         },
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.request_stems(cx)))
-                    ,
+                    .test_support(),
             ),
     };
     div()

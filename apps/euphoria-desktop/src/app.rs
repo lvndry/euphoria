@@ -1430,6 +1430,10 @@ impl EuphoriaApp {
         let selected = self
             .selected_track()
             .map(|track| (track.path.clone(), track.duration_seconds()));
+        let plays_stems = selected
+            .as_ref()
+            .is_some_and(|(path, _)| self.stems.files_to_play(path).is_some());
+        self.player.stems_ready(plays_stems);
         let request = match &selected {
             Some((path, duration_seconds)) => self.player.select(Some(path), *duration_seconds),
             None => self.player.select(None, None),
@@ -1490,7 +1494,7 @@ impl EuphoriaApp {
                 self.voice = None;
                 let semitones = self.key_shift;
                 let opening = if with_stems {
-                    self.open_stems(&path, from_seconds)
+                    self.open_stems(&path, from_seconds, semitones)
                 } else {
                     TrackSource::open_shifted(&path, from_seconds, semitones)
                 };
@@ -1576,18 +1580,24 @@ impl EuphoriaApp {
         .detach();
     }
 
-    /// The stems of the track at `path`, mixed as the player hears them,
-    /// to be played in place of the track.
-    fn open_stems(&self, path: &Path, from_seconds: f32) -> Result<TrackSource, PlaybackProblem> {
+    /// The stems of the track at `path`, mixed as the player hears them
+    /// and shifted by `semitones`, to be played in place of the track.
+    fn open_stems(
+        &self,
+        path: &Path,
+        from_seconds: f32,
+        semitones: i8,
+    ) -> Result<TrackSource, PlaybackProblem> {
         let files = self
             .stems
-            .ready_files(path)
+            .files_to_play(path)
             .ok_or(PlaybackProblem::FileMissing)?;
-        TrackSource::open_stems(&files, self.stems.mix(), from_seconds)
+        TrackSource::open_stems_shifted(&files, self.stems.mix(), from_seconds, semitones)
     }
 
-    /// The track detail's stem switch changed what is heard: the sound
-    /// follows, by restarting the track when it sounds.
+    /// The track detail's stem switch changed what is heard. Between
+    /// Acapella and Instrumental the stems fade over as they play; to or
+    /// from the full track the sound changes source, from the same moment.
     pub(crate) fn set_stem_mode(
         &mut self,
         mode: crate::stems::StemMode,
@@ -1596,28 +1606,40 @@ impl EuphoriaApp {
         if !self.stems.set_mode(mode) {
             return;
         }
-        if self.player.offers_pause() {
-            let request = self.player.toggle();
-            self.carry_out(request, cx);
-        }
-        cx.notify();
+        self.stems_changed(cx);
     }
 
-    /// The player's track is separated, or it is not: the player starts the
-    /// track again when that changes while it sounds, so that it sounds the
-    /// way the player hears it.
+    /// The player's track is separated, or it is not, or the full track is
+    /// to be heard rather than its stems: when that changes what the player
+    /// plays from, it starts again from the same moment.
     pub(crate) fn stems_changed(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(track) = self.selected_track().map(|track| track.path.clone()) else {
+        let Some(track) = self.player.track().map(Path::to_path_buf) else {
             return;
         };
-        let ready = self.stems.ready_files(&track).is_some();
-        let was = self.player.offers_stems();
-        self.player.stems_ready(ready);
-        if ready != was && self.player.offers_pause() {
-            let request = self.player.toggle();
+        let plays_stems = self.stems.files_to_play(&track).is_some();
+        if plays_stems != self.player.offers_stems() {
+            self.player.stems_ready(plays_stems);
+            if let Some(active) = &self.voice {
+                self.player.advance_to(active.state.position_seconds());
+            }
+            let request = self.player.restart();
             self.carry_out(request, cx);
         }
         self.report_stem_problem(&track);
+        cx.notify();
+    }
+
+    /// Deletes the stems of the selected track, which plays from its file
+    /// again and can be separated anew.
+    pub(crate) fn remove_stems(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(path) = self.selected_track().map(|track| track.path.clone()) else {
+            return;
+        };
+        if let Err(problem) = self.stems.remove(&path) {
+            self.report(format!("Could not remove the stems: {problem}"));
+        }
+        self.stems_changed(cx);
+        self.decks.stem_library.recheck(&path);
         cx.notify();
     }
 
