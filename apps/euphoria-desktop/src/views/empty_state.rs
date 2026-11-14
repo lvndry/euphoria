@@ -4,74 +4,16 @@
 //! What the window shows before any music has been added.
 
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, div, px};
+use gpui::{Context, Div, div, px};
 
 use crate::app::EuphoriaApp;
-use crate::theme::Palette;
+use crate::views::SMALL_TEXT_SIZE;
+use crate::views::first_run;
 use crate::views::logo::logo;
-use crate::views::{SMALL_TEXT_SIZE, primary_button};
 
-/// The first run screen: a drop zone, a folder button and three facts.
+/// The first run screen: the three steps, with the first one current.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
-
-    let drop_zone = div()
-        .flex()
-        .flex_col()
-        .items_center()
-        .gap(px(12.0))
-        .px(px(32.0))
-        .py(px(44.0))
-        .rounded(px(12.0))
-        .border_1()
-        .border_dashed()
-        .border_color(palette.text_tertiary)
-        .bg(palette.panel)
-        .child(logo(px(56.0), palette.text))
-        .child(
-            div()
-                .text_size(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Drop a folder of music here"),
-        )
-        .child(
-            div()
-                .max_w(px(400.0))
-                .text_center()
-                .text_color(palette.text_secondary)
-                .child(
-                    "Euphoria reads each track and finds its key and tempo, \
-                     then fills in any key and tempo tags your files are missing. \
-                     Tags you already have are kept, and every write can be undone.",
-                ),
-        )
-        .child(
-            primary_button("Choose folder", &palette)
-                .id("choose-folder")
-                .mt(px(6.0))
-                .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
-        );
-
-    let facts = div()
-        .flex()
-        .gap(px(16.0))
-        .text_size(SMALL_TEXT_SIZE)
-        .text_color(palette.text_secondary)
-        .child(fact(
-            "No account",
-            "No sign in, no activation and no internet connection, ever.",
-            &palette,
-        ))
-        .child(fact(
-            "Formats",
-            "MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF.",
-            &palette,
-        ))
-        .child(fact(
-            "Whole folders",
-            "Folders are searched all the way down, and each track is analyzed once.",
-            &palette,
-        ));
 
     let command_line = div()
         .flex()
@@ -115,27 +57,12 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             div()
                 .flex()
                 .flex_col()
-                .gap(px(24.0))
+                .items_center()
+                .gap(px(20.0))
                 .w_full()
-                .max_w(px(560.0))
-                .child(drop_zone)
-                .child(facts)
-                .child(command_line),
+                .max_w(px(760.0))
+                .child(logo(px(56.0), palette.text))
+                .child(first_run::card(app, cx).w_full())
+                .child(command_line.w_full()),
         )
-}
-
-fn fact(title: &'static str, detail: &'static str, palette: &Palette) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w_0()
-        .gap(px(4.0))
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(palette.text)
-                .child(title),
-        )
-        .child(detail)
 }

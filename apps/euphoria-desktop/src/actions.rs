@@ -48,6 +48,8 @@ actions!(
         BuildSet,
         /// Stars the selected tracks, or takes their stars off.
         ToggleFavorite,
+        /// Adds the selected tracks to the end of the set.
+        AddToSet,
         /// Reveals the selected track in the file manager.
         RevealTrack,
         /// Selects every track the table shows.

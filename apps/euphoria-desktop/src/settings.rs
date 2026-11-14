@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::columns::ColumnWidths;
 use crate::decks::SuggestionFilter;
 use crate::display_settings::DisplaySettings;
+use crate::first_run::FirstRun;
 use crate::focus::FocusLanes;
 use crate::metronome::MetronomeSettings;
 use crate::panels::Panels;
@@ -69,6 +70,10 @@ pub(crate) struct Settings {
     pub(crate) metronome: MetronomeSettings,
     /// The filters on the track list.
     pub(crate) track_filters: TrackFilters,
+    /// How far the first run got. `None` in a file written before the first
+    /// run card existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) first_run: Option<FirstRun>,
 }
 
 /// What the sidebar's folder tree looked like.
@@ -218,6 +223,10 @@ mod tests {
                 energy_min: Some(6),
                 energy_max: None,
             },
+            first_run: Some(FirstRun {
+                analysis_done: true,
+                write_done: false,
+            }),
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
@@ -259,6 +268,7 @@ mod tests {
             focus_lanes: FocusLanes::default(),
             metronome: MetronomeSettings::default(),
             track_filters: TrackFilters::default(),
+            first_run: None,
         })
         .unwrap();
         assert_eq!(

@@ -25,16 +25,17 @@ use crate::playlist_flow::DraggedTracks;
 use crate::playlists::PlaylistId;
 use crate::reveal;
 use crate::theme::Palette;
-use crate::views::favorites::star_button;
+use crate::views::favorites::star_icon;
 use crate::views::key_chip::key_chip;
 use crate::views::playlists::{DragLabel, TrackMenuState, track_menu};
 use crate::views::review;
+use crate::views::row_actions;
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 use gpui::component::menu::ContextMenuExt;
 
 const HEADER_HEIGHT: f32 = 28.0;
 
-/// The group a row's star shows on hover in.
+/// The group a row's icon buttons show on hover in.
 const TRACK_ROW_GROUP: &str = "track-row";
 
 /// Width of the grip on the edge between two column headers.
@@ -432,6 +433,7 @@ fn column_edge(
 /// An empty cell `width` wide, aligned for `column`.
 fn cell(column: ColumnId, width: f32) -> Div {
     let cell = div()
+        .relative()
         .flex()
         .flex_shrink_0()
         .w(px(width))
@@ -586,31 +588,25 @@ fn cell_contents(
             let title: SharedString = track.title().to_string().into();
             let tooltip = title.clone();
             let is_starred = app.session.favorites().is_starred(&track.path);
+            let is_selected =
+                app.selected == Some(track_index) || app.marked.contains(&track_index);
+            let is_sounding =
+                app.player.offers_pause() && app.player.track() == Some(track.path.as_path());
             div()
+                .relative()
                 .flex()
                 .items_center()
                 .gap(px(4.0))
+                .w_full()
                 .min_w_0()
                 .child(
-                    star_button(
-                        ("star", track_index),
-                        is_starred,
-                        if is_starred {
-                            "Take the star off (F)"
-                        } else {
-                            "Star (F)"
-                        },
-                        &palette,
-                    )
-                    .when(!is_starred, |star| {
-                        star.invisible()
-                            .group_hover(TRACK_ROW_GROUP, |style| style.visible())
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_star_on_track(track_index, cx);
-                        cx.stop_propagation();
-                    }))
-                    .test_support(),
+                    div()
+                        .flex()
+                        .flex_shrink_0()
+                        .items_center()
+                        .justify_center()
+                        .size(px(20.0))
+                        .when(is_starred, |slot| slot.child(star_icon(true, &palette))),
                 )
                 .child(
                     div()
@@ -634,6 +630,59 @@ fn cell_contents(
                         .then(|| review::chips(track, track_index, app, &palette))
                         .into_iter()
                         .flatten(),
+                )
+                .child(
+                    row_actions::overlay(TRACK_ROW_GROUP, is_selected, &palette)
+                        .id(("row-actions", track_index))
+                        .child(
+                            row_actions::play_button(
+                                ("row-play", track_index),
+                                is_sounding,
+                                row_actions::tooltip_text(
+                                    if is_sounding { "Pause" } else { "Play" },
+                                    "Space",
+                                ),
+                                &palette,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.play_track_row(track_index, cx);
+                                cx.stop_propagation();
+                            }))
+                            .test_support(),
+                        )
+                        .child(
+                            row_actions::star_action(
+                                ("star", track_index),
+                                is_starred,
+                                row_actions::tooltip_text(
+                                    if is_starred {
+                                        "Take the star off"
+                                    } else {
+                                        "Star"
+                                    },
+                                    "S",
+                                ),
+                                &palette,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_star_on_track(track_index, cx);
+                                cx.stop_propagation();
+                            }))
+                            .test_support(),
+                        )
+                        .child(
+                            row_actions::add_action(
+                                ("row-add", track_index),
+                                row_actions::tooltip_text("Add to set", "A"),
+                                &palette,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.add_row_to_set(track_index, cx);
+                                cx.stop_propagation();
+                            }))
+                            .test_support(),
+                        )
+                        .test_support(),
                 )
                 .into_any_element()
         }

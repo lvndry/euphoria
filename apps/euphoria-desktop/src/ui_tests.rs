@@ -103,11 +103,18 @@ pub(crate) fn open_window_on(
 pub(crate) fn open_window_with(
     tracks: Vec<DemoTrack>,
     output: Box<dyn AudioOutput>,
-    settings: Settings,
+    mut settings: Settings,
     settings_path: Option<PathBuf>,
     window_size: gpui::Size<gpui::Pixels>,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    // The first run card has tests of its own; the others are about
+    // someone who is past it.
+    if settings.folders.is_empty() {
+        settings
+            .first_run
+            .get_or_insert(crate::first_run::FirstRun::already_done());
+    }
     cx.update(|cx| {
         gpui::init(cx);
         let options = WindowOptions {

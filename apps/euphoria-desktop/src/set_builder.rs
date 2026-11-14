@@ -458,6 +458,72 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Adds the tracks at `paths` to the end of the set on the page, leaving
+    /// out those already in it. Without a set there is nothing to add to, so
+    /// it says how to get one.
+    pub(crate) fn add_paths_to_set(&mut self, paths: &[PathBuf], cx: &mut Context<'_, Self>) {
+        let Some(planned) = &mut self.set_builder.planned else {
+            self.notice = Some(
+                "There is no set to add to yet. Build one in the set builder, then add tracks to it."
+                    .to_string(),
+            );
+            cx.notify();
+            return;
+        };
+        let mut added = 0;
+        let mut set_is_full = false;
+        for path in paths {
+            if planned.paths.contains(path) {
+                continue;
+            }
+            if planned.paths.len() >= MOST_TRACKS {
+                set_is_full = true;
+                break;
+            }
+            planned.paths.push(path.clone());
+            planned.locked.push(false);
+            added += 1;
+        }
+        self.notice = Some(if set_is_full {
+            format!("A set holds at most {MOST_TRACKS} tracks.")
+        } else if added == 0 {
+            "Already in the set.".to_string()
+        } else if added == 1 {
+            "Added 1 track to the end of the set.".to_string()
+        } else {
+            format!("Added {added} tracks to the end of the set.")
+        });
+        if added > 0 {
+            self.explain_planned_set();
+        }
+        cx.notify();
+    }
+
+    /// The add button of a table row, which adds the whole selection when
+    /// the row is part of it.
+    pub(crate) fn add_row_to_set(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        let is_in_selection = self.selected == Some(index) || self.marked.contains(&index);
+        let paths = if is_in_selection {
+            self.selected_paths()
+        } else {
+            self.session
+                .library()
+                .track(index)
+                .map(|track| vec![track.path.clone()])
+                .unwrap_or_default()
+        };
+        self.add_paths_to_set(&paths, cx);
+    }
+
+    /// The A key: adds the selected tracks to the set.
+    pub(crate) fn add_selection_to_set(&mut self, cx: &mut Context<'_, Self>) {
+        if self.set_builder.is_open {
+            return;
+        }
+        let paths = self.selected_paths();
+        self.add_paths_to_set(&paths, cx);
+    }
+
     pub(crate) fn remove_set_track(&mut self, position: usize, cx: &mut Context<'_, Self>) {
         let Some(planned) = &mut self.set_builder.planned else {
             return;

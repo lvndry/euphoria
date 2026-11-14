@@ -378,6 +378,9 @@ impl EuphoriaApp {
                     // A title or an artist may have changed.
                     this.read_track_names(report.written.clone(), cx);
                 }
+                if !is_edit && !report.written.is_empty() {
+                    this.note_first_write();
+                }
                 this.tag_panel = Some(TagPanel::Written(report));
                 cx.notify();
             })
