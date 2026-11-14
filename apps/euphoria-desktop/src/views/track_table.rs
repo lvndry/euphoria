@@ -730,9 +730,9 @@ fn quality(track: &Track, palette: &Palette) -> Div {
         .min_w_0()
         .truncate()
         .text_color(if track.has_quality_to_check() {
-            palette.text
-        } else {
             palette.text_tertiary
+        } else {
+            palette.text
         })
         .child(format::quality_verdict(report.verdict))
 }
