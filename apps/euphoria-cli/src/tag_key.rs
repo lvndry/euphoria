@@ -60,6 +60,13 @@ impl TagKeys {
         }
     }
 
+    /// The same, with the key of the file at `path` set by the user.
+    #[cfg(test)]
+    pub fn with_key_set_by_user(mut self, path: &Path) -> Self {
+        self.key_set_by_user.insert(path.to_path_buf());
+        self
+    }
+
     /// The key field of the file at `path`, when it has one.
     pub fn get(&self, path: &Path) -> Option<&TagKey> {
         self.by_path.get(path)
@@ -72,14 +79,20 @@ impl TagKeys {
         Some(self.get(path)?.compare(analysis.key?))
     }
 
+    /// How the key field compares with the detected key, or `None` when
+    /// either is missing or the user set the key by hand, which settles it.
+    pub fn compared(&self, path: &Path, analysis: &TrackAnalysis) -> Option<TagKeyAgreement> {
+        if self.key_set_by_user.contains(path) {
+            return None;
+        }
+        self.agreement(path, analysis)
+    }
+
     /// The difference between the tags and the detected key that makes the
     /// track worth a look, or `None` when they agree, either is missing or
     /// the user set the key by hand.
     pub fn conflict(&self, path: &Path, analysis: &TrackAnalysis) -> Option<KeyDifference> {
-        if self.key_set_by_user.contains(path) {
-            return None;
-        }
-        match self.agreement(path, analysis)? {
+        match self.compared(path, analysis)? {
             TagKeyAgreement::Differs(difference) => Some(difference),
             TagKeyAgreement::Same | TagKeyAgreement::Unreadable => None,
         }

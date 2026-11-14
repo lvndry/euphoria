@@ -501,16 +501,16 @@ pub fn write_analysis_summary(
     let failure_count = results.len() - analyses.len();
     let mut hints: Vec<String> = Vec::new();
     let mut review_hint_given = false;
+    let has_conflicts = results.iter().any(|result| {
+        result
+            .outcome
+            .as_ref()
+            .is_ok_and(|analysis| tag_keys.conflict(&result.path, analysis).is_some())
+    });
 
     if narrowing.is_narrowed() {
         let mut reasons = Vec::new();
         if narrowing.needs_review {
-            let has_conflicts = results.iter().any(|result| {
-                result
-                    .outcome
-                    .as_ref()
-                    .is_ok_and(|analysis| tag_keys.conflict(&result.path, analysis).is_some())
-            });
             reasons.push(if has_conflicts {
                 "a key or tempo rated low confidence or a key that differs from the tags"
                     .to_string()
@@ -551,7 +551,12 @@ pub fn write_analysis_summary(
                 theme.caution("●○○")
             )?;
             if !narrowing.needs_review {
-                hints.push("--needs-review lists only the tracks to check by ear.".to_string());
+                hints.push(if has_conflicts {
+                    "--needs-review lists only the tracks to check by ear, with those whose tags name another key."
+                        .to_string()
+                } else {
+                    "--needs-review lists only the tracks to check by ear.".to_string()
+                });
                 review_hint_given = true;
             }
         }
@@ -561,27 +566,32 @@ pub fn write_analysis_summary(
         .iter()
         .filter_map(|result| Some((result.path.as_path(), result.outcome.as_ref().ok()?)))
         .collect();
-    let compared_count = analyzed
+    let agreements: Vec<TagKeyAgreement> = analyzed
         .iter()
-        .filter(|(path, analysis)| tag_keys.agreement(path, analysis).is_some())
-        .count();
+        .filter_map(|(path, analysis)| tag_keys.compared(path, analysis))
+        .collect();
+    let compared_count = agreements.len();
     if compared_count > 0 {
-        let conflicts: Vec<KeyDifference> = analyzed
+        let conflicts: Vec<KeyDifference> = agreements
             .iter()
-            .filter_map(|(path, analysis)| tag_keys.conflict(path, analysis))
-            .collect();
-        let unreadable_count = analyzed
-            .iter()
-            .filter(|(path, analysis)| {
-                tag_keys.agreement(path, analysis) == Some(TagKeyAgreement::Unreadable)
+            .filter_map(|agreement| match agreement {
+                TagKeyAgreement::Differs(difference) => Some(*difference),
+                TagKeyAgreement::Same | TagKeyAgreement::Unreadable => None,
             })
-            .count();
-        let readable_count = compared_count - unreadable_count;
-        if conflicts.is_empty() && readable_count > 0 {
+            .collect();
+        let count_of = |wanted: TagKeyAgreement| {
+            agreements
+                .iter()
+                .filter(|agreement| **agreement == wanted)
+                .count()
+        };
+        let same_count = count_of(TagKeyAgreement::Same);
+        let unreadable_count = count_of(TagKeyAgreement::Unreadable);
+        if conflicts.is_empty() && same_count > 0 {
             writeln!(
                 writer,
                 "Tag keys: the key in the tags of {} matches the detected key.",
-                counted(readable_count, "track", "tracks")
+                counted(same_count, "track", "tracks")
             )?;
         } else if !conflicts.is_empty() {
             let kinds: Vec<String> = KeyDifference::ALL
@@ -1851,6 +1861,57 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert!(
             summary
                 .contains("1 track has a key field Euphoria cannot read; --json shows its text."),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_neither_counted_as_matching_nor_as_differing() {
+        let low_tide = Path::new("music/low tide.flac");
+        let tag_keys = TagKeys::from_texts(&[(low_tide, "8B")]).with_key_set_by_user(low_tide);
+        let summary = summary_with(&confident_results(), &tag_keys);
+        assert!(!summary.contains("Tag keys"), "{summary}");
+    }
+
+    #[test]
+    fn a_key_the_user_set_is_left_out_of_the_counts_beside_other_tracks() {
+        let mut results = confident_results();
+        let copy = |name: &str| FileResult {
+            path: PathBuf::from(name),
+            outcome: Ok(results[0].outcome.as_ref().unwrap().clone()),
+        };
+        let agrees = copy("music/agrees.flac");
+        let differs = copy("music/differs.flac");
+        results.push(agrees);
+        results.push(differs);
+        let low_tide = Path::new("music/low tide.flac");
+
+        let only_agreeing =
+            TagKeys::from_texts(&[(low_tide, "8B"), (Path::new("music/agrees.flac"), "8A")])
+                .with_key_set_by_user(low_tide);
+        let summary = summary_with(&results, &only_agreeing);
+        assert!(
+            summary.contains("Tag keys: the key in the tags of 1 track matches the detected key."),
+            "{summary}"
+        );
+
+        let with_a_conflict = TagKeys::from_texts(&[
+            (low_tide, "8B"),
+            (Path::new("music/agrees.flac"), "8A"),
+            (Path::new("music/differs.flac"), "9A"),
+        ])
+        .with_key_set_by_user(low_tide);
+        let summary = summary_with(&results, &with_a_conflict);
+        assert!(
+            summary.contains(
+                "Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1 a fifth apart)."
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains(
+                "hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key."
+            ),
             "{summary}"
         );
     }
