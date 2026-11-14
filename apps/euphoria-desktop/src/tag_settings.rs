@@ -200,6 +200,10 @@ pub(crate) struct TagSettings {
     pub(crate) replace_existing: bool,
     /// Whether a key or tempo rated low confidence is written.
     pub(crate) include_low_confidence: bool,
+    /// Whether each track's key and tempo are written into its file once
+    /// its analysis finishes. Off until chosen, since it changes files DJ
+    /// programs read.
+    pub(crate) write_after_analysis: bool,
     pub(crate) schema: u32,
 }
 
@@ -213,6 +217,7 @@ struct StoredTagSettings {
     write_cue_markers: bool,
     replace_existing: bool,
     include_low_confidence: bool,
+    write_after_analysis: bool,
     schema: u32,
 }
 
@@ -227,6 +232,7 @@ impl Default for StoredTagSettings {
             write_cue_markers: current.write_cue_markers,
             replace_existing: current.replace_existing,
             include_low_confidence: current.include_low_confidence,
+            write_after_analysis: current.write_after_analysis,
             schema: 0,
         }
     }
@@ -253,6 +259,7 @@ impl From<StoredTagSettings> for TagSettings {
             write_cue_markers: stored.write_cue_markers,
             replace_existing: stored.replace_existing,
             include_low_confidence: stored.include_low_confidence,
+            write_after_analysis: stored.write_after_analysis,
             schema: CURRENT_SCHEMA,
         }
     }
@@ -270,6 +277,7 @@ impl Default for TagSettings {
             write_cue_markers: false,
             replace_existing: false,
             include_low_confidence: false,
+            write_after_analysis: false,
             schema: CURRENT_SCHEMA,
         }
     }
@@ -447,7 +455,8 @@ mod tests {
             concat!(
                 r#"{"program":"virtualdj","key_notation":"open-key","#,
                 r#""label":"comment-end","write_tempo":true,"write_cue_markers":true,"#,
-                r#""replace_existing":false,"include_low_confidence":false,"schema":1}"#
+                r#""replace_existing":false,"include_low_confidence":false,"#,
+                r#""write_after_analysis":false,"schema":1}"#
             )
         );
         let engine: TagSettings = serde_json::from_str(r#"{"program":"engine-dj"}"#).unwrap();
@@ -457,6 +466,27 @@ mod tests {
         assert!(
             !engine.write_cue_markers,
             "a setting that was not there takes its default"
+        );
+    }
+
+    #[test]
+    fn writing_after_analysis_is_off_for_old_files_and_remembered_once_chosen() {
+        let old: TagSettings = serde_json::from_str(
+            r#"{"program":"rekordbox","replace_existing":true,"include_low_confidence":false,"schema":1}"#,
+        )
+        .unwrap();
+        assert!(!old.write_after_analysis);
+        assert!(old.replace_existing, "the other choices survive");
+        assert!(!TagSettings::default().write_after_analysis);
+
+        let chosen = TagSettings {
+            write_after_analysis: true,
+            ..TagSettings::default()
+        };
+        let stored = serde_json::to_string(&chosen).unwrap();
+        assert_eq!(
+            serde_json::from_str::<TagSettings>(&stored).unwrap(),
+            chosen
         );
     }
 }

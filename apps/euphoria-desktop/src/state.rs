@@ -121,6 +121,7 @@ pub(crate) struct Session {
     events: Receiver<AnalysisEvent>,
     cache: Option<Arc<CachedAnalyzer>>,
     cached_count: usize,
+    fresh_analyses: Vec<PathBuf>,
     cache_problem: Option<String>,
     playlists: Playlists,
     favorites: Favorites,
@@ -287,6 +288,7 @@ impl Session {
             events,
             cache,
             cached_count: 0,
+            fresh_analyses: Vec::new(),
             cache_problem: None,
             playlists: Playlists::default(),
             favorites: Favorites::default(),
@@ -473,6 +475,12 @@ impl Session {
         self.cache_problem.take()
     }
 
+    /// The files analyzed from scratch since the last call: not served from
+    /// the cache, and not failed.
+    pub(crate) fn take_fresh_analyses(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.fresh_analyses)
+    }
+
     /// The signal that stops the workers.
     pub(crate) fn stop_signal(&self) -> StopSignal {
         self.workers.stop_signal()
@@ -585,6 +593,9 @@ impl Session {
             }
             AnalysisEvent::Finished(file) => *file,
         };
+        if !file.from_cache && file.outcome.is_ok() {
+            self.fresh_analyses.push(file.path.clone());
+        }
         self.library.record_outcome(&file.path, file.outcome);
         self.progress.finish_one();
         if file.from_cache {
@@ -1042,6 +1053,35 @@ mod tests {
         );
         assert_eq!(status_of(&session, &second), TrackStatus::Queued);
         assert_eq!(session.progress().label().as_deref(), Some("1 of 2 done"));
+    }
+
+    #[test]
+    fn only_new_analysis_is_reported_as_fresh_not_cached_or_failed_results() {
+        let mut session = Session::start(None).unwrap();
+        session.stop_signal().skip_queued_files();
+        let paths: Vec<PathBuf> = ["cached", "fresh", "failed"]
+            .iter()
+            .map(|name| PathBuf::from(format!("/music/{name}.mp3")))
+            .collect();
+        session.add(Scan {
+            files: paths.clone(),
+            ..Scan::default()
+        });
+        let finish = |session: &mut Session, path: &Path, outcome, from_cache| {
+            session.apply(AnalysisEvent::Finished(Box::new(FinishedFile {
+                path: path.to_path_buf(),
+                outcome,
+                from_cache,
+                cache_problem: None,
+            })));
+        };
+        let analysis = crate::tag_writing::testing::analysis();
+        finish(&mut session, &paths[0], Ok(analysis.clone()), true);
+        finish(&mut session, &paths[2], Err("broken".into()), false);
+        assert!(session.take_fresh_analyses().is_empty());
+        finish(&mut session, &paths[1], Ok(analysis), false);
+        assert_eq!(session.take_fresh_analyses(), vec![paths[1].clone()]);
+        assert!(session.take_fresh_analyses().is_empty());
     }
 
     #[test]

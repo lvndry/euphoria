@@ -11,6 +11,7 @@ mod actions;
 mod analysis;
 mod app;
 mod assets;
+mod auto_tags;
 mod busy;
 #[cfg(test)]
 mod busy_ui_tests;
