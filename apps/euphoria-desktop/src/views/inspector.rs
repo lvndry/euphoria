@@ -22,6 +22,7 @@ use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
 use crate::decks::SuggestionScope;
 use crate::format;
+use crate::inspector_sections::SectionKind;
 use crate::library::{Track, TrackStatus};
 use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
@@ -30,6 +31,7 @@ use crate::track_overview::{key_stretches, shows_key_timeline};
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::favorites::star_button;
+use crate::views::inspector_section;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::player::{self, seek_on_press_and_drag};
@@ -42,6 +44,17 @@ use crate::views::wheel::{
 };
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
+
+/// The width of the title column of the Deck strip: room for a title on one
+/// line, with an ellipsis and the full name on hover beyond it.
+pub(crate) const STRIP_TITLE_COLUMN: f32 = 220.0;
+
+/// The width of the key, tempo and energy boxes in the Deck strip, room for
+/// "per minute" and "C# minor" whole.
+const STRIP_STATISTICS_WIDTH: f32 = 264.0;
+
+/// The width of the last area of the strip: the tabs over the section they show.
+const STRIP_SECTION_WIDTH: f32 = 272.0;
 
 /// Space around the contents of the inspector.
 const PADDING: f32 = 16.0;
@@ -144,8 +157,7 @@ pub(crate) fn render(
             .h(strip_height)
             .items_start()
             .gap(px(24.0))
-            .border_t_1()
-            .overflow_x_scroll(),
+            .border_t_1(),
     }
     .p(px(PADDING))
     .bg(palette.panel)
@@ -189,36 +201,95 @@ pub(crate) fn render(
         .flatten()
         .map(|section| sized(divided(section), Some(room.wheel_size())));
 
-    container
-        .child(sized(
-            summary(track, &palette)
-                .child(div().flex_1())
-                .child(focus_button(app, cx))
-                .child(track_star(app, cx)),
-            Some(220.0),
-        ))
+    let header = if is_column {
+        summary(track, app, cx)
+    } else {
+        strip_summary(track, app, cx)
+    };
+    let (top, strip_frame) = if is_column {
+        (container, None)
+    } else {
+        (
+            div()
+                .id("inspector-strip")
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .items_start()
+                .gap(px(24.0))
+                .overflow_x_scroll(),
+            Some(container),
+        )
+    };
+    let top = top
+        .child(sized(header, Some(STRIP_TITLE_COLUMN + 4.0)))
         .children(review::section(track, app, cx).map(|section| sized(section, Some(300.0))))
-        .child(sized(statistics(track, app, cx), Some(264.0)))
+        .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
+        .child(sized(
+            statistics(track, app, cx),
+            Some(STRIP_STATISTICS_WIDTH),
+        ))
         .children(strip_wheel)
-        .child(sized(stems::section(track, app, cx), None))
-        .children(
-            by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
-        )
-        .children(
-            key_shift::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
-        )
         .child(sized(waveform_section(track, app, room, cx), None))
         .children(
             cue_section(track, app, room, cx).map(|section| sized(divided(section), Some(280.0))),
-        )
-        .children(status(track, &palette).map(|section| sized(divided(section), Some(280.0))))
-        .children(quality(track, &palette).map(|section| sized(divided(section), Some(280.0))))
-        .children(mixes(app, room, cx).map(|section| sized(divided(section), Some(300.0))))
-        .when(is_column, |inspector| {
-            inspector.child(divided(location(track, &palette)))
+        );
+
+    if let Some(frame) = strip_frame {
+        let shown = app.strip_section_shown();
+        let content = section_body(shown, track, app, room, cx);
+        return frame
+            .child(top)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_shrink_0()
+                    .w(px(STRIP_SECTION_WIDTH))
+                    .h_full()
+                    .gap(px(8.0))
+                    .child(inspector_section::tabs(app, shown, cx))
+                    .child(
+                        div()
+                            .id("strip-section")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .children(content),
+                    ),
+            )
+            .test_support()
+            .into_any_element();
+    }
+
+    SectionKind::ALL
+        .into_iter()
+        .fold(top, |inspector, kind| {
+            let body = section_body(kind, track, app, room, cx);
+            inspector.children(inspector_section::collapsible(kind, app, body, cx).map(divided))
         })
         .test_support()
         .into_any_element()
+}
+
+/// The contents of the section `kind` for `track`, or nothing when the
+/// track has none.
+fn section_body(
+    kind: SectionKind,
+    track: &Track,
+    app: &EuphoriaApp,
+    room: Room,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<Div> {
+    match kind {
+        SectionKind::Mixes => mixes(app, room, cx),
+        SectionKind::ByEar => by_ear::section(track, app, cx),
+        SectionKind::KeyShift => key_shift::section(track, app, cx),
+        SectionKind::Stems => Some(stems::section(track, app, cx)),
+        SectionKind::Quality => quality(track, &app.theme.palette),
+        SectionKind::Location => Some(location(track, &app.theme.palette)),
+    }
 }
 
 /// The button that gives the selected track the whole window.
@@ -278,12 +349,31 @@ fn track_star(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl Into
     .test_support()
 }
 
-/// Cover placeholder, file name, folder and format.
-fn summary(track: &Track, palette: &Palette) -> Div {
-    let format_and_length = match track.duration_seconds() {
+/// The format and the length of a track, in one line.
+fn format_and_length(track: &Track) -> String {
+    match track.duration_seconds() {
         Some(seconds) => format!("{}, {}", track.format, format::duration(seconds)),
         None => track.format.clone(),
-    };
+    }
+}
+
+/// The name of the track, with the whole of it on hover.
+fn title_line(track: &Track, fit: impl FnOnce(Stateful<Div>) -> Stateful<Div>) -> impl IntoElement {
+    let full_title: SharedString = track.title().to_string().into();
+    let tooltip_title = full_title.clone();
+    fit(div()
+        .id("inspector-title")
+        .text_size(px(15.0))
+        .font_weight(FontWeight::SEMIBOLD)
+        .tooltip(move |window, cx| Tooltip::new(tooltip_title.clone()).build(window, cx))
+        .child(full_title))
+    .test_support()
+}
+
+/// Cover placeholder, file name, folder and format, with the Focus button
+/// and the star.
+fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let palette = &app.theme.palette;
     div()
         .flex()
         .items_center()
@@ -312,13 +402,7 @@ fn summary(track: &Track, palette: &Palette) -> Div {
                 .flex_col()
                 .min_w_0()
                 .gap(px(2.0))
-                .child(
-                    div()
-                        .text_size(px(15.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_clamp(2)
-                        .child(track.title().to_string()),
-                )
+                .child(title_line(track, |title| title.line_clamp(2)))
                 .child(
                     div()
                         .truncate()
@@ -329,8 +413,46 @@ fn summary(track: &Track, palette: &Palette) -> Div {
                     div()
                         .text_size(SMALL_TEXT_SIZE)
                         .text_color(palette.text_tertiary)
-                        .child(format_and_length),
+                        .child(format_and_length(track)),
                 ),
+        )
+        .child(div().flex_1())
+        .child(focus_button(app, cx))
+        .child(track_star(app, cx))
+}
+
+/// The header of the Deck strip: the title on one line in a column that
+/// stays wide enough to read, the artist, the format and the buttons.
+fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let palette = &app.theme.palette;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .min_w(px(STRIP_TITLE_COLUMN))
+        .child(title_line(track, |title| title.w_full().truncate()))
+        .child(
+            div()
+                .truncate()
+                .text_color(palette.text_secondary)
+                .child(track.artist.clone().unwrap_or_else(|| track.folder.clone())),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_tertiary)
+                        .child(format_and_length(track)),
+                )
+                .child(focus_button(app, cx))
+                .child(track_star(app, cx)),
         )
 }
 
@@ -652,7 +774,7 @@ fn statistic_value(value: impl Into<SharedString>) -> Div {
 /// The quiet line under the value of a box.
 fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
     div()
-        .truncate()
+        .whitespace_nowrap()
         .text_size(LABEL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
         .child(text.into())
@@ -685,6 +807,7 @@ fn confidence_word(
     };
     div()
         .id(id)
+        .whitespace_nowrap()
         .text_color(colour)
         .child(confidence.as_str())
         .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
@@ -727,8 +850,47 @@ fn reset_note(
         .into_any_element()
 }
 
-/// One box: its label, with how far to trust the value beside it, the
-/// value, and a quiet note under it.
+/// The label of a statistic, which never wraps.
+fn statistic_label(label: &'static str, palette: &Palette) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("statistic-label-{label}")))
+        .whitespace_nowrap()
+        .text_size(LABEL_TEXT_SIZE)
+        .text_color(palette.text_tertiary)
+        .child(label)
+        .test_support()
+}
+
+/// The quiet note of a statistic, whole: a unit or a key name is never cut.
+fn statistic_note(label: &'static str, note: AnyElement) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("statistic-note-{label}")))
+        .flex()
+        .flex_shrink_0()
+        .whitespace_nowrap()
+        .child(note)
+        .test_support()
+}
+
+/// How far to trust a statistic, in a word of its own under the value.
+fn statistic_trust(
+    label: &'static str,
+    trust: Option<AnyElement>,
+) -> impl Iterator<Item = impl IntoElement> {
+    trust.into_iter().map(move |trust| {
+        div()
+            .id(SharedString::from(format!("statistic-trust-{label}")))
+            .flex()
+            .flex_shrink_0()
+            .whitespace_nowrap()
+            .text_size(LABEL_TEXT_SIZE)
+            .child(trust)
+            .test_support()
+    })
+}
+
+/// One box: its label, the value, a quiet note under it, and under that
+/// how far to trust the value.
 fn statistic(
     label: &'static str,
     trust: Option<AnyElement>,
@@ -740,30 +902,26 @@ fn statistic(
         .flex()
         .flex_col()
         .flex_1()
-        .min_w_0()
+        .min_w(px(STATISTIC_CELL_WIDTH))
         .gap(px(2.0))
         .px(px(12.0))
         .py(px(10.0))
-        .child(
-            div()
-                .flex()
-                .justify_between()
-                .gap(px(6.0))
-                .text_size(LABEL_TEXT_SIZE)
-                .text_color(palette.text_tertiary)
-                .child(label)
-                .children(trust),
-        )
+        .child(statistic_label(label, palette))
         .child(value)
-        .child(note)
+        .child(statistic_note(label, note))
+        .children(statistic_trust(label, trust))
 }
 
 /// Width of the label column of the compact statistics, room for the
 /// longest label ("Energy") at its size.
 const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 
-/// One line of the column: the label, the value, its note, and how far to
-/// trust the value, so the three lines are as tall as the wheel beside them.
+/// The least width of a box of the strip, room for "per minute" and
+/// "C# minor" at their size beside the padding.
+const STATISTIC_CELL_WIDTH: f32 = 84.0;
+
+/// One line of the column: the label, and beside it the value with its
+/// note under it and under that how far to trust the value.
 fn statistic_compact(
     label: &'static str,
     trust: Option<AnyElement>,
@@ -777,21 +935,22 @@ fn statistic_compact(
         .gap(px(6.0))
         .min_w_0()
         .px(px(8.0))
-        .py(px(3.0))
+        .py(px(4.0))
         .child(
             div()
-                .id(SharedString::from(format!("statistic-label-{label}")))
                 .w(px(STATISTIC_LABEL_WIDTH))
                 .flex_shrink_0()
-                .whitespace_nowrap()
-                .text_size(LABEL_TEXT_SIZE)
-                .text_color(palette.text_tertiary)
-                .child(label)
-                .test_support(),
+                .child(statistic_label(label, palette)),
         )
-        .child(value)
-        .child(div().flex_1().min_w_0().overflow_hidden().child(note))
-        .children(trust.map(|trust| div().flex_shrink_0().child(trust)))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_shrink_0()
+                .child(value)
+                .child(statistic_note(label, note))
+                .children(statistic_trust(label, trust)),
+        )
 }
 
 /// The waveform, which is also where to seek: a press or a drag on it moves
@@ -1097,7 +1256,6 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
             .flex()
             .flex_col()
             .gap(px(4.0))
-            .child(section_label("Mixes well with", &palette).pb(px(4.0)))
             .when(is_narrowed, |section| {
                 section.child(reset_note(
                     "mixes-filter",
@@ -1221,7 +1379,6 @@ fn quality(track: &Track, palette: &Palette) -> Option<Div> {
             .flex()
             .flex_col()
             .gap(px(6.0))
-            .child(section_label("Sound quality", palette))
             .child(
                 div()
                     .font_weight(FontWeight::MEDIUM)
@@ -1249,15 +1406,10 @@ fn quality(track: &Track, palette: &Palette) -> Option<Div> {
 
 /// Where the file is on disk.
 fn location(track: &Track, palette: &Palette) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.0))
-        .child(section_label("Location", palette))
-        .child(
-            div()
-                .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.text_secondary)
-                .child(track.path.to_string_lossy().into_owned()),
-        )
+    div().flex().flex_col().gap(px(8.0)).child(
+        div()
+            .text_size(SMALL_TEXT_SIZE)
+            .text_color(palette.text_secondary)
+            .child(track.path.to_string_lossy().into_owned()),
+    )
 }

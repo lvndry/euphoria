@@ -37,6 +37,7 @@ mod focus;
 mod focus_ui_tests;
 mod folder_tree;
 mod format;
+mod inspector_sections;
 mod key_by_ear;
 mod key_shift;
 mod label_preview;
@@ -62,6 +63,9 @@ mod peaks;
 mod planner_ui_tests;
 mod playback;
 mod player;
+mod player_wave;
+#[cfg(test)]
+mod player_wave_ui_tests;
 mod playlist_flow;
 mod playlists;
 mod progress;

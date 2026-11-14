@@ -12,6 +12,7 @@ pub(crate) mod empty_state;
 pub(crate) mod favorites;
 pub(crate) mod focus;
 pub(crate) mod inspector;
+pub(crate) mod inspector_section;
 pub(crate) mod key_chip;
 pub(crate) mod key_shift;
 pub(crate) mod library_export_panel;
