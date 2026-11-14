@@ -93,7 +93,8 @@ impl TagFormat {
         }
     }
 
-    fn comment_fields(self) -> &'static [&'static str] {
+    /// The fields that hold a comment, the first being the one written.
+    pub fn comment_fields(self) -> &'static [&'static str] {
         match self {
             TagFormat::Id3v2 => &[ID3_COMMENT, riff_info::COMMENT],
             TagFormat::Mp4 => &["©cmt"],
@@ -101,7 +102,8 @@ impl TagFormat {
         }
     }
 
-    fn grouping_fields(self) -> &'static [&'static str] {
+    /// The fields that hold a grouping, the first being the one written.
+    pub fn grouping_fields(self) -> &'static [&'static str] {
         match self {
             TagFormat::Id3v2 => &["TIT1", "GRP1"],
             TagFormat::Mp4 => &["©grp"],

@@ -68,6 +68,8 @@ Writing again never adds a second label. When the key or the energy changed, for
 
 Only text that has exactly the form of a label counts as one: a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`, `1m - Energy 7`), at the very start of the comment and followed by ` - ` or by nothing. Everything else is your own text and is kept, including comments such as `A - side`, `Am - my favourite`, `8A-side remix` and `High Energy 7`. A comment of your own that begins with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its `8A` is replaced by the new label.
 
+In the desktop app, **Settings > Writing tags** shows a box titled **In your files** under the label choices. It shows, for the selected track or a built-in example, the fields that would change and where the label ends up, and it updates as soon as you change the program, the notation, the label place, the tempo or the replace and low confidence choices. It is the same plan **Write tags** shows, so a key a file already has appears as "kept (already tagged 8A)" when replacing is off. Nothing is written from it.
+
 ### Choose where the label goes
 
 | Option | Result |

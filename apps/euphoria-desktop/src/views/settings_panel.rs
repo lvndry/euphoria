@@ -244,6 +244,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                     div().flex().flex_wrap().gap(px(6.0)).children(places),
                     &palette,
                 ))
+                .child(label_preview_box(app, &palette))
                 .child(setting(
                     "Tempo",
                     tempo_hint,
@@ -438,4 +439,96 @@ fn setting(
                 .child(hint),
         )
         .child(choices)
+}
+
+/// The box under the label choices: what the choices write to one track.
+fn label_preview_box(app: &EuphoriaApp, palette: &Palette) -> impl IntoElement {
+    let preview = app.label_preview.as_ref();
+    let rows = preview.into_iter().flat_map(|preview| {
+        preview.fields.iter().enumerate().map(|(index, field)| {
+            let value = div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_wrap()
+                .child(field.before.clone())
+                .child(
+                    div()
+                        .id(("label-preview-label", index))
+                        .text_color(palette.accent)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(field.label.clone())
+                        .test_support(),
+                )
+                .child(field.after.clone());
+            div()
+                .id(("label-preview-field", index))
+                .flex()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .w(px(84.0))
+                        .flex_shrink_0()
+                        .text_color(palette.text_secondary)
+                        .child(format!("{}:", field.name)),
+                )
+                .child(value)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(palette.text_tertiary)
+                        .child(field.tag.clone()),
+                )
+                .test_support()
+        })
+    });
+    let notes = preview.into_iter().flat_map(|preview| {
+        preview.notes.iter().enumerate().map(|(index, note)| {
+            div()
+                .id(("label-preview-note", index))
+                .text_color(palette.text_tertiary)
+                .child(note.clone())
+                .test_support()
+        })
+    });
+    let hints = preview.into_iter().flat_map(|preview| {
+        preview.cue_hints.iter().enumerate().map(|(index, hint)| {
+            div()
+                .id(("label-preview-hint", index))
+                .text_color(palette.text_secondary)
+                .child(hint.clone())
+                .test_support()
+        })
+    });
+    div()
+        .id("label-preview")
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .p(px(10.0))
+        .rounded(px(6.0))
+        .bg(palette.raised)
+        .text_size(SMALL_TEXT_SIZE)
+        .child(
+            div()
+                .flex()
+                .justify_between()
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(palette.text)
+                        .child("In your files"),
+                )
+                .children(preview.map(|preview| {
+                    div()
+                        .id("label-preview-source")
+                        .text_color(palette.text_tertiary)
+                        .child(preview.source.caption())
+                        .test_support()
+                })),
+        )
+        .children(rows)
+        .children(notes)
+        .children(hints)
+        .test_support()
 }
