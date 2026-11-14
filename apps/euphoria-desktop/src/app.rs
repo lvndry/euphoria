@@ -35,7 +35,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
-use crate::track_overview::energy_curve_from;
+use crate::track_overview::{VocalLane, energy_curve_from, vocal_lane_from};
 use crate::views;
 use crate::views::waveform::SeenBounds;
 use crate::waveforms::{WAVEFORM_CAPACITY, Waveform, WaveformCache};
@@ -226,6 +226,7 @@ pub(crate) struct EuphoriaApp {
     pub(crate) query: String,
     settings_path: Option<PathBuf>,
     waveforms: WaveformCache,
+    vocal_lanes: HashMap<PathBuf, VocalLane>,
     waveform_task: Option<Task<()>>,
     /// The file the waveform task is decoding.
     waveform_task_path: Option<PathBuf>,
@@ -445,6 +446,7 @@ impl EuphoriaApp {
             query: String::new(),
             settings_path,
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
+            vocal_lanes: HashMap::new(),
             waveform_task: None,
             waveform_task_path: None,
             is_collecting: false,
@@ -1640,6 +1642,7 @@ impl EuphoriaApp {
         if let Err(problem) = self.stems.remove(&path) {
             self.report(format!("Could not remove the stems: {problem}"));
         }
+        self.vocal_lanes.insert(path.clone(), VocalLane::NoStems);
         self.stems_changed(cx);
         self.decks.stem_library.recheck(&path);
         cx.notify();
@@ -1652,6 +1655,11 @@ impl EuphoriaApp {
             return;
         };
         let path = track.path.clone();
+        self.request_stems_of(path, cx);
+    }
+
+    /// Asks the stems of the track at `path` to be separated.
+    pub(crate) fn request_stems_of(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
         if self.stems.start(&path) {
             cx.spawn(async move |this, cx| {
                 loop {
@@ -1665,6 +1673,7 @@ impl EuphoriaApp {
                                 this.stems_changed(cx);
                             }
                             this.decks.stem_library.recheck(&path);
+                            this.load_vocal_lane(path.clone(), cx);
                             if this.decks.is_open
                                 && this.decks.mode == crate::decks::DeckMode::Mashup
                             {
@@ -1987,6 +1996,51 @@ impl EuphoriaApp {
         self.waveforms.get(path)
     }
 
+    /// The vocals lane of the track at `path`: where the vocals are, once
+    /// its stems have been found and measured.
+    pub(crate) fn vocal_lane_of(&self, path: &Path) -> &VocalLane {
+        self.vocal_lanes.get(path).unwrap_or(&VocalLane::Checking)
+    }
+
+    /// Shows `lane` as the vocals lane of the track at `path`.
+    #[cfg(test)]
+    pub(crate) fn show_vocal_lane(&mut self, path: PathBuf, lane: VocalLane) {
+        self.vocal_lanes.insert(path, lane);
+    }
+
+    /// Looks for the stems of the track at `path`, in this session and in
+    /// the stem cache, and measures where the vocals are in them, off the
+    /// main thread. Measuring is done once: the result is kept with the
+    /// stems. Separation is never started from here.
+    pub(crate) fn load_vocal_lane(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        if !matches!(self.vocal_lanes.get(&path), Some(VocalLane::Ready(_))) {
+            self.vocal_lanes.insert(path.clone(), VocalLane::Checking);
+        }
+        let session_files = self.stems.ready_files(&path);
+        let analyzer = self.session.cache();
+        cx.spawn(async move |this, cx| {
+            let lane_path = path.clone();
+            let lane = cx
+                .background_executor()
+                .spawn(async move {
+                    let files = session_files.or_else(|| {
+                        let content = analyzer.as_ref()?.known_content(&lane_path)?;
+                        euphoria_core::stems::StemCache::open_default()
+                            .ok()?
+                            .cached(&content)
+                    });
+                    vocal_lane_from(files)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.vocal_lanes.insert(path, lane);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Loads the waveform of the track on a deck, when it is not loaded
     /// already.
     pub(crate) fn load_deck_waveform(
@@ -2062,6 +2116,7 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.waveforms.set_energy(&path, curve);
+                this.load_vocal_lane(path, cx);
                 cx.notify();
             })
             .ok();

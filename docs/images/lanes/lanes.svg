@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="330" viewBox="0 0 800 330" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">The Energy and Vocals lanes under a waveform</title>
+<desc id="chart-desc">A two minute track drawn as a waveform with two lanes under it, as wide as the waveform. The Energy lane has a bar for every 4 seconds as tall as its rating from 1 to 10; it falls to 1 in a breakdown around 40 to 60 seconds and is back at 10 at the drop. The Vocals lane is filled from 0:08 to 0:38 and from 1:04 to 1:44, and empty in between. Two labels show what pointing shows: Energy 1 at 0:48 over the breakdown, and Vocals from 1:04 to 1:44.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.series-line { stroke: #2a78d6; stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-wash { fill: #2a78d6; fill-opacity: 0.10; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .series-line { stroke: #3987e5; }
+  .series-fill, .series-wash { fill: #3987e5; }
+  .ring { stroke: #1a1a19; }
+}
+
+.lane-back { fill: #e1e0d9; fill-opacity: 0.55; }
+.wave { fill: #898781; fill-opacity: 0.55; }
+.energy-bar { fill: #2a78d6; fill-opacity: 0.7; }
+.vocal-fill { fill: #2a78d6; fill-opacity: 0.7; }
+.lane-name { fill: #52514e; font-size: 11px; }
+.bubble { fill: #0b0b0b; }
+.bubble-text { fill: #fcfcfb; font-size: 12px; }
+.pointer { stroke: #0b0b0b; stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+.threshold { stroke: #c4472f; stroke-width: 1.5; fill: none; }
+.threshold-label { fill: #c4472f; font-size: 13px; }
+.level-fill { fill: #898781; }
+.level-voice { fill: #2a78d6; }
+@media (prefers-color-scheme: dark) {
+  .lane-back { fill: #383835; fill-opacity: 0.8; }
+  .wave { fill: #c3c2b7; fill-opacity: 0.5; }
+  .energy-bar, .vocal-fill, .level-voice { fill: #3987e5; }
+  .lane-name { fill: #c3c2b7; }
+  .bubble { fill: #f0efec; }
+  .bubble-text { fill: #1a1a19; }
+  .pointer { stroke: #f0efec; }
+  .threshold, .threshold-label { stroke: #e8765f; }
+  .threshold-label { fill: #e8765f; stroke: none; }
+  .level-fill { fill: #898781; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="329" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">The lanes under the waveform</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Each lane is as wide as the waveform, so what is under a part of it belongs to it.</text>
+<rect x="75.2" y="165" width="21.4" height="30" class="wave"/>
+<rect x="97.6" y="165" width="21.4" height="30" class="wave"/>
+<rect x="120" y="165" width="21.4" height="30" class="wave"/>
+<rect x="142.4" y="166.2" width="21.4" height="27.6" class="wave"/>
+<rect x="164.8" y="167.4" width="21.4" height="25.2" class="wave"/>
+<rect x="187.2" y="167.4" width="21.4" height="25.2" class="wave"/>
+<rect x="209.6" y="168.6" width="21.4" height="22.8" class="wave"/>
+<rect x="232" y="168.6" width="21.4" height="22.8" class="wave"/>
+<rect x="254.4" y="168.6" width="21.4" height="22.8" class="wave"/>
+<rect x="276.8" y="175.8" width="21.4" height="8.4" class="wave"/>
+<rect x="299.2" y="175.8" width="21.4" height="8.4" class="wave"/>
+<rect x="321.6" y="175.8" width="21.4" height="8.4" class="wave"/>
+<rect x="344" y="175.8" width="21.4" height="8.4" class="wave"/>
+<rect x="366.4" y="175.8" width="21.4" height="8.4" class="wave"/>
+<rect x="388.8" y="174.6" width="21.4" height="10.8" class="wave"/>
+<rect x="411.2" y="165" width="21.4" height="30" class="wave"/>
+<rect x="433.6" y="165" width="21.4" height="30" class="wave"/>
+<rect x="456" y="165" width="21.4" height="30" class="wave"/>
+<rect x="478.4" y="165" width="21.4" height="30" class="wave"/>
+<rect x="500.8" y="165" width="21.4" height="30" class="wave"/>
+<rect x="523.2" y="165" width="21.4" height="30" class="wave"/>
+<rect x="545.6" y="165" width="21.4" height="30" class="wave"/>
+<rect x="568" y="165" width="21.4" height="30" class="wave"/>
+<rect x="590.4" y="165" width="21.4" height="30" class="wave"/>
+<rect x="612.8" y="165" width="21.4" height="30" class="wave"/>
+<rect x="635.2" y="167.4" width="21.4" height="25.2" class="wave"/>
+<rect x="657.6" y="166.2" width="21.4" height="27.6" class="wave"/>
+<rect x="680" y="165" width="21.4" height="30" class="wave"/>
+<rect x="702.4" y="165" width="21.4" height="30" class="wave"/>
+<text x="64" y="142" class="lane-name" text-anchor="start">Waveform</text>
+<rect x="64" y="218" width="672" height="30" rx="2" class="lane-back"/>
+<rect x="75.2" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="97.6" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="120" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="142.4" y="221" width="22.4" height="27" class="energy-bar"/>
+<rect x="164.8" y="224" width="22.4" height="24" class="energy-bar"/>
+<rect x="187.2" y="224" width="22.4" height="24" class="energy-bar"/>
+<rect x="209.6" y="227" width="22.4" height="21" class="energy-bar"/>
+<rect x="232" y="227" width="22.4" height="21" class="energy-bar"/>
+<rect x="254.4" y="227" width="22.4" height="21" class="energy-bar"/>
+<rect x="276.8" y="245" width="22.4" height="3" class="energy-bar"/>
+<rect x="299.2" y="245" width="22.4" height="3" class="energy-bar"/>
+<rect x="321.6" y="245" width="22.4" height="3" class="energy-bar"/>
+<rect x="344" y="245" width="22.4" height="3" class="energy-bar"/>
+<rect x="366.4" y="245" width="22.4" height="3" class="energy-bar"/>
+<rect x="388.8" y="242" width="22.4" height="6" class="energy-bar"/>
+<rect x="411.2" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="433.6" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="456" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="478.4" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="500.8" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="523.2" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="545.6" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="568" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="590.4" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="612.8" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="635.2" y="224" width="22.4" height="24" class="energy-bar"/>
+<rect x="657.6" y="221" width="22.4" height="27" class="energy-bar"/>
+<rect x="680" y="218" width="22.4" height="30" class="energy-bar"/>
+<rect x="702.4" y="218" width="22.4" height="30" class="energy-bar"/>
+<text x="68" y="229" class="lane-name" text-anchor="start">Energy</text>
+<rect x="64" y="254" width="672" height="14" rx="2" class="lane-back"/>
+<rect x="108.8" y="254" width="168" height="14" class="vocal-fill"/>
+<rect x="422.4" y="254" width="224" height="14" class="vocal-fill"/>
+<text x="68" y="264" class="lane-name" text-anchor="start">Vocals</text>
+<text x="64" y="288" class="tick" text-anchor="middle">0:00</text>
+<text x="176" y="288" class="tick" text-anchor="middle">0:20</text>
+<text x="288" y="288" class="tick" text-anchor="middle">0:40</text>
+<text x="400" y="288" class="tick" text-anchor="middle">1:00</text>
+<text x="512" y="288" class="tick" text-anchor="middle">1:20</text>
+<text x="624" y="288" class="tick" text-anchor="middle">1:40</text>
+<text x="736" y="288" class="tick" text-anchor="middle">2:00</text>
+<line x1="332.8" y1="116" x2="332.8" y2="244" class="pointer"/>
+<rect x="258.8" y="92" width="148" height="24" rx="6" class="bubble"/>
+<text x="332.8" y="108" class="bubble-text" text-anchor="middle">Energy 1 at 0:48</text>
+<line x1="545.6" y1="148" x2="545.6" y2="260" class="pointer"/>
+<rect x="439.6" y="124" width="212" height="24" rx="6" class="bubble"/>
+<text x="545.6" y="140" class="bubble-text" text-anchor="middle">Vocals from 1:04 to 1:44</text>
+</svg>
