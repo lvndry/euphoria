@@ -1,0 +1,14 @@
+# Packages for benchmark_models.py, installed unpinned with: uv pip install -r scripts/stems/requirements-benchmark.txt
+demucs
+torch
+torchaudio
+soundfile
+numpy
+museval
+pyyaml
+einops
+rotary-embedding-torch
+librosa
+onnx
+onnxruntime
+beartype
