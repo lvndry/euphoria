@@ -33,7 +33,7 @@ use spectrogram::{
 
 pub use cache::{DEFAULT_STEM_CACHE_LIMIT_BYTES, STEM_CACHE_LIMIT_VARIABLE, StemCache, StemFiles};
 pub use model::{WEIGHTS_BYTES, WEIGHTS_SHA256, WEIGHTS_URL, default_weights_path};
-pub use profile::profile_stems;
+pub use profile::{StemActivity, profile_stems, stem_activity};
 
 /// The sample rate of separated stems, the rate htdemucs was trained at.
 pub const STEMS_SAMPLE_RATE: u32 = 44_100;
