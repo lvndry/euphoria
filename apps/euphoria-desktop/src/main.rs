@@ -40,6 +40,8 @@ mod missing_ui_tests;
 mod mixes;
 mod panels;
 mod peaks;
+#[cfg(test)]
+mod planner_ui_tests;
 mod playback;
 mod player;
 mod playlist_flow;
@@ -65,6 +67,7 @@ mod tag_settings;
 mod tag_writing;
 mod theme;
 mod track_overview;
+mod transition_plan;
 #[cfg(test)]
 mod ui_tests;
 mod views;

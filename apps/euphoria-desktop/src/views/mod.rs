@@ -18,6 +18,7 @@ pub(crate) mod logo;
 pub(crate) mod mashup;
 pub(crate) mod notice;
 pub(crate) mod panel_edge;
+pub(crate) mod planner;
 pub(crate) mod player;
 pub(crate) mod playlists;
 pub(crate) mod set_builder;

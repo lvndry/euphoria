@@ -462,6 +462,8 @@ pub(crate) struct FocusView {
     /// Where the overview was last drawn.
     pub(crate) overview_bounds: SeenBounds,
     pub(crate) is_moving_window: bool,
+    /// The list of tracks mixed into, to tell which rows are in view.
+    pub(crate) mixes_scroll: gpui::ScrollHandle,
     stems: HashMap<PathBuf, StemsLane>,
     checking_stems: HashSet<PathBuf>,
 }
@@ -483,6 +485,7 @@ impl FocusView {
             lane_bounds: SeenBounds::default(),
             overview_bounds: SeenBounds::default(),
             is_moving_window: false,
+            mixes_scroll: gpui::ScrollHandle::new(),
             stems: HashMap::new(),
             checking_stems: HashSet::new(),
         }
@@ -539,7 +542,18 @@ impl EuphoriaApp {
         self.focus.hover_seconds = None;
         self.focus.lanes_menu_open = false;
         self.focus.selected_match = self.mixes.first().map(|mix| mix.track_index);
+        self.planner.is_open = false;
+        self.planner.window = 0;
         self.load_focus_stems(cx);
+        self.request_visible_plans(cx);
+        cx.notify();
+    }
+
+    /// Picks the track at `track_index` in the mixes list for the plan.
+    pub(crate) fn pick_match(&mut self, track_index: usize, cx: &mut Context<'_, Self>) {
+        self.focus.selected_match = Some(track_index);
+        self.planner.window = 0;
+        self.request_visible_plans(cx);
         cx.notify();
     }
 
@@ -549,6 +563,7 @@ impl EuphoriaApp {
             return;
         }
         self.focus.is_open = false;
+        self.planner.is_open = false;
         self.focus.is_moving_window = false;
         self.focus.hover_seconds = None;
         self.focus.lanes_menu_open = false;
@@ -794,12 +809,16 @@ impl EuphoriaApp {
         self.focus.viewport = Viewport::initial(duration);
         self.focus.hover_seconds = None;
         self.focus.selected_match = self.mixes.first().map(|mix| mix.track_index);
+        self.planner.is_open = false;
+        self.planner.window = 0;
         self.load_focus_stems(cx);
+        self.request_visible_plans(cx);
     }
 
     /// The stems of the track at `path` were separated just now.
     pub(crate) fn focus_stems_separated(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
         self.focus.stems.remove(path);
+        self.plans_of_track_changed(path, cx);
         if self.selected_track().map(|track| track.path.as_path()) == Some(path) {
             self.load_focus_stems(cx);
         }

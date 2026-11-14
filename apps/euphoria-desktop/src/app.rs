@@ -221,6 +221,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) cue_name_input: Entity<InputState>,
     /// The focus view that gives one track the whole window.
     pub(crate) focus: crate::focus::FocusView,
+    /// The plans of the selected track into the tracks it mixes into.
+    pub(crate) planner: crate::transition_plan::Planner,
     voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
@@ -433,6 +435,7 @@ impl EuphoriaApp {
             stems: crate::stems::StemSession::new(crate::stems::model_separation),
             decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
             focus: crate::focus::FocusView::new(settings.focus_lanes),
+            planner: crate::transition_plan::Planner::default(),
             set_builder: crate::set_builder::SetBuilder::default(),
             filter_window_input,
             filter_bpm_from_input,
@@ -2215,6 +2218,10 @@ impl Render for EuphoriaApp {
                     if this.focus.lanes_menu_open {
                         this.focus.lanes_menu_open = false;
                         cx.notify();
+                        return;
+                    }
+                    if this.planner.is_open {
+                        this.close_planner(cx);
                         return;
                     }
                     if this.focus.is_open {

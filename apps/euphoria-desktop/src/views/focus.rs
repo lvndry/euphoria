@@ -53,6 +53,8 @@ const STEM_ROW_HEIGHT: f32 = 9.0;
 const STEM_ROW_GAP: f32 = 2.0;
 const BOTTOM_HEIGHT: f32 = 320.0;
 
+const CLASH_COLUMN_WIDTH: f32 = 150.0;
+
 /// The lanes of the stems row, top to bottom.
 const STEM_ROWS: [Stem; 4] = [Stem::Vocals, Stem::Drums, Stem::Bass, Stem::Other];
 
@@ -63,9 +65,12 @@ const YOUR_TRANSITION: &str = "Your mix";
 /// The focus view of the selected track.
 pub(crate) fn render(
     app: &EuphoriaApp,
-    _window: &Window,
+    window: &Window,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
+    if app.planner.is_open {
+        return crate::views::planner::render(app, window, cx);
+    }
     let palette = app.theme.palette;
     let page = div()
         .id("focus-view")
@@ -380,7 +385,7 @@ fn lane_name(lane: Lane, palette: &Palette) -> Div {
         .child(lane.label())
 }
 
-fn section_colour(kind: SectionKind, palette: &Palette) -> (gpui::Hsla, gpui::Hsla) {
+pub(crate) fn section_colour(kind: SectionKind, palette: &Palette) -> (gpui::Hsla, gpui::Hsla) {
     match kind {
         SectionKind::Intro | SectionKind::Outro => (palette.waveform.opacity(0.55), palette.text),
         SectionKind::Main => (palette.accent.opacity(0.45), palette.text),
@@ -1053,21 +1058,9 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                                 .text_color(verdict_colour)
                                 .child(verdict.label()),
                         )
-                        .child(
-                            div()
-                                .id(("focus-mix-clash", track_index))
-                                .flex_shrink_0()
-                                .w(px(56.0))
-                                .text_color(palette.text_tertiary)
-                                .child("\u{2013}")
-                                .tooltip(|window, cx| {
-                                    Tooltip::new("The clash bar comes with the transition planner")
-                                        .build(window, cx)
-                                })
-                                .test_support(),
-                        )
+                        .child(clash_cell(app, track_index, &palette))
                         .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                            this.focus.selected_match = Some(track_index);
+                            this.pick_match(track_index, cx);
                             if event.click_count() >= 2 {
                                 this.select_and_reveal(track_index, cx);
                             }
@@ -1110,7 +1103,7 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .child(column_label("Key", Some(92.0), &palette))
                 .child(column_label("Tempo", Some(52.0), &palette))
                 .child(column_label("Verdict", Some(72.0), &palette))
-                .child(column_label("Clash", Some(56.0), &palette)),
+                .child(column_label("Clash", Some(CLASH_COLUMN_WIDTH), &palette)),
         )
         .child(
             div()
@@ -1120,6 +1113,14 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
+                .track_scroll(&app.focus.mixes_scroll)
+                .on_scroll(cx.listener(|_, _: &ScrollEvent, _, cx| {
+                    cx.spawn(async move |this, cx| {
+                        this.update(cx, |this, cx| this.request_visible_plans(cx))
+                            .ok();
+                    })
+                    .detach();
+                }))
                 .children(empty)
                 .children(rows)
                 .test_support(),
@@ -1139,7 +1140,7 @@ fn plan(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> 
         .test_support()
     }));
     let body = match app.focus.plan_tab {
-        PlanTab::Transition => transition_card(track, app),
+        PlanTab::Transition => crate::views::planner::transition_tab(app, cx),
         PlanTab::Mashup => div()
             .flex()
             .flex_col()
@@ -1171,51 +1172,57 @@ fn plan(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> 
         )
 }
 
-fn transition_card(track: &Track, app: &EuphoriaApp) -> AnyElement {
-    let palette = app.theme.palette;
-    let picked = app.focus.selected_match.and_then(|index| {
-        let mix = app.mixes.iter().find(|mix| mix.track_index == index)?;
-        Some((app.session.library().track(index)?, mix))
-    });
-    let line = match picked {
-        Some((matched, mix)) => {
-            let verdict = mix_verdict(mix.relation, mix.tempo_difference_percent);
-            let mut parts = vec![
-                matched.title().to_string(),
-                mix.relation
-                    .map_or(YOUR_TRANSITION, |relation| relation.label())
-                    .to_string(),
-            ];
-            if let Some(percent) = mix.tempo_difference_percent {
-                parts.push(format::signed_percent(percent));
-            }
-            parts.push(verdict.label().to_string());
-            format!("{} into {}", track.title(), parts.join(" \u{b7} "))
+fn clash_cell(app: &EuphoriaApp, track_index: usize, palette: &Palette) -> AnyElement {
+    let state = app.plan_state(track_index);
+    let label = app.clash_label(track_index);
+    let verdict_colour = match label {
+        "Clean" => palette.accent,
+        "Vocal clash" => palette.danger,
+        "Bass clash" => crate::views::planner::clash_colour(
+            Some(euphoria_core::harmony::transition::Clash::Bass),
+            palette,
+        ),
+        _ => palette.text_tertiary,
+    };
+    let strip = match state {
+        Some(crate::transition_plan::PlanState::Ready(planned)) => planned
+            .window(0)
+            .filter(|_| planned.stems_known() == (true, true))
+            .map(|window| crate::views::planner::row_strip(window, palette)),
+        _ => None,
+    };
+    let tooltip: Option<SharedString> = match state {
+        Some(crate::transition_plan::PlanState::Failed(error)) => {
+            Some(crate::views::planner::failure_message(app, *error).into())
         }
-        None => "Pick a track in Mixes into to plan the transition.".to_string(),
+        Some(crate::transition_plan::PlanState::Ready(planned))
+            if planned.stems_known() != (true, true) =>
+        {
+            Some("Separate the stems of both tracks to check vocal and bass clashes.".into())
+        }
+        _ => None,
     };
     div()
-        .id("focus-transition-card")
+        .id(("focus-mix-clash", track_index))
         .flex()
-        .flex_col()
-        .gap(px(8.0))
-        .p(px(12.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(palette.line)
-        .bg(palette.raised.opacity(0.5))
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(6.0))
+        .w(px(CLASH_COLUMN_WIDTH))
+        .children(strip)
         .child(
             div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Transition planner coming next"),
-        )
-        .child(
-            div()
-                .id("focus-transition-match")
-                .text_color(palette.text_secondary)
-                .child(line)
+                .id(("focus-mix-clash-verdict", track_index))
+                .text_size(LABEL_TEXT_SIZE)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(verdict_colour)
+                .truncate()
+                .child(label)
                 .test_support(),
         )
+        .when_some(tooltip, |cell, text| {
+            cell.tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+        })
         .test_support()
         .into_any_element()
 }

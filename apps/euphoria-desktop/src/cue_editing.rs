@@ -173,13 +173,30 @@ pub(crate) fn changed(cues: &[Cue], change: CueChange) -> Option<Vec<Cue>> {
     Some(changed)
 }
 
+/// Edits made together, which one undo takes back together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct UndoGroup(u64);
+
+impl UndoGroup {
+    /// A group no edit belongs to yet.
+    pub(crate) fn next() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
 /// What a track's cues were before one edit, to go back to.
 #[derive(Debug, Clone, PartialEq)]
 struct UndoStep {
     track: PathBuf,
+    group: Option<UndoGroup>,
     /// The user's set before the edit, or `None` for the automatic cues.
     before: Option<Vec<Cue>>,
 }
+
+/// What a track's cues were before an edit, and the same for the edits
+/// made together with it on other tracks.
+pub(crate) type UndoneEdit = (Option<Vec<Cue>>, Vec<(PathBuf, Option<Vec<Cue>>)>);
 
 /// The edits that can be undone, latest last, across tracks.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -188,13 +205,20 @@ pub(crate) struct CueHistory {
 }
 
 impl CueHistory {
-    /// Remembers that the cues of `track` were `before` until now.
-    pub(crate) fn record(&mut self, track: &Path, before: Option<Vec<Cue>>) {
+    /// Remembers that the cues of `track` were `before` until now, as an
+    /// edit of `group` when it has one.
+    pub(crate) fn record_in(
+        &mut self,
+        track: &Path,
+        before: Option<Vec<Cue>>,
+        group: Option<UndoGroup>,
+    ) {
         if self.steps.len() == UNDO_LIMIT {
             self.steps.remove(0);
         }
         self.steps.push(UndoStep {
             track: track.to_path_buf(),
+            group,
             before,
         });
     }
@@ -205,10 +229,23 @@ impl CueHistory {
     }
 
     /// Forgets the latest edit of the cues of `track` and returns what they
-    /// were before it: `Some(None)` for the automatic cues.
-    pub(crate) fn take_latest(&mut self, track: &Path) -> Option<Option<Vec<Cue>>> {
+    /// were before it (`Some(None)` for the automatic cues), with the edits
+    /// made together with it on other tracks, which are forgotten too.
+    pub(crate) fn take_latest_with_group(&mut self, track: &Path) -> Option<UndoneEdit> {
         let position = self.steps.iter().rposition(|step| step.track == track)?;
-        Some(self.steps.remove(position).before)
+        let taken = self.steps.remove(position);
+        let mut mates = Vec::new();
+        if let Some(group) = taken.group {
+            let (together, apart): (Vec<UndoStep>, Vec<UndoStep>) = std::mem::take(&mut self.steps)
+                .into_iter()
+                .partition(|step| step.group == Some(group));
+            self.steps = apart;
+            mates = together
+                .into_iter()
+                .map(|step| (step.track, step.before))
+                .collect();
+        }
+        Some((taken.before, mates))
     }
 }
 
@@ -306,6 +343,28 @@ impl EuphoriaApp {
         undoable: bool,
         cx: &mut Context<'_, Self>,
     ) {
+        self.set_cues_of_grouped(path, cues, undoable.then_some(None), cx);
+    }
+
+    /// Gives the track at `path` `cues` as one edit of `group`, which one
+    /// undo takes back with the group's other edits.
+    pub(crate) fn set_cues_of_in_group(
+        &mut self,
+        path: &Path,
+        cues: Option<Vec<Cue>>,
+        group: UndoGroup,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.set_cues_of_grouped(path, cues, Some(Some(group)), cx);
+    }
+
+    fn set_cues_of_grouped(
+        &mut self,
+        path: &Path,
+        cues: Option<Vec<Cue>>,
+        undoable: Option<Option<UndoGroup>>,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(before) = self
             .session
             .library()
@@ -314,12 +373,13 @@ impl EuphoriaApp {
         else {
             return;
         };
-        if undoable {
-            self.cue_editor.history.record(path, before);
+        if let Some(group) = undoable {
+            self.cue_editor.history.record_in(path, before, group);
         }
         self.cue_editor.renaming = None;
         self.cue_editor.choosing_hot_cue = None;
         self.session.set_edited_cues(path, cues.clone());
+        self.request_visible_plans(cx);
         cx.notify();
         let Some(cache) = self.session.cache() else {
             return;
@@ -527,8 +587,11 @@ impl EuphoriaApp {
         let Some(path) = self.selected_track().map(|track| track.path.clone()) else {
             return;
         };
-        if let Some(before) = self.cue_editor.history.take_latest(&path) {
+        if let Some((before, mates)) = self.cue_editor.history.take_latest_with_group(&path) {
             self.set_cues_of(&path, before, false, cx);
+            for (mate, mate_before) in mates {
+                self.set_cues_of(&mate, mate_before, false, cx);
+            }
         }
     }
 }
@@ -671,16 +734,28 @@ mod tests {
         let mut history = CueHistory::default();
         let first = Path::new("/music/first.flac");
         let second = Path::new("/music/second.flac");
-        history.record(first, None);
-        history.record(second, Some(Vec::new()));
-        history.record(first, Some(vec![cue(1.0, "One", None)]));
+        history.record_in(first, None, None);
+        history.record_in(second, Some(Vec::new()), None);
+        history.record_in(first, Some(vec![cue(1.0, "One", None)]), None);
         assert!(history.can_undo(first));
         assert_eq!(
-            history.take_latest(first),
+            history
+                .take_latest_with_group(first)
+                .map(|(before, _)| before),
             Some(Some(vec![cue(1.0, "One", None)]))
         );
-        assert_eq!(history.take_latest(first), Some(None));
-        assert_eq!(history.take_latest(first), None);
+        assert_eq!(
+            history
+                .take_latest_with_group(first)
+                .map(|(before, _)| before),
+            Some(None)
+        );
+        assert_eq!(
+            history
+                .take_latest_with_group(first)
+                .map(|(before, _)| before),
+            None
+        );
         assert!(history.can_undo(second));
     }
 }
