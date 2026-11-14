@@ -286,6 +286,17 @@ pub(crate) struct WriteReport {
     pub(crate) metadata_problem: Option<String>,
 }
 
+impl WriteReport {
+    /// True when every file was written and nothing needs the user's eye.
+    pub(crate) fn is_clean(&self) -> bool {
+        !self.written.is_empty()
+            && self.failures.is_empty()
+            && self.not_noted.is_empty()
+            && self.cache_problem.is_none()
+            && self.metadata_problem.is_none()
+    }
+}
+
 /// Writes `plans` through a new write log in `log_directory`, counting each
 /// file done in `done` as it goes, and records `analyses`, in the same
 /// order, in `cache` for each file written. A file that fails does not stop
@@ -361,6 +372,14 @@ pub(crate) struct UndoReport {
     pub(crate) failures: Vec<LeftOut>,
     pub(crate) playlist_rewrites: Vec<PlaylistRewrite>,
     pub(crate) metadata_problem: Option<String>,
+}
+
+impl UndoReport {
+    /// True when every file got its old tags back and nothing needs the
+    /// user's eye.
+    pub(crate) fn is_clean(&self) -> bool {
+        self.failures.is_empty() && self.metadata_problem.is_none()
+    }
 }
 
 /// Undoes the last write logged in `log_directory`, by the app or by the

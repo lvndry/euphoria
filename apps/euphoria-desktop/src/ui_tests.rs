@@ -1914,25 +1914,21 @@ fn writing_tags_shows_a_preview_writes_only_on_confirm_and_undo_restores_every_b
     assert_eq!(written, Some(files.clone()));
     assert_ne!(tag_testing::contents(&files), before);
 
-    click(window, "undo-tag-write", cx);
     cx.update(|cx| {
-        assert!(matches!(
-            view.read(cx).tag_panel,
-            Some(TagPanel::ConfirmUndo)
-        ));
+        let app = view.read(cx);
+        assert!(app.tag_panel.is_none(), "a clean write leaves no sheet");
+        assert!(app.toasts.offers_undo());
     });
-    assert_ne!(tag_testing::contents(&files), before, "undo asks first");
-    click(window, "confirm-tag-undo", cx);
-    cx.update(|cx| match &view.read(cx).tag_panel {
-        Some(TagPanel::Undone(Ok(Some(report)))) => {
-            assert_eq!(report.restored.len(), 3);
-            assert!(report.failures.is_empty());
-        }
-        other => panic!("{other:?}"),
-    });
+    click(window, "toast-action", cx);
     assert_eq!(tag_testing::contents(&files), before);
-    click(window, "close-tag-panel", cx);
-    cx.update(|cx| assert!(view.read(cx).tag_panel.is_none()));
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.tag_panel.is_none());
+        assert_eq!(
+            app.toasts.current().map(|toast| toast.message.as_str()),
+            Some("Put the old tags back in 3 files")
+        );
+    });
 }
 
 #[gpui::test]
@@ -2274,7 +2270,6 @@ fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_e
     let written = cx.update(|cx| view.read(cx).written_files());
     assert_eq!(written, Some(files.clone()));
     assert_ne!(tag_testing::contents(&files), before);
-    click(window, "close-tag-panel", cx);
 
     click(window, "write-tags", cx);
     click(window, "scope-shown", cx);
@@ -2501,8 +2496,7 @@ fn writing_and_undoing_tags_on_bench_clips_restores_every_byte(cx: &mut TestAppC
         Some(files.len())
     );
     assert_ne!(tag_testing::contents(&files), before);
-    click(window, "undo-tag-write", cx);
-    click(window, "confirm-tag-undo", cx);
+    click(window, "toast-action", cx);
     assert_eq!(tag_testing::contents(&files), before);
 }
 
@@ -2664,8 +2658,7 @@ fn files_written_from_the_window_are_served_from_the_cache_on_the_next_launch(
         assert_eq!(after_write.stored_analysis(path).as_ref(), Some(analysis));
     }
 
-    click(window, "undo-tag-write", cx);
-    click(window, "confirm-tag-undo", cx);
+    click(window, "toast-action", cx);
     let after_undo = launch();
     for (path, analysis) in files.iter().zip(&analyses) {
         assert_eq!(after_undo.stored_analysis(path).as_ref(), Some(analysis));
@@ -3873,7 +3866,7 @@ fn a_playlist_exports_in_its_order_to_rekordbox_and_m3u8(cx: &mut TestAppContext
     let write = |format, file: &str, cx: &mut TestAppContext| {
         let job = cx.update(|cx| view.read(cx).playlist_export_job(id, format).unwrap());
         let destination = scratch.0.join(file);
-        let message = job.write(&destination).unwrap();
+        let message = job.write(&destination).unwrap().as_text();
         (std::fs::read_to_string(&destination).unwrap(), message)
     };
 
@@ -4208,10 +4201,14 @@ fn the_editor_shows_shared_values_and_writes_a_field_to_every_selected_track(
     assert!(is_shown(window, "edit-summary", cx));
     click(window, "confirm-tag-write", cx);
     cx.update(|cx| {
-        assert!(matches!(
-            view.read(cx).tag_panel,
-            Some(TagPanel::Written(_))
-        ))
+        assert!(view.read(cx).tag_panel.is_none());
+        assert_eq!(
+            view.read(cx)
+                .toasts
+                .current()
+                .map(|toast| toast.message.as_str()),
+            Some("Saved the tag changes to 3 files")
+        );
     });
     for path in &files {
         let tags = read_editable_tags(path).unwrap();
@@ -4219,8 +4216,7 @@ fn the_editor_shows_shared_values_and_writes_a_field_to_every_selected_track(
         assert_eq!(tags.get(TagField::Artist), Some("Ana Sol"), "untouched");
     }
 
-    click(window, "undo-tag-write", cx);
-    click(window, "confirm-tag-undo", cx);
+    click(window, "toast-action", cx);
     for (path, original) in files.iter().zip(&originals) {
         assert_eq!(
             &std::fs::read(path).unwrap(),
@@ -4273,8 +4269,7 @@ fn the_text_tool_and_remove_change_every_track_and_the_table_follows(cx: &mut Te
         titles.iter().all(|title| title.ends_with(" (Edit)")),
         "{titles:?}"
     );
-    click(window, "undo-tag-write", cx);
-    click(window, "confirm-tag-undo", cx);
+    click(window, "toast-action", cx);
     let titles = cx.update(|cx| {
         view.read(cx)
             .session
@@ -4338,7 +4333,7 @@ fn playlist_identity_follows_tag_edits_and_undo_in_the_same_window(cx: &mut Test
                 .unwrap()
         });
         let destination = scratch.0.join(name);
-        let message = job.write(&destination).unwrap();
+        let message = job.write(&destination).unwrap().as_text();
         assert!(!message.contains("other audio"), "{message}");
         assert!(
             std::fs::read_to_string(destination)
@@ -4347,8 +4342,7 @@ fn playlist_identity_follows_tag_edits_and_undo_in_the_same_window(cx: &mut Test
         );
     };
     check("after-edit.m3u8", cx);
-    click(window, "undo-tag-write", cx);
-    click(window, "confirm-tag-undo", cx);
+    click(window, "toast-action", cx);
     check("after-undo.m3u8", cx);
     assert_eq!(std::fs::read(&files[0]).unwrap(), original);
 }
@@ -4487,7 +4481,7 @@ fn a_file_replaced_by_other_audio_is_left_out_of_an_export(cx: &mut TestAppConte
             .unwrap()
     });
     let destination = scratch.0.join("set.m3u8");
-    let message = job.write(&destination).unwrap();
+    let message = job.write(&destination).unwrap().as_text();
     let written = std::fs::read_to_string(&destination).unwrap();
     assert!(written.contains(files[0].to_str().unwrap()), "{written}");
     assert!(!written.contains(files[1].to_str().unwrap()), "{written}");

@@ -5,6 +5,7 @@
 //! it into elements, taking every colour from the theme.
 
 pub(crate) mod by_ear;
+pub(crate) mod command_palette;
 pub(crate) mod cues;
 pub(crate) mod decks;
 pub(crate) mod empty_state;
@@ -30,6 +31,7 @@ pub(crate) mod sidebar;
 pub(crate) mod stems;
 pub(crate) mod tag_editor;
 pub(crate) mod tag_panel;
+pub(crate) mod toast;
 pub(crate) mod toolbar;
 pub(crate) mod track_filter_bar;
 pub(crate) mod track_overview;
@@ -49,6 +51,10 @@ pub(crate) const LIBRARY_KEY_CONTEXT: &str = "Library";
 /// The context of the list of tracks to play next, where Enter plays the
 /// selected one.
 pub(crate) const NEXT_RAIL_KEY_CONTEXT: &str = "NextRail";
+
+/// The key context of the command palette, where Command Enter plays the
+/// selected track.
+pub(crate) const PALETTE_KEY_CONTEXT: &str = "CommandPalette";
 
 /// Size of ordinary interface text.
 pub(crate) const TEXT_SIZE: Pixels = px(13.0);

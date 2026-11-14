@@ -566,26 +566,37 @@ impl EuphoriaApp {
                 if let Some(running) = running {
                     this.background_jobs.finish(running);
                 }
-                this.notice = Some(match outcome {
+                match outcome {
                     Ok(written) => {
+                        if this
+                            .notice
+                            .as_deref()
+                            .is_some_and(|notice| notice.starts_with("Rendering"))
+                        {
+                            this.notice = None;
+                        }
                         let seconds = written.frames as f32
                             / euphoria_core::mashup::MASHUP_SAMPLE_RATE as f32;
                         let turned_down = if written.gain < 1.0 {
                             format!(
-                                ", turned down {:.1} dB to keep it from clipping",
+                                "Turned down {:.1} dB to keep it from clipping.",
                                 -20.0 * written.gain.log10()
                             )
                         } else {
                             String::new()
                         };
-                        format!(
-                            "Saved the mashup, {}, to {}{turned_down}.",
-                            crate::format::duration(seconds),
-                            written.path.display()
-                        )
+                        this.show_toast_with_detail(
+                            format!("Saved the mashup, {}", crate::format::duration(seconds)),
+                            turned_down,
+                            Some(crate::toast::ToastAction::Reveal(written.path.clone())),
+                            cx,
+                        );
                     }
-                    Err(error) => format!("Could not export the mashup: {}", error.chain()),
-                });
+                    Err(error) => {
+                        this.notice =
+                            Some(format!("Could not export the mashup: {}", error.chain()));
+                    }
+                }
                 cx.notify();
             })
             .ok();

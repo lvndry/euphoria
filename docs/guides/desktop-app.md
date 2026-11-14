@@ -90,6 +90,30 @@ Type in the search field, or press Command F first, to filter as you type. Each 
 
 Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move the selection. Command click adds a track to the selection or takes it out, Shift click selects every row between, and Command A selects every track on show.
 
+## Find anything with ⌘K
+
+Press **⌘K** (**Ctrl+K** on Linux), click the **⌘K** chip in the search field, or choose **View > Command Palette**, to open one box over the window that finds tracks and runs commands. Type, move with **Up** and **Down**, press **Enter** to run the highlighted row and **Esc** to close. The panel eases in over a moment, and appears at once with macOS **Reduce motion** on. ⌘P opens it too. Search keeps ⌘F.
+
+Tracks are matched on title, artist and file name, loosely: `glsig` finds *Glass Signal*. The box also understands what a DJ asks for. Mix these in any order with words:
+
+| Type | It means | Example |
+| --- | --- | --- |
+| `8A`, `8a`, `Am`, `A minor` | The track's key, and the keys that mix with it | `8A` lists 8A first, then 7A and 9A (pill **one step**) and 8B (pill **relative**) |
+| `124`, `124,5`, `124bpm` | A tempo within one beat, or within half a beat when you type a decimal | `124` lists 123.0 to 125.0 |
+| `120-126`, `120–126`, `120,5-125,5` | A range of tempos | `120-126` |
+| `e6`, `e6+`, `e7-9`, `energy 6+` | The [energy rating](../concepts/energy.md): exactly 6, 6 or more, 7 to 9 | `energy 6+` |
+| Anything else | Words that must all be in the title, artist or file name | `deep`, `glass sig` |
+
+Combined, `8A 124 deep` lists the tracks in 8A or a key that mixes with it, near 124 BPM, with *deep* in the name, the exact key first and the nearest tempo first. Tempos are the corrected values: a tempo or key you set in the inspector is the one that counts. The palette searches the whole library, whatever the table is showing.
+
+**Enter** selects the track and shows it in the table. If a search, a filter, a folder or a playlist hid it, they are taken off first. **⌘Enter** (**Ctrl+Enter** on Linux) does the same and plays it.
+
+Under the tracks, **Actions** lists the commands of the menus, each with its shortcut, so the palette teaches the keyboard: Write tags, Edit tags, Undo last tag write, Add folder, Open decks, Open set builder, Plan a transition from the playing track, Toggle metronome, Separate stems, Export library, Settings, each theme, Toggle sidebar, Focus view and the rest. Search them by name or by what they do: `tag` finds the three tag commands, `key` and `bpm` find Write tags, `vocals` finds Separate stems, `dark` finds the dark themes. **Plan a transition from the playing track** opens the focus view on the playing track, or the selected one when nothing plays, and the planner for its best match as soon as the plan is worked out.
+
+With nothing typed the palette lists the last 8 tracks you selected or played, then the 6 commands you used most in this session, starting with Write tags, Edit tags, Add folder, Open decks, Open set builder and Settings. Neither list is saved: both start empty at each launch.
+
+Limits: typing a bare note such as `a` or `c` is a word, not a key; add `m` or `minor` (`Am`, `C major`). The list shows the 8 best tracks with the number that match. Not tested: how the animation looks at a real frame rate.
+
 ## The sidebar
 
 - **All tracks** shows the whole library.
@@ -241,7 +265,7 @@ Select a track and press Space, or click the round play button, to hear it. Pres
 - The position and the length are shown as "2:23 / 6:48".
 - When a track reaches its end it stops there. Play starts it again from the beginning.
 
-In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, a thin progress line and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
+In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, the track's waveform as a seek bar and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
@@ -321,7 +345,17 @@ The waveform shows the whole track from left to right, and its colours show what
 
 The three are drawn on top of one another, bass at the back, each as tall as that band is loud. A stretch with a kick is tall and blue, a breakdown without drums loses its blue and shrinks to amber, and hi hats show as light tips.
 
-The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
+The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. Before you press play, a click sets where playing will start. A click on a paused or stopped track only moves the position and does not start playing; while a track plays, a click moves the sound and it keeps playing.
+
+### The waveform in the player bar
+
+The player bar draws the selected track's waveform about 40 pixels tall: the part already played in the accent colour, the rest muted. It reuses the waveform the inspector already decoded, so it costs no extra decoding. Click or drag anywhere on it to seek, with the same rule as above.
+
+- Each cue is a thin line in the accent colour with its hot cue letter above it (a dot for a memory cue). Click the letter to jump to the cue; it does not start or pause playing.
+- Each section boundary (Intro, Main, Breakdown, Drop, Outro, or Section 2, Section 3 for tracks without clear drops) is a faint tick. Hover it to see the section's name.
+- While the waveform is not ready, because the track is not analysed yet or the audio is still loading, the bar shows the thin progress line instead. A track whose file is missing shows the thin line and nothing else.
+
+The bar's bars are computed once per track and again only when the window is resized. The Deck theme has no player bar, so it keeps the wide waveform in the strip.
 
 ### Cue points
 
@@ -451,9 +485,21 @@ The app can write the key, tempo and energy it found into the files themselves, 
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The preview is titled with the DJ program the tags are written for, such as "Write tags for rekordbox"; choose it in the [settings](#settings), or with **Change settings** in the preview.
 3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
 4. Click **Write** to write them. Nothing is written before that, and **Cancel** or Escape closes the preview without writing. A key or tempo left as it is, because the file already has one or because it is rated low confidence, is listed in the preview with the reason. When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the click first shows a strip that says the program may lose the change; **Write anyway** goes on.
-5. The app shows how far it has got, then the files written and any it could not write, with the reason. Those are left as they were.
+5. The app shows how far it has got. When every file was written, the window closes the preview and ends with a [toast](#toasts) such as "Wrote key and BPM to 18 files", with **Undo**. When some files could not be written, or the log, cache or playlists could not be updated, the preview stays open and lists them with the reason. Unwritten files are left as they were.
 
-**Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
+**Undo** in the toast (or Command Z while it shows), **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced. The menu and the settings ask first; the toast does not, because it is the question. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
+
+### Toasts
+
+Every write ends with one short toast at the bottom centre, above the player bar, that says what changed:
+
+- Tag writes, automatic batches and tag editor saves: "Wrote key and BPM to 18 files", with **Undo** and its shortcut, Command Z. Undo is the same undo as **Tags > Undo Last Tag Write…**, and after it the toast says "Put the old tags back in 18 files".
+- Exports to a DJ program or an M3U8 file, stem exports, shifted copies and mashups: "Exported 575 tracks to rekordbox XML", with **Show in Finder** in place of Undo. An export to rekordbox adds a second line, "In rekordbox, open the XML view to import it."
+- Saving a set as a playlist: a toast with no action, since nothing was written outside Euphoria.
+
+The toast slides up and fades in over 180 ms, stays 10 seconds, and waits while the pointer is over it. One toast shows at a time and a new one replaces the old; replacing a write's toast takes its Undo away, though **Tags > Undo Last Tag Write…** still works. With macOS **Reduce motion** on, it appears at once. Command Z runs a toast's Undo only when no text field has the keyboard; in a field it stays that field's own undo, and without a toast with Undo it undoes the last cue edit.
+
+Errors do not become toasts. They stay in the strip at the bottom with **Dismiss**, and the strip that holds tracks while a DJ program runs stays a strip, since it needs a decision. The toast sits above the player bar and the strips below it, so they never cover each other. Not tested: toast placement on a very narrow window.
 
 **Cue markers**: with the **Cue markers** setting in [How tags are written](#settings) on, the write also adds each track's cues and beat grid where Serato DJ, Mixxx and VirtualDJ read them. The cues you edited in the app go in on the pads you gave them; memory cues, ones on no pad, are left out. The preview shows the cue points and beat grid each file gets, and below it lists the files where a cue went to another pad, where cues were left out, where your own Serato beat grid is kept, or where a file gets no Serato data. Those files still get their key and other tags. **Undo this write** puts these back byte for byte, Serato fields included. [Cue points and beat grids for Serato](serato-cues.md) explains what is written and how to bring it into Serato.
 
@@ -615,7 +661,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+The palette's recent tracks and most used commands are kept in memory only. Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |

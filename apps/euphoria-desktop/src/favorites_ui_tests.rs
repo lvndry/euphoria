@@ -266,7 +266,7 @@ fn the_starred_tracks_export_in_their_order_as_m3u8_and_rekordbox(cx: &mut TestA
     let write = |format, file: &str, cx: &mut TestAppContext| {
         let job = cx.update(|cx| view.read(cx).favorites_export_job(format));
         let destination = scratch.0.join(file);
-        let message = job.write(&destination).unwrap();
+        let message = job.write(&destination).unwrap().as_text();
         (std::fs::read_to_string(&destination).unwrap(), message)
     };
     let fourth = path_of(&view, 4, cx);

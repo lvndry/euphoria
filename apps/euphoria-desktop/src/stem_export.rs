@@ -119,7 +119,15 @@ pub(crate) enum StemExportDone {
 }
 
 impl StemExportDone {
-    /// What the notice strip says once the export is saved.
+    /// The file or folder to show once the export is saved.
+    pub(crate) fn shown_path(&self) -> PathBuf {
+        match self {
+            StemExportDone::Stems { folder, .. } => folder.clone(),
+            StemExportDone::Mix(export) => export.path.clone(),
+        }
+    }
+
+    /// What the toast says once the export is saved.
     pub(crate) fn message(&self, request: &StemExportRequest) -> String {
         let key = |key: Option<euphoria_core::key::Key>| {
             key.map(|key| format!(", tagged {} ({})", key.camelot(), key))
@@ -370,14 +378,29 @@ impl EuphoriaApp {
                 .await;
             this.update(cx, |this, cx| {
                 this.background_jobs.finish(job);
-                this.notice = Some(match outcome {
-                    Ok(done) => done.message(&request),
-                    Err(error) => format!(
-                        "Could not save {}: {}",
-                        request.description(),
-                        error.chain()
-                    ),
-                });
+                match outcome {
+                    Ok(done) => {
+                        if this
+                            .notice
+                            .as_deref()
+                            .is_some_and(|notice| notice.starts_with("Saving "))
+                        {
+                            this.notice = None;
+                        }
+                        this.show_toast(
+                            done.message(&request),
+                            Some(crate::toast::ToastAction::Reveal(done.shown_path())),
+                            cx,
+                        );
+                    }
+                    Err(error) => {
+                        this.notice = Some(format!(
+                            "Could not save {}: {}",
+                            request.description(),
+                            error.chain()
+                        ));
+                    }
+                }
                 cx.notify();
             })
             .ok();

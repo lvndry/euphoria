@@ -21,7 +21,7 @@ Writing is safe by default. A key or tempo a file already has is kept, a key or 
 
 A write changes the tag fields it shows and nothing else. Your comments, artwork, cue points, ratings and the audio stay byte for byte what they were, and an undo returns each file to exactly the bytes it had. [Tags](../reference/tags.md) describes how that is done and checked.
 
-The [desktop app](desktop-app.md#write-tags) does the same from its toolbar, with the preview in a window, and shares the backups with these commands: `euphoria tags undo` undoes a write made in the app, and the app undoes one made here.
+The [desktop app](desktop-app.md#write-tags) does the same from its toolbar, with the preview in a window and a toast with **Undo** (or Command Z) when the write ends, and shares the backups with these commands: `euphoria tags undo` undoes a write made in the app, and the app undoes one made here.
 
 ## What is written
 
@@ -146,7 +146,7 @@ When it is on, each newly analyzed track goes through the same planning and writ
 - A key or tempo the file already has is kept, unless **Replace existing key and tempo** is on. A value Euphoria wrote earlier is still updated.
 - A key or tempo rated low confidence is left out, unless **Also write low confidence values** is on. A key or tempo you corrected counts as high confidence, and a correction you make is written the same way.
 - Your DJ program and key notation, the energy label place and the tempo choice are respected.
-- Every write is logged with its backups, so **Undo this write**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. An automatic write is undone as one write per batch.
+- Every write is logged with its backups, so the toast's **Undo**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. An automatic write is undone as one write per batch, and each batch ends with its own toast, which replaces the one before.
 
 Only new analysis is written: a track whose result was loaded from the [cache](../reference/cli.md#where-the-cache-is-stored) is not touched, while a track analyzed again after an analyzer update, or corrected, is.
 
