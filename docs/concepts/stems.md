@@ -35,7 +35,7 @@ Once a track is separated, the track detail offers **Full track**, **Acapella** 
 - The position is kept in seconds, so a seek or a switch between the three lands at the same moment of the track whatever its sample rate. Switching between Acapella and Instrumental fades the stems in and out without a restart; switching to or from Full track starts the file or the stems again from the current position.
 - A key shift applies to the stems as it does to the file.
 
-Acapella and Instrumental added together give back the track, apart from the model's own mistakes: on generated test stems at 44.1 kHz, 48 kHz and in mono, their sum matches the track to more than 60 dB, the limit of the 16 bit stem files, and lasts as long as the track to within a millisecond.
+Acapella and Instrumental added together give back the track, apart from the model's own mistakes: on generated test stems at 44.1 kHz, 48 kHz and in mono, their sum matches the track to about 76 dB, the limit of rounding each stem to 16 bits, and lasts as long as the track to within a millisecond.
 
 **Remove stems**, under the three choices, deletes the saved stems of the track. The track detail then offers to separate it again. Stems are also removed on their own when the saved stems pass the size limit below.
 
