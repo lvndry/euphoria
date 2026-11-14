@@ -167,3 +167,257 @@ fn saving_makes_a_playlist_in_the_order_of_the_set(cx: &mut TestAppContext) {
     click(window, "save-set", cx);
     cx.update(|cx| assert_eq!(view.read(cx).session.playlists().all().len(), 1));
 }
+
+fn playable_tracks() -> Vec<crate::demo::DemoTrack> {
+    crate::ui_tests::deck_tracks()
+        .into_iter()
+        .enumerate()
+        .map(|(number, mut track)| {
+            if let Ok(analysis) = &mut track.outcome {
+                analysis.duration_seconds = 20.5;
+                analysis.key = Some(euphoria_core::Key::new(9, euphoria_core::Mode::Minor));
+                analysis.bpm = Some(120.0);
+                analysis.energy = Some(5 + number as u8);
+            }
+            track
+        })
+        .collect()
+}
+
+fn open_playable_set(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let (window, view) = crate::ui_tests::open_window_on(
+        playable_tracks(),
+        Box::new(crate::playback::testing::SilentOutput),
+        cx,
+    );
+    click(window, "set-builder-entry", cx);
+    click(window, "build-set", cx);
+    assert_eq!(planned_paths(&view, cx).len(), 3);
+    (window, view)
+}
+
+fn click_play(window: AnyWindowHandle, position: usize, cx: &mut TestAppContext) {
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.hover(("set-row", position), cx);
+        window.render_frame(cx);
+        window.click(("set-play", position), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+fn held_track(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<std::path::PathBuf> {
+    cx.update(|cx| {
+        view.read(cx)
+            .player
+            .track()
+            .map(std::path::Path::to_path_buf)
+    })
+}
+
+fn sound_position(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> f32 {
+    cx.update(|cx| {
+        view.read(cx)
+            .voice
+            .as_ref()
+            .expect("a track is sounding")
+            .state
+            .position_seconds()
+    })
+}
+
+fn is_sounding(view: &Entity<EuphoriaApp>, position: usize, cx: &mut TestAppContext) -> bool {
+    cx.update(|cx| view.read(cx).is_set_row_sounding(position))
+}
+
+#[gpui::test]
+fn a_rows_play_button_plays_its_track_from_the_start(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    let paths = planned_paths(&view, cx);
+    click_play(window, 1, cx);
+    assert_eq!(held_track(&view, cx), Some(paths[1].clone()));
+    assert!(is_sounding(&view, 1, cx));
+    assert!(!is_sounding(&view, 0, cx));
+    assert_eq!(sound_position(&view, cx), 0.0);
+
+    click_play(window, 2, cx);
+    assert_eq!(held_track(&view, cx), Some(paths[2].clone()));
+    assert!(is_sounding(&view, 2, cx));
+    assert!(!is_sounding(&view, 1, cx));
+}
+
+#[gpui::test]
+fn double_clicking_a_row_plays_it_and_space_plays_the_selected_row(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    let paths = planned_paths(&view, cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.double_click(("set-row", 2usize), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(held_track(&view, cx), Some(paths[2].clone()));
+    assert!(is_sounding(&view, 2, cx));
+
+    cx.update(|cx| view.update(cx, |app, cx| app.select_set_row(0, cx)));
+    assert_eq!(held_track(&view, cx), Some(paths[2].clone()));
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_playback(cx)));
+    cx.run_until_parked();
+    assert_eq!(held_track(&view, cx), Some(paths[0].clone()));
+    assert!(is_sounding(&view, 0, cx));
+
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_playback(cx)));
+    assert!(!is_sounding(&view, 0, cx));
+    assert_eq!(held_track(&view, cx), Some(paths[0].clone()));
+}
+
+#[gpui::test]
+fn a_row_and_the_bottom_bar_pause_and_resume_the_same_track(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    click_play(window, 0, cx);
+    assert!(is_sounding(&view, 0, cx));
+
+    click_play(window, 0, cx);
+    assert!(!is_sounding(&view, 0, cx));
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).player.status(),
+            &crate::player::PlayerStatus::Paused
+        )
+    });
+
+    click(window, "play-button", cx);
+    assert!(is_sounding(&view, 0, cx));
+    click(window, "play-button", cx);
+    assert!(!is_sounding(&view, 0, cx));
+    click_play(window, 0, cx);
+    assert!(is_sounding(&view, 0, cx));
+}
+
+#[gpui::test]
+fn a_track_that_ends_goes_on_with_the_next_track_of_the_set(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    click(window, ("set-later", 0usize), cx);
+    let paths = planned_paths(&view, cx);
+    click_play(window, 0, cx);
+    for (next, path) in paths.iter().enumerate().skip(1) {
+        cx.update(|cx| view.update(cx, |app, cx| app.track_finished(cx)));
+        cx.run_until_parked();
+        assert_eq!(held_track(&view, cx), Some(path.clone()));
+        assert!(is_sounding(&view, next, cx));
+        assert_eq!(sound_position(&view, cx), 0.0);
+    }
+    cx.update(|cx| view.update(cx, |app, cx| app.track_finished(cx)));
+    cx.run_until_parked();
+    assert_eq!(held_track(&view, cx), Some(paths[2].clone()));
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(!app.player.offers_pause());
+        assert_eq!(app.set_builder.playing, None);
+    });
+}
+
+#[gpui::test]
+fn playing_a_transition_starts_the_track_before_twenty_seconds_from_its_end(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_playable_set(cx);
+    let paths = planned_paths(&view, cx);
+    assert!(!is_shown(window, ("set-transition", 0usize), cx));
+    click(window, ("set-transition", 1usize), cx);
+    assert_eq!(held_track(&view, cx), Some(paths[0].clone()));
+    assert!(is_sounding(&view, 0, cx));
+    let position = sound_position(&view, &mut *cx);
+    assert!((position - 0.5).abs() < 0.05, "{position}");
+
+    cx.update(|cx| view.update(cx, |app, cx| app.track_finished(cx)));
+    cx.run_until_parked();
+    assert_eq!(held_track(&view, cx), Some(paths[1].clone()));
+    assert_eq!(sound_position(&view, cx), 0.0);
+}
+
+#[gpui::test]
+fn the_decks_keep_the_player_from_a_set_row(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
+    click_play(window, 0, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some(crate::decks::PLAYER_HELD_BY_DECKS)
+        );
+        assert!(!app.player.offers_pause());
+        assert!(app.player.track().is_none());
+    });
+    click(window, ("set-transition", 1usize), cx);
+    cx.update(|cx| assert!(!view.read(cx).player.offers_pause()));
+}
+
+fn locked_set_count(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> usize {
+    cx.update(|cx| {
+        view.read(cx)
+            .set_builder
+            .planned
+            .as_ref()
+            .map_or(0, |planned| planned.locked.iter().filter(|l| **l).count())
+    })
+}
+
+#[gpui::test]
+fn a_locked_track_cannot_be_removed_until_it_is_unlocked(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    let before = planned_paths(&view, cx);
+    click(window, ("set-lock", 1usize), cx);
+    click(window, ("set-remove", 1usize), cx);
+    assert_eq!(planned_paths(&view, cx), before);
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).notice.as_deref(),
+            Some(crate::set_builder::UNLOCK_TO_REMOVE)
+        )
+    });
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.select_set_row(1, cx);
+            app.remove_selected_set_row(cx);
+        })
+    });
+    assert_eq!(planned_paths(&view, cx), before);
+
+    click(window, ("set-lock", 1usize), cx);
+    assert_eq!(locked_set_count(&view, cx), 0);
+    click(window, ("set-remove", 1usize), cx);
+    assert_eq!(planned_paths(&view, cx).len(), 2);
+}
+
+#[gpui::test]
+fn a_locked_track_and_its_neighbours_cannot_swap_places(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    let before = planned_paths(&view, cx);
+    click(window, ("set-lock", 1usize), cx);
+    for (id, position) in [
+        ("set-earlier", 1usize),
+        ("set-later", 1),
+        ("set-later", 0),
+        ("set-earlier", 2),
+    ] {
+        click(window, (id, position), cx);
+        assert_eq!(planned_paths(&view, cx), before, "{id} {position}");
+    }
+    click(window, ("set-lock", 1usize), cx);
+    click(window, ("set-later", 0usize), cx);
+    assert_eq!(planned_paths(&view, cx)[1], before[0]);
+}
+
+#[gpui::test]
+fn building_again_keeps_locked_tracks_in_place_and_locked(cx: &mut TestAppContext) {
+    let (window, view) = open_playable_set(cx);
+    let before = planned_paths(&view, cx);
+    click(window, ("set-lock", 0usize), cx);
+    click(window, "build-set", cx);
+    assert_eq!(planned_paths(&view, cx)[0], before[0]);
+    assert_eq!(locked_set_count(&view, cx), 1);
+}

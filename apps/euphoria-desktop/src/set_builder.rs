@@ -23,6 +23,10 @@ use crate::views::waveform::SeenBounds;
 pub(crate) const CURVE_SAMPLES: usize = 48;
 
 pub(crate) const DEFAULT_TRACK_COUNT: usize = 20;
+/// How much of the track before a transition is heard ahead of the track
+/// after it.
+pub(crate) const TRANSITION_LEAD_SECONDS: f32 = 20.0;
+
 pub(crate) const FEWEST_TRACKS: usize = 2;
 pub(crate) const MOST_TRACKS: usize = 60;
 
@@ -67,6 +71,11 @@ pub(crate) struct SetBuilder {
     pub(crate) stroke: Option<(f32, f32)>,
     /// The playlist the set was last saved as.
     pub(crate) saved_as: Option<PlaylistId>,
+    /// The row last clicked or played, which Space plays and Delete removes.
+    pub(crate) selected_row: Option<usize>,
+    /// The place in the set the player was last sent to. The set goes on
+    /// from there when that track ends, for as long as the player holds it.
+    pub(crate) playing: Option<usize>,
     build_generation: u64,
     build_task: Option<Task<()>>,
 }
@@ -85,6 +94,8 @@ impl Default for SetBuilder {
             curve_bounds: SeenBounds::default(),
             stroke: None,
             saved_as: None,
+            selected_row: None,
+            playing: None,
             build_generation: 0,
             build_task: None,
         }
@@ -356,6 +367,8 @@ impl EuphoriaApp {
                             curve,
                         });
                         this.set_builder.saved_as = None;
+                        this.set_builder.selected_row = None;
+                        this.resync_set_playing();
                     }
                     Err(error) => this.set_builder.problem = Some(sentence(&error.to_string())),
                 }
@@ -427,8 +440,20 @@ impl EuphoriaApp {
         if other >= planned.paths.len() {
             return;
         }
+        if planned.locked[position] || planned.locked[other] {
+            self.notice = Some(LOCKED_TRACK_STAYS.to_string());
+            cx.notify();
+            return;
+        }
         planned.paths.swap(position, other);
         planned.locked.swap(position, other);
+        let builder = &mut self.set_builder;
+        if builder.selected_row == Some(position) {
+            builder.selected_row = Some(other);
+        } else if builder.selected_row == Some(other) {
+            builder.selected_row = Some(position);
+        }
+        self.resync_set_playing();
         self.explain_planned_set();
         cx.notify();
     }
@@ -440,10 +465,161 @@ impl EuphoriaApp {
         if planned.paths.len() <= 1 || position >= planned.paths.len() {
             return;
         }
+        if planned.locked[position] {
+            self.notice = Some(UNLOCK_TO_REMOVE.to_string());
+            cx.notify();
+            return;
+        }
         planned.paths.remove(position);
         planned.locked.remove(position);
+        let builder = &mut self.set_builder;
+        builder.selected_row = match builder.selected_row {
+            Some(row) if row == position => None,
+            Some(row) if row > position => Some(row - 1),
+            other => other,
+        };
+        self.resync_set_playing();
         self.explain_planned_set();
         cx.notify();
+    }
+
+    /// Selects the row at `position`, for Space and Delete.
+    pub(crate) fn select_set_row(&mut self, position: usize, cx: &mut Context<'_, Self>) {
+        if self.set_builder.selected_row != Some(position) {
+            self.set_builder.selected_row = Some(position);
+            cx.notify();
+        }
+    }
+
+    /// Removes the selected row, unless it is locked.
+    pub(crate) fn remove_selected_set_row(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(position) = self.set_builder.selected_row {
+            self.remove_set_track(position, cx);
+        }
+    }
+
+    /// Where the set is in the player: the place of the track it holds, when
+    /// it is a track of the set the player was sent to.
+    pub(crate) fn set_playing_position(&self) -> Option<usize> {
+        let position = self.set_builder.playing?;
+        let planned = self.set_builder.planned.as_ref()?;
+        let held = self.player.track()?;
+        (planned.paths.get(position).map(PathBuf::as_path) == Some(held)).then_some(position)
+    }
+
+    /// The row Space plays: the selected one, when the player does not hold
+    /// it.
+    pub(crate) fn set_row_to_play(&self) -> Option<usize> {
+        if !self.set_builder.is_open {
+            return None;
+        }
+        let row = self.set_builder.selected_row?;
+        (self.set_playing_position() != Some(row)).then_some(row)
+    }
+
+    /// Whether the row at `position` is the one sounding.
+    pub(crate) fn is_set_row_sounding(&self, position: usize) -> bool {
+        self.set_playing_position() == Some(position) && self.player.offers_pause()
+    }
+
+    /// Finds the player's track again after the set was reordered.
+    fn resync_set_playing(&mut self) {
+        let Some(planned) = &self.set_builder.planned else {
+            self.set_builder.playing = None;
+            return;
+        };
+        let held = self.player.track();
+        self.set_builder.playing = self.set_builder.playing.and_then(|_| {
+            planned
+                .paths
+                .iter()
+                .position(|path| Some(path.as_path()) == held)
+        });
+    }
+
+    /// Plays the track at `position` of the set in the track player,
+    /// `from_seconds` in.
+    pub(crate) fn play_set_track(
+        &mut self,
+        position: usize,
+        from_seconds: f32,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.decks.is_open {
+            self.notice = Some(crate::decks::PLAYER_HELD_BY_DECKS.to_string());
+            cx.notify();
+            return;
+        }
+        let Some(path) = self
+            .set_builder
+            .planned
+            .as_ref()
+            .and_then(|planned| planned.paths.get(position).cloned())
+        else {
+            return;
+        };
+        let Some(index) = self.session.library().index_of(&path) else {
+            self.notice = Some("That track is no longer in the library.".to_string());
+            cx.notify();
+            return;
+        };
+        self.set_builder.selected_row = Some(position);
+        self.select(index, cx);
+        self.point_player_at_selection(cx);
+        self.set_builder.playing = Some(position);
+        for request in self.player.play_from(from_seconds) {
+            self.carry_out(Some(request), cx);
+        }
+        cx.notify();
+    }
+
+    /// The play button of a row: plays the track from its start, or pauses
+    /// and resumes it when it is the one the player holds.
+    pub(crate) fn toggle_set_row(&mut self, position: usize, cx: &mut Context<'_, Self>) {
+        if self.set_playing_position() == Some(position) {
+            self.set_builder.selected_row = Some(position);
+            self.toggle_playback(cx);
+        } else {
+            self.play_set_track(position, 0.0, cx);
+        }
+    }
+
+    /// Plays the end of the track before the one at `position`, then the
+    /// set goes on into it. The end is the last [`TRANSITION_LEAD_SECONDS`]:
+    /// the set does not plan where tracks are mixed.
+    pub(crate) fn play_set_transition(&mut self, position: usize, cx: &mut Context<'_, Self>) {
+        let Some(before) = position.checked_sub(1) else {
+            return;
+        };
+        let duration = self
+            .set_builder
+            .planned
+            .as_ref()
+            .and_then(|planned| planned.paths.get(before))
+            .and_then(|path| self.session.library().track_by_path(path))
+            .and_then(|track| track.duration_seconds());
+        self.play_set_track(before, transition_start_seconds(duration), cx);
+    }
+
+    /// The player's track played to its end. In a set, the next track of
+    /// the set plays from its start.
+    pub(crate) fn track_finished(&mut self, cx: &mut Context<'_, Self>) {
+        let position = self.set_playing_position();
+        self.player.finished();
+        self.voice = None;
+        let Some(position) = position else {
+            return;
+        };
+        let length = self
+            .set_builder
+            .planned
+            .as_ref()
+            .map_or(0, |planned| planned.paths.len());
+        if position + 1 < length {
+            self.play_set_track(position + 1, 0.0, cx);
+        } else {
+            self.set_builder.playing = None;
+        }
     }
 
     /// Saves the set as a new playlist and returns it, or the playlist it
@@ -496,6 +672,18 @@ impl EuphoriaApp {
             .map_or(0, |planned| planned.paths.len());
         format!("Set: {shape}, {count} tracks")
     }
+}
+
+pub(crate) const UNLOCK_TO_REMOVE: &str = "Unlock this track to remove it from the set.";
+pub(crate) const LOCKED_TRACK_STAYS: &str =
+    "Unlock this track to move it or the tracks next to it.";
+
+/// Where playing the track before a transition starts: the lead before its
+/// end, or its start when it is shorter or its length is not known.
+pub(crate) fn transition_start_seconds(duration_seconds: Option<f32>) -> f32 {
+    duration_seconds.map_or(0.0, |duration| {
+        (duration - TRANSITION_LEAD_SECONDS).max(0.0)
+    })
 }
 
 /// `options` with each locked position pinned to the track there, for a
@@ -592,6 +780,13 @@ mod tests {
         assert_eq!(level_at_height(0.0), 10.0);
         assert_eq!(level_at_height(1.0), 1.0);
         assert_eq!(level_at_height(2.0), 1.0);
+    }
+
+    #[test]
+    fn a_transition_starts_the_lead_before_the_end_of_the_track() {
+        assert_eq!(transition_start_seconds(Some(300.0)), 280.0);
+        assert_eq!(transition_start_seconds(Some(12.0)), 0.0);
+        assert_eq!(transition_start_seconds(None), 0.0);
     }
 
     #[test]
