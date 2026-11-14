@@ -127,11 +127,26 @@ The sidebar slides out to the left in about a fifth of a second while the table 
 
 ## The inspector
 
-The inspector shows the selected track: its name, format and length, its key, tempo and energy in three boxes, and its waveform. The waveform is read from the file when you select the track. Below them, **Sound quality** gives the quality verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak.
+The inspector shows the selected track. Three things are always in view, from the top: the header (title, artist, format and length, the **Focus** button and the star), the key, tempo and energy in three boxes with the Camelot wheel, and the waveform with the cues on it. Everything else sits in sections under them, each with a disclosure chevron like the folders in the sidebar. Click a heading to open or close its section; it eases open over 180 ms, or at once when macOS **Reduce motion** is on.
+
+| Section | Holds | Open at first |
+| --- | --- | --- |
+| **Mixes well with** | The tracks in your library that mix with this one. | Yes |
+| **Check by ear** | The key tone and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key unsure** or **Tag says**. |
+| **Hear it in another key** | Transposes playback only. Nothing is saved; the exports of the shifted copy and stems are here. | No |
+| **Stems** | Separate the track and choose what to hear. | No |
+| **Sound quality** | The verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak. | No, but it opens by itself for a weak, likely re-encoded or damaged file. |
+| **Location** | Where the file is on disk. | No |
+
+A section you opened or closed yourself stays as you left it, for every track, and beats the opening by itself. The choice is kept in `settings.json`, per section, not per track. In the Deck theme the strip keeps the header, the boxes with the wheel and the waveform in view, with the title in a column at least 220 pixels wide on one line (an ellipsis and the full name on hover when it is longer). The sections become small tabs at the strip's right, **Mixes**, **By ear**, **Other key**, **Stems**, **Quality** and **Location**; click one to show it in the last area of the strip, one at a time. The strip opens on the section that would open by itself, else on **Mixes**.
+
+The key and tempo boxes show the key name ("C# minor") and the unit ("per minute") whole, with the confidence word on a line of its own under the value.
+
+The waveform is read from the file when you select the track.
 
 ### How sure the key and the tempo are
 
-The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, beside the box's name. Low is shown in red, and puts the track under **Needs review**. Point at the word for what it means.
+The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, on a line under the value. Low is shown in red, and puts the track under **Needs review**. Point at the word for what it means.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
 
@@ -169,7 +184,7 @@ Only the second best key is kept by the analysis, so **Try** offers one key, not
 
 ### Check the key by ear and correct it
 
-Under the three boxes, **Check by ear** helps you settle a key you are not sure of while the track plays:
+Open **Check by ear**, under the waveform, to settle a key you are not sure of while the track plays:
 
 - **8A tone**, named in the key notation you chose, plays a soft drone of the key's root and fifth over the track. When the runner up key is offered, a second button plays its drone. The drone that sounds right under the music is the key; one that clashes is not. Click the button again to stop it. Only one drone plays at a time, and it stops when you select another track. The drone leaves out the third on purpose, so it sounds the same for a minor key and its parallel major; the piano settles that.
 - The **piano** covers one octave from middle C. The notes of the key's scale are tinted and named, and its root is marked. Click a key to play it over the track: notes of the right scale fit the melody, others stand out.
@@ -603,7 +618,7 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ## What the app remembers
 
-Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
+Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:
 
 | System | Folder |
 | --- | --- |

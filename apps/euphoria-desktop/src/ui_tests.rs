@@ -4371,6 +4371,38 @@ fn the_editor_asks_for_a_change_and_for_a_selection(cx: &mut TestAppContext) {
 }
 
 /// The tracks to review, with an output that notes every reference sound.
+/// Opens the sections of the track detail as if the user had, so that
+/// their contents are drawn whichever track is selected.
+pub(crate) fn open_sections(
+    view: &Entity<EuphoriaApp>,
+    kinds: &[crate::inspector_sections::SectionKind],
+    cx: &mut TestAppContext,
+) {
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            for kind in kinds {
+                app.inspector_sections.choices.set(*kind, true);
+            }
+            cx.notify();
+        })
+    });
+}
+
+/// Opens or closes a section as if the user had.
+fn choose_section(
+    view: &Entity<EuphoriaApp>,
+    kind: crate::inspector_sections::SectionKind,
+    is_open: bool,
+    cx: &mut TestAppContext,
+) {
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.inspector_sections.choices.set(kind, is_open);
+            cx.notify();
+        })
+    });
+}
+
 fn open_tracks_to_check_by_ear(
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>, ListeningOutput) {
@@ -4383,6 +4415,7 @@ fn open_tracks_to_check_by_ear(
         USUAL_WINDOW,
         cx,
     );
+    open_sections(&view, &[crate::inspector_sections::SectionKind::ByEar], cx);
     (window, view, output)
 }
 
@@ -4737,6 +4770,7 @@ fn a_tone_without_an_audio_output_says_so(cx: &mut TestAppContext) {
         USUAL_WINDOW,
         cx,
     );
+    open_sections(&view, &[crate::inspector_sections::SectionKind::ByEar], cx);
     click(window, ("tone", 0_usize), cx);
     cx.update(|cx| {
         let app = view.read(cx);
@@ -6081,6 +6115,7 @@ fn separate_selected_track(
     folder: &ScratchFolder,
     cx: &mut TestAppContext,
 ) -> euphoria_core::stems::StemFiles {
+    open_sections(view, &[crate::inspector_sections::SectionKind::Stems], cx);
     let stereo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
     let files = euphoria_core::stems::StemFiles::in_directory(folder.0.join("stems"));
@@ -6161,34 +6196,298 @@ fn remove_stems_deletes_them_and_offers_to_separate_again(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn statistic_labels_stay_on_one_line_in_every_theme_at_the_narrowest_inspector(
+fn statistic_labels_notes_and_confidence_stay_whole_in_every_theme_at_the_narrowest_inspector(
     cx: &mut TestAppContext,
 ) {
     let mut measured = 0;
+    let mut measured_notes = 0;
+    let mut measured_trust = 0;
     for theme in ThemeName::ALL {
         let panels = Panels {
             inspector_width: 0,
             ..Panels::default()
         };
-        let (window, _) = open_arranged(theme, panels, USUAL_WINDOW, cx);
+        let (window, view) = open_folders(
+            &["/Demo/reasons"],
+            tracks_with_reasons(),
+            Settings {
+                theme,
+                panels,
+                ..Settings::default()
+            },
+            None,
+            cx,
+        );
+        select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
         for label in ["Key", "BPM", "Energy"] {
-            let id = gpui::SharedString::from(format!("statistic-label-{label}"));
-            let height = cx
-                .update_window(window, |_, window, cx| {
-                    window.render_frame(cx);
-                    window.try_find(id).map(|found| found.bounds().size.height)
-                })
-                .unwrap();
-            if let Some(height) = height {
-                measured += 1;
-                assert!(
-                    height < px(20.0),
-                    "{label} wraps in {theme:?}: {height:?} high"
-                );
+            for prefix in ["statistic-label", "statistic-note", "statistic-trust"] {
+                let id = gpui::SharedString::from(format!("{prefix}-{label}"));
+                let height = cx
+                    .update_window(window, |_, window, cx| {
+                        window.render_frame(cx);
+                        window.try_find(id).map(|found| found.bounds().size.height)
+                    })
+                    .unwrap();
+                if let Some(height) = height {
+                    if prefix == "statistic-label" {
+                        measured += 1;
+                    } else if prefix == "statistic-note" {
+                        measured_notes += 1;
+                    } else {
+                        measured_trust += 1;
+                    }
+                    assert!(
+                        height < px(20.0),
+                        "{prefix} {label} wraps in {theme:?}: {height:?} high"
+                    );
+                }
             }
         }
     }
-    assert!(measured >= 3, "the compact statistics were never shown");
+    assert!(
+        measured >= 12,
+        "the statistics were not shown in every theme"
+    );
+    assert!(measured_trust >= 8, "the confidence words were not shown");
+    assert!(
+        measured_notes >= 12,
+        "the notes were not shown in every theme"
+    );
+}
+
+#[gpui::test]
+fn the_deck_strip_gives_the_title_a_column_of_at_least_220_pixels(cx: &mut TestAppContext) {
+    for window_size in [USUAL_WINDOW, SMALLEST_WINDOW] {
+        let (window, _) = open_arranged(ThemeName::Deck, Panels::default(), window_size, cx);
+        let (width, height) = cx
+            .update_window(window, |_, window, cx| {
+                window.render_frame(cx);
+                let found = window
+                    .try_find("inspector-title")
+                    .expect("the title is shown");
+                (found.bounds().size.width, found.bounds().size.height)
+            })
+            .unwrap();
+        assert!(
+            width >= px(220.0),
+            "the title is {width:?} wide at {window_size:?}"
+        );
+        assert!(height < px(24.0), "the title wraps: {height:?} high");
+    }
+}
+
+fn library_index_of(view: &Entity<EuphoriaApp>, file_name: &str, cx: &mut TestAppContext) -> usize {
+    cx.update(|cx| {
+        let app = view.read(cx);
+        app.session
+            .library()
+            .tracks()
+            .iter()
+            .position(|track| track.file_name == file_name)
+            .unwrap_or_else(|| panic!("{file_name} is not in the library"))
+    })
+}
+
+fn section_body_id(kind: crate::inspector_sections::SectionKind) -> (&'static str, usize) {
+    ("section-body", kind.index())
+}
+
+#[gpui::test]
+fn the_sections_open_as_they_do_by_default(cx: &mut TestAppContext) {
+    use crate::inspector_sections::SectionKind;
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
+    for kind in [
+        SectionKind::Mixes,
+        SectionKind::ByEar,
+        SectionKind::KeyShift,
+        SectionKind::Stems,
+    ] {
+        assert!(
+            is_shown(window, crate::views::inspector_section::toggle_id(kind), cx),
+            "{kind:?} has no heading"
+        );
+    }
+    assert!(!is_shown(window, section_body_id(SectionKind::ByEar), cx));
+    assert!(!is_shown(window, section_body_id(SectionKind::Stems), cx));
+    assert!(!is_shown(
+        window,
+        section_body_id(SectionKind::Location),
+        cx
+    ));
+    assert!(is_shown(window, section_body_id(SectionKind::Mixes), cx));
+}
+
+#[gpui::test]
+fn toggling_a_section_opens_it_and_is_written_to_the_settings(cx: &mut TestAppContext) {
+    use crate::inspector_sections::SectionKind;
+    let folder = ScratchFolder::new("section-toggle");
+    let settings_path = folder.0.join("settings.json");
+    let (window, view) = open_folders(
+        &["/Demo/reasons"],
+        tracks_with_reasons(),
+        Settings::default(),
+        Some(settings_path.clone()),
+        cx,
+    );
+    select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
+    click(
+        window,
+        crate::views::inspector_section::toggle_id(SectionKind::Stems),
+        cx,
+    );
+    click(
+        window,
+        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
+        cx,
+    );
+    assert!(is_shown(window, section_body_id(SectionKind::Stems), cx));
+    assert!(!is_shown(window, section_body_id(SectionKind::Mixes), cx));
+
+    let saved = Settings::load(&settings_path).unwrap().inspector_sections;
+    assert_eq!(saved.stems, Some(true));
+    assert_eq!(saved.mixes, Some(false));
+    assert_eq!(saved.by_ear, None);
+
+    let (reopened, reopened_view) = open_folders(
+        &["/Demo/reasons"],
+        tracks_with_reasons(),
+        Settings::load(&settings_path).unwrap(),
+        None,
+        cx,
+    );
+    select_track(
+        &reopened_view,
+        library_index_of(&reopened_view, "sure.mp3", cx),
+        cx,
+    );
+    assert!(is_shown(reopened, section_body_id(SectionKind::Stems), cx));
+    assert!(!is_shown(reopened, section_body_id(SectionKind::Mixes), cx));
+}
+
+#[gpui::test]
+fn check_by_ear_opens_for_a_track_whose_key_is_in_doubt_and_not_for_one_that_is_sure(
+    cx: &mut TestAppContext,
+) {
+    use crate::inspector_sections::SectionKind;
+    let (window, view) = open_tracks_with_reasons(cx);
+    let by_ear = section_body_id(SectionKind::ByEar);
+    select_track(&view, 0, cx);
+    assert!(is_shown(window, by_ear, cx), "key unsure");
+    select_track(&view, 1, cx);
+    assert!(!is_shown(window, by_ear, cx), "tempo unsure only");
+    select_track(&view, 2, cx);
+    assert!(is_shown(window, by_ear, cx), "tags conflict");
+    select_track(&view, 5, cx);
+    assert!(!is_shown(window, by_ear, cx), "sure");
+}
+
+#[gpui::test]
+fn a_section_the_user_closed_stays_closed_for_a_track_that_would_open_it(cx: &mut TestAppContext) {
+    use crate::inspector_sections::SectionKind;
+    let (window, view) = open_tracks_with_reasons(cx);
+    let by_ear = section_body_id(SectionKind::ByEar);
+    select_track(&view, library_index_of(&view, "unsure key.mp3", cx), cx);
+    assert!(is_shown(window, by_ear, cx), "opened for a doubtful key");
+
+    choose_section(&view, SectionKind::ByEar, false, cx);
+    assert!(!is_shown(window, by_ear, cx));
+    select_track(&view, library_index_of(&view, "everything.mp3", cx), cx);
+    assert!(!is_shown(window, by_ear, cx), "the user's choice wins");
+
+    choose_section(&view, SectionKind::ByEar, true, cx);
+    select_track(&view, library_index_of(&view, "unsure tempo.mp3", cx), cx);
+    assert!(is_shown(window, by_ear, cx), "kept open for every track");
+}
+
+fn track_with_quality(name: &str, verdict: euphoria_core::quality::QualityVerdict) -> DemoTrack {
+    DemoTrack {
+        path: PathBuf::from(format!("/Demo/quality/{name}.mp3")),
+        outcome: Ok(TrackAnalysis {
+            quality: Some(euphoria_core::quality::QualityReport {
+                codec: "mp3".to_string(),
+                lossless: false,
+                bitrate_kbps: Some(128),
+                sample_rate: 44_100,
+                bit_depth: None,
+                channels: Some(2),
+                cutoff_hz: Some(16_000.0),
+                clipped_share: 0.0,
+                integrated_loudness_lufs: None,
+                true_peak_dbtp: None,
+                damage: Default::default(),
+                cancelled_share: 0.0,
+                verdict,
+            }),
+            ..rated_analysis(0.02, 124.0, 0.6)
+        }),
+    }
+}
+
+#[gpui::test]
+fn sound_quality_opens_for_weak_and_re_encoded_files_only(cx: &mut TestAppContext) {
+    use crate::inspector_sections::SectionKind;
+    use euphoria_core::quality::QualityVerdict;
+    let (window, view) = open_folders(
+        &["/Demo/quality"],
+        vec![
+            track_with_quality("weak", QualityVerdict::WeakOnABigSystem),
+            track_with_quality("re-encoded", QualityVerdict::LikelyReencoded),
+            track_with_quality("good", QualityVerdict::Good),
+            track_with_quality("lossless", QualityVerdict::Lossless),
+        ],
+        Settings::default(),
+        None,
+        cx,
+    );
+    let quality = section_body_id(SectionKind::Quality);
+    for (name, opens) in [
+        ("weak.mp3", true),
+        ("re-encoded.mp3", true),
+        ("good.mp3", false),
+        ("lossless.mp3", false),
+    ] {
+        select_track(&view, library_index_of(&view, name, cx), cx);
+        assert_eq!(is_shown(window, quality, cx), opens, "{name}");
+    }
+}
+
+#[gpui::test]
+fn the_deck_strip_shows_one_section_at_a_time_from_its_tabs(cx: &mut TestAppContext) {
+    use crate::inspector_sections::SectionKind;
+    let (window, view) = open_folders(
+        &["/Demo/reasons"],
+        tracks_with_reasons(),
+        Settings {
+            theme: ThemeName::Deck,
+            ..Settings::default()
+        },
+        None,
+        cx,
+    );
+    select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
+    for kind in SectionKind::ALL {
+        assert!(is_shown(
+            window,
+            crate::views::inspector_section::tab_id(kind),
+            cx
+        ));
+        assert!(!is_shown(
+            window,
+            crate::views::inspector_section::toggle_id(kind),
+            cx
+        ));
+    }
+    let shown = |cx: &mut TestAppContext| cx.update(|cx| view.read(cx).strip_section_shown());
+    assert_eq!(shown(cx), SectionKind::Mixes);
+    click(
+        window,
+        crate::views::inspector_section::tab_id(SectionKind::Stems),
+        cx,
+    );
+    assert_eq!(shown(cx), SectionKind::Stems);
+    select_track(&view, library_index_of(&view, "unsure key.mp3", cx), cx);
+    assert_eq!(shown(cx), SectionKind::Stems, "a tab the user picked stays");
 }
 
 #[gpui::test]

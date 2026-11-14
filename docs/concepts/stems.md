@@ -49,7 +49,7 @@ Once a track is separated, the track detail offers **Export stems…**, **Export
 
 The exports run off the main thread. The strip at the bottom shows "Saving …" while one runs, and then what was saved, or why it failed.
 
-When the track has a key and the key shift in the **Change key** section is not zero, a second row of three buttons appears: **Export stems in <new key>…**, **Export acapella in <new key>…** and **Export instrumental in <new key>…**. Each stem is shifted by the same pitch shifter as "Export shifted copy…" (tempo unchanged, length unchanged), so the file is what is heard with the shift on, and the instrumental is summed after the shift. The files are tagged with the new key, and keep the tempo and energy, like the shifted copy. The names carry the shift: `<title> - vocals (+2).wav`, `<title> (Acapella, +2).wav`.
+When the track has a key and the key shift in the **Hear it in another key** section is not zero, a second row of three buttons appears: **Export stems in <new key>…**, **Export acapella in <new key>…** and **Export instrumental in <new key>…**. Each stem is shifted by the same pitch shifter as "Export shifted copy…" (tempo unchanged, length unchanged), so the file is what is heard with the shift on, and the instrumental is summed after the shift. The files are tagged with the new key, and keep the tempo and energy, like the shifted copy. The names carry the shift: `<title> - vocals (+2).wav`, `<title> (Acapella, +2).wav`.
 
 The command line writes a single file the same way: `euphoria stems <FILE> -o <DIR> --mix acapella` or `--mix instrumental` writes the acapella or the instrumental into the folder instead of the four stems; see the [command reference](../reference/cli.md#euphoria-stems).
 
