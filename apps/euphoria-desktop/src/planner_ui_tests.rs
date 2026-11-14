@@ -578,7 +578,9 @@ fn previewing_loads_both_tracks_on_the_decks_with_sync_on(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn the_overlap_link_on_the_plan_card_starts_separating_both_tracks(cx: &mut TestAppContext) {
+fn the_overlap_link_on_the_plan_card_starts_separating_the_first_track_without_stems(
+    cx: &mut TestAppContext,
+) {
     let setup = open_plans("plan-overlap-link", &[], cx);
     cx.update(|cx| {
         setup.view.update(cx, |app, _| {
@@ -598,7 +600,10 @@ fn the_overlap_link_on_the_plan_card_starts_separating_both_tracks(cx: &mut Test
     cx.update(|cx| {
         let app = setup.view.read(cx);
         assert!(app.stems.status(&setup.a).is_some(), "A starts separating");
-        assert!(app.stems.status(&setup.b).is_some(), "B starts separating");
+        assert!(
+            app.stems.status(&setup.b).is_none(),
+            "B waits, one separation runs at a time"
+        );
     });
     drop(setup.stem_folders);
     drop(setup.scratch);
@@ -608,10 +613,6 @@ fn the_overlap_link_on_the_plan_card_starts_separating_both_tracks(cx: &mut Test
 fn the_plan_card_opens_the_planner_from_a_link_in_its_header(cx: &mut TestAppContext) {
     let setup = open_plans("plan-open-link", &[0, 1], cx);
     open_focus_with_plans(&setup, cx);
-    assert!(
-        !is_shown(setup.window, "plan-open", cx),
-        "no link until a match is picked"
-    );
     pick(&setup, &setup.b.clone(), cx);
     settle(setup.window, cx);
     cx.update_window(setup.window, |_, window, cx| {

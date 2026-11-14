@@ -203,11 +203,14 @@ fn every_lane_is_drawn_on_one_axis_with_the_sections_of_the_cues(cx: &mut TestAp
         "focus-chip-key",
         "focus-chip-bpm",
         "focus-chip-energy",
-        "focus-chip-grid",
         "focus-transition-card",
     ] {
         assert!(is_shown(window, id, cx), "{id}");
     }
+    assert!(
+        !is_shown(window, "focus-chip-grid", cx),
+        "a detected grid needs no chip"
+    );
     assert!(is_shown(window, ("focus-section", 0_usize), cx));
     assert!(is_shown(window, ("focus-section", 1_usize), cx));
     assert!(!is_shown(window, ("focus-section", 2_usize), cx));

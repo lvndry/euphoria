@@ -592,8 +592,9 @@ impl EuphoriaApp {
         cx.notify();
     }
 
-    /// Starts separating the stems of every track of the picked pair that
-    /// has none, from the overlap line of the plan card.
+    /// Starts separating the stems of the first track of the picked pair
+    /// that has none, A before B, from the overlap line of the plan card.
+    /// One separation runs at a time, so the link stays until both are done.
     pub(crate) fn separate_missing_plan_stems(&mut self, cx: &mut Context<'_, Self>) {
         let Some(index) = self.focus.selected_match else {
             return;
@@ -604,8 +605,7 @@ impl EuphoriaApp {
         let (a_known, b_known) = planned.stems_known();
         if !a_known {
             self.separate_plan_stems(Side::A, cx);
-        }
-        if !b_known {
+        } else if !b_known {
             self.separate_plan_stems(Side::B, cx);
         }
     }

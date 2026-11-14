@@ -1134,6 +1134,7 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                             .child(summary)
                             .test_support(),
                     )
+                    .child(overlap_line(app, verdict, &palette, cx))
                     .child(
                         div()
                             .flex()
@@ -1171,7 +1172,6 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                             ),
                     )
                     .child(compact_strip(planned, window, &palette))
-                    .child(overlap_line(app, verdict, &palette, cx))
                     .test_support()
                     .into_any_element()
             }
