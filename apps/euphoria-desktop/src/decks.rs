@@ -600,6 +600,9 @@ fn grid_of(track: &Track, analysis: &TrackAnalysis) -> Option<GridTiming> {
     })
 }
 
+/// Shown when the track player is used while the decks hold the sound.
+pub(crate) const PLAYER_HELD_BY_DECKS: &str = "Close the decks to use the track player.";
+
 impl EuphoriaApp {
     /// Shows the decks, or hides them and stops their sound.
     pub(crate) fn toggle_decks(&mut self, cx: &mut Context<'_, Self>) {
@@ -613,6 +616,9 @@ impl EuphoriaApp {
                 let view = self.decks.view_mut(deck);
                 view.playing = false;
                 view.loading = false;
+            }
+            if self.notice.as_deref() == Some(PLAYER_HELD_BY_DECKS) {
+                self.notice = None;
             }
             cx.notify();
             return;
