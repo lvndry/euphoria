@@ -39,6 +39,8 @@ pub struct ScanWarning {
     pub path: PathBuf,
     /// What the system said, such as "Permission denied (os error 13)".
     pub reason: String,
+    /// True when `path` is a folder.
+    pub is_folder: bool,
 }
 
 /// How many files a scan left out for one unsupported extension.
@@ -61,6 +63,8 @@ pub struct AudioScan {
     /// The audio files of formats Euphoria cannot decode yet, counted by
     /// extension, most numerous first.
     pub skipped: Vec<SkippedExtension>,
+    /// Those files, sorted.
+    pub skipped_files: Vec<PathBuf>,
 }
 
 impl AudioScan {
@@ -80,6 +84,7 @@ impl AudioScan {
             return None;
         }
         let count = self.unreadable.len();
+        let all_folders = self.unreadable.iter().all(|warning| warning.is_folder);
         let paths: Vec<String> = self
             .unreadable
             .iter()
@@ -87,10 +92,11 @@ impl AudioScan {
             .collect();
         Some(format!(
             "{count} {} could not be read: {}",
-            if count == 1 {
-                "folder or file"
-            } else {
-                "folders or files"
+            match (count == 1, all_folders) {
+                (true, true) => "folder",
+                (false, true) => "folders",
+                (true, false) => "folder or file",
+                (false, false) => "folders or files",
             },
             paths.join(", ")
         ))
@@ -172,8 +178,11 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(error) => {
+                    let unreadable_path = error.path().unwrap_or(path).to_path_buf();
                     scan.unreadable.push(ScanWarning {
-                        path: error.path().unwrap_or(path).to_path_buf(),
+                        is_folder: std::fs::symlink_metadata(&unreadable_path)
+                            .is_ok_and(|metadata| metadata.is_dir()),
+                        path: unreadable_path,
                         reason: error
                             .io_error()
                             .map_or_else(|| error.to_string(), |source| source.to_string()),
@@ -188,11 +197,14 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
                 scan.files.push(entry.into_path());
             } else if let Some(extension) = unsupported_audio_extension(entry.path()) {
                 *skipped.entry(extension).or_default() += 1;
+                scan.skipped_files.push(entry.into_path());
             }
         }
     }
     scan.files.sort();
     scan.files.dedup();
+    scan.skipped_files.sort();
+    scan.skipped_files.dedup();
     scan.unreadable
         .sort_by(|first, second| first.path.cmp(&second.path));
     scan.unreadable.dedup();
@@ -200,7 +212,7 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
         .into_iter()
         .map(|(extension, count)| SkippedExtension { extension, count })
         .collect();
-    skipped.sort_by(|first, second| second.count.cmp(&first.count));
+    skipped.sort_by_key(|skipped| std::cmp::Reverse(skipped.count));
     scan.skipped = skipped;
     Ok(scan)
 }
@@ -341,7 +353,7 @@ mod tests {
         assert!(scan.unreadable[0].reason.contains("Permission denied"));
         assert_eq!(
             scan.unreadable_summary().unwrap(),
-            format!("1 folder or file could not be read: {}", locked.display())
+            format!("1 folder could not be read: {}", locked.display())
         );
         assert_eq!(through_wrapper.unwrap(), vec![root.join("readable.mp3")]);
     }

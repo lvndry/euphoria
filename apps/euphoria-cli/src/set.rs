@@ -14,7 +14,7 @@ use euphoria_core::export::rekordbox::ExistingFile;
 use euphoria_core::harmony::set::{DEFAULT_MAX_BPM_STEP, DEFAULT_SET_RELATIONS};
 use euphoria_core::{
     CachedBatch, EnergyCurve, M3uTrack, MixTrack, Pin, PinPosition, Relation, SetOptions, SetPlan,
-    SetTrack, build_set, find_audio_files, read_track_name, write_m3u8_file,
+    SetTrack, build_set, read_track_name, write_m3u8_file,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -321,7 +321,7 @@ fn build(arguments: &BuildArguments) -> Result<ExitCode> {
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(output::exit_status(false, false))
 }
 
 fn existing_file(force: bool) -> ExistingFile {
@@ -363,7 +363,7 @@ fn pool_files(sources: &[PathBuf], analysis: &AnalysisOptions) -> Result<(String
             .unwrap_or_else(|| "Set".to_string()),
         _ => "Set".to_string(),
     };
-    Ok((name, find_audio_files(sources).map_err(with_causes)?))
+    Ok((name, crate::scan::find_files(sources)?))
 }
 
 fn resolve_file(path: &Path) -> Result<PathBuf> {

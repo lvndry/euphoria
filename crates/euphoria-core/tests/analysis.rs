@@ -33,7 +33,7 @@ fn silent_file() -> PathBuf {
     bytes.extend(data_bytes.to_le_bytes());
     bytes.resize(bytes.len() + data_bytes as usize, 0);
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("silence-stereo.wav");
-    std::fs::write(&path, bytes).unwrap();
+    std::fs::write(&path, bytes).expect("cannot write the scratch file");
     path
 }
 
