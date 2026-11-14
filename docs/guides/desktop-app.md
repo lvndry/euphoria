@@ -497,7 +497,7 @@ How tags are written:
 
 | Setting | Choices |
 | --- | --- |
-| After analysis | **Write key and tempo to files after analysis** (off) writes each newly analyzed track's key and tempo into its file with the choices below, in batches, never while a DJ program runs, and with Undo. [Writing tags automatically after analysis](write-tags.md#writing-tags-automatically-after-analysis) explains the safety rules. |
+| After analysis | **Write key and tempo to files after analysis** (on) writes each newly analyzed track's key and tempo into its file with the choices below, in batches, never while a DJ program runs, and with Undo. [Writing tags automatically after analysis](write-tags.md#writing-tags-automatically-after-analysis) explains the safety rules. |
 | DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
 | Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
 | Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. Until you choose, it follows the program: nowhere for any program, the start of the comment for a DJ program. Settings saved by earlier versions keep a label you chose; the old default with any program is read as no choice. |
