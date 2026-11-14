@@ -60,6 +60,17 @@ The GiantSteps Key labels themselves are often wrong: a later expert re-annotati
 
 The second and third rows leave out previews the experts marked with no major or minor key, and the third those whose key changes.
 
+### Usable for mixing: exact or a fifth away
+
+A key a fifth away still mixes: it is the neighbouring number on the Camelot wheel, with the same letter. The relative key, the parallel key or another key does not. Counted that way, from the same readings:
+
+| | Previews | drone-v2 | libkeyfinder | Gain (95% interval) |
+| --- | --- | --- | --- | --- |
+| Original labels | 604 | 75.8% | 71.9% | 4.0 points (1.0 to 7.0) |
+| Expert labels, previews with one key throughout | 457 | 90.6% | 85.6% | 5.0 points (2.0 to 8.3) |
+
+The gain is smaller than on exact keys, because many of libkeyfinder's misses were already a fifth away: 11.3% of previews, against 6.0% for drone-v2.
+
 ### Combining the two
 
 Using libkeyfinder's key when the network is unsure was tried, with the threshold chosen on every other preview and checked on the rest. On the held out half it changed the MIREX score by +0.9 points (95% interval −0.2 to +2.2), which is not clearly a gain, so the network decides alone. When the two agree, on 442 previews, the key is exact 76.7% of the time.
