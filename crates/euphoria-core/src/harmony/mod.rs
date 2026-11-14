@@ -10,6 +10,7 @@ mod mix;
 mod next;
 mod relation;
 pub mod set;
+pub mod transition;
 
 pub use mashup::{
     DEFAULT_MASHUP_TEMPO_PERCENT, DEFAULT_MAX_KEY_SHIFT, KeyFit, Layering, MashupMatch,

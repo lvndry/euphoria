@@ -11,6 +11,7 @@
 
 mod cache;
 mod input;
+mod levels;
 mod model;
 mod profile;
 mod segments;
@@ -32,6 +33,7 @@ use spectrogram::{
 };
 
 pub use cache::{DEFAULT_STEM_CACHE_LIMIT_BYTES, STEM_CACHE_LIMIT_VARIABLE, StemCache, StemFiles};
+pub use levels::measure_stem_levels;
 pub use model::{WEIGHTS_BYTES, WEIGHTS_SHA256, WEIGHTS_URL, default_weights_path};
 pub use profile::profile_stems;
 
