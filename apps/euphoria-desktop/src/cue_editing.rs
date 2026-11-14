@@ -514,6 +514,23 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Moves playing to cue `index` of the selected track without changing
+    /// whether it plays.
+    pub(crate) fn jump_to_cue(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        let Some((seconds, duration)) = self.selected_track().and_then(|track| {
+            let cue = track.cues().cues.get(index).cloned()?;
+            Some((cue.seconds as f32, track.duration_seconds()?))
+        }) else {
+            return;
+        };
+        if duration <= 0.0 {
+            return;
+        }
+        let request = self.player.seek_to_fraction(seconds / duration);
+        self.carry_out(request, cx);
+        cx.notify();
+    }
+
     /// Removes cue `index` of the selected track.
     pub(crate) fn delete_cue(&mut self, index: usize, cx: &mut Context<'_, Self>) {
         self.change_cues(CueChange::Delete { index }, cx);

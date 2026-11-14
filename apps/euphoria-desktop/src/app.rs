@@ -5,7 +5,7 @@
 //! chosen to see, and lays the screen out from the views.
 
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -209,6 +209,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) waveform_bounds: SeenBounds,
     /// Where the progress line of the player bar was last drawn.
     pub(crate) progress_line_bounds: SeenBounds,
+    /// The bar heights of the player bar's waveform.
+    pub(crate) player_wave_peaks: Rc<RefCell<crate::player_wave::BarPeaksCache>>,
     /// Holds the keyboard when no field or table has it, so that the space
     /// bar still reaches the player.
     pub(crate) window_focus: FocusHandle,
@@ -509,6 +511,7 @@ impl EuphoriaApp {
             player: Player::default(),
             waveform_bounds: Rc::new(Cell::new(None)),
             progress_line_bounds: Rc::new(Cell::new(None)),
+            player_wave_peaks: Rc::default(),
             window_focus,
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
