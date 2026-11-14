@@ -577,6 +577,7 @@ fn label_preview_box(app: &EuphoriaApp, id: &'static str, palette: &Palette) -> 
                 Some(reason) => div()
                     .flex_shrink_0()
                     .text_color(palette.text_tertiary)
+                    .line_through()
                     .child(format!("{} \u{b7} {reason}", field.name)),
                 None => div()
                     .w(px(84.0))
