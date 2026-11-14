@@ -3126,31 +3126,25 @@ fn the_curve_is_worked_out_from_the_decoded_audio_after_the_waveform(cx: &mut Te
 }
 
 #[gpui::test]
-fn every_theme_shows_the_wheel_in_the_inspector_under_the_waveform_in_the_column(
-    cx: &mut TestAppContext,
-) {
+fn every_theme_shows_the_wheel_in_the_inspector_without_scrolling(cx: &mut TestAppContext) {
     for theme in ThemeName::ALL {
-        let (window, _) = open_track_changing_key(
-            theme,
-            Panels::default(),
-            gpui::size(px(1440.0), px(1500.0)),
-            cx,
-        );
+        let (window, _) = open_track_changing_key(theme, Panels::default(), USUAL_WINDOW, cx);
         cx.update_window(window, |_, window, cx| {
             window.render_frame(cx);
             window.render_frame(cx);
             let inspector = window.find("inspector").bounds();
             let wheel = window.find("camelot-wheel").bounds();
-            assert!(inspector.contains(&wheel.center()), "{theme:?}");
+            assert!(inspector.contains(&wheel.origin), "{theme:?}");
+            assert!(inspector.contains(&wheel.bottom_right()), "{theme:?}");
+            assert_eq!(wheel.size.height, wheel.size.width, "{theme:?}");
             if AppTheme::named(theme).layout == Layout::InspectorRight {
                 assert_eq!(
                     wheel.size.width,
-                    px(crate::views::wheel::WHEEL_SIZE),
+                    px(crate::views::wheel::COLUMN_WHEEL_SIZE),
                     "{theme:?}"
                 );
-                assert_eq!(wheel.size.height, wheel.size.width, "{theme:?}");
                 assert!(
-                    wheel.top() >= window.find("waveform").bounds().bottom(),
+                    wheel.bottom() <= window.find("waveform").bounds().top(),
                     "{theme:?}"
                 );
             }

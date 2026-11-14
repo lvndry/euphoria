@@ -18,8 +18,11 @@ use gpui::{
 use crate::camelot::CamelotPosition;
 use crate::theme::{Palette, blend};
 
-/// Width and height of the wheel in the inspector column.
-pub(crate) const WHEEL_SIZE: f32 = 148.0;
+/// The size the radii below are drawn for; the wheel is scaled from it.
+const WHEEL_SIZE: f32 = 148.0;
+/// Width and height of the wheel beside the statistics in the inspector
+/// column, which is 256 px wide inside its padding at the narrowest.
+pub(crate) const COLUMN_WHEEL_SIZE: f32 = 96.0;
 /// The smallest the wheel is drawn, in the strip at its shortest.
 pub(crate) const SMALLEST_WHEEL_SIZE: f32 = 100.0;
 /// The largest the wheel is drawn, in a tall strip.
