@@ -15,7 +15,7 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 /// Two seconds of digital silence in a stereo WAV.
-fn silent_file() -> PathBuf {
+fn silent_file(name: &str) -> PathBuf {
     let sample_rate = 44_100_u32;
     let data_bytes = sample_rate * 2 * 4;
     let mut bytes = Vec::new();
@@ -32,7 +32,8 @@ fn silent_file() -> PathBuf {
     bytes.extend(b"data");
     bytes.extend(data_bytes.to_le_bytes());
     bytes.resize(bytes.len() + data_bytes as usize, 0);
-    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("silence-stereo.wav");
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("silence-stereo-{name}.wav"));
     std::fs::write(&path, bytes).expect("cannot write the scratch file");
     path
 }
@@ -46,7 +47,7 @@ fn a_tone_at_concert_pitch_has_a_tuning_of_about_zero() {
 
 #[test]
 fn silence_has_no_tuning_and_no_key_over_time() {
-    let analysis = analyze_file(&silent_file()).unwrap();
+    let analysis = analyze_file(&silent_file("tuning")).unwrap();
     assert_eq!(analysis.key, None);
     assert_eq!(analysis.tuning_cents, None);
     assert!(analysis.key_timeline.is_empty());
@@ -84,7 +85,7 @@ fn an_analysis_rates_its_tempo_and_keeps_the_estimate_behind_it() {
 
 #[test]
 fn silence_has_no_confidence_and_nothing_to_review() {
-    let analysis = analyze_file(&silent_file()).unwrap();
+    let analysis = analyze_file(&silent_file("confidence")).unwrap();
     assert_eq!(analysis.key_confidence(), None);
     assert_eq!(analysis.tempo_confidence(), None);
     assert_eq!(analysis.key_runner_up, None);
