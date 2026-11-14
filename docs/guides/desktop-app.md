@@ -281,9 +281,32 @@ The header shows the title, artist, length, format and sound quality, with chips
 
 Every lane shares one playhead and one cursor. Point anywhere over the lanes and a single vertical line runs through all of them, with a line under them such as "2:51 · Breakdown · Energy 3 · no vocals · bass out", built from the lanes that have data. The **Lanes** menu shows or hides each lane, and the choice is kept in `settings.json`.
 
-**Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row has a star, the title with the transition note or the artist, the key and how it relates, the tempo change and a verdict: **Smooth**, **Workable** or **Stretch** from the key and the tempo alone, or **Your mix** for a transition you starred whose keys do not mix by the rules. The Clash column is empty until the transition planner is built. Click a row to pick it for the plan, double-click to focus on it.
+**Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row has a star, the title with the transition note or the artist, the key and how it relates, the tempo change and a verdict: **Smooth**, **Workable** or **Stretch** from the key and the tempo alone, or **Your mix** for a transition you starred whose keys do not mix by the rules. The **Clash** column plans the transition from the selected track into each row: a strip of up to 16 cells for the best window, coloured by what the two tracks do together (fine, both basslines, both vocals, not known), and a verdict, **Clean**, **Vocal clash**, **Bass clash**, or **Not checked** when the stems of either track are missing. The plans are worked out off the main thread, two at a time, for the rows in view and the picked one, and kept in memory for the session, so scrolling stays smooth. A row reads **Checking** while its plan is made, and **No plan** when the pair cannot be planned, with the reason when you point at it. Euphoria never separates stems for this. Click a row to pick it for the plan, double-click to focus on it.
 
-**Plan**, bottom right, has three tabs. **Transition** shows a placeholder, "Transition planner coming next", with the pick. **Mashup** opens the decks in mashup mode. **Cues** is the cue list of the inspector.
+**Plan**, bottom right, has three tabs. **Transition** plans the pick, see [Plan a transition](#plan-a-transition-in-the-focus-view). **Mashup** opens the decks in mashup mode. **Cues** is the cue list of the inspector.
+
+### Plan a transition in the focus view
+
+Pick a track in **Mixes into** and the **Transition** tab gives the best window of the plan in a sentence, for example: "Mix out of this track's Outro (5:24) into Night Orbit's Intro. 32 bars, no vocals on either side, bass swap at bar 17. Night Orbit plays at 124.0 BPM (+1.6%), key 9A, one step up the wheel." Under it, a small strip shows A and B as bands of sections on one grid of bars, with the clash row under them and the window outlined, then the verdict. The plan is the one `euphoria plan` makes, see [Planning a transition](../concepts/plan-a-transition.md); the sections are read from the cues the track shows, so cues you edited count.
+
+Three buttons act on the best window:
+
+- **Set cues on both tracks** writes the plan's cues as your own cues: **Mix out** and **Mix out end** on A, **Mix in**, **Bass swap** and **Vocals in** on B, each on the first free hot cue pad. The cues a track already has stay, and a cue of the same name is replaced, so pressing it again does not pile up copies. One undo, the undo in the Cues tab, takes back the cues of both tracks together.
+- **Preview on the decks** opens the decks, loads A on deck A and B on deck B, each paused on its downbeat at the start of the window, with sync on so that B follows A's tempo, and leaves the focus view. Play deck A, then deck B: B starts on the next downbeat of A. The load is not tested with real audio output.
+- **Open the planner** covers the focus view with the planner. **Esc**, or the **Focus view** button, goes back.
+
+The planner shows, from top to bottom:
+
+- A **bar ruler**: A's time at the left edge, then the bars from 32 before the window (bar -32) through bar 1, the start of the window, to the bar after its end, and **A ends**.
+- Both tracks on that grid, each with its section bands and its **Vocals**, **Bass** and **Drums** lanes, one cell per bar. B appears at bar 1 and goes on after A ends. A stem that is not known, because the track has no stems, is a quiet fill and not an empty lane.
+- The **Clash** row, with a legend: **Fine**, **Both basslines**, **Both vocals**, **Unknown** and **Suggested window**, the outline.
+- Up to five **suggested windows**, ranked, each with its rank, a title such as "Outro (5:24) into Intro", a line of detail and a verdict. Click one and the outline and the steps follow it.
+- **Window N, step by step**, the steps of the chosen window as an ordered list: start B, swap the bass, bring B's vocals in, and A ends.
+- The buttons **Set the cues on A and B**, **Play it on the decks** and **Save as a favorite transition**, which marks the transition from A into B as a [favorite](#favorite-transitions) with the chosen window's sentence as its note.
+
+When the stems of A or B are missing, a quiet line says "Separate the stems of A and B to check vocal and bass clashes", with a link for each track that starts its separation, and the clash row shows the bars as unknown. When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
+
+The energy and the stem levels the plan reads are measured once off the main thread and kept in the `plan-signals` folder of Euphoria's data folder, so a second plan of the same track is quick. The look of the planner on a real display is not tested; the headless window tests what it shows and what its buttons do.
 
 Not tested outside the headless window: the look on a real display, and the lanes on tracks over an hour long.
 

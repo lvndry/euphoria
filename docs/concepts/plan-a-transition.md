@@ -52,6 +52,12 @@ A part that cannot be measured, such as the clashes without stems or the energy 
 
 Each window comes with its steps: start B, swap the bass at a bar, bring in B's vocals at a bar, and A ends. The first cues for the best window are suggested for both tracks and are not written anywhere until you set them.
 
+## In the app
+
+The [focus view](../guides/desktop-app.md#plan-a-transition-in-the-focus-view) of the desktop app makes the same plan for the selected track and each track it mixes into. The clash column of its **Mixes into** list shows the clash strip of the best window and a verdict, **Clean**, **Vocal clash**, **Bass clash** or **Not checked**, the **Transition** tab puts the best window in a sentence, and the planner lays both tracks on one grid of bars with the lanes, the clash row, up to five ranked windows and the steps of the chosen one.
+
+Two things differ from the command. The app reads the sections from the cues the track shows, so a cue you dragged or renamed moves the windows, where the command reads the automatic cues. And it never separates stems by itself: a pair without stems reads **Not checked**, and the planner offers a link that starts the separation. Setting the cues from a window writes **Mix out**, **Mix out end**, **Mix in**, **Bass swap** and **Vocals in** as your own cues, which one undo takes back on both tracks.
+
 ## Limits
 
 - The weights are chosen by reasoning about what a DJ hears, and have not been tuned against DJs' own choices.

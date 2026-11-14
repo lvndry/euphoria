@@ -191,36 +191,46 @@ pub fn plan_transition(
         },
         options.window_count,
     );
-    let cues = found.first().map(|window| {
-        let a_at = |bar: usize| grid_a.first_downbeat_seconds + bar as f64 * lanes_a.bar_seconds;
-        let b_at = |bar: usize| grid_b.first_downbeat_seconds + bar as f64 * lanes_b.bar_seconds;
-        let cue = |seconds, name: &str| SuggestedCue {
-            seconds,
-            name: name.to_string(),
-        };
-        let mut a_cues = vec![cue(a_at(window.a_start_bar), "Mix out")];
-        let end = a_at(window.a_start_bar + window.bars);
-        if end <= f64::from(a.analysis.duration_seconds) {
-            a_cues.push(cue(end, "Mix out end"));
-        }
-        let mut b_cues = vec![cue(b_at(window.b_start_bar), "Mix in")];
-        for step in &window.steps {
-            match step.kind {
-                StepKind::SwapBass => b_cues.push(cue(b_at(step.b_bar), "Bass swap")),
-                StepKind::BringInVocals => b_cues.push(cue(b_at(step.b_bar), "Vocals in")),
-                StepKind::StartB | StepKind::AEnds => {}
-            }
-        }
-        SuggestedCues {
-            a: a_cues,
-            b: b_cues,
-        }
-    });
+    let cues = found.first().map(|window| cues_for_window(window, a, b));
     Ok(TransitionPlan {
         alignment,
         lanes_a,
         lanes_b,
         windows: found,
-        cues,
+        cues: cues.flatten(),
+    })
+}
+
+/// The cues that carry out `window`, on the beat grids of `a` and `b`, or
+/// `None` when either has no beat grid.
+pub fn cues_for_window(
+    window: &CandidateWindow,
+    a: &PlanTrack<'_>,
+    b: &PlanTrack<'_>,
+) -> Option<SuggestedCues> {
+    let grid_a = a.analysis.beat_grid?;
+    let grid_b = b.analysis.beat_grid?;
+    let a_at = |bar: usize| grid_a.first_downbeat_seconds + bar as f64 * grid_a.bar_seconds();
+    let b_at = |bar: usize| grid_b.first_downbeat_seconds + bar as f64 * grid_b.bar_seconds();
+    let cue = |seconds, name: &str| SuggestedCue {
+        seconds,
+        name: name.to_string(),
+    };
+    let mut a_cues = vec![cue(a_at(window.a_start_bar), "Mix out")];
+    let end = a_at(window.a_start_bar + window.bars);
+    if end <= f64::from(a.analysis.duration_seconds) {
+        a_cues.push(cue(end, "Mix out end"));
+    }
+    let mut b_cues = vec![cue(b_at(window.b_start_bar), "Mix in")];
+    for step in &window.steps {
+        match step.kind {
+            StepKind::SwapBass => b_cues.push(cue(b_at(step.b_bar), "Bass swap")),
+            StepKind::BringInVocals => b_cues.push(cue(b_at(step.b_bar), "Vocals in")),
+            StepKind::StartB | StepKind::AEnds => {}
+        }
+    }
+    Some(SuggestedCues {
+        a: a_cues,
+        b: b_cues,
     })
 }
