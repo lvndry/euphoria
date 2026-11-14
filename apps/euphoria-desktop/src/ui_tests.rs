@@ -1961,6 +1961,15 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         assert_eq!(settings.program, ProgramChoice::Serato);
         assert!(!settings.write_tempo, "Serato starts without the tempo");
     });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.scroll(
+            "settings-body",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-150.0))),
+            cx,
+        );
+    })
+    .unwrap();
     click(window, "write-tempo", cx);
     click(window, "close-settings", cx);
     cx.update(|cx| assert!(!view.read(cx).settings_open));
@@ -1999,6 +2008,38 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         assert!(app.settings_open);
         assert!(app.tag_panel.is_none());
     });
+}
+
+#[gpui::test]
+fn the_settings_preview_follows_the_label_place_as_it_is_chosen(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-label-preview");
+    let files = scratch.copy_fixtures();
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
+    cx.run_until_parked();
+    click(window, ("program", 0_usize), cx);
+    click(window, ("label-place", 0_usize), cx);
+    cx.run_until_parked();
+    let comment_of = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let preview = view.read(cx).label_preview.clone().expect("a preview");
+            let comment = preview
+                .fields
+                .into_iter()
+                .find(|field| field.name == "Comment")
+                .expect("a comment");
+            (preview.source, comment.value(), comment.label)
+        })
+    };
+    let (source, value, label) = comment_of(cx);
+    assert_eq!(source, crate::label_preview::PreviewSource::SelectedTrack);
+    assert!(value.starts_with("8A - Energy 7"), "{value}");
+    assert_eq!(label, "8A - Energy 7");
+
+    click(window, ("label-place", 1_usize), cx);
+    cx.run_until_parked();
+    let moved = comment_of(cx).1;
+    assert!(moved.ends_with("8A - Energy 7"), "{moved}");
 }
 
 #[gpui::test]

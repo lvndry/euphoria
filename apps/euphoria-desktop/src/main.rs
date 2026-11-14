@@ -36,6 +36,7 @@ mod folder_tree;
 mod format;
 mod key_by_ear;
 mod key_shift;
+mod label_preview;
 mod library;
 mod library_export;
 #[cfg(test)]

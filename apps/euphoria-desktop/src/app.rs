@@ -148,6 +148,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) write_log_directory: Option<PathBuf>,
     /// Counts tag tasks, so a result for a panel already closed is dropped.
     pub(crate) tag_task_generation: u64,
+    /// What the tag settings write to one track, for the settings panel.
+    pub(crate) label_preview: Option<crate::label_preview::LabelPreview>,
+    pub(crate) label_preview_generation: u64,
     pub(crate) folder_scroll: UniformListScrollHandle,
     pub(crate) tree_focus: FocusHandle,
     pub(crate) sort_order: Option<SortOrder>,
@@ -439,6 +442,8 @@ impl EuphoriaApp {
                 euphoria_core::tags::default_write_log_directory().ok()
             },
             tag_task_generation: 0,
+            label_preview: None,
+            label_preview_generation: 0,
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
             sort_order: None,
@@ -1244,6 +1249,7 @@ impl EuphoriaApp {
         self.tag_task_generation += 1;
         self.tag_panel = None;
         self.settings_open = true;
+        self.refresh_label_preview(cx);
         cx.notify();
     }
 
@@ -1302,6 +1308,7 @@ impl EuphoriaApp {
         if let Some(problem) = self.save_settings() {
             self.report(problem);
         }
+        self.refresh_label_preview(cx);
         cx.notify();
     }
 
