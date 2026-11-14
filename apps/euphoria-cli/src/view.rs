@@ -1421,6 +1421,7 @@ music
         let correction = Correction {
             key: Some(Key::new(9, Mode::Minor)),
             bpm: None,
+            energy: None,
         };
         let detail = detail_with_tag_key("8B", Some(&correction));
         assert!(detail.contains("differs from the key you set"), "{detail}");
