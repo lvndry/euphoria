@@ -37,6 +37,7 @@ mod focus;
 mod focus_ui_tests;
 mod folder_tree;
 mod format;
+mod inspector_sections;
 mod key_by_ear;
 mod key_shift;
 mod label_preview;
@@ -61,6 +62,9 @@ mod peaks;
 mod planner_ui_tests;
 mod playback;
 mod player;
+mod player_wave;
+#[cfg(test)]
+mod player_wave_ui_tests;
 mod playlist_flow;
 mod playlists;
 mod progress;
@@ -86,6 +90,10 @@ mod tag_flow;
 mod tag_settings;
 mod tag_writing;
 mod theme;
+mod toast;
+mod toast_flow;
+#[cfg(test)]
+mod toast_ui_tests;
 mod track_filter_flow;
 #[cfg(test)]
 mod track_filter_ui_tests;
@@ -314,7 +322,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
     register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
-    register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_cue_edit(cx));
+    register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_latest(cx));
     register_view_command::<ToggleMetronome>(view, cx, |view, cx| view.toggle_metronome(cx));
     register_view_command::<ToggleFavorite>(view, cx, |view, cx| {
         view.toggle_star_on_selection(cx);

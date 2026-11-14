@@ -96,6 +96,14 @@ fn open_keyed_library(cx: &mut TestAppContext) -> (gpui::AnyWindowHandle, Entity
         cx,
     );
     cx.update(|cx| view.update(cx, |app, cx| app.select(0, cx)));
+    crate::ui_tests::open_sections(
+        &view,
+        &[
+            crate::inspector_sections::SectionKind::Stems,
+            crate::inspector_sections::SectionKind::KeyShift,
+        ],
+        cx,
+    );
     (window, view)
 }
 
@@ -146,7 +154,13 @@ fn export(
 }
 
 fn notice(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> String {
-    cx.update(|cx| view.read(cx).notice.clone().unwrap_or_default())
+    cx.update(|cx| {
+        let app = view.read(cx);
+        app.notice
+            .clone()
+            .or_else(|| app.toasts.current().map(|toast| toast.message.clone()))
+            .unwrap_or_default()
+    })
 }
 
 fn stems_into(folder: PathBuf, shifted: bool) -> impl FnOnce(&EuphoriaApp) -> StemExportRequest {

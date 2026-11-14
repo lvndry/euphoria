@@ -712,7 +712,7 @@ impl EuphoriaApp {
             .get(id)
             .map(|playlist| playlist.name.clone())
             .unwrap_or(name);
-        self.notice = Some(format!("Saved the set as the playlist {name}."));
+        self.show_toast(format!("Saved the set as the playlist {name}"), None, cx);
         cx.notify();
         Some(id)
     }

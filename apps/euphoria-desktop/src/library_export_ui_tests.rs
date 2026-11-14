@@ -94,7 +94,10 @@ fn the_rekordbox_export_of_the_fixture_library_writes_a_valid_file(cx: &mut Test
             app.library_export.as_ref().unwrap().stage,
             ExportStage::Done(_)
         ));
-        assert!(app.notice.as_deref().unwrap().contains("Exported 3 tracks"));
+        assert_eq!(
+            app.toasts.current().unwrap().message,
+            "Exported 3 tracks to rekordbox XML"
+        );
     });
 }
 

@@ -292,6 +292,17 @@ impl EuphoriaApp {
                     this.note_first_write();
                 }
                 this.read_track_names(report.written.clone(), cx);
+                #[cfg(test)]
+                {
+                    this.last_written = report.written.clone();
+                }
+                if !report.written.is_empty() {
+                    this.show_toast(
+                        crate::tag_flow::wrote_sentence(&settings, report.written.len()),
+                        Some(crate::toast::ToastAction::UndoTagWrite),
+                        cx,
+                    );
+                }
                 this.auto_tags.failures.extend(failures);
                 this.auto_tags.is_writing = false;
                 this.flush_due_auto_tags(cx);

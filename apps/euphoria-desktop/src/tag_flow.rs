@@ -19,6 +19,7 @@ use crate::tag_writing::{
     LeftOut, PreviewRow, UndoReport, WriteReport, WriteTarget, plan_writes_with_history,
     preview_rows, undo_last_with_playlists, write_plans_with_playlists,
 };
+use crate::toast::ToastAction;
 
 /// The targets with their corrections checked against the whole file, since
 /// the values are about to go into the file's tags: a file replaced by other
@@ -87,6 +88,29 @@ pub(crate) fn plan_verified_writes(
     let mut planned = plan_writes_with_history(&targets, settings, &history);
     planned.failures.extend(unchecked);
     planned
+}
+
+fn files(count: usize) -> String {
+    let noun = if count == 1 { "file" } else { "files" };
+    format!("{} {noun}", crate::format::count(count))
+}
+
+/// What the toast says after tags were written from the analysis.
+pub(crate) fn wrote_sentence(settings: &TagSettings, count: usize) -> String {
+    let fields = if settings.write_tempo {
+        "key and BPM"
+    } else {
+        "key"
+    };
+    format!("Wrote {fields} to {}", files(count))
+}
+
+fn edit_sentence(count: usize) -> String {
+    format!("Saved the tag changes to {}", files(count))
+}
+
+fn restored_sentence(count: usize) -> String {
+    format!("Put the old tags back in {}", files(count))
 }
 
 /// How often the progress of a write is shown.
@@ -334,6 +358,7 @@ impl EuphoriaApp {
         let plans = preview.plans.clone();
         let analyses = preview.analyses.clone();
         let is_edit = matches!(preview.kind, PreviewKind::Edit { .. });
+        let settings = self.tag_settings;
         let cache = self.session.cache();
         let done = Arc::new(AtomicUsize::new(0));
         let playlists = self.session.playlist_saver();
@@ -381,7 +406,21 @@ impl EuphoriaApp {
                 if !is_edit && !report.written.is_empty() {
                     this.note_first_write();
                 }
-                this.tag_panel = Some(TagPanel::Written(report));
+                #[cfg(test)]
+                {
+                    this.last_written = report.written.clone();
+                }
+                if report.is_clean() {
+                    this.tag_panel = None;
+                    let message = if is_edit {
+                        edit_sentence(report.written.len())
+                    } else {
+                        wrote_sentence(&settings, report.written.len())
+                    };
+                    this.show_toast(message, Some(ToastAction::UndoTagWrite), cx);
+                } else {
+                    this.tag_panel = Some(TagPanel::Written(report));
+                }
                 cx.notify();
             })
             .ok();
@@ -424,6 +463,20 @@ impl EuphoriaApp {
         if !matches!(self.tag_panel, Some(TagPanel::ConfirmUndo)) {
             return;
         }
+        self.run_tag_undo(false, cx);
+    }
+
+    /// Undo of the toast: the same undo as Undo Last Tag Write, without
+    /// asking again, since the toast was the question.
+    pub(crate) fn undo_tag_write_from_toast(&mut self, cx: &mut Context<'_, Self>) {
+        if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
+            return;
+        }
+        self.tag_task_generation += 1;
+        self.run_tag_undo(true, cx);
+    }
+
+    fn run_tag_undo(&mut self, from_toast: bool, cx: &mut Context<'_, Self>) {
         let Some(log_directory) = self.write_log_directory.clone() else {
             self.tag_panel = Some(TagPanel::Undone(Err(
                 "there is no data folder to find the backups in".to_string(),
@@ -461,7 +514,13 @@ impl EuphoriaApp {
                     }
                     this.read_track_names(report.restored.clone(), cx);
                 }
-                this.tag_panel = Some(TagPanel::Undone(undone));
+                match &undone {
+                    Ok(Some(report)) if from_toast && report.is_clean() => {
+                        this.tag_panel = None;
+                        this.show_toast(restored_sentence(report.restored.len()), None, cx);
+                    }
+                    _ => this.tag_panel = Some(TagPanel::Undone(undone)),
+                }
                 cx.notify();
             })
             .ok();
@@ -521,7 +580,8 @@ impl EuphoriaApp {
     pub(crate) fn written_files(&self) -> Option<Vec<std::path::PathBuf>> {
         match &self.tag_panel {
             Some(TagPanel::Written(report)) => Some(report.written.clone()),
-            _ => None,
+            _ if self.last_written.is_empty() => None,
+            _ => Some(self.last_written.clone()),
         }
     }
 

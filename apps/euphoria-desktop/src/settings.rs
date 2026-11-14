@@ -68,6 +68,8 @@ pub(crate) struct Settings {
     pub(crate) focus_lanes: FocusLanes,
     /// The metronome's sound, volume and accent.
     pub(crate) metronome: MetronomeSettings,
+    /// Which sections of the track detail the user opened or closed.
+    pub(crate) inspector_sections: crate::inspector_sections::SectionChoices,
     /// The filters on the track list.
     pub(crate) track_filters: TrackFilters,
     /// How far the first run got. `None` in a file written before the first
@@ -212,6 +214,11 @@ mod tests {
                 volume: 0.4,
                 accent: false,
             },
+            inspector_sections: crate::inspector_sections::SectionChoices {
+                stems: Some(true),
+                mixes: Some(false),
+                ..Default::default()
+            },
             track_filters: TrackFilters {
                 bpm_min: Some(70.5),
                 bpm_max: Some(75.0),
@@ -267,6 +274,7 @@ mod tests {
             suggestion_filter: SuggestionFilter::default(),
             focus_lanes: FocusLanes::default(),
             metronome: MetronomeSettings::default(),
+            inspector_sections: Default::default(),
             track_filters: TrackFilters::default(),
             first_run: None,
         })
@@ -284,6 +292,7 @@ mod tests {
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true},"#,
+                r#""inspector_sections":{"mixes":null,"by_ear":null,"key_shift":null,"stems":null,"quality":null,"location":null},"#,
                 r#""track_filters":{"bpm_min":null,"bpm_max":null,"half_or_double":false,"qualities":[],"energy_min":null,"energy_max":null}}"#
             )
         );

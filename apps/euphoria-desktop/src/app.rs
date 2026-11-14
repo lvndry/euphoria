@@ -5,7 +5,7 @@
 //! chosen to see, and lays the screen out from the views.
 
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -36,6 +36,7 @@ use crate::state::{Scan, Session, scan};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
+use crate::toast::Toasts;
 use crate::track_overview::{VocalLane, energy_curve_from, vocal_lane_from};
 use crate::views;
 use crate::views::waveform::SeenBounds;
@@ -183,6 +184,15 @@ pub(crate) struct EuphoriaApp {
     pub(crate) logo_clock: crate::logo_motion::LogoClock,
     /// The sidebar sliding in or out.
     pub(crate) sidebar_slide: SidebarSlide,
+    pub(crate) toasts: Toasts,
+    #[cfg(test)]
+    pub(crate) revealed: Vec<PathBuf>,
+    #[cfg(test)]
+    pub(crate) last_written: Vec<PathBuf>,
+    /// Which sections of the track detail are open, and their motion.
+    pub(crate) inspector_sections: crate::inspector_sections::InspectorSections,
+    /// The section the Deck strip shows, when the user picked one.
+    pub(crate) strip_section: Option<crate::inspector_sections::SectionKind>,
     /// The width of the sidebar in the frame last drawn.
     sidebar_width_on_show: f32,
     /// Remembered folders that are not there now, such as one on a drive
@@ -211,6 +221,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) waveform_bounds: SeenBounds,
     /// Where the progress line of the player bar was last drawn.
     pub(crate) progress_line_bounds: SeenBounds,
+    /// The bar heights of the player bar's waveform.
+    pub(crate) player_wave_peaks: Rc<RefCell<crate::player_wave::BarPeaksCache>>,
     /// Holds the keyboard when no field or table has it, so that the space
     /// bar still reaches the player.
     pub(crate) window_focus: FocusHandle,
@@ -505,6 +517,15 @@ impl EuphoriaApp {
             pending_stem_export: None,
             toolbar_drag_armed: false,
             sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
+            toasts: Toasts::default(),
+            #[cfg(test)]
+            revealed: Vec::new(),
+            #[cfg(test)]
+            last_written: Vec::new(),
+            inspector_sections: crate::inspector_sections::InspectorSections::new(
+                settings.inspector_sections,
+            ),
+            strip_section: None,
             sidebar_width_on_show: settings.panels.sidebar_width(),
             panels: settings.panels,
             resizing: None,
@@ -512,6 +533,7 @@ impl EuphoriaApp {
             player: Player::default(),
             waveform_bounds: Rc::new(Cell::new(None)),
             progress_line_bounds: Rc::new(Cell::new(None)),
+            player_wave_peaks: Rc::default(),
             window_focus,
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
@@ -1991,6 +2013,32 @@ impl EuphoriaApp {
         crate::install_menus(self.theme.name, self.panels.sidebar_folded, cx);
     }
 
+    /// Opens or closes a section of the track detail, and remembers it.
+    pub(crate) fn toggle_section(
+        &mut self,
+        kind: crate::inspector_sections::SectionKind,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let track = self
+            .selected
+            .and_then(|index| self.session.library().track(index));
+        self.inspector_sections.toggle(kind, track);
+        self.remember_panels(cx);
+    }
+
+    /// The section the Deck strip shows: the one the user picked, else the
+    /// first that opens for the track, else the mixes.
+    pub(crate) fn strip_section_shown(&self) -> crate::inspector_sections::SectionKind {
+        use crate::inspector_sections::SectionKind;
+        self.strip_section.unwrap_or_else(|| {
+            let track = self.selected_track();
+            SectionKind::ALL
+                .into_iter()
+                .find(|kind| track.is_some_and(|track| kind.opens_for(track)))
+                .unwrap_or(SectionKind::Mixes)
+        })
+    }
+
     /// A press on the edge of the track detail starts resizing it.
     pub(crate) fn start_resizing(&mut self, edge: PanelEdge, cx: &mut Context<'_, Self>) {
         self.resizing = Some(edge);
@@ -2131,6 +2179,7 @@ impl EuphoriaApp {
             suggestion_filter: self.decks.filter.clone(),
             focus_lanes: self.focus.lanes,
             metronome: self.metronome.settings,
+            inspector_sections: self.inspector_sections.choices,
             track_filters: self.track_filters.clone(),
             first_run: Some(self.first_run),
         };
@@ -2324,6 +2373,17 @@ impl Render for EuphoriaApp {
         if self.sidebar_slide.is_moving(now) {
             window.request_animation_frame();
         }
+        let toast_now = self.toasts.now();
+        if self.toasts.is_animating(toast_now) {
+            window.request_animation_frame();
+        }
+        let selected_track = self
+            .selected
+            .and_then(|index| self.session.library().track(index));
+        self.inspector_sections.sync(selected_track);
+        if self.inspector_sections.advance() {
+            window.request_animation_frame();
+        }
         let sidebar_width = self.sidebar_width_on_show;
         let shows_sidebar = sidebar_width > 0.0;
         self.lay_out_table(window);
@@ -2458,6 +2518,7 @@ impl Render for EuphoriaApp {
             )
             .child(views::toolbar::render(self, cx))
             .child(body)
+            .child(views::toast::render(self, toast_now, cx))
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })
