@@ -154,13 +154,18 @@ fn decodes_aiff() {
 }
 
 #[test]
-fn opposite_phase_channels_cancel_out() {
+fn opposite_phase_channels_fall_back_to_the_left_channel() {
     let audio = decode_mono(&fixture("sine-440hz-opposite-phase-stereo.flac")).unwrap();
     assert_eq!(audio.sample_rate().get(), FIXTURE_SAMPLE_RATE);
     assert!(
         (audio.duration_seconds() - FIXTURE_DURATION_SECONDS).abs() < DURATION_TOLERANCE_SECONDS
     );
-    assert!(audio.is_silent());
+    assert!(!audio.is_silent());
+    assert!(
+        (peak(&audio) - FIXTURE_AMPLITUDE).abs() < 0.01,
+        "{}",
+        peak(&audio)
+    );
 }
 
 #[test]

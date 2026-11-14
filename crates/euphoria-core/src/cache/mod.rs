@@ -992,6 +992,8 @@ mod tests {
                 clipped_share: 0.000_123_4,
                 integrated_loudness_lufs: Some(-8.75),
                 true_peak_dbtp: Some(1.04),
+                damage: Default::default(),
+                cancelled_share: 0.0,
                 verdict: crate::quality::QualityVerdict::LikelyReencoded,
             }),
         };

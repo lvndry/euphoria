@@ -979,6 +979,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-12.36),
             true_peak_dbtp: Some(1.04),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict,
         }
     }

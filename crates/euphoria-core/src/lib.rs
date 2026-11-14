@@ -9,6 +9,7 @@
 pub mod analysis;
 /// Decoding audio files to mono samples.
 pub mod audio;
+pub mod audio_budget;
 /// Decoding audio files a little at a time, for playback.
 pub mod audio_stream;
 /// Remembering analyses between runs.
@@ -70,7 +71,14 @@ pub use analysis::{
     ANALYZER_VERSION, AnalysisObserver, AnalysisStage, FileResult, Progress, TrackAnalysis,
     Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
 };
-pub use audio::{AudioBuffer, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, decode_mono};
+pub use audio::{
+    AudioBuffer, DecodeDamage, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, SEVERE_LOST_SHARE,
+    declared_duration_seconds, decode_mono,
+};
+pub use audio_budget::{
+    AudioBudget, AudioPermit, DEFAULT_AUDIO_BUDGET_MINUTES, global_audio_budget,
+    set_audio_budget_minutes,
+};
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,

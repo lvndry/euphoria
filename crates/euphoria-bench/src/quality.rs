@@ -157,6 +157,8 @@ mod tests {
             clipped_share: 0.0,
             integrated_loudness_lufs: Some(-9.5),
             true_peak_dbtp: Some(0.2),
+            damage: Default::default(),
+            cancelled_share: 0.0,
             verdict: QualityVerdict::Good,
         };
         let line = format_line("library", &report, 0.1, 0.12);
