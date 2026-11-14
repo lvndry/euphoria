@@ -9,7 +9,6 @@ members = [
 
 [workspace.package]
 authors = ["The Euphoria contributors"]
-homepage = "https://github.com/lvndry/euphoria"
 repository = "https://github.com/lvndry/euphoria"
 categories = ["multimedia::audio"]
 keywords = ["dj", "music", "key-detection", "bpm", "camelot"]
