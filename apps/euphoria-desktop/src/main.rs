@@ -37,6 +37,7 @@ mod focus;
 mod focus_ui_tests;
 mod folder_tree;
 mod format;
+mod harmony_words;
 mod inspector_sections;
 mod journey;
 mod key_by_ear;
