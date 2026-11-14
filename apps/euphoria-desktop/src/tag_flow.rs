@@ -29,7 +29,7 @@ use crate::tag_writing::{
 /// cannot be checked is left out, with the reason, rather than written with
 /// values the user may have replaced. The cache reads no file while no
 /// track was ever corrected.
-fn verified_corrections(
+pub(crate) fn verified_corrections(
     targets: Vec<WriteTarget>,
     cache: Option<&euphoria_core::CachedAnalyzer>,
     writer: &crate::key_by_ear::CorrectionWriter,
@@ -63,6 +63,30 @@ fn verified_corrections(
         checked.push(target);
     }
     (checked, left_out)
+}
+
+/// Works out the changes for `targets` with `settings`, after checking their
+/// corrections, knowing which values Euphoria wrote earlier. Reads files, so
+/// it runs off the main thread. The same planning serves the preview of
+/// Write tags and the writes after analysis.
+pub(crate) fn plan_verified_writes(
+    targets: Vec<WriteTarget>,
+    settings: &TagSettings,
+    cache: Option<&euphoria_core::CachedAnalyzer>,
+    writer: &crate::key_by_ear::CorrectionWriter,
+    log_directory: Option<&std::path::Path>,
+) -> crate::tag_writing::PlannedWrite {
+    let (targets, unchecked) = verified_corrections(targets, cache, writer);
+    let history = match log_directory {
+        Some(directory) if !settings.replace_existing => {
+            let paths: Vec<_> = targets.iter().map(|target| target.path.clone()).collect();
+            euphoria_core::tags::WrittenValues::load(directory, &paths)
+        }
+        _ => euphoria_core::tags::WrittenValues::default(),
+    };
+    let mut planned = plan_writes_with_history(&targets, settings, &history);
+    planned.failures.extend(unchecked);
+    planned
 }
 
 /// How often the progress of a write is shown.
@@ -169,6 +193,22 @@ impl EuphoriaApp {
             .collect()
     }
 
+    /// What a write needs to know about each of the tracks at `paths`, those
+    /// the library still has.
+    pub(crate) fn write_targets(&self, paths: &[std::path::PathBuf]) -> Vec<WriteTarget> {
+        let library = self.session.library();
+        paths
+            .iter()
+            .filter_map(|path| library.track(library.index_of(path)?))
+            .map(|track| WriteTarget {
+                path: track.path.clone(),
+                analysis: track.analysis().cloned(),
+                correction: track.correction,
+                edited_cues: track.edited_cues.clone(),
+            })
+            .collect()
+    }
+
     /// Library indexes of the tracks `scope` covers.
     pub(crate) fn tracks_in(&self, scope: WriteScope) -> Vec<usize> {
         match scope {
@@ -222,19 +262,13 @@ impl EuphoriaApp {
             let planned = cx
                 .background_executor()
                 .spawn(async move {
-                    let (targets, unchecked) =
-                        verified_corrections(targets, cache.as_deref(), &writer);
-                    let history = match &log_directory {
-                        Some(directory) if !settings.replace_existing => {
-                            let paths: Vec<_> =
-                                targets.iter().map(|target| target.path.clone()).collect();
-                            euphoria_core::tags::WrittenValues::load(directory, &paths)
-                        }
-                        _ => euphoria_core::tags::WrittenValues::default(),
-                    };
-                    let mut planned = plan_writes_with_history(&targets, &settings, &history);
-                    planned.failures.extend(unchecked);
-                    planned
+                    plan_verified_writes(
+                        targets,
+                        &settings,
+                        cache.as_deref(),
+                        &writer,
+                        log_directory.as_deref(),
+                    )
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -430,6 +464,23 @@ impl EuphoriaApp {
             .ok();
         })
         .detach();
+    }
+
+    /// Moves playlists and favorites to the files a write rewrote.
+    pub(crate) fn follow_written_playlists(
+        &mut self,
+        rewrites: &[crate::playlists::PlaylistRewrite],
+    ) {
+        if let Some(saver) = self.session.playlist_saver() {
+            self.session
+                .playlists_mut()
+                .follow_rewrite_history(&saver.rewrites());
+            self.session
+                .favorites_mut()
+                .follow_rewrite_history(&saver.rewrites());
+        } else {
+            self.session.playlists_mut().follow_rewrites(rewrites);
+        }
     }
 
     /// Closes the tag panel, unless files are being changed.

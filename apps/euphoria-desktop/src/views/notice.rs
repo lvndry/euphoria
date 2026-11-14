@@ -52,6 +52,65 @@ pub(crate) fn render(
     )
 }
 
+/// The strip that says tracks are ready to tag but a DJ program is running,
+/// and offers to write them anyway.
+pub(crate) fn render_held_tags(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<impl IntoElement> {
+    let palette = app.theme.palette;
+    let programs = app.auto_tags.held_by();
+    if programs.is_empty() || app.auto_tags.pending_count() == 0 {
+        return None;
+    }
+    let message: SharedString =
+        crate::auto_tags::held_sentence(app.auto_tags.pending_count(), programs).into();
+    let button = |id: &'static str, label: &'static str| {
+        div()
+            .id(id)
+            .flex_shrink_0()
+            .px(px(8.0))
+            .py(px(2.0))
+            .rounded(px(4.0))
+            .text_color(palette.text_secondary)
+            .cursor_pointer()
+            .hover(move |style| style.bg(palette.raised).text_color(palette.text))
+            .child(label)
+    };
+    Some(
+        div()
+            .id("held-tags")
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(12.0))
+            .px(px(14.0))
+            .py(px(8.0))
+            .border_t_1()
+            .border_color(palette.line)
+            .bg(palette.sidebar)
+            .text_size(SMALL_TEXT_SIZE)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(palette.text)
+                    .child(message),
+            )
+            .child(
+                button("write-held-tags", "Write now")
+                    .on_click(cx.listener(|this, _, _, cx| this.write_held_tags_now(cx)))
+                    .test_support(),
+            )
+            .child(
+                button("dismiss-held-tags", "Dismiss")
+                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_held_tags(cx)))
+                    .test_support(),
+            )
+            .test_support(),
+    )
+}
+
 /// The strip that asks whether to link a missing track to a file Euphoria
 /// cannot check, while one waits for an answer.
 pub(crate) fn render_link_confirmation(

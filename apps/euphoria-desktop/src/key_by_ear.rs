@@ -278,6 +278,7 @@ impl EuphoriaApp {
         };
         let writer = self.by_ear.correction_writer.clone();
         writer.queue(&path, correction);
+
         cx.spawn(async move |this, cx| {
             let kept = cx
                 .background_executor()

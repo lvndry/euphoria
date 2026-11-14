@@ -139,6 +139,8 @@ pub(crate) struct EuphoriaApp {
     /// The checks of whether a DJ program is running before tags are written,
     /// which a test replaces.
     pub(crate) program_checks: euphoria_core::export::program_files::DjProgramChecks,
+    /// The tracks waiting to be tagged after analysis, when that is on.
+    pub(crate) auto_tags: crate::auto_tags::AutoTags,
     /// True while the settings panel is open.
     pub(crate) settings_open: bool,
     /// Where the backups of tag writes are kept, shared with the command
@@ -416,6 +418,7 @@ impl EuphoriaApp {
             is_custom_tempo_range: display.tempo_range.preset().is_none(),
             tempo_range_problem: None,
             tag_panel: None,
+            auto_tags: crate::auto_tags::AutoTags::default(),
             library_export: None,
             running_checks: crate::library_export::RunningChecks::REAL,
             program_checks: if cfg!(test) {
@@ -734,6 +737,7 @@ impl EuphoriaApp {
                         this.refresh_mixes();
                         this.load_selected_waveform(cx);
                         this.point_player_at_selection(cx);
+                        this.queue_fresh_analyses(cx);
                         if let Some(problem) = this.session.take_cache_problem() {
                             this.report(format!(
                                 "Results are not being saved to the cache: {problem}."
@@ -1297,7 +1301,7 @@ impl EuphoriaApp {
         self.remember_tag_settings(cx);
     }
 
-    fn remember_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn remember_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
         if let Some(problem) = self.save_settings() {
             self.report(problem);
         }
@@ -2326,6 +2330,7 @@ impl Render for EuphoriaApp {
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })
+            .children(views::notice::render_held_tags(self, cx))
             .children(views::notice::render_link_confirmation(self, cx))
             .children(views::notice::render_stem_export_confirmation(self, cx))
             .children(views::notice::render(self, cx))

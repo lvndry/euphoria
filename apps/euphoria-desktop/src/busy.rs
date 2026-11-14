@@ -54,6 +54,9 @@ impl EuphoriaApp {
             Some(TagPanel::Undoing) => work.push("Undoing the tag write".to_string()),
             _ => {}
         }
+        if self.auto_tags.is_writing() {
+            work.push("Writing tags".to_string());
+        }
         if let Some(panel) = &self.library_export
             && let ExportStage::Working { writing } = panel.stage
         {

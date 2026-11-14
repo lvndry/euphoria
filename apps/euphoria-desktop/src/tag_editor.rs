@@ -48,6 +48,49 @@ pub(crate) fn shared_values(tags: &[EditableTags]) -> Vec<(TagField, FieldValue)
         .collect()
 }
 
+/// The key and tempo fields Euphoria can suggest from its analysis for these
+/// tracks, spelled as a write would spell them: a field is suggested only
+/// when every track has an analysed value and they all read the same, since
+/// one typed value goes to every selected track.
+pub(crate) fn suggested_values(
+    tracks: &[(Option<euphoria_core::Key>, Option<f32>)],
+    notation: euphoria_core::tags::KeyNotation,
+    fractional_tempo: bool,
+) -> Vec<(TagField, String)> {
+    let shared = |texts: Vec<Option<String>>| {
+        let first = texts.first()?.clone()?;
+        texts
+            .iter()
+            .all(|text| text.as_ref() == Some(&first))
+            .then_some(first)
+    };
+    let key = shared(
+        tracks
+            .iter()
+            .map(|(key, _)| key.map(|key| notation.spell(key)))
+            .collect(),
+    );
+    let tempo = shared(
+        tracks
+            .iter()
+            .map(|(_, bpm)| {
+                bpm.filter(|bpm| bpm.is_finite() && *bpm > 0.0).map(|bpm| {
+                    if fractional_tempo {
+                        let text = format!("{bpm:.2}");
+                        text.trim_end_matches('0').trim_end_matches('.').to_string()
+                    } else {
+                        format!("{bpm:.0}")
+                    }
+                })
+            })
+            .collect(),
+    );
+    [(TagField::Key, key), (TagField::Bpm, tempo)]
+        .into_iter()
+        .filter_map(|(field, text)| Some((field, text?)))
+        .collect()
+}
+
 /// The kinds of change the text tool makes to one field.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum TextTool {
@@ -168,6 +211,10 @@ pub(crate) struct TagEditor {
     pub(crate) unreadable: Vec<LeftOut>,
     /// Why the edit could not be previewed yet, when it could not.
     pub(crate) problem: Option<String>,
+    /// What the analysis suggests for the fields the files leave empty.
+    pub(crate) suggestions: Vec<(TagField, String)>,
+    /// What the analysis suggests for each track, while the tags are read.
+    analysed: Vec<(Option<euphoria_core::Key>, Option<f32>)>,
 }
 
 impl std::fmt::Debug for TagEditor {
@@ -211,6 +258,14 @@ impl TagEditor {
         field_edits(shown, &self.typed(cx), &self.cleared, tool)
     }
 
+    /// The suggestion for `field`, while the field is empty in the files.
+    pub(crate) fn suggestion(&self, field: TagField) -> Option<&str> {
+        self.suggestions
+            .iter()
+            .find(|(candidate, _)| *candidate == field)
+            .map(|(_, text)| text.as_str())
+    }
+
     /// The input of `field`.
     pub(crate) fn input(&self, field: TagField) -> Option<&Entity<InputState>> {
         self.inputs
@@ -228,11 +283,18 @@ impl EuphoriaApp {
             return;
         }
         let library = self.session.library();
-        let tracks: Vec<(PathBuf, Option<TrackAnalysis>)> = self
+        let selected: Vec<_> = self
             .selected_tracks()
             .into_iter()
             .filter_map(|index| library.track(index))
+            .collect();
+        let tracks: Vec<(PathBuf, Option<TrackAnalysis>)> = selected
+            .iter()
             .map(|track| (track.path.clone(), track.analysis().cloned()))
+            .collect();
+        let analysed: Vec<_> = selected
+            .iter()
+            .map(|track| (track.key(), track.bpm()))
             .collect();
         if tracks.is_empty() {
             self.notice = Some("Select the tracks whose tags you want to edit.".to_string());
@@ -260,6 +322,8 @@ impl EuphoriaApp {
             match_case: false,
             unreadable: Vec::new(),
             problem: None,
+            suggestions: Vec::new(),
+            analysed,
         };
         self.tag_task_generation += 1;
         let generation = self.tag_task_generation;
@@ -315,15 +379,45 @@ impl EuphoriaApp {
         }
         let unreadable_paths: HashSet<PathBuf> =
             unreadable.iter().map(|file| file.path.clone()).collect();
+        let readable_tracks: Vec<_> = editor
+            .tracks
+            .iter()
+            .map(|(path, _)| !unreadable_paths.contains(path))
+            .collect();
+        let analysed: Vec<_> = editor
+            .analysed
+            .iter()
+            .zip(&readable_tracks)
+            .filter(|(_, readable)| **readable)
+            .map(|(values, _)| *values)
+            .collect();
         editor
             .tracks
             .retain(|(path, _)| !unreadable_paths.contains(path));
         let shown = shared_values(&tags);
+        let settings = self.tag_settings;
+        let mut suggestions = suggested_values(
+            &analysed,
+            settings.key_notation.key_notation(),
+            settings.program.dj_software().writes_fractional_bpm(),
+        );
+        suggestions.retain(|(field, _)| {
+            shown.iter().any(|(shown_field, value)| {
+                shown_field == field && *value == FieldValue::Same(None)
+            })
+        });
         for (field, value) in &shown {
             if let Some(input) = editor.input(*field) {
+                let suggestion = suggestions
+                    .iter()
+                    .find(|(candidate, _)| candidate == field)
+                    .map(|(_, text)| format!("{text} (from analysis)"));
                 let (text, placeholder) = match value {
-                    FieldValue::Same(text) => (text.clone().unwrap_or_default(), ""),
-                    FieldValue::Mixed => (String::new(), "mixed"),
+                    FieldValue::Same(text) => (
+                        text.clone().unwrap_or_default(),
+                        suggestion.unwrap_or_default(),
+                    ),
+                    FieldValue::Mixed => (String::new(), "mixed".to_string()),
                 };
                 input.update(cx, |input, cx| {
                     input.set_value(text, window, cx);
@@ -332,7 +426,39 @@ impl EuphoriaApp {
             }
         }
         editor.shown = Some(shown);
+        editor.suggestions = suggestions;
         editor.unreadable = unreadable;
+        cx.notify();
+    }
+
+    /// Types the analysed value into every suggested field that is still
+    /// empty. Nothing is written until the edit is previewed and confirmed.
+    pub(crate) fn fill_from_analysis(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        let Some(TagPanel::Editing(editor)) = &self.tag_panel else {
+            return;
+        };
+        for (field, text) in editor.suggestions.clone() {
+            self.use_suggestion(field, text, window, cx);
+        }
+    }
+
+    /// Types the suggestion for `field` into it, when it is empty.
+    pub(crate) fn use_suggestion(
+        &mut self,
+        field: TagField,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(TagPanel::Editing(editor)) = &mut self.tag_panel else {
+            return;
+        };
+        editor.cleared.remove(&field);
+        if let Some(input) = editor.input(field)
+            && input.read(cx).value().is_empty()
+        {
+            input.update(cx, |input, cx| input.set_value(text, window, cx));
+        }
         cx.notify();
     }
 

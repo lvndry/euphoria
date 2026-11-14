@@ -28,6 +28,11 @@ pub(crate) fn clear_button_id(field: TagField) -> (&'static str, usize) {
     ("clear-field", field_position(field))
 }
 
+/// The element id of the button that types the analysed value into `field`.
+pub(crate) fn use_button_id(field: TagField) -> (&'static str, usize) {
+    ("use-suggestion", field_position(field))
+}
+
 fn field_position(field: TagField) -> usize {
     TagField::ALL
         .iter()
@@ -85,6 +90,14 @@ pub(crate) fn contents(
                 .child(Input::new(input).id(field_input_id(field)))
         });
         let hover_colour = palette.text;
+        let use_suggestion = editor
+            .suggestion(field)
+            .filter(|_| {
+                editor
+                    .input(field)
+                    .is_some_and(|input| input.read(cx).value().is_empty())
+            })
+            .map(str::to_string);
         div()
             .flex()
             .items_center()
@@ -106,6 +119,20 @@ pub(crate) fn contents(
                     }),
             )
             .children(input)
+            .children(use_suggestion.map(|text| {
+                div()
+                    .id(use_button_id(field))
+                    .flex_shrink_0()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.accent)
+                    .cursor_pointer()
+                    .hover(move |style| style.text_color(hover_colour))
+                    .child("Use")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.use_suggestion(field, text.clone(), window, cx);
+                    }))
+                    .test_support()
+            }))
             .child(
                 div()
                     .id(clear_button_id(field))
@@ -183,9 +210,35 @@ pub(crate) fn contents(
                 }),
         );
 
-    let mut contents = vec![
-        heading,
-        explanation,
+    let can_fill = editor.suggestions.iter().any(|(field, _)| {
+        editor
+            .input(*field)
+            .is_some_and(|input| input.read(cx).value().is_empty())
+    });
+    let fill_bar = can_fill.then(|| {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .child(
+                secondary_button("Fill from analysis", palette)
+                    .id("fill-from-analysis")
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.fill_from_analysis(window, cx)),
+                    )
+                    .test_support(),
+            )
+            .child(
+                div()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_tertiary)
+                    .child("Fills the empty key and tempo. Nothing is written until you save."),
+            )
+            .into_any_element()
+    });
+    let mut contents = vec![heading, explanation];
+    contents.extend(fill_bar);
+    contents.push(
         div()
             .id("tag-editor-fields")
             .flex()
@@ -197,7 +250,7 @@ pub(crate) fn contents(
             .children(rows)
             .child(text_tool)
             .into_any_element(),
-    ];
+    );
     if !editor.unreadable.is_empty() {
         contents.push(
             div()
