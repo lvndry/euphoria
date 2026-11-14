@@ -4805,6 +4805,59 @@ fn selected_cues(
     })
 }
 
+#[gpui::test]
+fn the_cues_column_counts_edited_cues_else_automatic_ones_and_sorts(cx: &mut TestAppContext) {
+    let (window, view) = open_window_with(
+        vec![
+            cued_track("sine-440hz-stereo.wav", true),
+            cued_track("sine-440hz-mono.wav", false),
+        ],
+        Box::new(SilentOutput),
+        Settings::default(),
+        None,
+        size(px(2400.0), px(900.0)),
+        cx,
+    );
+    let counts = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            app.visible
+                .iter()
+                .map(|index| app.session.library().track(*index).unwrap().cue_count())
+                .collect::<Vec<_>>()
+        })
+    };
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let texts = app.column_texts(ColumnId::Cues);
+        assert!(texts.contains("2") && texts.contains("0"), "{texts:?}");
+    });
+    click(window, header_id(ColumnId::Cues), cx);
+    assert_eq!(counts(cx), [Some(0), Some(2)]);
+    click(window, header_id(ColumnId::Cues), cx);
+    assert_eq!(counts(cx), [Some(2), Some(0)]);
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.session.library().tracks()[1].path.clone();
+            let cue = |seconds: f64| euphoria_core::Cue {
+                seconds,
+                name: String::new(),
+                hot_cue: None,
+            };
+            app.session
+                .set_edited_cues(&path, Some(vec![cue(1.0), cue(2.0), cue(3.0), cue(4.0)]));
+        })
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    assert_eq!(counts(cx), [Some(4), Some(2)]);
+}
+
 /// Holds or lets go of Shift, as the keyboard would.
 fn hold_shift(window: &mut gpui::Window, is_held: bool, cx: &mut gpui::App) {
     let modifiers = if is_held {

@@ -180,6 +180,12 @@ impl Track {
         }
     }
 
+    /// How many cues the track has, once it is analyzed: the same ones
+    /// [`Track::cues`] gives.
+    pub(crate) fn cue_count(&self) -> Option<usize> {
+        self.analysis().map(|_| self.cues().cues.len())
+    }
+
     /// The length in seconds, once the track is analyzed.
     pub(crate) fn duration_seconds(&self) -> Option<f32> {
         self.analysis().map(|analysis| analysis.duration_seconds)
@@ -277,6 +283,8 @@ pub(crate) enum SortColumn {
     Duration,
     /// Energy rating.
     Energy,
+    /// Number of cues, edited ones when the user set them.
+    Cues,
     /// Quality verdict, from likely re-encoded up to lossless.
     Quality,
     /// File format.
@@ -663,6 +671,9 @@ fn compare_tracks(first: &Track, second: &Track, sort_order: SortOrder) -> Order
         SortColumn::Bpm => compare_optional(first.bpm(), second.bpm(), sort_order, f32::total_cmp),
         SortColumn::Energy => {
             compare_optional(first.energy(), second.energy(), sort_order, Ord::cmp)
+        }
+        SortColumn::Cues => {
+            compare_optional(first.cue_count(), second.cue_count(), sort_order, Ord::cmp)
         }
         SortColumn::Quality => compare_optional(
             first.quality().map(|report| quality_rank(report.verdict)),
@@ -1238,6 +1249,34 @@ mod tests {
             &reversed[..3],
             ["saffron.mp3", "Low Tide.aiff", "Glasshouse.flac"]
         );
+    }
+
+    #[test]
+    fn sorts_by_the_number_of_cues_edited_ones_included() {
+        let mut library = sample_library();
+        let cue = |seconds: f64| Cue {
+            seconds,
+            name: String::new(),
+            hot_cue: None,
+        };
+        library.set_edited_cues(
+            Path::new("/music/house/saffron.mp3"),
+            Some(vec![cue(1.0), cue(2.0), cue(3.0)]),
+        );
+        library.set_edited_cues(
+            Path::new("/music/techno/Undertow.wav"),
+            Some(vec![cue(1.0)]),
+        );
+        let saffron = library.track_by_path(Path::new("/music/house/saffron.mp3"));
+        assert_eq!(saffron.unwrap().cue_count(), Some(3));
+        let waiting = library.track_by_path(Path::new("/music/techno/waiting.m4a"));
+        assert_eq!(waiting.unwrap().cue_count(), None);
+        let ascending_names = visible(&library, "", ascending(SortColumn::Cues));
+        assert_eq!(ascending_names[ascending_names.len() - 3], "Undertow.wav");
+        assert_eq!(ascending_names[ascending_names.len() - 2], "saffron.mp3");
+        let descending_names = visible(&library, "", descending(SortColumn::Cues));
+        assert_eq!(descending_names[0], "saffron.mp3");
+        assert_eq!(descending_names[1], "Undertow.wav");
     }
 
     #[test]

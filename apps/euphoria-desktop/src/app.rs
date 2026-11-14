@@ -975,6 +975,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Cues => track
+                    .cue_count()
+                    .map(|count| Cow::Owned(crate::format::count(count))),
                 ColumnId::Quality => track
                     .quality()
                     .map(|report| Cow::Borrowed(crate::format::quality_verdict(report.verdict))),
