@@ -4,7 +4,7 @@
 /// Version of [`ENERGY_MODEL`]. It changes whenever an anchor, a weight or
 /// the way a feature is measured changes, so ratings made with different
 /// versions are never compared by mistake.
-pub const ENERGY_MODEL_VERSION: u32 = 1;
+pub const ENERGY_MODEL_VERSION: u32 = 2;
 
 /// How one feature turns into a score from 0.0 to 1.0, and how much that
 /// score counts in the rating.
@@ -19,7 +19,8 @@ pub struct FeatureAnchor {
     /// The feature value that scores 1.0.
     pub high: f32,
     /// Share of the rating carried by this feature. Weights are relative:
-    /// they are divided by the sum of the weights of the features in use.
+    /// they are divided by the sum of the weights of the features in use. A
+    /// weight of 0.0 keeps a feature out of the rating.
     pub weight: f32,
 }
 
@@ -60,47 +61,49 @@ pub struct EnergyModel {
 /// The anchors of the audio features sit near the values reached by the
 /// lowest and the highest 3% of the 604 dance music previews of the
 /// GiantSteps Key dataset, so ratings of dance music spread over the whole
-/// scale. Onset rate, spectral flux and loudness carry the most weight.
-/// Loudness range, low frequency share and tempo are coarser hints and
-/// carry less.
+/// scale. The weights were fitted to the arousal that listeners gave the
+/// songs of two public datasets, and spectral flux carries most of them.
+/// Low frequency share and tempo carry none: they did not follow arousal in
+/// either dataset. They stay in the model, with their anchors, so that a
+/// weight can be given back.
 pub const ENERGY_MODEL: EnergyModel = EnergyModel {
     version: ENERGY_MODEL_VERSION,
     integrated_loudness: FeatureAnchor {
         low: -14.0,
         high: -6.5,
-        weight: 0.25,
+        weight: 0.2,
     },
     loudness_range: FeatureAnchor {
         low: 12.0,
         high: 1.5,
-        weight: 0.2,
+        weight: 0.05,
     },
     onset_rate: FeatureAnchor {
         low: 2.5,
         high: 7.0,
-        weight: 0.25,
+        weight: 0.1,
     },
     low_frequency_share: FeatureAnchor {
         low: 0.35,
         high: 0.9,
-        weight: 0.1,
+        weight: 0.0,
     },
     spectral_flux: FeatureAnchor {
         low: 0.0045,
         high: 0.0105,
-        weight: 0.2,
+        weight: 0.65,
     },
     tempo: FeatureAnchor {
         low: 100.0,
         high: 140.0,
-        weight: 0.1,
+        weight: 0.0,
     },
-    combined_low: 0.2,
-    combined_high: 0.8,
+    combined_low: 0.1,
+    combined_high: 0.9,
 };
 
 const fn is_usable(anchor: FeatureAnchor) -> bool {
-    anchor.weight > 0.0 && anchor.low != anchor.high
+    anchor.weight >= 0.0 && anchor.low != anchor.high
 }
 
 const _: () = {
@@ -110,6 +113,7 @@ const _: () = {
     assert!(is_usable(ENERGY_MODEL.low_frequency_share));
     assert!(is_usable(ENERGY_MODEL.spectral_flux));
     assert!(is_usable(ENERGY_MODEL.tempo));
+    assert!(ENERGY_MODEL.integrated_loudness.weight + ENERGY_MODEL.spectral_flux.weight > 0.0);
     assert!(ENERGY_MODEL.combined_low < ENERGY_MODEL.combined_high);
 };
 
