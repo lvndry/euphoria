@@ -119,6 +119,12 @@ When the six secrets below are set, the job:
 
 Without the secrets, as in a fork, the job prints a notice naming the missing ones and signs ad hoc, as before. The release notes then say that the app is not notarized.
 
+### When signing or notarization fails
+
+A release is never held back by Apple. If the Developer ID path fails in the macOS job, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned, the certificate was revoked or notarytool rejects a file, the job prints a `::warning::`, deletes everything it built, and builds the app, the disk image and the tarball again with the ad hoc signature. The release notes then say "This release is not notarized: macOS will ask you to confirm the first time you open it", so no Developer ID signed app is ever left in an un-notarized disk image that claims otherwise. A real problem, such as a binary that fails `codesign --verify` after the ad hoc signing, fails the job as before.
+
+Notarizing needs an active Apple Developer Program membership at the time of every release, and renewing it is yours to do. Releases notarized earlier keep working after the membership lapses, and the certificate lasts five years.
+
 ### Entitlements
 
 None. The app is signed with the hardened runtime and no entitlements file, because nothing needs an exception:

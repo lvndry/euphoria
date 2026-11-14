@@ -100,7 +100,7 @@ def notes(version, since, until, repository, minimum_macos=None, minimum_glibc=N
         + (
             "The app is signed with a Developer ID and notarized by Apple, so it opens without a warning. "
             if notarized
-            else "The app is not notarized, so the first time you open it, right click it in Applications and choose Open. "
+            else "This release is not notarized: macOS will ask you to confirm the first time you open it, so right click it in Applications and choose Open. "
         )
         + "[Installation](https://github.com/"
         + repository

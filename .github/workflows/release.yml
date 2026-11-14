@@ -136,7 +136,7 @@ jobs:
     outputs:
       tree: ${{ steps.version.outputs.tree }}
       minimum_macos: ${{ steps.minimum.outputs.minimum_macos }}
-      notarized: ${{ steps.signing.outputs.notarized }}
+      notarized: ${{ steps.packages.outputs.notarized }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -177,14 +177,14 @@ jobs:
             fi
           done
           if [ "${#missing[@]}" -eq 0 ]; then
-            echo "notarized=true" >> "$GITHUB_OUTPUT"
-            echo "Signing with Developer ID and notarizing."
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "The Apple secrets are set; signing with Developer ID and notarizing."
           else
-            echo "notarized=false" >> "$GITHUB_OUTPUT"
+            echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Not signed with a Developer ID::These secrets are not set: ${missing[*]}. The app and the command line tool get an ad hoc signature and are not notarized, so macOS warns when they are opened on another Mac. See docs/development/releasing.md."
           fi
       - name: Import the Developer ID certificate and the notary key
-        if: steps.signing.outputs.notarized == 'true'
+        if: steps.signing.outputs.available == 'true'
         env:
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
@@ -228,18 +228,36 @@ jobs:
             echo "EUPHORIA_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
             echo "EUPHORIA_NOTARY_ISSUER_ID=$APPLE_NOTARY_ISSUER_ID"
           } >> "$GITHUB_ENV"
-      - name: Build the app and the disk image
-        run: ./scripts/bundle-macos.sh
+      - name: Build and sign the app, the disk image and the command line tool
+        id: packages
+        run: |
+          build_packages() {
+            ./scripts/bundle-macos.sh
+            ./scripts/release/package-cli.sh dist
+          }
+          if [ "${SIGNING_AVAILABLE}" = true ]; then
+            if (build_packages); then
+              echo "notarized=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::warning title=Not notarized::Signing or notarization failed, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned or the certificate was revoked. This release is built with the ad hoc signature and says so in its notes."
+            # Nothing signed with the Developer ID may stay in the packages.
+            rm -rf target/release/bundle/Euphoria.app target/release/bundle/*.dmg dist
+          fi
+          echo "notarized=false" >> "$GITHUB_OUTPUT"
+          unset EUPHORIA_SIGN_IDENTITY EUPHORIA_NOTARY_KEY_PATH EUPHORIA_NOTARY_KEY_ID EUPHORIA_NOTARY_ISSUER_ID
+          # A real problem, such as a binary that fails codesign --verify, fails here too.
+          build_packages
+        env:
+          SIGNING_AVAILABLE: ${{ steps.signing.outputs.available }}
       - name: Read the oldest macOS the app runs on
         id: minimum
         run: |
           minimum=$(plutil -extract LSMinimumSystemVersion raw target/release/bundle/Euphoria.app/Contents/Info.plist)
           echo "minimum_macos=$minimum" >> "$GITHUB_OUTPUT"
           echo "The app needs macOS $minimum or later."
-      - name: Build the command line tool
-        run: ./scripts/release/package-cli.sh dist
       - name: Verify the signatures and notarization
-        if: steps.signing.outputs.notarized == 'true'
+        if: steps.packages.outputs.notarized == 'true'
         run: |
           dmg="target/release/bundle/Euphoria-$VERSION.dmg"
           codesign --verify --strict --verbose=2 "$dmg"
