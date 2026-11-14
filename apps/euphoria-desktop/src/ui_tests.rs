@@ -3380,7 +3380,12 @@ fn a_tempo_range_preset_moves_the_tempos_shown_and_is_remembered(cx: &mut TestAp
 }
 
 /// Replaces the text of the field `id` with `text`.
-fn retype(window: AnyWindowHandle, id: &'static str, text: &str, cx: &mut TestAppContext) {
+pub(crate) fn retype(
+    window: AnyWindowHandle,
+    id: &'static str,
+    text: &str,
+    cx: &mut TestAppContext,
+) {
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         window.click(id, cx);
@@ -5228,6 +5233,12 @@ impl AudioOutput for RenderedDecks {
     ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
         SilentOutput.play_reference(sound)
     }
+    fn play_metronome(
+        &mut self,
+        clicks: crate::metronome::Metronome,
+    ) -> Result<Box<dyn crate::playback::Voice>, PlaybackProblem> {
+        SilentOutput.play_metronome(clicks)
+    }
     fn play_decks(
         &mut self,
         mix: crate::deck_audio::DeckMix,
@@ -6005,4 +6016,35 @@ fn remove_stems_deletes_them_and_offers_to_separate_again(cx: &mut TestAppContex
     });
     assert!(is_shown(window, "stems-separate", cx));
     assert!(!is_shown(window, "stems-remove", cx));
+}
+
+#[gpui::test]
+fn statistic_labels_stay_on_one_line_in_every_theme_at_the_narrowest_inspector(
+    cx: &mut TestAppContext,
+) {
+    let mut measured = 0;
+    for theme in ThemeName::ALL {
+        let panels = Panels {
+            inspector_width: 0,
+            ..Panels::default()
+        };
+        let (window, _) = open_arranged(theme, panels, USUAL_WINDOW, cx);
+        for label in ["Key", "BPM", "Energy"] {
+            let id = gpui::SharedString::from(format!("statistic-label-{label}"));
+            let height = cx
+                .update_window(window, |_, window, cx| {
+                    window.render_frame(cx);
+                    window.try_find(id).map(|found| found.bounds().size.height)
+                })
+                .unwrap();
+            if let Some(height) = height {
+                measured += 1;
+                assert!(
+                    height < px(20.0),
+                    "{label} wraps in {theme:?}: {height:?} high"
+                );
+            }
+        }
+    }
+    assert!(measured >= 3, "the compact statistics were never shown");
 }

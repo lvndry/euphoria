@@ -7,14 +7,17 @@
 use gpui::component::button::{Button, ButtonVariants};
 use gpui::component::input::Input;
 use gpui::component::menu::DropdownMenu;
+use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName, InteractiveElementExt};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, MouseButton, Stateful, TestSupportExt, div, px, relative,
+    AnyElement, Bounds, Context, Div, FontWeight, MouseButton, PathBuilder, Pixels, ScrollEvent,
+    Stateful, TestSupportExt, canvas, div, point, px, relative,
 };
 
 use crate::actions;
 use crate::app::EuphoriaApp;
+use crate::metronome_controls::TEMPO_RULE;
 use crate::theme::{Palette, ThemeName};
 use crate::views::logo::logo;
 use crate::views::tag_panel::choice_button;
@@ -116,6 +119,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .gap(px(10.0))
                 .ml_auto()
                 .children(progress(app, &palette))
+                .child(metronome(app, &palette, cx))
                 .when(has_tracks, |commands| {
                     commands.child(
                         choice_button("toggle-decks", "Decks", app.decks.is_open, &palette)
@@ -137,6 +141,155 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 })
                 .child(theme_menu(app.theme.name)),
         )
+}
+
+const METRONOME_GLYPH_SIZE: f32 = 14.0;
+
+/// Width of the tempo field, room for "300.0 BPM".
+const METRONOME_FIELD_WIDTH: f32 = 84.0;
+
+/// The metronome: a toggle button that starts and stops the clicks, and
+/// the tempo beside it. The tempo is typed after a click on it or moved
+/// with the scroll wheel, one beat for a notch and a tenth with Alt held.
+fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let is_running = app.metronome.is_running();
+    let hover_background = palette.raised;
+    let hover_colour = palette.text;
+    let (colour, background) = if is_running {
+        (palette.accent_ink, palette.accent)
+    } else {
+        (palette.text_secondary, palette.sidebar)
+    };
+    let button = div()
+        .id("metronome-toggle")
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .size(px(24.0))
+        .rounded(px(5.0))
+        .bg(background)
+        .cursor_pointer()
+        .when(!is_running, |button| {
+            button.hover(move |style| style.bg(hover_background).text_color(hover_colour))
+        })
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome(cx)))
+        .tooltip(move |window, cx| {
+            Tooltip::new(if is_running {
+                "Stop the metronome (M)"
+            } else {
+                "Start the metronome (M)"
+            })
+            .build(window, cx)
+        })
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<Pixels>, _, window, _| {
+                    paint_metronome_glyph(bounds, colour, window);
+                },
+            )
+            .size(px(METRONOME_GLYPH_SIZE)),
+        )
+        .test_support();
+
+    let bpm = app.metronome_bpm();
+    let field = if app.metronome.is_editing {
+        div()
+            .relative()
+            .w(px(METRONOME_FIELD_WIDTH))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(Input::new(&app.metronome_input).id("metronome-field"))
+            .child(
+                div()
+                    .absolute()
+                    .right(px(8.0))
+                    .top_0()
+                    .bottom_0()
+                    .flex()
+                    .items_center()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_tertiary)
+                    .child("BPM"),
+            )
+            .into_any_element()
+    } else {
+        div()
+            .id("metronome-bpm")
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .gap(px(4.0))
+            .w(px(METRONOME_FIELD_WIDTH))
+            .h(CONTROL_HEIGHT)
+            .rounded(CONTROL_RADIUS)
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.raised)
+            .text_size(SMALL_TEXT_SIZE)
+            .text_color(if app.metronome.typed_bpm.is_some() {
+                palette.text
+            } else {
+                palette.text_secondary
+            })
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, _, window, cx| this.edit_metronome_bpm(window, cx)))
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                let notches = event.delta.pixel_delta(px(12.0)).y / px(12.0);
+                let step = if event.modifiers.alt { 0.1 } else { 1.0 };
+                this.nudge_metronome_bpm(notches * step, cx);
+            }))
+            .tooltip(|window, cx| Tooltip::new(TEMPO_RULE).build(window, cx))
+            .child(crate::format::bpm(bpm))
+            .child(div().text_color(palette.text_tertiary).child("BPM"))
+            .test_support()
+            .into_any_element()
+    };
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(4.0))
+        .child(button)
+        .child(field)
+}
+
+/// A metronome: a trapezoid body on a base, with a slanted arm that rises
+/// past the top and carries a small weight.
+fn paint_metronome_glyph(bounds: Bounds<Pixels>, colour: gpui::Hsla, window: &mut gpui::Window) {
+    let corner = |across: f32, down: f32| {
+        bounds.origin
+            + point(
+                px(METRONOME_GLYPH_SIZE * across),
+                px(METRONOME_GLYPH_SIZE * down),
+            )
+    };
+    let mut stroke = |width: f32, points: &[(f32, f32)], is_closed: bool| {
+        let mut builder = PathBuilder::stroke(px(width));
+        for (index, (across, down)) in points.iter().enumerate() {
+            if index == 0 {
+                builder.move_to(corner(*across, *down));
+            } else {
+                builder.line_to(corner(*across, *down));
+            }
+        }
+        if is_closed {
+            builder.close();
+        }
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, colour);
+        }
+    };
+    stroke(
+        1.3,
+        &[(0.3, 0.16), (0.7, 0.16), (0.93, 0.94), (0.07, 0.94)],
+        true,
+    );
+    stroke(1.3, &[(0.5, 0.8), (0.76, 0.0)], false);
+    stroke(3.4, &[(0.64, 0.32), (0.67, 0.24)], false);
 }
 
 /// Write tags, with the DJ program they are written for beside it, so the

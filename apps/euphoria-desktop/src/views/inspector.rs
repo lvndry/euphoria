@@ -756,6 +756,10 @@ fn statistic(
         .child(note)
 }
 
+/// Width of the label column of the compact statistics, room for the
+/// longest label ("Energy") at its size.
+const STATISTIC_LABEL_WIDTH: f32 = 46.0;
+
 /// One line of the column: the label, the value, its note, and how far to
 /// trust the value, so the three lines are as tall as the wheel beside them.
 fn statistic_compact(
@@ -774,11 +778,14 @@ fn statistic_compact(
         .py(px(3.0))
         .child(
             div()
-                .w(px(36.0))
+                .id(SharedString::from(format!("statistic-label-{label}")))
+                .w(px(STATISTIC_LABEL_WIDTH))
                 .flex_shrink_0()
+                .whitespace_nowrap()
                 .text_size(LABEL_TEXT_SIZE)
                 .text_color(palette.text_tertiary)
-                .child(label),
+                .child(label)
+                .test_support(),
         )
         .child(value)
         .child(div().flex_1().min_w_0().overflow_hidden().child(note))

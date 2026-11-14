@@ -23,6 +23,7 @@ use euphoria_core::stems::{Stem, StemFiles};
 use euphoria_core::{AudioStream, EuphoriaError};
 
 use crate::deck_audio::DeckMix;
+use crate::metronome::Metronome;
 use crate::reference_sound::ReferenceSound;
 
 /// How many decoded chunks wait between the decoder and the audio output. A
@@ -1014,6 +1015,10 @@ pub(crate) trait AudioOutput {
     /// Starts playing the mix of the two decks, which plays until the voice
     /// is dropped.
     fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem>;
+
+    /// Starts playing the metronome's clicks at once, mixed over whatever
+    /// else is playing, until the voice is dropped or the clicks end.
+    fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem>;
 }
 
 /// The computer's default audio output, opened the first time a track is
@@ -1057,6 +1062,12 @@ impl AudioOutput for SystemOutput {
     fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
         let player = self.new_player()?;
         player.append(mix);
+        Ok(Box::new(SystemVoice(player)))
+    }
+
+    fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+        let player = self.new_player()?;
+        player.append(clicks);
         Ok(Box::new(SystemVoice(player)))
     }
 }
@@ -1107,6 +1118,10 @@ pub(crate) mod testing {
         fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Ok(Box::new(SilentVoice(mix)))
         }
+
+        fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(clicks)))
+        }
     }
 
     /// A reference sound a [`ListeningOutput`] was given, and whether it is
@@ -1132,6 +1147,7 @@ pub(crate) mod testing {
     #[derive(Default, Clone)]
     pub(crate) struct ListeningOutput {
         heard: Arc<Mutex<Vec<Heard>>>,
+        metronomes: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
     }
 
     impl ListeningOutput {
@@ -1141,6 +1157,20 @@ pub(crate) mod testing {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone()
+        }
+
+        /// How many metronomes were started, and how many of those are
+        /// still sounding.
+        pub(crate) fn metronomes(&self) -> (usize, usize) {
+            let metronomes = self
+                .metronomes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let sounding = metronomes
+                .iter()
+                .filter(|sounding| sounding.load(Ordering::Relaxed))
+                .count();
+            (metronomes.len(), sounding)
         }
 
         /// The reference sounds still sounding, oldest first.
@@ -1190,6 +1220,15 @@ pub(crate) mod testing {
         fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Ok(Box::new(SilentVoice(mix)))
         }
+
+        fn play_metronome(&mut self, _: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            let sounding = Arc::new(AtomicBool::new(true));
+            self.metronomes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(sounding.clone());
+            Ok(Box::new(ListenedVoice(sounding)))
+        }
     }
 
     /// An output on a computer with no audio device.
@@ -1206,6 +1245,10 @@ pub(crate) mod testing {
         }
 
         fn play_decks(&mut self, _: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Err(PlaybackProblem::NoOutput)
+        }
+
+        fn play_metronome(&mut self, _: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
             Err(PlaybackProblem::NoOutput)
         }
     }
