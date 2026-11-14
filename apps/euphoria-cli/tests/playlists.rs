@@ -221,6 +221,39 @@ fn a_file_replaced_at_its_path_by_other_audio_is_left_out_of_an_export() {
 }
 
 #[test]
+fn a_deleted_playlist_track_is_reported_as_missing_with_status_3() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let tracks = playlist_of_three(&euphoria, &folder);
+    std::fs::remove_file(&tracks[0]).expect("the test can read and write its own files");
+
+    let exported = folder.path().join("set.m3u8");
+    let export = euphoria.run(&[
+        "export",
+        "m3u8",
+        "--playlist",
+        "Peak time",
+        "--output",
+        text(&exported),
+    ]);
+    assert_eq!(export.status.code(), Some(3));
+    let errors = standard_error(&export);
+    assert!(
+        errors.contains(&format!("missing: {}", tracks[0].display())),
+        "{errors}"
+    );
+    assert!(
+        errors.contains("1 file is missing: moved, deleted, or on a drive that is not connected."),
+        "{errors}"
+    );
+    let playlist =
+        std::fs::read_to_string(&exported).expect("the test can read and write its own files");
+    assert!(!playlist.contains("first.wav"), "{playlist}");
+    assert!(playlist.contains("second.wav"), "{playlist}");
+    assert!(playlist.contains("third.wav"), "{playlist}");
+}
+
+#[test]
 fn tag_writes_and_undo_keep_saved_playlists_exportable_without_the_cache() {
     for edits in [
         vec!["tags", "write", "--yes", "--no-cache"],

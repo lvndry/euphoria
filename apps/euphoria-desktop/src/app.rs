@@ -162,6 +162,16 @@ pub(crate) struct EuphoriaApp {
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans_in_progress: usize,
+    /// Remembered folders that are not there now, such as one on a drive
+    /// that is not connected. They stay remembered, to be looked for again
+    /// at the next launch.
+    pub(crate) unavailable_folders: Vec<PathBuf>,
+    /// The folders remembered from the last launch. Only these stay
+    /// remembered while they are not there.
+    remembered_folders: Vec<PathBuf>,
+    /// A missing track and the file picked for it, waiting for the user to
+    /// confirm the link because nothing recorded can check it.
+    pub(crate) pending_link: Option<crate::relink_flow::PendingLink>,
     /// True between a press on the toolbar and the drag or release after it.
     pub(crate) toolbar_drag_armed: bool,
     /// Whether the sidebar is folded and how large the track detail is.
@@ -222,9 +232,9 @@ pub(crate) struct EuphoriaApp {
     /// The library's structure revision the folder tree was built from,
     /// and the revision its failure counts were last brought up to date at.
     folder_tree_revisions: Option<(u64, u64)>,
-    /// What the Folder column was worked out for: how many tracks and
-    /// folders the library had, and the folder on show.
-    folder_column_basis: Option<(usize, usize, Option<PathBuf>)>,
+    /// What the Folder column was worked out for: the library's structure
+    /// revision and the folder on show.
+    folder_column_basis: Option<(u64, Option<PathBuf>)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -402,6 +412,9 @@ impl EuphoriaApp {
             table_focus: cx.focus_handle(),
             notice,
             scans_in_progress: 0,
+            unavailable_folders: Vec::new(),
+            remembered_folders: settings.folders.clone(),
+            pending_link: None,
             toolbar_drag_armed: false,
             panels: settings.panels,
             resizing: None,
@@ -608,8 +621,18 @@ impl EuphoriaApp {
         if problems.is_empty() && found.files.is_empty() {
             problems.push("No audio files found there.".to_string());
         }
+        for folder in std::mem::take(&mut found.unavailable_folders) {
+            if self.remembered_folders.contains(&folder)
+                && !self.unavailable_folders.contains(&folder)
+            {
+                self.unavailable_folders.push(folder);
+            }
+        }
         let found_files = found.files.clone();
         self.session.add(found);
+        let library_folders = self.session.library().folders();
+        self.unavailable_folders
+            .retain(|folder| !library_folders.contains(folder));
         self.read_track_names(found_files, cx);
         self.refresh_visible();
         if self.scans_in_progress == 0 {
@@ -631,7 +654,7 @@ impl EuphoriaApp {
 
     /// Shows a problem in the notice strip, after any that is already there
     /// so that an earlier one is not lost.
-    fn report(&mut self, problem: String) {
+    pub(crate) fn report(&mut self, problem: String) {
         self.notice = Some(match self.notice.take() {
             Some(earlier) => format!("{earlier} {problem}"),
             None => problem,
@@ -700,11 +723,7 @@ impl EuphoriaApp {
             }
         }
         self.folder_tree_revisions = Some(revisions);
-        let basis = (
-            library.tracks().len(),
-            library.folders().len(),
-            self.folder.clone(),
-        );
+        let basis = (library.structure_revision(), self.folder.clone());
         if self.folder_column_basis.as_ref() != Some(&basis) {
             self.folder_column =
                 FolderColumn::new(library.tracks(), library.folders(), self.folder.as_deref());
@@ -1239,6 +1258,7 @@ impl EuphoriaApp {
                 .session
                 .library()
                 .quality_to_check_in(self.folder.as_deref()),
+            missing: counts.missing,
         }
     }
 
@@ -1868,8 +1888,10 @@ impl EuphoriaApp {
         let settings_path = self.settings_path.as_ref()?;
         let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
         expanded.sort();
+        let mut folders = self.session.library().folders().to_vec();
+        folders.extend(self.unavailable_folders.iter().cloned());
         let settings = Settings {
-            folders: self.session.library().folders().to_vec(),
+            folders,
             theme: self.theme.name,
             panels: self.panels,
             folder_tree: FolderTreeMemory {
@@ -2125,6 +2147,7 @@ impl Render for EuphoriaApp {
             .when(has_player_bar, |window| {
                 window.child(views::player::bar(self, cx))
             })
+            .children(views::notice::render_link_confirmation(self, cx))
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
             .children(views::library_export_panel::render(self, cx))

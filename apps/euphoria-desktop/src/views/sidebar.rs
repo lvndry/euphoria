@@ -49,6 +49,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         in_library && app.filter == LibraryFilter::AllTracks && app.folder.is_none();
     let needs_review_is_current = in_library && app.filter == LibraryFilter::NeedsReview;
     let quality_is_current = in_library && app.filter == LibraryFilter::QualityToCheck;
+    let missing_is_current = in_library && app.filter == LibraryFilter::Missing;
 
     div()
         .flex()
@@ -124,9 +125,22 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             .test_support(),
         )
         .child(
-            row("Missing files", Some(0), false, &palette)
-                .id("missing-files")
-                .opacity(0.6),
+            row(
+                "Missing files",
+                Some(counts.missing),
+                missing_is_current,
+                &palette,
+            )
+            .id("missing-files")
+            .cursor_pointer()
+            .when(counts.missing == 0 && !missing_is_current, |row| {
+                row.opacity(0.6)
+            })
+            .when(!missing_is_current, |row| {
+                row.hover(move |style| style.bg(hover_background.opacity(0.6)))
+            })
+            .on_click(cx.listener(|this, _, _, cx| this.show_missing_tracks(cx)))
+            .test_support(),
         )
         .child(
             row("Set builder", None, app.set_builder.is_open, &palette)

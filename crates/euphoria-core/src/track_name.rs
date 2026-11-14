@@ -52,7 +52,8 @@ pub struct TrackName {
 ///
 /// # Errors
 ///
-/// Returns [`EuphoriaError::Open`] when the file cannot be opened and
+/// Returns [`EuphoriaError::Missing`] when the file is not there,
+/// [`EuphoriaError::Open`] when it cannot be opened, and
 /// [`EuphoriaError::Decode`] when it is not an audio file the decoder
 /// recognises or reading it fails partway.
 pub fn read_track_name(path: &Path) -> Result<TrackName, EuphoriaError> {

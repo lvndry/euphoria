@@ -513,7 +513,7 @@ mod tests {
     fn a_missing_file_and_a_file_that_is_not_audio_fail_to_open() {
         assert!(matches!(
             AudioStream::open(Path::new("/definitely/not/here.mp3")),
-            Err(EuphoriaError::Open { .. })
+            Err(EuphoriaError::Missing { .. })
         ));
         assert!(matches!(
             AudioStream::open(&fixture("README.md")),

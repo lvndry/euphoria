@@ -42,6 +42,8 @@ pub mod playlists;
 pub mod quality;
 /// The beat grid a DJ fixed in rekordbox, read from the collection XML.
 pub mod rekordbox_grid;
+/// Linking a track whose file went missing to where the file is now.
+pub mod relink;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
@@ -101,6 +103,7 @@ pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,
 };
+pub use relink::{RelinkMatch, check_relink, find_in_folder};
 pub use tag_key::{KeyDifference, TagKey, TagKeyAgreement};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};

@@ -302,9 +302,14 @@ enum Layout {
 
 fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let analysis = &arguments.analysis;
-    let audio_files = find_audio_files(&arguments.paths).map_err(with_causes)?;
+    let (missing_paths, present_paths): (Vec<PathBuf>, Vec<PathBuf>) = arguments
+        .paths
+        .iter()
+        .cloned()
+        .partition(|path| matches!(path.try_exists(), Ok(false)));
+    let audio_files = find_audio_files(&present_paths).map_err(with_causes)?;
     let standard_error_theme = Theme::stderr();
-    if audio_files.is_empty() {
+    if audio_files.is_empty() && missing_paths.is_empty() {
         output::write_no_audio_files(&mut std::io::stderr().lock(), &standard_error_theme)?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -314,18 +319,31 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         .map(grid_import::CollectionGrids::read)
         .transpose()?;
     let CachedBatch {
-        results,
+        mut results,
         cached_count,
         store_error,
-    } = batch::analyze(
-        &audio_files,
-        analysis,
-        if arguments.json {
-            batch::Display::CountOnly
-        } else {
-            batch::Display::Stages
-        },
-    )?;
+    } = if audio_files.is_empty() {
+        CachedBatch {
+            results: Vec::new(),
+            cached_count: 0,
+            store_error: None,
+        }
+    } else {
+        batch::analyze(
+            &audio_files,
+            analysis,
+            if arguments.json {
+                batch::Display::CountOnly
+            } else {
+                batch::Display::Stages
+            },
+        )?
+    };
+    results.extend(missing_paths.into_iter().map(|path| FileResult {
+        outcome: Err(EuphoriaError::Missing { path: path.clone() }),
+        path,
+    }));
+    results.sort_by(|first, second| first.path.cmp(&second.path));
     let user_edits = batch::user_edits(&results, analysis, batch::CorrectionCheck::Quick)?;
     let results = batch::corrected(results, &user_edits);
     let (results, grid_infos) =
@@ -366,6 +384,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             })
             .count(),
     };
+    let missing_count = results
+        .iter()
+        .filter(|result| output::is_missing(result))
+        .count();
     let failure_count = results
         .iter()
         .filter(|result| result.outcome.is_err())
@@ -499,11 +521,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     if let Some(store_error) = store_error {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
-    Ok(if failure_count == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(output::exit_status(
+        failure_count > missing_count,
+        missing_count > 0,
+    ))
 }
 
 pub(crate) fn with_causes(error: EuphoriaError) -> anyhow::Error {

@@ -947,7 +947,7 @@ fn paths_that_cannot_be_used_are_errors() {
         text(&output_folder.path().join("library.xml")),
     ]);
     assert_eq!(missing_input.status.code(), Some(1));
-    assert!(standard_error(&missing_input).contains("cannot read /definitely/not/here"));
+    assert!(standard_error(&missing_input).contains("/definitely/not/here is missing"));
 
     let missing_output_folder = euphoria.run(&[
         "export",
