@@ -21,7 +21,6 @@ format = "UDZO"
 filesystem = "HFS+"
 files = [application]
 symlinks = {"Applications": "/Applications"}
-hide_extensions = [application_name]
 icon = defines["icon"]  # noqa: F821
 
 show_status_bar = False
