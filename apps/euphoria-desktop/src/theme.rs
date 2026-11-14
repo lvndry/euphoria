@@ -252,8 +252,6 @@ pub(crate) struct AppTheme {
     pub(crate) row_height: Pixels,
     /// How keys are shown.
     pub(crate) key_display: KeyDisplay,
-    /// Whether the inspector shows the Camelot wheel.
-    pub(crate) shows_wheel: bool,
     /// Whether the library opens sorted by key.
     pub(crate) opens_sorted_by_key: bool,
 }
@@ -270,7 +268,6 @@ impl AppTheme {
             layout: Layout::InspectorRight,
             row_height: COMFORTABLE_ROW_HEIGHT,
             key_display: KeyDisplay::TintedChip,
-            shows_wheel: false,
             opens_sorted_by_key: false,
         };
         match name {
@@ -291,7 +288,6 @@ impl AppTheme {
             },
             ThemeName::KeyFirst => Self {
                 key_display: KeyDisplay::SolidChip,
-                shows_wheel: true,
                 opens_sorted_by_key: true,
                 ..slate
             },
@@ -436,7 +432,6 @@ mod tests {
         let key_first = AppTheme::named(ThemeName::KeyFirst);
         assert_eq!(key_first.palette, Palette::slate());
         assert_eq!(key_first.key_display, KeyDisplay::SolidChip);
-        assert!(key_first.shows_wheel);
         assert!(key_first.opens_sorted_by_key);
     }
 

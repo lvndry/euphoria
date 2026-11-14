@@ -36,12 +36,17 @@ use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::stems;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
-use crate::views::wheel::{emphasis_for, wheel};
+use crate::views::wheel::{
+    COLUMN_WHEEL_SIZE, LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE, emphasis_for, wheel,
+};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
 
 /// Space around the contents of the inspector.
 const PADDING: f32 = 16.0;
+
+/// Height of the line between the table and the strip.
+const STRIP_BORDER: f32 = 1.0;
 
 /// Height of the line above the waveform and above the mixes list, with the
 /// gap under it.
@@ -75,6 +80,18 @@ impl Room {
             Room::Column => px(WAVEFORM_HEIGHT),
             Room::Strip { inner_height } => {
                 px((inner_height - HEADING_HEIGHT - others).max(SMALLEST_STRIP_WAVEFORM))
+            }
+        }
+    }
+
+    /// How wide and tall to draw the Camelot wheel: its usual size in the
+    /// column, and the height the strip leaves inside its padding, within
+    /// limits, so the wheel never hides.
+    fn wheel_size(self) -> f32 {
+        match self {
+            Room::Column => COLUMN_WHEEL_SIZE,
+            Room::Strip { inner_height } => {
+                (inner_height - STRIP_BORDER).clamp(SMALLEST_WHEEL_SIZE, LARGEST_WHEEL_SIZE)
             }
         }
     }
@@ -159,6 +176,18 @@ pub(crate) fn render(
         }
     };
 
+    let strip_wheel = (!is_column)
+        .then(|| {
+            key_wheel(
+                track,
+                theme,
+                room,
+                &app.decks.filter.mix_options().relations,
+            )
+        })
+        .flatten()
+        .map(|section| sized(divided(section), Some(room.wheel_size())));
+
     container
         .child(sized(
             summary(track, &palette)
@@ -168,10 +197,7 @@ pub(crate) fn render(
             Some(220.0),
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
-        .children(
-            key_wheel(track, theme, &app.decks.filter.mix_options().relations)
-                .map(|section| sized(divided(section), Some(220.0))),
-        )
+        .children(strip_wheel)
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
@@ -477,40 +503,76 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         (None, None) => None,
     };
 
+    let is_column = theme.layout == Layout::InspectorRight;
+    let boxes = if is_column {
+        let compact =
+            |label, trust, value, note| statistic_compact(label, trust, value, note, palette);
+        let key_box = compact("Key", key_trust, key_value, key_note);
+        let tempo_box = compact("BPM", tempo_trust, statistic_value(tempo), tempo_note)
+            .border_t_1()
+            .border_color(palette.line);
+        let energy_box = compact("Energy", energy_trust, statistic_value(energy), energy_note)
+            .border_t_1()
+            .border_color(palette.line);
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .rounded(px(8.0))
+                    .border_1()
+                    .border_color(palette.line)
+                    .child(key_box)
+                    .child(tempo_box)
+                    .child(energy_box),
+            )
+            .children(key_wheel_of(
+                track,
+                theme,
+                &app.decks.filter.mix_options().relations,
+                COLUMN_WHEEL_SIZE,
+            ))
+    } else {
+        div()
+            .flex()
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(palette.line)
+            .child(statistic("Key", key_trust, key_value, key_note, palette))
+            .child(
+                statistic(
+                    "BPM",
+                    tempo_trust,
+                    statistic_value(tempo),
+                    tempo_note,
+                    palette,
+                )
+                .border_l_1()
+                .border_color(palette.line),
+            )
+            .child(
+                statistic(
+                    "Energy",
+                    energy_trust,
+                    statistic_value(energy),
+                    energy_note,
+                    palette,
+                )
+                .border_l_1()
+                .border_color(palette.line),
+            )
+    };
+
     div()
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .child(
-            div()
-                .flex()
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(palette.line)
-                .child(statistic("Key", key_trust, key_value, key_note, palette))
-                .child(
-                    statistic(
-                        "BPM",
-                        tempo_trust,
-                        statistic_value(tempo),
-                        tempo_note,
-                        palette,
-                    )
-                    .border_l_1()
-                    .border_color(palette.line),
-                )
-                .child(
-                    statistic(
-                        "Energy",
-                        energy_trust,
-                        statistic_value(energy),
-                        energy_note,
-                        palette,
-                    )
-                    .border_l_1()
-                    .border_color(palette.line),
-                ),
-        )
+        .child(boxes)
         .children(tag_key_line(track, notation, palette))
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
@@ -692,6 +754,35 @@ fn statistic(
         )
         .child(value)
         .child(note)
+}
+
+/// One line of the column: the label, the value, its note, and how far to
+/// trust the value, so the three lines are as tall as the wheel beside them.
+fn statistic_compact(
+    label: &'static str,
+    trust: Option<AnyElement>,
+    value: Div,
+    note: AnyElement,
+    palette: &Palette,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .min_w_0()
+        .px(px(8.0))
+        .py(px(3.0))
+        .child(
+            div()
+                .w(px(36.0))
+                .flex_shrink_0()
+                .text_size(LABEL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child(label),
+        )
+        .child(value)
+        .child(div().flex_1().min_w_0().overflow_hidden().child(note))
+        .children(trust.map(|trust| div().flex_shrink_0().child(trust)))
 }
 
 /// The waveform, which is also where to seek: a press or a drag on it moves
@@ -1029,41 +1120,32 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
     )
 }
 
-/// The Camelot wheel, in themes that show it, for a track with a key.
-fn key_wheel(track: &Track, theme: &AppTheme, relations: &[Relation]) -> Option<Div> {
-    if !theme.shows_wheel {
-        return None;
-    }
+/// The Camelot wheel of the track's key, `size` pixels square, with the
+/// keys the suggestion filter's moves reach tinted.
+fn key_wheel_of(
+    track: &Track,
+    theme: &AppTheme,
+    relations: &[Relation],
+    size: f32,
+) -> Option<AnyElement> {
     let key = track.key()?;
-    let palette = &theme.palette;
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(14.0))
-            .child(wheel(
-                key.camelot(),
-                emphasis_for(
-                    CamelotPosition::of(&key),
-                    keys_related_by(&key, relations)
-                        .iter()
-                        .map(CamelotPosition::of),
-                ),
-                palette,
-            ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(SMALL_TEXT_SIZE)
-                    .text_color(palette.text_secondary)
-                    .child(format!(
-                        "Highlighted keys mix with {}, {}.",
-                        key.camelot(),
-                        key
-                    )),
-            ),
-    )
+    Some(wheel(
+        key.camelot(),
+        emphasis_for(
+            CamelotPosition::of(&key),
+            keys_related_by(&key, relations)
+                .iter()
+                .map(CamelotPosition::of),
+        ),
+        &theme.palette,
+        size,
+    ))
+}
+
+/// The wheel alone, as tall as the strip allows, for the Deck strip.
+fn key_wheel(track: &Track, theme: &AppTheme, room: Room, relations: &[Relation]) -> Option<Div> {
+    key_wheel_of(track, theme, relations, room.wheel_size())
+        .map(|key_wheel| div().flex().items_center().child(key_wheel))
 }
 
 /// Why a failed track failed, or that an unfinished one is queued or
