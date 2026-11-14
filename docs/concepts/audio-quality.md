@@ -98,7 +98,7 @@ Reading stops at a read error, such as the end of a file cut inside a packet. Th
 
 ## Channels that cancel
 
-Euphoria mixes a stereo file down to one channel by averaging. Two channels that are inverted copies of each other average to silence, and a file like that, from a phase mistake in a recording or an export, used to be reported as silent. Now every block of about 0.4 seconds of stereo is checked: when its mono mixdown holds less than 5% of the energy of its two channels, the left channel is used for that block. For two channels of equal level, 5% means a correlation below -0.9, which real music does not reach. Wide stereo stays above 20%. A file with 1% or more of its length mixed this way gets a note, and `cancelled_share` in the JSON gives the share.
+Euphoria mixes a stereo file down to one channel by averaging. Two channels that are inverted copies of each other average to silence, and a file like that, from a phase mistake in a recording or an export, used to be reported as silent. Now every block of about 0.4 seconds of stereo is checked: when its mono mixdown holds less than 5% of the energy of its two channels, the left channel is used for that block. For two channels of equal level, 5% means a correlation below -0.9, which real music does not reach. Wide stereo stays above 20%. A file with 5% or more of its length mixed this way gets a note, and `cancelled_share` in the JSON gives the share.
 
 The [cutoff](#the-cutoff) and the other measurements that read every channel are not affected.
 

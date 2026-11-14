@@ -136,8 +136,8 @@ pub struct QualityReport {
 }
 
 /// A stereo file is noted for cancelling channels from this share of its
-/// length, which is more than the odd block of out of phase bass.
-pub const NOTICEABLE_CANCELLED_SHARE: f32 = 0.01;
+/// length, which is more than a short out of phase stretch or an odd block of bass.
+pub const NOTICEABLE_CANCELLED_SHARE: f32 = 0.05;
 
 impl QualityReport {
     /// True when the file is damaged: packets could not be decoded, or the
