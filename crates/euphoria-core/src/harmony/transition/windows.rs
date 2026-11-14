@@ -201,6 +201,12 @@ pub(super) fn search(input: &SearchInput<'_>, keep: usize) -> Vec<CandidateWindo
 }
 
 fn is_mix_out(sections: &[PlanSection], bar: usize) -> bool {
+    let only_the_start = sections
+        .iter()
+        .all(|section| section.label == SectionLabel::Start);
+    if only_the_start {
+        return true;
+    }
     match section_at(sections, bar) {
         Some(label) => label != SectionLabel::Start,
         None => true,

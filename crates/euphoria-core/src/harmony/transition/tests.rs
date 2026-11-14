@@ -560,3 +560,19 @@ fn tracks_too_short_for_any_window_give_no_window_and_no_cues() {
     assert!(plan.windows.is_empty());
     assert!(plan.cues.is_none());
 }
+
+#[test]
+fn a_track_whose_only_section_is_its_start_may_mix_out_anywhere_on_a_phrase() {
+    let mut a = song_a();
+    a.sections = sections(&[(0, SectionLabel::Start)]);
+    a.stems = None;
+    let mut b = song_b();
+    b.stems = None;
+    let plan = plan(&a, &b);
+    assert!(plan.windows.iter().any(|window| window.a_start_bar == 112));
+    assert!(
+        plan.windows
+            .iter()
+            .all(|window| window.a_start_bar % PHRASE_BARS == 0)
+    );
+}
