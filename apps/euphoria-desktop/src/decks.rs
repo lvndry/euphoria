@@ -316,7 +316,12 @@ fn number(text: &str) -> Typed {
     if text.is_empty() {
         return Typed::Empty;
     }
-    match text.parse::<f32>() {
+    let normalized = if text.matches(',').count() == 1 && !text.contains('.') {
+        text.replace(',', ".")
+    } else {
+        text.to_string()
+    };
+    match normalized.parse::<f32>() {
         Ok(value) if value.is_finite() => Typed::Number(value),
         _ => Typed::Unreadable,
     }

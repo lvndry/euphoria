@@ -425,9 +425,11 @@ impl EuphoriaApp {
                     plans: Arc::new(plans),
                     analyses: Arc::new(analyses),
                     up_to_date,
+                    left_alone: Vec::new(),
                     not_analyzed: Vec::new(),
                     failures,
                     serato_notes: Vec::new(),
+                    program_warning: None,
                 }));
                 cx.notify();
             })

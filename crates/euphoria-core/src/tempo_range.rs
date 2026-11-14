@@ -141,15 +141,15 @@ impl Display for TempoRange {
 }
 
 /// Reads a range written as two numbers joined by a hyphen, such as
-/// `70-140`.
+/// `70-140`. A decimal comma works like a point: `87,5-175`.
 impl FromStr for TempoRange {
     type Err = EuphoriaError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let unreadable = || EuphoriaError::UnreadableTempoRange(text.to_string());
         let (slowest, fastest) = text.split_once('-').ok_or_else(unreadable)?;
-        let slowest: f32 = slowest.trim().parse().map_err(|_| unreadable())?;
-        let fastest: f32 = fastest.trim().parse().map_err(|_| unreadable())?;
+        let slowest = crate::tags::parse_tempo(slowest).ok_or_else(unreadable)?;
+        let fastest = crate::tags::parse_tempo(fastest).ok_or_else(unreadable)?;
         Self::new(slowest, fastest)
     }
 }

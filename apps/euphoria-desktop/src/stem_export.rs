@@ -239,6 +239,7 @@ impl EuphoriaApp {
                 key: track.key(),
                 bpm: track.bpm(),
                 energy: track.energy(),
+                ..TagValues::default()
             },
         });
         Some(StemExportSource {

@@ -239,6 +239,107 @@ fn create_log(directory: &Path) -> Result<OpenLog, EuphoriaError> {
     })
 }
 
+/// The values Euphoria's own analysis wrote into files, as the logs of tag
+/// writes that have not been undone remember them. A value in a file that
+/// still equals what is remembered here was written by Euphoria and not by
+/// the user or another program, so a newer analysis may replace it.
+///
+/// Values typed by hand with `tags set`, writes whose log was undone, and
+/// logs from before the origin was recorded are not remembered, which
+/// errs towards keeping a value.
+#[derive(Debug, Default)]
+pub struct WrittenValues {
+    values: HashMap<(PathBuf, String), String>,
+}
+
+impl WrittenValues {
+    /// Reads the logs in `directory` for the files in `paths`. A log that
+    /// cannot be read, or a line of one that cannot be understood, is
+    /// skipped: a value that is not remembered is only ever kept.
+    pub fn load(directory: &Path, paths: &[PathBuf]) -> Self {
+        let wanted: HashSet<PathBuf> = paths.iter().map(|path| identity(path)).collect();
+        let mut values = HashMap::new();
+        let mut logs: Vec<PathBuf> = std::fs::read_dir(directory)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with(LOG_NAME_START) && name.ends_with(LOG_NAME_END)
+                    })
+            })
+            .collect();
+        logs.sort();
+        for log in logs {
+            let _ = remember_log(&log, &wanted, &mut values);
+        }
+        Self { values }
+    }
+
+    /// What Euphoria's analysis last wrote to `field` of the file at
+    /// `path`, when that is known.
+    pub fn written(&self, path: &Path, field: &str) -> Option<&String> {
+        self.values.get(&(identity(path), field.to_string()))
+    }
+
+    /// Remembers that the analysis wrote `value` to `field` of `path`.
+    pub fn remember(&mut self, path: &Path, field: &str, value: &str) {
+        self.values
+            .insert((identity(path), field.to_string()), value.to_string());
+    }
+}
+
+fn identity(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn remember_log(
+    log_path: &Path,
+    wanted: &HashSet<PathBuf>,
+    values: &mut HashMap<(PathBuf, String), String>,
+) -> Result<(), EuphoriaError> {
+    let file = File::open(log_path).map_err(|error| log_error(log_path, error))?;
+    if file
+        .metadata()
+        .map_err(|error| log_error(log_path, error))?
+        .len()
+        > LARGEST_LOG
+    {
+        return Ok(());
+    }
+    let mut reader = BufReader::new(file);
+    let mut pending: HashMap<PathBuf, TagBackup> = HashMap::new();
+    while let Some(line) = read_line(&mut reader, log_path)? {
+        match serde_json::from_slice(&line) {
+            Ok(Entry::Planned(backup)) => {
+                let path = identity(&backup.path);
+                if backup.by_analysis && wanted.contains(&path) {
+                    pending.insert(path, backup);
+                }
+            }
+            Ok(Entry::Applied(path)) => {
+                let path = identity(&path);
+                if let Some(backup) = pending.remove(&path) {
+                    for field in backup.fields {
+                        match field.written {
+                            Some(written) => values.insert((path.clone(), field.field), written),
+                            None => values.remove(&(path.clone(), field.field)),
+                        };
+                    }
+                }
+            }
+            Ok(Entry::Failed(path)) => {
+                pending.remove(&identity(&path));
+            }
+            Err(_) => {}
+        }
+    }
+    Ok(())
+}
+
 /// What undoing a write did to its files.
 #[derive(Debug, Default)]
 pub struct UndoneWrite {
@@ -525,6 +626,7 @@ mod tests {
             key: Some(Key::new(9, Mode::Minor)),
             bpm: Some(126.0),
             energy: Some(7),
+            ..TagValues::default()
         };
         plan_write(track, values, &TagWriteOptions::default()).unwrap()
     }

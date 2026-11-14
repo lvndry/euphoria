@@ -21,8 +21,8 @@ use crate::playlists::PlaylistRewrite;
 use crate::state::PlaylistSaver;
 use crate::tag_settings::TagSettings;
 use euphoria_core::tags::{
-    FieldChange, LoggedWrite, RewriteStage, SeratoMarkers, WriteLog, WritePlan, add_serato_markers,
-    plan_write, undo_last_write_with_observer,
+    FieldChange, LoggedWrite, RewriteStage, SeratoMarkers, WriteLog, WritePlan, WrittenValues,
+    add_serato_markers, plan_write_with_history, undo_last_write_with_observer,
 };
 use euphoria_core::{CachedAnalyzer, Correction, Cue, TrackAnalysis};
 
@@ -147,6 +147,9 @@ pub(crate) struct PlannedWrite {
     pub(crate) analyses: Vec<TrackAnalysis>,
     /// How many files already hold the values.
     pub(crate) up_to_date: usize,
+    /// Files with nothing to change from which a key or tempo was left out,
+    /// each with what was left out and why.
+    pub(crate) left_alone: Vec<LeftOut>,
     /// Files without an analysis, which there is nothing to write for.
     pub(crate) not_analyzed: Vec<LeftOut>,
     /// Files whose tags could not be read or could not be written safely.
@@ -159,7 +162,18 @@ pub(crate) struct PlannedWrite {
 
 /// Works out the changes for every target with `settings`. Reads the files,
 /// writes none.
+#[cfg(test)]
 pub(crate) fn plan_writes(targets: &[WriteTarget], settings: &TagSettings) -> PlannedWrite {
+    plan_writes_with_history(targets, settings, &WrittenValues::default())
+}
+
+/// Like [`plan_writes`], knowing which values in the files Euphoria wrote
+/// earlier, so that they are updated and not kept.
+pub(crate) fn plan_writes_with_history(
+    targets: &[WriteTarget],
+    settings: &TagSettings,
+    history: &WrittenValues,
+) -> PlannedWrite {
     let options = settings.write_options();
     let mut planned = PlannedWrite::default();
     for target in targets {
@@ -172,13 +186,15 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], settings: &TagSettings) -> Pl
         };
         let written = target.correction.apply(analysis.clone());
         let mut notes = Vec::new();
-        let plan = plan_write(&target.path, &written, &options).and_then(|mut plan| {
-            if settings.write_cue_markers {
-                let markers = SeratoMarkers::of_cues(&written, target.edited_cues.clone());
-                notes = add_serato_markers(&mut plan, &markers)?.notes();
-            }
-            Ok(plan)
-        });
+        let plan = plan_write_with_history(&target.path, &written, &options, history).and_then(
+            |mut plan| {
+                if settings.write_cue_markers {
+                    let markers = SeratoMarkers::of_cues(&written, target.edited_cues.clone());
+                    notes = add_serato_markers(&mut plan, &markers)?.notes();
+                }
+                Ok(plan)
+            },
+        );
         if plan.is_ok() {
             planned
                 .serato_notes
@@ -188,7 +204,15 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], settings: &TagSettings) -> Pl
                 }));
         }
         match plan {
-            Ok(plan) if plan.is_empty() => planned.up_to_date += 1,
+            Ok(plan) if plan.is_empty() => {
+                planned.up_to_date += 1;
+                if !plan.skipped().is_empty() {
+                    planned.left_alone.push(LeftOut {
+                        path: target.path.clone(),
+                        reason: skipped_sentence(&plan),
+                    });
+                }
+            }
             Ok(plan) => {
                 planned.plans.push(plan);
                 planned.analyses.push(analysis.clone());
@@ -200,6 +224,15 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], settings: &TagSettings) -> Pl
         }
     }
     planned
+}
+
+/// What a plan leaves out, in one line.
+fn skipped_sentence(plan: &WritePlan) -> String {
+    plan.skipped()
+        .iter()
+        .map(|skipped| skipped.describe())
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// One line of the preview: a file, or one field of the file above it.
@@ -214,6 +247,8 @@ pub(crate) enum PreviewRow {
     },
     /// One field of the file above.
     Change(FieldChange),
+    /// A key or tempo of the file above that is left out, and why.
+    Skipped(String),
 }
 
 /// The preview of `plans`, a file at a time, each followed by its changes.
@@ -225,6 +260,11 @@ pub(crate) fn preview_rows(plans: &[WritePlan]) -> Vec<PreviewRow> {
             change_count: plan.changes().len(),
         });
         rows.extend(plan.changes().iter().cloned().map(PreviewRow::Change));
+        rows.extend(
+            plan.skipped()
+                .iter()
+                .map(|skipped| PreviewRow::Skipped(skipped.describe())),
+        );
     }
     rows
 }
@@ -756,7 +796,9 @@ mod tests {
                     change.current.clone(),
                     change.new.clone(),
                 ),
-                PreviewRow::File { .. } => panic!("a file inside the changes"),
+                PreviewRow::File { .. } | PreviewRow::Skipped(_) => {
+                    panic!("a file inside the changes")
+                }
             })
             .collect();
         assert_eq!(

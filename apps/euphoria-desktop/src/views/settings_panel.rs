@@ -54,7 +54,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         choice_button(
             ("label-place", index),
             place.label(),
-            settings.label == place,
+            settings.effective_label() == place,
             &palette,
         )
         .on_click(cx.listener(move |this, _, _, cx| this.set_label_place(place, cx)))
@@ -229,6 +229,48 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                             &palette,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_write_tempo(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(setting(
+                    "Existing key and tempo",
+                    "A key or tempo a file already has is kept, so a correct tag is never \
+                     replaced by a guess. One that Euphoria wrote earlier is still updated.",
+                    div().flex().child(
+                        choice_button(
+                            "replace-existing",
+                            if settings.replace_existing {
+                                "\u{2713} Replace existing key and tempo"
+                            } else {
+                                "Replace existing key and tempo"
+                            },
+                            settings.replace_existing,
+                            &palette,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_replace_existing(cx)))
+                        .test_support(),
+                    ),
+                    &palette,
+                ))
+                .child(setting(
+                    "Low confidence",
+                    "A key or tempo rated low confidence is left out and listed in the \
+                     preview. A key or tempo you corrected counts as high.",
+                    div().flex().child(
+                        choice_button(
+                            "include-low-confidence",
+                            if settings.include_low_confidence {
+                                "\u{2713} Also write low confidence values"
+                            } else {
+                                "Also write low confidence values"
+                            },
+                            settings.include_low_confidence,
+                            &palette,
+                        )
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx)),
+                        )
                         .test_support(),
                     ),
                     &palette,

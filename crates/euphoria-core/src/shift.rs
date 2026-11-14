@@ -756,6 +756,7 @@ mod tests {
                     key: Some(Key::new(9, Mode::Minor)),
                     bpm: Some(124.0),
                     energy: Some(7),
+                    ..TagValues::default()
                 },
                 &TagWriteOptions::default(),
                 ExistingOutput::Keep,

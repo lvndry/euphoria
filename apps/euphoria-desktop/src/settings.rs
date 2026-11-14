@@ -184,9 +184,10 @@ mod tests {
             tags: TagSettings {
                 program: ProgramChoice::Serato,
                 key_notation: NotationChoice::Musical,
-                label: LabelChoice::Grouping,
+                label: Some(LabelChoice::Grouping),
                 write_tempo: false,
                 write_cue_markers: true,
+                ..TagSettings::default()
             },
             display: DisplaySettings {
                 key_notation: NotationChoice::OpenKey,
@@ -228,7 +229,8 @@ mod tests {
                 r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
-                r#""label":"comment-start","write_tempo":true,"write_cue_markers":false},"#,
+                r#""write_tempo":true,"write_cue_markers":false,"#,
+                r#""replace_existing":false,"include_low_confidence":false,"schema":1},"#,
                 r#""display":{"key_notation":"camelot","#,
                 r#""tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true}}"#

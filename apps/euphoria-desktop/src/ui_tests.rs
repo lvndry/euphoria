@@ -1936,9 +1936,10 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         TagSettings {
             program: ProgramChoice::Serato,
             key_notation: crate::tag_settings::NotationChoice::OpenKey,
-            label: crate::tag_settings::LabelChoice::Grouping,
+            label: Some(crate::tag_settings::LabelChoice::Grouping),
             write_tempo: true,
             write_cue_markers: false,
+            ..TagSettings::default()
         }
     );
 

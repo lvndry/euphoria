@@ -27,13 +27,14 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::TrackAnalysis;
+use crate::confidence::Confidence;
 use crate::detect::Analysis;
 use crate::error::EuphoriaError;
 use crate::key::Key;
 pub use edit::{EditableTags, FieldEdit, TagField, TextChange, plan_edit, read_editable_tags};
 pub use history::{
-    LoggedWrite, RewriteStage, UndoneWrite, WriteLog, default_write_log_directory, undo_last_write,
-    undo_last_write_with_observer,
+    LoggedWrite, RewriteStage, UndoneWrite, WriteLog, WrittenValues, default_write_log_directory,
+    undo_last_write, undo_last_write_with_observer,
 };
 use id3v2::COMMENT as ID3_COMMENT;
 pub use label::LabelPlacement;
@@ -177,6 +178,12 @@ pub struct TagValues {
     pub bpm: Option<f32>,
     /// The energy rating, from 1 to 10.
     pub energy: Option<u8>,
+    /// How far to trust the key. `None` means nothing rates it, as for a
+    /// key the user set, and counts as trusted.
+    pub key_confidence: Option<Confidence>,
+    /// How far to trust the tempo. `None` means nothing rates it, as for a
+    /// tempo the user set, and counts as trusted.
+    pub bpm_confidence: Option<Confidence>,
 }
 
 impl From<&TrackAnalysis> for TagValues {
@@ -185,6 +192,8 @@ impl From<&TrackAnalysis> for TagValues {
             key: analysis.key,
             bpm: analysis.bpm,
             energy: analysis.energy,
+            key_confidence: analysis.key_confidence(),
+            bpm_confidence: analysis.tempo_confidence(),
         }
     }
 }
@@ -195,6 +204,8 @@ impl From<&Analysis> for TagValues {
             key: analysis.key,
             bpm: analysis.tempo,
             energy: None,
+            key_confidence: None,
+            bpm_confidence: None,
         }
     }
 }
@@ -216,6 +227,17 @@ pub struct TagWriteOptions {
     pub label: LabelPlacement,
     /// The DJ program whose fields are written.
     pub preset: DjSoftware,
+    /// Leave a key or tempo the file already has, when it can be read, and
+    /// say so in [`WritePlan::skipped`], unless Euphoria itself wrote that
+    /// value in an earlier write that [`WrittenValues`] knows of. The
+    /// default is `false`, which replaces what is there; the `tags write`
+    /// command and the desktop app turn it on.
+    pub keep_existing: bool,
+    /// Leave out a key or tempo whose [`TagValues`] rate it
+    /// [`Confidence::Low`], and say so in [`WritePlan::skipped`]. The
+    /// default is `false`; the `tags write` command and the desktop app
+    /// turn it on.
+    pub skip_low_confidence: bool,
 }
 
 impl Default for TagWriteOptions {
@@ -225,6 +247,62 @@ impl Default for TagWriteOptions {
             write_bpm: true,
             label: LabelPlacement::default(),
             preset: DjSoftware::default(),
+            keep_existing: false,
+            skip_low_confidence: false,
+        }
+    }
+}
+
+/// The value a [`SkippedValue`] is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkippedKind {
+    /// The key.
+    Key,
+    /// The tempo.
+    Tempo,
+}
+
+impl SkippedKind {
+    /// The word for the value, "key" or "tempo".
+    pub fn name(self) -> &'static str {
+        match self {
+            SkippedKind::Key => "key",
+            SkippedKind::Tempo => "tempo",
+        }
+    }
+}
+
+/// Why a value was left out of a write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkipReason {
+    /// The file already has a readable value, shown as it is in the file,
+    /// and it was not written by Euphoria's own analysis.
+    AlreadyTagged(String),
+    /// The detected value is rated this, which is low.
+    LowConfidence(Confidence),
+}
+
+/// A key or tempo that a write leaves out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedValue {
+    /// Which value.
+    pub kind: SkippedKind,
+    /// Why.
+    pub reason: SkipReason,
+}
+
+impl SkippedValue {
+    /// The line the preview shows, such as "key kept (already tagged 8A)"
+    /// or "tempo not written (rated low confidence)".
+    pub fn describe(&self) -> String {
+        match &self.reason {
+            SkipReason::AlreadyTagged(existing) => {
+                format!("{} kept (already tagged {existing})", self.kind.name())
+            }
+            SkipReason::LowConfidence(confidence) => format!(
+                "{} not written (rated {confidence} confidence)",
+                self.kind.name()
+            ),
         }
     }
 }
@@ -253,9 +331,16 @@ pub struct WritePlan {
     current_items: Vec<Option<Vec<u8>>>,
     tag_length: u64,
     file_length: u64,
+    skipped: Vec<SkippedValue>,
+    by_analysis: bool,
 }
 
 impl WritePlan {
+    /// The key and tempo this plan leaves out, and why.
+    pub fn skipped(&self) -> &[SkippedValue] {
+        &self.skipped
+    }
+
     /// The file the plan is for.
     pub fn path(&self) -> &Path {
         &self.path
@@ -285,6 +370,7 @@ impl WritePlan {
             path: self.path.clone(),
             original_tag_length: Some(self.tag_length),
             original_file_length: Some(self.file_length),
+            by_analysis: self.by_analysis,
             fields: self
                 .changes
                 .iter()
@@ -333,6 +419,11 @@ pub struct TagBackup {
     /// The length of the file in bytes before the write, used like
     /// `original_tag_length`.
     pub original_file_length: Option<u64>,
+    /// True when the write put values from an analysis in the file, as
+    /// `tags write` does, and false for values typed by hand. Logs from
+    /// before this was recorded read as false.
+    #[serde(default)]
+    pub by_analysis: bool,
     /// The touched fields.
     pub fields: Vec<BackupField>,
 }
@@ -347,6 +438,18 @@ pub fn plan_write(
     path: &Path,
     values: impl Into<TagValues>,
     options: &TagWriteOptions,
+) -> Result<WritePlan, EuphoriaError> {
+    plan_write_with_history(path, values, options, &WrittenValues::default())
+}
+
+/// Like [`plan_write`], telling [`TagWriteOptions::keep_existing`] which
+/// values in the file Euphoria wrote itself, so that they are updated
+/// rather than kept.
+pub fn plan_write_with_history(
+    path: &Path,
+    values: impl Into<TagValues>,
+    options: &TagWriteOptions,
+    history: &WrittenValues,
 ) -> Result<WritePlan, EuphoriaError> {
     let values = values.into();
     let refuse = |reason: String| EuphoriaError::TagWrite {
@@ -363,8 +466,36 @@ pub fn plan_write(
     let preset = options.preset;
     // Each field to write, its value, and whether the value is a tempo.
     let mut wanted: Vec<(&str, String, bool)> = Vec::new();
+    let mut skipped = Vec::new();
+    let mut label_key = values.key;
+    let mut key_left_out = false;
 
-    if let Some(key) = values.key {
+    let key_guard = match values.key {
+        Some(key) => guard(
+            options,
+            values.key_confidence,
+            Existing {
+                file: &file,
+                history,
+                path,
+                fields: format.key_fields(),
+                is_readable: &|text| Key::parse_file_key(text).is_some(),
+                is_same: &|text| Key::parse_file_key(text) == Some(key),
+            },
+        )?,
+        None => Guard::Write,
+    };
+    let write_key = matches!(key_guard, Guard::Write);
+    if let Guard::Skip(Some(reason)) = key_guard {
+        skipped.push(SkippedValue {
+            kind: SkippedKind::Key,
+            reason,
+        });
+        label_key = None;
+        key_left_out = true;
+    }
+
+    if let (true, Some(key)) = (write_key, values.key) {
         let text = options.key_notation.spell(key);
         for field in preset.key_fields(format) {
             wanted.push((field, text.clone(), false));
@@ -384,13 +515,35 @@ pub fn plan_write(
             let fractional = preset.writes_fractional_bpm() && field != MP4_TEMPO;
             format_bpm(tempo, fractional)
         };
-        for field in preset.bpm_fields(format) {
-            wanted.push((field, text(field), true));
-        }
-        for field in preset.bpm_fields_if_present(format) {
-            if file.get(field)?.is_some() {
-                wanted.push((field, text(field), true));
+        let tempo_guard = guard(
+            options,
+            values.bpm_confidence,
+            Existing {
+                file: &file,
+                history,
+                path,
+                fields: format.bpm_fields(),
+                is_readable: &|existing| parse_tempo(existing).is_some(),
+                is_same: &|existing| {
+                    same_bpm(existing, &format_bpm(tempo, preset.writes_fractional_bpm()))
+                },
+            },
+        )?;
+        match tempo_guard {
+            Guard::Write => {
+                for field in preset.bpm_fields(format) {
+                    wanted.push((field, text(field), true));
+                }
+                for field in preset.bpm_fields_if_present(format) {
+                    if file.get(field)?.is_some() {
+                        wanted.push((field, text(field), true));
+                    }
+                }
             }
+            Guard::Skip(reason) => skipped.extend(reason.map(|reason| SkippedValue {
+                kind: SkippedKind::Tempo,
+                reason,
+            })),
         }
     }
 
@@ -416,7 +569,7 @@ pub fn plan_write(
         LabelPlacement::Grouping => Some(format.grouping_fields()[0]),
         LabelPlacement::None => None,
     };
-    let label = label::label_text(values.key, values.energy, options.key_notation);
+    let label = label::label_text(label_key, values.energy, options.key_notation);
     let at_end = options.label == LabelPlacement::CommentEnd;
     // In a WAV file the label also goes into the comment of the RIFF INFO
     // list, which is where rekordbox reads a WAV file's comment.
@@ -432,6 +585,15 @@ pub fn plan_write(
             break;
         };
         let current = file.get(field)?;
+        // A label already there is about a key that was left alone, so it
+        // is not rewritten with the key missing.
+        let has_label = current.as_deref().is_some_and(|text| {
+            let (leading, _, trailing) = label::split_labels(text);
+            leading.is_some() || trailing.is_some()
+        });
+        if key_left_out && has_label {
+            continue;
+        }
         let new = label::with_label(label, current.as_deref(), at_end);
         if current.as_deref() != Some(new.as_str()) {
             changes.push(FieldChange {
@@ -458,7 +620,57 @@ pub fn plan_write(
         current_items,
         tag_length: file.tag_length(),
         file_length: file.file_length(),
+        skipped,
+        by_analysis: true,
     })
+}
+
+enum Guard {
+    Write,
+    /// Leave the value out; the reason is `None` when the file already
+    /// holds the wanted value and there is nothing to report.
+    Skip(Option<SkipReason>),
+}
+
+struct Existing<'a> {
+    file: &'a TagFile,
+    history: &'a WrittenValues,
+    path: &'a Path,
+    fields: &'static [&'static str],
+    is_readable: &'a dyn Fn(&str) -> bool,
+    is_same: &'a dyn Fn(&str) -> bool,
+}
+
+fn guard(
+    options: &TagWriteOptions,
+    confidence: Option<Confidence>,
+    existing: Existing<'_>,
+) -> Result<Guard, EuphoriaError> {
+    if options.keep_existing {
+        let mut readable = Vec::new();
+        for field in existing.fields {
+            if let Some(text) = existing.file.get(field)?
+                && (existing.is_readable)(&text)
+            {
+                readable.push((*field, text));
+            }
+        }
+        let wrote_all_itself = readable
+            .iter()
+            .all(|(field, text)| existing.history.written(existing.path, field) == Some(text));
+        if !readable.is_empty() && !wrote_all_itself {
+            let reason = (!readable.iter().all(|(_, text)| (existing.is_same)(text)))
+                .then(|| SkipReason::AlreadyTagged(readable[0].1.clone()));
+            return Ok(Guard::Skip(reason));
+        }
+    }
+    Ok(
+        if options.skip_low_confidence && confidence == Some(Confidence::Low) {
+            Guard::Skip(Some(SkipReason::LowConfidence(Confidence::Low)))
+        } else {
+            Guard::Write
+        },
+    )
 }
 
 /// Writes the changes of `plan` and returns the record that undoes them.
@@ -544,11 +756,30 @@ fn format_bpm(tempo: f32, fractional: bool) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// A tempo typed or read as text: a positive number below 1000 with a
+/// point or a comma as the decimal mark, so "127.5" and "127,5" are the
+/// same tempo. A text with both marks, such as "1,234.5", is not read.
+pub fn parse_tempo(text: &str) -> Option<f32> {
+    let text = text.trim();
+    let commas = text.matches(',').count();
+    let normalized = match (commas, text.contains('.')) {
+        (0, _) => text.to_string(),
+        (1, false) => text.replace(',', "."),
+        _ => return None,
+    };
+    normalized
+        .parse::<f32>()
+        .ok()
+        .filter(|tempo| tempo.is_finite() && *tempo > 0.0 && *tempo < 1000.0)
+}
+
 /// True when both texts are the same number, so "128.00" already matches
-/// "128" and is not rewritten.
+/// "128" and "127,5" matches "127.5", and neither is rewritten.
 fn same_bpm(current: &str, new: &str) -> bool {
-    match (current.trim().parse::<f64>(), new.parse::<f64>()) {
-        (Ok(current), Ok(new)) => (current - new).abs() < BPM_MATCH_TOLERANCE,
+    match (parse_tempo(current), parse_tempo(new)) {
+        (Some(current), Some(new)) => {
+            (f64::from(current) - f64::from(new)).abs() < BPM_MATCH_TOLERANCE
+        }
         _ => false,
     }
 }
@@ -572,5 +803,20 @@ mod tests {
         assert!(same_bpm(" 128 ", "128"));
         assert!(!same_bpm("127.5", "128"));
         assert!(!same_bpm("fast", "128"));
+    }
+
+    #[test]
+    fn a_decimal_comma_is_a_tempo_and_matches_the_point() {
+        assert_eq!(parse_tempo("127,5"), Some(127.5));
+        assert_eq!(parse_tempo(" 127.5 "), Some(127.5));
+        assert_eq!(parse_tempo("128"), Some(128.0));
+        assert_eq!(parse_tempo("1,234.5"), None);
+        assert_eq!(parse_tempo("1,2,3"), None);
+        assert_eq!(parse_tempo("0"), None);
+        assert_eq!(parse_tempo("1000"), None);
+        assert_eq!(parse_tempo("fast"), None);
+        assert!(same_bpm("127,5", "127.5"));
+        assert!(same_bpm("128,00", "128"));
+        assert!(!same_bpm("127,5", "128"));
     }
 }

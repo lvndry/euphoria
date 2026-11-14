@@ -51,6 +51,8 @@ fn full_options() -> TagWriteOptions {
         write_bpm: true,
         label: LabelPlacement::CommentStart,
         preset: DjSoftware::Mixxx,
+        keep_existing: false,
+        skip_low_confidence: false,
     }
 }
 

@@ -64,6 +64,67 @@ pub fn engine_is_running() -> Option<bool> {
     process_is_running("Engine DJ", "Engine DJ.exe")
 }
 
+/// Whether rekordbox is running on this computer, or `None` when that
+/// cannot be checked.
+pub fn rekordbox_is_running() -> Option<bool> {
+    process_is_running("rekordbox", "rekordbox.exe")
+}
+
+/// Whether Serato DJ is running on this computer, or `None` when that
+/// cannot be checked.
+pub fn serato_is_running() -> Option<bool> {
+    process_is_running("Serato DJ Pro", "Serato DJ Pro.exe")
+}
+
+/// Whether Traktor is running on this computer, or `None` when that cannot
+/// be checked.
+pub fn traktor_is_running() -> Option<bool> {
+    process_is_running("Traktor", "Traktor.exe")
+}
+
+/// The checks of whether each DJ program is running, which a test
+/// replaces.
+#[derive(Debug, Clone, Copy)]
+pub struct DjProgramChecks {
+    /// Whether rekordbox is running.
+    pub rekordbox: fn() -> Option<bool>,
+    /// Whether Serato DJ is running.
+    pub serato: fn() -> Option<bool>,
+    /// Whether Traktor is running.
+    pub traktor: fn() -> Option<bool>,
+    /// Whether Engine DJ is running.
+    pub engine: fn() -> Option<bool>,
+    /// Whether VirtualDJ is running.
+    pub virtualdj: fn() -> Option<bool>,
+}
+
+impl DjProgramChecks {
+    /// The checks of the processes on this computer.
+    pub const REAL: DjProgramChecks = DjProgramChecks {
+        rekordbox: rekordbox_is_running,
+        serato: serato_is_running,
+        traktor: traktor_is_running,
+        engine: engine_is_running,
+        virtualdj: virtualdj_is_running,
+    };
+
+    /// The names of the programs that are running. A program that cannot
+    /// be checked is not listed.
+    pub fn running(&self) -> Vec<&'static str> {
+        [
+            ("rekordbox", self.rekordbox),
+            ("Serato DJ", self.serato),
+            ("Traktor", self.traktor),
+            ("Engine DJ", self.engine),
+            ("VirtualDJ", self.virtualdj),
+        ]
+        .into_iter()
+        .filter(|(_, check)| check() == Some(true))
+        .map(|(name, _)| name)
+        .collect()
+    }
+}
+
 /// Where a copy of the VirtualDJ `database` is saved before it is changed,
 /// named for the moment `now`.
 pub fn virtualdj_backup_path(database: &Path, now: ModifiedTime) -> PathBuf {
