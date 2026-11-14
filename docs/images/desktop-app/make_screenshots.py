@@ -80,7 +80,6 @@ KEY_HOME = 115
 # Home goes to the first row whichever track the app selected on its own,
 # so the same row is reached on every run.
 SELECT_A_TAGGED_TRACK = [(KEY_HOME, "")] + [(KEY_DOWN, "")] * 2
-SELECT_A_TRACK_SORTED_BY_KEY = [(KEY_HOME, "")] + [(KEY_DOWN, "")] * 10
 OPEN_WRITE_TAGS = [(KEY_A, "cmd"), (KEY_T, "cmd,shift")]
 
 # What each set of keys must visibly do before its shot is taken.
@@ -120,12 +119,6 @@ def main():
                 {"theme": "slate", "selected": house},
                 OPEN_WRITE_TAGS,
                 OPENS_A_PANEL,
-            ),
-            (
-                "key-first",
-                {"theme": "key-first", "selected": None},
-                SELECT_A_TRACK_SORTED_BY_KEY,
-                SELECTS_ANOTHER_TRACK,
             ),
         ]
         for name, choices, keys, expected in shots:

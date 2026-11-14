@@ -441,10 +441,7 @@ impl EuphoriaApp {
             tag_task_generation: 0,
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
-            sort_order: theme.opens_sorted_by_key.then_some(SortOrder {
-                column: SortColumn::Key,
-                descending: false,
-            }),
+            sort_order: None,
             visible: Vec::new(),
             selected: None,
             mixes: Vec::new(),
@@ -1871,13 +1868,6 @@ impl EuphoriaApp {
         }
         self.theme = AppTheme::named(name);
         self.theme.apply_to_components(cx);
-        if self.theme.opens_sorted_by_key {
-            self.sort_order = Some(SortOrder {
-                column: SortColumn::Key,
-                descending: false,
-            });
-            self.refresh_visible();
-        }
         if let Some(problem) = self.save_settings() {
             self.notice = Some(problem);
         }

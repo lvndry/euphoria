@@ -364,19 +364,6 @@ fn the_expected_layout_of_each_theme_is_the_one_in_the_spec(_cx: &mut TestAppCon
         (Layout::DeckBelow, px(32.0))
     );
     assert_eq!(layout_and_rows(ThemeName::Graphite), (column, px(26.0)));
-    assert_eq!(layout_and_rows(ThemeName::KeyFirst), (column, px(32.0)));
-}
-
-#[gpui::test]
-fn key_first_sorts_the_table_by_key(cx: &mut TestAppContext) {
-    let (_, view) = open_library(50, cx);
-    cx.update(|cx| {
-        view.update(cx, |app, cx| app.set_theme(ThemeName::KeyFirst, cx));
-        assert_eq!(
-            view.read(cx).sort_order.map(|order| order.column),
-            Some(SortColumn::Key)
-        );
-    });
 }
 
 fn player_status(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> PlayerStatus {
@@ -997,7 +984,7 @@ fn a_double_click_on_the_edge_returns_the_inspector_to_its_usual_width(cx: &mut 
         inspector_width: 500,
         ..Panels::default()
     };
-    let (window, view) = open_arranged(ThemeName::KeyFirst, wide, USUAL_WINDOW, cx);
+    let (window, view) = open_arranged(ThemeName::Slate, wide, USUAL_WINDOW, cx);
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         assert_eq!(window.find("inspector").bounds().size.width, px(500.0));

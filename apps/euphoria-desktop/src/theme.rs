@@ -184,8 +184,6 @@ pub(crate) enum Layout {
 pub(crate) enum KeyDisplay {
     /// The code on a faint tint of its hue.
     TintedChip,
-    /// The code on a solid block of its hue.
-    SolidChip,
     /// The code as coloured text with no chip.
     ColouredText,
 }
@@ -203,8 +201,10 @@ pub(crate) struct KeyColours {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum ThemeName {
-    /// Dark neutral grey, inspector on the right.
+    /// Dark neutral grey, inspector on the right. Settings saved by the
+    /// removed Key first theme load as this one.
     #[default]
+    #[serde(alias = "key-first")]
     Slate,
     /// Light, inspector on the right.
     Paper,
@@ -212,18 +212,15 @@ pub(crate) enum ThemeName {
     Deck,
     /// Warm dark grey, compact rows, keys as coloured text.
     Graphite,
-    /// Slate colours with solid key chips and the Camelot wheel shown.
-    KeyFirst,
 }
 
 impl ThemeName {
     /// Every theme, in the order menus list them.
-    pub(crate) const ALL: [ThemeName; 5] = [
+    pub(crate) const ALL: [ThemeName; 4] = [
         ThemeName::Slate,
         ThemeName::Paper,
         ThemeName::Deck,
         ThemeName::Graphite,
-        ThemeName::KeyFirst,
     ];
 
     /// The name shown in menus.
@@ -233,7 +230,6 @@ impl ThemeName {
             ThemeName::Paper => "Paper",
             ThemeName::Deck => "Deck",
             ThemeName::Graphite => "Graphite",
-            ThemeName::KeyFirst => "Key first",
         }
     }
 }
@@ -252,8 +248,6 @@ pub(crate) struct AppTheme {
     pub(crate) row_height: Pixels,
     /// How keys are shown.
     pub(crate) key_display: KeyDisplay,
-    /// Whether the library opens sorted by key.
-    pub(crate) opens_sorted_by_key: bool,
 }
 
 const COMFORTABLE_ROW_HEIGHT: Pixels = px(32.0);
@@ -268,7 +262,6 @@ impl AppTheme {
             layout: Layout::InspectorRight,
             row_height: COMFORTABLE_ROW_HEIGHT,
             key_display: KeyDisplay::TintedChip,
-            opens_sorted_by_key: false,
         };
         match name {
             ThemeName::Slate => slate,
@@ -286,11 +279,6 @@ impl AppTheme {
                 key_display: KeyDisplay::ColouredText,
                 ..slate
             },
-            ThemeName::KeyFirst => Self {
-                key_display: KeyDisplay::SolidChip,
-                opens_sorted_by_key: true,
-                ..slate
-            },
         }
     }
 
@@ -299,10 +287,6 @@ impl AppTheme {
     pub(crate) fn key_colours(&self, position: CamelotPosition) -> KeyColours {
         let hue = position.hue_degrees();
         match (self.key_display, self.palette.is_dark) {
-            (KeyDisplay::SolidChip, _) => KeyColours {
-                background: Some(oklch(0.78, 0.11, hue)),
-                foreground: hex(0x111214),
-            },
             (KeyDisplay::ColouredText, true) => KeyColours {
                 background: None,
                 foreground: oklch(0.82, 0.1, hue),
@@ -428,11 +412,6 @@ mod tests {
         assert_eq!(hex_text(graphite.palette.accent), "#E9A23B");
         assert_eq!(graphite.row_height, px(26.0));
         assert_eq!(graphite.key_display, KeyDisplay::ColouredText);
-
-        let key_first = AppTheme::named(ThemeName::KeyFirst);
-        assert_eq!(key_first.palette, Palette::slate());
-        assert_eq!(key_first.key_display, KeyDisplay::SolidChip);
-        assert!(key_first.opens_sorted_by_key);
     }
 
     #[test]

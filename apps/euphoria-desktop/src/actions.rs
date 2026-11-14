@@ -62,8 +62,6 @@ actions!(
         UseDeckTheme,
         /// Switches to the Graphite theme.
         UseGraphiteTheme,
-        /// Switches to the Key first theme.
-        UseKeyFirstTheme,
     ]
 );
 
@@ -74,6 +72,5 @@ pub(crate) fn use_theme(theme: ThemeName) -> Box<dyn Action> {
         ThemeName::Paper => Box::new(UsePaperTheme),
         ThemeName::Deck => Box::new(UseDeckTheme),
         ThemeName::Graphite => Box::new(UseGraphiteTheme),
-        ThemeName::KeyFirst => Box::new(UseKeyFirstTheme),
     }
 }
