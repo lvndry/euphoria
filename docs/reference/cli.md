@@ -508,6 +508,30 @@ The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, en
 
 The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
 
+## euphoria plan
+
+Plans the mix from one track into the next: how B lines up with A, where the two clash, and the best windows to mix in.
+
+```
+euphoria plan [OPTIONS] <A> <B>
+```
+
+`A` is the track that is playing and `B` the one that follows. Both are analyzed first or read from the cache, with your corrections applied. The [concept page](../concepts/plan-a-transition.md) explains how the plan is made and scored.
+
+Energy over time and the levels of the [stems](../concepts/stems.md) take a moment to measure the first time, and are kept in a `plan-signals` folder beside the [cache](#where-the-cache-is-stored), named by the content of each file, so the next plan is instant. Stems are used when `euphoria stems` has already separated the track; plan never separates one. Without them vocals, bass and drums are unknown and clashes are not checked.
+
+| Option | Meaning |
+| --- | --- |
+| `--json` | Print JSON instead of the summary. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output has the tempo change of B and the key move, then the top 3 windows. Each has its score, its sections and first bars, a strip of one cell per bar (`█` both sing, `▄` both play bass, `·` no clash, `?` not known), the reason for its rank and its steps. Last come the cues suggested for the best window, which are not written.
+
+The JSON object has `a`, `b`, `elapsed_milliseconds` and `plan`: the `alignment` (bpm_a, bpm_b, rate, tempo_change_percent, bar_seconds), the bars of both tracks as `lanes_a` and `lanes_b` (section, energy, vocals, bass and drums per bar, each `present`, `absent` or `unknown`), up to 10 `windows` and the `cues` for the first one.
+
+The exit status is 0 when a plan was made, even one with no window, and 1 when none could be, such as when a track has no beat grid or B cannot reach the tempo of A on a deck.
+
 ## euphoria tags write
 
 Analyzes audio files and writes the key, tempo and energy into their tags, after showing every change and asking for confirmation. [Write tags into your files](../guides/write-tags.md) walks through it, and [Tags](tags.md) lists the fields and describes how a file is rewritten.

@@ -9,6 +9,7 @@ mod export;
 mod grid_import;
 mod help;
 mod output;
+mod plan;
 mod playlists;
 mod rewrites;
 mod set;
@@ -122,6 +123,18 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Plan how to mix one track into the next: tempo, clashes and the best windows.
+    #[command(
+        long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
+                      B is stretched to the tempo of A within what a deck can play and laid \
+                      on the bars of A, downbeat to downbeat. Both tracks are read bar by bar, \
+                      and the windows of 16, 32 or 64 bars where A can go out and B come in \
+                      are ranked, with the bar to swap the bass and bring in the vocals. \
+                      Vocals, bass and drums come from cached stems (euphoria stems); \
+                      without them they are unknown and clashes are not checked.",
+        after_help = help::plan_examples(),
+    )]
+    Plan(plan::PlanArguments),
     /// Order tracks into a set that follows an energy curve, every mix in key.
     #[command(after_help = help::set_examples())]
     Set {
@@ -257,6 +270,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Corrections { command } => corrections::run(command),
         Command::Shift(arguments) => shift::run(&arguments),
         Command::Set { command } => set::run(command),
+        Command::Plan(arguments) => plan::run(&arguments),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
         Command::Stems(arguments) => stems::run(&arguments),

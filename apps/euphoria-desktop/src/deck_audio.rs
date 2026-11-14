@@ -36,8 +36,8 @@ pub(crate) const MIX_SAMPLE_RATE: u32 = 44_100;
 const BLOCK_FRAMES: usize = 256;
 
 /// The slowest and fastest a deck plays, as a share of its own speed.
-pub(crate) const MIN_RATE: f64 = 0.5;
-pub(crate) const MAX_RATE: f64 = 2.0;
+pub(crate) const MIN_RATE: f64 = euphoria_core::harmony::transition::MINIMUM_DECK_RATE;
+pub(crate) const MAX_RATE: f64 = euphoria_core::harmony::transition::MAXIMUM_DECK_RATE;
 
 /// How many commands can wait for the audio thread. The window blocks in
 /// the rare case it sends more before the next block.
