@@ -2978,7 +2978,7 @@ fn the_decks_draw_the_energy_strip_and_the_vocals_lane_under_each_waveform(
         window.render_frame(cx);
         window.render_frame(cx);
         let deck_bounds = window.find(deck_part("deck", DeckId::A)).bounds();
-        let mut deck = window.within(deck_part("deck", DeckId::A));
+        let deck = window.within(deck_part("deck", DeckId::A));
         let waveform = deck.find(deck_part("deck-waveform", DeckId::A)).bounds();
         let energy = deck.find("energy-curve").bounds();
         let vocals = deck.find("vocals-lane").bounds();
