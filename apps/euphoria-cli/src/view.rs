@@ -145,7 +145,7 @@ fn energy_bar(theme: &Theme, energy: u8) -> String {
 pub fn quality_word(verdict: QualityVerdict) -> &'static str {
     match verdict {
         QualityVerdict::Lossless => "lossless",
-        QualityVerdict::LimitedBandwidth => "limited bandwidth",
+        QualityVerdict::LimitedBandwidth => "limited bw",
         QualityVerdict::Good => "good",
         QualityVerdict::Acceptable => "acceptable",
         QualityVerdict::WeakOnABigSystem => "weak",
