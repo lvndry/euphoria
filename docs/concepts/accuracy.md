@@ -27,7 +27,7 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 | --- | --- | --- | --- | --- | --- |
 | libkeyfinder with tuning correction, key | 60.6% | 69.4% | | | 0.26 |
 | stratum-dsp, key | 30.6% | 45.4% | | | 2.21 |
-| stratum-dsp, tempo | | | 77.6% | 85.5% | 0.38 |
+| stratum-dsp, tempo | | | 85.8% | 94.3% | 0.38 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
 
 Euphoria uses libkeyfinder for key, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, and stratum-dsp for tempo. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
@@ -45,10 +45,79 @@ Euphoria therefore reports every tempo between 90 and 180 BPM. An estimate below
 | Tempogram estimate as it comes | 62.2% | 84.7% | 83 | 0 |
 | Reported between 90 and 180 BPM | 77.6% | 85.5% | 0 | 0 |
 | Full stratum-dsp analysis with its default settings, which Euphoria used before | 59.9% | 84.9% | 26 | 0 |
+| Reported between 90 and 180 BPM, after choosing among the four best candidates | 85.8% | 94.3% | 0 | 0 |
 
-![Accuracy 1 and Accuracy 2 of each way of choosing the tempo. The estimate as it comes scores 62.2% and 84.7%, placed between 90 and 180 BPM 77.6% and 85.5%, and the full stratum-dsp analysis 59.9% and 84.9%. Placing the tempo in the range raises Accuracy 1 and leaves Accuracy 2 almost where it was.](../images/accuracy/tempo-range.svg)
+![Accuracy 1 and Accuracy 2 of each way of choosing the tempo. The estimate as it comes scores 62.2% and 84.7%, placed between 90 and 180 BPM 77.6% and 85.5%, the full stratum-dsp analysis 59.9% and 84.9%, and the best of four candidates by onset repeats 85.8% and 94.3%.](../images/accuracy/tempo-range.svg)
 
 The price is that a track whose real tempo is below 90 BPM, such as slow hip hop at 85, is reported at double, 170, and one at 180 or above at half. 50 of the 661 previews are labelled below 90 BPM and 6 at 180 or above, and those count as misses in Accuracy 1 above. The harmonic matching can treat half and double tempo as a match for such tracks.
+
+### Choosing among the best candidates
+
+Placed in the range, the tempogram's first choice is still wrong for about one track in five, and the mistake is seldom half or double. Of the 661 previews, 43 were reported at 5:4 or 4:5 of the annotated tempo and 20 at 4:3 or 3:4, as when a 130 BPM track comes out at 173: the tempogram ranked a dotted or syncopated subdivision of the beat above the beat.
+
+Euphoria now takes the four best tempos the tempogram scored, places each in the range, and picks the one with the highest weighted sum of three things: its tempogram score relative to the best, and how strongly the onsets of the mid band (150 to 1500 Hz, where snares, claps and chords sit) repeat after half a beat, one beat and four beats at that tempo. A real beat repeats at those distances, and a subdivision does not repeat at the bar. The onsets come from the spectrogram the tempogram already computed, so the step adds a few dot products and no measurable time.
+
+The four weights were fitted on the development half of GiantSteps Tempo, every other preview in name order starting with the first, and checked on the other half. Intervals are 95% Wilson intervals.
+
+| Tempo, reported between 90 and 180 BPM | Tracks | Accuracy 1 before | Accuracy 1 after | Accuracy 2 before | Accuracy 2 after |
+| --- | --- | --- | --- | --- | --- |
+| GiantSteps Tempo, development half | 331 | 75.5% (70.6 to 79.8) | 84.9% (80.6 to 88.4) | 83.4% (79.0 to 87.0) | 93.1% (89.8 to 95.3) |
+| GiantSteps Tempo, held out half | 330 | 79.7% (75.0 to 83.7) | 86.7% (82.6 to 89.9) | 87.6% (83.6 to 90.7) | 95.5% (92.6 to 97.2) |
+| GTZAN disco and hip hop, tempo from the beat annotations | 200 | 89.0% (83.9 to 92.6) | 90.5% (85.6 to 93.8) | 96.0% (92.3 to 98.0) | 98.0% (95.0 to 99.2) |
+
+GTZAN was not used to choose anything. On it the intervals overlap, so it shows no loss and not a proven gain. Its audio is not licensed for redistribution and was used only to measure.
+
+What the choice fixed, as a share of the held out half, and what it did not:
+
+| Result | Before | After |
+| --- | --- | --- |
+| Right, within 4% | 79.7% | 86.7% |
+| Half the annotated tempo | 1.5% | 1.8% |
+| Double the annotated tempo | 6.4% | 7.0% |
+| 3:2 or 2:3 | 2.4% | 2.1% |
+| 4:3 or 3:4 | 2.7% | 1.8% |
+| 5:4 or 4:5 | 5.8% | 0.3% |
+| Other | 1.5% | 0.3% |
+
+Half and double did not move: before the choice, 23 of the 24 doubles in the development half and 20 of the 21 in the held out half are previews annotated below 90 BPM, which the default range reports at double by design. The octave is the range's choice, so no evidence from the audio changes it inside a range. Onset and kick periodicity at T and 2T and hi-hat density were tried on the previews reported above 150 BPM and told half from double poorly (AUC at best 0.67 for any one measure, 0.5 for the tempogram scores), so none is used.
+
+Per genre, on all 661 GiantSteps Tempo previews (genres with fewer than 20 previews are grouped; intervals on the after column are 95% Wilson intervals). No genre gets worse:
+
+| Genre | Previews | Accuracy 1 before | Accuracy 1 after | Accuracy 2 before | Accuracy 2 after |
+| --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 81.3% | 85.6% (78.8 to 90.5) | 92.1% | 97.8% (93.8 to 99.3) |
+| dubstep | 76 | 77.6% | 81.6% (71.4 to 88.7) | 85.5% | 89.5% (80.6 to 94.6) |
+| trance | 74 | 86.5% | 89.2% (80.1 to 94.4) | 86.5% | 89.2% (80.1 to 94.4) |
+| techno | 61 | 85.2% | 91.8% (82.2 to 96.4) | 85.2% | 91.8% (82.2 to 96.4) |
+| electronica | 52 | 61.5% | 76.9% (63.9 to 86.3) | 75.0% | 92.3% (81.8 to 97.0) |
+| psy-trance | 34 | 91.2% | 94.1% (80.9 to 98.4) | 97.1% | 100.0% (89.8 to 100.0) |
+| breaks | 26 | 65.4% | 96.2% (81.1 to 99.3) | 65.4% | 96.2% (81.1 to 99.3) |
+| deep-house | 24 | 91.7% | 95.8% (79.8 to 99.3) | 95.8% | 100.0% (86.2 to 100.0) |
+| house | 23 | 91.3% | 95.7% (79.0 to 99.2) | 95.7% | 100.0% (85.7 to 100.0) |
+| electro-house | 22 | 68.2% | 90.9% (72.2 to 97.5) | 72.7% | 95.5% (78.2 to 99.2) |
+| tech-house | 22 | 90.9% | 100.0% (85.1 to 100.0) | 90.9% | 100.0% (85.1 to 100.0) |
+| 10 other genres | 108 | 62.0% | 74.1% (65.1 to 81.4) | 79.6% | 92.6% (86.1 to 96.2) |
+
+And on all ten genres of GTZAN, 998 decodable excerpts of 30 seconds with the tempo taken from the median beat interval of the Marchand and Peeters beat annotations, never used to choose anything. The last column counts excerpts that became right and excerpts that became wrong. The reference tempo of classical and jazz excerpts, which have no steady beat, is unreliable, and country and blues have many tempos below 90 BPM, which the default range reports at double; compare the columns with each other, not with the dance music rows. No genre gets worse: classical is level, with two excerpts gained and two lost.
+
+| Genre | Excerpts | Accuracy 1 before | Accuracy 1 after | Accuracy 2 before | Accuracy 2 after | Better / worse |
+| --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 64.0% | 65.0% (55 to 74) | 85.0% | 86.0% | +2 / -1 |
+| classical | 100 | 48.0% | 48.0% (38 to 58) | 62.0% | 62.0% | +2 / -2 |
+| country | 100 | 50.0% | 50.0% (40 to 60) | 95.0% | 95.0% | +0 / -0 |
+| disco | 100 | 93.0% | 93.0% (86 to 97) | 99.0% | 99.0% | +0 / -0 |
+| hip hop | 100 | 85.0% | 88.0% (80 to 93) | 93.0% | 97.0% | +3 / -0 |
+| jazz | 99 | 35.4% | 41.4% (32 to 51) | 70.7% | 76.8% | +6 / -0 |
+| metal | 100 | 63.0% | 66.0% (56 to 75) | 92.0% | 98.0% | +3 / -0 |
+| pop | 100 | 65.0% | 68.0% (58 to 76) | 92.0% | 100.0% | +3 / -0 |
+| reggae | 99 | 77.8% | 78.8% (70 to 86) | 98.0% | 99.0% | +1 / -0 |
+| rock | 100 | 73.0% | 78.0% (69 to 85) | 90.0% | 94.0% | +5 / -0 |
+| all | 998 | 65.4% | 67.6% (65 to 70) | 87.7% | 90.7% | +25 / -3 |
+
+
+On a private library of 575 tracks analyzed with `--no-cache`, 12 tempos changed (2.1%): 7 became three quarters of the old tempo, 3 four fifths, 1 one and a half times and 1 another ratio. None changed by an octave. The library has no tempo corrections to check them against, so this shows only that the change is small and has the direction of the fixes above.
+
+Choosing changes the confidence bands' meaning a little: the margin still rates the tempogram's own estimate, but the tracks it used to flag low were largely the dotted ones the choice now fixes, so on the held out half the share right modulo octaves is 98.4% for high, 95.6% for medium and 89.1% for low, against 97.7%, 89.8% and 62.5% before.
 
 ### Choosing the range
 
@@ -90,11 +159,11 @@ Bands were set the same way, from the fifths of the first half: low below 0.09, 
 
 | Tempo confidence | Share of the held out half | Right modulo octaves | Accuracy 1 |
 | --- | --- | --- | --- |
-| High | 39% | 97.7% | 82.9% |
-| Medium | 42% | 89.8% | 86.9% |
-| Low | 19% | 62.5% | 57.8% |
+| High | 39% | 98.4% | 83.7% |
+| Medium | 42% | 95.6% | 92.0% |
+| Low | 19% | 89.1% | 81.2% |
 
-![How often the tempo is right modulo octaves on the held out half at each confidence: 97.7% of tempos rated high, 89.8% of tempos rated medium and 62.5% of tempos rated low.](../images/accuracy/tempo-confidence.svg)
+![How often the tempo is right modulo octaves on the held out half at each confidence: 98.4% of tempos rated high, 95.6% of tempos rated medium and 89.1% of tempos rated low.](../images/accuracy/tempo-confidence.svg)
 
 On the first half the bands are right modulo octaves 98.5%, 81.2% and 58.8% of the time. Accuracy 1 is not ordered between high and medium on the held out half because its misses are mostly octave errors, which the confidence does not rate: a tempo can be certain and still be counted at double.
 

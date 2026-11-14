@@ -37,8 +37,9 @@ TEMPO_METHODS = [
     ("Tempogram estimate as it comes", 62.2, 84.7),
     ("Placed between 90 and 180 BPM", 77.6, 85.5),
     ("Full stratum-dsp analysis", 59.9, 84.9),
+    ("Best of four by onset repeats", 85.8, 94.3),
 ]
-SHIPPED_TEMPO_METHOD = "Placed between 90 and 180 BPM"
+SHIPPED_TEMPO_METHOD = "Best of four by onset repeats"
 
 # "Key confidence", the table: the share of the held out half at each level
 # and the share of it whose key is exact, and "Results": exact on all 604.
@@ -47,7 +48,7 @@ KEY_EXACT_ALL_PREVIEWS = 60.6
 
 # "Tempo confidence", the table: the share of the held out half at each level
 # and the share of it whose tempo is right modulo octaves.
-TEMPO_CONFIDENCE = [("High", 39, 97.7), ("Medium", 42, 89.8), ("Low", 19, 62.5)]
+TEMPO_CONFIDENCE = [("High", 39, 98.4), ("Medium", 42, 95.6), ("Low", 19, 89.1)]
 
 # "What has been checked", the SALAMI row: F-measure of section boundaries
 # against the functional annotations on the 227 test tracks, as
@@ -212,10 +213,10 @@ def tempo_methods_chart():
     chart_bottom = chart_top + row_height * len(TEMPO_METHODS)
     height = chart_bottom + 64
     to_x = scale(50, 100, 290, 740)
-    title = "Tempo accuracy, before and after placing it in a range"
+    title = "Tempo accuracy by way of choosing the tempo"
     body = [
         text(24, 36, title, "title"),
-        text(24, 58, "661 GiantSteps Tempo previews. Euphoria ships the middle row.", "subtitle"),
+        text(24, 58, "661 GiantSteps Tempo previews. Euphoria ships the last row.", "subtitle"),
     ]
     legend_y = 90
     body.append(dot(30, legend_y - 4, "series-1-fill"))
@@ -240,9 +241,11 @@ def tempo_methods_chart():
     description = (
         "Dot plot of tempo accuracy on the 661 scored GiantSteps Tempo previews. The tempogram "
         "estimate as it comes scores 62.2% in Accuracy 1 and 84.7% in Accuracy 2. Placed between "
-        "90 and 180 BPM, which is what Euphoria ships, it scores 77.6% and 85.5%. The full "
+        "90 and 180 BPM it scores 77.6% and 85.5%. The full "
         "stratum-dsp analysis scores 59.9% and 84.9%. Placing the tempo in a range lifts "
-        "Accuracy 1 by about 15 points and leaves Accuracy 2 almost unchanged."
+        "Accuracy 1 by about 15 points and leaves Accuracy 2 almost unchanged. Choosing the tempo "
+        "among the four best tempogram candidates by how strongly the mid band onsets repeat, "
+        "which is what Euphoria ships, scores 85.8% and 94.3%."
     )
     return document(width, height, title, description, body)
 
@@ -334,8 +337,8 @@ def tempo_confidence_chart():
         "Share of previews whose tempo is right modulo octaves",
         None,
         "Horizontal bars of how often the tempo is right modulo octaves on the held out half of "
-        "the GiantSteps Tempo previews, by confidence: 97.7% of the 39% rated high, 89.8% of the "
-        "42% rated medium and 62.5% of the 19% rated low.",
+        "the GiantSteps Tempo previews, by confidence: 98.4% of the 39% rated high, 95.6% of the "
+        "42% rated medium and 89.1% of the 19% rated low.",
     )
 
 

@@ -33,9 +33,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "13+libkeyfinder"
+    "14+libkeyfinder"
 } else {
-    "13+stratum"
+    "14+stratum"
 };
 
 /// What Euphoria found in one track.
