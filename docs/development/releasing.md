@@ -123,7 +123,7 @@ Without the secrets, as in a fork, the job prints a notice naming the missing on
 
 A release is never held back by Apple. If the Developer ID path fails in the macOS job, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned, the certificate was revoked or notarytool rejects a file, the job prints a `::warning::`, deletes everything it built, and builds the app, the disk image and the tarball again with the ad hoc signature. The release notes then say "This release is not notarized: macOS will ask you to confirm the first time you open it", so no Developer ID signed app is ever left in an un-notarized disk image that claims otherwise. A real problem, such as a binary that fails `codesign --verify` after the ad hoc signing, fails the job as before.
 
-Notarizing needs an active Apple Developer Program membership at the time of every release, and renewing it is yours to do. Releases notarized earlier keep working after the membership lapses, and the certificate lasts five years.
+Notarizing needs an active Apple Developer Program membership at the time of every release, and renewing it is yours to do. Releases notarized earlier keep working after the membership lapses.
 
 ### Entitlements
 
@@ -169,7 +169,7 @@ Step by step:
    gh secret set APPLE_NOTARY_ISSUER_ID
    ```
 
-The Developer ID certificate expires after five years, and the signed releases stay valid after that. Revoking the API key does not affect notarization tickets already issued.
+The Developer ID certificate has its own expiry date, which can come sooner than the usual five years. Read it with `openssl pkcs12 -in DeveloperID.p12 -nokeys -legacy | openssl x509 -noout -enddate`, or in Keychain Access. Before it expires, make a new certificate the same way and replace `APPLE_DEVELOPER_ID_P12_BASE64` and `APPLE_DEVELOPER_ID_P12_PASSWORD`. Releases signed before stay valid after it expires, because each signature carries a secure timestamp. Revoking the API key does not affect notarization tickets already issued.
 
 ## Not done yet
 - **Homebrew.** A cask for the app and a formula for the command line tool need a tap repository, such as `lvndry/homebrew-euphoria`, which is the owner's call. The formula can install the tarball's `bin/` and `lib/`. The workflow would then update the tap after each release, with a token that can push to it.
