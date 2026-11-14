@@ -33,7 +33,8 @@ The halves are every other preview in name order, 302 each, as `--tracks develop
 
 | Detector | Accuracy 1 | Accuracy 2 | Below 70 BPM | Above 180 BPM | CPU seconds per track |
 | --- | --- | --- | --- | --- | --- |
-| stratum-dsp 1.0.0, tempo only, reported between 90 and 180 BPM | 77.6% | 85.5% | 0 | 0 | 0.38 |
+| stratum-dsp 1.0.0, tempo only, best of four candidates by onset repeats, reported between 90 and 180 BPM | 85.8% | 94.3% | 0 | 0 | 0.52 (not comparable with the rows below, measured under heavier load) |
+| stratum-dsp 1.0.0, tempo only, first candidate, reported between 90 and 180 BPM (not used) | 77.6% | 85.5% | 0 | 0 | 0.38 |
 | stratum-dsp 1.0.0, tempo only, estimate as it comes (not used) | 62.2% | 84.7% | 83 | 0 | 0.39 |
 | stratum-dsp 1.0.0, full analysis with default settings (not used) | 59.9% | 84.9% | 26 | 0 | 3.30 |
 | Essentia RhythmExtractor2013 (reference) | 59.8% | 82.5% | not measured | not measured | not measured |
@@ -41,6 +42,27 @@ The halves are every other preview in name order, 302 each, as `--tracks develop
 The two count columns are how many of the 661 results fall below 70 and above 180 BPM. The annotations have 3 below 70 and 6 above 180.
 
 Accuracy 1 counts an estimate within 4% of the annotated tempo. Accuracy 2 also accepts 2, 1/2, 3 and 1/3 times the annotated tempo, as in the standard tempo evaluation.
+
+### Tempo errors by kind and half
+
+Measured on 14 November 2026 by `euphoria-bench --only tempo --tracks development` and `--tracks held-out`, before and after the choice among the four best candidates. Intervals are 95% Wilson intervals.
+
+| Half | Tracks | Accuracy 1 before | Accuracy 1 after | Accuracy 2 before | Accuracy 2 after |
+| --- | --- | --- | --- | --- | --- |
+| Development | 331 | 75.5% (70.6 to 79.8) | 84.9% (80.6 to 88.4) | 83.4% (79.0 to 87.0) | 93.1% (89.8 to 95.3) |
+| Held out | 330 | 79.7% (75.0 to 83.7) | 86.7% (82.6 to 89.9) | 87.6% (83.6 to 90.7) | 95.5% (92.6 to 97.2) |
+
+| Result | Development before | Development after | Held out before | Held out after |
+| --- | --- | --- | --- | --- |
+| Half | 2 | 3 | 5 | 6 |
+| Double | 24 | 24 | 21 | 23 |
+| 3:2 or 2:3 | 8 | 8 | 8 | 7 |
+| 4:3 or 3:4 | 11 | 5 | 9 | 6 |
+| 5:4 or 4:5 | 24 | 1 | 19 | 1 |
+| Triple or a third | 0 | 0 | 0 | 0 |
+| Other | 12 | 9 | 5 | 1 |
+
+All 661 previews after: Accuracy 1 85.8% (82.9 to 88.2), Accuracy 2 94.3% (92.2 to 95.8). External check on 200 GTZAN disco and hip hop excerpts, tempo from the beat annotations: Accuracy 1 89.0% (83.9 to 92.6) before and 90.5% (85.6 to 93.8) after, Accuracy 2 96.0% (92.3 to 98.0) before and 98.0% (95.0 to 99.2) after.
 
 ## Confidence
 

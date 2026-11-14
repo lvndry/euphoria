@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="316" viewBox="0 0 800 316" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
-<title id="chart-title">Tempo accuracy, before and after placing it in a range</title>
-<desc id="chart-desc">Dot plot of tempo accuracy on the 661 scored GiantSteps Tempo previews. The tempogram estimate as it comes scores 62.2% in Accuracy 1 and 84.7% in Accuracy 2. Placed between 90 and 180 BPM, which is what Euphoria ships, it scores 77.6% and 85.5%. The full stratum-dsp analysis scores 59.9% and 84.9%. Placing the tempo in a range lifts Accuracy 1 by about 15 points and leaves Accuracy 2 almost unchanged.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Tempo accuracy by way of choosing the tempo</title>
+<desc id="chart-desc">Dot plot of tempo accuracy on the 661 scored GiantSteps Tempo previews. The tempogram estimate as it comes scores 62.2% in Accuracy 1 and 84.7% in Accuracy 2. Placed between 90 and 180 BPM it scores 77.6% and 85.5%. The full stratum-dsp analysis scores 59.9% and 84.9%. Placing the tempo in a range lifts Accuracy 1 by about 15 points and leaves Accuracy 2 almost unchanged. Choosing the tempo among the four best tempogram candidates by how strongly the mid band onsets repeat, which is what Euphoria ships, scores 85.8% and 94.3%.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -30,33 +30,33 @@
   .ring, .halo { stroke: #1a1a19; }
 }
 </style>
-<rect x="0.5" y="0.5" width="799" height="315" rx="12" class="surface"/>
-<text x="24" y="36" class="title" text-anchor="start">Tempo accuracy, before and after placing it in a range</text>
-<text x="24" y="58" class="subtitle" text-anchor="start">661 GiantSteps Tempo previews. Euphoria ships the middle row.</text>
+<rect x="0.5" y="0.5" width="799" height="359" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Tempo accuracy by way of choosing the tempo</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">661 GiantSteps Tempo previews. Euphoria ships the last row.</text>
 <circle cx="30" cy="86" r="6" class="series-1-fill ring"/>
 <text x="44" y="90" class="label" text-anchor="start">Accuracy 1, within 4%</text>
 <circle cx="230" cy="86" r="6" class="series-2-fill ring"/>
 <text x="244" y="90" class="label" text-anchor="start">Accuracy 2, also at 2, 1/2, 3 or 1/3 times the tempo</text>
-<line x1="290" y1="120" x2="290" y2="252" class="grid"/>
-<text x="290" y="272" class="tick" text-anchor="middle">50%</text>
-<line x1="380" y1="120" x2="380" y2="252" class="grid"/>
-<text x="380" y="272" class="tick" text-anchor="middle">60%</text>
-<line x1="470" y1="120" x2="470" y2="252" class="grid"/>
-<text x="470" y="272" class="tick" text-anchor="middle">70%</text>
-<line x1="560" y1="120" x2="560" y2="252" class="grid"/>
-<text x="560" y="272" class="tick" text-anchor="middle">80%</text>
-<line x1="650" y1="120" x2="650" y2="252" class="grid"/>
-<text x="650" y="272" class="tick" text-anchor="middle">90%</text>
-<line x1="740" y1="120" x2="740" y2="252" class="grid"/>
-<text x="740" y="272" class="tick" text-anchor="middle">100%</text>
-<text x="515" y="296" class="label" text-anchor="middle">Share of the previews</text>
+<line x1="290" y1="120" x2="290" y2="296" class="grid"/>
+<text x="290" y="316" class="tick" text-anchor="middle">50%</text>
+<line x1="380" y1="120" x2="380" y2="296" class="grid"/>
+<text x="380" y="316" class="tick" text-anchor="middle">60%</text>
+<line x1="470" y1="120" x2="470" y2="296" class="grid"/>
+<text x="470" y="316" class="tick" text-anchor="middle">70%</text>
+<line x1="560" y1="120" x2="560" y2="296" class="grid"/>
+<text x="560" y="316" class="tick" text-anchor="middle">80%</text>
+<line x1="650" y1="120" x2="650" y2="296" class="grid"/>
+<text x="650" y="316" class="tick" text-anchor="middle">90%</text>
+<line x1="740" y1="120" x2="740" y2="296" class="grid"/>
+<text x="740" y="316" class="tick" text-anchor="middle">100%</text>
+<text x="515" y="340" class="label" text-anchor="middle">Share of the previews</text>
 <text x="276" y="146.5" class="label" text-anchor="end">Tempogram estimate as it comes</text>
 <line x1="399.8" y1="142" x2="602.3" y2="142" class="connector"/>
 <circle cx="399.8" cy="142" r="6" class="series-1-fill ring"/>
 <circle cx="602.3" cy="142" r="6" class="series-2-fill ring"/>
 <text x="387.8" y="146.5" class="value halo" text-anchor="end">62.2%</text>
 <text x="614.3" y="146.5" class="value halo" text-anchor="start">84.7%</text>
-<text x="276" y="190.5" class="value" text-anchor="end">Placed between 90 and 180 BPM</text>
+<text x="276" y="190.5" class="label" text-anchor="end">Placed between 90 and 180 BPM</text>
 <line x1="538.4" y1="186" x2="609.5" y2="186" class="connector"/>
 <circle cx="538.4" cy="186" r="6" class="series-1-fill ring"/>
 <circle cx="609.5" cy="186" r="6" class="series-2-fill ring"/>
@@ -68,4 +68,10 @@
 <circle cx="604.1" cy="230" r="6" class="series-2-fill ring"/>
 <text x="367.1" y="234.5" class="value halo" text-anchor="end">59.9%</text>
 <text x="616.1" y="234.5" class="value halo" text-anchor="start">84.9%</text>
+<text x="276" y="278.5" class="value" text-anchor="end">Best of four by onset repeats</text>
+<line x1="612.2" y1="274" x2="688.7" y2="274" class="connector"/>
+<circle cx="612.2" cy="274" r="6" class="series-1-fill ring"/>
+<circle cx="688.7" cy="274" r="6" class="series-2-fill ring"/>
+<text x="600.2" y="278.5" class="value halo" text-anchor="end">85.8%</text>
+<text x="700.7" y="278.5" class="value halo" text-anchor="start">94.3%</text>
 </svg>

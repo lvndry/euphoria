@@ -17,6 +17,7 @@ mod sections;
 mod stratum;
 #[cfg(test)]
 mod synthesis;
+mod tempo_choice;
 mod tuning;
 
 pub use beat_grid::{BeatGrid, detect_beat_grid};
