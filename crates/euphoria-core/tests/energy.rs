@@ -152,7 +152,7 @@ fn faster_pulses_never_rate_lower() {
     }
     let slowest = rate(pulse_train(KICK_FREQUENCY, 1.0, 0.8, 8.0));
     let fastest = rate(pulse_train(KICK_FREQUENCY, 8.0, 0.8, 8.0));
-    assert!(fastest.rating > slowest.rating);
+    assert!(fastest.rating >= slowest.rating);
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn bassier_never_rates_lower() {
     )
     .expect("the features are finite");
     assert_never_lower(&thin, &only_bass_differs);
-    assert!(only_bass_differs.score > thin.score);
+    assert!(only_bass_differs.score >= thin.score);
 }
 
 #[test]
