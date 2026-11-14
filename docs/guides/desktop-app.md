@@ -172,7 +172,7 @@ In most themes the player is a bar along the bottom of the window, with the play
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
-If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence.
+If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence. Without `EUPHORIA_LOG`, the terminal shows Euphoria's own warnings and only errors from the libraries it uses; set `EUPHORIA_LOG=warn` to see library warnings as well, such as a decoder skipping a few junk bytes at the start of a file.
 
 ## Stems
 
