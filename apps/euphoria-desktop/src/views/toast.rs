@@ -44,7 +44,7 @@ pub(crate) fn render(app: &EuphoriaApp, now: Instant, cx: &mut Context<'_, Eupho
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text)
         .shadow(vec![BoxShadow {
-            color: gpui::black().opacity(shadow_alpha).into(),
+            color: gpui::black().opacity(shadow_alpha),
             offset: point(px(0.0), px(8.0)),
             blur_radius: px(24.0),
             spread_radius: px(0.0),

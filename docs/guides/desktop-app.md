@@ -427,9 +427,21 @@ The app can write the key, tempo and energy it found into the files themselves, 
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The preview is titled with the DJ program the tags are written for, such as "Write tags for rekordbox"; choose it in the [settings](#settings), or with **Change settings** in the preview.
 3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
 4. Click **Write** to write them. Nothing is written before that, and **Cancel** or Escape closes the preview without writing. A key or tempo left as it is, because the file already has one or because it is rated low confidence, is listed in the preview with the reason. When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the click first shows a strip that says the program may lose the change; **Write anyway** goes on.
-5. The app shows how far it has got, then the files written and any it could not write, with the reason. Those are left as they were.
+5. The app shows how far it has got. When every file was written, the window closes the preview and ends with a [toast](#toasts) such as "Wrote key and BPM to 18 files", with **Undo**. When some files could not be written, or the log, cache or playlists could not be updated, the preview stays open and lists them with the reason. Unwritten files are left as they were.
 
-**Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
+**Undo** in the toast (or Command Z while it shows), **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced. The menu and the settings ask first; the toast does not, because it is the question. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
+
+### Toasts
+
+Every write ends with one short toast at the bottom centre, above the player bar, that says what changed:
+
+- Tag writes, automatic batches and tag editor saves: "Wrote key and BPM to 18 files", with **Undo** and its shortcut, Command Z. Undo is the same undo as **Tags > Undo Last Tag Write…**, and after it the toast says "Put the old tags back in 18 files".
+- Exports to a DJ program or an M3U8 file, stem exports, shifted copies and mashups: "Exported 575 tracks to rekordbox XML", with **Show in Finder** in place of Undo. An export to rekordbox adds a second line, "In rekordbox, open the XML view to import it."
+- Saving a set as a playlist: a toast with no action, since nothing was written outside Euphoria.
+
+The toast slides up and fades in over 180 ms, stays 10 seconds, and waits while the pointer is over it. One toast shows at a time and a new one replaces the old; replacing a write's toast takes its Undo away, though **Tags > Undo Last Tag Write…** still works. With macOS **Reduce motion** on, it appears at once. Command Z runs a toast's Undo only when no text field has the keyboard; in a field it stays that field's own undo, and without a toast with Undo it undoes the last cue edit.
+
+Errors do not become toasts. They stay in the strip at the bottom with **Dismiss**, and the strip that holds tracks while a DJ program runs stays a strip, since it needs a decision. The toast sits above the player bar and the strips below it, so they never cover each other. Not tested: toast placement on a very narrow window.
 
 **Cue markers**: with the **Cue markers** setting in [How tags are written](#settings) on, the write also adds each track's cues and beat grid where Serato DJ, Mixxx and VirtualDJ read them. The cues you edited in the app go in on the pads you gave them; memory cues, ones on no pad, are left out. The preview shows the cue points and beat grid each file gets, and below it lists the files where a cue went to another pad, where cues were left out, where your own Serato beat grid is kept, or where a file gets no Serato data. Those files still get their key and other tags. **Undo this write** puts these back byte for byte, Serato fields included. [Cue points and beat grids for Serato](serato-cues.md) explains what is written and how to bring it into Serato.
 
