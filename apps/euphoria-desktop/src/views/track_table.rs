@@ -630,6 +630,9 @@ fn cell_contents(
             optional_text(track, track.bpm().map(format::bpm), &palette).into_any_element()
         }
         ColumnId::Energy => energy(track, &palette).into_any_element(),
+        ColumnId::Cues => optional_text(track, track.cue_count().map(format::count), &palette)
+            .text_color(palette.text_secondary)
+            .into_any_element(),
         ColumnId::Quality => quality(track, &palette).into_any_element(),
         ColumnId::Time => div()
             .text_color(palette.text_secondary)

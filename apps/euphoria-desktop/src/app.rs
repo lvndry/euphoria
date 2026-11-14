@@ -774,6 +774,7 @@ impl EuphoriaApp {
         );
         self.refresh_deck_metadata();
         self.refresh_suggestions();
+        self.refresh_mixes();
     }
 
     /// Works out which columns fit the table in the window as it is now,
@@ -993,6 +994,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Cues => track
+                    .cue_count()
+                    .map(|count| Cow::Owned(crate::format::count(count))),
                 ColumnId::Quality => track
                     .quality()
                     .map(|report| Cow::Borrowed(crate::format::quality_verdict(report.verdict))),
@@ -1154,6 +1158,7 @@ impl EuphoriaApp {
     /// Ranks the suggestions again for the changed pool and remembers it.
     fn suggestion_filter_changed(&mut self, cx: &mut Context<'_, Self>) {
         self.refresh_suggestions();
+        self.refresh_mixes();
         if let Some(problem) = self.save_settings() {
             self.report(problem);
         }
@@ -1691,6 +1696,7 @@ impl EuphoriaApp {
     /// Asks the core which tracks mix with the selected one, in its key
     /// shifted by `key_shift`.
     pub(crate) fn refresh_mixes(&mut self) {
+        let pool = self.suggestion_indexes();
         self.mixes = self
             .selected
             .map(|selected| {
@@ -1700,6 +1706,8 @@ impl EuphoriaApp {
                     selected,
                     self.key_shift,
                     MIX_LIMIT,
+                    &self.decks.filter,
+                    &pool,
                 )
             })
             .unwrap_or_default();

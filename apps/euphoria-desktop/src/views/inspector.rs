@@ -5,6 +5,7 @@
 //! waveform and, when analysis failed, why. Shown as a column on the right
 //! or as a strip under the table, depending on the theme's layout.
 
+use euphoria_core::harmony::Relation;
 use euphoria_core::{Confidence, TagKeyAgreement};
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
@@ -17,9 +18,10 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::assets::MUSIC_ICON_PATH;
 use crate::camelot::CamelotPosition;
+use crate::decks::SuggestionScope;
 use crate::format;
 use crate::library::{Track, TrackStatus};
-use crate::mixes::compatible_keys;
+use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{EnergyCurve, key_stretches, shows_key_timeline};
@@ -163,7 +165,10 @@ pub(crate) fn render(
             Some(220.0),
         ))
         .child(sized(statistics(track, app, cx), Some(264.0)))
-        .children(key_wheel(track, theme).map(|section| sized(divided(section), Some(220.0))))
+        .children(
+            key_wheel(track, theme, &app.decks.filter.mix_options().relations)
+                .map(|section| sized(divided(section), Some(220.0))),
+        )
         .child(sized(stems::section(track, app, cx), None))
         .children(
             by_ear::section(track, app, cx).map(|section| sized(divided(section), Some(300.0))),
@@ -846,6 +851,14 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
         return None;
     }
 
+    let mut narrowing = app.decks.filter.narrowing();
+    match app.decks.scope {
+        SuggestionScope::Library => {}
+        SuggestionScope::Shown => narrowing.push("pool: tracks shown".to_string()),
+        SuggestionScope::Favorites => narrowing.push("pool: favorites".to_string()),
+        SuggestionScope::Playlist(_) => narrowing.push("pool: a playlist".to_string()),
+    }
+    let is_narrowed = !narrowing.is_empty();
     let shown_count = room.mix_count(app.mixes.len());
     let rows: Vec<Stateful<Div>> = app
         .mixes
@@ -942,11 +955,31 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
             .flex_col()
             .gap(px(4.0))
             .child(section_label("Mixes well with", &palette).pb(px(4.0)))
+            .when(is_narrowed, |section| {
+                section.child(reset_note(
+                    "mixes-filter",
+                    format!("Filtered: {}. Show the controls.", narrowing.join("; ")),
+                    &palette,
+                    cx,
+                    |this, cx| {
+                        if !this.decks.is_open {
+                            this.toggle_decks(cx);
+                        }
+                        cx.notify();
+                    },
+                ))
+            })
             .when(rows.is_empty(), |section| {
                 section.child(
                     div()
+                        .id("mixes-empty")
                         .text_color(palette.text_tertiary)
-                        .child("No track in the library mixes with this one yet."),
+                        .child(if is_narrowed {
+                            "No track in the suggestion pool mixes with this one under that filter."
+                        } else {
+                            "No track in the library mixes with this one yet."
+                        })
+                        .test_support(),
                 )
             })
             .children(rows),
@@ -954,7 +987,7 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
 }
 
 /// The Camelot wheel, in themes that show it, for a track with a key.
-fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
+fn key_wheel(track: &Track, theme: &AppTheme, relations: &[Relation]) -> Option<Div> {
     if !theme.shows_wheel {
         return None;
     }
@@ -969,7 +1002,9 @@ fn key_wheel(track: &Track, theme: &AppTheme) -> Option<Div> {
                 key.camelot(),
                 emphasis_for(
                     CamelotPosition::of(&key),
-                    compatible_keys(&key).iter().map(CamelotPosition::of),
+                    keys_related_by(&key, relations)
+                        .iter()
+                        .map(CamelotPosition::of),
                 ),
                 palette,
             ))

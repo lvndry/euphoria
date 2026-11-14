@@ -1136,7 +1136,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 10;
+const FOLDER_COLUMN: usize = 11;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1723,7 +1723,7 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 9;
+const FORMAT_COLUMN: usize = 10;
 
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
@@ -5054,6 +5054,59 @@ fn selected_cues(
             .collect();
         (listed, cues.is_edited())
     })
+}
+
+#[gpui::test]
+fn the_cues_column_counts_edited_cues_else_automatic_ones_and_sorts(cx: &mut TestAppContext) {
+    let (window, view) = open_window_with(
+        vec![
+            cued_track("sine-440hz-stereo.wav", true),
+            cued_track("sine-440hz-mono.wav", false),
+        ],
+        Box::new(SilentOutput),
+        Settings::default(),
+        None,
+        size(px(2400.0), px(900.0)),
+        cx,
+    );
+    let counts = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let app = view.read(cx);
+            app.visible
+                .iter()
+                .map(|index| app.session.library().track(*index).unwrap().cue_count())
+                .collect::<Vec<_>>()
+        })
+    };
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let texts = app.column_texts(ColumnId::Cues);
+        assert!(texts.contains("2") && texts.contains("0"), "{texts:?}");
+    });
+    click(window, header_id(ColumnId::Cues), cx);
+    assert_eq!(counts(cx), [Some(0), Some(2)]);
+    click(window, header_id(ColumnId::Cues), cx);
+    assert_eq!(counts(cx), [Some(2), Some(0)]);
+
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let path = app.session.library().tracks()[1].path.clone();
+            let cue = |seconds: f64| euphoria_core::Cue {
+                seconds,
+                name: String::new(),
+                hot_cue: None,
+            };
+            app.session
+                .set_edited_cues(&path, Some(vec![cue(1.0), cue(2.0), cue(3.0), cue(4.0)]));
+        })
+    });
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    assert_eq!(counts(cx), [Some(4), Some(2)]);
 }
 
 /// Holds or lets go of Shift, as the keyboard would.

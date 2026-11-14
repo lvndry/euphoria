@@ -8,6 +8,7 @@
 use euphoria_core::harmony::{MixOptions, MixTrack, Relation, mixes_into};
 use euphoria_core::{Key, Mode};
 
+use crate::decks::SuggestionFilter;
 use crate::favorites::Favorites;
 use crate::library::{Library, Track};
 
@@ -66,13 +67,18 @@ impl MixTrack for Shifted<'_> {
 /// The tracks in the library that mix with the track at `selected_index`
 /// with its key shifted by `semitones`, at most `limit` of them: first the
 /// transitions out of it the user marked, in the order they were marked,
-/// then the others, smoothest first as the core ranks them.
+/// then the others, smoothest first as the core ranks them. The others come
+/// from the tracks at `pool` in the library, narrowed by `filter`: its key
+/// moves, tempo window and range, energy range and genre. The marked
+/// transitions are the user's own choice and are not narrowed.
 pub(crate) fn suggestions(
     library: &Library,
     favorites: &Favorites,
     selected_index: usize,
     semitones: i8,
     limit: usize,
+    filter: &SuggestionFilter,
+    pool: &[usize],
 ) -> Vec<MixSuggestion> {
     let Some(selected) = library.track(selected_index) else {
         return Vec::new();
@@ -104,15 +110,19 @@ pub(crate) fn suggestions(
     if shifted.key().is_none() && suggested.is_empty() {
         return suggested;
     }
-    let candidates = library.tracks().iter().filter(|candidate| {
-        candidate.path != selected.path
-            && favorites
-                .transition(&selected.path, &candidate.path)
-                .is_none()
-    });
+    let candidates = pool
+        .iter()
+        .filter_map(|index| library.track(*index))
+        .filter(|candidate| {
+            candidate.path != selected.path
+                && favorites
+                    .transition(&selected.path, &candidate.path)
+                    .is_none()
+                && filter.genre_fits(candidate.genre())
+        });
     let room = limit.saturating_sub(suggested.len());
     suggested.extend(
-        mixes_into(&shifted, candidates, &MixOptions::default())
+        mixes_into(&shifted, candidates, &filter.mix_options())
             .into_iter()
             .take(room)
             .filter_map(|mix| {
@@ -130,7 +140,11 @@ pub(crate) fn suggestions(
 
 /// Every other key the core counts as mixing with `key` by default.
 pub(crate) fn compatible_keys(key: &Key) -> Vec<Key> {
-    let relations = MixOptions::default().relations;
+    keys_related_by(key, &MixOptions::default().relations)
+}
+
+/// Every other key that relates to `key` by one of `relations`.
+pub(crate) fn keys_related_by(key: &Key, relations: &[Relation]) -> Vec<Key> {
     [Mode::Minor, Mode::Major]
         .into_iter()
         .flat_map(|mode| (0..12).map(move |tonic| Key::new(tonic, mode)))
@@ -149,6 +163,25 @@ mod tests {
     use euphoria_core::TrackAnalysis;
 
     use super::*;
+
+    fn suggestions(
+        library: &Library,
+        favorites: &Favorites,
+        selected_index: usize,
+        semitones: i8,
+        limit: usize,
+    ) -> Vec<MixSuggestion> {
+        let pool: Vec<usize> = (0..library.tracks().len()).collect();
+        super::suggestions(
+            library,
+            favorites,
+            selected_index,
+            semitones,
+            limit,
+            &SuggestionFilter::default(),
+            &pool,
+        )
+    }
 
     fn library_of(tracks: &[(&str, &str, f32)]) -> Library {
         let mut library = Library::default();
@@ -307,5 +340,78 @@ mod tests {
         let mut codes: Vec<String> = compatible_keys(&a_minor).iter().map(Key::camelot).collect();
         codes.sort();
         assert_eq!(codes, ["7A", "8B", "9A"]);
+    }
+
+    #[test]
+    fn the_filter_narrows_the_relations_tempo_and_pool_of_the_others() {
+        let library = library_of(&[
+            ("selected", "A minor", 124.0),
+            ("same", "A minor", 124.0),
+            ("adjacent", "E minor", 124.0),
+            ("relative", "C major", 135.0),
+            ("boost", "B minor", 124.0),
+        ]);
+        let names = |filter: &SuggestionFilter, pool: &[usize]| -> Vec<String> {
+            super::suggestions(&library, &Favorites::default(), 0, 0, 10, filter, pool)
+                .iter()
+                .map(|mix| library.tracks()[mix.track_index].file_name.clone())
+                .collect()
+        };
+        let everyone: Vec<usize> = (0..5).collect();
+        assert_eq!(
+            names(&SuggestionFilter::default(), &everyone),
+            ["same.flac", "adjacent.flac"],
+            "135 is 8.9 percent faster, over the window"
+        );
+        let wide = SuggestionFilter {
+            tempo_window_percent: Some(10.0),
+            ..SuggestionFilter::default()
+        };
+        assert_eq!(
+            names(&wide, &everyone),
+            ["same.flac", "adjacent.flac", "relative.flac"]
+        );
+        let relative_only = SuggestionFilter {
+            relations: Some(vec![Relation::Relative]),
+            ..wide.clone()
+        };
+        assert_eq!(names(&relative_only, &everyone), ["relative.flac"]);
+        let tempo_range = SuggestionFilter {
+            bpm_min: Some(133.0),
+            bpm_max: Some(137.0),
+            ..wide
+        };
+        assert_eq!(names(&tempo_range, &everyone), ["relative.flac"]);
+        assert_eq!(
+            names(&SuggestionFilter::default(), &[0, 2]),
+            ["adjacent.flac"],
+            "only the pool is considered"
+        );
+    }
+
+    #[test]
+    fn a_marked_transition_stays_when_the_filter_leaves_it_out() {
+        let library = library_of(&[("selected", "A minor", 124.0), ("far", "A minor", 90.0)]);
+        let mut favorites = Favorites::default();
+        let path_of = |name: &str| PathBuf::from(format!("/music/{name}.flac"));
+        favorites.toggle_transition(&path_of("selected"), &path_of("far"));
+        let filter = SuggestionFilter {
+            relations: Some(vec![Relation::Relative]),
+            ..SuggestionFilter::default()
+        };
+        let suggested = super::suggestions(&library, &favorites, 0, 0, 10, &filter, &[0, 1]);
+        assert_eq!(suggested.len(), 1);
+        assert!(suggested[0].is_favorite);
+    }
+
+    #[test]
+    fn keys_related_by_follows_the_relations_given() {
+        let a_minor: Key = "A minor".parse().unwrap();
+        let mut codes: Vec<String> = keys_related_by(&a_minor, &[Relation::Relative])
+            .iter()
+            .map(Key::camelot)
+            .collect();
+        codes.sort();
+        assert_eq!(codes, ["8B"]);
     }
 }

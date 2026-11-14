@@ -8,7 +8,7 @@
 //! has dragged keeps the width they gave it, remembered by name in the
 //! settings file. When everything does not fit, the least needed columns are
 //! left out, in a fixed order, so the title, key, tempo and energy always
-//! stay readable. Format and Quality go before a folder path is cut short.
+//! stay readable. Cues, Format and Quality go before a folder path is cut short.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -45,6 +45,8 @@ pub(crate) enum ColumnId {
     Bpm,
     /// The energy rating, with a bar.
     Energy,
+    /// How many cues the track has.
+    Cues,
     /// The sound quality verdict in a word.
     Quality,
     /// The length.
@@ -66,7 +68,8 @@ enum UsualWidth {
 }
 
 /// The columns left out when the table is too narrow, first to last.
-const LEFT_OUT_FIRST: [ColumnId; 7] = [
+const LEFT_OUT_FIRST: [ColumnId; 8] = [
+    ColumnId::Cues,
     ColumnId::Format,
     ColumnId::Quality,
     ColumnId::Folder,
@@ -77,13 +80,14 @@ const LEFT_OUT_FIRST: [ColumnId; 7] = [
 ];
 
 /// The columns left out before a folder path is cut short: where a track is
-/// filed is read more often than its file type or quality verdict, which the
-/// inspector and the Quality to check filter also show.
-const LEFT_OUT_BEFORE_PATHS_ARE_CUT: [ColumnId; 2] = [ColumnId::Format, ColumnId::Quality];
+/// filed is read more often than its cue count, file type or quality
+/// verdict, which the inspector also shows.
+const LEFT_OUT_BEFORE_PATHS_ARE_CUT: [ColumnId; 3] =
+    [ColumnId::Cues, ColumnId::Format, ColumnId::Quality];
 
 impl ColumnId {
     /// Every column, left to right.
-    pub(crate) const ALL: [ColumnId; 11] = [
+    pub(crate) const ALL: [ColumnId; 12] = [
         ColumnId::Number,
         ColumnId::Title,
         ColumnId::Artist,
@@ -91,6 +95,7 @@ impl ColumnId {
         ColumnId::MusicalKey,
         ColumnId::Bpm,
         ColumnId::Energy,
+        ColumnId::Cues,
         ColumnId::Quality,
         ColumnId::Time,
         ColumnId::Format,
@@ -107,6 +112,7 @@ impl ColumnId {
             ColumnId::MusicalKey => "musical-key",
             ColumnId::Bpm => "bpm",
             ColumnId::Energy => "energy",
+            ColumnId::Cues => "cues",
             ColumnId::Quality => "quality",
             ColumnId::Time => "time",
             ColumnId::Format => "format",
@@ -124,6 +130,7 @@ impl ColumnId {
             ColumnId::MusicalKey => "Musical key",
             ColumnId::Bpm => "BPM",
             ColumnId::Energy => "Energy",
+            ColumnId::Cues => "Cues",
             ColumnId::Quality => "Quality",
             ColumnId::Time => "Time",
             ColumnId::Format => "Format",
@@ -140,6 +147,7 @@ impl ColumnId {
             ColumnId::MusicalKey => UsualWidth::Fixed(84.0),
             ColumnId::Bpm => UsualWidth::Fixed(60.0),
             ColumnId::Energy => UsualWidth::Fixed(86.0),
+            ColumnId::Cues => UsualWidth::Fixed(48.0),
             ColumnId::Quality => UsualWidth::Fixed(90.0),
             ColumnId::Time => UsualWidth::Fixed(48.0),
             ColumnId::Format => UsualWidth::Fixed(56.0),
@@ -158,6 +166,7 @@ impl ColumnId {
             ColumnId::MusicalKey => 64.0,
             ColumnId::Bpm => 44.0,
             ColumnId::Energy => 70.0,
+            ColumnId::Cues => 40.0,
             ColumnId::Quality => 56.0,
             ColumnId::Time => 40.0,
             ColumnId::Format => 44.0,
@@ -167,7 +176,10 @@ impl ColumnId {
 
     /// True for a column whose contents line up on the right.
     pub(crate) fn is_right_aligned(self) -> bool {
-        matches!(self, ColumnId::Number | ColumnId::Bpm | ColumnId::Time)
+        matches!(
+            self,
+            ColumnId::Number | ColumnId::Bpm | ColumnId::Cues | ColumnId::Time
+        )
     }
 
     /// What clicking the header sorts by.
@@ -179,6 +191,7 @@ impl ColumnId {
             ColumnId::Key | ColumnId::MusicalKey => Some(SortColumn::Key),
             ColumnId::Bpm => Some(SortColumn::Bpm),
             ColumnId::Energy => Some(SortColumn::Energy),
+            ColumnId::Cues => Some(SortColumn::Cues),
             ColumnId::Quality => Some(SortColumn::Quality),
             ColumnId::Time => Some(SortColumn::Duration),
             ColumnId::Format => Some(SortColumn::Format),
@@ -266,7 +279,7 @@ impl TableLayout {
     /// Columns the user sized keep their size, and so do the fixed ones.
     /// The Folder column, unless sized, takes what its longest path needs.
     /// Title and Artist, unless sized, share the rest, each at least its
-    /// narrowest. When that does not fit, Format and then Quality are left
+    /// narrowest. When that does not fit, Cues, Format and then Quality are left
     /// out first; then an unsized Folder column is narrowed, cutting its
     /// paths short; then
     /// columns are left out in the order of [`LEFT_OUT_FIRST`]. When even
@@ -469,6 +482,33 @@ mod tests {
         assert!(layout.width_of(ColumnId::Title).unwrap() >= 160.0);
         assert!(layout.width_of(ColumnId::Artist).unwrap() >= 90.0);
         assert!(total_width(&layout) <= USUAL_TABLE);
+    }
+
+    #[test]
+    fn the_cues_column_is_the_first_left_out_and_sorts_by_cues() {
+        let usual = TableLayout::new(USUAL_TABLE, &ColumnWidths::default(), 133.0);
+        assert!(!usual.shows(ColumnId::Cues));
+        let wide = TableLayout::new(1800.0, &ColumnWidths::default(), 133.0);
+        assert_eq!(wide.width_of(ColumnId::Cues), Some(48.0));
+        assert_eq!(ColumnId::Cues.sorts_by(), Some(SortColumn::Cues));
+        assert!(ColumnId::Cues.is_right_aligned());
+        for table_width in (400..1800).step_by(10) {
+            let layout = TableLayout::new(table_width as f32, &ColumnWidths::default(), 133.0);
+            assert!(
+                layout.shows(ColumnId::Format) || !layout.shows(ColumnId::Cues),
+                "Format is only left out after Cues, at {table_width}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_cues_width_is_remembered_by_name_and_survives_a_round_trip() {
+        let mut widths = ColumnWidths::default();
+        widths.set(ColumnId::Cues, 70.0);
+        let text = serde_json::to_string(&widths).unwrap();
+        assert_eq!(text, r#"{"cues":70}"#);
+        let loaded: ColumnWidths = serde_json::from_str(&text).unwrap();
+        assert_eq!(loaded.get(ColumnId::Cues), Some(70.0));
     }
 
     #[test]

@@ -41,6 +41,7 @@ Your files are only read, until you choose to [write tags](#write-tags) into the
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
 | Energy | The [energy rating](../concepts/energy.md) from 1 to 10, with a bar |
+| Cues | How many cues the track has: the ones you set in the inspector if you changed them, otherwise the ones analysis placed, the same list the inspector shows. Empty until the track is analyzed. |
 | Quality | The [audio quality](../concepts/audio-quality.md) verdict: Lossless, Good, Acceptable, Weak, or Re-encoded? for a file likely made from a lower quality one. Weak and Re-encoded? stand out; the others are quieter. |
 | Time | The length |
 | Format | The file type |
@@ -54,9 +55,9 @@ Titles and artists are read from the files after they appear, so the file name s
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
 
-Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Format and Quality, which the inspector also shows, so that folder paths keep their room; then Folder, Artist, Time, Musical key and the row number. In a 1440 pixel wide window with both the sidebar and the inspector open, Quality is left out; fold the sidebar or close the inspector to bring it back. The title, key, tempo and energy always stay.
+Until you resize them, Title and Artist share the room the other columns leave, and Folder is as wide as its longest path. In a narrow window, or when the widths you chose do not fit, the table leaves columns out rather than squeezing the title: first Cues, Format and Quality, which the inspector also shows, so that folder paths keep their room; then Folder, Artist, Time, Musical key and the row number. In a 1440 pixel wide window with both the sidebar and the inspector open, Cues and Quality are left out; fold the sidebar or close the inspector to bring it back. The title, key, tempo and energy always stay.
 
-Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Sorting by Quality puts the files most worth checking first: likely re-encoded, then weak, acceptable, good and lossless. Tracks with no value in the sorted column come last.
+Click a column header to sort by it, and click again to reverse the order. Sorting by key follows the Camelot wheel: by number, then the minor key (A) before the major key (B). Sorting by Cues puts the tracks with the fewest cues first, and the most when reversed. Sorting by Quality puts the files most worth checking first: likely re-encoded, then weak, acceptable, good and lossless. Tracks with no value in the sorted column come last.
 
 Type in the search field, or press Command F first, to filter as you type. Each word must match part of the file name, the title or the artist, the whole key code (`8a`), or the start of the tempo (`124`).
 
@@ -137,7 +138,7 @@ An energy you pick is the same 1 to 10 rating the analysis reports, for the trac
 
 A value you set wins everywhere: in the table and search, in **Mixes well with**, in **Needs review**, which no longer lists a track for a value you corrected, in the tags you write, and in `euphoria analyze` and `euphoria export rekordbox` on the command line, which mark it as set by you. Corrections are kept in the [analysis cache](../reference/cli.md#corrections), apart from the analyses: analyzing a track again, or a new version of Euphoria analyzing everything again, never loses them, and they follow a file that was moved, renamed or had its tags written. `euphoria cache clear` keeps them too.
 
-**Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is within 6 percent: the same key, the keys one step either way on the Camelot wheel, and the relative major or minor. The smoothest key moves come first, then the closest tempos, then the closest energy. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
+**Mixes well with** lists up to eight other tracks in your library whose key mixes with the selected one and whose tempo is close to it. It uses the same saved controls as the suggestions under the decks, described under [Narrow the suggestions](#narrow-the-suggestions): the key moves that count (the same key, the keys one step either way on the Camelot wheel and the relative major or minor, until you change them), the tempo window (6 percent), the tempo and energy ranges, the genre, and the pool chosen with **Whole library**, **Tracks shown**, **Favorites** or a playlist. The smoothest key moves come first, then the closest tempos, then the closest energy. Transitions you marked as favorites come first and stay even when the controls would leave them out. Each row shows the key, the name, how much faster or slower the track is, and how the keys relate. Click a row to go to that track. When a saved filter narrows the list, a line under the heading says what is narrowed, and clicking it opens the decks, where the controls are. When the filter leaves nothing, the list says so. The Camelot wheel tints the keys that the same key moves reach. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) explains these moves.
 
 ### Resize the inspector
 
@@ -194,7 +195,7 @@ Above the list, a row of controls narrows the tracks the suggestions are chosen 
 
 A range needs both ends. A field that does not read, such as one end of a range on its own or an energy of 11, shows what is wrong in red and leaves that part of the pool open until it reads.
 
-**Mixes well with** in the inspector does not use these controls: it keeps the three smoothest key moves and the 6 percent window.
+**Mixes well with** in the inspector uses these controls too, so the list beside a track and the list under the decks always agree on what counts as a mix.
 
 ### Mashup mode
 
