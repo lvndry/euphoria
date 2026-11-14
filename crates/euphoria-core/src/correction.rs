@@ -111,7 +111,10 @@ impl Correction {
     /// [`EuphoriaError::InvalidCorrection`] for a tempo that is not a
     /// positive number no faster than 999, or an energy outside 1 to 10.
     pub fn validated(self) -> Result<Self, EuphoriaError> {
-        self.with_bpm(self.bpm)?.with_energy(self.energy)
+        Ok(Self {
+            bpm_confirmed: self.bpm_confirmed,
+            ..self.with_bpm(self.bpm)?.with_energy(self.energy)?
+        })
     }
 
     /// The same correction with the key set to `key`, or back to the

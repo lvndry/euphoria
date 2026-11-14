@@ -6122,3 +6122,262 @@ fn closing_the_decks_clears_the_notice_that_they_hold_the_player(cx: &mut TestAp
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
     cx.update(|cx| assert_eq!(view.read(cx).notice, None));
 }
+
+/// Six made up tracks, one for each reason to review, one with all three
+/// reasons once its tags are read, and one that is sure.
+fn tracks_with_reasons() -> Vec<DemoTrack> {
+    let track = |name: &str, outcome| DemoTrack {
+        path: PathBuf::from(format!("/Demo/reasons/{name}.mp3")),
+        outcome,
+    };
+    vec![
+        track("unsure key", Ok(rated_analysis(0.001, 124.0, 0.6))),
+        track("unsure tempo", Ok(rated_analysis(0.02, 87.0, 0.01))),
+        track("tags disagree", Ok(rated_analysis(0.02, 124.0, 0.6))),
+        track("everything", Ok(rated_analysis(0.001, 87.0, 0.01))),
+        track("broken", Err("cannot decode".to_string())),
+        track("sure", Ok(rated_analysis(0.02, 124.0, 0.6))),
+    ]
+}
+
+fn open_tracks_with_reasons(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let (window, view) = open_folders(
+        &["/Demo/reasons"],
+        tracks_with_reasons(),
+        Settings::default(),
+        None,
+        cx,
+    );
+    let tag_key = |text: &str| euphoria_core::TrackName {
+        key: euphoria_core::TagKey::from_text(text),
+        ..euphoria_core::TrackName::default()
+    };
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session.set_track_names(vec![
+                (
+                    PathBuf::from("/Demo/reasons/tags disagree.mp3"),
+                    tag_key("9A"),
+                ),
+                (PathBuf::from("/Demo/reasons/everything.mp3"), tag_key("9A")),
+            ]);
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    (window, view)
+}
+
+fn review_counts(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> (usize, usize) {
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let folder = app
+            .folder_tree
+            .index_of(Path::new("/Demo/reasons"))
+            .and_then(|index| app.folder_tree.node(index))
+            .map(|node| node.review_count)
+            .unwrap();
+        (app.session.library().counts().needs_review, folder)
+    })
+}
+
+fn select_track(view: &Entity<EuphoriaApp>, index: usize, cx: &mut TestAppContext) {
+    cx.update(|cx| view.update(cx, |app, cx| app.select(index, cx)));
+}
+
+fn reasons_of(
+    view: &Entity<EuphoriaApp>,
+    index: usize,
+    cx: &mut TestAppContext,
+) -> Vec<crate::library::ReviewReason> {
+    cx.update(|cx| view.read(cx).session.library().tracks()[index].review_reasons())
+}
+
+#[gpui::test]
+fn each_row_under_needs_review_carries_a_chip_for_each_of_its_reasons(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    assert_eq!(review_counts(&view, cx), (5, 5));
+    assert!(!is_shown(window, ("review-chip", 0_usize), cx));
+
+    click(window, "needs-review", cx);
+    assert_eq!(
+        shown_titles(&view, cx),
+        [
+            "unsure key.mp3",
+            "unsure tempo.mp3",
+            "tags disagree.mp3",
+            "everything.mp3",
+            "broken.mp3"
+        ]
+    );
+    let chip = |index: usize, position: usize| ("review-chip", index * 8 + position);
+    assert!(is_shown(window, chip(0, 0), cx));
+    assert!(!is_shown(window, chip(0, 1), cx));
+    assert!(is_shown(window, chip(1, 0), cx));
+    assert!(is_shown(window, chip(2, 0), cx));
+    for position in 0..3 {
+        assert!(is_shown(window, chip(3, position), cx), "{position}");
+    }
+    assert!(!is_shown(window, chip(3, 3), cx));
+    assert!(is_shown(window, chip(4, 0), cx));
+    assert!(!is_shown(window, chip(5, 0), cx));
+
+    let notation = crate::tag_settings::NotationChoice::default();
+    let words: Vec<String> = reasons_of(&view, 3, cx)
+        .iter()
+        .map(|reason| crate::views::review::chip_label(reason, notation))
+        .collect();
+    assert_eq!(words, ["Key unsure", "Tempo unsure", "Tag says 9A"]);
+    assert_eq!(
+        crate::views::review::chip_label(&reasons_of(&view, 4, cx)[0], notation),
+        "Failed"
+    );
+
+    click(window, "all-tracks", cx);
+    assert!(!is_shown(window, chip(0, 0), cx));
+}
+
+#[gpui::test]
+fn the_inspector_box_gives_each_reason_its_line_and_its_quick_actions(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    let shown = |ids: &[&'static str], cx: &mut TestAppContext| -> Vec<bool> {
+        ids.iter().map(|id| is_shown(window, *id, cx)).collect()
+    };
+    let lines = [
+        "review-key-unsure",
+        "review-tempo-unsure",
+        "review-key-conflict",
+        "review-failed",
+    ];
+
+    select_track(&view, 5, cx);
+    assert!(!is_shown(window, "review-box", cx));
+
+    select_track(&view, 0, cx);
+    assert!(is_shown(window, "review-box", cx));
+    assert_eq!(shown(&lines, cx), [true, false, false, false]);
+    assert_eq!(
+        shown(
+            &[
+                "review-runner-up",
+                "review-key-looks-right",
+                "review-correct"
+            ],
+            cx
+        ),
+        [true; 3]
+    );
+
+    select_track(&view, 1, cx);
+    assert_eq!(shown(&lines, cx), [false, true, false, false]);
+    assert_eq!(
+        shown(
+            &[
+                "review-tempo-half",
+                "review-tempo-double",
+                "review-tempo-looks-right"
+            ],
+            cx
+        ),
+        [true; 3]
+    );
+
+    select_track(&view, 2, cx);
+    assert_eq!(shown(&lines, cx), [false, false, true, false]);
+    assert_eq!(
+        shown(&["review-keep-tag-key", "review-use-detected-key"], cx),
+        [true; 2]
+    );
+
+    select_track(&view, 3, cx);
+    assert_eq!(shown(&lines, cx), [true, true, true, false]);
+
+    select_track(&view, 4, cx);
+    assert_eq!(shown(&lines, cx), [false, false, false, true]);
+    assert!(is_shown(window, "review-analyze-again", cx));
+}
+
+#[gpui::test]
+fn trying_the_runner_up_key_settles_a_doubtful_key_and_the_counts_follow(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 0, cx);
+    click(window, "review-runner-up", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("9A"));
+    assert!(reasons_of(&view, 0, cx).is_empty());
+    assert_eq!(review_counts(&view, cx), (4, 4));
+    assert!(!is_shown(window, "review-box", cx));
+}
+
+#[gpui::test]
+fn looks_right_keeps_the_detected_values_and_settles_the_doubt(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 3, cx);
+    click(window, "review-key-looks-right", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
+    assert!(!is_shown(window, "review-key-unsure", cx));
+    assert_eq!(
+        reasons_of(&view, 3, cx),
+        [crate::library::ReviewReason::TempoUnsure],
+        "confirming the key also settles the conflict with the tags"
+    );
+    assert_eq!(review_counts(&view, cx), (5, 5));
+
+    click(window, "review-tempo-looks-right", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(174.0));
+    assert!(!is_shown(window, "review-tempo-unsure", cx));
+    cx.update(|cx| {
+        let correction = view.read(cx).selected_track().unwrap().correction;
+        assert!(correction.key.is_none() && correction.bpm.is_none());
+        assert!(correction.key_confirmed && correction.bpm_confirmed);
+    });
+
+    assert!(reasons_of(&view, 3, cx).is_empty());
+    assert_eq!(review_counts(&view, cx), (4, 4));
+}
+
+#[gpui::test]
+fn the_half_and_double_buttons_set_the_tempo_and_leave_needs_review(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 1, cx);
+    click(window, "review-tempo-double", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(348.0));
+    assert_eq!(review_counts(&view, cx), (4, 4));
+
+    cx.update(|cx| view.update(cx, |app, cx| app.reset_bpm(cx)));
+    assert_eq!(review_counts(&view, cx), (5, 5));
+    click(window, "review-tempo-half", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(87.0));
+    assert_eq!(review_counts(&view, cx), (4, 4));
+}
+
+#[gpui::test]
+fn a_key_conflict_is_settled_by_keeping_the_tag_or_the_analysis(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 2, cx);
+    click(window, "review-keep-tag-key", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("9A"));
+    assert!(reasons_of(&view, 2, cx).is_empty());
+    assert_eq!(review_counts(&view, cx), (4, 4));
+
+    click(window, "key-reset", cx);
+    assert_eq!(review_counts(&view, cx), (5, 5));
+    click(window, "review-use-detected-key", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
+    assert!(reasons_of(&view, 2, cx).is_empty());
+    assert_eq!(review_counts(&view, cx), (4, 4));
+    assert!(!is_shown(window, "review-box", cx));
+}
+
+#[gpui::test]
+fn analyze_again_takes_a_failed_track_out_of_needs_review_while_it_is_queued(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 4, cx);
+    click(window, "review-analyze-again", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(app.session.library().tracks()[4].is_unfinished());
+    });
+    assert_eq!(review_counts(&view, cx), (4, 4));
+}

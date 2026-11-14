@@ -378,6 +378,29 @@ mod tests {
     }
 
     #[test]
+    fn a_confirmation_is_kept_apart_from_the_values_and_is_not_a_correction_to_export() {
+        let folder = TemporaryFolder::new();
+        let track = folder.path().join("confirmed.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        let mut cache = open(&folder);
+        let confirmed = Correction::default().confirming_key().confirming_bpm();
+        assert!(!confirmed.is_empty());
+        cache.set_correction(&track, &confirmed).unwrap();
+
+        assert_eq!(
+            open(&folder).verified_correction_for(&track).unwrap(),
+            Some(confirmed)
+        );
+        assert!(cache.stored_corrections().unwrap().is_empty());
+
+        let set_afterwards = confirmed.with_key(Some(Key::new(4, Mode::Minor)));
+        assert!(!set_afterwards.key_confirmed);
+        assert!(set_afterwards.bpm_confirmed);
+        assert_eq!(confirmed.apply(analysis()).key, analysis().key);
+        assert_eq!(confirmed.apply(analysis()).beat_grid, analysis().beat_grid);
+    }
+
+    #[test]
     fn an_energy_is_kept_with_the_key_and_tempo_and_an_invalid_one_is_refused() {
         let folder = TemporaryFolder::new();
         let track = folder.path().join("track.mp3");

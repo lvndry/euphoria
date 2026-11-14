@@ -1258,6 +1258,116 @@ mod tests {
     }
 
     #[test]
+    fn each_reason_is_named_and_a_track_can_have_several() {
+        let mut library = Library::default();
+        let broken = Path::new("/music/broken.mp3");
+        let key = Path::new("/music/key.mp3");
+        let tempo = Path::new("/music/tempo.mp3");
+        let everything = Path::new("/music/everything.mp3");
+        let sure = Path::new("/music/sure.mp3");
+        for path in [broken, key, tempo, everything, sure] {
+            library.add_files(vec![path.to_path_buf()]);
+        }
+        library.record_outcome(broken, Err("cannot decode".into()));
+        library.record_outcome(key, Ok(rated(0.001, 124.0, 0.6)));
+        library.record_outcome(tempo, Ok(rated(0.02, 87.0, 0.01)));
+        library.record_outcome(everything, Ok(rated(0.001, 87.0, 0.01)));
+        library.record_outcome(sure, Ok(rated(0.02, 124.0, 0.6)));
+        library.set_names(everything, with_tag_key("9A"));
+        let tag_key = library.tracks()[3].tag_key.as_ref().unwrap().key.unwrap();
+
+        let reasons = |index: usize| library.tracks()[index].review_reasons();
+        assert_eq!(
+            reasons(0),
+            [ReviewReason::Failed("cannot decode".to_string())]
+        );
+        assert_eq!(reasons(1), [ReviewReason::KeyUnsure]);
+        assert_eq!(reasons(2), [ReviewReason::TempoUnsure]);
+        assert_eq!(
+            reasons(3),
+            [
+                ReviewReason::KeyUnsure,
+                ReviewReason::TempoUnsure,
+                ReviewReason::KeyConflict { tag_key }
+            ]
+        );
+        assert!(reasons(4).is_empty());
+        assert!(!library.tracks()[4].needs_review());
+        assert_eq!(library.counts().needs_review, 4);
+    }
+
+    #[test]
+    fn looks_right_ends_the_doubt_without_setting_a_value_and_keeps_the_grid() {
+        let mut library = Library::default();
+        let path = Path::new("/music/doubtful.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.001, 87.0, 0.01)));
+        assert_eq!(library.counts().needs_review, 1);
+
+        let key_confirmed = Correction::default().confirming_key();
+        library.set_correction(path, key_confirmed);
+        let track = &library.tracks()[0];
+        assert_eq!(track.review_reasons(), [ReviewReason::TempoUnsure]);
+        assert_eq!(track.key(), Some("A minor".parse().unwrap()));
+        assert_eq!(library.counts().needs_review, 1);
+
+        library.set_correction(path, key_confirmed.confirming_bpm());
+        let track = &library.tracks()[0];
+        assert!(track.review_reasons().is_empty());
+        assert_eq!(track.bpm(), Some(174.0), "the tempo is the detected one");
+        assert_eq!(library.counts().needs_review, 0);
+
+        library.record_outcome(path, Ok(rated(0.001, 87.0, 0.01)));
+        assert_eq!(
+            library.counts().needs_review,
+            0,
+            "analyzing again keeps the confirmation"
+        );
+
+        library.set_correction(path, Correction::default());
+        assert_eq!(library.counts().needs_review, 1);
+    }
+
+    #[test]
+    fn a_key_conflict_settled_either_way_stays_settled() {
+        let mut library = Library::default();
+        let path = Path::new("/music/sure.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        library.set_names(path, with_tag_key("9A"));
+        let tag_key = library.tracks()[0].tag_key.as_ref().unwrap().key.unwrap();
+        assert_eq!(library.counts().needs_review, 1);
+
+        library.set_correction(path, Correction::of_key(tag_key));
+        assert_eq!(library.counts().needs_review, 0);
+        library.set_correction(path, Correction::default().confirming_key());
+        assert_eq!(library.tracks()[0].key_conflict(), None);
+        assert_eq!(library.counts().needs_review, 0);
+        assert_eq!(library.tracks()[0].key(), Some("A minor".parse().unwrap()));
+
+        library.record_outcome(path, Ok(rated(0.02, 124.0, 0.6)));
+        library.set_names(path, with_tag_key("9A"));
+        assert_eq!(
+            library.counts().needs_review,
+            0,
+            "re-read tags, same answer"
+        );
+    }
+
+    #[test]
+    fn a_failed_track_is_queued_again_and_leaves_needs_review() {
+        let mut library = Library::default();
+        let path = Path::new("/music/broken.mp3");
+        library.add_files(vec![path.to_path_buf()]);
+        library.record_outcome(path, Err("cannot decode".into()));
+        assert_eq!(library.counts().needs_review, 1);
+        assert!(library.requeue_failed(path));
+        assert_eq!(library.counts().needs_review, 0);
+        assert!(library.tracks()[0].is_unfinished());
+        assert!(!library.requeue_failed(path));
+    }
+
+    #[test]
     fn tags_that_agree_or_cannot_be_read_do_not_need_review() {
         let mut library = Library::default();
         let path = Path::new("/music/sure.mp3");

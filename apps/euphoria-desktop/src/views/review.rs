@@ -173,7 +173,7 @@ pub(crate) fn section(
                 );
                 reason_line(
                     "review-tempo-unsure",
-                    "The tempo may be off, often by half or double. Turn on the metronome in the toolbar: it follows this track's tempo, so you can hear whether the clicks sit on the beat."
+                    "The tempo may be off, often by half or double. Turn on the metronome in the toolbar: it starts at this track's tempo, so you can hear whether the clicks sit on the beat."
                         .to_string(),
                     buttons,
                     &palette,

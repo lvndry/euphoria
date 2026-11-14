@@ -856,6 +856,39 @@ mod tests {
     }
 
     #[test]
+    fn a_confirmation_kept_in_the_cache_comes_back_and_changes_no_value() {
+        let folder = TemporaryFolder::new("confirmations");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let confirmed = euphoria_core::Correction::default()
+            .confirming_key()
+            .confirming_bpm();
+        let (detected_key, detected_bpm) = {
+            let cache = folder.open_cache();
+            let mut session = Session::start(Some(cache.clone())).unwrap();
+            session.add(scan(std::slice::from_ref(&folder.0), Some(&cache)));
+            wait_until_idle(&mut session);
+            session.set_correction(&track, confirmed);
+            cache.set_correction(&track, &confirmed).unwrap();
+            let analyzed = &session.library().tracks()[0];
+            (analyzed.key(), analyzed.bpm())
+        };
+
+        let cache = folder.open_cache();
+        let found = scan(std::slice::from_ref(&folder.0), Some(&cache));
+        assert_eq!(found.corrections.get(&track), Some(&confirmed));
+        let mut session = Session::start(Some(cache)).unwrap();
+        session.add(found);
+        let reopened = &session.library().tracks()[0];
+        assert_eq!(reopened.correction, confirmed);
+        assert_eq!(
+            (reopened.key(), reopened.bpm()),
+            (detected_key, detected_bpm)
+        );
+        assert!(reopened.review_reasons().is_empty());
+    }
+
+    #[test]
     fn a_late_scan_does_not_replace_cues_edited_or_reset_since_it_started() {
         let path = PathBuf::from("/tracks/edited.wav");
         let cue = |name: &str| euphoria_core::Cue {
