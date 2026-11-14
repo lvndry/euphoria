@@ -241,10 +241,69 @@ fn reports_an_unreadable_file_and_exits_with_failure() {
 }
 
 #[test]
-fn a_missing_path_is_an_error() {
+fn a_missing_path_is_reported_as_missing_with_status_3() {
     let output = Euphoria::new().run(&["analyze", "/definitely/not/here"]);
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("/definitely/not/here"));
+    assert_eq!(output.status.code(), Some(3));
+    let errors = standard_error(&output);
+    assert!(errors.contains("missing: /definitely/not/here"), "{errors}");
+    assert!(
+        errors.contains("1 file is missing: moved, deleted, or on a drive that is not connected."),
+        "{errors}"
+    );
+    assert!(!errors.contains("error:"), "{errors}");
+}
+
+#[test]
+fn a_missing_path_does_not_stop_the_other_files() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--json",
+        "/definitely/not/here",
+        fixture.to_str().expect("UTF-8 path"),
+        "/0-also-not-here.wav",
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let tracks: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the output is JSON");
+    let tracks = tracks.as_array().expect("the output is an array");
+    assert_eq!(tracks.len(), 3, "{tracks:?}");
+    let paths: Vec<&str> = tracks
+        .iter()
+        .map(|track| track["path"].as_str().expect("a path"))
+        .collect();
+    let mut sorted_paths = paths.clone();
+    sorted_paths.sort_unstable();
+    assert_eq!(paths, sorted_paths, "one object per file, in path order");
+    let missing_track = tracks
+        .iter()
+        .find(|track| track["path"] == "/definitely/not/here")
+        .expect("the missing path has an entry");
+    assert_eq!(missing_track["missing"], true, "{missing_track}");
+    assert!(missing_track["error"].is_string(), "{missing_track}");
+    let analyzed_track = tracks
+        .iter()
+        .find(|track| track["missing"].is_null())
+        .expect("the existing file has an entry");
+    assert!(analyzed_track["error"].is_null(), "{analyzed_track}");
+    assert!(analyzed_track.get("missing").is_none(), "{analyzed_track}");
+}
+
+#[test]
+fn a_failure_and_a_missing_file_exit_with_status_1() {
+    let readme = fixtures_directory().join("README.md");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        readme.to_str().expect("UTF-8 path"),
+        "/definitely/not/here",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let errors = standard_error(&output);
+    assert!(
+        errors.contains(&format!("error: {}", readme.display())),
+        "{errors}"
+    );
+    assert!(errors.contains("missing: /definitely/not/here"), "{errors}");
 }
 
 #[cfg(unix)]

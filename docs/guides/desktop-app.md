@@ -69,7 +69,7 @@ Click a row to select it. The arrow keys, Page Up, Page Down, Home and End move 
 - **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
 - **Quality to check** shows the tracks whose quality is weak on a big system or likely re-encoded: the files worth replacing with a better copy. Like Needs review, it works within the folder on show.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
-- **Missing files** is a placeholder and always shows 0.
+- **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. See [Missing files](#missing-files).
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
 
 ### Browse your folders
@@ -131,8 +131,10 @@ Both follow the tuning analysis measured, so a track tuned a little sharp or fla
 When your ear disagrees with Euphoria, correct the value:
 
 1. Click the runner up chip ("or 9A") to take that key, or the other tempo ("or 87.0") to take that tempo.
-2. Or click **Correct the key or BPM** to pick any of the 24 keys, laid out in Camelot order, or type a tempo such as 124 or 87.5 and press Return or **Use this tempo**.
-3. The box then says **by you** where it said how sure the value was, and the line under it offers **reset to 8A**, the detected value, to undo your correction.
+2. Or click **Correct the key, BPM or energy** to pick any of the 24 keys, laid out in Camelot order, type a tempo such as 124 or 87.5 and press Return or **Use this tempo**, or pick an energy from 1 to 10.
+3. The box then says **by you** where it said how sure the value was, and the line under it offers **reset to 8A**, the detected value, to undo your correction. For the energy, **Reset to detected** in the editor does the same.
+
+An energy you pick is the same 1 to 10 rating the analysis reports, for the tracks whose energy you disagree with, for example a quiet track that lifts a room. It is kept and used like a corrected key or tempo, and a track with a corrected energy keeps its detected key, tempo, beat grid and cues.
 
 A value you set wins everywhere: in the table and search, in **Mixes well with**, in **Needs review**, which no longer lists a track for a value you corrected, in the tags you write, and in `euphoria analyze` and `euphoria export rekordbox` on the command line, which mark it as set by you. Corrections are kept in the [analysis cache](../reference/cli.md#corrections), apart from the analyses: analyzing a track again, or a new version of Euphoria analyzing everything again, never loses them, and they follow a file that was moved, renamed or had its tags written. `euphoria cache clear` keeps them too.
 
@@ -374,7 +376,23 @@ How tags are written:
 
 ## When a file fails
 
-A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on.
+A file that cannot be analyzed stays in the table with **Failed** in its key column and is counted under **Needs review**. Select it to read the reason in the inspector. The other files carry on. A file that is no longer there is not a failure; see [Missing files](#missing-files).
+
+## Missing files
+
+A track is missing when its file is no longer where it was: moved, deleted, or on a drive that is not connected. When the app opens, each track of a playlist or a favorite whose file is gone is first looked for where the analysis cache last saw the same audio, and followed there. A track found nowhere is added to the library as missing. A file that disappears while the app runs becomes missing too, not failed.
+
+A missing track shows **Missing** in its key column and is listed under **Missing files** in the sidebar, not under **Needs review**. The inspector says where the file was.
+
+To point a missing track at where its file is now, right click it and choose **Locate…**, then pick the file. Euphoria reads the file you picked and compares its audio with what the track held. When they match, the track, its playlists, its stars and favorite transitions, and the key, tempo and cues you set follow the file, and its analysis comes back from the cache without analyzing again. Every other missing track whose file sits in the same folder under the same name, with the same audio, is linked too, so locating one track of a moved folder finds the rest. When the picked file holds other audio, nothing changes and a notice says so. When nothing was recorded about the track's audio, Euphoria cannot check the file and asks first: **Link anyway** links it, **Cancel** leaves the track missing.
+
+**Remove from Library** in the same menu takes the missing tracks of the selection out of the library, out of every playlist and out of the favorites. Tracks whose file is there are left alone. Until you remove a missing track, its playlists, favorites and edited cues keep it, so unplugging a drive loses nothing.
+
+A remembered folder that is not there when the app opens is named in the notice and stays remembered: it is searched again at the next launch, and its tracks come back then.
+
+The command line reports missing files the same way, on [`missing:` lines](../reference/cli.md#messages) with exit status 3.
+
+Limits: there is no way yet to forget a remembered folder, and a deleted file of a remembered folder that is in no playlist or favorite is not shown as missing; it is simply not found when the folder is searched.
 
 ## Themes
 
@@ -404,7 +422,7 @@ Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are
 
 Set the `EUPHORIA_DATA_DIR` environment variable to keep it somewhere else.
 
-Files dropped on their own, outside a folder, are not remembered. If the folder that was on show is gone the next time, for example on a drive that is not connected, the app starts on **All tracks**.
+Files dropped on their own, outside a folder, are not remembered. If the folder that was on show is gone the next time, for example on a drive that is not connected, the app starts on **All tracks**. The folder stays remembered and is searched again at the next launch.
 
 ## Remembered results
 
@@ -448,5 +466,4 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - Loops, and cue colours.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Exporting the whole library from the app; `euphoria export rekordbox` does it from the command line. Playlists export from the app.
-- Filters for key and tempo ranges.
 - Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

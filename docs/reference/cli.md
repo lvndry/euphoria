@@ -205,7 +205,7 @@ One object per file, in path order, including files that failed:
 ]
 ```
 
-`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed.
+`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
 A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
 
@@ -215,7 +215,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `needs_review` is `true` when the key or the tempo is rated low or the tags name another key, `false` otherwise, and `null` for a file that could not be analyzed. A value you corrected is no longer doubtful, so it does not count.
 
-`set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
+`set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"`, `"energy"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
@@ -251,6 +251,13 @@ A debug build analyzes many times slower than a release build. When a run of a d
 When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
 
 The command exits with status 0 when every file was analyzed. If any file failed, each one is listed on standard error as `error: <path>: <reason>` after the table, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
+
+A file that is no longer there, because it was moved, deleted, or is on a drive that is not connected, is not a failure. It is listed after the errors as `missing: <path>`, followed by a count, and when files are missing and nothing failed the command exits with status 3, even when every file named is missing. A path named on the command line that does not exist is reported this way, and the other paths are still analyzed:
+
+```
+missing: /Volumes/USB/Crates/Low Tide.flac
+1 file is missing: moved, deleted, or on a drive that is not connected.
+```
 
 ## euphoria export rekordbox
 
@@ -362,7 +369,10 @@ The command also exits with status 1, and writes no file, when:
 - the output file exists and `--force` was not given, or its folder does not exist,
 - the output file is one of the audio files to export, reached by any path or symbolic link, or it has an audio file extension and is inside a folder to export. `--force` does not change this, so an export never replaces a track,
 - no audio file was found, or none could be exported,
+- a file or folder to export does not exist; the error says it is missing,
 - folders are nested more than 32 levels deep, the most a rekordbox XML file can hold. The error names the first folder beyond the limit.
+
+With `--playlist`, a track of the playlist that is no longer anywhere, even where the cache last saw it, is left out and listed as `missing: <path>`; when tracks are missing and nothing failed, the command exits with status 3. A track whose path now holds other audio is left out with a warning, and the command exits with status 1. A file that disappears while the export runs is listed as missing in the same way. When every track of the playlist is missing, nothing is exported and the exit status is 1, as when no audio file is found.
 
 As with `euphoria analyze`, a cache that cannot be used only causes a [warning](#when-the-cache-cannot-be-used), and a failure to save results to the cache partway through gives status 1 after the file is written.
 
@@ -407,7 +417,8 @@ Tracks are matched by the path Engine DJ stores. It refuses to write while Engin
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
 | `--dry-run` | Checks the library and says what would change, writing nothing. |
 
-The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library or a file could not be analyzed.
+The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
+
 ## euphoria export virtualdj
 
 Analyzes audio files and writes the results into the songs of your VirtualDJ `database.xml`, after saving a copy of it. [Export to VirtualDJ](../guides/export-to-virtualdj.md) explains what is written and kept. **Not tested in VirtualDJ.**
@@ -428,7 +439,7 @@ Songs are matched by path, and only songs the database holds are changed. Every 
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
 | `--dry-run` | Says what would change and writes nothing. |
 
-The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database or a file could not be analyzed.
+The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
 
 ## euphoria export m3u8
 
@@ -452,7 +463,7 @@ The file starts with `#EXTM3U` and `#PLAYLIST:` and the playlist's name, then gi
 | `--force` | Replace the output file if it exists. |
 | `--no-cache` | Neither look for files that moved where the cache last saw them, nor read lengths from it. |
 
-Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere, or whose file was replaced at its path by other audio, is left out with a warning, and the command then exits with status 1. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
+Each file is read and compared with the track that was added before it is exported. A track that is no longer anywhere is left out and listed as `missing: <path>`, and the command exits with status 3. A track whose file was replaced at its path by other audio is left out with a warning, and the command exits with status 1. When every track is missing, the file is written with no tracks and the exit status is 3. A path the format cannot hold, such as one with a line break in it, is an error and nothing is written. The file is written in one step, as for [`euphoria export rekordbox`](#what-is-written).
 
 ## euphoria playlists
 
@@ -692,7 +703,7 @@ The command exits with status 0 when the stems are written. It exits with status
 
 ## euphoria corrections export
 
-Writes every key and tempo you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key or tempo model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
+Writes every key, tempo and energy you [corrected](#corrections) as [JSON Lines](https://jsonlines.org/): one JSON object per line, one line per stored content hash. It is meant for training and evaluating a key, tempo or energy model on the tracks you checked by ear, and it is written on your computer and sent nowhere.
 
 ```
 euphoria corrections export [--output <FILE>] [--force] [--include-paths]
@@ -716,18 +727,20 @@ Nothing is analyzed and no audio file is read: the lines come from the [cache](#
 By default a line names its track only by the hash of the file's content: no path and no file name. A program that has the same files finds each one by hashing it the same way. The hash does not hide which track a line is about from someone who has the same file, since they can hash it and look for the result, so treat an export as a list of the tracks you own.
 
 ```json
-{"schema_version":1,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
+{"schema_version":2,"content_hash":"708c038ada074ff39e9b15496e5116710665a6e916e354e580232fea61674e4e","corrected_key":{"name":"E minor","camelot":"9A","tonic":4,"mode":"minor"},"corrected_bpm":null,"corrected_energy":8,"corrected_at":1794409200,"detected_key":{"name":"A minor","camelot":"8A","tonic":9,"mode":"minor"},"detected_bpm":124.0,"detected_energy":6,"analyzer_version":"12+libkeyfinder","analyzed_at":1794408000}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `schema_version` | `1`. It goes up when a field is removed or changes meaning; a new field can appear without it changing. |
+| `schema_version` | `2`. It goes up whenever the fields change; ignore fields you don't know. Version 2 added `corrected_energy` and `detected_energy`; version 1 lines have neither. |
 | `content_hash` | The BLAKE3 hash of every byte of the file, tags and artwork included, as 64 lowercase hexadecimal digits: what `b3sum` prints for the file. |
-| `corrected_key` | The key you set, or `null` when you corrected only the tempo. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
-| `corrected_bpm` | The tempo you set, as you typed it, or `null` when you corrected only the key. |
+| `corrected_key` | The key you set, or `null` when you did not correct the key. `name` is the musical name, `camelot` the Camelot code, `tonic` the pitch class of the tonic from 0 (C) to 11 (B), and `mode` `"major"` or `"minor"`. |
+| `corrected_bpm` | The tempo you set, as you typed it, or `null` when you did not correct the tempo. |
+| `corrected_energy` | The energy rating you set, from 1 to 10, or `null` when you did not correct it. |
 | `corrected_at` | When you set the correction, in seconds since 1 January 1970 UTC. |
 | `detected_key` | The key Euphoria detected for the same content, in the same shape, or `null` when it found none or the track has no stored analysis. |
 | `detected_bpm` | The tempo Euphoria detected, between 90 and 180 BPM, or `null`. |
+| `detected_energy` | The energy rating Euphoria detected, from 1 to 10, or `null` when it rated none or the track has no stored analysis. |
 | `analyzer_version` | The version of the analyzer that detected them, which can be older than the one you run, or `null` when the track has no stored analysis. |
 | `analyzed_at` | When that analysis was stored, in seconds since 1 January 1970 UTC, or `null`. |
 | `path` | Only with `--include-paths`: the absolute path the file was last seen at, or `null` when the cache never recorded one. The file may have moved since. |
@@ -750,7 +763,7 @@ A file found where it was last seen, with the same size and modification time, i
 
 ### Corrections
 
-When you correct a key or a tempo in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
+When you correct a key, a tempo or an energy in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
 
 Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction. [`euphoria corrections export`](#euphoria-corrections-export) writes them all out, to train a key model on.
 
@@ -815,6 +828,7 @@ Every command writes its results to standard output and everything else to stand
 | Starts with | Means |
 | --- | --- |
 | `error:` | Something failed: the file, if there is one, then the reason. The exit status is 1. |
+| `missing:` | A file that is no longer there: moved, deleted, or on a drive that is not connected. When nothing else failed, the exit status is 3. |
 | `warning:` | Something went wrong that did not stop the command, such as a cache that could not be used. |
 | `hint:` | What to do next. |
 | `note:` | Something worth knowing that needs no action. |

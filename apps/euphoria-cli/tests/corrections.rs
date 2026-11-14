@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! A key and a tempo the user set in the desktop app, kept in the cache,
+//! A key, a tempo and an energy the user set in the desktop app, kept in the cache,
 //! replace the detected ones in every command and are marked as set by the
 //! user.
 
@@ -36,6 +36,66 @@ fn corrected_track(euphoria: &Euphoria, folder: &TemporaryFolder) -> std::path::
         .set_correction(&track, &correction)
         .expect("the correction is kept");
     track
+}
+
+/// A copy of a fixture analyzed once, with an energy of 9 and nothing else
+/// corrected, kept in the cache as the app keeps it.
+fn energy_corrected_track(euphoria: &Euphoria, folder: &TemporaryFolder) -> std::path::PathBuf {
+    let track = folder.path().join("track.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
+        .expect("the fixture is copied");
+    assert_success(&euphoria.run(&["analyze", text(&track)]));
+    let detected = euphoria.run(&["analyze", "--json", text(&track)]);
+    let detected: serde_json::Value = serde_json::from_slice(&detected.stdout).expect("JSON");
+    assert_ne!(
+        detected[0]["energy"], 9,
+        "the test needs a different energy"
+    );
+    let mut cache = Cache::open(&euphoria.cache_path()).expect("the cache opens");
+    cache
+        .set_correction(&track, &Correction::of_energy(9).expect("a valid energy"))
+        .expect("the correction is kept");
+    track
+}
+
+#[test]
+fn a_corrected_energy_is_shown_marked_and_leaves_the_key_and_tempo_detected() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = energy_corrected_track(&euphoria, &folder);
+
+    let corrected = euphoria.run(&["analyze", "--json", text(&track)]);
+    assert_success(&corrected);
+    let corrected: serde_json::Value = serde_json::from_slice(&corrected.stdout).expect("JSON");
+    let detected = euphoria.run(&["analyze", "--json", "--no-cache", text(&track)]);
+    let detected: serde_json::Value = serde_json::from_slice(&detected.stdout).expect("JSON");
+    assert_eq!(corrected[0]["energy"], 9);
+    assert_eq!(corrected[0]["set_by_user"], serde_json::json!(["energy"]));
+    assert_eq!(corrected[0]["key"], detected[0]["key"]);
+    assert_eq!(corrected[0]["bpm"], detected[0]["bpm"]);
+}
+
+#[test]
+fn the_rekordbox_export_and_tags_write_use_the_corrected_energy() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = energy_corrected_track(&euphoria, &folder);
+
+    let exported = folder.path().join("rekordbox.xml");
+    assert_success(&euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "--output",
+        text(&exported),
+    ]));
+    let xml = std::fs::read_to_string(&exported).expect("the export is written");
+    assert!(xml.contains("Comments=\"Energy 9\""), "{xml}");
+
+    assert_success(&euphoria.run(&["tags", "write", "--yes", text(&track)]));
+    let tags = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
+    let comment = tags.comment.expect("a comment");
+    assert!(comment.ends_with(" - Energy 9"), "{comment:?}");
 }
 
 #[test]
@@ -283,7 +343,7 @@ fn corrections_export_writes_one_line_per_correction_named_by_content_and_no_pat
     let lines = export_lines(&exported.stdout);
     assert_eq!(lines.len(), 1);
     let line = &lines[0];
-    assert_eq!(line["schema_version"], 1);
+    assert_eq!(line["schema_version"], 2);
     assert_eq!(
         line["content_hash"],
         ContentHash::of_file(&track)
@@ -294,6 +354,8 @@ fn corrections_export_writes_one_line_per_correction_named_by_content_and_no_pat
     assert_eq!(line["corrected_key"]["tonic"], 4);
     assert_eq!(line["corrected_key"]["mode"], "minor");
     assert_eq!(line["corrected_bpm"], 87.0);
+    assert_eq!(line["corrected_energy"], serde_json::Value::Null);
+    assert_eq!(line["detected_energy"], detected[0]["energy"]);
     assert_eq!(
         line["detected_key"]["camelot"],
         detected[0]["key"]["camelot"]
@@ -496,4 +558,19 @@ fn corrections_export_cannot_create_an_export_at_the_missing_cache_path() {
     ]);
     assert!(!exported.status.success());
     assert!(!euphoria.cache_path().exists());
+}
+
+#[test]
+fn corrections_export_holds_the_corrected_energy() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    energy_corrected_track(&euphoria, &folder);
+
+    let exported = euphoria.run(&["corrections", "export"]);
+    assert_success(&exported);
+    let lines = export_lines(&exported.stdout);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["corrected_energy"], 9);
+    assert_eq!(lines[0]["corrected_key"], serde_json::Value::Null);
+    assert_eq!(lines[0]["corrected_bpm"], serde_json::Value::Null);
 }

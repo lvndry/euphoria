@@ -6,7 +6,7 @@
 //! A soft drone of a key's root and fifth, or the notes of a small piano,
 //! play over the track. When the ear disagrees with the detector, the user
 //! takes the runner up key or the other tempo with a click, or picks a key
-//! and types a tempo. A correction wins over the analysis everywhere, is
+//! or an energy and types a tempo. A correction wins over the analysis everywhere, is
 //! kept in the cache apart from analyses so that analyzing again never
 //! loses it, and can be reset to the detected value.
 
@@ -309,6 +309,22 @@ impl EuphoriaApp {
     pub(crate) fn accept_bpm(&mut self, bpm: f32, cx: &mut Context<'_, Self>) {
         self.correct_selected(
             |correction| correction.with_bpm(Some(bpm)).unwrap_or(correction),
+            cx,
+        );
+    }
+
+    /// Takes `energy`, from 1 to 10, as the selected track's energy.
+    pub(crate) fn accept_energy(&mut self, energy: u8, cx: &mut Context<'_, Self>) {
+        self.correct_selected(
+            |correction| correction.with_energy(Some(energy)).unwrap_or(correction),
+            cx,
+        );
+    }
+
+    /// Goes back to the detected energy of the selected track.
+    pub(crate) fn reset_energy(&mut self, cx: &mut Context<'_, Self>) {
+        self.correct_selected(
+            |correction| correction.with_energy(None).unwrap_or(correction),
             cx,
         );
     }

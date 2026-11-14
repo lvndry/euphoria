@@ -29,6 +29,8 @@ mod key_by_ear;
 mod key_shift;
 mod library;
 mod mashup;
+#[cfg(test)]
+mod missing_ui_tests;
 mod mixes;
 mod panels;
 mod peaks;
@@ -38,6 +40,7 @@ mod playlist_flow;
 mod playlists;
 mod progress;
 mod reference_sound;
+mod relink_flow;
 mod reveal;
 mod set_builder;
 #[cfg(test)]

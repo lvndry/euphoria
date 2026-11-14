@@ -63,9 +63,9 @@ fn a_file_that_is_not_audio_is_a_decode_error() {
 }
 
 #[test]
-fn a_missing_file_is_an_open_error() {
+fn a_missing_file_is_reported_as_missing() {
     assert!(matches!(
         read_track_name(Path::new("/definitely/not/here.mp3")),
-        Err(EuphoriaError::Open { .. })
+        Err(EuphoriaError::Missing { .. })
     ));
 }

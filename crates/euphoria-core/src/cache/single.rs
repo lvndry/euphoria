@@ -195,6 +195,16 @@ impl CachedAnalyzer {
             .flatten()
     }
 
+    /// The content the cache last saw at `path`, even when the file is gone.
+    pub fn last_content_at(&self, path: &Path) -> Option<ContentHash> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .last_content_at(path)
+            .ok()
+            .flatten()
+    }
+
     fn analyze_file_with(
         &self,
         path: &Path,
@@ -420,8 +430,28 @@ mod tests {
         assert_eq!(analyzer.stored_analysis(&missing), None);
         assert!(matches!(
             analyzer.analyze_file(&missing),
-            Err(EuphoriaError::Scan { .. })
+            Err(EuphoriaError::Missing { .. })
         ));
+    }
+
+    #[test]
+    fn the_content_last_seen_at_a_deleted_file_is_still_known() {
+        let folder = TemporaryFolder::new();
+        let track = write_track(&folder, "track.mp3", "some audio");
+        let counter = CountingAnalyzer::new();
+        let analyzer = open_analyzer(&folder);
+        analyzer
+            .analyze_file_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        let content = ContentHash::of_file(&track).unwrap();
+        std::fs::remove_file(&track).unwrap();
+
+        assert_eq!(analyzer.known_content(&track), None);
+        assert_eq!(analyzer.last_content_at(&track), Some(content));
+        assert_eq!(
+            analyzer.last_content_at(&folder.path().join("never-seen.mp3")),
+            None
+        );
     }
 
     #[test]

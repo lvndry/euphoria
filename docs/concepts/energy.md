@@ -107,6 +107,10 @@ A window is rated on its own, so the curve usually reaches higher and lower than
 
 The curve of a two minute preview from the benchmark set, computed with `energy_curve`.
 
+## Overriding the rating
+
+When the rating disagrees with your ear, pick another from 1 to 10 in the desktop app's [correction editor](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it). Your rating is kept like a corrected key or tempo, so it survives analyzing again and is used in the table, the tags you write and the rekordbox export, and **Reset to detected** brings the measured rating back.
+
 ## Limits
 
 - **It measures sound, not feeling.** A quiet track with a tense vocal can lift a room, and the rating cannot know that.

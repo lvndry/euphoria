@@ -45,7 +45,7 @@ class Euphoria < Formula
   end
 
   on_arm do
-    depends_on macos: :ventura
+    depends_on macos: :{macos}
   end
 
   def install
@@ -69,11 +69,34 @@ cask "euphoria" do
   sha256 "{dmg_sha256}"
   url "https://github.com/lvndry/euphoria/releases/download/v#{{version}}/Euphoria-#{{version}}.dmg"
 
-  depends_on macos: :ventura
+  depends_on macos: :{macos}
 
   app "Euphoria.app"
 end
 """
+
+
+# Homebrew's names for macOS releases, by major version.
+MACOS_NAMES = {
+    11: "big_sur",
+    12: "monterey",
+    13: "ventura",
+    14: "sonoma",
+    15: "sequoia",
+    26: "tahoe",
+}
+
+
+def minimum_macos(notes):
+    """Homebrew's name of the oldest macOS the release runs on, read from the
+    release notes, which state the app's LSMinimumSystemVersion."""
+    match = re.search(r"macOS (\d+)(?:\.\d+)* or later", notes)
+    if not match:
+        raise SystemExit("the release notes do not say which macOS the app needs")
+    major = int(match.group(1))
+    if major not in MACOS_NAMES:
+        raise SystemExit(f"macOS {major} has no Homebrew name known to this script")
+    return MACOS_NAMES[major]
 
 
 def asset_names(version):
@@ -96,29 +119,31 @@ def parse_checksums(text):
     return found
 
 
-def render_formula(version, tarball_sha256):
+def render_formula(version, tarball_sha256, macos):
     return FORMULA.format(
+        macos=macos,
         base=BASE_URL.format(version=version),
         tarball=MACOS_TARBALL.format(version=version),
         version=version,
         tarball_sha256=tarball_sha256,
     )
 
-def render_cask(version, dmg_sha256):
-    return CASK.format(version=version, dmg_sha256=dmg_sha256)
+def render_cask(version, dmg_sha256, macos):
+    return CASK.format(version=version, dmg_sha256=dmg_sha256, macos=macos)
 
 
 def release_assets(tag):
-    """The names of the files of the GitHub Release of `tag`."""
+    """The names of the files of the GitHub Release of `tag`, and its notes."""
     result = subprocess.run(
-        ["gh", "release", "view", tag, "--json", "assets"],
+        ["gh", "release", "view", tag, "--json", "assets,body"],
         check=False,
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         raise SystemExit(f"cannot read the release {tag}: {result.stderr.strip()}")
-    return {asset["name"] for asset in json.loads(result.stdout)["assets"]}
+    release = json.loads(result.stdout)
+    return {asset["name"] for asset in release["assets"]}, release["body"]
 
 
 def fetch(url):
@@ -153,7 +178,9 @@ def main():
     tarball = MACOS_TARBALL.format(version=version)
     disk_image = DISK_IMAGE.format(version=version)
 
-    missing = asset_names(version) - release_assets(tag)
+    names, notes = release_assets(tag)
+    macos = minimum_macos(notes)
+    missing = asset_names(version) - names
     if missing:
         raise SystemExit(f"the release {tag} has no " + ", ".join(sorted(missing)))
 
@@ -161,10 +188,10 @@ def main():
     (folder_path / "Formula").mkdir(parents=True, exist_ok=True)
     (folder_path / "Casks").mkdir(parents=True, exist_ok=True)
     (folder_path / "Formula" / "euphoria.rb").write_text(
-        render_formula(version, download_checked(tag, version, tarball))
+        render_formula(version, download_checked(tag, version, tarball), macos)
     )
     (folder_path / "Casks" / "euphoria.rb").write_text(
-        render_cask(version, download_checked(tag, version, disk_image))
+        render_cask(version, download_checked(tag, version, disk_image), macos)
     )
     print(f"Wrote the formula and the cask of Euphoria {version} in {folder}")
     return 0

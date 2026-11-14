@@ -470,8 +470,8 @@ fn a_corrected_tempo_keeps_the_users_cues_without_a_grid_and_says_so() {
     let folder = scratch("corrected-tempo");
     let path = copy_fixture(&folder, FORMATS[0]);
     let corrected = euphoria_core::Correction {
-        key: None,
         bpm: Some(126.0),
+        ..Default::default()
     }
     .apply(analysis_with_grid());
     assert_eq!(corrected.beat_grid, None);

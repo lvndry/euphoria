@@ -73,6 +73,42 @@ pub fn write_warning(
     write_message(writer, theme, &theme.warning_label(), message)
 }
 
+/// The exit status of a command that reports missing files apart from
+/// failures, when files were missing and nothing failed.
+pub const MISSING_FILES_EXIT_STATUS: u8 = 3;
+
+/// The exit status of a run: 1 when something failed, 3 when the only
+/// problem is files that are no longer there, and 0 otherwise.
+pub fn exit_status(failed: bool, missing: bool) -> std::process::ExitCode {
+    if failed {
+        std::process::ExitCode::FAILURE
+    } else if missing {
+        std::process::ExitCode::from(MISSING_FILES_EXIT_STATUS)
+    } else {
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+/// Writes one `missing:` line for a file that is no longer where it was.
+pub fn write_missing(writer: &mut impl Write, theme: &Theme, path: &Path) -> io::Result<()> {
+    write_message(
+        writer,
+        theme,
+        &theme.missing_label(),
+        Printable(path.display()),
+    )
+}
+
+/// Writes how many files are missing and what that usually means.
+pub fn write_missing_summary(writer: &mut impl Write, missing_count: usize) -> io::Result<()> {
+    let verb = if missing_count == 1 { "is" } else { "are" };
+    writeln!(
+        writer,
+        "{} {verb} missing: moved, deleted, or on a drive that is not connected.",
+        counted_files(missing_count)
+    )
+}
+
 /// Writes `hint: message`, what to do next.
 pub fn write_hint(writer: &mut impl Write, theme: &Theme, message: impl Display) -> io::Result<()> {
     write_message(writer, theme, &theme.hint_label(), message)
@@ -143,6 +179,10 @@ struct JsonTrack<'result> {
     /// any of "key", "bpm" and "cues".
     set_by_user: Vec<&'static str>,
     error: Option<String>,
+    /// True when the file is no longer there, as opposed to a file that is
+    /// there but failed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    missing: bool,
 }
 
 #[derive(Serialize)]
@@ -326,6 +366,7 @@ pub fn write_json(
                     ),
                     set_by_user: set_by_user(edits),
                     error: None,
+                    missing: false,
                 }
             }
             Err(error) => JsonTrack {
@@ -348,6 +389,7 @@ pub fn write_json(
                 needs_review: None,
                 set_by_user: Vec::new(),
                 error: Some(error.chain()),
+                missing: error.missing_path().is_some(),
             },
         })
         .collect();
@@ -363,6 +405,9 @@ fn set_by_user(edits: &UserEdits) -> Vec<&'static str> {
     }
     if edits.correction.bpm.is_some() {
         names.push("bpm");
+    }
+    if edits.correction.energy.is_some() {
+        names.push("energy");
     }
     if edits.cues.is_some() {
         names.push("cues");
@@ -520,7 +565,8 @@ pub fn write_analysis_summary(
         .iter()
         .filter_map(|result| result.outcome.as_ref().ok())
         .collect();
-    let failure_count = results.len() - analyses.len();
+    let missing_count = results.iter().filter(|result| is_missing(result)).count();
+    let failure_count = results.len() - analyses.len() - missing_count;
     let mut hints: Vec<String> = Vec::new();
     let mut review_hint_given = false;
     let has_conflicts = results.iter().any(|result| {
@@ -700,6 +746,9 @@ pub fn write_analysis_summary(
             counted_files(failure_count)
         )?;
     }
+    if missing_count > 0 {
+        write_missing_summary(writer, missing_count)?;
+    }
     for hint in hints {
         write_hint(writer, theme, hint)?;
     }
@@ -715,16 +764,30 @@ fn or_list(items: &[String]) -> String {
     }
 }
 
-/// Writes one `error:` line per file that could not be analyzed, with why.
+/// True when the result is a file that is no longer there.
+pub fn is_missing(result: &FileResult) -> bool {
+    result
+        .outcome
+        .as_ref()
+        .is_err_and(|error| error.missing_path().is_some())
+}
+
+/// Writes one `error:` line per file that could not be analyzed, with why,
+/// then one `missing:` line per file that is no longer there.
 pub fn write_failures(
     writer: &mut impl Write,
     theme: &Theme,
     results: &[FileResult],
 ) -> io::Result<()> {
     for result in results {
-        if let Err(error) = &result.outcome {
+        if let Err(error) = &result.outcome
+            && error.missing_path().is_none()
+        {
             write_file_error(writer, theme, &result.path, error)?;
         }
+    }
+    for result in results.iter().filter(|result| is_missing(result)) {
+        write_missing(writer, theme, &result.path)?;
     }
     Ok(())
 }
@@ -1016,18 +1079,46 @@ pub fn write_skipped_tracks(
     skipped: &[SkippedTrack],
 ) -> io::Result<()> {
     for skipped_track in skipped {
-        write_file_error(writer, theme, &skipped_track.path, &skipped_track.reason)?;
+        if skipped_track.reason.missing_path().is_none() {
+            write_file_error(writer, theme, &skipped_track.path, &skipped_track.reason)?;
+        }
+    }
+    for skipped_track in skipped {
+        if skipped_track.reason.missing_path().is_some() {
+            write_missing(writer, theme, &skipped_track.path)?;
+        }
     }
     Ok(())
 }
 
-/// Writes how many files an export left out, after their errors.
-pub fn write_skipped_summary(writer: &mut impl Write, skipped_count: usize) -> io::Result<()> {
-    writeln!(
-        writer,
-        "Left {} out of the export; the errors above say why.",
-        counted_files(skipped_count)
-    )
+/// How many of the tracks an export left out are missing files, and how
+/// many failed for another reason.
+pub fn missing_and_failed(skipped: &[SkippedTrack]) -> (usize, usize) {
+    let missing = skipped
+        .iter()
+        .filter(|skipped_track| skipped_track.reason.missing_path().is_some())
+        .count();
+    (missing, skipped.len() - missing)
+}
+
+/// Writes how many files an export left out, after their errors: those
+/// that failed and those that are missing.
+pub fn write_skipped_summary(
+    writer: &mut impl Write,
+    failed_count: usize,
+    missing_count: usize,
+) -> io::Result<()> {
+    if failed_count > 0 {
+        writeln!(
+            writer,
+            "Left {} out of the export; the errors above say why.",
+            counted_files(failed_count)
+        )?;
+    }
+    if missing_count > 0 {
+        write_missing_summary(writer, missing_count)?;
+    }
+    Ok(())
 }
 
 /// Writes one `warning:` line per exported track that is named after its
@@ -1751,7 +1842,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         }];
         let mut buffer = Vec::new();
         write_skipped_tracks(&mut buffer, &Theme::PLAIN, &skipped).unwrap();
-        write_skipped_summary(&mut buffer, skipped.len()).unwrap();
+        write_skipped_summary(&mut buffer, skipped.len(), 0).unwrap();
         assert_eq!(
             String::from_utf8(buffer).unwrap(),
             "error: music/broken.mp3: unrecognised key text: \"example\"\n\

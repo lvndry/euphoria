@@ -155,6 +155,30 @@ impl Cache {
             .map_err(cache_error(&self.path))?;
         Ok(path.flatten().map(PathBuf::from))
     }
+
+    /// The content the cache last saw at `path`, whatever is there now and
+    /// even when nothing is: what a file that went missing held.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::Cache`] when the database cannot be read.
+    pub fn last_content_at(&self, path: &Path) -> Result<Option<ContentHash>, EuphoriaError> {
+        let Some(last_known_path) = std::path::absolute(path)
+            .ok()
+            .and_then(|absolute| absolute.to_str().map(str::to_owned))
+        else {
+            return Ok(None);
+        };
+        self.connection
+            .query_row(
+                "SELECT content_hash FROM analyses WHERE last_known_path = ?1",
+                params![last_known_path],
+                |row| row.get::<_, [u8; 32]>(0),
+            )
+            .optional()
+            .map(|bytes| bytes.map(ContentHash::from_bytes))
+            .map_err(cache_error(&self.path))
+    }
 }
 
 /// Copies the correction and the edited cues of `from` to `to`, each unless
@@ -169,8 +193,8 @@ fn carry_user_edits(
         return Ok(());
     }
     connection.execute(
-        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at)
-         SELECT ?2, key, bpm, corrected_at FROM corrections WHERE content_hash = ?1",
+        "INSERT OR IGNORE INTO corrections (content_hash, key, bpm, corrected_at, energy)
+         SELECT ?2, key, bpm, corrected_at, energy FROM corrections WHERE content_hash = ?1",
         params![from.as_bytes(), to.as_bytes()],
     )?;
     connection.execute(
@@ -308,6 +332,8 @@ mod tests {
         let before = ContentHash::of_file(&path).unwrap();
         let correction = crate::Correction::of_key(Key::new(4, Mode::Minor))
             .with_bpm(Some(87.0))
+            .unwrap()
+            .with_energy(Some(8))
             .unwrap();
         let mut cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
         cache.set_correction(&path, &correction).unwrap();
