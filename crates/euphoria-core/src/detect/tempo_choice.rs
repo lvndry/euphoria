@@ -183,3 +183,82 @@ fn weighted(features: &[f32; FEATURE_COUNT]) -> f32 {
         .map(|(feature, weight)| feature * weight)
         .sum()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_RATE: u32 = 44_100;
+    const FRAME_SIZE: usize = 2_048;
+    const HOP_SIZE: usize = 512;
+
+    fn candidate(bpm: f32, score: f32) -> TempogramCandidateDebug {
+        TempogramCandidateDebug {
+            bpm,
+            score,
+            fft_norm: 0.0,
+            autocorr_norm: 0.0,
+            selected: false,
+        }
+    }
+
+    fn click_track_spectrogram(tempo: f32, seconds: f32) -> Vec<Vec<f32>> {
+        let frames_per_second = SAMPLE_RATE as f32 / HOP_SIZE as f32;
+        let frame_count = (seconds * frames_per_second) as usize;
+        let frames_per_beat = 60.0 / tempo * frames_per_second;
+        let mid_bin = 20;
+        let mut spectrogram = vec![vec![0.0_f32; FRAME_SIZE / 2 + 1]; frame_count];
+        for (index, frame) in spectrogram.iter_mut().enumerate() {
+            let beats = index as f32 / frames_per_beat;
+            let into_beat = beats - beats.floor();
+            let burst = if into_beat * frames_per_beat < 2.0 {
+                1.0
+            } else if (into_beat - 0.5).abs() * frames_per_beat < 2.0 {
+                0.4
+            } else {
+                0.0
+            };
+            frame[mid_bin] = 0.01 + burst;
+        }
+        spectrogram
+    }
+
+    #[test]
+    fn leading_candidates_fold_into_the_default_range_and_merge_octaves() {
+        let leading = leading_candidates(&[
+            candidate(87.0, 0.9),
+            candidate(174.0, 0.8),
+            candidate(130.0, 0.5),
+            candidate(65.0, 0.4),
+        ]);
+        let tempos: Vec<f32> = leading.iter().map(|candidate| candidate.tempo).collect();
+        assert_eq!(tempos, [174.0, 130.0]);
+        assert_eq!(leading[0].score, 0.9);
+    }
+
+    #[test]
+    fn leading_candidates_keep_at_most_four() {
+        let candidates: Vec<_> = (0..10)
+            .map(|index| candidate(100.0 + 8.0 * index as f32, 1.0 - 0.05 * index as f32))
+            .collect();
+        assert_eq!(leading_candidates(&candidates).len(), CANDIDATE_COUNT);
+    }
+
+    #[test]
+    fn chooses_the_beat_over_a_higher_scored_subdivision() {
+        let spectrogram = click_track_spectrogram(130.0, 60.0);
+        let pulse = OnsetPulse::from_spectrogram(&spectrogram, SAMPLE_RATE, FRAME_SIZE, HOP_SIZE);
+        let candidates = leading_candidates(&[candidate(173.3, 1.0), candidate(130.0, 0.7)]);
+        let chosen = choose(&pulse, &candidates).unwrap();
+        assert_eq!(chosen.tempo, 130.0);
+    }
+
+    #[test]
+    fn keeps_the_best_scored_tempo_when_the_onsets_say_nothing() {
+        let silent = vec![vec![0.0_f32; FRAME_SIZE / 2 + 1]; 3_000];
+        let pulse = OnsetPulse::from_spectrogram(&silent, SAMPLE_RATE, FRAME_SIZE, HOP_SIZE);
+        let candidates = leading_candidates(&[candidate(173.3, 1.0), candidate(130.0, 0.7)]);
+        assert_eq!(choose(&pulse, &candidates).unwrap().tempo, 173.3);
+        assert_eq!(choose(&pulse, &[]), None);
+    }
+}
