@@ -205,6 +205,7 @@ fn detected_analysis() -> TrackAnalysis {
         quality: None,
         key_runner_up: None,
         key_score_margin: None,
+        key_source: None,
         tempo_estimate: Some(119.0),
         tempo_score_margin: Some(0.001),
         beat_grid: None,

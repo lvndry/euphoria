@@ -244,6 +244,7 @@ mod tests {
                 tuning_cents: Some((checksum % 100) as f32 - 49.63),
                 key_runner_up: None,
                 key_score_margin: None,
+                key_source: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -598,7 +599,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(stored_version, crate::ANALYZER_VERSION);
+        assert_eq!(stored_version, crate::analyzer_version());
     }
 
     #[test]

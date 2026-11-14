@@ -2003,6 +2003,7 @@ dependencies = [
  "flate2",
  "hound",
  "lofty",
+ "matrixmultiply",
  "ort",
  "pkg-config",
  "rayon",

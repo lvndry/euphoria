@@ -355,6 +355,7 @@ fn analysis_with_grid() -> TrackAnalysis {
         quality: None,
         key_runner_up: None,
         key_score_margin: None,
+        key_source: None,
         tempo_estimate: Some(120.0),
         tempo_score_margin: Some(0.5),
         beat_grid: Some(BeatGrid {

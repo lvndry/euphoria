@@ -16,6 +16,7 @@ blake3.workspace = true
 ebur128.workspace = true
 flacenc.workspace = true
 hound.workspace = true
+matrixmultiply = { workspace = true, optional = true }
 rayon.workspace = true
 flate2.workspace = true
 rusqlite.workspace = true
@@ -53,7 +54,10 @@ roxmltree.workspace = true
 tempfile.workspace = true
 
 [features]
-default = ["libkeyfinder", "pitch-shift"]
+default = ["libkeyfinder", "pitch-shift", "drone"]
+# Key detection with drone-v2, a small neural network that ships inside the
+# library and runs on the CPU in plain Rust.
+drone = ["dep:matrixmultiply"]
 # Key detection through libkeyfinder, a C++ library found with pkg-config.
 libkeyfinder = ["dep:cc", "dep:pkg-config"]
 # Changing the key of a track with Signalsmith Stretch, a C++ library vendored
@@ -63,6 +67,10 @@ pitch-shift = ["dep:cc"]
 # Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
 # which is linked statically and adds tens of megabytes to the binary.
 stems = ["pitch-shift", "dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
+
+[[example]]
+name = "drone_features"
+required-features = ["drone"]
 
 [build-dependencies]
 cc = { workspace = true, optional = true }

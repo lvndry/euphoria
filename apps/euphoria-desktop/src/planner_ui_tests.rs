@@ -39,6 +39,7 @@ fn plan_track(name: &str, key: &str, bpm: f32) -> DemoTrack {
             tuning_cents: None,
             key_runner_up: None,
             key_score_margin: None,
+            key_source: None,
             tempo_estimate: Some(bpm),
             tempo_score_margin: None,
             beat_grid: Some(BeatGrid {

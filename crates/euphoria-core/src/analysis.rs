@@ -8,16 +8,14 @@ use rayon::prelude::*;
 
 use crate::audio_budget::{budgeted_seconds, global_audio_budget};
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
-#[cfg(not(feature = "libkeyfinder"))]
-use crate::detect::KeyDetector;
-#[cfg(feature = "libkeyfinder")]
-use crate::detect::KeyFinderDetector;
 use crate::detect::{
     BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
+    read_key,
 };
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
+use crate::key_engine::{KeySource, key_engine};
 use crate::quality::{QualityReport, decode_measuring_quality};
 use crate::tempo_range::TempoRange;
 
@@ -27,17 +25,26 @@ use crate::tempo_range::TempoRange;
 /// Raise the number whenever a change can alter the key, tempo or duration
 /// reported for a file, or adds something to what is reported: a detector
 /// upgrade, a tuning change, a decoding change. The suffix names the key
-/// detector, since builds with and without the `libkeyfinder` feature report
-/// different keys.
+/// detectors built in, since builds without the `libkeyfinder` or `drone`
+/// feature report different keys. The analysis cache adds the
+/// [`KeyEngine`] in use, so the analyses of each engine are kept apart.
 ///
 /// The energy rating has a version of its own,
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
-pub const ANALYZER_VERSION: &str = if cfg!(feature = "libkeyfinder") {
-    "16+libkeyfinder"
-} else {
-    "16+stratum"
+pub const ANALYZER_VERSION: &str = match (cfg!(feature = "libkeyfinder"), cfg!(feature = "drone")) {
+    (true, true) => "17+libkeyfinder+drone",
+    (true, false) => "17+libkeyfinder",
+    (false, true) => "17+stratum+drone",
+    (false, false) => "17+stratum",
 };
+
+/// The version the analysis cache records for analyses made now: the
+/// [`ANALYZER_VERSION`] and the [`KeyEngine`] chosen with
+/// [`set_key_engine`](crate::set_key_engine).
+pub fn analyzer_version() -> String {
+    format!("{ANALYZER_VERSION}/key-engine={}", key_engine())
+}
 
 /// What Euphoria found in one track.
 #[derive(Debug, Clone, PartialEq)]
@@ -78,8 +85,14 @@ pub struct TrackAnalysis {
     /// the `libkeyfinder` feature.
     pub key_runner_up: Option<Key>,
     /// How far the score of the key is above that of the runner up, the
-    /// basis of [`TrackAnalysis::key_confidence`].
+    /// basis of [`TrackAnalysis::key_confidence`]. For drone-v2 it is the
+    /// difference of the two keys' probabilities.
     pub key_score_margin: Option<f32>,
+    /// The detector that decided the key, which sets the scale of
+    /// [`TrackAnalysis::key_score_margin`]. `None` when there is no key, and
+    /// in analyses stored before it was recorded, which are rated as
+    /// libkeyfinder keys.
+    pub key_source: Option<KeySource>,
     /// The tempo as the detector estimated it, before it is reported in a
     /// range, so that the range can change without analyzing again.
     pub tempo_estimate: Option<f32>,
@@ -100,7 +113,9 @@ impl TrackAnalysis {
     /// How far to trust the key, or `None` when there is no key or no
     /// margin to rate it by.
     pub fn key_confidence(&self) -> Option<Confidence> {
-        self.key.and(self.key_score_margin).map(key_confidence)
+        self.key
+            .and(self.key_score_margin)
+            .map(|margin| key_confidence(self.key_source, margin))
     }
 
     /// How far to trust the beat period of the tempo, whatever octave it is
@@ -239,12 +254,12 @@ impl AnalysisObserver for Unobserved {}
 /// Decodes one file once and finds its key, its tempo, its energy and its
 /// audio quality.
 ///
-/// Key detection uses libkeyfinder when the `libkeyfinder` feature is enabled,
-/// as it is the more accurate detector, and tempo comes from the tempo only
-/// path of `stratum-dsp`, so its costly key analysis does not run. Without
-/// the feature, `stratum-dsp` finds both, the tuning is measured without
-/// being corrected for, and there is no key over time. The energy rating
-/// takes the detected tempo into account when there is one.
+/// The key comes from the [`KeyEngine`](crate::KeyEngine) chosen with
+/// [`set_key_engine`](crate::set_key_engine), by default drone-v2 with
+/// libkeyfinder measuring the tuning and the key over time (see
+/// [`read_key`]). Tempo comes from the tempo only path of `stratum-dsp`, so
+/// its costly key analysis does not run. The energy rating takes the
+/// detected tempo into account when there is one.
 ///
 /// A file that is heavily damaged, with [`SEVERE_LOST_SHARE`](crate::SEVERE_LOST_SHARE)
 /// or more of its audio lost, gets no beat grid and no cues, and says so in
@@ -277,21 +292,14 @@ pub fn analyze_file_observed(
     observer.stage(path, AnalysisStage::Tempo);
     let tempo_reading = StratumDetector.read_tempo(&audio)?;
     observer.stage(path, AnalysisStage::Key);
-    #[cfg(feature = "libkeyfinder")]
-    let reading = KeyFinderDetector.read_key(&audio)?;
-    #[cfg(not(feature = "libkeyfinder"))]
-    let reading = KeyReading {
-        key: StratumDetector.detect_key(&audio)?,
-        tuning_cents: crate::detect::measure_tuning(&audio).map(|tuning| tuning.cents),
-        ..KeyReading::default()
-    };
     let KeyReading {
         key,
         runner_up,
         score_margin,
         tuning_cents,
         timeline,
-    } = reading;
+        source: key_source,
+    } = read_key(key_engine(), &audio)?;
 
     // The energy rating was set with tempos in the default range, so it uses
     // that tempo whatever range the tempo is reported in.
@@ -318,6 +326,7 @@ pub fn analyze_file_observed(
         quality: Some(quality),
         key_runner_up: runner_up,
         key_score_margin: score_margin,
+        key_source,
         tempo_estimate: tempo_reading.map(|reading| reading.estimate),
         tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
         beat_grid,
