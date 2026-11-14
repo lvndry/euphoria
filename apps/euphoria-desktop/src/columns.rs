@@ -495,7 +495,7 @@ mod tests {
         for table_width in (400..1800).step_by(10) {
             let layout = TableLayout::new(table_width as f32, &ColumnWidths::default(), 133.0);
             assert!(
-                !layout.shows(ColumnId::Format) || layout.shows(ColumnId::Cues),
+                layout.shows(ColumnId::Format) || !layout.shows(ColumnId::Cues),
                 "Format is only left out after Cues, at {table_width}"
             );
         }

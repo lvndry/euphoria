@@ -1272,8 +1272,8 @@ mod tests {
         let waiting = library.track_by_path(Path::new("/music/techno/waiting.m4a"));
         assert_eq!(waiting.unwrap().cue_count(), None);
         let ascending_names = visible(&library, "", ascending(SortColumn::Cues));
-        assert_eq!(ascending_names[ascending_names.len() - 3], "Undertow.wav");
-        assert_eq!(ascending_names[ascending_names.len() - 2], "saffron.mp3");
+        assert_eq!(ascending_names[ascending_names.len() - 4], "Undertow.wav");
+        assert_eq!(ascending_names[ascending_names.len() - 3], "saffron.mp3");
         let descending_names = visible(&library, "", descending(SortColumn::Cues));
         assert_eq!(descending_names[0], "saffron.mp3");
         assert_eq!(descending_names[1], "Undertow.wav");

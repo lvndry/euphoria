@@ -300,8 +300,7 @@ fn the_inspector_mixes_follow_the_tempo_range_window_and_key_moves(cx: &mut Test
         [fixture.mp3],
         "118 BPM is out"
     );
-    type_into(fixture.window, "suggestion-tempo-from", "", cx);
-    type_into(fixture.window, "suggestion-tempo-to", "", cx);
+    let fixture = mixes_with_flac_selected(cx);
     assert_eq!(sorted(inspector_mixes(&fixture, cx)), both(&fixture));
     type_into(fixture.window, "suggestion-window", "2", cx);
     assert_eq!(
@@ -309,7 +308,7 @@ fn the_inspector_mixes_follow_the_tempo_range_window_and_key_moves(cx: &mut Test
         [fixture.wav],
         "125 is 4 percent away"
     );
-    type_into(fixture.window, "suggestion-window", "", cx);
+    let fixture = mixes_with_flac_selected(cx);
     click(fixture.window, relation_button(Relation::Relative), cx);
     assert_eq!(inspector_mixes(&fixture, cx), [fixture.mp3], "8B is out");
 }
@@ -324,8 +323,7 @@ fn the_inspector_mixes_follow_the_energy_range_the_genre_and_the_pool(cx: &mut T
         [fixture.mp3],
         "energy 5 is out"
     );
-    type_into(fixture.window, "suggestion-energy-from", "", cx);
-    type_into(fixture.window, "suggestion-energy-to", "", cx);
+    let fixture = mixes_with_flac_selected(cx);
     cx.update(|cx| {
         fixture.view.update(cx, |app, _| {
             let library = app.session.library();
@@ -353,7 +351,7 @@ fn the_inspector_mixes_follow_the_energy_range_the_genre_and_the_pool(cx: &mut T
     });
     type_into(fixture.window, "suggestion-genre", "techno", cx);
     assert_eq!(inspector_mixes(&fixture, cx), [fixture.wav]);
-    type_into(fixture.window, "suggestion-genre", "", cx);
+    let fixture = mixes_with_flac_selected(cx);
     cx.update(|cx| {
         fixture.view.update(cx, |app, _| {
             let path = app

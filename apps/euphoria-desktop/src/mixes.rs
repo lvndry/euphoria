@@ -348,7 +348,7 @@ mod tests {
             ("selected", "A minor", 124.0),
             ("same", "A minor", 124.0),
             ("adjacent", "E minor", 124.0),
-            ("relative", "C major", 130.0),
+            ("relative", "C major", 135.0),
             ("boost", "B minor", 124.0),
         ]);
         let names = |filter: &SuggestionFilter, pool: &[usize]| -> Vec<String> {
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(
             names(&SuggestionFilter::default(), &everyone),
             ["same.flac", "adjacent.flac"],
-            "relative is 4.8 percent faster but 130 is over the window"
+            "135 is 8.9 percent faster, over the window"
         );
         let wide = SuggestionFilter {
             tempo_window_percent: Some(10.0),
@@ -377,8 +377,8 @@ mod tests {
         };
         assert_eq!(names(&relative_only, &everyone), ["relative.flac"]);
         let tempo_range = SuggestionFilter {
-            bpm_min: Some(128.0),
-            bpm_max: Some(132.0),
+            bpm_min: Some(133.0),
+            bpm_max: Some(137.0),
             ..wide
         };
         assert_eq!(names(&tempo_range, &everyone), ["relative.flac"]);
