@@ -400,7 +400,17 @@ impl EuphoriaApp {
             tag_panel: None,
             library_export: None,
             running_checks: crate::library_export::RunningChecks::REAL,
-            program_checks: euphoria_core::export::program_files::DjProgramChecks::REAL,
+            program_checks: if cfg!(test) {
+                euphoria_core::export::program_files::DjProgramChecks {
+                    rekordbox: || Some(false),
+                    serato: || Some(false),
+                    traktor: || Some(false),
+                    engine: || Some(false),
+                    virtualdj: || Some(false),
+                }
+            } else {
+                euphoria_core::export::program_files::DjProgramChecks::REAL
+            },
             settings_open: false,
             write_log_directory: if cfg!(test) {
                 None

@@ -17,6 +17,8 @@ It shows every change first and asks before it writes anything. Afterwards, one 
 euphoria tags undo
 ```
 
+Writing is safe by default. A key or tempo a file already has is kept, a key or tempo Euphoria is unsure of is left out, and the label is not added unless you pick a DJ program. [Safe by default](#safe-by-default) says what changed and how to get the old behaviour back.
+
 A write changes the tag fields it shows and nothing else. Your comments, artwork, cue points, ratings and the audio stay byte for byte what they were, and an undo returns each file to exactly the bytes it had. [Tags](../reference/tags.md) describes how that is done and checked.
 
 The [desktop app](desktop-app.md#write-tags) does the same from its toolbar, with the preview in a window, and shares the backups with these commands: `euphoria tags undo` undoes a write made in the app, and the app undoes one made here.
@@ -27,9 +29,30 @@ The [desktop app](desktop-app.md#write-tags) does the same from its toolbar, wit
 | --- | --- | --- |
 | Key | The key field of the file's tag format | `8A` |
 | Tempo | The tempo field | `126` |
-| Key and energy | A label in front of the comment | `8A - Energy 7` |
+| Key and energy | A label in front of the comment, only with a DJ preset or `--label` | `8A - Energy 7` |
 
-The energy rating has no tag field of its own that DJ programs read, so it goes into the comment, in the form Mixed In Key users know: you can sort and search for it in the comment column of any DJ program.
+The energy rating has no tag field of its own that DJ programs read, so it goes into the comment, in the form Mixed In Key users know: you can sort and search for it in the comment column of any DJ program. With the default `generic` preset no label is written, so the energy is not written either; add `--label comment-start` for it.
+
+## Safe by default
+
+Earlier versions replaced the key and tempo of every file with what the analysis found, and put a label in front of every comment. A tempo from the analysis is only as good as the analysis: a hip hop track tagged 75 BPM could become 150 after the 90 to 180 range folded it, and a key you set by hand could be replaced by a low-confidence guess. Euphoria is meant to never silently damage a tag that is right, so the defaults changed:
+
+| Before | Now | To get the old behaviour back |
+| --- | --- | --- |
+| A key and tempo already in the file were replaced. | A key or tempo that can be read is kept, and the preview says `key kept (already tagged 8A)`. | `--overwrite` |
+| Keys and tempos rated low confidence were written. | They are left out, and the preview says `key not written (rated low confidence)`. A key or tempo you corrected counts as high confidence and is always written. | `--include-low-confidence` |
+| The `8A - Energy 7` label went in front of every comment. | The `generic` preset writes no label. The DJ presets (`rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj`, `mixxx`) keep writing it at the start of the comment. | `--label comment-start` |
+| Writing went ahead while a DJ program was running. | Euphoria warns, and the command needs `--yes` to go on. | `--yes` |
+
+A value that is not readable, such as `o` in the key field, counts as missing and is replaced. A decimal comma counts: a tempo of `127,5` is read as 127.5.
+
+### Values Euphoria wrote itself are updated
+
+Keeping every existing value would stop an update of Euphoria, or a correction you make, from ever reaching files Euphoria tagged earlier. So a value Euphoria's own analysis wrote is not treated as existing, as long as it is still in the file as written. Euphoria tells the two apart with its write log, the same backups that `euphoria tags undo` uses. Each log entry records that the values came from an analysis, and the value written. A key or tempo is Euphoria's when the file still holds exactly what the log says an analysis wrote there. A value you typed with `euphoria tags set`, one typed in another program, and one an analysis wrote before the log recorded this (earlier versions) are not Euphoria's, so they are kept. Undoing a write removes its log, and what it wrote is then no longer known as Euphoria's.
+
+The label is not used for this, because Mixed In Key writes the same `8A - Energy 7` form and a label cannot say who wrote the key next to it.
+
+When the key is left out and the comment already holds a label, the label is left alone rather than rewritten without its key.
 
 ### Your comment is kept
 
@@ -49,16 +72,17 @@ Only text that has exactly the form of a label counts as one: a Camelot code (`8
 
 | Option | Result |
 | --- | --- |
-| `--label comment-start` | `8A - Energy 7 - your comment`. The default. |
+| `--label comment-start` | `8A - Energy 7 - your comment`. The default with a DJ preset. |
 | `--label comment-end` | `your comment - 8A - Energy 7` |
 | `--label grouping` | The label goes in front of the grouping, and the comment is not touched. |
-| `--label none` | No label. The energy is not written, and neither the comment nor the grouping is touched. |
+| `--label none` | No label. The energy is not written, and neither the comment nor the grouping is touched. The default with the `generic` preset. |
 
 When you change this option between two writes, a label with an energy rating at the other end of the same field is removed, so the comment still holds one label. A label is not moved from the comment to the grouping or back: the field you no longer choose is left as it is.
 
 ### Other choices
 
 - `--key-notation musical` writes `Am` instead of `8A`, in the key field and in the label. `--key-notation open-key` writes `1m`, the notation Traktor uses for its own keys.
+- `--overwrite` replaces a key or tempo the file already has. `--include-low-confidence` also writes keys and tempos rated low confidence.
 - `--no-tempo` leaves the tempo field alone. `--tempo` writes it with the Serato preset, which otherwise leaves it out.
 
 ## Choose your DJ program
@@ -85,6 +109,9 @@ $ euphoria tags write ~/Music/DJ
   INITIALKEY: (none) -> 8A
   BPM: (none) -> 124
   COMMENT: https://example.com/track/42 -> 8A - Energy 7 - https://example.com/track/42
+  key kept (already tagged 9A)
+/Users/you/Music/DJ/warm sun.mp3
+  tempo not written (rated low confidence)
 340 files to change, 2 already up to date.
 Write these changes to 340 files? [y/N]
 ```
@@ -94,6 +121,7 @@ On a terminal, the current values are dimmed and the new ones are green. Answer 
 - `--dry-run` stops after the preview. Nothing is written and nothing is asked.
 - `--yes` writes without asking, for use in scripts.
 - When the command cannot ask, because its input is not a terminal, and `--yes` was not given, it writes nothing and says so.
+- When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the command warns that the program may save a file during the write and lose the change, and writes nothing until you run it again with `--yes`. It never refuses outright.
 
 Files that already hold the right values are not touched at all.
 
@@ -114,7 +142,7 @@ If you changed the tags of a file after the write, undo leaves that file alone r
 A file that cannot be written safely is reported with the reason and skipped. The other files are written, and the command exits with status 1.
 
 - **Files with more than one hard link** are not written. One file that appears under several names cannot be replaced without either leaving the other names with the old contents or risking the file under every name. To tag such a file, make it a file of its own first, by copying it and moving the copy over the name you use.
-- **Files changed by another program during the write** are not written. If your DJ software or a tag editor saves a file between the preview and the write, or while Euphoria is writing it, Euphoria notices, leaves the file as the other program left it, and reports it. Run the command again for those files. It is still best to close other programs that write tags while Euphoria writes.
+- **Files changed by another program during the write** are not written. If your DJ software or a tag editor saves a file between the preview and the write, or while Euphoria is writing it, Euphoria notices, leaves the file as the other program left it, and reports it. Run the command again for those files. Euphoria also warns when it finds a DJ program running, since that is the usual cause. The process names it looks for were not tested against the real programs.
 - **Tags that cannot be taken apart safely** are not written, for example an ID3v2 tag with an extended header or a fragmented MP4 file. [Tags](../reference/tags.md#when-a-write-is-refused) lists every case.
 - The owner, access control lists and extended attributes of a file, such as Finder tags, are not carried over to the rewritten file. Its permission bits are.
 - The modification time of a written file changes, on a write and on an undo.

@@ -92,10 +92,17 @@ fn the_rekordbox_export_and_tags_write_use_the_corrected_energy() {
     let xml = std::fs::read_to_string(&exported).expect("the export is written");
     assert!(xml.contains("Comments=\"Energy 9\""), "{xml}");
 
-    assert_success(&euphoria.run(&["tags", "write", "--yes", text(&track)]));
+    assert_success(&euphoria.run(&[
+        "tags",
+        "write",
+        "--yes",
+        "--label",
+        "comment-start",
+        text(&track),
+    ]));
     let tags = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
     let comment = tags.comment.expect("a comment");
-    assert!(comment.ends_with(" - Energy 9"), "{comment:?}");
+    assert!(comment.ends_with("Energy 9"), "{comment:?}");
 }
 
 #[test]

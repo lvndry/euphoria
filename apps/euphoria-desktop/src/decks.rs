@@ -1110,6 +1110,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_typed_tempo_may_use_a_decimal_comma() {
+        assert!(matches!(number("127,5"), Typed::Number(value) if value == 127.5));
+        assert!(matches!(number(" 87.5 "), Typed::Number(value) if value == 87.5));
+        assert!(matches!(number("1,2,3"), Typed::Unreadable));
+        assert!(matches!(number(""), Typed::Empty));
+    }
+
+    #[test]
     fn the_crossfader_trades_equal_power_between_the_decks() {
         let mut decks = Decks::default();
         let gains = decks.gains();

@@ -568,6 +568,97 @@ mod tests {
         }
     }
 
+    #[derive(clap::Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        arguments: WriteArguments,
+    }
+
+    fn options_of(extra: &[&str]) -> TagWriteOptions {
+        use clap::Parser;
+        let mut words = vec!["write", "track.mp3"];
+        words.extend_from_slice(extra);
+        Wrapper::try_parse_from(words).unwrap().arguments.options()
+    }
+
+    #[test]
+    fn the_label_defaults_to_none_for_any_program_and_stays_for_dj_programs() {
+        assert_eq!(options_of(&[]).label, LabelPlacement::None);
+        for preset in [
+            "rekordbox",
+            "serato",
+            "traktor",
+            "engine-dj",
+            "virtualdj",
+            "mixxx",
+        ] {
+            assert_eq!(
+                options_of(&["--preset", preset]).label,
+                LabelPlacement::CommentStart,
+                "{preset}"
+            );
+        }
+        assert_eq!(
+            options_of(&["--label", "comment-start"]).label,
+            LabelPlacement::CommentStart
+        );
+        assert_eq!(
+            options_of(&["--preset", "rekordbox", "--label", "none"]).label,
+            LabelPlacement::None
+        );
+        assert_eq!(
+            options_of(&["--label", "grouping"]).label,
+            LabelPlacement::Grouping
+        );
+    }
+
+    #[test]
+    fn existing_values_are_kept_and_low_confidence_skipped_unless_asked_otherwise() {
+        let safe = options_of(&[]);
+        assert!(safe.keep_existing && safe.skip_low_confidence);
+        let overwrite = options_of(&["--overwrite"]);
+        assert!(!overwrite.keep_existing && overwrite.skip_low_confidence);
+        let low = options_of(&["--include-low-confidence"]);
+        assert!(low.keep_existing && !low.skip_low_confidence);
+    }
+
+    fn only_rekordbox() -> DjProgramChecks {
+        DjProgramChecks {
+            rekordbox: || Some(true),
+            serato: || Some(false),
+            traktor: || None,
+            engine: || Some(false),
+            virtualdj: || Some(false),
+        }
+    }
+
+    fn none_running() -> DjProgramChecks {
+        DjProgramChecks {
+            rekordbox: || Some(false),
+            ..only_rekordbox()
+        }
+    }
+
+    #[test]
+    fn a_running_dj_program_needs_yes_and_never_blocks_outright() {
+        let theme = Theme::stderr();
+        let mut output = Vec::new();
+        assert!(check_programs_closed(&none_running(), false, &theme, &mut output).unwrap());
+        assert!(output.is_empty());
+
+        let mut output = Vec::new();
+        assert!(!check_programs_closed(&only_rekordbox(), false, &theme, &mut output).unwrap());
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("rekordbox is running"), "{text}");
+        assert!(text.contains("--yes"), "{text}");
+
+        let mut output = Vec::new();
+        assert!(check_programs_closed(&only_rekordbox(), true, &theme, &mut output).unwrap());
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("rekordbox is running"), "{text}");
+        assert!(!text.contains("nothing was written"), "{text}");
+    }
+
     #[test]
     fn only_a_clear_yes_confirms() {
         for answer in ["y\n", "Y\n", "yes\n", " Yes \r\n"] {

@@ -611,6 +611,122 @@ mod tests {
             .collect()
     }
 
+    fn low_confidence_analysis() -> TrackAnalysis {
+        TrackAnalysis {
+            key_runner_up: Some(Key::new(4, euphoria_core::Mode::Minor)),
+            key_score_margin: Some(0.0),
+            tempo_estimate: Some(75.0),
+            tempo_score_margin: Some(0.01),
+            ..analysis()
+        }
+    }
+
+    fn only(path: &PathBuf, analysis: TrackAnalysis, correction: Correction) -> Vec<WriteTarget> {
+        vec![WriteTarget {
+            path: path.clone(),
+            analysis: Some(analysis),
+            correction,
+            edited_cues: None,
+        }]
+    }
+
+    #[test]
+    fn existing_values_are_kept_and_listed_unless_the_setting_replaces_them() {
+        let scratch = ScratchFolder::new("keep-existing");
+        let files = scratch.copy_fixtures();
+        let path = &files[0];
+        let other_key = TrackAnalysis {
+            key: Some(Key::new(4, euphoria_core::Mode::Minor)),
+            bpm: Some(150.0),
+            ..analysis()
+        };
+        let seeded = plan_writes(
+            &only(path, analysis(), Correction::default()),
+            &TagSettings {
+                replace_existing: true,
+                ..TagSettings::default()
+            },
+        );
+        euphoria_core::tags::apply_plan(&seeded.plans[0]).unwrap();
+
+        let kept = plan_writes(
+            &only(path, other_key.clone(), Correction::default()),
+            &TagSettings::default(),
+        );
+        assert!(kept.plans.is_empty());
+        assert_eq!(kept.up_to_date, 1);
+        assert_eq!(
+            kept.left_alone[0].reason,
+            "key kept (already tagged 8A); tempo kept (already tagged 124)"
+        );
+
+        let replaced = plan_writes(
+            &only(path, other_key, Correction::default()),
+            &TagSettings {
+                replace_existing: true,
+                ..TagSettings::default()
+            },
+        );
+        assert_eq!(replaced.plans.len(), 1);
+        assert!(replaced.left_alone.is_empty());
+    }
+
+    #[test]
+    fn a_low_confidence_value_is_left_out_but_a_correction_is_written() {
+        let scratch = ScratchFolder::new("low-confidence");
+        let files = scratch.copy_fixtures();
+        let path = &files[0];
+        let skipped = plan_writes(
+            &only(path, low_confidence_analysis(), Correction::default()),
+            &TagSettings::default(),
+        );
+        let rows = preview_rows(&skipped.plans);
+        let lines: Vec<&String> = rows
+            .iter()
+            .filter_map(|row| match row {
+                PreviewRow::Skipped(line) => Some(line),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "key not written (rated low confidence)",
+                "tempo not written (rated low confidence)"
+            ]
+        );
+
+        let corrected = plan_writes(
+            &only(
+                path,
+                low_confidence_analysis(),
+                Correction::of_key(Key::new(4, euphoria_core::Mode::Minor))
+                    .with_bpm(Some(87.0))
+                    .unwrap(),
+            ),
+            &TagSettings::default(),
+        );
+        let fields: Vec<&str> = corrected.plans[0]
+            .changes()
+            .iter()
+            .map(|change| change.field.as_str())
+            .collect();
+        assert!(
+            fields.contains(&"TKEY") && fields.contains(&"TBPM"),
+            "{fields:?}"
+        );
+        assert!(corrected.plans[0].skipped().is_empty());
+
+        let included = plan_writes(
+            &only(path, low_confidence_analysis(), Correction::default()),
+            &TagSettings {
+                include_low_confidence: true,
+                ..TagSettings::default()
+            },
+        );
+        assert!(included.plans[0].skipped().is_empty());
+    }
+
     fn analysis_with_grid() -> TrackAnalysis {
         TrackAnalysis {
             beat_grid: Some(euphoria_core::detect::BeatGrid {

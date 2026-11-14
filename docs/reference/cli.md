@@ -560,11 +560,13 @@ hint: To put the old tags back, run `euphoria tags undo`.
 | Option | Effect |
 | --- | --- |
 | `--dry-run` | Show the preview and write nothing. Cannot be combined with `--yes`. |
-| `-y`, `--yes` | Write without asking for confirmation. |
+| `-y`, `--yes` | Write without asking for confirmation. Also needed when rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running: the command warns that the program may lose the change and writes nothing without `--yes`. |
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. Applies to the key field and to the label. |
 | `--no-tempo` | Leave the tempo field alone. |
 | `--tempo` | Write the tempo with the `serato` preset, which leaves it out otherwise. Cannot be combined with `--no-tempo`. |
-| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start` (the default), `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. |
+| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start`, `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. The default is `none` with the `generic` preset and `comment-start` with a DJ program's preset. Before this changed, `comment-start` was the default for every preset. |
+| `--overwrite` | Replace a key or tempo the file already has. Without it, one that can be read is kept, unless an earlier `tags write` wrote it and it is unchanged. The preview lists each one kept. |
+| `--include-low-confidence` | Also write a key or tempo rated low confidence. Without it, those are left out and listed. A key or tempo you corrected counts as high confidence. |
 | `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
 | `--serato-markers` | Also write each track's cue points and beat grid where Serato DJ reads them, in MP3, AIFF, M4A and FLAC files, keeping every cue and grid the files already have. The cues you set in the desktop app are written instead of the automatic ones, on their pads. Not tested in Serato. See [cue points and beat grids for Serato](../guides/serato-cues.md). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
@@ -573,9 +575,13 @@ hint: To put the old tags back, run `euphoria tags undo`.
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
 | `-h`, `--help` | Show help. |
 
+### Safe defaults
+
+The defaults of `tags write` changed so that it never silently damages a tag that is right: an existing readable key or tempo is kept (`--overwrite` restores the old replacing), a key or tempo rated low confidence is left out (`--include-low-confidence` restores writing them), the `generic` preset writes no label (`--label comment-start` restores it) and a running DJ program needs `--yes`. [Write tags](../guides/write-tags.md#safe-by-default) explains each and how Euphoria tells its own earlier values from yours.
+
 ### Preview and confirmation
 
-The preview goes to standard output: the path of each file that would change, then one line per field with the value it has and the value it would get. `(none)` stands for a field the file does not have. Files that already hold the values are not listed and are never touched. Producing the preview only reads the files.
+The preview goes to standard output: the path of each file that would change, then one line per field with the value it has and the value it would get, then a line for each key or tempo left out, such as `key kept (already tagged 8A)` or `tempo not written (rated low confidence)`. A file with nothing to change that has such a line is listed too. `(none)` stands for a field the file does not have. Files that already hold the values are not listed and are never touched. Producing the preview only reads the files.
 
 Standard error then gets one line with the number of files to change, the number already up to date and the number left out because of errors, and the question. Only `y` or `yes` writes. With `--dry-run` there is no question. When there is nothing to change there is no question either.
 
