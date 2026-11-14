@@ -217,7 +217,7 @@ Select a track and press Space, or click the round play button, to hear it. Pres
 - The position and the length are shown as "2:23 / 6:48".
 - When a track reaches its end it stops there. Play starts it again from the beginning.
 
-In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, a thin progress line and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
+In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, the track's waveform as a seek bar and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
@@ -297,7 +297,17 @@ The waveform shows the whole track from left to right, and its colours show what
 
 The three are drawn on top of one another, bass at the back, each as tall as that band is loud. A stretch with a kick is tall and blue, a breakdown without drums loses its blue and shrinks to amber, and hi hats show as light tips.
 
-The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. The progress line in the player bar works the same way. Before you press play, a click sets where playing will start.
+The waveform is also where you move through the track. A line marks where playing is, and the part already played is fainter. Click anywhere on the waveform to jump there, or hold the button and drag. Before you press play, a click sets where playing will start. A click on a paused or stopped track only moves the position and does not start playing; while a track plays, a click moves the sound and it keeps playing.
+
+### The waveform in the player bar
+
+The player bar draws the selected track's waveform about 40 pixels tall: the part already played in the accent colour, the rest muted. It reuses the waveform the inspector already decoded, so it costs no extra decoding. Click or drag anywhere on it to seek, with the same rule as above.
+
+- Each cue is a thin line in the accent colour with its hot cue letter above it (a dot for a memory cue). Click the letter to jump to the cue; it does not start or pause playing.
+- Each section boundary (Intro, Main, Breakdown, Drop, Outro, or Section 2, Section 3 for tracks without clear drops) is a faint tick. Hover it to see the section's name.
+- While the waveform is not ready, because the track is not analysed yet or the audio is still loading, the bar shows the thin progress line instead. A track whose file is missing shows the thin line and nothing else.
+
+The bar's bars are computed once per track and again only when the window is resized. The Deck theme has no player bar, so it keeps the wide waveform in the strip.
 
 ### Cue points
 
