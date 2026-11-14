@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Halves the sample rate the way the drone-v1 features were made: librosa's
+//! Halves the sample rate the way the drone-v2 features were made: librosa's
 //! constant-Q transform halves the rate once per octave with libsoxr at its
 //! high quality setting, which for an exact factor of two is one linear
 //! phase low pass followed by keeping every other sample.

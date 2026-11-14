@@ -56,7 +56,7 @@ tempfile.workspace = true
 
 [features]
 default = ["libkeyfinder", "pitch-shift", "drone"]
-# Key detection with drone-v1, a small neural network that ships inside the
+# Key detection with drone-v2, a small neural network that ships inside the
 # library and runs on the CPU in plain Rust.
 drone = ["dep:matrixmultiply"]
 # Key detection through libkeyfinder, a C++ library found with pkg-config.

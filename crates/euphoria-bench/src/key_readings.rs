@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Writes what libkeyfinder and drone-v1 each read in every GiantSteps
+//! Writes what libkeyfinder and drone-v2 each read in every GiantSteps
 //! track, one JSON line per track, to choose and check how the two are
 //! combined and how their confidence is rated.
 

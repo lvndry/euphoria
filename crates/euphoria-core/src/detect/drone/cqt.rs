@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The drone-v1 features: librosa's constant-Q transform (version 1.0, as
+//! The drone-v2 features: librosa's constant-Q transform (version 1.0, as
 //! drone calls it) with 24 bins per octave, 208 bins from four semitones
 //! below C1, a hop of 4096 samples at 22,050 Hz, and the log of one plus the
 //! magnitude, rounded to half precision as drone stores it.

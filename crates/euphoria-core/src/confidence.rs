@@ -9,8 +9,8 @@ use crate::key_engine::KeySource;
 ///
 /// Each level comes from how clearly the detector preferred its answer to
 /// the next best one, with band edges set on half of the GiantSteps previews
-/// and checked on the other half. On that other half, a drone-v1 key rated
-/// high was exactly right 77% of the time, medium 72% and low 43%; a
+/// and checked on the other half. On that other half, a drone-v2 key rated
+/// high was exactly right 84% of the time, medium 68% and low 26%; a
 /// libkeyfinder key 74%, 57% and 41%; a tempo rated high was right modulo
 /// octaves 98% of the time, medium 90% and low 63%.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -47,14 +47,14 @@ const KEY_MEDIUM_MARGIN: f32 = 0.003;
 /// A key whose score beats the runner up by at least this is rated high.
 const KEY_HIGH_MARGIN: f32 = 0.011;
 
-/// A drone-v1 key whose probability beats the runner up's by less than
+/// A drone-v2 key whose probability beats the runner up's by less than
 /// this is rated low. Set, like the libkeyfinder edges, on the GiantSteps
 /// development half so that about one key in five is low and two in five
 /// are high.
-const DRONE_KEY_MEDIUM_MARGIN: f32 = 0.25;
-/// A drone-v1 key whose probability beats the runner up's by at least this
+const DRONE_KEY_MEDIUM_MARGIN: f32 = 0.16;
+/// A drone-v2 key whose probability beats the runner up's by at least this
 /// is rated high.
-const DRONE_KEY_HIGH_MARGIN: f32 = 0.80;
+const DRONE_KEY_HIGH_MARGIN: f32 = 0.72;
 
 /// A tempo whose tempogram score beats the best tempo that is not an
 /// octave of it by less than this is rated low.
@@ -112,10 +112,10 @@ mod tests {
     #[test]
     fn drone_margins_fall_into_their_own_bands() {
         let drone = Some(KeySource::Drone);
-        assert_eq!(key_confidence(drone, 0.249), Confidence::Low);
-        assert_eq!(key_confidence(drone, 0.25), Confidence::Medium);
-        assert_eq!(key_confidence(drone, 0.799), Confidence::Medium);
-        assert_eq!(key_confidence(drone, 0.8), Confidence::High);
+        assert_eq!(key_confidence(drone, 0.159), Confidence::Low);
+        assert_eq!(key_confidence(drone, 0.16), Confidence::Medium);
+        assert_eq!(key_confidence(drone, 0.719), Confidence::Medium);
+        assert_eq!(key_confidence(drone, 0.72), Confidence::High);
         assert_eq!(
             key_confidence(Some(KeySource::KeyFinder), 0.2),
             Confidence::High

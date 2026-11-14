@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The drone-v1 network, run on the CPU with no inference runtime: three
+//! The drone-v2 network, run on the CPU with no inference runtime: three
 //! blocks of two 3x3 convolutions, each followed by batch normalization and
 //! an ELU, with a 2x2 max pool after every block; then the mean over time and
 //! one linear layer to the 24 keys.
@@ -20,9 +20,9 @@ use serde::Deserialize;
 use super::cqt::CORE_BINS;
 use crate::error::EuphoriaError;
 
-/// The weights of drone-v1, exported from the published checkpoint. See
+/// The weights of drone-v2, exported from the published checkpoint. See
 /// `models/README.md` for their provenance and licence.
-const WEIGHTS: &[u8] = include_bytes!("../../../models/drone-v1.safetensors");
+const WEIGHTS: &[u8] = include_bytes!("../../../models/drone-v2.safetensors");
 
 /// The feature contract the weights were trained with.
 const FEATURE_SPEC: &str = "cqt24-8oct-c1-pad4-hop4096-v2";

@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Writes the drone-v1 features and key probabilities of audio files, to
+//! Writes the drone-v2 features and key probabilities of audio files, to
 //! check them against drone's Python code with `bench/drone_parity.py`.
 //!
 //! Reads lines of `MODE<TAB>AUDIO<TAB>FEATURES` on standard input. MODE is

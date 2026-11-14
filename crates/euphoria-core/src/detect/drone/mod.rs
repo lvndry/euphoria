@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Key detection with drone-v1, a small convolutional network trained on
+//! Key detection with drone-v2, a small convolutional network trained on
 //! labelled dance music previews, run on the CPU in plain Rust.
 
 mod cqt;
@@ -19,8 +19,8 @@ use crate::key_engine::KeySource;
 
 use network::{KEY_COUNT, Network};
 
-/// Name of the drone-v1 detector in reports.
-pub(crate) const DETECTOR_NAME: &str = "drone-v1";
+/// Name of the drone-v2 detector in reports.
+pub(crate) const DETECTOR_NAME: &str = "drone-v2";
 
 /// How likely the network finds each of the 24 keys in a track.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,7 +88,7 @@ fn network() -> Result<&'static Network, EuphoriaError> {
         })
 }
 
-/// Key detection with the drone-v1 network.
+/// Key detection with the drone-v2 network.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DroneDetector;
 

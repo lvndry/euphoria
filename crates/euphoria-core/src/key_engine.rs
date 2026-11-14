@@ -12,14 +12,14 @@ use crate::error::EuphoriaError;
 /// Which detector decides the key of a track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyEngine {
-    /// drone-v1 decides the key. libkeyfinder still measures the tuning and
-    /// follows the key over time, and decides the key when drone-v1 finds
+    /// drone-v2 decides the key. libkeyfinder still measures the tuning and
+    /// follows the key over time, and decides the key when drone-v2 finds
     /// none. The default when both are built in.
     Auto,
-    /// drone-v1 alone: the cheapest, with no key over time.
+    /// drone-v2 alone: the cheapest, with no key over time.
     Drone,
     /// libkeyfinder alone, with tuning correction, as Euphoria analyzed keys
-    /// before drone-v1.
+    /// before drone-v2.
     KeyFinder,
 }
 
@@ -107,7 +107,7 @@ pub fn key_engine() -> KeyEngine {
 pub enum KeySource {
     /// libkeyfinder, whose score margin runs from 0 to about 0.1.
     KeyFinder,
-    /// drone-v1, whose margin is the difference of two probabilities.
+    /// drone-v2, whose margin is the difference of two probabilities.
     Drone,
     /// stratum-dsp, in builds without libkeyfinder. It gives no margin.
     Stratum,
@@ -118,7 +118,7 @@ impl KeySource {
     pub fn as_str(self) -> &'static str {
         match self {
             KeySource::KeyFinder => "libkeyfinder",
-            KeySource::Drone => "drone-v1",
+            KeySource::Drone => "drone-v2",
             KeySource::Stratum => "stratum-dsp",
         }
     }

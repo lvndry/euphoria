@@ -52,10 +52,10 @@ pub struct AnalysisOptions {
     /// Changing it needs no new analysis.
     #[arg(long, value_name = "SLOWEST-FASTEST", default_value_t = TempoRange::DEFAULT)]
     tempo_range: TempoRange,
-    /// Which detector decides the key: auto (the drone-v1 network, with
+    /// Which detector decides the key: auto (the drone-v2 network, with
     /// libkeyfinder for the tuning and the key over time), drone (the
     /// network alone, fastest, no key over time) or keyfinder (libkeyfinder
-    /// alone, as before drone-v1). Each engine's analyses are cached apart.
+    /// alone, as before drone-v2). Each engine's analyses are cached apart.
     #[arg(long, value_name = "ENGINE", default_value_t = KeyEngine::Auto, value_parser = parse_key_engine)]
     key_engine: KeyEngine,
 }

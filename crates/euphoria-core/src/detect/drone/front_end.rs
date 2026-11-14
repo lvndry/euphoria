@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Brings decoded mono audio to what drone-v1 was trained on: drone has
+//! Brings decoded mono audio to what drone-v2 was trained on: drone has
 //! ffmpeg convert each file to 16 bit mono at 22,050 Hz. The resampler
 //! here builds the filter of ffmpeg's default resampler (a Kaiser windowed
 //! sinc, 32 taps per unit of bandwidth, cutoff at 97% of the lower Nyquist

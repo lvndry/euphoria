@@ -5,6 +5,65 @@ Measured on 10 November 2026 on an Apple M5 (10 cores), macOS 27.2, with 4 worke
 - Key: [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset), 604 two minute previews of electronic dance music. All 604 decoded.
 - Tempo: [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset), 664 previews, scored against the version 2 annotations. 3 previews are annotated with a tempo of zero, meaning no tempo, and are left out, so 661 are scored. All 661 decoded.
 
+## Key detection with drone-v2
+
+Measured on 14 November 2026 on an Apple M5 (10 cores), macOS 27.2, with the benchmark's default worker threads, in one run of `euphoria-bench bench/data --only key`. Euphoria ships drone-v2: `--key-engine auto` takes its key and uses libkeyfinder for the tuning and the key over time.
+
+| Detector | Exact | Fifth | Relative | Parallel | Other | No key or error | MIREX score | CPU seconds per track |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drone-v2 | 69.9% | 6.0% | 6.1% | 3.8% | 14.2% | 0.0% | 75.4% | 0.31 |
+| libkeyfinder 2.2.8 with tuning correction | 60.6% | 11.3% | 6.8% | 5.5% | 15.9% | 0.0% | 69.4% | 0.27 |
+| libkeyfinder 2.2.8 without tuning correction (not used) | 60.4% | 11.1% | 6.5% | 5.6% | 16.4% | 0.0% | 69.0% | 0.24 |
+| libkeyfinder 2.2.8 with tuning correction, sections vote (not used) | 60.9% | 11.3% | 7.0% | 5.5% | 15.4% | 0.0% | 69.7% | 0.27 |
+| stratum-dsp 1.0.0 | 30.6% | 20.7% | 6.1% | 12.9% | 29.6% | 0.0% | 45.4% | 2.39 |
+
+Previews each detector scores higher and lower than drone-v2, by MIREX score:
+
+| Detector | Higher | Lower |
+| --- | --- | --- |
+| libkeyfinder with tuning correction | 41 | 97 |
+| libkeyfinder without tuning correction | 40 | 97 |
+| libkeyfinder with tuning correction, sections vote | 43 | 95 |
+| stratum-dsp | 43 | 289 |
+
+On exact matches alone, drone-v2 is right on 83 previews where libkeyfinder with tuning correction is wrong, and libkeyfinder on 27 where drone-v2 is wrong (two-sided sign test p = 8.3e-8). Resampling the previews 20,000 times, drone-v2's gain lies between 6.0 and 12.6 points of exact matches and between 3.5 and 8.7 points of MIREX score 95% of the time.
+
+Against the [GiantSteps+](https://zenodo.org/records/4153506) expert labels, from the per-preview readings of `euphoria-bench key-readings`, exact:
+
+| Labels | Previews | drone-v2 | libkeyfinder | Gain (95% interval) |
+| --- | --- | --- | --- | --- |
+| GiantSteps Key | 604 | 69.9% | 60.6% | 9.3 (6.0 to 12.6) |
+| GiantSteps+, the key of the longest segment | 571 | 80.7% | 70.1% | 10.7 (7.2 to 14.2) |
+| GiantSteps+, previews with one segment and one key | 457 | 88.0% | 76.2% | 11.8 (8.1 to 15.5) |
+
+The 571 leave out previews whose expert annotation gives no major or minor key and one annotation without audio.
+
+| drone-v2 key confidence | All 604 | Development half | Held out half |
+| --- | --- | --- | --- |
+| High, share of tracks | 41.4% | 40.1% | 42.7% |
+| High, exact | 87.2% | 90.9% | 83.7% |
+| Medium, exact | 67.5% | 67.2% | 67.7% |
+| Low, exact | 34.3% | 40.7% | 26.1% |
+| High, key or runner up exact | 90.4% | 94.2% | 86.8% |
+| Medium, key or runner up exact | 81.5% | 82.8% | 80.3% |
+| Low, key or runner up exact | 56.2% | 57.6% | 54.3% |
+
+The edges, low below a probability margin of 0.16 and high from 0.72, were set on the development half so that about one preview in five is low and two in five high. Of the 182 previews whose drone-v2 key is wrong, the runner up is the annotated key for 66 (33 and 33 in the two halves).
+
+Taking libkeyfinder's key when drone-v2's margin is below a threshold chosen on the development half (0.03) changes the held out MIREX score by +0.9 points (95% interval −0.2 to +2.2), so drone-v2 decides alone.
+
+A whole `euphoria analyze --no-cache --json` of one file, one run each with `/usr/bin/time -l`, wall seconds and peak memory:
+
+| Key engine | Two minute preview | Ten minute file |
+| --- | --- | --- |
+| `keyfinder`, libkeyfinder alone | 1.12 s, 273 MB | 5.60 s, 1.49 GB |
+| `drone`, drone-v2 alone | 1.11 s, 246 MB | 5.62 s, 1.10 GB |
+| `auto`, the default | 1.31 s, 308 MB | 6.65 s, 1.49 GB |
+
+The ten minute file is five previews joined into one 192 kbit/s MP3.
+
+The tables below this one are earlier measurements, before drone-v2.
+
 ## Key detection
 
 | Detector | Exact | Fifth | Relative | Parallel | Other | MIREX score | CPU seconds per track |

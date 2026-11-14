@@ -85,7 +85,7 @@ pub struct TrackAnalysis {
     /// the `libkeyfinder` feature.
     pub key_runner_up: Option<Key>,
     /// How far the score of the key is above that of the runner up, the
-    /// basis of [`TrackAnalysis::key_confidence`]. For drone-v1 it is the
+    /// basis of [`TrackAnalysis::key_confidence`]. For drone-v2 it is the
     /// difference of the two keys' probabilities.
     pub key_score_margin: Option<f32>,
     /// The detector that decided the key, which sets the scale of
@@ -255,7 +255,7 @@ impl AnalysisObserver for Unobserved {}
 /// audio quality.
 ///
 /// The key comes from the [`KeyEngine`](crate::KeyEngine) chosen with
-/// [`set_key_engine`](crate::set_key_engine), by default drone-v1 with
+/// [`set_key_engine`](crate::set_key_engine), by default drone-v2 with
 /// libkeyfinder measuring the tuning and the key over time (see
 /// [`read_key`]). Tempo comes from the tempo only path of `stratum-dsp`, so
 /// its costly key analysis does not run. The energy rating takes the

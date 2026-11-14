@@ -18,23 +18,23 @@ from xml.sax.saxutils import escape
 
 OUTPUT_DIRECTORY = Path(__file__).resolve().parent
 
-# "Key detection with drone-v1", the table: the share of the 604 GiantSteps
-# Key previews in each outcome, for drone-v1 and for libkeyfinder with tuning
+# "Key detection with drone-v2", the table: the share of the 604 GiantSteps
+# Key previews in each outcome, for drone-v2 and for libkeyfinder with tuning
 # correction. bench/results/giantsteps.md, the key table.
 KEY_OUTCOMES = [
-    ("Exact", 68.4, 60.6),
-    ("A fifth away", 6.6, 11.3),
-    ("Relative key", 7.5, 6.8),
-    ("Parallel key", 4.0, 5.5),
-    ("Other", 13.6, 15.9),
+    ("Exact", 69.9, 60.6),
+    ("A fifth away", 6.0, 11.3),
+    ("Relative key", 6.1, 6.8),
+    ("Parallel key", 3.8, 5.5),
+    ("Other", 14.2, 15.9),
 ]
 
-# "Key detection with drone-v1": exact and MIREX score of each detector.
+# "Key detection with drone-v2": exact and MIREX score of each detector.
 KEY_DETECTORS = [
-    ("drone-v1", 68.4, 74.7),
+    ("drone-v2", 69.9, 75.4),
     ("libkeyfinder", 60.6, 69.4),
 ]
-SHIPPED_KEY_DETECTOR = "drone-v1"
+SHIPPED_KEY_DETECTOR = "drone-v2"
 
 # "How the tempo is chosen", the table: Accuracy 1 and Accuracy 2 on the 661
 # scored GiantSteps Tempo previews. bench/results/giantsteps.md, the tempo
@@ -47,11 +47,11 @@ TEMPO_METHODS = [
 ]
 SHIPPED_TEMPO_METHOD = "Best of four by onset repeats"
 
-# "Key confidence", the drone-v1 table: the share of the held out half at
+# "Key confidence", the drone-v2 table: the share of the held out half at
 # each level and the share of it whose key is exact, and "Results": exact on
 # all 604.
-KEY_CONFIDENCE = [("High", 38, 77.2), ("Medium", 41, 72.4), ("Low", 22, 43.1)]
-KEY_EXACT_ALL_PREVIEWS = 68.4
+KEY_CONFIDENCE = [("High", 43, 83.7), ("Medium", 42, 67.7), ("Low", 15, 26.1)]
+KEY_EXACT_ALL_PREVIEWS = 69.9
 
 # "Tempo confidence", the table: the share of the held out half at each level
 # and the share of it whose tempo is right modulo octaves.
@@ -206,7 +206,7 @@ def key_outcomes_chart():
     ]
     legend_y = 90
     body.append(dot(30, legend_y - 4, "series-1-fill"))
-    body.append(text(44, legend_y, "drone-v1, as Euphoria ships it", "label"))
+    body.append(text(44, legend_y, "drone-v2, as Euphoria ships it", "label"))
     body.append(dot(270, legend_y - 4, "series-2-fill"))
     body.append(text(284, legend_y, "libkeyfinder, as before", "label"))
     for share_tick in (0, 20, 40, 60):
@@ -222,9 +222,9 @@ def key_outcomes_chart():
 
     description = (
         "Paired horizontal bars of how the detected key compares with the annotated key on the 604 "
-        "GiantSteps Key previews, drone-v1 against libkeyfinder: exact 68.4% against 60.6%, a fifth "
-        "away 6.6% against 11.3%, the relative key 7.5% against 6.8%, the parallel key 4.0% against "
-        "5.5%, and another key 13.6% against 15.9%."
+        "GiantSteps Key previews, drone-v2 against libkeyfinder: exact 69.9% against 60.6%, a fifth "
+        "away 6.0% against 11.3%, the relative key 6.1% against 6.8%, the parallel key 3.8% against "
+        "5.5%, and another key 14.2% against 15.9%."
     )
     return document(width, height, title, description, body)
 
@@ -236,10 +236,10 @@ def key_detectors_chart():
     chart_bottom = chart_top + row_height * len(KEY_DETECTORS)
     height = chart_bottom + 64
     to_x = scale(50, 80, 190, 740)
-    title = "Key accuracy of drone-v1 and libkeyfinder"
+    title = "Key accuracy of drone-v2 and libkeyfinder"
     body = [
         text(24, 36, title, "title"),
-        text(24, 58, "604 GiantSteps Key previews, held out from training. Euphoria ships drone-v1.", "subtitle"),
+        text(24, 58, "604 GiantSteps Key previews, none used in training. Euphoria ships drone-v2.", "subtitle"),
     ]
     legend_y = 90
     body.append(dot(30, legend_y - 4, "series-1-fill"))
@@ -260,8 +260,8 @@ def key_detectors_chart():
         body.append(text(to_x(exact) - 12, row_middle + 4.5, f"{exact:.1f}%", "value halo", "end"))
         body.append(text(to_x(mirex) + 12, row_middle + 4.5, f"{mirex:.1f}%", "value halo"))
     description = (
-        "Dot plot of key accuracy on the 604 GiantSteps Key previews. drone-v1 is exact on 68.4% "
-        "and scores 74.7% MIREX; libkeyfinder with tuning correction is exact on 60.6% and scores "
+        "Dot plot of key accuracy on the 604 GiantSteps Key previews. drone-v2 is exact on 69.9% "
+        "and scores 75.4% MIREX; libkeyfinder with tuning correction is exact on 60.6% and scores "
         "69.4%."
     )
     return document(width, height, title, description, body)
@@ -420,14 +420,14 @@ def confidence_chart(title, subtitle, levels, axis_label, reference, description
 
 def key_confidence_chart():
     return confidence_chart(
-        "How often the drone-v1 key is exact at each confidence",
-        "The held out half of the GiantSteps Key previews. Less than half of the keys rated low are right.",
+        "How often the drone-v2 key is exact at each confidence",
+        "The held out half of the GiantSteps Key previews. About one key rated low in four is right.",
         KEY_CONFIDENCE,
         "Share of previews whose key is exact",
         ("All 604 previews", KEY_EXACT_ALL_PREVIEWS),
-        "Horizontal bars of how often the drone-v1 key is exact on the held out half of the "
-        "GiantSteps Key previews, by confidence: 77.2% of the 38% rated high, 72.4% of the 41% "
-        "rated medium and 43.1% of the 22% rated low, against 68.4% of all 604 previews.",
+        "Horizontal bars of how often the drone-v2 key is exact on the held out half of the "
+        "GiantSteps Key previews, by confidence: 83.7% of the 43% rated high, 67.7% of the 42% "
+        "rated medium and 26.1% of the 15% rated low, against 69.9% of all 604 previews.",
     )
 
 

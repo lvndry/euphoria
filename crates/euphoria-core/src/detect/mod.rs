@@ -41,11 +41,11 @@ use crate::tempo_range::TempoRange;
 /// Reads the key of a track with `engine`, falling back to what the build
 /// has when it lacks the engine's detectors.
 ///
-/// - [`KeyEngine::Auto`]: drone-v1 decides the key, and libkeyfinder
+/// - [`KeyEngine::Auto`]: drone-v2 decides the key, and libkeyfinder
 ///   measures the tuning and follows the key over time against it. When
-///   drone-v1 finds no key, as for audio shorter than about 1.5 seconds,
+///   drone-v2 finds no key, as for audio shorter than about 1.5 seconds,
 ///   libkeyfinder decides it.
-/// - [`KeyEngine::Drone`]: drone-v1 alone. The tuning is measured but not
+/// - [`KeyEngine::Drone`]: drone-v2 alone. The tuning is measured but not
 ///   used, and there is no key over time.
 /// - [`KeyEngine::KeyFinder`]: libkeyfinder with tuning correction.
 ///
