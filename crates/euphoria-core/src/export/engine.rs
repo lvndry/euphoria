@@ -384,6 +384,17 @@ fn check_schema(connection: &Connection, database: &Path) -> Result<SchemaVersio
 /// `None` when the column is NULL.
 type PerformanceBlobs = (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>);
 
+/// Values already held by a track row that determine whether an export
+/// actually needs to write it.
+struct StoredTrackRow {
+    id: i64,
+    path: String,
+    key: Option<i64>,
+    bpm: Option<i64>,
+    bpm_analyzed: Option<f64>,
+    comment: Option<String>,
+}
+
 /// The new values of one row of `Track` and its performance data.
 #[derive(Debug)]
 struct RowUpdate {
@@ -486,28 +497,21 @@ fn plan(
                 names
             });
 
-    let rows: Vec<(
-        i64,
-        String,
-        Option<i64>,
-        Option<i64>,
-        Option<f64>,
-        Option<String>,
-    )> = connection
+    let rows: Vec<StoredTrackRow> = connection
         .prepare(
             "SELECT id, path, key, bpm, bpmAnalyzed, comment FROM Track WHERE path IS NOT NULL",
         )
         .and_then(|mut statement| {
             statement
                 .query_map([], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
+                    Ok(StoredTrackRow {
+                        id: row.get(0)?,
+                        path: row.get(1)?,
+                        key: row.get(2)?,
+                        bpm: row.get(3)?,
+                        bpm_analyzed: row.get(4)?,
+                        comment: row.get(5)?,
+                    })
                 })?
                 .collect()
         })
@@ -520,8 +524,8 @@ fn plan(
         kept_own_cues: vec![false; tracks.len()],
         ..Plan::default()
     };
-    for (track_id, stored_path, existing_key, existing_bpm, existing_exact_bpm, comment) in rows {
-        let absolute = lexically_normal(&library.join(&stored_path));
+    for stored in rows {
+        let absolute = lexically_normal(&library.join(&stored.path));
         let index = by_path.get(absolute.as_path()).copied().or_else(|| {
             let name = absolute.file_name()?.to_string_lossy().to_lowercase();
             let candidates = by_file_name.get(&name)?;
@@ -540,28 +544,25 @@ fn plan(
         let performance: Option<PerformanceBlobs> = connection
             .query_row(
                 "SELECT trackData, beatData, quickCues FROM PerformanceData WHERE trackId = ?1",
-                params![track_id],
+                params![stored.id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(|error| {
                 fail(format!(
-                    "the performance data of {stored_path} cannot be read ({error})"
+                    "the performance data of {} cannot be read ({error})",
+                    stored.path
                 ))
             })?;
         let row = row_update(
-            track_id,
-            existing_key,
-            existing_bpm,
-            existing_exact_bpm,
-            comment.as_deref(),
+            &stored,
             performance,
             tracks[index],
             options,
             &mut plan,
             index,
         )
-        .map_err(|reason| fail(format!("{stored_path}: {reason}")))?;
+        .map_err(|reason| fail(format!("{}: {reason}", stored.path)))?;
         plan.matched[index] = true;
         // A matched track whose values all match what the library already
         // holds changes nothing, and is not reported as updated.
@@ -574,11 +575,7 @@ fn plan(
 }
 
 fn row_update(
-    track_id: i64,
-    existing_key: Option<i64>,
-    existing_bpm: Option<i64>,
-    existing_exact_bpm: Option<f64>,
-    comment: Option<&str>,
+    existing: &StoredTrackRow,
     performance: Option<PerformanceBlobs>,
     entry: EngineTrack<'_>,
     options: &EngineOptions,
@@ -587,15 +584,16 @@ fn row_update(
 ) -> Result<RowUpdate, String> {
     let track = entry.track;
     let desired_key = track.key.map(engine_key_value);
-    let key = desired_key.filter(|key| Some(*key) != existing_key);
+    let key = desired_key.filter(|key| Some(*key) != existing.key);
     let desired_bpm = track
         .bpm
         .filter(|bpm| bpm.is_finite() && *bpm > 0.0)
         .map(|bpm| (bpm.round() as i64, bpm));
     let bpm = desired_bpm.filter(|(rounded, exact)| {
-        Some(*rounded) != existing_bpm || Some(*exact) != existing_exact_bpm
+        Some(*rounded) != existing.bpm || Some(*exact) != existing.bpm_analyzed
     });
     let label = label_text(track.key, entry.energy, options.label_notation);
+    let comment = existing.comment.as_deref();
     let comment = match (options.label, label) {
         (LabelPlacement::CommentStart, Some(label)) => Some(with_label(&label, comment, false)),
         (LabelPlacement::CommentEnd, Some(label)) => Some(with_label(&label, comment, true)),
@@ -603,7 +601,7 @@ fn row_update(
     }
     .filter(|updated| Some(updated.as_str()) != comment);
     let mut update = RowUpdate {
-        track_id,
+        track_id: existing.id,
         key,
         bpm,
         comment,
