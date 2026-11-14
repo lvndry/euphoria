@@ -132,6 +132,29 @@ Export your collection again before each export, so it lists the cues you set si
 
 The cues are right only where the bars of the grid are. When the grid's first downbeat is off, which happens on about half of the benchmark excerpts, every cue is off by the same one to three beats. Look at a few tracks before you rely on them.
 
+### Use your rekordbox beat grid
+
+If you already fixed the grids in rekordbox, Euphoria can use them in place of its own, so that cues land on your beats. Export your collection from rekordbox with **File > Export Collection in xml format** and pass it with `--collection`:
+
+```
+euphoria analyze ~/Music/DJ --collection ~/Music/rekordbox-collection.xml
+euphoria export rekordbox ~/Music/DJ --output ~/Music/euphoria.xml --beat-grid --cues --collection ~/Music/rekordbox-collection.xml
+```
+
+Each track is matched to the collection by its file location, as for the cue protection. For a matched track, Euphoria reads the `TEMPO` markers of its grid (`Inizio`, `Bpm`, `Metro`, `Battito`), takes the first downbeat and the tempo from them, reports that tempo, and places the automatic cues on the bars of that grid. The track is decoded a second time to do it.
+
+Whose grid a track gets is decided in this order:
+
+1. A tempo you set yourself in the desktop app. It drops the detected grid, since that was fitted to another tempo, and the rekordbox grid is not brought back over it. The source is `you`.
+2. The rekordbox grid, source `rekordbox`.
+3. The grid Euphoria detected, source `detected`.
+
+The grid is used only when it is one constant grid in 4/4: every marker has the same tempo and lies on the beats and bars counted from the first marker. A grid that changes tempo, one that shifts between markers, one in another meter, and one with an unreadable marker are not used. The track keeps its detected grid, and the command lists it with the reason. Tracks that are not in the collection, or have no grid there, keep the detected grid.
+
+The grid is not rated: nothing is measured for it, so its confidence is shown as `null` in JSON and the detailed view says "from your rekordbox collection". With `--beat-grid`, an imported grid is always exported, including the cues on its bars, even though a detected grid rated low would be left out.
+
+**Not tested in rekordbox.** This was tested against XML files written from Pioneer's published description of the format, and against Euphoria's own audio fixtures, not against a collection exported by a real rekordbox. How rekordbox writes grids with several markers, or after you edit a grid by hand, was not checked.
+
 ### What the export refuses
 
 Euphoria stops before writing anything, and names the track or folder, when:

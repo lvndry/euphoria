@@ -50,6 +50,13 @@ pub struct AnalysisOptions {
 }
 
 impl AnalysisOptions {
+    /// How many files are worked on at once.
+    pub fn job_count(&self) -> usize {
+        self.jobs
+            .map(NonZeroUsize::get)
+            .unwrap_or_else(default_job_count)
+    }
+
     /// The range tempos are reported in.
     pub fn tempo_range(&self) -> TempoRange {
         self.tempo_range

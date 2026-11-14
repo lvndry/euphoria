@@ -9,11 +9,13 @@ use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 use euphoria_core::quality::{QualityReport, QualityVerdict};
+use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::{
     Confidence, Correction, FileResult, Key, TagKey, TagKeyAgreement, TempoRange, TrackAnalysis,
 };
 
 use crate::batch::Corrections;
+use crate::grid_import::GridInfo;
 use crate::style::Theme;
 use crate::tag_key::TagKeys;
 use crate::terminal::Printable;
@@ -742,6 +744,15 @@ fn write_tag_key(
     }
 }
 
+/// What was read about a file besides its analysis, for the detailed view.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FileFacts<'facts> {
+    /// The key field of the file's tags.
+    pub tag_key: Option<&'facts TagKey>,
+    /// Where the beat grid came from, when a collection was given.
+    pub grid_info: Option<&'facts GridInfo>,
+}
+
 /// Writes everything known about one track, a label per line: the key with
 /// its runner up and confidence, the tempo with its alternative and
 /// confidence, the energy, the sound quality with its reason and format,
@@ -753,8 +764,9 @@ pub fn write_detail(
     analysis: &TrackAnalysis,
     options: &ViewOptions,
     correction: Option<&Correction>,
-    tag_key: Option<&TagKey>,
+    facts: FileFacts<'_>,
 ) -> io::Result<()> {
+    let FileFacts { tag_key, grid_info } = facts;
     let key_set = correction.is_some_and(|correction| correction.key.is_some());
     let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
     let name = path
@@ -846,11 +858,41 @@ pub fn write_detail(
                 grid.first_downbeat_seconds, grid.bpm
             ),
         )?;
+        match grid_info.and_then(|info| info.source) {
+            Some(GridSource::Rekordbox) => write_line(
+                writer,
+                theme,
+                "",
+                &theme.dim("from your rekordbox collection"),
+            )?,
+            Some(GridSource::User) => write_line(writer, theme, "", &theme.user("set by you"))?,
+            _ => {
+                write_line(
+                    writer,
+                    theme,
+                    "",
+                    &confidence_words(theme, grid.confidence()),
+                )?;
+                if grid_info.is_some() {
+                    write_line(writer, theme, "", &theme.dim("detected by Euphoria"))?;
+                }
+            }
+        }
+    } else if let Some(GridSource::User) = grid_info.and_then(|info| info.source) {
         write_line(
             writer,
             theme,
+            "Beat grid",
+            &theme.dim("none, you set the tempo, so no grid was fitted to a different one"),
+        )?;
+    }
+    if let Some(reason) = grid_info.and_then(|info| info.collection.skipped_because()) {
+        write_wrapped(
+            writer,
+            theme,
             "",
-            &confidence_words(theme, grid.confidence()),
+            &theme.dim(format!("rekordbox grid not used: {reason}")),
+            width,
         )?;
     }
 
@@ -1139,7 +1181,7 @@ Key                  BPM       Energy              Quality  Time  File
             &track,
             &options(100),
             None,
-            None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1205,7 +1247,7 @@ music
             &track,
             &options(100),
             Some(&correction),
-            None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1235,7 +1277,7 @@ music
             &with_grid,
             &options(100),
             None,
-            None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1258,7 +1300,7 @@ music
             &track,
             &options(100),
             None,
-            None,
+            FileFacts::default(),
         )
         .unwrap();
         let detail = String::from_utf8(buffer).unwrap();
@@ -1337,7 +1379,10 @@ music
             &analysis(0.5, 0.5),
             &options(100),
             correction,
-            Some(&tag_key),
+            FileFacts {
+                tag_key: Some(&tag_key),
+                ..FileFacts::default()
+            },
         )
         .unwrap();
         String::from_utf8(buffer).unwrap()

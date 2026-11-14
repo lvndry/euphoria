@@ -11,6 +11,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
+use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::tags::{SeratoReport, WritePlan, describe_serato_value, serato_field_name};
 use euphoria_core::{
     BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference, KeySection,
@@ -20,6 +21,7 @@ use serde::Serialize;
 
 use crate::batch::{UserEdits, UserEditsByFile};
 use crate::export::Program;
+use crate::grid_import::{GridInfo, GridInfos, ImportSummary};
 use crate::style::Theme;
 use crate::tag_key::TagKeys;
 use crate::tags::Failure;
@@ -127,6 +129,13 @@ struct JsonTrack<'result> {
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
+    /// Whose beat grid the track has: "rekordbox", "detected" or "you", or
+    /// `None` when it has none.
+    beat_grid_source: Option<&'static str>,
+    /// What the rekordbox collection gave for the track, when one was
+    /// passed: "used", "variable", "unsupported meter", "unreadable",
+    /// "no grid" or "not in collection".
+    rekordbox_grid: Option<&'static str>,
     cues: Vec<JsonCue>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
@@ -169,15 +178,18 @@ impl From<Cue> for JsonCue {
 struct JsonBeatGrid {
     first_downbeat_seconds: f64,
     bpm: f64,
-    confidence: &'static str,
+    /// How far to trust a detected grid. `None` for the grid of a rekordbox
+    /// collection, which nothing was measured for: the DJ set it.
+    confidence: Option<&'static str>,
 }
 
-impl From<BeatGrid> for JsonBeatGrid {
-    fn from(grid: BeatGrid) -> Self {
+impl JsonBeatGrid {
+    fn of(grid: BeatGrid, info: Option<&GridInfo>) -> Self {
+        let imported = info.is_some_and(|info| info.source == Some(GridSource::Rekordbox));
         Self {
             first_downbeat_seconds: round_to_thousandths(grid.first_downbeat_seconds),
             bpm: round_to_thousandths(grid.bpm),
-            confidence: grid.confidence().as_str(),
+            confidence: (!imported).then(|| grid.confidence().as_str()),
         }
     }
 }
@@ -253,6 +265,7 @@ pub fn write_json(
     range: TempoRange,
     user_edits: &UserEditsByFile,
     tag_keys: &TagKeys,
+    grid_infos: &GridInfos,
 ) -> io::Result<()> {
     let no_edits = UserEdits::default();
     let tracks: Vec<JsonTrack<'_>> = results
@@ -290,7 +303,16 @@ pub fn write_json(
                         .iter()
                         .map(JsonKeySection::from)
                         .collect(),
-                    beat_grid: analysis.beat_grid.map(JsonBeatGrid::from),
+                    beat_grid: analysis
+                        .beat_grid
+                        .map(|grid| JsonBeatGrid::of(grid, grid_infos.get(&result.path))),
+                    beat_grid_source: grid_infos
+                        .get(&result.path)
+                        .and_then(|info| info.source)
+                        .map(GridSource::label),
+                    rekordbox_grid: grid_infos
+                        .get(&result.path)
+                        .and_then(|info| info.collection.label()),
                     cues: edits
                         .track_cues(analysis)
                         .cues
@@ -319,6 +341,8 @@ pub fn write_json(
                 tuning_cents: None,
                 key_timeline: Vec::new(),
                 beat_grid: None,
+                beat_grid_source: None,
+                rekordbox_grid: None,
                 cues: Vec::new(),
                 quality: None,
                 needs_review: None,
@@ -716,6 +740,47 @@ pub fn write_cache_summary(
         writer,
         "{cached_count} of {total} {noun} came from the cache."
     )
+}
+
+/// Writes how many tracks use the beat grid of the rekordbox collection at
+/// `collection`, and the tracks whose grid was left out with the reason.
+pub fn write_grid_import_summary(
+    writer: &mut impl Write,
+    theme: &Theme,
+    summary: &ImportSummary,
+    collection: &Path,
+) -> io::Result<()> {
+    let noun = |count: usize| if count == 1 { "track" } else { "tracks" };
+    writeln!(
+        writer,
+        "{} {} use the beat grid of your rekordbox collection.",
+        summary.used,
+        noun(summary.used)
+    )?;
+    if summary.not_in_collection > 0 || summary.no_grid > 0 {
+        writeln!(
+            writer,
+            "{} not in {} and {} with no grid there keep the detected grid.",
+            summary.not_in_collection,
+            Printable(collection.display()),
+            summary.no_grid
+        )?;
+    }
+    if !summary.skipped.is_empty() {
+        write_warning(
+            writer,
+            theme,
+            format_args!(
+                "{} {} keep the detected grid because the rekordbox grid cannot be used:",
+                summary.skipped.len(),
+                noun(summary.skipped.len())
+            ),
+        )?;
+        for (path, reason) in &summary.skipped {
+            writeln!(writer, "  {}: {}", Printable(path.display()), reason)?;
+        }
+    }
+    Ok(())
 }
 
 /// Writes that the cache could not be used and why, that the files are
@@ -1305,6 +1370,7 @@ mod tests {
             TempoRange::DEFAULT,
             &UserEditsByFile::new(),
             &TagKeys::default(),
+            &GridInfos::new(),
         )
     }
 
@@ -1421,6 +1487,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
             TempoRange::DEFAULT,
             &user_edits,
             &TagKeys::default(),
+            &GridInfos::new(),
         )
         .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
@@ -1445,6 +1512,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
                 TempoRange::DEFAULT,
                 user_edits,
                 &TagKeys::default(),
+                &GridInfos::new(),
             )
             .unwrap();
             serde_json::from_slice::<serde_json::Value>(&json).unwrap()
@@ -1738,6 +1806,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
             TempoRange::DEFAULT,
             &UserEditsByFile::new(),
             tag_keys,
+            &GridInfos::new(),
         )
         .unwrap();
         serde_json::from_slice(&json).unwrap()
