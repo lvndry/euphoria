@@ -27,6 +27,15 @@ pub(crate) fn tooltip_text(action: &str, key: &str) -> SharedString {
     format!("{action} ({key})").into()
 }
 
+/// How much of the end of the cell `count` buttons cover. A title leaves
+/// this much room while they show, so it ends in an ellipsis before them.
+pub(crate) fn reserved_width(count: usize) -> f32 {
+    ICON_SIZE * count as f32
+        + ICON_GAP * count.saturating_sub(1) as f32
+        + 2.0 * GROUP_PADDING
+        + ICON_GAP
+}
+
 /// A 22 px square button.
 pub(crate) fn icon_button(id: impl Into<ElementId>, palette: &Palette) -> Stateful<Div> {
     let hover_background = palette.line;

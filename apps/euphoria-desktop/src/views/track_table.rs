@@ -35,6 +35,9 @@ use gpui::component::menu::ContextMenuExt;
 
 const HEADER_HEIGHT: f32 = 28.0;
 
+/// How many icon buttons a row shows.
+const ACTION_COUNT: usize = 3;
+
 /// The group a row's icon buttons show on hover in.
 const TRACK_ROW_GROUP: &str = "track-row";
 
@@ -617,6 +620,14 @@ fn cell_contents(
                             0.0
                         }))
                         .truncate()
+                        .when(is_selected, |title| {
+                            title.mr(px(row_actions::reserved_width(ACTION_COUNT)))
+                        })
+                        .when(!is_selected, |title| {
+                            title.group_hover(TRACK_ROW_GROUP, |style| {
+                                style.mr(px(row_actions::reserved_width(ACTION_COUNT)))
+                            })
+                        })
                         .font_weight(FontWeight::MEDIUM)
                         .when(track.is_unfinished(), |title| {
                             title.text_color(palette.text_secondary)

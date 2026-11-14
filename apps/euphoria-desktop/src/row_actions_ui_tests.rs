@@ -138,13 +138,13 @@ fn showing_the_buttons_does_not_move_the_title(cx: &mut TestAppContext) {
     let bounds = |cx: &mut TestAppContext| {
         cx.update_window(window, |_, window, cx| {
             window.render_frame(cx);
-            window.find(("title-cell", 4usize)).bounds()
+            window.find(("title-cell", 4usize)).bounds().origin
         })
         .unwrap()
     };
     let before = bounds(cx);
     hover_row(window, 4, cx);
-    assert_eq!(before, bounds(cx));
+    assert_eq!(before, bounds(cx), "the title starts where it did");
 }
 
 #[gpui::test]
@@ -299,4 +299,41 @@ fn the_letter_keys_type_in_the_search_field_and_do_nothing_else(cx: &mut TestApp
     assert_eq!(set_paths(&view, cx).len(), 2, "A types");
     assert!(!is_sounding(&view, cx), "Space types");
     cx.update(|cx| assert!(!view.read(cx).metronome.is_running(), "M types"));
+}
+
+#[gpui::test]
+fn a_long_title_ends_before_the_buttons_instead_of_running_under_them(cx: &mut TestAppContext) {
+    let (window, view) = open_library(10, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.column_widths
+                .set(crate::columns::ColumnId::Title, 150.0);
+            cx.notify();
+        })
+    });
+    let edges = |cx: &mut TestAppContext| {
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let title = window.find(("title-cell", 4usize)).bounds();
+            let actions = window.find(("row-actions", 4usize)).bounds();
+            (title, actions)
+        })
+        .unwrap()
+    };
+    let (resting_title, _) = edges(cx);
+    hover_row(window, 4, cx);
+    let (shown_title, actions) = edges(cx);
+    assert!(
+        shown_title.right() <= actions.left(),
+        "the title ends before the buttons: {shown_title:?} {actions:?}"
+    );
+    assert_eq!(
+        shown_title.left(),
+        resting_title.left(),
+        "the title does not move"
+    );
+    assert!(
+        resting_title.right() > shown_title.right(),
+        "without hover the title uses the full width"
+    );
 }
