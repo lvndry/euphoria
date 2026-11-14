@@ -144,7 +144,8 @@ fn a_running_dj_program_holds_the_writes_until_write_now(cx: &mut TestAppContext
         assert_eq!(tags.held_by(), ["rekordbox"]);
         assert_eq!(
             crate::auto_tags::held_sentence(tags.pending_count(), tags.held_by()),
-            "3 tracks are ready to tag. Close rekordbox and choose Write tags, or write now."
+            "3 tracks have a key and tempo to write into the file. Waiting because rekordbox is \
+             open: close it and choose Write tags, or write now."
         );
     });
 

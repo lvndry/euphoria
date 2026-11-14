@@ -330,9 +330,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                 ))
                 .child(setting(
                     "After analysis",
-                    "Writes each track's key and tempo into its file once it is analyzed, using \
-                     the choices above. Off by default because it changes files that DJ \
-                     programs read. Undo tag write puts them back.",
+                    "Fills in each track's missing key and tempo once it is analyzed, using \
+                     the choices above. On by default; tags a file already has are kept. \
+                     Undo tag write puts them back.",
                     div().flex().child(
                         choice_button(
                             "write-after-analysis",
