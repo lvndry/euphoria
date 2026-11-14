@@ -92,10 +92,18 @@ fn the_rekordbox_export_and_tags_write_use_the_corrected_energy() {
     let xml = std::fs::read_to_string(&exported).expect("the export is written");
     assert!(xml.contains("Comments=\"Energy 9\""), "{xml}");
 
-    assert_success(&euphoria.run(&["tags", "write", "--yes", text(&track)]));
+    assert_success(&euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--yes",
+        "--label",
+        "comment-start",
+        text(&track),
+    ]));
     let tags = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
     let comment = tags.comment.expect("a comment");
-    assert!(comment.ends_with(" - Energy 9"), "{comment:?}");
+    assert!(comment.ends_with("Energy 9"), "{comment:?}");
 }
 
 #[test]
@@ -142,7 +150,15 @@ fn tags_and_the_rekordbox_export_get_the_values_the_user_set() {
     let folder = TemporaryFolder::new();
     let track = corrected_track(&euphoria, &folder);
 
-    let preview = euphoria.run(&["tags", "write", "--dry-run", text(&track)]);
+    let preview = euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--dry-run",
+        text(&track),
+    ]);
     assert_success(&preview);
     let preview = String::from_utf8_lossy(&preview.stdout);
     assert!(preview.contains("-> 9A"), "{preview}");
@@ -168,7 +184,15 @@ fn written_tags_hold_the_correction_and_a_later_analysis_still_reports_it() {
     let folder = TemporaryFolder::new();
     let track = corrected_track(&euphoria, &folder);
 
-    let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
+    let written = euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--yes",
+        text(&track),
+    ]);
     assert_success(&written);
     let tags = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
     assert_eq!(tags.key.as_deref(), Some("9A"));
@@ -180,7 +204,15 @@ fn written_tags_hold_the_correction_and_a_later_analysis_still_reports_it() {
     assert_eq!(tracks[0]["key"]["camelot"], "9A");
     assert_eq!(tracks[0]["bpm"], 87.0);
     assert_eq!(tracks[0]["set_by_user"], serde_json::json!(["key", "bpm"]));
-    let again = euphoria.run(&["tags", "write", "--dry-run", text(&track)]);
+    let again = euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--dry-run",
+        text(&track),
+    ]);
     assert_success(&again);
     assert!(
         !String::from_utf8_lossy(&again.stdout).contains("->"),
@@ -200,7 +232,15 @@ fn a_correction_that_cannot_be_checked_leaves_the_file_out_of_tags_and_exports()
         .expect("the cache is damaged on purpose");
     drop(connection);
 
-    let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
+    let written = euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--yes",
+        text(&track),
+    ]);
     assert!(!written.status.success());
     assert!(
         standard_error(&written).contains("cannot check the saved edits"),
@@ -277,7 +317,15 @@ fn a_cache_made_unreadable_after_analysis_stops_tag_writing_but_not_analysis() {
     )
     .expect("the cache is made unreadable");
 
-    let written = euphoria.run(&["tags", "write", "--yes", text(&track)]);
+    let written = euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--yes",
+        text(&track),
+    ]);
     let shown = euphoria.run(&["analyze", text(&track)]);
     std::fs::set_permissions(
         euphoria.cache_path(),

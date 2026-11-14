@@ -1834,6 +1834,42 @@ fn writing_tags_shows_a_preview_writes_only_on_confirm_and_undo_restores_every_b
 }
 
 #[gpui::test]
+fn a_running_dj_program_makes_the_preview_ask_before_it_writes(cx: &mut TestAppContext) {
+    let scratch = ScratchFolder::new("ui-program-running");
+    let files = scratch.copy_fixtures();
+    let before = tag_testing::contents(&files);
+    let (window, view) = open_taggable_files(&scratch, &files, None, cx);
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.program_checks.rekordbox = || Some(true);
+        })
+    });
+
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    click(window, "confirm-tag-write", cx);
+    assert!(is_shown(window, "program-running-strip", cx));
+    assert!(is_shown(window, "confirm-tag-write-anyway", cx));
+    assert_eq!(
+        tag_testing::contents(&files),
+        before,
+        "the first confirmation only asks"
+    );
+    cx.update(|cx| {
+        assert!(matches!(
+            &view.read(cx).tag_panel,
+            Some(TagPanel::Preview(preview))
+                if preview.program_warning.as_deref() == Some(&["rekordbox"][..])
+        ));
+    });
+
+    click(window, "confirm-tag-write-anyway", cx);
+    let written = cx.update(|cx| view.read(cx).written_files());
+    assert_eq!(written, Some(files.clone()));
+    assert_ne!(tag_testing::contents(&files), before);
+}
+
+#[gpui::test]
 fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
     let scratch = ScratchFolder::new("ui-shared-log");
     let files = scratch.copy_fixtures();
@@ -1936,9 +1972,10 @@ fn the_settings_choose_the_program_shown_beside_write_tags_and_are_remembered(
         TagSettings {
             program: ProgramChoice::Serato,
             key_notation: crate::tag_settings::NotationChoice::OpenKey,
-            label: crate::tag_settings::LabelChoice::Grouping,
+            label: Some(crate::tag_settings::LabelChoice::Grouping),
             write_tempo: true,
             write_cue_markers: false,
+            ..TagSettings::default()
         }
     );
 

@@ -136,6 +136,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) library_export: Option<crate::library_export::LibraryExportPanel>,
     /// How the export finds out whether a DJ program is running.
     pub(crate) running_checks: crate::library_export::RunningChecks,
+    /// The checks of whether a DJ program is running before tags are written,
+    /// which a test replaces.
+    pub(crate) program_checks: euphoria_core::export::program_files::DjProgramChecks,
     /// True while the settings panel is open.
     pub(crate) settings_open: bool,
     /// Where the backups of tag writes are kept, shared with the command
@@ -397,6 +400,17 @@ impl EuphoriaApp {
             tag_panel: None,
             library_export: None,
             running_checks: crate::library_export::RunningChecks::REAL,
+            program_checks: if cfg!(test) {
+                euphoria_core::export::program_files::DjProgramChecks {
+                    rekordbox: || Some(false),
+                    serato: || Some(false),
+                    traktor: || Some(false),
+                    engine: || Some(false),
+                    virtualdj: || Some(false),
+                }
+            } else {
+                euphoria_core::export::program_files::DjProgramChecks::REAL
+            },
             settings_open: false,
             write_log_directory: if cfg!(test) {
                 None
@@ -1233,13 +1247,25 @@ impl EuphoriaApp {
 
     /// Chooses where the key and energy label goes.
     pub(crate) fn set_label_place(&mut self, label: LabelChoice, cx: &mut Context<'_, Self>) {
-        self.tag_settings.label = label;
+        self.tag_settings.label = Some(label);
         self.remember_tag_settings(cx);
     }
 
     /// Ticks or unticks writing the tempo.
     pub(crate) fn toggle_write_tempo(&mut self, cx: &mut Context<'_, Self>) {
         self.tag_settings.write_tempo = !self.tag_settings.write_tempo;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Ticks or unticks replacing a key and tempo the file already has.
+    pub(crate) fn toggle_replace_existing(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.replace_existing = !self.tag_settings.replace_existing;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Ticks or unticks writing a key or tempo rated low confidence.
+    pub(crate) fn toggle_include_low_confidence(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.include_low_confidence = !self.tag_settings.include_low_confidence;
         self.remember_tag_settings(cx);
     }
 

@@ -421,6 +421,8 @@ pub fn plan_edit(path: &Path, edits: &[FieldEdit]) -> Result<WritePlan, Euphoria
         current_items,
         tag_length: file.tag_length(),
         file_length: file.file_length(),
+        skipped: Vec::new(),
+        by_analysis: false,
     })
 }
 
@@ -452,11 +454,7 @@ fn edited_text(field: TagField, current: Option<&str>, changes: &[&TextChange]) 
 /// The tempo as `native` stores it: an M4A file's integer tempo item holds
 /// whole numbers.
 fn bpm_text(native: &str, text: &str) -> Result<String, String> {
-    let tempo: f32 = text
-        .trim()
-        .parse()
-        .ok()
-        .filter(|tempo: &f32| tempo.is_finite() && *tempo > 0.0 && *tempo < 1000.0)
+    let tempo = super::parse_tempo(text)
         .ok_or_else(|| format!("{text:?} is not a tempo in beats per minute"))?;
     if native == MP4_TEMPO {
         return Ok(format_bpm(tempo, false));

@@ -10,10 +10,11 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
+use euphoria_core::export::program_files::DjProgramChecks;
 use euphoria_core::tags::{
     DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, SeratoMarkers, SeratoReport,
-    TagWriteOptions, WriteLog, WritePlan, add_serato_markers, default_write_log_directory,
-    plan_write, undo_last_write_with_observer,
+    TagWriteOptions, WriteLog, WritePlan, WrittenValues, add_serato_markers,
+    default_write_log_directory, plan_write_with_history, undo_last_write_with_observer,
 };
 use euphoria_core::{
     CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path, find_audio_files,
@@ -61,9 +62,20 @@ pub struct WriteArguments {
     #[arg(long)]
     tempo: bool,
     /// Where the key and energy label, such as "8A - Energy 7", goes. The
-    /// text already in that field is kept.
-    #[arg(long, value_enum, default_value_t, value_name = "WHERE")]
-    label: LabelChoice,
+    /// text already in that field is kept. The default is `none` for the
+    /// generic preset and `comment-start` for the DJ programs' presets.
+    #[arg(long, value_enum, value_name = "WHERE")]
+    label: Option<LabelChoice>,
+    /// Replace a key or tempo the file already has. Without this, a key
+    /// or tempo that can be read is kept, except one that an earlier
+    /// `tags write` wrote and that has not been changed since.
+    #[arg(long)]
+    overwrite: bool,
+    /// Also write a key or tempo rated low confidence. Without this, those
+    /// are left out and listed. A key or tempo you corrected counts as
+    /// high.
+    #[arg(long)]
+    include_low_confidence: bool,
     /// The DJ program whose tag fields are written.
     #[arg(long, value_enum, default_value_t, value_name = "PROGRAM")]
     preset: PresetChoice,
@@ -128,13 +140,26 @@ impl WriteArguments {
             },
             write_bpm: !self.no_tempo && (self.tempo || preset.writes_bpm_by_default()),
             label: match self.label {
-                LabelChoice::CommentStart => LabelPlacement::CommentStart,
-                LabelChoice::CommentEnd => LabelPlacement::CommentEnd,
-                LabelChoice::Grouping => LabelPlacement::Grouping,
-                LabelChoice::None => LabelPlacement::None,
+                Some(LabelChoice::CommentStart) => LabelPlacement::CommentStart,
+                Some(LabelChoice::CommentEnd) => LabelPlacement::CommentEnd,
+                Some(LabelChoice::Grouping) => LabelPlacement::Grouping,
+                Some(LabelChoice::None) => LabelPlacement::None,
+                None => default_label(preset),
             },
             preset,
+            keep_existing: !self.overwrite,
+            skip_low_confidence: !self.include_low_confidence,
         }
+    }
+}
+
+/// The label of a preset when `--label` is not given: none for the generic
+/// preset, which does not know where a program shows it, and in front of the
+/// comment for the programs whose users sort and search by it.
+fn default_label(preset: DjSoftware) -> LabelPlacement {
+    match preset {
+        DjSoftware::Generic => LabelPlacement::None,
+        _ => LabelPlacement::CommentStart,
     }
 }
 
@@ -175,6 +200,14 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
 
     // Planning only reads the files.
     let options = arguments.options();
+    let history = match default_write_log_directory() {
+        Ok(directory) if options.keep_existing => {
+            let paths: Vec<PathBuf> = results.iter().map(|result| result.path.clone()).collect();
+            WrittenValues::load(&directory, &paths)
+        }
+        _ => WrittenValues::default(),
+    };
+    let mut left_alone: Vec<WritePlan> = Vec::new();
     let mut plans: Vec<WritePlan> = Vec::new();
     let mut analyses: Vec<TrackAnalysis> = Vec::new();
     let mut failures: Vec<Failure> = Vec::new();
@@ -207,7 +240,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                     .clone()
                     .with_tempo_range(arguments.analysis.tempo_range()),
             );
-            let mut plan = plan_write(&result.path, &written, &options)?;
+            let mut plan = plan_write_with_history(&result.path, &written, &options, &history)?;
             if arguments.serato_markers {
                 let report = add_serato_markers(
                     &mut plan,
@@ -218,7 +251,12 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
             Ok((plan, analysis))
         });
         match planned {
-            Ok((plan, _)) if plan.is_empty() => unchanged_count += 1,
+            Ok((plan, _)) if plan.is_empty() => {
+                unchanged_count += 1;
+                if !plan.skipped().is_empty() {
+                    left_alone.push(plan);
+                }
+            }
             Ok((plan, analysis)) => {
                 plans.push(plan);
                 analyses.push(analysis);
@@ -232,6 +270,7 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
 
     let mut standard_output = std::io::stdout().lock();
     output::write_tag_preview(&mut standard_output, &Theme::stdout(), &plans)?;
+    output::write_tag_skips(&mut standard_output, &Theme::stdout(), &left_alone)?;
     standard_output.flush()?;
     drop(standard_output);
     let mut standard_error = std::io::stderr().lock();
@@ -247,15 +286,27 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         failures.len(),
     )?;
 
-    let decision = decide(
-        plans.len(),
-        arguments.dry_run,
-        arguments.yes,
-        &theme,
-        &mut standard_error,
-    )?;
+    let program_open = !plans.is_empty()
+        && !arguments.dry_run
+        && !check_programs_closed(
+            &DjProgramChecks::REAL,
+            arguments.yes,
+            &theme,
+            &mut standard_error,
+        )?;
+    let decision = if program_open {
+        Decision::Stop
+    } else {
+        decide(
+            plans.len(),
+            arguments.dry_run,
+            arguments.yes,
+            &theme,
+            &mut standard_error,
+        )?
+    };
 
-    let mut failed = !failures.is_empty();
+    let mut failed = !failures.is_empty() || program_open;
     match decision {
         Decision::Stop | Decision::CannotAsk => {
             failed |= report_nothing_written(decision, &theme, &mut standard_error)?;
@@ -309,6 +360,46 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+/// Warns when a DJ program is running, because it can save the same file
+/// while it is written and lose the change, or keep its own copy of the
+/// tags. Returns whether to go on: always with `--yes`, and never without
+/// it, so that the person decides after closing the program or by saying
+/// yes.
+fn check_programs_closed(
+    checks: &DjProgramChecks,
+    yes: bool,
+    theme: &Theme,
+    standard_error: &mut impl Write,
+) -> Result<bool> {
+    let running = checks.running();
+    if running.is_empty() {
+        return Ok(true);
+    }
+    output::write_warning(
+        standard_error,
+        theme,
+        format_args!(
+            "{} is running. It may save a file at the same moment Euphoria writes it and lose \
+             the change, or keep showing the old tags until it reads the files again.",
+            running.join(" and ")
+        ),
+    )?;
+    if yes {
+        return Ok(true);
+    }
+    output::write_error(
+        standard_error,
+        theme,
+        "nothing was written: a DJ program is running.",
+    )?;
+    output::write_hint(
+        standard_error,
+        theme,
+        "Close it and run again, or run again with --yes to write anyway.",
+    )?;
+    Ok(false)
 }
 
 pub(crate) enum Decision {
@@ -475,6 +566,97 @@ mod tests {
                 "{program:?} has no preset name"
             );
         }
+    }
+
+    #[derive(clap::Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        arguments: WriteArguments,
+    }
+
+    fn options_of(extra: &[&str]) -> TagWriteOptions {
+        use clap::Parser;
+        let mut words = vec!["write", "track.mp3"];
+        words.extend_from_slice(extra);
+        Wrapper::try_parse_from(words).unwrap().arguments.options()
+    }
+
+    #[test]
+    fn the_label_defaults_to_none_for_any_program_and_stays_for_dj_programs() {
+        assert_eq!(options_of(&[]).label, LabelPlacement::None);
+        for preset in [
+            "rekordbox",
+            "serato",
+            "traktor",
+            "engine-dj",
+            "virtualdj",
+            "mixxx",
+        ] {
+            assert_eq!(
+                options_of(&["--preset", preset]).label,
+                LabelPlacement::CommentStart,
+                "{preset}"
+            );
+        }
+        assert_eq!(
+            options_of(&["--label", "comment-start"]).label,
+            LabelPlacement::CommentStart
+        );
+        assert_eq!(
+            options_of(&["--preset", "rekordbox", "--label", "none"]).label,
+            LabelPlacement::None
+        );
+        assert_eq!(
+            options_of(&["--label", "grouping"]).label,
+            LabelPlacement::Grouping
+        );
+    }
+
+    #[test]
+    fn existing_values_are_kept_and_low_confidence_skipped_unless_asked_otherwise() {
+        let safe = options_of(&[]);
+        assert!(safe.keep_existing && safe.skip_low_confidence);
+        let overwrite = options_of(&["--overwrite"]);
+        assert!(!overwrite.keep_existing && overwrite.skip_low_confidence);
+        let low = options_of(&["--include-low-confidence"]);
+        assert!(low.keep_existing && !low.skip_low_confidence);
+    }
+
+    fn only_rekordbox() -> DjProgramChecks {
+        DjProgramChecks {
+            rekordbox: || Some(true),
+            serato: || Some(false),
+            traktor: || None,
+            engine: || Some(false),
+            virtualdj: || Some(false),
+        }
+    }
+
+    fn none_running() -> DjProgramChecks {
+        DjProgramChecks {
+            rekordbox: || Some(false),
+            ..only_rekordbox()
+        }
+    }
+
+    #[test]
+    fn a_running_dj_program_needs_yes_and_never_blocks_outright() {
+        let theme = Theme::stderr();
+        let mut output = Vec::new();
+        assert!(check_programs_closed(&none_running(), false, &theme, &mut output).unwrap());
+        assert!(output.is_empty());
+
+        let mut output = Vec::new();
+        assert!(!check_programs_closed(&only_rekordbox(), false, &theme, &mut output).unwrap());
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("rekordbox is running"), "{text}");
+        assert!(text.contains("--yes"), "{text}");
+
+        let mut output = Vec::new();
+        assert!(check_programs_closed(&only_rekordbox(), true, &theme, &mut output).unwrap());
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("rekordbox is running"), "{text}");
+        assert!(!text.contains("nothing was written"), "{text}");
     }
 
     #[test]

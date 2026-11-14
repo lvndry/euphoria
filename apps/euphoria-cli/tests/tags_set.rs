@@ -185,7 +185,15 @@ fn a_comment_edit_keeps_the_label_that_tags_write_put_there() {
     let track = folder.path().join("track.wav");
     std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
         .expect("the fixture is copied");
-    assert_success(&euphoria.run(&["tags", "write", "--yes", text(&track)]));
+    assert_success(&euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--yes",
+        text(&track),
+    ]));
     let labelled = euphoria_core::tags::read_tags(&track)
         .expect("the tags are read")
         .comment
@@ -205,7 +213,15 @@ fn a_comment_edit_keeps_the_label_that_tags_write_put_there() {
         .expect("there is a comment");
     assert_eq!(comment, format!("{labelled} - Peak opener"));
 
-    let again = euphoria.run(&["tags", "write", "--dry-run", text(&track)]);
+    let again = euphoria.run(&[
+        "tags",
+        "write",
+        "--include-low-confidence",
+        "--label",
+        "comment-start",
+        "--dry-run",
+        text(&track),
+    ]);
     assert_success(&again);
     assert!(
         !String::from_utf8_lossy(&again.stdout).contains("->"),

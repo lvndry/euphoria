@@ -316,7 +316,12 @@ fn number(text: &str) -> Typed {
     if text.is_empty() {
         return Typed::Empty;
     }
-    match text.parse::<f32>() {
+    let normalized = if text.matches(',').count() == 1 && !text.contains('.') {
+        text.replace(',', ".")
+    } else {
+        text.to_string()
+    };
+    match normalized.parse::<f32>() {
         Ok(value) if value.is_finite() => Typed::Number(value),
         _ => Typed::Unreadable,
     }
@@ -1103,6 +1108,14 @@ impl EuphoriaApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_typed_tempo_may_use_a_decimal_comma() {
+        assert!(matches!(number("127,5"), Typed::Number(value) if value == 127.5));
+        assert!(matches!(number(" 87.5 "), Typed::Number(value) if value == 87.5));
+        assert!(matches!(number("1,2,3"), Typed::Unreadable));
+        assert!(matches!(number(""), Typed::Empty));
+    }
 
     #[test]
     fn the_crossfader_trades_equal_power_between_the_decks() {

@@ -176,6 +176,7 @@ fn a_comment_edit_keeps_the_euphoria_label_once() {
             key: Some(Key::new(9, Mode::Minor)),
             bpm: Some(124.0),
             energy: Some(7),
+            ..TagValues::default()
         };
         let options = TagWriteOptions {
             label: LabelPlacement::CommentStart,

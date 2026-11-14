@@ -188,6 +188,12 @@ fn preview_contents(
             format::count(preview.up_to_date)
         ));
     }
+    if !preview.left_alone.is_empty() {
+        summary.push(format!(
+            "{} with a key or tempo left as it is",
+            format::count(preview.left_alone.len())
+        ));
+    }
     if !preview.not_analyzed.is_empty() {
         summary.push(format!(
             "{} not analyzed",
@@ -245,6 +251,13 @@ fn preview_contents(
         contents.push(preview_list(preview, palette, cx));
     }
     contents.extend(problems(
+        "Key or tempo left as it is",
+        ProblemList::LeftAlone,
+        preview.left_alone.len(),
+        palette,
+        cx,
+    ));
+    contents.extend(problems(
         "Cannot be written",
         ProblemList::CannotBeWritten,
         preview.failures.len(),
@@ -265,6 +278,35 @@ fn preview_contents(
         palette,
         cx,
     ));
+    if let Some(running) = &preview.program_warning {
+        contents.push(
+            div()
+                .id("program-running-strip")
+                .flex_shrink_0()
+                .p(px(10.0))
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(palette.danger)
+                .text_size(SMALL_TEXT_SIZE)
+                .child(format!(
+                    "{} is running. It may save a file at the same moment Euphoria writes it \
+                     and lose the change, or keep showing the old tags until it reads the \
+                     files again. Close it first for the safest write.",
+                    running.join(" and ")
+                ))
+                .test_support()
+                .into_any_element(),
+        );
+        contents.push(buttons(vec![
+            cancel_button("cancel-tag-write", palette, cx),
+            primary_button("Write anyway", palette)
+                .id("confirm-tag-write-anyway")
+                .on_click(cx.listener(|this, _, _, cx| this.write_confirmed_tags(cx)))
+                .test_support()
+                .into_any_element(),
+        ]));
+        return contents;
+    }
     contents.push(buttons(vec![
         cancel_button("cancel-tag-write", palette, cx),
         primary_button(
@@ -289,10 +331,10 @@ fn preview_contents(
 /// What the write will do with the settings in use, in one sentence.
 pub(crate) fn settings_sentence(settings: &TagSettings) -> String {
     format!(
-        "Keys in {}, the energy label {}, the tempo {}, the cue markers {}. Nothing is written \
-         until you confirm.",
+        "Keys in {}, the energy label {}, the tempo {}, the cue markers {}, a key or tempo a \
+         file already has {}, low confidence values {}. Nothing is written until you confirm.",
         settings.key_notation.label(),
-        match settings.label {
+        match settings.effective_label() {
             crate::tag_settings::LabelChoice::None => "not written".to_string(),
             place => format!("at the {}", place.label().to_lowercase()),
         },
@@ -305,6 +347,16 @@ pub(crate) fn settings_sentence(settings: &TagSettings) -> String {
             "written for Serato"
         } else {
             "left alone"
+        },
+        if settings.replace_existing {
+            "replaced"
+        } else {
+            "kept"
+        },
+        if settings.include_low_confidence {
+            "written"
+        } else {
+            "left out"
         }
     )
 }
@@ -456,6 +508,12 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
                 .test_support()
                 .into_any_element()
         }
+        PreviewRow::Skipped(sentence) => line
+            .pl(px(24.0))
+            .text_color(palette.text_tertiary)
+            .child(div().flex_1().min_w_0().truncate().child(sentence.clone()))
+            .test_support()
+            .into_any_element(),
         PreviewRow::Change(change) => line
             .pl(px(24.0))
             .child(
@@ -523,6 +581,8 @@ pub(crate) enum ProblemList {
     /// Files whose Serato cue points or grid do not all go where they were
     /// meant to.
     SeratoNotes,
+    /// Files with nothing to change from which a key or tempo was left out.
+    LeftAlone,
 }
 
 impl ProblemList {
@@ -533,6 +593,7 @@ impl ProblemList {
             (ProblemList::CannotBeWritten, TagPanel::Preview(preview)) => &preview.failures,
             (ProblemList::NotAnalyzed, TagPanel::Preview(preview)) => &preview.not_analyzed,
             (ProblemList::SeratoNotes, TagPanel::Preview(preview)) => &preview.serato_notes,
+            (ProblemList::LeftAlone, TagPanel::Preview(preview)) => &preview.left_alone,
             (ProblemList::NotWritten, TagPanel::Written(report)) => &report.failures,
             (ProblemList::NotNoted, TagPanel::Written(report)) => &report.not_noted,
             (ProblemList::NotRestored, TagPanel::Undone(Ok(Some(report)))) => &report.failures,
@@ -548,12 +609,13 @@ impl ProblemList {
             ProblemList::NotNoted => "not-noted",
             ProblemList::NotRestored => "not-restored",
             ProblemList::SeratoNotes => "serato-notes",
+            ProblemList::LeftAlone => "left-alone",
         }
     }
 
     fn heading_color(self, palette: &Palette) -> gpui::Hsla {
         match self {
-            ProblemList::SeratoNotes => palette.text_secondary,
+            ProblemList::SeratoNotes | ProblemList::LeftAlone => palette.text_secondary,
             _ => palette.danger,
         }
     }

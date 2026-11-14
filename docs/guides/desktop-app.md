@@ -360,7 +360,7 @@ The app can write the key, tempo and energy it found into the files themselves, 
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The DJ program the tags are written for is shown beside the button.
 3. The preview lists every file that would change, each field with the value it has now and the value it would get. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
-4. Click **Write** to write them. Nothing is written before that, and **Cancel** or Escape closes the preview without writing.
+4. Click **Write** to write them. Nothing is written before that, and **Cancel** or Escape closes the preview without writing. A key or tempo left as it is, because the file already has one or because it is rated low confidence, is listed in the preview with the reason. When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the click first shows a strip that says the program may lose the change; **Write anyway** goes on.
 5. The app shows how far it has got, then the files written and any it could not write, with the reason. Those are left as they were.
 
 **Undo this write**, **Tags > Undo Last Tag Write…** or the button in the settings puts back the exact tags the last write replaced, after asking. The app and `euphoria tags undo` share their backups, so either undoes a write the other made.
@@ -465,7 +465,9 @@ How tags are written:
 | --- | --- |
 | DJ program | rekordbox, Serato, Traktor, Engine DJ, VirtualDJ, Mixxx, or any program. Tags are written to the fields that program reads; [Use Euphoria with your DJ program](dj-programs.md) lists them. |
 | Key notation | Camelot (8A), musical (Am) or Open Key (1m), in the key field and in the label. It is separate from how keys are shown, so the tags can follow what your DJ program expects. |
-| Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. |
+| Energy label | At the start of the comment, at its end, at the start of the grouping, or nowhere. Until you choose, it follows the program: nowhere for any program, the start of the comment for a DJ program. Settings saved by earlier versions keep a label you chose; the old default with any program is read as no choice. |
+| Existing key and tempo | A key or tempo a file already has is kept, so a correct tag is never replaced by a guess. **Replace existing key and tempo** (off) replaces them. A value Euphoria wrote earlier is still updated. |
+| Low confidence | A key or tempo rated low confidence is left out and listed in the preview. **Also write low confidence values** (off) writes them. A key or tempo you corrected counts as high. |
 | Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
 | Cue markers | Whether each track's cues and beat grid are written as Serato cue points, which Serato DJ, Mixxx and VirtualDJ read. Off by default. Your edited cues go in on their pads; memory cues are left out. WAV and Ogg files get none. |
 

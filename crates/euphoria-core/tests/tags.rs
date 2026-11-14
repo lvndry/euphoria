@@ -291,6 +291,7 @@ fn full_options() -> TagWriteOptions {
         write_bpm: true,
         label: LabelPlacement::CommentStart,
         preset: DjSoftware::Mixxx,
+        ..TagWriteOptions::default()
     }
 }
 
@@ -489,6 +490,7 @@ fn a_minor_with_energy(energy: u8) -> TagValues {
         key: Some(Key::new(9, Mode::Minor)),
         bpm: None,
         energy: Some(energy),
+        ..TagValues::default()
     }
 }
 
@@ -1002,6 +1004,7 @@ fn open_key_notation_reaches_the_key_field_and_the_label() {
         write_bpm: false,
         label: LabelPlacement::CommentStart,
         preset: DjSoftware::Traktor,
+        ..TagWriteOptions::default()
     };
     apply_plan(&plan_write(&path, a_minor_with_energy(7), &options).unwrap()).unwrap();
     let tags = read_tags(&path).unwrap();

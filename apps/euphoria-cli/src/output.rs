@@ -1176,6 +1176,32 @@ pub fn write_tag_preview(
                 theme.good(Printable(shown(change.new.as_deref())))
             )?;
         }
+        write_skipped_values(writer, theme, plan)?;
+    }
+    Ok(())
+}
+
+/// Lists the files that have nothing to change but a key or tempo they
+/// leave out, with the reason, so that a kept value is visible.
+pub fn write_tag_skips(
+    writer: &mut impl Write,
+    theme: &Theme,
+    plans: &[WritePlan],
+) -> io::Result<()> {
+    for plan in plans {
+        writeln!(writer, "{}", theme.bold(Printable(plan.path().display())))?;
+        write_skipped_values(writer, theme, plan)?;
+    }
+    Ok(())
+}
+
+fn write_skipped_values(
+    writer: &mut impl Write,
+    theme: &Theme,
+    plan: &WritePlan,
+) -> io::Result<()> {
+    for skipped in plan.skipped() {
+        writeln!(writer, "  {}", theme.dim(Printable(skipped.describe())))?;
     }
     Ok(())
 }

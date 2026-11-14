@@ -256,7 +256,15 @@ fn a_deleted_playlist_track_is_reported_as_missing_with_status_3() {
 #[test]
 fn tag_writes_and_undo_keep_saved_playlists_exportable_without_the_cache() {
     for edits in [
-        vec!["tags", "write", "--yes", "--no-cache"],
+        vec![
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--label",
+            "comment-start",
+            "--yes",
+            "--no-cache",
+        ],
         vec!["tags", "set", "--field", "genre=Techno", "--yes"],
     ] {
         let euphoria = Euphoria::new();
