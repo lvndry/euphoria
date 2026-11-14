@@ -6,9 +6,11 @@ name: Publish to Homebrew
 # it can also be run by hand from the Actions tab, with the version to
 # publish, to republish one. It reads only the files of the GitHub Release,
 # so it runs from any commit.
-# The tap is public, because brew fetches taps over public https. The
-# workflow's token pushes to it, because the repository's default token
-# writes to every repository of the same owner; no other token is stored.
+# The tap is public, because brew fetches taps over public https. A
+# workflow's own token can only write to the repository it runs in, so the
+# push uses a short-lived token of the Jazz GitHub App, which must be
+# installed on lvndry/homebrew-euphoria with Contents: read and write. The
+# token is minted for that one repository and that one permission.
 
 on:
   workflow_dispatch:
@@ -22,10 +24,17 @@ on:
       version:
         required: true
         type: string
+    secrets:
+      JAZZ_GITHUB_APP_ID:
+        required: true
+      JAZZ_GITHUB_APP_PRIVATE_KEY:
+        required: true
 
-# No `permissions:` block on purpose: the token must write to the tap
-# repository, not only to this one, and the repository's default token
-# writes to every repository of the same owner.
+# This repository's token only reads the release; the tap is written with
+# the app token below.
+permissions:
+  contents: read
+
 concurrency:
   group: homebrew
   cancel-in-progress: false
@@ -43,10 +52,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Create a token that writes to the tap
+        id: tap-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-euphoria
+          permission-contents: write
       - name: Clone the tap
+        env:
+          TAP_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
           git clone --quiet --depth 1 \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/$TAP.git" \
+            "https://x-access-token:${TAP_TOKEN}@github.com/$TAP.git" \
             "$RUNNER_TEMP/tap"
       - name: Write the formula and the cask of the release
         run: python3 scripts/release/publish_homebrew.py "$VERSION" "$RUNNER_TEMP/tap"
