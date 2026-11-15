@@ -168,8 +168,11 @@ fn open_panel_at(anchor: Option<PanelAnchor>, cx: &mut App) {
     match gpui::open_window(options, cx, |window, cx| {
         let view = cx.new(|cx| LiveView::new(view_model, cx));
         view.update(cx, |_, cx| {
-            cx.observe_window_activation(window, |_, window, cx| {
-                if !window.is_window_active() {
+            let was_active = std::cell::Cell::new(false);
+            cx.observe_window_activation(window, move |_, window, cx| {
+                if window.is_window_active() {
+                    was_active.set(true);
+                } else if was_active.get() {
                     cx.global_mut::<LiveRuntime>().closed_at = Some(std::time::Instant::now());
                     window.remove_window();
                 }

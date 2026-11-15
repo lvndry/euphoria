@@ -24,7 +24,7 @@ use gpui::{
 };
 
 use crate::library::Library;
-use crate::live_model::{ListenState, LiveModel, Steadiness};
+use crate::live_model::{ListenState, LiveModel, Steadiness, shown_title};
 use crate::live_settings::LiveSettings;
 use crate::menu_bar::MenuBarState;
 use crate::menu_bar::testing::RecordingSurface;
@@ -323,10 +323,7 @@ fn rows(model: &Entity<LiveModel>, cx: &mut TestAppContext) -> Vec<String> {
         model
             .next_rows
             .iter()
-            .map(|row| {
-                let title = library.track(row.track_index).unwrap().title();
-                title.trim_end_matches(".flac").to_string()
-            })
+            .map(|row| shown_title(library.track(row.track_index).unwrap()))
             .collect()
     })
 }
@@ -773,7 +770,7 @@ fn the_next_heading_says_what_the_list_follows(cx: &mut TestAppContext) {
     });
     cx.update(|cx| {
         let model = model.read(cx);
-        let title = model.matched_track().unwrap().0.title().to_string();
+        let title = shown_title(model.matched_track().unwrap().0);
         assert_eq!(model.next_heading(), format!("Next after {title}"));
     });
 }

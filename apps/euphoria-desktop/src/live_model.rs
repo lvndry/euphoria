@@ -467,9 +467,7 @@ impl LiveModel {
         let Some((key, _)) = self.signature else {
             return;
         };
-        let title = self
-            .matched_track()
-            .map(|(track, _)| track.title().to_string());
+        let title = self.matched_track().map(|(track, _)| shown_title(track));
         let entry = Earlier {
             key,
             bpm: self.reading.tempo.map(|tempo| tempo.bpm),
@@ -522,7 +520,7 @@ impl LiveModel {
     /// The words above the Next list: what it follows.
     pub(crate) fn next_heading(&self) -> String {
         if let Some((track, _)) = self.matched_track() {
-            return format!("Next after {}", track.title());
+            return format!("Next after {}", shown_title(track));
         }
         match (self.reading.key, self.reading.tempo) {
             (Some(key), Some(tempo)) => format!(
@@ -740,6 +738,20 @@ pub(crate) fn load_library_from_cache() -> Library {
         }
     }
     library
+}
+
+/// The title the panel shows: the one in the tags, or the file name without
+/// its extension.
+pub(crate) fn shown_title(track: &crate::library::Track) -> String {
+    if track.title() != track.file_name {
+        return track.title().to_string();
+    }
+    std::path::Path::new(&track.file_name)
+        .file_stem()
+        .map_or_else(
+            || track.file_name.clone(),
+            |stem| stem.to_string_lossy().into_owned(),
+        )
 }
 
 /// Fingerprints the library's files from the analysis cache, one at a time

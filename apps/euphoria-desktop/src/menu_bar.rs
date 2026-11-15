@@ -48,7 +48,7 @@ impl MenuBarState {
             keeps_running: model.settings.keep_running_when_closed,
             matched_title: model
                 .matched_track()
-                .map(|(track, _)| track.title().to_string()),
+                .map(|(track, _)| crate::live_model::shown_title(track)),
         }
     }
 }

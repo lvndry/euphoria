@@ -24,11 +24,11 @@ use crate::actions::{
 use crate::artwork::{Lookup, ThumbnailSize};
 use crate::assets::{MUSIC_ICON_PATH, PLAY_ICON_PATH};
 use crate::format;
-use crate::live_model::{Learning, ListenState, LiveModel, Steadiness};
+use crate::live_model::{Learning, ListenState, LiveModel, Steadiness, shown_title};
 use crate::next_rail::{EnergyChoice, NextRow, energy_text, relation_pill};
 use crate::theme::Palette;
 use crate::views::controls::{segment, segmented};
-use crate::views::inspector::{quiet_note, value_with_unit};
+use crate::views::inspector::{quiet_note, statistic_value, value_with_unit};
 use crate::views::key_chip::key_chip;
 use crate::views::{
     GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
@@ -358,7 +358,7 @@ fn header(model: &LiveModel, view: &LiveView, cx: &Context<'_, LiveView>) -> Div
         .child(
             Button::new(MORE_ID)
                 .ghost()
-                .icon(IconName::Ellipsis)
+                .icon(Icon::new(IconName::Ellipsis).text_color(palette.text_secondary))
                 .dropdown_menu(move |menu, _, _| {
                     more_rows.iter().fold(menu, |menu, row| {
                         let menu = if row.item == MoreItem::OpenEuphoria {
@@ -543,12 +543,13 @@ fn readout(model: &LiveModel) -> AnyElement {
                         .child(
                             div()
                                 .id(ENERGY_ID)
-                                .child(value_with_unit(
-                                    format!("energy {energy}"),
-                                    "out of 10",
-                                    "live-energy-unit",
-                                    &palette,
-                                ))
+                                .flex()
+                                .items_baseline()
+                                .gap(GAP_TIGHT)
+                                .whitespace_nowrap()
+                                .child(quiet_note("energy", &palette))
+                                .child(statistic_value(energy))
+                                .child(quiet_note("out of 10", &palette))
                                 .test_support(),
                         ),
                 ),
@@ -651,7 +652,7 @@ fn library_card(model: &LiveModel, cx: &Context<'_, LiveView>) -> Option<AnyElem
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(div().truncate().child(track.title().to_string()))
+                    .child(div().truncate().child(shown_title(track)))
                     .child(
                         div()
                             .truncate()
@@ -730,7 +731,7 @@ fn next_row(model: &LiveModel, next: &NextRow, is_selected: bool) -> Option<AnyE
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .child(track.title().to_string()),
+                                    .child(shown_title(track)),
                             )
                             .child(
                                 div()
