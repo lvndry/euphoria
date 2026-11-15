@@ -1992,6 +1992,7 @@ dependencies = [
  "clap_complete",
  "console",
  "euphoria-core",
+ "hound",
  "indicatif",
  "portable-pty",
  "rayon",
