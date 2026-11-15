@@ -6771,23 +6771,26 @@ fn the_deck_strip_shows_one_section_at_a_time_from_its_tabs(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn closing_the_decks_clears_the_notice_that_they_hold_the_player(cx: &mut TestAppContext) {
+fn the_track_player_hides_while_the_decks_are_open(cx: &mut TestAppContext) {
     let output = RenderedDecks::default();
-    let (_window, view) = open_window_on(deck_tracks(), Box::new(output), cx);
+    let (window, view) = open_window_on(deck_tracks(), Box::new(output), cx);
+    assert!(is_shown(window, "player-bar", cx));
     cx.update(|cx| {
         view.update(cx, |app, cx| {
             app.toggle_decks(cx);
             app.toggle_playback(cx);
         })
     });
+    cx.run_until_parked();
+    assert!(!is_shown(window, "player-bar", cx));
     cx.update(|cx| {
-        assert_eq!(
-            view.read(cx).notice.as_deref(),
-            Some(crate::decks::PLAYER_HELD_BY_DECKS)
-        )
+        let app = view.read(cx);
+        assert_eq!(app.notice, None, "no notice asks to close the decks");
+        assert!(!app.player.offers_pause(), "the player stays silent");
     });
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
-    cx.update(|cx| assert_eq!(view.read(cx).notice, None));
+    cx.run_until_parked();
+    assert!(is_shown(window, "player-bar", cx));
 }
 
 /// Six made up tracks, one for each reason to review, one with all three

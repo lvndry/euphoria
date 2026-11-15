@@ -346,8 +346,8 @@ fn the_decks_keep_the_player_from_a_set_row(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let app = view.read(cx);
         assert_eq!(
-            app.notice.as_deref(),
-            Some(crate::decks::PLAYER_HELD_BY_DECKS)
+            app.notice, None,
+            "the decks hold the sound without a notice"
         );
         assert!(!app.player.offers_pause());
         assert!(app.set_builder.playing.is_none());
