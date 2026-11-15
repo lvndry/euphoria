@@ -23,7 +23,17 @@ Use `--release`: analysis is many times slower in a debug build.
 
 ## Add music
 
-On first launch the window shows a drop zone. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder**. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
+On first launch the window shows a card of three steps. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder** in step 1. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
+
+### The first run card
+
+The three steps fill in as they happen. A finished step dims, and the step you are on has an accent border.
+
+1. **Add music.** Choose a folder or drop one. Once tracks are in, the step says how many were added.
+2. **Analyze.** While analysis runs it counts the tracks, for example "312 of 575 · about 4 min left". The time left is worked out from the rate so far, and appears once about 10 seconds of the run have been seen; before that the step shows only the count.
+3. **Fill in tags.** "Missing keys and tempos only. Tags you already have are kept, and every write can be undone." When a DJ program is chosen under Settings > Tags, the step names it, for example "Writing for rekordbox". With writing after analysis on, tags are written for you; otherwise **Write tags** on the step opens the preview. Euphoria does not scan for installed DJ programs for this line: it names the program you chose.
+
+With no music the card fills the window. Once there is a library it stays above the table until the first analysis has ended and the first write of tags has finished, then goes away for good: the settings file remembers it. Someone who already has folders in an older settings file never sees the card.
 
 Folders are searched all the way down for MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
 
@@ -56,6 +66,20 @@ The Euphoria mark at the top left of the toolbar is also the activity indicator.
 | Folder | Where the file is, from the folder on show |
 
 The Folder column shows the path from the folder chosen in the sidebar to the file's own folder. With `DJ tracks` chosen, a file in `DJ tracks/afro_house/warmup` shows `afro_house/warmup`; with `afro_house` chosen, it shows `warmup`; a file directly in the chosen folder shows a dash. Under **All tracks** the path starts inside the folder you added, with that folder's name in front when you added more than one. The column grows to fit the longest path on show, as long as the title keeps room; a path still too long keeps its last folder names in view, and pointing at it shows the whole path. Sorting by Folder groups the files folder by folder, in the order of the sidebar.
+
+### Row actions
+
+A row shows only what was scanned. The buttons for acting on it appear at the end of the Title cell when the pointer is on the row, and stay on the selected row. They are laid over the end of the title, so showing them moves nothing.
+
+| Button | Does | Key on the selected row |
+| --- | --- | --- |
+| Play | Plays the track from where the player has it. On the sounding row it is a pause button. | Space |
+| Star | Stars the track, or takes the star off. A starred track keeps a small filled star before its title even when the pointer is elsewhere. | S (F also works) |
+| Add to set | Adds the track to the end of the set on the [set builder](#build-a-set) page, leaving out one that is already there. With a set of several tracks selected, it adds them all. | A |
+
+Each button's tooltip names the action and its key. Add to set needs a set to add to: build one in the set builder first, or the button says so. Planning a transition from the playing track has no button in the table: the planner works on the track open in the [focus view](#focus-view), so it stays there.
+
+The keys type a letter when a text field has the keyboard, so S, A and Space do nothing else in the search box. Needs review rows have the same buttons.
 
 Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
 
@@ -440,8 +464,8 @@ Star the tracks you reach for, and mark the transitions you know work: a track i
 
 ### Star a track
 
-- In the table, the star sits before the title. It shows on the row under the pointer, and stays on a starred track. Click it to star the track or take the star off; the click does not change the selection.
-- Press F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. F types a letter when a text field has the keyboard.
+- In the table, a starred track has a small filled star before its title. The star button with the other [row actions](#row-actions) shows on the row under the pointer and on the selected row. Click it to star the track or take the star off; the click does not change the selection.
+- Press S or F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. S and F type a letter when a text field has the keyboard.
 - The right click menu of a row has **Star** or **Remove star**, for the selected tracks.
 - The star at the top of the inspector, beside the track's name, stars the selected track.
 - Each deck has a star beside its track's name.
@@ -552,6 +576,7 @@ In the table, a row that is off the curve or reached by a mix that breaks a rule
 
 - **Lock** pins a track. A locked row cannot be removed (**Remove** is greyed, with "Unlock to remove", and Delete skips it with a notice), and the arrows are off for it and for the rows beside it, so nothing moves it. Click **Locked** to unlock it. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
 - The arrows move a track one place, and **Remove** takes it out (or select a row and press Delete). The set is explained again at once: the moves, the steps and the curve follow your order.
+- **Add tracks.** In the library, point at a track and press its **+** button, or select tracks and press A: they join the end of the set, unlocked, and the set is explained again. A track already in the set is not added twice, and a set holds at most 60 tracks. The play buttons on set rows look like the row buttons of the library table.
 - **Play the set.** Point at a row and press its play button, double-click the row, or select it and press Space: the track plays from the start in the player at the bottom of the window, and the playing row is marked with the accent colour and a pause button. Press the button again, or the player's own button, to pause and resume. When a track ends, the set goes on with the next track in set order, not library order, and stops after the last one.
 - **Play transition** on a row plays the last 20 seconds of the track before it, then goes on into that track from its start. The 20 seconds is fixed: the set builder does not plan mix points, and this is a plain one-after-the-other preview with no crossfade. To hear a mix with both tracks at once, use the transition planner on the decks.
 - While the decks are open they hold the player, so the play buttons show "Close the decks to use the track player." and do nothing.

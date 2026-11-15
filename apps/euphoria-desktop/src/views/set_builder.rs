@@ -732,6 +732,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
     let plan = &planned.plan;
     let count = planned.paths.len();
     let raised = palette.raised;
+    let line = palette.line;
     let mut rows = div()
         .flex()
         .flex_col()
@@ -887,10 +888,11 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                     .flex_shrink_0()
                     .items_center()
                     .justify_center()
-                    .size(px(24.0))
-                    .rounded(px(12.0))
+                    .size(px(crate::views::row_actions::ICON_SIZE))
+                    .rounded(px(5.0))
+                    .bg(if is_selected { line } else { raised })
                     .cursor_pointer()
-                    .hover(move |style| style.bg(raised))
+                    .hover(move |style| style.bg(line))
                     .when(!is_current, |button| {
                         button
                             .invisible()

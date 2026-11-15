@@ -32,6 +32,9 @@ mod favorite_flow;
 mod favorites;
 #[cfg(test)]
 mod favorites_ui_tests;
+mod first_run;
+#[cfg(test)]
+mod first_run_ui_tests;
 mod focus;
 #[cfg(test)]
 mod focus_ui_tests;
@@ -74,6 +77,8 @@ mod progress;
 mod reference_sound;
 mod relink_flow;
 mod reveal;
+#[cfg(test)]
+mod row_actions_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
@@ -117,8 +122,8 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, BuildSet, CloseFocusView, EditTags, ExportLibrary, FocusSearch,
-    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
+    AddCueAtPlayhead, AddFolder, AddToSet, BuildSet, CloseFocusView, EditTags, ExportLibrary,
+    FocusSearch, OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
     PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems,
     ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
     UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
@@ -282,6 +287,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("cmd-z", UndoCueEdit, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("c", AddCueAtPlayhead, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("f", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("s", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("a", AddToSet, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("m", ToggleMetronome, Some(SPACE_BAR_CONTEXT)),
         // F stars, so Enter opens the focus view.
         KeyBinding::new("enter", OpenFocusView, Some(SPACE_BAR_CONTEXT)),
@@ -346,6 +353,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<ToggleFavorite>(view, cx, |view, cx| {
         view.toggle_star_on_selection(cx);
     });
+    register_view_command::<AddToSet>(view, cx, |view, cx| view.add_selection_to_set(cx));
     register_view_command::<CloseFocusView>(view, cx, |view, cx| view.close_focus_view(cx));
     register_view_command::<ResetColumnWidths>(view, cx, |view, cx| {
         view.reset_column_widths(cx);

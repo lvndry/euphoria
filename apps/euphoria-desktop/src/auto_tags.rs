@@ -288,6 +288,9 @@ impl EuphoriaApp {
                     reason: failure.reason.clone(),
                 }));
                 this.follow_written_playlists(&report.playlist_rewrites);
+                if !report.written.is_empty() {
+                    this.note_first_write();
+                }
                 this.read_track_names(report.written.clone(), cx);
                 #[cfg(test)]
                 {
