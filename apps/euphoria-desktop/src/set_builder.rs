@@ -78,6 +78,8 @@ pub(crate) struct SetBuilder {
     pub(crate) playing: Option<usize>,
     /// Whether the list of where the set falls short is open.
     pub(crate) details_open: bool,
+    /// The render of the set as one mix, while it runs.
+    pub(crate) render: Option<crate::mix_render::MixRenderRun>,
     build_generation: u64,
     build_task: Option<Task<()>>,
 }
@@ -99,6 +101,7 @@ impl Default for SetBuilder {
             selected_row: None,
             playing: None,
             details_open: false,
+            render: None,
             build_generation: 0,
             build_task: None,
         }
@@ -738,7 +741,7 @@ impl EuphoriaApp {
     }
 
     /// The name a saved set gets: its curve preset, or that it was drawn.
-    fn set_name(&self) -> String {
+    pub(crate) fn set_name(&self) -> String {
         let shape = match self.set_builder.preset {
             Some(preset) => preset.label(),
             None => "Drawn curve",

@@ -74,28 +74,7 @@ fn file_stem(path: &Path) -> String {
 }
 
 /// A blend of one track into the next, in the bars of each track.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Blend {
-    /// The bar of the outgoing track the blend starts on, counted from 0 at
-    /// its first downbeat.
-    pub a_start_bar: usize,
-    /// The bar of the incoming track that starts playing then.
-    pub b_start_bar: usize,
-    /// How many bars the two play together.
-    pub bars: usize,
-    /// The bar of the blend, counted from 1, where the incoming bass comes
-    /// in and the outgoing bass goes out, or `None` for the middle.
-    pub bass_swap_bar: Option<usize>,
-}
-
-impl Blend {
-    /// The bar of the blend, from 1, where the bass is swapped.
-    pub fn swap_bar(&self) -> usize {
-        self.bass_swap_bar
-            .filter(|bar| (1..=self.bars).contains(bar))
-            .unwrap_or(self.bars / 2 + 1)
-    }
-}
+pub use crate::locked_transitions::BlendBars as Blend;
 
 /// How one track goes into the next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
