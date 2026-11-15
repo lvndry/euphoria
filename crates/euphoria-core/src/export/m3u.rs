@@ -71,9 +71,77 @@ pub fn write_m3u8_file(
     write_file(destination, render_m3u8(name, tracks).as_bytes(), existing)
 }
 
+/// The audio files an M3U or M3U8 playlist lists, in order. Lines that
+/// start with `#` are comments; a relative path is read from the folder of
+/// the playlist, and a `file://` address as the path it names.
+pub fn parse_m3u(text: &str, playlist_folder: &Path) -> Vec<PathBuf> {
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let line = line
+                .strip_prefix("file://")
+                .map_or_else(|| line.to_string(), percent_decoded);
+            let path = PathBuf::from(line);
+            if path.is_absolute() {
+                path
+            } else {
+                playlist_folder.join(path)
+            }
+        })
+        .collect()
+}
+
+/// Reads the playlist at `path` with [`parse_m3u`].
+pub fn read_m3u_file(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let bytes = std::fs::read(path)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let folder = path.parent().unwrap_or(Path::new(""));
+    Ok(parse_m3u(&text, folder))
+}
+
+fn percent_decoded(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let escaped = (bytes[index] == b'%')
+            .then(|| bytes.get(index + 1..index + 3))
+            .flatten()
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match escaped {
+            Some(byte) => {
+                decoded.push(byte);
+                index += 3;
+            }
+            None => {
+                decoded.push(bytes[index]);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_playlist_is_read_back_in_order_from_its_folder() {
+        let text = "\u{feff}#EXTM3U\n#EXTINF:302,Artist - Opener\n/Music/Opener.mp3\n\n\
+                    sub/Second.flac\r\nfile:///Music/Caf%C3%A9%20closing.flac\n";
+        assert_eq!(
+            parse_m3u(text, Path::new("/Sets")),
+            vec![
+                PathBuf::from("/Music/Opener.mp3"),
+                PathBuf::from("/Sets/sub/Second.flac"),
+                PathBuf::from("/Music/Caf\u{e9} closing.flac"),
+            ]
+        );
+    }
 
     #[test]
     fn a_playlist_lists_its_tracks_in_order_with_their_length_and_name() {

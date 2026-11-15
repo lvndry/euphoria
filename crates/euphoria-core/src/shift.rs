@@ -10,7 +10,7 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
-mod flac;
+pub(crate) mod flac;
 
 use crate::audio::{MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE};
 use crate::audio_stream::AudioStream;
@@ -29,7 +29,7 @@ pub use crate::signalsmith::Stretch;
 pub const MAXIMUM_SHIFT_SEMITONES: i8 = 6;
 
 /// Bits per sample of the files written, enough for any source a DJ plays.
-const BITS_PER_SAMPLE: u16 = 24;
+pub(crate) const BITS_PER_SAMPLE: u16 = 24;
 // Hound's 24-bit WAVEFORMATEXTENSIBLE header uses 60 bytes of RIFF's
 // u32 length, plus at most one byte of data-chunk padding.
 const MAXIMUM_WAV_SAMPLES: u64 = (u32::MAX as u64 - 61) / (BITS_PER_SAMPLE as u64 / 8);
@@ -428,6 +428,7 @@ impl ShiftedWriter {
                 path,
                 channels,
                 sample_rate,
+                write_error,
             )?)),
         })
     }
@@ -473,7 +474,7 @@ fn write_error(path: &Path, reason: String) -> EuphoriaError {
 }
 
 /// A sample from -1 to 1 as a 24 bit integer, clipped at full scale.
-fn to_integer(sample: f32) -> i32 {
+pub(crate) fn to_integer(sample: f32) -> i32 {
     let full_scale = f64::from((1_i32 << (BITS_PER_SAMPLE - 1)) - 1);
     (f64::from(sample).clamp(-1.0, 1.0) * full_scale).round() as i32
 }

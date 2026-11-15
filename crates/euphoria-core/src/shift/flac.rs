@@ -11,11 +11,12 @@ use flacenc::component::{BitRepr, Stream};
 use flacenc::error::{Verified, Verify};
 use flacenc::source::{Context, Fill, FrameBuf};
 
-use super::{BITS_PER_SAMPLE, write_error};
+use super::BITS_PER_SAMPLE;
 use crate::EuphoriaError;
 
-pub(super) struct FlacWriter {
+pub(crate) struct FlacWriter {
     path: PathBuf,
+    write_error: fn(&Path, String) -> EuphoriaError,
     file: BufWriter<File>,
     config: Verified<flacenc::config::Encoder>,
     header: Stream,
@@ -27,11 +28,12 @@ pub(super) struct FlacWriter {
 }
 
 impl FlacWriter {
-    pub(super) fn new(
+    pub(crate) fn new(
         file: File,
         path: &Path,
         channels: u16,
         sample_rate: u32,
+        write_error: fn(&Path, String) -> EuphoriaError,
     ) -> Result<Self, EuphoriaError> {
         let error = |reason: String| write_error(path, reason);
         let config = flacenc::config::Encoder::default()
@@ -48,6 +50,7 @@ impl FlacWriter {
             FrameBuf::with_size(channels, config.block_size).map_err(|e| error(e.to_string()))?;
         let mut writer = Self {
             path: path.to_path_buf(),
+            write_error,
             file: BufWriter::new(file),
             header,
             frame,
@@ -61,7 +64,7 @@ impl FlacWriter {
         Ok(writer)
     }
 
-    pub(super) fn write(&mut self, samples: &[f32]) -> Result<(), EuphoriaError> {
+    pub(crate) fn write(&mut self, samples: &[f32]) -> Result<(), EuphoriaError> {
         let capacity = self.config.block_size * self.channels;
         for sample in samples {
             self.pending.push(super::to_integer(*sample));
@@ -76,7 +79,7 @@ impl FlacWriter {
         if self.pending.is_empty() {
             return Ok(());
         }
-        let error = |reason: String| write_error(&self.path, reason);
+        let error = |reason: String| (self.write_error)(&self.path, reason);
         self.frame
             .fill_interleaved(&self.pending)
             .map_err(|e| error(e.to_string()))?;
@@ -107,30 +110,30 @@ impl FlacWriter {
         let mut sink = flacenc::bitsink::ByteSink::new();
         self.header
             .write(&mut sink)
-            .map_err(|e| write_error(&self.path, format!("{e:?}")))?;
+            .map_err(|e| (self.write_error)(&self.path, format!("{e:?}")))?;
         self.file
             .write_all(sink.as_slice())
-            .map_err(|e| write_error(&self.path, e.to_string()))
+            .map_err(|e| (self.write_error)(&self.path, e.to_string()))
     }
 
-    pub(super) fn finish(mut self) -> Result<u64, EuphoriaError> {
+    pub(crate) fn finish(mut self) -> Result<u64, EuphoriaError> {
         self.write_frame()?;
         // Fixed-block frame numbers use this stride, including when the last
         // frame is shorter. Advertising the tail as the minimum breaks seeking.
         self.header
             .stream_info_mut()
             .set_block_sizes(self.config.block_size, self.config.block_size)
-            .map_err(|e| write_error(&self.path, e.to_string()))?;
+            .map_err(|e| (self.write_error)(&self.path, e.to_string()))?;
         self.header
             .stream_info_mut()
             .set_md5_digest(&self.context.md5_digest());
         self.file
             .seek(SeekFrom::Start(0))
-            .map_err(|e| write_error(&self.path, e.to_string()))?;
+            .map_err(|e| (self.write_error)(&self.path, e.to_string()))?;
         self.write_header()?;
         self.file
             .flush()
-            .map_err(|e| write_error(&self.path, e.to_string()))?;
+            .map_err(|e| (self.write_error)(&self.path, e.to_string()))?;
         Ok(self.context.total_samples() as u64 * self.channels as u64)
     }
 }

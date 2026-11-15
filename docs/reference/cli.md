@@ -567,6 +567,32 @@ The JSON object has `schema_version` (1), `tracks` (position from 1, absolute pa
 
 The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
 
+## euphoria set render
+
+Renders a set as one continuous mix: each track blended into the next at a section start, beatmatched with its key kept, written as a WAV or FLAC file.
+
+```
+euphoria set render [OPTIONS] <SET>...
+```
+
+`SET` is the name of a playlist built in the desktop app, an M3U or M3U8 playlist file, or audio files in play order. A folder is refused, since it has no order. Tracks are analyzed first or read from the cache, with your corrections applied. Each transition is the best window [`euphoria plan`](#euphoria-plan) ranks that starts after the blend into the outgoing track has ended; a pair that cannot blend plays one after the other. The [guide](../guides/render-a-mix.md) explains where tracks come in and how a blend sounds.
+
+| Option | Meaning |
+| --- | --- |
+| `-o`, `--out <FILE>` | The mix to write, ending in `.wav` (24 bit, RF64 past 4 GB) or `.flac` (24 bit). Required unless `--dry-run`. `--output` is the same. |
+| `--format <FORMAT>` | `wav` or `flac`. Defaults to the extension of `--out`; a name without one gets it added, and a name with the other one is refused. |
+| `--tracklist` | Also write `NAME.tracklist.txt` beside the mix: one numbered line per track with the time it starts. |
+| `--cue` | Also write `NAME.cue` beside the mix: a CUE sheet with each track's title, artist and start. |
+| `--chapters` | Also write `NAME.chapters.txt` beside the mix: one line per track, `0:00 Artist - Title`, for a video description. |
+| `--dry-run` | Print the plan and write nothing. |
+| `--force` | Replace the mix and the files beside it if they exist. Without it, an existing file is refused before anything is rendered. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output has the name of the set, its track count and length, then one line per track with the time it starts in the mix and under it, after `↳`, why the transition into the next track is where it is. A transition played one after the other is shown in the caution colour. Standard error has a progress bar while rendering, then a line for each file written.
+
+The exit status is 0 when the mix was written, or the plan printed with `--dry-run`, and 1 when a track cannot be analyzed or read, or a file cannot be written.
+
 ## euphoria plan
 
 Plans the mix from one track into the next: how B lines up with A, where the two clash, and the best windows to mix in.
