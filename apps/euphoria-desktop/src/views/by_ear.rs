@@ -3,7 +3,8 @@
 
 //! Checking the key by ear in the track detail: a drone of the key, and of
 //! the runner up when one is offered, a one octave piano with the key's
-//! scale marked, a volume for both, and the editor that corrects the key, the
+//! scale marked (all in the key the track is heard in, which "Hear it in
+//! another key" may have moved), a volume for both, and the editor that corrects the key, the
 //! tempo or the energy by hand.
 
 use euphoria_core::{Key, Mode};
@@ -18,6 +19,7 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::key_by_ear::{ARPEGGIO_STEP, LEVEL_STEPS, scale_of};
 use crate::library::Track;
+use crate::tag_settings::NotationChoice;
 use crate::theme::Palette;
 use crate::views::controls::choice_button;
 use crate::views::inspector::shown_runner_up;
@@ -189,19 +191,41 @@ fn energy_picker(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         })
 }
 
+/// The key of `track` and its runner up, if one is offered, as heard when
+/// the track is moved `shift` semitones: what the tone, the piano and the
+/// chords of the section are built on.
+pub(crate) fn heard_keys(track: &Track, shift: i8) -> Option<(Key, Option<Key>)> {
+    let key = track.key()?.transposed(shift);
+    let runner_up = shown_runner_up(track).map(|runner_up| runner_up.transposed(shift));
+    Some((key, runner_up))
+}
+
+fn tone_label(notation: NotationChoice, key: Key) -> String {
+    format!("{} tone", notation.spell(&key))
+}
+
+/// A chord button says its key only when there are two to tell apart.
+fn chord_label(notation: NotationChoice, key: Key, has_runner_up: bool) -> String {
+    if has_runner_up {
+        format!("{} chord", notation.spell(&key))
+    } else {
+        "Play chord".to_string()
+    }
+}
+
 /// The section for checking the key by ear, for a track with a key.
 pub(crate) fn section(
     track: &Track,
     app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<Div> {
-    let key = track.key()?;
+    let (key, runner_up) = heard_keys(track, app.key_shift)?;
     let palette = app.theme.palette;
     let notation = app.tag_settings.key_notation;
     let sounding = app.by_ear.drone_key();
 
     let tones = std::iter::once(key)
-        .chain(shown_runner_up(track))
+        .chain(runner_up)
         .enumerate()
         .map(|(index, tone_key)| {
             let is_on = sounding == Some(tone_key);
@@ -215,7 +239,7 @@ pub(crate) fn section(
             };
             choice_button(
                 ("tone", index),
-                format!("{} tone", notation.spell(&tone_key)),
+                tone_label(notation, tone_key),
                 is_on,
                 &palette,
             )
@@ -224,16 +248,12 @@ pub(crate) fn section(
             .test_support()
         });
 
-    let has_runner_up = shown_runner_up(track).is_some();
+    let has_runner_up = runner_up.is_some();
     let chords = std::iter::once(key)
-        .chain(shown_runner_up(track))
+        .chain(runner_up)
         .enumerate()
         .map(|(index, chord_key)| {
-            let label = if has_runner_up {
-                format!("{} chord", notation.spell(&chord_key))
-            } else {
-                "Play chord".to_string()
-            };
+            let label = chord_label(notation, chord_key, has_runner_up);
             let description = format!(
                 "Plays the {} triad of {chord_key}, its root, third and fifth, together on the piano. Shift-click plays it as an arpeggio, one note after another about {} ms apart.",
                 match chord_key.mode() {
@@ -439,5 +459,25 @@ mod tests {
         distinct.sort();
         distinct.dedup();
         assert_eq!(distinct.len(), 24);
+    }
+
+    #[test]
+    fn the_labels_name_the_key_the_track_is_heard_in() {
+        let seven_a = Key::new(2, Mode::Minor);
+        let heard = seven_a.transposed(2);
+        assert_eq!(heard.camelot(), "9A");
+        assert_eq!(
+            chord_label(NotationChoice::Camelot, heard, true),
+            "9A chord"
+        );
+        assert_eq!(tone_label(NotationChoice::Camelot, heard), "9A tone");
+        assert_eq!(
+            chord_label(NotationChoice::Camelot, heard, false),
+            "Play chord"
+        );
+        let seven_b = Key::new(3, Mode::Major);
+        assert_eq!(seven_b.camelot(), "5B");
+        assert_eq!(seven_b.transposed(7).camelot(), "6B");
+        assert_eq!(seven_b.transposed(0), seven_b);
     }
 }

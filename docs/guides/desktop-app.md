@@ -181,7 +181,7 @@ The inspector shows the selected track. Three things are always in view, from th
 | --- | --- | --- |
 | **Mixes well with** | The tracks in your library that mix with this one. | Yes |
 | **Check by ear** | The key tone, the chord and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key unsure** or **Tag says**. |
-| **Hear it in another key** | Transposes playback only. Nothing is saved; the exports of the shifted copy and stems are here. | No |
+| **Hear it in another key** | Transposes playback only, and the tone, piano and chords of **Check by ear** follow it. Nothing is saved; the exports of the shifted copy and stems are here. | No |
 | **Stems** | Separate the track and choose what to hear. | No |
 | **Sound quality** | The verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak. | No, but it opens by itself for a weak, likely re-encoded or damaged file. |
 | **Location** | Where the file is on disk. | No |
@@ -239,7 +239,7 @@ Open **Check by ear**, under the waveform, to settle a key you are not sure of w
 - **Play chord** plays the key's tonic triad on the piano voice: the root, the third (minor or major, as the key is) and the fifth, together, stacked upward from the root in the octave of the piano. For 8A it plays A, C and E; for 8B, C, E and G. The three piano keys light up while the chord rings, about two seconds. When the runner up key is offered, the buttons read **8A chord** and **9A chord** so you can compare the two. A chord settles what the drone leaves open: whether the track sounds minor or major over that root. **Shift-click** plays the chord as an arpeggio, one note after another about 120 ms apart. The chord can sound over a drone.
 - **Volume** sets how loud the drone and the piano are over the track, in five steps, and moves a drone that is already playing.
 
-The chord stays in the key shown, like the tone and the piano, also while the track is heard in another key with **Hear it in another key**. All of them follow the tuning analysis measured, so a track tuned a little sharp or flat gets a reference that matches it.
+The tone, the piano and the chords follow **Hear it in another key**. Move the track up or down by N semitones and they move with it: the tone plays the new key's root and fifth, the piano tints the new key's notes, the chords play its triad, and the labels name it. Hearing a 7A track 2 semitones up, for example, gives **9A tone** and **9A chord**, and the runner up button moves the same way. At 0 semitones nothing changes. The control moves up to 6 semitones either way,, so +7 is out of reach; -5 gives the same key. The key shown in the inspector and the table is still the track's own; only what you hear and see in **Check by ear** moves. A drone that is already playing keeps its old key until you click its button again. All of them follow the tuning analysis measured, so a track tuned a little sharp or flat gets a reference that matches it.
 
 When your ear disagrees with Euphoria, correct the value:
 

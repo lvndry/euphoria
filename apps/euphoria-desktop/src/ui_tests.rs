@@ -5013,27 +5013,177 @@ fn a_shift_click_plays_the_chord_as_an_arpeggio_120_ms_apart(cx: &mut TestAppCon
     assert!(lit_keys(&view, cx).is_empty());
 }
 
+fn hear_in_another_key(view: &Entity<EuphoriaApp>, semitones: i8, cx: &mut TestAppContext) {
+    cx.update(|cx| view.update(cx, |app, cx| app.set_key_shift(semitones, cx)));
+    cx.run_until_parked();
+}
+
+fn set_shown_key(view: &Entity<EuphoriaApp>, key: euphoria_core::Key, cx: &mut TestAppContext) {
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_key(key, cx)));
+    cx.run_until_parked();
+}
+
+fn pitch_classes(output: &ListeningOutput) -> Vec<u8> {
+    output
+        .heard()
+        .iter()
+        .map(|sound| {
+            let midi = 69.0 + 12.0 * (sound.frequencies[0] / 440.0).log2();
+            (midi.round() as i32).rem_euclid(12) as u8
+        })
+        .collect()
+}
+
+fn drone_key(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<euphoria_core::Key> {
+    cx.update(|cx| view.read(cx).by_ear.drone_key())
+}
+
 #[gpui::test]
-fn the_chord_stays_in_the_shown_key_when_the_track_is_heard_in_another_key(
+fn the_tone_the_piano_and_the_chord_follow_the_key_it_is_heard_in(cx: &mut TestAppContext) {
+    use euphoria_core::{Key, Mode};
+    let cases = [
+        (
+            Key::new(9, Mode::Minor),
+            1,
+            Key::new(10, Mode::Minor),
+            [10, 1, 5],
+            "3A",
+        ),
+        (
+            Key::new(9, Mode::Minor),
+            -2,
+            Key::new(7, Mode::Minor),
+            [7, 10, 2],
+            "6A",
+        ),
+        (
+            Key::new(9, Mode::Minor),
+            6,
+            Key::new(3, Mode::Minor),
+            [3, 6, 10],
+            "2A",
+        ),
+        (
+            Key::new(0, Mode::Major),
+            1,
+            Key::new(1, Mode::Major),
+            [1, 5, 8],
+            "3B",
+        ),
+        (
+            Key::new(0, Mode::Major),
+            -2,
+            Key::new(10, Mode::Major),
+            [10, 2, 5],
+            "6B",
+        ),
+        (
+            Key::new(0, Mode::Major),
+            6,
+            Key::new(6, Mode::Major),
+            [6, 10, 1],
+            "2B",
+        ),
+    ];
+    for (shown, semitones, heard_key, triad, camelot) in cases {
+        let (window, view, output) = open_tracks_to_check_by_ear(cx);
+        click(window, track(1), cx);
+        set_shown_key(&view, shown, cx);
+        hear_in_another_key(&view, semitones, cx);
+        assert_eq!(heard_key.camelot(), camelot);
+
+        cx.update(|cx| {
+            let app = view.read(cx);
+            let (key, _) =
+                crate::views::by_ear::heard_keys(app.selected_track().unwrap(), app.key_shift)
+                    .unwrap();
+            assert_eq!(key, heard_key, "{shown} moved {semitones:+}");
+            let mut marked = crate::key_by_ear::scale_of(key).to_vec();
+            marked.sort_unstable();
+            let mut expected: Vec<u8> = [0, 2, 3, 5, 7, 8, 10]
+                .iter()
+                .map(|step| (heard_key.tonic() + step) % 12)
+                .collect();
+            if heard_key.mode() == Mode::Major {
+                expected = [0, 2, 4, 5, 7, 9, 11]
+                    .iter()
+                    .map(|step| (heard_key.tonic() + step) % 12)
+                    .collect();
+            }
+            expected.sort_unstable();
+            assert_eq!(marked, expected, "the piano marks the notes of {camelot}");
+        });
+
+        click(window, ("tone", 0_usize), cx);
+        assert_eq!(drone_key(&view, cx), Some(heard_key));
+        let sounding = output.sounding();
+        let root_hz = 220.0 * 2f32.powf((f32::from(heard_key.tonic()) - 9.0) / 12.0);
+        let fifth_hz = root_hz * 2f32.powf(7.0 / 12.0);
+        let octaves_apart = |first: f32, second: f32| {
+            let semitones = 12.0 * (first / second).log2();
+            (semitones - 12.0 * (semitones / 12.0).round()).abs()
+        };
+        assert!(
+            octaves_apart(sounding[0].frequencies[1], fifth_hz) < 0.1
+                || octaves_apart(sounding[0].frequencies[1], root_hz) < 0.1,
+            "the tone is built on {camelot}"
+        );
+        click(window, ("tone", 0_usize), cx);
+
+        click(window, ("chord", 0_usize), cx);
+        let heard = pitch_classes(&output);
+        assert_eq!(heard[heard.len() - 3..], triad, "the triad of {camelot}");
+        let mut lit = triad.to_vec();
+        lit.sort_unstable();
+        assert_eq!(lit_keys(&view, cx), lit);
+    }
+}
+
+#[gpui::test]
+fn the_tone_stays_as_detected_at_zero_semitones_and_is_named_by_the_heard_key(
     cx: &mut TestAppContext,
 ) {
+    use euphoria_core::{Key, Mode};
     let (window, view, output) = open_tracks_to_check_by_ear(cx);
     click(window, track(1), cx);
-    cx.update(|cx| view.update(cx, |app, cx| app.set_key_shift(2, cx)));
-    cx.run_until_parked();
     click(window, ("tone", 0_usize), cx);
-    click(window, ("chord", 0_usize), cx);
-    let heard = output.heard();
+    let sounding = output.sounding();
     assert!(
-        (heard[0].frequencies[1] - 220.0).abs() < 0.01,
-        "the tone stays in A minor"
+        (sounding[0].frequencies[1] - 220.0).abs() < 0.01,
+        "0 semitones is A minor"
     );
-    for (sound, expected) in heard[1..].iter().zip([440.0, 523.25, 659.26]) {
-        assert!(
-            (sound.frequencies[0] - expected).abs() < 0.01,
-            "the chord matches the tone: A C E"
-        );
-    }
+    assert_eq!(drone_key(&view, cx), Some(Key::new(9, Mode::Minor)));
+    click(window, ("tone", 0_usize), cx);
+
+    set_shown_key(&view, Key::new(2, Mode::Minor), cx);
+    hear_in_another_key(&view, 2, cx);
+    click(window, ("tone", 0_usize), cx);
+    assert_eq!(
+        drone_key(&view, cx),
+        Some(Key::new(4, Mode::Minor)),
+        "7A heard 2 semitones up is E minor, 9A"
+    );
+}
+
+#[gpui::test]
+fn the_runner_up_transposes_with_the_key(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert!(is_shown(window, ("chord", 1_usize), cx), "key unsure");
+    click(window, ("chord", 1_usize), cx);
+    assert_eq!(pitch_classes(&output), [4, 7, 11], "E minor at 0 semitones");
+    hear_in_another_key(&view, 2, cx);
+    click(window, ("chord", 1_usize), cx);
+    assert_eq!(
+        pitch_classes(&output)[3..],
+        [6, 9, 1],
+        "F# minor, the runner up +2"
+    );
+    click(window, ("tone", 1_usize), cx);
+    assert_eq!(
+        drone_key(&view, cx),
+        Some(euphoria_core::Key::new(6, euphoria_core::Mode::Minor))
+    );
 }
 
 #[gpui::test]
