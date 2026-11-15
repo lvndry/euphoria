@@ -102,7 +102,19 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             .items_center()
             .justify_center()
             .text_color(palette.text_tertiary)
-            .child(nothing_to_show(app))
+            .child(match app.scans.label() {
+                Some(scan_label) if !shows_a_list_of_its_own(app) => div()
+                    .id("scan-status-empty")
+                    .child(scan_label)
+                    .when_some(app.scans.tooltip(), |status, paths| {
+                        status.tooltip(move |window, cx| {
+                            Tooltip::new(paths.clone()).build(window, cx)
+                        })
+                    })
+                    .test_support()
+                    .into_any_element(),
+                _ => div().child(nothing_to_show(app)).into_any_element(),
+            })
     } else {
         div()
             .relative()
@@ -148,14 +160,18 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(rows)
 }
 
+/// True when an empty playlist or favorites list is on show, which says
+/// how to fill it even while folders are searched.
+fn shows_a_list_of_its_own(app: &EuphoriaApp) -> bool {
+    (app.playlist.is_some() || app.showing_favorites) && app.query.trim().is_empty()
+}
+
 fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
     if app.playlist.is_some() && app.query.trim().is_empty() {
         "This playlist is empty. Drag tracks onto it in the sidebar, or right click tracks and \
          choose Add to playlist."
     } else if app.showing_favorites && app.query.trim().is_empty() {
         "No favorites yet. Click the star beside a track, or select tracks and press F."
-    } else if app.scans_in_progress > 0 {
-        "Looking for audio files"
     } else if app.session.library().tracks().is_empty() {
         "No tracks yet"
     } else if app.filter == LibraryFilter::NeedsReview && app.folder.is_some() {

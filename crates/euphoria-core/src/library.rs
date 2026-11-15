@@ -153,6 +153,16 @@ pub fn find_audio_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, EuphoriaError
 /// link that points back up the tree cannot make it loop. To include a linked
 /// folder, name it as one of `paths`.
 pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
+    scan_audio_files_counting(paths, &std::sync::atomic::AtomicUsize::new(0))
+}
+
+/// [`scan_audio_files`], adding one to `found` for each audio file as the
+/// walk finds it, so another thread can show how many have turned up so far.
+/// The count can run a little above the final list, which drops duplicates.
+pub fn scan_audio_files_counting(
+    paths: &[PathBuf],
+    found: &std::sync::atomic::AtomicUsize,
+) -> Result<AudioScan, EuphoriaError> {
     let mut scan = AudioScan::default();
     let mut skipped: std::collections::BTreeMap<String, usize> = Default::default();
     for path in paths {
@@ -168,6 +178,7 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
         })?;
         if !metadata.is_dir() {
             scan.files.push(path.clone());
+            found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             continue;
         }
         let entries = WalkDir::new(path)
@@ -195,6 +206,7 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
             }
             if is_supported_audio_file(entry.path()) {
                 scan.files.push(entry.into_path());
+                found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             } else if let Some(extension) = unsupported_audio_extension(entry.path()) {
                 *skipped.entry(extension).or_default() += 1;
                 scan.skipped_files.push(entry.into_path());
@@ -405,5 +417,22 @@ mod tests {
             find_audio_files(std::slice::from_ref(&missing)),
             Err(EuphoriaError::Missing { path }) if path == missing
         ));
+    }
+
+    #[test]
+    fn the_counting_scan_counts_each_audio_file_it_finds() {
+        let root =
+            std::env::temp_dir().join(format!("euphoria-library-counted-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("deep")).unwrap();
+        for file in ["a.mp3", "deep/b.flac", "c.opus", "cover.jpg"] {
+            std::fs::write(root.join(file), b"").unwrap();
+        }
+        let found = std::sync::atomic::AtomicUsize::new(0);
+
+        let scan = scan_audio_files_counting(std::slice::from_ref(&root), &found).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(scan.files.len(), 2);
+        assert_eq!(found.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 }

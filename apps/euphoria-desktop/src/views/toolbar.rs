@@ -510,18 +510,32 @@ fn search_field(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eupho
         )
 }
 
-/// "12 of 340 done" with a bar, or "Looking for audio files" while
-/// folders are being searched. Nothing when idle.
+/// The widest the line about a folder search may grow, so it stays on one
+/// line beside the other controls in the narrowest window.
+const SCAN_STATUS_MAXIMUM_WIDTH: f32 = 300.0;
+
+/// "12 of 340 done" with a bar, or "Looking for audio files in DJ tracks"
+/// with the full path in a tooltip while folders are being searched.
+/// Nothing when idle.
 fn progress(
     app: &EuphoriaApp,
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<Div> {
     let progress = app.session.progress();
-    let label = match progress.label() {
-        Some(label) => label,
-        None if app.scans_in_progress > 0 => "Looking for audio files".to_string(),
-        None => return None,
+    let label = match (progress.label(), app.scans.label()) {
+        (Some(label), _) => div().child(label).into_any_element(),
+        (None, Some(scan_label)) => div()
+            .id("scan-status")
+            .max_w(px(SCAN_STATUS_MAXIMUM_WIDTH))
+            .truncate()
+            .child(scan_label)
+            .when_some(app.scans.tooltip(), |status, paths| {
+                status.tooltip(move |window, cx| Tooltip::new(paths.clone()).build(window, cx))
+            })
+            .test_support()
+            .into_any_element(),
+        (None, None) => return None,
     };
     Some(
         div()

@@ -124,6 +124,9 @@ mod relink_flow;
 mod reveal;
 #[cfg(test)]
 mod row_actions_ui_tests;
+mod scan_status;
+#[cfg(test)]
+mod scan_status_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;

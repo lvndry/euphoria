@@ -136,7 +136,7 @@ pub use key::{Key, Mode};
 pub use key_engine::{KeyEngine, KeySource, key_engine, set_key_engine};
 pub use library::{
     AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
-    find_audio_files, is_supported_audio_file, scan_audio_files,
+    find_audio_files, is_supported_audio_file, scan_audio_files, scan_audio_files_counting,
 };
 pub use locked_transitions::{BlendBars, LockedTransition, locked_blend};
 pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key, pitch_class_profile};
