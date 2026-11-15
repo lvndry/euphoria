@@ -599,6 +599,12 @@ Errors do not become toasts. They stay in the strip at the bottom with **Dismiss
 
 A key or tempo you corrected is written in place of the detected one. Each file written, and each file put back by an undo, is recorded in the [analysis cache](../reference/cli.md#the-analysis-cache) as it is, so it is not analyzed again the next time the app starts, and its corrections stay with it.
 
+## Prepare files
+
+Right click the selected tracks and choose **Prepare files…** to write copies that play evenly on a club system. The sheet has the loudness target (-14, -11, -9 or -7 LUFS), the true-peak ceiling, whether to correct tuning, what MP3 and AAC tracks become (FLAC or WAV, never lossy), and where the copies go: next to each original, or in a folder you choose.
+
+Under the options a table shows what each file gets, from the same measurement a `euphoria prepare --dry-run` makes: its loudness before and after, the gain, the dB of limiting, the tuning change, and notes such as **Gain capped** (the track would need more than 3 dB of limiting, so it gets less gain) and **Clipped** (it already has clipped passages, which are reported and not repaired). **Prepare** writes the copies with a progress bar, and a toast ends it with **Prepared 12 files** and **Show in Finder**. The originals are never changed and no file is overwritten. The [guide](prepare-files.md) explains each option. The name suffix is fixed to ` (prepared)` in the app; the command line can change it.
+
 ## Playlists
 
 Playlists are where you build a set: a folder holds the tracks you own, a playlist holds the order you will play them in.

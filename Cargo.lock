@@ -2008,13 +2008,19 @@ name = "euphoria-core"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "block2 0.6.2",
  "cc",
  "ebur128",
  "flacenc",
  "flate2",
  "hound",
+ "libc",
  "lofty",
  "matrixmultiply",
+ "objc2 0.6.5",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-foundation 0.3.2",
  "ort",
  "pkg-config",
  "rayon",
@@ -5323,7 +5329,9 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1eebcea8b0dbff5f7c8504f3107c68fc061a3eb44932051c8cf8a68d969c3b2"
 dependencies = [
+ "block2 0.6.2",
  "dispatch2",
+ "libc",
  "objc2 0.6.5",
  "objc2-core-audio-types",
  "objc2-core-foundation",
