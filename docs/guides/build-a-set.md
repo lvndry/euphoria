@@ -99,6 +99,10 @@ The same pool and options always give the same set. On a pool of 500 tracks and 
 
 The JSON output has `cost` and `lower_bound`: the cost of the set, and the cost no set can go below, from the first step. The closer they are, the nearer the set is to the best possible.
 
+## Hear the set as one mix
+
+[`euphoria set render`](render-a-mix.md) plays a set saved as a playlist or an M3U8 file into one mix file, each track blended into the next at a section start.
+
 ## Compared with other tools
 
 The desktop app suggests the next track from the one playing, one step at a time, which suits a DJ who decides as they go. [`euphoria next`](../reference/cli.md#euphoria-next) gives the same ranking on the command line. The set builder plans the whole set at once, so it saves high energy tracks for the peak instead of spending them early.

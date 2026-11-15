@@ -35,8 +35,8 @@
 <path class="series-fill" d="M220,100 H661.71 Q665.71,100 665.71,104 V116 Q665.71,120 661.71,120 H220 Z"/>
 <text x="675.71" y="114.5" class="value" text-anchor="start">0.65</text>
 <text x="206" y="150.5" class="label" text-anchor="end">Integrated loudness</text>
-<path class="series-fill" d="M220,136 H353.14 Q357.14,136 357.14,140 V152 Q357.14,156 353.14,156 H220 Z"/>
-<text x="367.14" y="150.5" class="value" text-anchor="start">0.20</text>
+<path class="series-fill" d="M220,136 H490.29 Q494.29,136 494.29,140 V152 Q494.29,156 490.29,156 H220 Z"/>
+<text x="504.29" y="150.5" class="value" text-anchor="start">0.40</text>
 <text x="206" y="186.5" class="label" text-anchor="end">Onset rate</text>
 <path class="series-fill" d="M220,172 H284.57 Q288.57,172 288.57,176 V188 Q288.57,192 284.57,192 H220 Z"/>
 <text x="298.57" y="186.5" class="value" text-anchor="start">0.10</text>

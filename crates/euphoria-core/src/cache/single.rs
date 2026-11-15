@@ -34,7 +34,7 @@ pub struct CachedAnalysis {
 #[derive(Debug)]
 pub struct CachedAnalyzer {
     snapshot: Snapshot,
-    cache: Mutex<Cache>,
+    pub(super) cache: Mutex<Cache>,
 }
 
 impl CachedAnalyzer {

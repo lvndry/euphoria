@@ -556,6 +556,7 @@ impl EuphoriaApp {
                     failures,
                     serato_notes: Vec::new(),
                     program_warning: None,
+                    updating: false,
                 }));
                 cx.notify();
             })

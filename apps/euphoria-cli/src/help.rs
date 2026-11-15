@@ -254,6 +254,27 @@ pub fn set_examples() -> StyledStr {
     )
 }
 
+pub fn set_render_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria set render \"Friday\" --out friday.wav --cue --tracklist",
+                "A playlist as one mix, with a CUE sheet and a tracklist",
+            ),
+            (
+                "euphoria set render set.m3u8 --out set.mp3 --chapters",
+                "An M3U8 file as a 320 kbps MP3, with chapter lines",
+            ),
+            (
+                "euphoria set render a.flac b.flac c.flac --dry-run",
+                "Where each track comes in and why, without rendering",
+            ),
+        ],
+        "Mixes are 24 bit stereo. Tracks are only read.",
+    )
+}
+
 pub fn live_examples() -> StyledStr {
     examples(
         "Examples",

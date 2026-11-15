@@ -83,6 +83,7 @@ The full documentation is in [docs](docs/index.md):
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
 - [Build a set along an energy curve](docs/guides/build-a-set.md)
+- [Render a set as one mix](docs/guides/render-a-mix.md)
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to Engine DJ](docs/guides/export-to-engine-dj.md)
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to VirtualDJ](docs/guides/export-to-virtualdj.md)
 - [Cue points and beat grids for Serato](docs/guides/serato-cues.md)

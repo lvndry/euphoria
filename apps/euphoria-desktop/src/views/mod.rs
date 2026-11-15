@@ -19,6 +19,7 @@ pub(crate) mod inspector_section;
 pub(crate) mod key_chip;
 pub(crate) mod key_shift;
 pub(crate) mod library_export_panel;
+pub(crate) mod live;
 pub(crate) mod logo;
 pub(crate) mod mashup;
 pub(crate) mod next_rail;
