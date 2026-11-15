@@ -622,3 +622,34 @@ fn corrections_export_holds_the_corrected_energy() {
     assert_eq!(lines[0]["corrected_key"], serde_json::Value::Null);
     assert_eq!(lines[0]["corrected_bpm"], serde_json::Value::Null);
 }
+
+#[test]
+fn tags_write_writes_a_key_confirmed_with_looks_right_despite_low_confidence() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let track = folder.path().join("track.wav");
+    std::fs::copy(fixtures_directory().join("sine-440hz-mono.wav"), &track)
+        .expect("the fixture is copied");
+    let analysis = euphoria.run(&["analyze", "--json", text(&track)]);
+    assert_success(&analysis);
+    let analysis: serde_json::Value = serde_json::from_slice(&analysis.stdout).expect("JSON");
+    assert_eq!(
+        analysis[0]["needs_review"], true,
+        "the test needs a value rated low confidence"
+    );
+
+    assert_success(&euphoria.run(&["tags", "write", "--yes", text(&track)]));
+    let before = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
+    assert!(
+        before.key.is_none(),
+        "{before:?}: a low confidence key is skipped"
+    );
+
+    let mut cache = Cache::open(&euphoria.cache_path()).expect("the cache opens");
+    cache
+        .set_correction(&track, &Correction::default().confirming_key())
+        .expect("the confirmation is kept");
+    assert_success(&euphoria.run(&["tags", "write", "--yes", text(&track)]));
+    let after = euphoria_core::tags::read_tags(&track).expect("the tags are read back");
+    assert!(after.key.is_some(), "{after:?}");
+}

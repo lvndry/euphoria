@@ -188,6 +188,29 @@ pub struct TagValues {
     pub bpm_confidence: Option<Confidence>,
 }
 
+impl TagValues {
+    /// These values with the key and tempo `correction` confirmed as right
+    /// counting as trusted, like a value the user set: "Looks right" is the
+    /// user's decision, so a low rating no longer keeps it out of a write
+    /// that skips low confidence.
+    #[must_use]
+    pub fn with_confirmations(self, correction: &crate::correction::Correction) -> Self {
+        Self {
+            key_confidence: if correction.key_confirmed {
+                None
+            } else {
+                self.key_confidence
+            },
+            bpm_confidence: if correction.bpm_confirmed {
+                None
+            } else {
+                self.bpm_confidence
+            },
+            ..self
+        }
+    }
+}
+
 impl From<&TrackAnalysis> for TagValues {
     fn from(analysis: &TrackAnalysis) -> Self {
         Self {

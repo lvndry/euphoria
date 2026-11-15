@@ -21,8 +21,8 @@ use crate::playlists::PlaylistRewrite;
 use crate::state::PlaylistSaver;
 use crate::tag_settings::TagSettings;
 use euphoria_core::tags::{
-    FieldChange, LoggedWrite, RewriteStage, SeratoMarkers, WriteLog, WritePlan, WrittenValues,
-    add_serato_markers, add_serato_markers_from, plan_write_with_history,
+    FieldChange, LoggedWrite, RewriteStage, SeratoMarkers, TagValues, WriteLog, WritePlan,
+    WrittenValues, add_serato_markers, add_serato_markers_from, plan_write_with_history,
     plan_write_with_history_from, undo_last_write_with_observer,
 };
 use euphoria_core::{CachedAnalyzer, Correction, Cue, TrackAnalysis};
@@ -198,13 +198,12 @@ pub(crate) fn plan_writes_reading(
             continue;
         };
         let written = target.correction.apply(analysis.clone());
+        let values = TagValues::from(&written).with_confirmations(&target.correction);
         let mut notes = Vec::new();
         let loaded = reads.map(|reads| reads.tags_of(&target.path));
         let plan = match &loaded {
-            Some(Ok(tags)) => plan_write_with_history_from(tags, &written, &options, history),
-            Some(Err(_)) | None => {
-                plan_write_with_history(&target.path, &written, &options, history)
-            }
+            Some(Ok(tags)) => plan_write_with_history_from(tags, values, &options, history),
+            Some(Err(_)) | None => plan_write_with_history(&target.path, values, &options, history),
         }
         .and_then(|mut plan| {
             if settings.write_cue_markers {

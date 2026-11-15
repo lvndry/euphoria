@@ -375,6 +375,47 @@ fn low_confidence_values_are_struck_out_until_the_option_writes_them() {
     assert_eq!(row_named(&written, "BPM").unwrap().struck, None);
 }
 
+#[test]
+fn a_key_and_tempo_confirmed_with_looks_right_are_not_struck_out_for_low_confidence() {
+    let scratch = ScratchFolder::new("clarity-confirmed");
+    let files = scratch.copy_fixtures();
+    let unsure = TrackAnalysis {
+        key_runner_up: Some(Key::new(4, Mode::Minor)),
+        key_score_margin: Some(0.0),
+        tempo_estimate: Some(75.0),
+        tempo_score_margin: Some(0.01),
+        ..tag_testing::analysis()
+    };
+    let confirmed = |correction: euphoria_core::Correction| {
+        PreviewInput::choose(Some(WriteTarget {
+            path: files[0].clone(),
+            analysis: Some(unsure.clone()),
+            correction,
+            edited_cues: None,
+        }))
+        .unwrap()
+    };
+    let key_only = preview_of(
+        confirmed(euphoria_core::Correction::default().confirming_key()),
+        &rekordbox(),
+    );
+    assert_eq!(row_named(&key_only, "Key").unwrap().struck, None);
+    assert_eq!(
+        row_named(&key_only, "BPM").unwrap().struck.as_deref(),
+        Some("not written, low confidence")
+    );
+    let both = preview_of(
+        confirmed(
+            euphoria_core::Correction::default()
+                .confirming_key()
+                .confirming_bpm(),
+        ),
+        &rekordbox(),
+    );
+    assert_eq!(row_named(&both, "Key").unwrap().struck, None);
+    assert_eq!(row_named(&both, "BPM").unwrap().struck, None);
+}
+
 fn seed_with_key(files: &[std::path::PathBuf]) {
     let seeding = TagSettings {
         replace_existing: true,
@@ -683,4 +724,22 @@ fn every_on_off_setting_is_a_row_with_a_32_by_18_switch_that_flips_with_a_click(
     assert_ne!(write_tempo(cx), before);
     click(window, "write-tempo", cx);
     assert_eq!(write_tempo(cx), before);
+}
+
+#[test]
+fn a_selected_track_whose_file_is_missing_falls_back_to_the_example() {
+    let scratch = ScratchFolder::new("clarity-missing-file");
+    let missing = scratch.0.join("gone.aiff");
+    let preview = preview_of(selected(&missing, tag_testing::analysis()), &rekordbox());
+    assert_eq!(
+        preview.source.caption(),
+        "Example (the selected track's file is missing)"
+    );
+    assert!(row_named(&preview, "Key").is_some());
+    assert!(
+        preview
+            .notes
+            .iter()
+            .all(|note| !note.contains("No such file"))
+    );
 }

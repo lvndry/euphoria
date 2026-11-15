@@ -12,7 +12,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 use euphoria_core::export::program_files::DjProgramChecks;
 use euphoria_core::tags::{
-    DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, SeratoMarkers, SeratoReport,
+    DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, SeratoMarkers, SeratoReport, TagValues,
     TagWriteOptions, WriteLog, WritePlan, WrittenValues, add_serato_markers,
     default_write_log_directory, plan_write_with_history, undo_last_write_with_observer,
     write_history,
@@ -259,7 +259,8 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                     .clone()
                     .with_tempo_range(arguments.analysis.tempo_range()),
             );
-            let mut plan = plan_write_with_history(&result.path, &written, &options, &history)?;
+            let values = TagValues::from(&written).with_confirmations(&edits.correction);
+            let mut plan = plan_write_with_history(&result.path, values, &options, &history)?;
             if arguments.serato_markers {
                 let report = add_serato_markers(
                     &mut plan,
