@@ -20,7 +20,6 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::focus::{SectionKind, clock};
 use crate::format;
-use crate::harmony_words::{OVERLAP_LABEL, SEPARATE_STEMS_LINK};
 use crate::theme::Palette;
 use crate::transition_plan::{
     BARS_AFTER, BARS_BEFORE, ClashVerdict, PLAY_ACTION, PlanState, PlannedTransition,
@@ -33,6 +32,7 @@ use crate::views::{
     TITLE_TEXT_SIZE,
 };
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, primary_button, secondary_button};
+use euphoria_core::harmony::words::{OVERLAP_LABEL, SEPARATE_STEMS_LINK};
 
 type LanePick = fn(&BarLane) -> Presence;
 
@@ -51,8 +51,8 @@ fn success_green() -> Hsla {
     gpui::hsla(0.38, 0.55, 0.5, 1.0)
 }
 
-pub(crate) fn tone_colour(tone: crate::harmony_words::Tone, palette: &Palette) -> Hsla {
-    use crate::harmony_words::Tone;
+pub(crate) fn tone_colour(tone: euphoria_core::harmony::words::Tone, palette: &Palette) -> Hsla {
+    use euphoria_core::harmony::words::Tone;
     match tone {
         Tone::Success => success_green(),
         Tone::Neutral => palette.text_secondary,
