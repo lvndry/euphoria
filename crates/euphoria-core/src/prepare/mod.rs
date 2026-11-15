@@ -244,7 +244,11 @@ impl TrackPlan {
     }
 }
 
-struct Measurement {
+/// What measuring a track found, before any settings: measure once, then
+/// plan for as many settings as needed.
+#[derive(Debug, Clone)]
+pub struct TrackMeasurement {
+    path: PathBuf,
     sample_rate: u32,
     channels: u16,
     frames: u64,
@@ -261,7 +265,9 @@ fn failure(path: &Path, reason: impl Into<String>) -> EuphoriaError {
     }
 }
 
-fn measure(input: &Path) -> Result<Measurement, EuphoriaError> {
+/// Reads the track at `input` once, measuring its loudness, peaks and
+/// clipping.
+pub fn measure_track(input: &Path) -> Result<TrackMeasurement, EuphoriaError> {
     let mut stream = AudioStream::open(input)?;
     let sample_rate = stream.sample_rate().get();
     let channels = stream.channel_count().get();
@@ -310,7 +316,8 @@ fn measure(input: &Path) -> Result<Measurement, EuphoriaError> {
     for channel in 0..u32::from(channels) {
         true_peak = true_peak.max(meter.true_peak(channel).map_err(meter_error)?);
     }
-    Ok(Measurement {
+    Ok(TrackMeasurement {
+        path: input.to_path_buf(),
         sample_rate,
         channels,
         frames,
@@ -334,61 +341,75 @@ pub fn plan_track(
     tuning_cents: Option<f32>,
     lossy: LossyOutput,
 ) -> Result<TrackPlan, EuphoriaError> {
-    settings
-        .validate()
-        .map_err(|reason| failure(input, reason))?;
-    let measured = measure(input)?;
-    let duration_seconds = measured.frames as f32 / measured.sample_rate as f32;
-    let true_peak_dbtp = decibels(measured.true_peak);
-    let tuning_correction_cents = if settings.correct_tuning {
-        tuning_cents
-            .filter(|cents| cents.is_finite() && cents.abs() >= MINIMUM_TUNING_CORRECTION_CENTS)
-            .map(|cents| {
-                (-cents).clamp(
-                    -MAXIMUM_TUNING_CORRECTION_CENTS,
-                    MAXIMUM_TUNING_CORRECTION_CENTS,
-                )
-            })
-    } else {
-        None
-    };
-    let skipped = match measured.lufs {
-        Some(_) => None,
-        None if measured.sample_peak == 0.0 => Some(SkipReason::Silent),
-        None if duration_seconds < 0.4 => Some(SkipReason::TooShort),
-        None => Some(SkipReason::Silent),
-    };
-    let (wanted_gain_db, gain_db, limiting_db, gain_capped) = match (measured.lufs, true_peak_dbtp)
-    {
-        (Some(lufs), Some(peak)) => {
-            let wanted = settings.target_lufs - lufs;
-            let allowed = settings.true_peak_ceiling_db - peak + settings.maximum_limiting_db;
-            let gain = wanted.min(allowed);
-            let limiting = (peak + gain - settings.true_peak_ceiling_db).max(0.0);
-            (wanted, gain, limiting, wanted > allowed)
-        }
-        _ => (0.0, 0.0, 0.0, false),
-    };
-    Ok(TrackPlan {
-        sample_rate: measured.sample_rate,
-        channels: measured.channels,
-        frames: measured.frames,
-        duration_seconds,
-        measured_lufs: measured.lufs,
-        true_peak_dbtp,
-        sample_peak_db: decibels(measured.sample_peak),
-        clipping: measured.clipping,
-        target_lufs: settings.target_lufs,
-        wanted_gain_db,
-        gain_db,
-        limiting_db,
-        gain_capped,
-        predicted_lufs: measured.lufs.map(|lufs| lufs + gain_db),
-        tuning_cents,
-        tuning_correction_cents,
-        output_format: output_format(input, lossy),
-        skipped,
-    })
+    measure_track(input)?.plan(settings, tuning_cents, lossy)
+}
+
+impl TrackMeasurement {
+    /// Works out what preparing the measured track does. The same
+    /// measurement always gives the same plan for the same settings.
+    pub fn plan(
+        &self,
+        settings: &PrepareSettings,
+        tuning_cents: Option<f32>,
+        lossy: LossyOutput,
+    ) -> Result<TrackPlan, EuphoriaError> {
+        settings
+            .validate()
+            .map_err(|reason| failure(&self.path, reason))?;
+        let measured = self;
+        let duration_seconds = measured.frames as f32 / measured.sample_rate as f32;
+        let true_peak_dbtp = decibels(measured.true_peak);
+        let tuning_correction_cents = if settings.correct_tuning {
+            tuning_cents
+                .filter(|cents| cents.is_finite() && cents.abs() >= MINIMUM_TUNING_CORRECTION_CENTS)
+                .map(|cents| {
+                    (-cents).clamp(
+                        -MAXIMUM_TUNING_CORRECTION_CENTS,
+                        MAXIMUM_TUNING_CORRECTION_CENTS,
+                    )
+                })
+        } else {
+            None
+        };
+        let skipped = match measured.lufs {
+            Some(_) => None,
+            None if measured.sample_peak == 0.0 => Some(SkipReason::Silent),
+            None if duration_seconds < 0.4 => Some(SkipReason::TooShort),
+            None => Some(SkipReason::Silent),
+        };
+        let (wanted_gain_db, gain_db, limiting_db, gain_capped) =
+            match (measured.lufs, true_peak_dbtp) {
+                (Some(lufs), Some(peak)) => {
+                    let wanted = settings.target_lufs - lufs;
+                    let allowed =
+                        settings.true_peak_ceiling_db - peak + settings.maximum_limiting_db;
+                    let gain = wanted.min(allowed);
+                    let limiting = (peak + gain - settings.true_peak_ceiling_db).max(0.0);
+                    (wanted, gain, limiting, wanted > allowed)
+                }
+                _ => (0.0, 0.0, 0.0, false),
+            };
+        Ok(TrackPlan {
+            sample_rate: measured.sample_rate,
+            channels: measured.channels,
+            frames: measured.frames,
+            duration_seconds,
+            measured_lufs: measured.lufs,
+            true_peak_dbtp,
+            sample_peak_db: decibels(measured.sample_peak),
+            clipping: measured.clipping,
+            target_lufs: settings.target_lufs,
+            wanted_gain_db,
+            gain_db,
+            limiting_db,
+            gain_capped,
+            predicted_lufs: measured.lufs.map(|lufs| lufs + gain_db),
+            tuning_cents,
+            tuning_correction_cents,
+            output_format: output_format(&self.path, lossy),
+            skipped,
+        })
+    }
 }
 
 /// A suffix for file names that is safe to put in one: no path separators.
