@@ -647,7 +647,7 @@ fn library_card(model: &LiveModel, cx: &Context<'_, LiveView>) -> Option<AnyElem
         None => clock(position),
     };
     let detail = [
-        track.artist().map(str::to_string),
+        track.shown_artist().map(std::borrow::Cow::into_owned),
         Some(times),
         playback_words(found.playback),
     ]
@@ -773,7 +773,7 @@ fn next_row(model: &LiveModel, next: &NextRow, is_selected: bool) -> Option<AnyE
                             .flex()
                             .items_center()
                             .gap(GAP_SMALL)
-                            .children(track.artist().map(|artist| {
+                            .children(track.shown_artist().map(|artist| {
                                 div()
                                     .min_w_0()
                                     .truncate()

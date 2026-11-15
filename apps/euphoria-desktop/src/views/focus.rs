@@ -327,7 +327,7 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                     div()
                         .truncate()
                         .text_color(palette.text_secondary)
-                        .child(track.artist.clone().unwrap_or_else(|| track.folder.clone())),
+                        .child(track.artist_or_folder()),
                 )
                 .child(
                     div()
@@ -1247,7 +1247,7 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .and_then(|transition| transition.note.clone());
             let artist: SharedString = note
                 .clone()
-                .or_else(|| track.artist.clone())
+                .or_else(|| track.shown_artist().map(std::borrow::Cow::into_owned))
                 .map(|text| format!("\u{b7} {text}"))
                 .unwrap_or_default()
                 .into();

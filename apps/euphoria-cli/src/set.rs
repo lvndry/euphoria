@@ -181,7 +181,9 @@ impl PoolTrack {
     /// and the file name when the tags say nothing.
     pub fn display_name(&self) -> String {
         match (&self.artist, &self.title) {
-            (Some(artist), Some(title)) => format!("{artist} - {title}"),
+            (Some(artist), Some(title)) => {
+                format!("{} - {title}", euphoria_core::shown_artist(artist))
+            }
             (None, Some(title)) => title.clone(),
             _ => self
                 .path
@@ -526,5 +528,16 @@ mod tests {
         assert_eq!(track.display_name(), "Someone - Tune");
         track.artist = None;
         assert_eq!(track.display_name(), "Tune");
+    }
+
+    #[test]
+    fn display_names_list_several_artists_with_commas() {
+        let mut track = pool_track(300.0, Some("BlaQRhythm;Elo Mude"));
+        track.title = Some("Umuthi (The Cure)".to_string());
+        assert_eq!(
+            track.display_name(),
+            "BlaQRhythm, Elo Mude - Umuthi (The Cure)"
+        );
+        assert_eq!(track.artist.as_deref(), Some("BlaQRhythm;Elo Mude"));
     }
 }
