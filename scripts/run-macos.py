@@ -57,6 +57,7 @@ def main():
             "CFBundleExecutable": binary.name,
             "CFBundlePackageType": "APPL",
             "CFBundleIconFile": "AppIcon.icns",
+            "NSAudioCaptureUsageDescription": "Euphoria Live listens to the audio playing on this Mac to show its key and tempo. The audio stays in memory and is never recorded, saved or sent anywhere.",
             "NSHighResolutionCapable": True,
         }))
         iconset = Path(temporary) / "AppIcon.iconset"

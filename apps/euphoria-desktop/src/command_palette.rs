@@ -19,7 +19,7 @@ use gpui::{Action, Entity, ScrollHandle};
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AnalyzeAgain, EditTags, ExportLibrary, FocusSearch,
-    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
+    OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition,
     ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks,
     ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
     UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
@@ -149,6 +149,23 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
             "deck", "decks", "mix", "mixer", "two", "close", "hide", "show"
         ],
         ToggleDecks
+    ),
+    command!(
+        "open-live",
+        "Open Euphoria Live",
+        [
+            "live",
+            "listen",
+            "key",
+            "bpm",
+            "tempo",
+            "playing",
+            "rekordbox",
+            "spotify",
+            "menu",
+            "bar"
+        ],
+        OpenLive
     ),
     command!(
         "open-set-builder",

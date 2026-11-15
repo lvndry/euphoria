@@ -12,6 +12,9 @@
 
 mod aiff;
 mod limiter;
+pub mod manifest;
+mod preview;
+pub mod replaygain;
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -26,6 +29,11 @@ use serde::Serialize;
 
 use self::aiff::AiffWriter;
 use self::limiter::TruePeakLimiter;
+pub use self::manifest::{Manifest, RevertReport, RunMode, manifests_in, revert, tag_track};
+pub use self::preview::{ComparisonClip, comparison_clip};
+pub use self::replaygain::{
+    REPLAYGAIN_REFERENCE_LUFS, ReplayGainFields, read_replaygain, write_replaygain,
+};
 use crate::audio_stream::AudioStream;
 use crate::error::EuphoriaError;
 use crate::shift::{
@@ -49,7 +57,7 @@ const MAXIMUM_TUNING_CORRECTION_CENTS: f32 = 50.0;
 
 /// The limiter aims this far under the ceiling, in dB, so the ceiling holds
 /// when another meter interpolates between samples a little differently.
-const LIMITER_MARGIN_DB: f32 = 0.15;
+pub(crate) const LIMITER_MARGIN_DB: f32 = 0.15;
 
 /// Consecutive frames at full scale that count as clipping.
 const CLIPPED_RUN_FRAMES: u64 = 3;
@@ -258,7 +266,7 @@ pub struct TrackMeasurement {
     clipping: ClippingReport,
 }
 
-fn failure(path: &Path, reason: impl Into<String>) -> EuphoriaError {
+pub(crate) fn failure(path: &Path, reason: impl Into<String>) -> EuphoriaError {
     EuphoriaError::Prepare {
         path: path.to_path_buf(),
         reason: reason.into(),
