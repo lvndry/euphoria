@@ -14,8 +14,8 @@ use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, Div, FontWeight, Hsla, MouseButton, MouseDownEvent, Pixels,
-    SharedString, TestSupportExt, Window, canvas, div, px, relative,
+    AnyElement, Bounds, Context, Div, FontWeight, Hsla, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, TestSupportExt, Window, canvas, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
@@ -27,9 +27,12 @@ use crate::theme::Palette;
 use crate::transition_plan::{
     BARS_AFTER, BARS_BEFORE, ClashVerdict, PLAY_ACTION, PlanState, PlannedTransition,
     SAVE_FAVORITE_ACTION, SET_CUES_ACTION, UPDATE_FAVORITE_ACTION, clash_verdict, compressed_strip,
-    failure_text, ruler_marks, step_line, window_detail, window_title,
+    failure_text, ruler_marks, window_detail, window_line, window_title,
 };
 use crate::views::focus::section_colour;
+use crate::views::key_chip::key_chip;
+use crate::views::next_rail::{choice_control, pill};
+use crate::views::waveform::SeenBounds;
 use crate::views::{
     GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
     TITLE_TEXT_SIZE,
@@ -48,6 +51,7 @@ pub(crate) const MIX_STARTS: &str = "Mix starts";
 pub(crate) const BARS_HINT: &str = "Bars counted from where B comes in";
 
 const GUTTER_WIDTH: f32 = 96.0;
+const CANDIDATES_WIDTH: f32 = 320.0;
 const SECTION_HEIGHT: f32 = 22.0;
 const LANE_HEIGHT: f32 = 10.0;
 const CLASH_HEIGHT: f32 = 18.0;
@@ -438,9 +442,9 @@ fn track_block(
     lanes: &TrackLanes,
     columns: &[Option<usize>],
     palette: &Palette,
-    id: &'static str,
-    unknown_id: &'static str,
+    (id, unknown_id): (&'static str, &'static str),
     stems_known: bool,
+    seen_bounds: Option<SeenBounds>,
 ) -> impl IntoElement {
     let lane_rows = [
         ("Vocals", amber(), (|bar: &BarLane| bar.vocals) as LanePick),
@@ -457,10 +461,21 @@ fn track_block(
     ];
     div()
         .id(id)
+        .relative()
         .flex()
         .flex_col()
         .gap(GAP_TIGHT)
         .py(px(8.0))
+        .children(seen_bounds.map(|seen_bounds| {
+            canvas(
+                move |bounds: Bounds<Pixels>, _, _| {
+                    seen_bounds.replace(Some(bounds));
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full()
+        }))
         .border_t_1()
         .border_color(palette.line)
         .child(
@@ -708,130 +723,262 @@ fn card(palette: &Palette) -> Div {
         .bg(palette.panel)
 }
 
-fn heading(text: impl Into<SharedString>) -> Div {
-    div()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_size(TITLE_TEXT_SIZE)
-        .child(text.into())
+/// A and the tracks that fit after it, ranked like the Next after list; a
+/// click makes one B and plays the transition into it.
+fn candidates_column(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl IntoElement {
+    let palette = app.theme.palette;
+    let a_line = app.selected_track().map(|track| {
+        div()
+            .id("planner-a-card")
+            .flex()
+            .items_center()
+            .gap(GAP_SMALL)
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .px(px(6.0))
+                    .rounded(RADIUS_SMALL)
+                    .bg(palette.accent)
+                    .text_color(palette.accent_ink)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("A"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(track.title().to_string()),
+            )
+            .children(
+                track
+                    .key()
+                    .map(|key| key_chip(&key, &app.theme, app.tag_settings.key_notation)),
+            )
+            .test_support()
+    });
+    let rows: Vec<AnyElement> =
+        app.planner
+            .candidates
+            .iter()
+            .filter_map(|candidate| {
+                let track_index = candidate.track_index;
+                let track = app.session.library().track(track_index)?;
+                let is_picked = app.focus.selected_match == Some(track_index);
+                let hover_background = palette.raised;
+                Some(
+                    div()
+                        .id(("planner-candidate", track_index))
+                        .flex()
+                        .flex_shrink_0()
+                        .items_start()
+                        .gap(GAP_SMALL)
+                        .py(px(4.0))
+                        .px(px(4.0))
+                        .rounded(RADIUS_SMALL)
+                        .cursor_pointer()
+                        .map(|row| {
+                            if is_picked {
+                                row.bg(palette.selection)
+                            } else {
+                                row.hover(move |style| style.bg(hover_background))
+                            }
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.audition_candidate(track_index, cx)
+                        }))
+                        .child(div().flex().flex_shrink_0().w(px(38.0)).children(
+                            track.key().map(|key| {
+                                key_chip(&key, &app.theme, app.tag_settings.key_notation)
+                            }),
+                        ))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(GAP_TIGHT)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(GAP_SMALL)
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate()
+                                                .child(track.title().to_string()),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_size(SMALL_TEXT_SIZE)
+                                                .text_color(palette.text_secondary)
+                                                .children(
+                                                    candidate
+                                                        .tempo_difference_percent
+                                                        .map(format::signed_percent),
+                                                ),
+                                        ),
+                                )
+                                .child(div().flex().flex_wrap().gap(GAP_SMALL).children(
+                                    candidate.pills().into_iter().enumerate().map(
+                                        |(position, text)| pill(text, position == 0, &palette),
+                                    ),
+                                )),
+                        )
+                        .test_support()
+                        .into_any_element(),
+                )
+            })
+            .collect();
+    card(&palette)
+        .id("planner-candidates-column")
+        .w(px(CANDIDATES_WIDTH))
+        .flex_shrink_0()
+        .children(a_line)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(GAP_SMALL)
+                .child(
+                    div()
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child("Tracks that fit after A"),
+                )
+                .child(choice_control(app, cx)),
+        )
+        .child(
+            div()
+                .id("planner-candidates")
+                .flex()
+                .flex_col()
+                .gap(GAP_TIGHT)
+                .max_h(px(620.0))
+                .overflow_y_scroll()
+                .children(rows)
+                .when(app.planner.candidates.is_empty(), |list| {
+                    list.child(
+                        div()
+                            .id("planner-candidates-empty")
+                            .text_color(palette.text_tertiary)
+                            .child(if app.track_filters.is_active() {
+                                "No track fits after this one under the filter bar."
+                            } else {
+                                "No track fits after this one."
+                            })
+                            .test_support(),
+                    )
+                })
+                .test_support(),
+        )
+        .child(
+            div()
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child(
+                    "Click a track to hear the transition into it. Up and Down move to the next.",
+                ),
+        )
+        .test_support()
 }
 
-fn window_rows(
+/// The ranked windows as small markers above the timeline, at where their
+/// mix point lies; a press jumps there.
+fn window_markers(
     app: &EuphoriaApp,
-    planned: &Arc<PlannedTransition>,
+    planned: &PlannedTransition,
+    window: &CandidateWindow,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> impl IntoElement {
     let palette = app.theme.palette;
-    let rows = planned
+    let total = (BARS_BEFORE + window.bars + BARS_AFTER) as f32;
+    let markers = planned
         .plan
         .windows
         .iter()
         .enumerate()
-        .map(|(index, window)| {
-            let is_chosen = app.planner.window == index;
-            let verdict = if planned.stems_known() == (true, true) {
-                clash_verdict(window)
-            } else {
-                ClashVerdict::NotChecked
-            };
-            div()
-                .id(("planner-window", index))
-                .flex()
-                .items_center()
-                .gap(GAP_MEDIUM)
-                .px(px(12.0))
-                .py(px(10.0))
-                .rounded(RADIUS_LARGE)
-                .border_1()
-                .cursor_pointer()
-                .map(|row| {
-                    if is_chosen {
-                        row.border_color(palette.accent)
-                            .bg(palette.accent.opacity(0.1))
-                    } else {
-                        let hover = palette.raised;
-                        row.border_color(palette.line)
-                            .hover(move |style| style.bg(hover))
-                    }
-                })
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(28.0))
-                        .flex_shrink_0()
-                        .rounded(RADIUS_LARGE)
-                        .bg(palette.raised)
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(format!("{}", window.rank)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(window_title(planned, window)),
-                        )
-                        .child(
-                            div()
-                                .text_color(palette.text_secondary)
-                                .child(window_detail(
-                                    window,
-                                    planned.stems_known() == (true, true),
-                                )),
-                        ),
-                )
-                .children((verdict != ClashVerdict::NotChecked).then(|| {
-                    div()
-                        .id(("planner-window-verdict", index))
-                        .flex_shrink_0()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(verdict_colour(verdict, &palette))
-                        .child(verdict.label())
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| this.select_plan_window(index, cx)))
-                .test_support()
+        .filter_map(|(index, ranked)| {
+            let offset = ranked.a_start_bar as i64 - window.a_start_bar as i64;
+            let column = BARS_BEFORE as i64 + offset;
+            if column < 0 || column >= (BARS_BEFORE + window.bars + BARS_AFTER) as i64 {
+                return None;
+            }
+            let is_here = app.planner.custom.is_none() && app.planner.window == index;
+            let tip = format!(
+                "{}. {}",
+                window_title(planned, ranked),
+                window_detail(ranked, planned.stems_known() == (true, true))
+            );
+            Some(
+                div()
+                    .id(("planner-window", index))
+                    .absolute()
+                    .top_0()
+                    .left(relative(column as f32 / total))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(px(16.0))
+                    .rounded(RADIUS_SMALL)
+                    .cursor_pointer()
+                    .text_size(LABEL_TEXT_SIZE)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .map(|marker| {
+                        if is_here {
+                            marker.bg(palette.accent).text_color(palette.accent_ink)
+                        } else {
+                            marker
+                                .bg(palette.raised)
+                                .border_1()
+                                .border_color(palette.accent)
+                                .text_color(palette.text)
+                        }
+                    })
+                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .child(format!("{}", ranked.rank))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                            this.jump_to_window(index, cx);
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .test_support()
+                    .into_any_element(),
+            )
         });
-    card(&palette)
-        .id("planner-windows")
-        .flex_1()
-        .min_w(px(360.0))
-        .child(heading("Suggested windows"))
-        .children(rows)
+    div()
+        .id("planner-markers")
+        .flex()
+        .items_center()
+        .gap(GAP_MEDIUM)
+        .child(
+            div()
+                .w(px(GUTTER_WIDTH))
+                .flex_shrink_0()
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child("Best places"),
+        )
+        .child(div().relative().flex_1().h(px(18.0)).children(markers))
         .test_support()
 }
 
-fn steps_card(
+/// The plan in one line, and the three actions on it.
+fn summary_and_actions(
     app: &EuphoriaApp,
     planned: &Arc<PlannedTransition>,
     window: &CandidateWindow,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> impl IntoElement {
     let palette = app.theme.palette;
-    let steps = window.steps.iter().enumerate().map(|(position, step)| {
-        div()
-            .id(("planner-step", position))
-            .flex()
-            .gap(GAP_SMALL)
-            .child(
-                div()
-                    .w(px(18.0))
-                    .flex_shrink_0()
-                    .text_color(palette.text_tertiary)
-                    .child(format!("{}.", position + 1)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .text_color(palette.text_secondary)
-                    .child(step_line(step, planned, window)),
-            )
-            .test_support()
-    });
     let is_favorite = app
         .selected_track()
         .zip(
@@ -846,17 +993,12 @@ fn steps_card(
                 .is_some()
         });
     card(&palette)
-        .id("planner-steps")
-        .flex_1()
-        .min_w(px(320.0))
-        .child(heading(format!("Window {}, step by step", window.rank)))
+        .id("planner-plan")
         .child(
             div()
-                .id("planner-steps-list")
-                .flex()
-                .flex_col()
-                .gap(GAP_SMALL)
-                .children(steps)
+                .id("planner-summary")
+                .text_color(palette.text_secondary)
+                .child(window_line(planned, window))
                 .test_support(),
         )
         .child(
@@ -864,7 +1006,22 @@ fn steps_card(
                 .flex()
                 .flex_wrap()
                 .gap(GAP_SMALL)
-                .mt(px(6.0))
+                .child(
+                    secondary_button(
+                        if is_favorite {
+                            UPDATE_FAVORITE_ACTION
+                        } else {
+                            SAVE_FAVORITE_ACTION
+                        },
+                        &palette,
+                    )
+                    .id("planner-save-favorite")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let index = this.planner.window;
+                        this.save_plan_as_favorite(index, cx);
+                    }))
+                    .test_support(),
+                )
                 .child(
                     primary_button(SET_CUES_ACTION, &palette)
                         .id("planner-set-cues")
@@ -882,22 +1039,6 @@ fn steps_card(
                             this.preview_on_decks(index, cx);
                         }))
                         .test_support(),
-                )
-                .child(
-                    secondary_button(
-                        if is_favorite {
-                            UPDATE_FAVORITE_ACTION
-                        } else {
-                            SAVE_FAVORITE_ACTION
-                        },
-                        &palette,
-                    )
-                    .id("planner-save-favorite")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let index = this.planner.window;
-                        this.save_plan_as_favorite(index, cx);
-                    }))
-                    .test_support(),
                 ),
         )
         .test_support()
@@ -1050,7 +1191,16 @@ pub(crate) fn render(
             .test_support()
             .into_any_element(),
     };
-    page.child(body).test_support().into_any_element()
+    page.child(
+        div()
+            .flex()
+            .items_start()
+            .gap(GAP_MEDIUM)
+            .child(candidates_column(app, cx))
+            .child(div().flex_1().min_w_0().child(body)),
+    )
+    .test_support()
+    .into_any_element()
 }
 
 fn planned_body(
@@ -1077,6 +1227,7 @@ fn planned_body(
         ((app.plan_playhead_bar() as f32 + BARS_BEFORE as f32) / total).clamp(0.0, 1.0);
     let timeline_bounds = app.planner.timeline_bounds.clone();
     let seek_bounds = timeline_bounds.clone();
+    let b_block_bounds = app.planner.b_block_bounds.clone();
     let overlay = div()
         .id("planner-timeline")
         .absolute()
@@ -1106,9 +1257,29 @@ fn planned_body(
                 .bg(palette.text)
                 .test_support(),
         )
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+            if event.pressed_button == Some(MouseButton::Left) {
+                this.drag_b_to(event.position.x / px(1.0), cx);
+            }
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _: &MouseUpEvent, _, cx| this.end_b_drag(cx)),
+        )
+        .on_mouse_up_out(
+            MouseButton::Left,
+            cx.listener(|this, _: &MouseUpEvent, _, cx| this.end_b_drag(cx)),
+        )
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                if b_block_bounds
+                    .get()
+                    .is_some_and(|bounds| bounds.contains(&event.position))
+                {
+                    this.begin_b_drag(event.position.x / px(1.0));
+                    return;
+                }
                 if let Some(bounds) = seek_bounds.get() {
                     let fraction = crate::player::fraction_along(
                         event.position.x / px(1.0),
@@ -1125,24 +1296,25 @@ fn planned_body(
         .relative()
         .flex()
         .flex_col()
+        .child(div().h(px(22.0)))
         .child(ruler(app, planned, window, &palette))
         .child(track_block(
             format!("A \u{b7} {}", title_of(app.selected)),
             &planned.plan.lanes_a,
             &columns_a,
             &palette,
-            "planner-track-a",
-            "planner-unknown-lane-a",
+            ("planner-track-a", "planner-unknown-lane-a"),
             planned.plan.lanes_a.stems_known,
+            None,
         ))
         .child(track_block(
             format!("B \u{b7} {}", title_of(app.focus.selected_match)),
             &planned.plan.lanes_b,
             &columns_b,
             &palette,
-            "planner-track-b",
-            "planner-unknown-lane-b",
+            ("planner-track-b", "planner-unknown-lane-b"),
             planned.plan.lanes_b.stems_known,
+            Some(app.planner.b_block_bounds.clone()),
         ))
         .child(
             div()
@@ -1182,7 +1354,15 @@ fn planned_body(
                 )
                 .test_support(),
         )
-        .child(overlay);
+        .child(overlay)
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .child(window_markers(app, planned, window, cx)),
+        );
     let timelines = card(&palette)
         .id("planner-timelines")
         .child(grid)
@@ -1194,14 +1374,7 @@ fn planned_body(
         .child(transport(app, &palette, cx))
         .child(timelines)
         .children(stems_line(app, planned, cx))
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(GAP_MEDIUM)
-                .child(window_rows(app, planned, cx))
-                .child(steps_card(app, planned, window, cx)),
-        )
+        .child(summary_and_actions(app, planned, window, cx))
 }
 
 /// Play the transition, A or B alone, and stop.

@@ -46,5 +46,5 @@ Exports for Serato and Engine DJ are in development.
 - Want to know where a track tends to sit in a set: [set stage](concepts/set-stage.md).
 - Mixing one track into the next: [planning a transition](concepts/plan-a-transition.md).
 - Wondering whether your files are good enough to play loud: [audio quality](concepts/audio-quality.md).
-- Wondering how much to trust the results: [accuracy](concepts/accuracy.md).
+- Wondering how much to trust the results: [accuracy](concepts/accuracy.md), and [how it varies by genre](concepts/accuracy.md#accuracy-by-genre).
 - Want to know what gets written to your files: [tags](reference/tags.md).

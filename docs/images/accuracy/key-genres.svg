@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="632" viewBox="0 0 800 632" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Key accuracy by genre</title>
+<desc id="chart-desc">Paired horizontal bars of how often the key is exact, and exact or a fifth away, by genre: Deep house (77 previews) 85.7% and 89.6%; Electro house (51 previews) 74.5% and 82.4%; House (47 previews) 72.3% and 76.6%; Techno (34 previews) 67.6% and 73.5%; Tech house (81 previews) 65.4% and 72.8%; Electronica (20 previews) 65.0% and 65.0%; Progressive house (88 previews) 63.6% and 68.2%; Dubstep (22 previews) 63.6% and 77.3%; Drum and bass (38 previews) 63.2% and 65.8%; Trance (58 previews) 53.4% and 67.2%; 13 other genres (88 previews) 79.5% and 83.0%. All genres together: 69.9% exact. Trance is the weakest genre.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.value { fill: #0b0b0b; font-size: 13px; font-weight: 600; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.grid { stroke: #e1e0d9; stroke-width: 1; fill: none; }
+.axis { stroke: #c3c2b7; stroke-width: 1; fill: none; }
+.reference { stroke: #898781; stroke-width: 1.5; fill: none; }
+.bracket { stroke: #52514e; stroke-width: 1.5; fill: none; }
+.connector { stroke: #c3c2b7; stroke-width: 2; fill: none; stroke-linecap: round; }
+.series-fill { fill: #2a78d6; }
+.series-1-fill { fill: #2a78d6; }
+.series-2-fill { fill: #eb6834; }
+.series-3-fill { fill: #1baf7a; }
+.ring { stroke: #fcfcfb; stroke-width: 2; }
+.halo { stroke: #fcfcfb; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .value { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis, .connector { stroke: #383835; }
+  .bracket { stroke: #c3c2b7; }
+  .series-fill, .series-1-fill { fill: #3987e5; }
+  .series-2-fill { fill: #d95926; }
+  .series-3-fill { fill: #199e70; }
+  .ring, .halo { stroke: #1a1a19; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="631" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Key accuracy by genre</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">drone-v2 on the 604 GiantSteps Key previews, by Beatport genre. Previews in brackets.</text>
+<circle cx="30" cy="86" r="6" class="series-1-fill ring"/>
+<text x="44" y="90" class="label" text-anchor="start">Exact</text>
+<circle cx="300" cy="86" r="6" class="series-3-fill ring"/>
+<text x="314" y="90" class="label" text-anchor="start">Exact or a fifth away</text>
+<line x1="230" y1="128" x2="230" y2="568" class="axis"/>
+<text x="230" y="588" class="tick" text-anchor="middle">0%</text>
+<line x1="345" y1="128" x2="345" y2="568" class="grid"/>
+<text x="345" y="588" class="tick" text-anchor="middle">25%</text>
+<line x1="460" y1="128" x2="460" y2="568" class="grid"/>
+<text x="460" y="588" class="tick" text-anchor="middle">50%</text>
+<line x1="575" y1="128" x2="575" y2="568" class="grid"/>
+<text x="575" y="588" class="tick" text-anchor="middle">75%</text>
+<line x1="690" y1="128" x2="690" y2="568" class="grid"/>
+<text x="690" y="588" class="tick" text-anchor="middle">100%</text>
+<line x1="551.54" y1="120" x2="551.54" y2="568" class="reference"/>
+<text x="551.54" y="114" class="tick halo" text-anchor="middle">All genres 69.9%</text>
+<text x="460" y="612" class="label" text-anchor="middle">Share of previews</text>
+<text x="216" y="152.5" class="label" text-anchor="end">Deep house (77)</text>
+<path class="series-1-fill" d="M230,135 H620.22 Q624.22,135 624.22,139 V143 Q624.22,147 620.22,147 H230 Z"/>
+<path class="series-3-fill" d="M230,149 H638.16 Q642.16,149 642.16,153 V157 Q642.16,161 638.16,161 H230 Z"/>
+<text x="632.22" y="145" class="value halo" text-anchor="start">85.7%</text>
+<text x="650.16" y="159" class="tick halo" text-anchor="start">89.6%</text>
+<text x="216" y="192.5" class="label" text-anchor="end">Electro house (51)</text>
+<path class="series-1-fill" d="M230,175 H568.7 Q572.7,175 572.7,179 V183 Q572.7,187 568.7,187 H230 Z"/>
+<path class="series-3-fill" d="M230,189 H605.04 Q609.04,189 609.04,193 V197 Q609.04,201 605.04,201 H230 Z"/>
+<text x="580.7" y="185" class="value halo" text-anchor="start">74.5%</text>
+<text x="617.04" y="199" class="tick halo" text-anchor="start">82.4%</text>
+<text x="216" y="232.5" class="label" text-anchor="end">House (47)</text>
+<path class="series-1-fill" d="M230,215 H558.58 Q562.58,215 562.58,219 V223 Q562.58,227 558.58,227 H230 Z"/>
+<path class="series-3-fill" d="M230,229 H578.36 Q582.36,229 582.36,233 V237 Q582.36,241 578.36,241 H230 Z"/>
+<text x="570.58" y="225" class="value halo" text-anchor="start">72.3%</text>
+<text x="590.36" y="239" class="tick halo" text-anchor="start">76.6%</text>
+<text x="216" y="272.5" class="label" text-anchor="end">Techno (34)</text>
+<path class="series-1-fill" d="M230,255 H536.96 Q540.96,255 540.96,259 V263 Q540.96,267 536.96,267 H230 Z"/>
+<path class="series-3-fill" d="M230,269 H564.1 Q568.1,269 568.1,273 V277 Q568.1,281 564.1,281 H230 Z"/>
+<text x="548.96" y="265" class="value halo" text-anchor="start">67.6%</text>
+<text x="576.1" y="279" class="tick halo" text-anchor="start">73.5%</text>
+<text x="216" y="312.5" class="label" text-anchor="end">Tech house (81)</text>
+<path class="series-1-fill" d="M230,295 H526.84 Q530.84,295 530.84,299 V303 Q530.84,307 526.84,307 H230 Z"/>
+<path class="series-3-fill" d="M230,309 H560.88 Q564.88,309 564.88,313 V317 Q564.88,321 560.88,321 H230 Z"/>
+<text x="538.84" y="305" class="value halo" text-anchor="start">65.4%</text>
+<text x="572.88" y="319" class="tick halo" text-anchor="start">72.8%</text>
+<text x="216" y="352.5" class="label" text-anchor="end">Electronica (20)</text>
+<path class="series-1-fill" d="M230,335 H525 Q529,335 529,339 V343 Q529,347 525,347 H230 Z"/>
+<path class="series-3-fill" d="M230,349 H525 Q529,349 529,353 V357 Q529,361 525,361 H230 Z"/>
+<text x="537" y="345" class="value halo" text-anchor="start">65.0%</text>
+<text x="537" y="359" class="tick halo" text-anchor="start">65.0%</text>
+<text x="216" y="392.5" class="label" text-anchor="end">Progressive house (88)</text>
+<path class="series-1-fill" d="M230,375 H518.56 Q522.56,375 522.56,379 V383 Q522.56,387 518.56,387 H230 Z"/>
+<path class="series-3-fill" d="M230,389 H539.72 Q543.72,389 543.72,393 V397 Q543.72,401 539.72,401 H230 Z"/>
+<text x="530.56" y="385" class="value halo" text-anchor="start">63.6%</text>
+<text x="551.72" y="399" class="tick halo" text-anchor="start">68.2%</text>
+<text x="216" y="432.5" class="label" text-anchor="end">Dubstep (22)</text>
+<path class="series-1-fill" d="M230,415 H518.56 Q522.56,415 522.56,419 V423 Q522.56,427 518.56,427 H230 Z"/>
+<path class="series-3-fill" d="M230,429 H581.58 Q585.58,429 585.58,433 V437 Q585.58,441 581.58,441 H230 Z"/>
+<text x="530.56" y="425" class="value halo" text-anchor="start">63.6%</text>
+<text x="593.58" y="439" class="tick halo" text-anchor="start">77.3%</text>
+<text x="216" y="472.5" class="label" text-anchor="end">Drum and bass (38)</text>
+<path class="series-1-fill" d="M230,455 H516.72 Q520.72,455 520.72,459 V463 Q520.72,467 516.72,467 H230 Z"/>
+<path class="series-3-fill" d="M230,469 H528.68 Q532.68,469 532.68,473 V477 Q532.68,481 528.68,481 H230 Z"/>
+<text x="528.72" y="465" class="value halo" text-anchor="start">63.2%</text>
+<text x="540.68" y="479" class="tick halo" text-anchor="start">65.8%</text>
+<text x="216" y="512.5" class="label" text-anchor="end">Trance (58)</text>
+<path class="series-1-fill" d="M230,495 H471.64 Q475.64,495 475.64,499 V503 Q475.64,507 471.64,507 H230 Z"/>
+<path class="series-3-fill" d="M230,509 H535.12 Q539.12,509 539.12,513 V517 Q539.12,521 535.12,521 H230 Z"/>
+<text x="483.64" y="505" class="value halo" text-anchor="start">53.4%</text>
+<text x="547.12" y="519" class="tick halo" text-anchor="start">67.2%</text>
+<text x="216" y="552.5" class="label" text-anchor="end">13 other genres (88)</text>
+<path class="series-1-fill" d="M230,535 H591.7 Q595.7,535 595.7,539 V543 Q595.7,547 591.7,547 H230 Z"/>
+<path class="series-3-fill" d="M230,549 H607.8 Q611.8,549 611.8,553 V557 Q611.8,561 607.8,561 H230 Z"/>
+<text x="603.7" y="545" class="value halo" text-anchor="start">79.5%</text>
+<text x="619.8" y="559" class="tick halo" text-anchor="start">83.0%</text>
+</svg>

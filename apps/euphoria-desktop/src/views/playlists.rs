@@ -315,6 +315,10 @@ pub(crate) struct TrackMenuState {
     /// The row's file is missing, so the missing tracks of the selection
     /// can be removed from the library.
     pub(crate) is_missing: bool,
+    /// How many tracks of the row's selection can be analyzed again.
+    pub(crate) reanalyzable: usize,
+    /// The row the menu is for.
+    pub(crate) track_index: usize,
 }
 
 /// The menu of the table's rows: add the selection to a playlist, make a
@@ -359,6 +363,15 @@ pub(crate) fn track_menu(
                 )
             })
         })
+    };
+    let track_index = state.track_index;
+    let menu = match crate::reanalyze::menu_label(state.reanalyzable) {
+        Some(label) => menu.separator().item(
+            PopupMenuItem::new(label).on_click(on_app(app, move |this, _, cx| {
+                this.analyze_row_again(track_index, cx)
+            })),
+        ),
+        None => menu,
     };
     let menu = menu.item(
         PopupMenuItem::new("New playlist from selection")

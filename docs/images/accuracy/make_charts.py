@@ -84,6 +84,42 @@ SECTION_GENRES = [
     ("Electronic", 8, 23.6, 53.4, 45.8),
 ]
 
+# "Accuracy by genre", the key table: drone-v2 on the GiantSteps Key
+# previews by Beatport genre, as (genre, previews, exact, exact or a fifth
+# away). Genres with fewer than 20 previews are grouped.
+KEY_GENRES = [
+    ("Deep house", 77, 85.7, 89.6),
+    ("Electro house", 51, 74.5, 82.4),
+    ("House", 47, 72.3, 76.6),
+    ("Techno", 34, 67.6, 73.5),
+    ("Tech house", 81, 65.4, 72.8),
+    ("Electronica", 20, 65.0, 65.0),
+    ("Progressive house", 88, 63.6, 68.2),
+    ("Dubstep", 22, 63.6, 77.3),
+    ("Drum and bass", 38, 63.2, 65.8),
+    ("Trance", 58, 53.4, 67.2),
+    ("13 other genres", 88, 79.5, 83.0),
+]
+KEY_EXACT_ALL_GENRES = 69.9
+
+# "Accuracy by genre", the tempo table: GiantSteps Tempo previews by Beatport
+# genre, as (genre, previews, Accuracy 1, Accuracy 2).
+TEMPO_GENRES = [
+    ("Tech house", 22, 100.0, 100.0),
+    ("Breaks", 26, 96.2, 96.2),
+    ("Deep house", 24, 95.8, 100.0),
+    ("House", 23, 95.7, 100.0),
+    ("Psy-trance", 34, 94.1, 100.0),
+    ("Techno", 61, 91.8, 91.8),
+    ("Electro house", 22, 90.9, 95.5),
+    ("Trance", 74, 89.2, 89.2),
+    ("Drum and bass", 139, 85.6, 97.8),
+    ("Dubstep", 76, 81.6, 89.5),
+    ("Electronica", 52, 76.9, 92.3),
+    ("10 other genres", 108, 74.1, 92.6),
+]
+TEMPO_ACCURACY_1_ALL_GENRES = 85.8
+
 STYLE = """
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -444,6 +480,75 @@ def tempo_confidence_chart():
     )
 
 
+def paired_genre_chart(title, subtitle, rows, series_labels, reference, axis_label, description):
+    width = 800
+    row_height = 40
+    chart_top = 128
+    chart_bottom = chart_top + row_height * len(rows)
+    height = chart_bottom + 64
+    to_x = scale(0, 100, 230, 690)
+    body = [
+        text(24, 36, title, "title"),
+        text(24, 58, subtitle, "subtitle"),
+    ]
+    legend_y = 90
+    first_label, second_label = series_labels
+    body.append(dot(30, legend_y - 4, "series-1-fill"))
+    body.append(text(44, legend_y, first_label, "label"))
+    body.append(dot(300, legend_y - 4, "series-3-fill"))
+    body.append(text(314, legend_y, second_label, "label"))
+    for share_tick in (0, 25, 50, 75, 100):
+        body.append(line(to_x(share_tick), chart_top, to_x(share_tick), chart_bottom, "grid" if share_tick else "axis"))
+        body.append(text(to_x(share_tick), chart_bottom + 20, f"{share_tick}%", "tick", "middle"))
+    reference_label, reference_share = reference
+    body.append(line(to_x(reference_share), chart_top - 8, to_x(reference_share), chart_bottom, "reference"))
+    body.append(text(to_x(reference_share), chart_top - 14, f"{reference_label} {reference_share:.1f}%", "tick halo", "middle"))
+    body.append(text(to_x(50), chart_bottom + 44, axis_label, "label", "middle"))
+    for index, (genre, tracks, first, second) in enumerate(rows):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(0) - 14, row_middle + 4.5, f"{genre} ({tracks})", "label", "end"))
+        body.append(horizontal_bar_of("series-1-fill", to_x(0), row_middle - 13, to_x(first) - to_x(0), 12))
+        body.append(horizontal_bar_of("series-3-fill", to_x(0), row_middle + 1, to_x(second) - to_x(0), 12))
+        body.append(text(to_x(first) + 8, row_middle - 3, f"{first:.1f}%", "value halo"))
+        body.append(text(to_x(second) + 8, row_middle + 11, f"{second:.1f}%", "tick halo"))
+    return document(width, height, title, description, body)
+
+
+def key_genres_chart():
+    return paired_genre_chart(
+        "Key accuracy by genre",
+        "drone-v2 on the 604 GiantSteps Key previews, by Beatport genre. Previews in brackets.",
+        KEY_GENRES,
+        ("Exact", "Exact or a fifth away"),
+        ("All genres", KEY_EXACT_ALL_GENRES),
+        "Share of previews",
+        "Paired horizontal bars of how often the key is exact, and exact or a fifth away, by genre: "
+        + "; ".join(
+            f"{genre} ({tracks} previews) {exact:.1f}% and {mixable:.1f}%"
+            for genre, tracks, exact, mixable in KEY_GENRES
+        )
+        + f". All genres together: {KEY_EXACT_ALL_GENRES}% exact. Trance is the weakest genre.",
+    )
+
+
+def tempo_genres_chart():
+    return paired_genre_chart(
+        "Tempo accuracy by genre",
+        "The 661 GiantSteps Tempo previews, by Beatport genre. Previews in brackets.",
+        TEMPO_GENRES,
+        ("Within 4% (Accuracy 1)", "Also at half, double, a third or triple (Accuracy 2)"),
+        ("All genres", TEMPO_ACCURACY_1_ALL_GENRES),
+        "Share of previews",
+        "Paired horizontal bars of Accuracy 1 and Accuracy 2 of the tempo, by genre: "
+        + "; ".join(
+            f"{genre} ({tracks} previews) {first:.1f}% and {second:.1f}%"
+            for genre, tracks, first, second in TEMPO_GENRES
+        )
+        + f". All genres together: {TEMPO_ACCURACY_1_ALL_GENRES}% Accuracy 1. Dubstep, electronica and the "
+        "smaller genres are the weakest.",
+    )
+
+
 CHARTS = {
     "key-outcomes.svg": key_outcomes_chart,
     "key-detectors.svg": key_detectors_chart,
@@ -452,6 +557,8 @@ CHARTS = {
     "section-genres.svg": section_genres_chart,
     "key-confidence.svg": key_confidence_chart,
     "tempo-confidence.svg": tempo_confidence_chart,
+    "key-genres.svg": key_genres_chart,
+    "tempo-genres.svg": tempo_genres_chart,
 }
 
 
