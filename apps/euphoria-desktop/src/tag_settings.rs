@@ -196,6 +196,10 @@ pub(crate) struct TagSettings {
     /// Whether the track's cues and beat grid are written as Serato cue
     /// points, which Serato DJ, Mixxx and VirtualDJ read too.
     pub(crate) write_cue_markers: bool,
+    /// Whether the cues analysis placed are coloured by the energy of their
+    /// sections, in cue markers and in exports to DJ programs. Off keeps
+    /// the colours each program gives its pads.
+    pub(crate) colour_cues_by_energy: bool,
     /// Whether a key or tempo the file already has is replaced.
     pub(crate) replace_existing: bool,
     /// Whether a key or tempo rated low confidence is written.
@@ -215,6 +219,7 @@ struct StoredTagSettings {
     label: Option<LabelChoice>,
     write_tempo: bool,
     write_cue_markers: bool,
+    colour_cues_by_energy: bool,
     replace_existing: bool,
     include_low_confidence: bool,
     write_after_analysis: bool,
@@ -230,6 +235,7 @@ impl Default for StoredTagSettings {
             label: current.label,
             write_tempo: current.write_tempo,
             write_cue_markers: current.write_cue_markers,
+            colour_cues_by_energy: current.colour_cues_by_energy,
             replace_existing: current.replace_existing,
             include_low_confidence: current.include_low_confidence,
             write_after_analysis: current.write_after_analysis,
@@ -257,6 +263,7 @@ impl From<StoredTagSettings> for TagSettings {
             label,
             write_tempo: stored.write_tempo,
             write_cue_markers: stored.write_cue_markers,
+            colour_cues_by_energy: stored.colour_cues_by_energy,
             replace_existing: stored.replace_existing,
             include_low_confidence: stored.include_low_confidence,
             write_after_analysis: stored.write_after_analysis,
@@ -275,6 +282,7 @@ impl Default for TagSettings {
                 .dj_software()
                 .writes_bpm_by_default(),
             write_cue_markers: false,
+            colour_cues_by_energy: true,
             replace_existing: false,
             include_low_confidence: false,
             write_after_analysis: true,
@@ -291,6 +299,15 @@ impl TagSettings {
         if self.program != program {
             self.program = program;
             self.write_tempo = program.dj_software().writes_bpm_by_default();
+        }
+    }
+
+    /// How cues are coloured, as the colour setting chooses.
+    pub(crate) fn cue_colours(&self) -> euphoria_core::CueColours {
+        if self.colour_cues_by_energy {
+            euphoria_core::CueColours::Energy
+        } else {
+            euphoria_core::CueColours::Fixed
         }
     }
 
@@ -448,6 +465,7 @@ mod tests {
             label: Some(LabelChoice::CommentEnd),
             write_tempo: true,
             write_cue_markers: true,
+            colour_cues_by_energy: false,
             ..TagSettings::default()
         };
         assert_eq!(
@@ -455,12 +473,13 @@ mod tests {
             concat!(
                 r#"{"program":"virtualdj","key_notation":"open-key","#,
                 r#""label":"comment-end","write_tempo":true,"write_cue_markers":true,"#,
-                r#""replace_existing":false,"include_low_confidence":false,"#,
+                r#""colour_cues_by_energy":false,"replace_existing":false,"include_low_confidence":false,"#,
                 r#""write_after_analysis":true,"schema":1}"#
             )
         );
         let engine: TagSettings = serde_json::from_str(r#"{"program":"engine-dj"}"#).unwrap();
         assert_eq!(engine.program, ProgramChoice::EngineDj);
+        assert!(engine.colour_cues_by_energy);
         assert_eq!(engine.key_notation, NotationChoice::Camelot);
         assert!(engine.write_tempo);
         assert!(

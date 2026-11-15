@@ -299,6 +299,9 @@ struct JsonCue {
     name: String,
     /// The hot cue pad, "A" to "H", or `None` for a memory cue only.
     hot_cue: Option<String>,
+    /// The energy rating of the section the cue starts, or `None` for the
+    /// user's cues and when it was not measured.
+    energy: Option<u8>,
 }
 
 impl From<Cue> for JsonCue {
@@ -307,6 +310,7 @@ impl From<Cue> for JsonCue {
             seconds: round_to_thousandths(cue.seconds),
             name: cue.name,
             hot_cue: cue.hot_cue.map(|hot_cue| hot_cue.to_string()),
+            energy: cue.energy,
         }
     }
 }
@@ -1864,6 +1868,7 @@ Key             BPM  Energy  Quality  Time  File
             analysis.cues = vec![SectionCue {
                 seconds: 0.5,
                 section: euphoria_core::CueSection::Start,
+                energy: Some(4),
             }];
         }
         let json_of = |user_edits: &UserEditsByFile| {
@@ -1885,7 +1890,7 @@ Key             BPM  Energy  Quality  Time  File
         };
         assert_eq!(
             json_of(&UserEditsByFile::new())[1]["cues"],
-            serde_json::json!([{"seconds": 0.5, "name": "Start", "hot_cue": "A"}])
+            serde_json::json!([{"seconds": 0.5, "name": "Start", "hot_cue": "A", "energy": 4}])
         );
 
         let mut user_edits = UserEditsByFile::new();
@@ -1898,11 +1903,13 @@ Key             BPM  Energy  Quality  Time  File
                         seconds: 40.0,
                         name: "Vocal".to_string(),
                         hot_cue: None,
+                        energy: None,
                     },
                     Cue {
                         seconds: 8.25,
                         name: "Intro".to_string(),
                         hot_cue: euphoria_core::HotCue::from_letter('D'),
+                        energy: None,
                     },
                 ]),
             }),
@@ -1911,8 +1918,8 @@ Key             BPM  Energy  Quality  Time  File
         assert_eq!(
             json[1]["cues"],
             serde_json::json!([
-                {"seconds": 8.25, "name": "Intro", "hot_cue": "D"},
-                {"seconds": 40.0, "name": "Vocal", "hot_cue": null},
+                {"seconds": 8.25, "name": "Intro", "hot_cue": "D", "energy": null},
+                {"seconds": 40.0, "name": "Vocal", "hot_cue": null, "energy": null},
             ])
         );
         assert_eq!(json[1]["set_by_user"], serde_json::json!(["cues"]));

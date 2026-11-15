@@ -82,6 +82,10 @@ Intro.m4a
   Beat grid      first downbeat at 0.412 s, 149.82 BPM
                  ●●○ medium confidence
   Energy         6 of 10  ━━━━━━────
+  Cues           A   0:00  Start      energy 3
+                 B   0:16  Main       energy 7
+                 C   1:18  Breakdown  energy 2
+                 D   1:33  Drop       energy 7
   Sound quality  Weak on a big system
                  96 kbit/s. Fine for practice and small rooms; on a club system the top end and
                  detail suffer.
@@ -101,7 +105,7 @@ With `--notes`, a Notes row under the key shows how strongly each note sounds in
 
 The marked bars should be the tallest. [Reading the notes](../concepts/accuracy.md#reading-the-notes) explains what to look for. A track analyzed before Euphoria measured notes says so; `--reanalyze` measures them.
 
-One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, why the track is worth checking by ear (or that you already checked it), the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
+One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, why the track is worth checking by ear (or that you already checked it), the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, each cue with its pad, its time and the [energy of its section](../concepts/accuracy.md#energy-of-each-cue), the tuning, and the key changes when the key changes during the track. Cues you edited in the desktop app are listed with "set by you" and no energy. Cues analyzed before the energy of each section was measured have none, and the view says to analyze again with `--reanalyze`.
 
 ### The plain table
 
@@ -185,11 +189,11 @@ One object per file, in path order, including files that failed, then one for ea
     ],
     "beat_grid": { "first_downbeat_seconds": 0.372, "bpm": 170.004, "confidence": "high" },
     "cues": [
-      { "seconds": 0.372, "name": "Start", "hot_cue": "A" },
-      { "seconds": 45.548, "name": "Main", "hot_cue": "B" },
-      { "seconds": 181.077, "name": "Breakdown", "hot_cue": "C" },
-      { "seconds": 226.249, "name": "Drop", "hot_cue": "D" },
-      { "seconds": 361.775, "name": "Outro", "hot_cue": "E" }
+      { "seconds": 0.372, "name": "Start", "hot_cue": "A", "energy": 4 },
+      { "seconds": 45.548, "name": "Main", "hot_cue": "B", "energy": 8 },
+      { "seconds": 181.077, "name": "Breakdown", "hot_cue": "C", "energy": 3 },
+      { "seconds": 226.249, "name": "Drop", "hot_cue": "D", "energy": 9 },
+      { "seconds": 361.775, "name": "Outro", "hot_cue": "E", "energy": 5 }
     ],
     "needs_review": false,
     "review_reasons": [],
@@ -260,7 +264,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
 
-`cues` lists the cues of the track in order: `seconds` from the start of the track, to a thousandth, `name`, and `hot_cue`, the hot cue pad from `"A"` to `"H"`, or `null` for a memory cue only. The cues analysis placed mark where the sections of the track start, named `Start`, `Main`, `Breakdown`, `Drop` and `Outro`, each on the first beat of a bar of `beat_grid` at a phrase boundary, on pads from A in order, at most 8. They are empty when the track has no beat grid. See [cue points](../concepts/accuracy.md#cue-points). When you [edited the cues](#edited-cues) of a track in the desktop app, `cues` lists yours instead, with the names and pads you gave them, and `set_by_user` includes `"cues"`; an empty list then means you deleted every cue.
+`cues` lists the cues of the track in order: `seconds` from the start of the track, to a thousandth, `name`, `hot_cue`, the hot cue pad from `"A"` to `"H"`, or `null` for a memory cue only, and `energy`, the [energy rating of the section](../concepts/accuracy.md#energy-of-each-cue) from the cue to the next one, from 1 to 10, or `null` for a cue you edited, a silent section, or a track analyzed before it was measured. The cues analysis placed mark where the sections of the track start, named `Start`, `Main`, `Breakdown`, `Drop` and `Outro`, each on the first beat of a bar of `beat_grid` at a phrase boundary, on pads from A in order, at most 8. They are empty when the track has no beat grid. See [cue points](../concepts/accuracy.md#cue-points). When you [edited the cues](#edited-cues) of a track in the desktop app, `cues` lists yours instead, with the names and pads you gave them, and `set_by_user` includes `"cues"`; an empty list then means you deleted every cue.
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
@@ -356,6 +360,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
 | `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written, or the cues you [edited](#edited-cues) in the desktop app in their place. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
 | `--collection <FILE>` | Your rekordbox collection exported as XML. Needs `--beat-grid`. Tracks there with a constant beat grid are exported with that grid and their cues on its bars: see [use your rekordbox beat grid](../guides/export-to-rekordbox.md#use-your-rekordbox-beat-grid). With `--cues`, tracks that have cues or loops there are also left out of the file. It is never replaced by the export, even with `--force`. |
+| `--cue-colors <COLOURS>` | `energy` (the default) colours each hot cue analysis placed by the [energy of its section](../concepts/accuracy.md#energy-of-each-cue), from blue for calm to red for intense; `fixed` writes no colour, so rekordbox uses its own. Needs `--cues`. |
 | `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
@@ -388,7 +393,7 @@ Beat grids for 312 of 340 tracks; the others have no clear beat or a grid rated 
 
 ### Cue points
 
-With `--cues`, each track whose beat grid is written also gets its cues, each twice: as a memory cue and as a hot cue, on pads from A in order. Cues are off unless asked for.
+With `--cues`, each track whose beat grid is written also gets its cues, each twice: as a memory cue and as a hot cue, on pads from A in order. Cues are off unless asked for. Each hot cue gets the colour of the energy of its section as `Red`, `Green` and `Blue`, unless `--cue-colors fixed`; memory cues get no colour.
 
 A track whose cues you [edited](#edited-cues) in the desktop app gets yours instead, with your names: each as a memory cue, and also as a hot cue on its pad when it has one. Your cues are exported whether or not the track's beat grid is, since you placed them yourself, and a track whose cues you all deleted gets none. The rule below still applies: a track with cues of its own in your rekordbox collection is left out, whatever cues you edited in Euphoria.
 
@@ -455,7 +460,7 @@ It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the 
 | --- | --- |
 | `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the Key Text column. The Key column is filled from the key itself. |
 | `--beat-grid` | A grid marker at each track's first downbeat, with the grid's tempo in six decimals, except grids rated low confidence. |
-| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. They are not coloured by energy, and there is no `--cue-colors`: Traktor colours a cue by its type. |
 | `--collection <FILE>` | Your Traktor `collection.nml`, only read. Tracks with a cue, hot cue or loop of their own there are left out of the file. Grid markers and Traktor's `AutoGrid` hot cue on a grid marker do not count. It is never replaced, even with `--force`. |
 | `--startup-volume <NAME>` | The name of the Mac disk the system is on, which Traktor writes as the volume of every path outside `/Volumes`. Found from `/Volumes` when not given. |
 
@@ -479,6 +484,7 @@ Tracks are matched by the path Engine DJ stores. It refuses to write while Engin
 | `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. |
 | `--beat-grid` | A constant grid from each track's first downbeat, on tracks Engine DJ has analysed, except grids rated low confidence. |
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
+| `--cue-colors <COLOURS>` | `energy` (the default) gives each cue analysis placed the Engine DJ pad colour nearest to the [energy of its section](../concepts/accuracy.md#energy-of-each-cue); `fixed` gives each cue the colour of its pad. Needs `--cues`. |
 | `--dry-run` | Checks the library and says what would change, writing nothing. Cannot be combined with `--yes`. |
 | `-y`, `--yes` | Write without asking for confirmation. |
 
@@ -504,6 +510,7 @@ Songs are matched by path, and only songs the database holds are changed. Every 
 | `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. The `Key` attributes are musical names, which VirtualDJ shows in its own notation. |
 | `--beat-grid` | The grid anchor at each track's first downbeat, except grids rated low confidence. |
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
+| `--cue-colors <COLOURS>` | `energy` (the default) writes the colour of the [energy of each section](../concepts/accuracy.md#energy-of-each-cue) as `Color` of each cue analysis placed; `fixed` writes none, so VirtualDJ uses its own. Needs `--cues`. |
 | `--dry-run` | Says what would change and writes nothing. Cannot be combined with `--yes`. |
 | `-y`, `--yes` | Write without asking for confirmation. |
 
@@ -842,6 +849,7 @@ hint: To put the old tags back, run `euphoria tags undo`.
 | `--include-low-confidence` | Also write a key or tempo rated low confidence. Without it, those are left out and listed. A key or tempo you corrected counts as high confidence. |
 | `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
 | `--serato-markers` | Also write each track's cue points and beat grid where Serato DJ reads them, in MP3, AIFF, M4A and FLAC files, keeping every cue and grid the files already have. The cues you set in the desktop app are written instead of the automatic ones, on their pads. Not tested in Serato. See [cue points and beat grids for Serato](../guides/serato-cues.md). |
+| `--cue-colors <COLOURS>` | `energy` (the default) gives each cue point analysis placed the Serato pad colour nearest to the [energy of its section](../concepts/accuracy.md#energy-of-each-cue); `fixed` gives each the colour Serato gives its pad. Your own cues keep their pad colour. Needs `--serato-markers`. |
 | `--tempo-range <SLOWEST-FASTEST>` | The range tempos are written in, `90-180` by default, as for [`euphoria analyze`](#options). |
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
@@ -1126,6 +1134,7 @@ A track is recognised by its content, not by its name or folder:
 - A file that could not be analyzed is not remembered, and is tried again on the next run.
 - Results from a version of Euphoria that detected keys or tempo differently, or rated energy with a different version of its scale, are ignored and replaced. This includes results stored before Euphoria rated energy, results stored before tempo was reported between 90 and 180 BPM, which changed the tempo of many tracks and the energy rating of some, results stored before the tuning and the key over time were measured, and results stored before keys and tempos were rated for confidence. The first run after such an update analyzes every track once more.
 - A file that changes while it is being analyzed is not remembered, and is analyzed again on the next run.
+- Results stored before the energy of each cue's section was measured are kept, with no energy on their cues, so updating does not analyze every track again. Those cues keep the pad colours in exports until the track is analyzed again, with `--reanalyze` or after its file changes.
 
 A file found where it was last seen, with the same size and modification time, is not read at all. Any other file is read once to compute a BLAKE3 hash of its content, which takes a small fraction of the time an analysis does.
 

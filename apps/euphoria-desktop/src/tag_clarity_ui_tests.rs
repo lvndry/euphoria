@@ -255,6 +255,7 @@ fn the_rules_list_matches_the_settings() {
     );
     let with_cues = TagSettings {
         write_cue_markers: true,
+        colour_cues_by_energy: true,
         ..TagSettings::default()
     };
     assert_eq!(
@@ -346,6 +347,7 @@ fn turning_off_the_cue_markers_strikes_out_the_cue_rows() {
     }
     let on = example_preview(&TagSettings {
         write_cue_markers: true,
+        colour_cues_by_energy: true,
         ..rekordbox()
     });
     for name in ["Cue markers", "Beat grid"] {

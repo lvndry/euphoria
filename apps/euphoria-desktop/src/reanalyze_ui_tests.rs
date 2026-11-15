@@ -157,6 +157,7 @@ fn only_the_chosen_tracks_are_analyzed_again_and_keep_everything_the_user_owns(
         seconds: 5.0,
         name: "Drop".to_string(),
         hot_cue: None,
+        energy: None,
     }];
     click(window, "set-builder-entry", cx);
     click(window, "build-set", cx);

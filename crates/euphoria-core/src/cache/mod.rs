@@ -89,7 +89,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 15] = [
+const MIGRATIONS: [&str; 16] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -168,6 +168,9 @@ const MIGRATIONS: [&str; 15] = [
         hashes           BLOB    NOT NULL,
         fingerprinted_at INTEGER NOT NULL
     ) WITHOUT ROWID;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN cue_energies TEXT;
 ",
 ];
 
@@ -318,7 +321,7 @@ impl Cache {
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
                     tempo_estimate, tempo_score_margin, quality,
                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                    key_source, loudness_range_lu, pitch_class_profile
+                    key_source, loudness_range_lu, pitch_class_profile, cue_energies
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -346,7 +349,7 @@ impl Cache {
                     tempo_score_margin: row.get(13)?,
                     quality: quality_in_column(row, 14)?,
                     beat_grid: beat_grid_in_columns(row, 15)?,
-                    cues: cues_in_column(row, 19)?,
+                    cues: cues_with_energies_in_columns(row, 19, 23)?,
                     loudness_range_lu: row.get(21)?,
                     pitch_class_profile: pitch_class_profile_in_column(row, 22)?,
                 },
@@ -414,9 +417,9 @@ impl Cache {
                      energy, energy_model_version, tuning_cents, key_timeline,
                      key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality,
                      grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                     key_source, loudness_range_lu, pitch_class_profile
+                     key_source, loudness_range_lu, pitch_class_profile, cue_energies
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -444,6 +447,7 @@ impl Cache {
                     analysis.key_source.map(KeySource::as_str),
                     analysis.loudness_range_lu,
                     analysis.pitch_class_profile.map(pitch_class_profile_text),
+                    cue_energies_text(&analysis.cues),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -766,11 +770,67 @@ fn cues_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Vec<SectionC
         .collect()
 }
 
+/// The stored form of the section energy of each cue, one line per cue in
+/// the order of [`cues_text`], empty for a cue without one, or `None` when
+/// no cue has one.
+fn cue_energies_text(cues: &[SectionCue]) -> Option<String> {
+    if cues.iter().all(|cue| cue.energy.is_none()) {
+        return None;
+    }
+    let lines: Vec<String> = cues
+        .iter()
+        .map(|cue| {
+            cue.energy
+                .map_or_else(String::new, |energy| energy.to_string())
+        })
+        .collect();
+    Some(lines.join("\n"))
+}
+
+fn cues_with_energies_in_columns(
+    row: &Row<'_>,
+    cues_column: usize,
+    energies_column: usize,
+) -> rusqlite::Result<Vec<SectionCue>> {
+    let mut cues = cues_in_column(row, cues_column)?;
+    let Some(stored) = row.get::<_, Option<String>>(energies_column)? else {
+        return Ok(cues);
+    };
+    let damaged = |reason: String| {
+        rusqlite::Error::FromSqlConversionFailure(energies_column, Type::Text, reason.into())
+    };
+    let lines: Vec<&str> = stored.split('\n').collect();
+    if lines.len() != cues.len() {
+        return Err(damaged(format!(
+            "{} cue energies for {} cues",
+            lines.len(),
+            cues.len()
+        )));
+    }
+    for (cue, line) in cues.iter_mut().zip(lines) {
+        cue.energy = if line.is_empty() {
+            None
+        } else {
+            let energy = line
+                .parse::<u8>()
+                .ok()
+                .filter(|rating| (1..=10).contains(rating))
+                .ok_or_else(|| damaged(format!("{line:?} is not an energy rating")))?;
+            Some(energy)
+        };
+    }
+    Ok(cues)
+}
+
 fn parse_cue(line: &str) -> Option<SectionCue> {
     let (seconds, name) = line.split_once('\t')?;
     let seconds: f64 = seconds.parse().ok()?;
     let section = CueSection::from_name(name)?;
-    (seconds.is_finite() && seconds >= 0.0).then_some(SectionCue { seconds, section })
+    (seconds.is_finite() && seconds >= 0.0).then_some(SectionCue {
+        seconds,
+        section,
+        energy: None,
+    })
 }
 
 /// The 12 values of a pitch-class profile, C first, separated by spaces.
@@ -1038,14 +1098,17 @@ mod tests {
                 SectionCue {
                     seconds: 0.371_25,
                     section: CueSection::Start,
+                    energy: Some(3),
                 },
                 SectionCue {
                     seconds: 60.371_25,
                     section: CueSection::Main,
+                    energy: Some(10),
                 },
                 SectionCue {
                     seconds: 240.371_25,
                     section: CueSection::Outro,
+                    energy: None,
                 },
             ],
             key_timeline: vec![
@@ -1126,7 +1189,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1145,7 +1208,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1350,7 +1413,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1373,7 +1436,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1399,7 +1462,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1431,7 +1494,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL,
-                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL, NULL)"
+                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1456,7 +1519,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1489,7 +1552,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 15);
+        assert_eq!(SCHEMA_VERSION, 16);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1600,7 +1663,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 15);
+        assert_eq!(SCHEMA_VERSION, 16);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1654,7 +1717,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 15);
+        assert_eq!(SCHEMA_VERSION, 16);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1719,7 +1782,7 @@ mod tests {
                     &format!(
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL, NULL)"
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1735,6 +1798,49 @@ mod tests {
     }
 
     #[test]
+    fn damaged_cue_energies_are_an_error_and_not_a_panic() {
+        for energies in ["'7'", "'7\n0'", "'7\n11'", "'7\nloud'", "'7\n8\n9'"] {
+            let folder = TemporaryFolder::new();
+            let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+            cache
+                .connection
+                .execute(
+                    &format!(
+                        "INSERT INTO analyses
+                         VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                 '0.5\tStart\n30\tDrop', NULL, NULL, NULL, {energies})"
+                    ),
+                    params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
+                )
+                .unwrap();
+
+            assert!(cache.snapshot().is_err(), "{energies}");
+        }
+    }
+
+    #[test]
+    fn cues_stored_before_their_energy_was_measured_have_none() {
+        let folder = TemporaryFolder::new();
+        let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
+        cache
+            .connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                         '0.5\tStart\n30\tDrop', NULL, NULL, NULL, NULL)",
+                params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+
+        let snapshot = cache.snapshot().unwrap();
+        let cues = &snapshot.analyses.values().next().unwrap().cues;
+        assert_eq!(cues.len(), 2);
+        assert!(cues.iter().all(|cue| cue.energy.is_none()));
+    }
+
+    #[test]
     fn a_damaged_quality_report_is_an_error_and_not_a_panic() {
         let folder = TemporaryFolder::new();
         let cache = Cache::open(&folder.path().join("cache.sqlite3")).unwrap();
@@ -1742,7 +1848,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();

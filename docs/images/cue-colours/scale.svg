@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="266" viewBox="0 0 800 266" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">Cue colours by the energy of the section</title>
+<desc id="chart-desc">Five colour steps from cool to warm. Energy 1 and 2 are blue, 3 and 4 teal, 5 and 6 green, 7 and 8 amber and 9 and 10 red. rekordbox and VirtualDJ get Euphoria's own colours, while Engine DJ and Serato get the nearest of their own pad colours: blue, cyan, green, orange and red. Traktor colours a cue by its type, so it gets none.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.tick { fill: #898781; font-size: 12px; font-variant-numeric: tabular-nums; }
+.swatch { stroke: rgba(11,11,11,0.08); stroke-width: 1; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .swatch { stroke: rgba(255,255,255,0.10); }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="265" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">Cue colours by the energy of the section</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">Each cue analysis placed takes the colour of the energy from it to the next cue.</text>
+<text x="236" y="94" class="label" text-anchor="end">Energy</text>
+<text x="299.4" y="94" class="tick" text-anchor="middle">1 to 2</text>
+<text x="406.2" y="94" class="tick" text-anchor="middle">3 to 4</text>
+<text x="513" y="94" class="tick" text-anchor="middle">5 to 6</text>
+<text x="619.8" y="94" class="tick" text-anchor="middle">7 to 8</text>
+<text x="726.6" y="94" class="tick" text-anchor="middle">9 to 10</text>
+<text x="236" y="133" class="label" text-anchor="end">Euphoria, rekordbox, VirtualDJ</text>
+<rect x="250" y="112" width="98.8" height="32" rx="6" fill="#3A6FF7" class="swatch"/>
+<rect x="356.8" y="112" width="98.8" height="32" rx="6" fill="#16B4C8" class="swatch"/>
+<rect x="463.6" y="112" width="98.8" height="32" rx="6" fill="#34C46B" class="swatch"/>
+<rect x="570.4" y="112" width="98.8" height="32" rx="6" fill="#F2A62E" class="swatch"/>
+<rect x="677.2" y="112" width="98.8" height="32" rx="6" fill="#F04522" class="swatch"/>
+<text x="236" y="179" class="label" text-anchor="end">Engine DJ</text>
+<rect x="250" y="158" width="98.8" height="32" rx="6" fill="#1571E2" class="swatch"/>
+<rect x="356.8" y="158" width="98.8" height="32" rx="6" fill="#20C6C6" class="swatch"/>
+<rect x="463.6" y="158" width="98.8" height="32" rx="6" fill="#20C670" class="swatch"/>
+<rect x="570.4" y="158" width="98.8" height="32" rx="6" fill="#EF8130" class="swatch"/>
+<rect x="677.2" y="158" width="98.8" height="32" rx="6" fill="#CE3239" class="swatch"/>
+<text x="236" y="225" class="label" text-anchor="end">Serato</text>
+<rect x="250" y="204" width="98.8" height="32" rx="6" fill="#0000CC" class="swatch"/>
+<rect x="356.8" y="204" width="98.8" height="32" rx="6" fill="#00CCCC" class="swatch"/>
+<rect x="463.6" y="204" width="98.8" height="32" rx="6" fill="#00CC00" class="swatch"/>
+<rect x="570.4" y="204" width="98.8" height="32" rx="6" fill="#CC8800" class="swatch"/>
+<rect x="677.2" y="204" width="98.8" height="32" rx="6" fill="#CC0000" class="swatch"/>
+</svg>

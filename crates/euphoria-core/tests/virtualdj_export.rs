@@ -46,6 +46,7 @@ fn cue(name: &str, seconds: u64, kind: CueKind) -> CuePoint {
         name: name.to_string(),
         time: Duration::from_secs(seconds),
         kind,
+        energy: None,
     }
 }
 
@@ -110,6 +111,35 @@ fn the_example_database_is_updated_exactly() {
     assert_eq!(merged.updated, vec![PathBuf::from("/music/a.mp3")]);
     assert!(merged.not_in_database.is_empty());
     assert_eq!(merged.cues_without_pad, 0);
+}
+
+#[test]
+fn a_hot_cue_coloured_by_energy_gets_its_colour_as_one_number() {
+    let coloured = |pad, energy| CuePoint {
+        energy,
+        ..cue("Drop", 30 + u64::from(pad), CueKind::Hot(pad))
+    };
+    let track = Track {
+        cue_points: vec![
+            coloured(0, Some(10)),
+            coloured(1, Some(5)),
+            coloured(2, None),
+        ],
+        ..track_at("/music/a.mp3")
+    };
+    let merged = merge(BEFORE, &track);
+    let document = roxmltree::Document::parse(&merged.document).expect("well-formed XML");
+    let colours: Vec<Option<String>> = first_song(&document)
+        .children()
+        .filter(|node| node.has_tag_name("Poi") && node.attribute("Num").is_some())
+        .map(|node| node.attribute("Color").map(str::to_string))
+        .collect();
+    let opaque =
+        |rgb: [u8; 3]| Some(u32::from_be_bytes([0xFF, rgb[0], rgb[1], rgb[2]]).to_string());
+    assert_eq!(
+        colours,
+        vec![opaque([0xF0, 0x45, 0x22]), opaque([0x34, 0xC4, 0x6B]), None]
+    );
 }
 
 #[test]

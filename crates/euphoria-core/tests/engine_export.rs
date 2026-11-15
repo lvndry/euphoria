@@ -198,6 +198,7 @@ fn exported_track(path: PathBuf) -> Track {
         name: "Drop".to_string(),
         time: Duration::from_secs(30),
         kind,
+        energy: None,
     };
     Track {
         key: Some(Key::new(9, Mode::Minor)),
@@ -335,6 +336,52 @@ fn an_analysed_track_gets_key_tempo_grid_cues_and_label() {
             .expect("the backup opens");
         assert_eq!(old, (5, "my note".to_string()), "{schema_file}");
     }
+}
+
+#[test]
+fn hot_cues_coloured_by_energy_get_the_engine_colour_of_their_step() {
+    let library = Library::new(SCHEMAS[0].0);
+    let track_id = library.add_track("a.mp3", true);
+    let at = |pad, energy| CuePoint {
+        name: format!("Pad {pad}"),
+        time: Duration::from_secs(10 + u64::from(pad)),
+        kind: CueKind::Hot(pad),
+        energy,
+    };
+    let track = Track {
+        bpm: Some(128.0),
+        first_beat: Some(Duration::from_millis(250)),
+        cue_points: vec![
+            at(0, Some(1)),
+            at(1, Some(4)),
+            at(2, Some(6)),
+            at(3, Some(7)),
+            at(4, Some(10)),
+            at(5, None),
+        ],
+        ..Track::new(library.track_path("a.mp3"), Duration::from_secs(300))
+    };
+    update_library(
+        &library.database,
+        &library.backup("backup"),
+        &entries(std::slice::from_ref(&track)),
+        &EngineOptions::default(),
+    )
+    .unwrap();
+
+    let quick_cues = decoded(library.blob(track_id, "quickCues"), QuickCues::decode);
+    let colours: Vec<[u8; 4]> = quick_cues.cues[..6].iter().map(|cue| cue.colour).collect();
+    assert_eq!(
+        colours,
+        vec![
+            [0xFF, 0x15, 0x71, 0xE2],
+            [0xFF, 0x20, 0xC6, 0xC6],
+            [0xFF, 0x20, 0xC6, 0x70],
+            [0xFF, 0xEF, 0x81, 0x30],
+            [0xFF, 0xCE, 0x32, 0x39],
+            [0xFF, 0x20, 0xC6, 0x70],
+        ]
+    );
 }
 
 #[test]

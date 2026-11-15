@@ -1629,6 +1629,15 @@ impl EuphoriaApp {
         self.remember_tag_settings(cx);
     }
 
+    pub(crate) fn toggle_colour_cues_by_energy(&mut self, cx: &mut Context<'_, Self>) {
+        self.tag_settings.colour_cues_by_energy = !self.tag_settings.colour_cues_by_energy;
+        let cue_colours = self.tag_settings.cue_colours();
+        if let Some(panel) = &mut self.library_export {
+            panel.setup.cue_colours = cue_colours;
+        }
+        self.remember_tag_settings(cx);
+    }
+
     pub(crate) fn remember_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
         if let Some(problem) = self.save_settings() {
             self.report(problem);

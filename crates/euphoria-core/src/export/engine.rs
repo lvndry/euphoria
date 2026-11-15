@@ -32,6 +32,7 @@ use super::engine_blobs::{
     constant_beat_grid, decompress,
 };
 use super::rekordbox::{CueKind, Track};
+use crate::cue_colours::{ENERGY_COLOUR_STEPS, energy_step};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
 use crate::tags::KeyNotation;
@@ -66,6 +67,18 @@ const PAD_COLOURS: [[u8; 4]; QUICK_CUE_COUNT] = [
     [0xFF, 0x20, 0xC6, 0x70],
     [0xFF, 0x20, 0xC6, 0xC6],
     [0xFF, 0x15, 0x71, 0xE2],
+];
+
+/// The colours of the energy steps of
+/// [`ENERGY_CUE_COLOURS`](crate::ENERGY_CUE_COLOURS), from calm to intense,
+/// as the nearest of Engine DJ's own pad colours above: blue, cyan, green,
+/// orange and red.
+const ENERGY_PAD_COLOURS: [[u8; 4]; ENERGY_COLOUR_STEPS] = [
+    PAD_COLOURS[7],
+    PAD_COLOURS[6],
+    PAD_COLOURS[5],
+    PAD_COLOURS[1],
+    PAD_COLOURS[3],
 ];
 
 const REQUIRED_TRACK_COLUMNS: [&str; 6] = ["id", "path", "key", "bpm", "bpmAnalyzed", "comment"];
@@ -681,7 +694,11 @@ fn row_update(
                         cues[usize::from(pad)] = QuickCue {
                             label: truncated(&cue_point.name, MAXIMUM_LABEL_BYTES),
                             sample_offset: cue_point.time.as_secs_f64() * track_data.sample_rate,
-                            colour: PAD_COLOURS[usize::from(pad)],
+                            colour: cue_point
+                                .energy
+                                .map_or(PAD_COLOURS[usize::from(pad)], |energy| {
+                                    ENERGY_PAD_COLOURS[energy_step(energy)]
+                                }),
                         };
                     }
                     CueKind::Hot(_) => plan.cues_left_out += 1,

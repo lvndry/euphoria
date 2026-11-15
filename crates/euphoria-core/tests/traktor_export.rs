@@ -41,6 +41,7 @@ fn cue(name: &str, milliseconds: u64, kind: CueKind) -> CuePoint {
         name: name.to_string(),
         time: Duration::from_millis(milliseconds),
         kind,
+        energy: None,
     }
 }
 
