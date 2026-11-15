@@ -4,7 +4,7 @@
 //! The library together with the analysis that fills it in. Nothing here
 //! needs a window.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
@@ -123,6 +123,8 @@ pub(crate) struct Session {
     cached_count: usize,
     fresh_analyses: Vec<PathBuf>,
     cache_problem: Option<String>,
+    /// Files queued to be analyzed again, until their result or skip arrives.
+    reanalyzing: HashSet<PathBuf>,
     playlists: Playlists,
     favorites: Favorites,
     playlist_saver: Option<PlaylistSaver>,
@@ -290,10 +292,23 @@ impl Session {
             cached_count: 0,
             fresh_analyses: Vec::new(),
             cache_problem: None,
+            reanalyzing: HashSet::new(),
             playlists: Playlists::default(),
             favorites: Favorites::default(),
             playlist_saver: None,
         })
+    }
+
+    /// Starts with workers that answer with `stub` instead of reading audio.
+    #[cfg(test)]
+    pub(crate) fn start_stubbed(
+        stub: crate::analysis::StubAnalysis,
+    ) -> Result<Self, rayon::ThreadPoolBuildError> {
+        let mut session = Self::start(None)?;
+        let (workers, events) = AnalysisWorkers::start_stubbed(stub)?;
+        session.workers = workers;
+        session.events = events;
+        Ok(session)
     }
 
     /// Keeps playlists in `store`, starting from those it holds. Files that
@@ -531,15 +546,29 @@ impl Session {
         queued
     }
 
-    /// Queues the track at `path` for analysis again when its analysis
-    /// failed. Returns false when it did not fail.
-    pub(crate) fn analyze_again(&mut self, path: &Path) -> bool {
-        if !self.library.requeue_failed(path) {
-            return false;
+    /// Queues the tracks at `paths` for analysis again, ignoring what the
+    /// cache holds. Only the analysis is replaced: corrections, edited
+    /// cues, stars and playlists live apart from it. Tracks already waiting
+    /// or being analyzed, missing tracks and files not in the library are
+    /// left out. Returns how many were queued.
+    pub(crate) fn analyze_again(&mut self, paths: &[PathBuf]) -> usize {
+        let mut queued = Vec::new();
+        for path in paths {
+            if !self.reanalyzing.contains(path) && self.library.requeue_for_analysis(path) {
+                self.reanalyzing.insert(path.clone());
+                queued.push(path.clone());
+            }
         }
-        self.progress.enqueue(1);
-        self.workers.enqueue(vec![path.to_path_buf()]);
-        true
+        let count = queued.len();
+        self.progress.enqueue(count);
+        self.workers.enqueue_fresh(queued);
+        count
+    }
+
+    /// Stops the files still waiting for a worker. Files being analyzed
+    /// finish, and tracks that were skipped can be analyzed again.
+    pub(crate) fn cancel_queued(&mut self) {
+        self.workers.cancel_queued();
     }
 
     /// Sets the key and tempo the user chose for the track at `path`, in the
@@ -607,8 +636,15 @@ impl Session {
                 self.library.mark_analyzing(&path);
                 return;
             }
+            AnalysisEvent::Skipped(path) => {
+                self.reanalyzing.remove(&path);
+                self.library.mark_stopped(&path);
+                self.progress.finish_one();
+                return;
+            }
             AnalysisEvent::Finished(file) => *file,
         };
+        self.reanalyzing.remove(&file.path);
         if !file.from_cache && file.outcome.is_ok() {
             self.fresh_analyses.push(file.path.clone());
         }
