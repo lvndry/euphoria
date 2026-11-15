@@ -11,11 +11,15 @@ mod analyzer;
 mod buffer;
 mod capture;
 mod engine;
+#[cfg(target_os = "macos")]
+mod macos;
 
 pub use analyzer::{LevelReading, LiveAnalyzer, LiveKey, LiveReading, LiveSettings, LiveTempo};
 pub use buffer::RollingBuffer;
 pub use capture::{AudioCapture, AudioSink, CaptureError, ListenSource};
 pub use engine::{ANALYSIS_INTERVAL, LiveEngine};
+#[cfg(target_os = "macos")]
+pub use macos::ProcessTapCapture;
 
 #[cfg(test)]
 mod tests;

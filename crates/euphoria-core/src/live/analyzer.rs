@@ -102,6 +102,9 @@ pub struct LiveReading {
     pub energy: Option<u8>,
     /// How much audio the readings come from, in seconds.
     pub heard_seconds: f32,
+    /// How long the audio has been exactly zero, which is what a capture
+    /// that macOS has not allowed delivers.
+    pub no_signal_seconds: f32,
 }
 
 impl LiveReading {
@@ -114,6 +117,7 @@ impl LiveReading {
             tempo: None,
             energy: None,
             heard_seconds: 0.0,
+            no_signal_seconds: 0.0,
         }
     }
 }
@@ -121,6 +125,8 @@ impl LiveReading {
 const LEVEL_BLOCK_SECONDS: f32 = 0.1;
 /// How long the audio has to stay under the quiet level to count as quiet,
 /// so the gaps between the hits of a sparse beat do not.
+/// Samples below this are exact silence, not a quiet recording.
+const NO_SIGNAL_PEAK: f32 = 1.0e-7;
 const QUIET_HOLD_SECONDS: f32 = 0.5;
 
 /// Reads the key, tempo and energy of audio as it arrives, from a rolling
@@ -134,6 +140,7 @@ pub struct LiveAnalyzer {
     block_filled: usize,
     level: Option<LevelReading>,
     quiet_samples: usize,
+    no_signal_samples: usize,
 }
 
 impl LiveAnalyzer {
@@ -152,6 +159,7 @@ impl LiveAnalyzer {
             block_filled: 0,
             level: None,
             quiet_samples: 0,
+            no_signal_samples: 0,
         }
     }
 
@@ -194,6 +202,11 @@ impl LiveAnalyzer {
             peak_db: decibels(self.block_peak),
         };
         self.level = Some(reading);
+        if self.block_peak < NO_SIGNAL_PEAK {
+            self.no_signal_samples += self.block_samples;
+        } else {
+            self.no_signal_samples = 0;
+        }
         if reading.rms_db < self.settings.quiet_level_db {
             self.quiet_samples += self.block_samples;
             let quiet_seconds = self.quiet_samples as f32 / sample_rate;
@@ -213,16 +226,23 @@ impl LiveAnalyzer {
         self.quiet_samples as f32 >= QUIET_HOLD_SECONDS * self.buffer.sample_rate().get() as f32
     }
 
+    /// A reading with only the level, for while nothing is read.
+    pub fn listening_reading(&self) -> LiveReading {
+        LiveReading {
+            level: self.level,
+            heard_seconds: self.buffer.seconds(),
+            no_signal_seconds: self.no_signal_samples as f32
+                / self.buffer.sample_rate().get() as f32,
+            ..LiveReading::listening()
+        }
+    }
+
     /// Reads the key, tempo and energy of the buffered audio. While the
     /// audio is quiet or there is too little of it, nothing is read and the
     /// reading says it is listening.
     pub fn analyze(&self) -> Result<LiveReading, EuphoriaError> {
         let heard_seconds = self.buffer.seconds();
-        let mut reading = LiveReading {
-            level: self.level,
-            heard_seconds,
-            ..LiveReading::listening()
-        };
+        let mut reading = self.listening_reading();
         if self.is_quiet() || heard_seconds < self.settings.minimum_tempo_seconds {
             return Ok(reading);
         }

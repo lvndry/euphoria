@@ -9,6 +9,7 @@ mod export;
 mod filters;
 mod grid_import;
 mod help;
+mod live;
 mod next;
 mod output;
 mod plan;
@@ -128,6 +129,17 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Show the key and tempo of the audio playing on this Mac, live.
+    #[command(
+        long_about = "Listen to the audio this Mac is playing, from rekordbox, Spotify, a \
+                      browser or any other application, and print its key and tempo as they \
+                      change: one line every two seconds once enough audio has played.\n\n\
+                      This is the analysis of the Live window in the desktop app. The audio \
+                      stays in memory: nothing is recorded, written or sent anywhere. \
+                      macOS 14.2 or later, and macOS asks once to allow listening.",
+        after_help = help::live_examples(),
+    )]
+    Live(live::LiveArguments),
     /// Rank the best tracks to play after a track: key, tempo and energy.
     #[command(
         long_about = "Rank the best tracks to play after a track, the same ranking as the \
@@ -313,6 +325,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
         Command::Next(arguments) => next::run(&arguments),
+        Command::Live(arguments) => live::run(&arguments),
         Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]

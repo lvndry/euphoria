@@ -229,6 +229,24 @@ pub fn set_examples() -> StyledStr {
     )
 }
 
+pub fn live_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            ("euphoria live", "The key and tempo of everything playing"),
+            (
+                "euphoria live --source rekordbox",
+                "Only the audio of rekordbox",
+            ),
+            (
+                "euphoria live --json --interval 1",
+                "One JSON object per second, for an overlay",
+            ),
+        ],
+        "Ctrl-C stops it. The audio is heard in memory only.",
+    )
+}
+
 pub fn next_examples() -> StyledStr {
     examples(
         "Examples",

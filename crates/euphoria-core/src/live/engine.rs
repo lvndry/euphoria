@@ -58,21 +58,16 @@ impl LiveEngine {
                     }
                     if last_analysis.elapsed() >= interval {
                         last_analysis = Instant::now();
-                        let reading = analyzer.analyze().unwrap_or_else(|_| LiveReading {
-                            level: analyzer.level(),
-                            ..LiveReading::listening()
-                        });
+                        let reading = analyzer
+                            .analyze()
+                            .unwrap_or_else(|_| analyzer.listening_reading());
                         if let Ok(mut current) = shared.lock() {
                             *current = reading;
                         }
                     } else if let Ok(mut current) = shared.lock() {
                         current.level = analyzer.level();
                         if analyzer.is_quiet() {
-                            *current = LiveReading {
-                                level: analyzer.level(),
-                                heard_seconds: analyzer.buffered_seconds(),
-                                ..LiveReading::listening()
-                            };
+                            *current = analyzer.listening_reading();
                         }
                     }
                 }
