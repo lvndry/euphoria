@@ -1974,7 +1974,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-bench"
-version = "0.1.0"
+version = "2026.11.5"
 dependencies = [
  "anyhow",
  "cpu-time",
@@ -1985,7 +1985,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-cli"
-version = "0.1.0"
+version = "2026.11.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-core"
-version = "0.1.0"
+version = "2026.11.5"
 dependencies = [
  "blake3",
  "cc",
@@ -2034,7 +2034,7 @@ dependencies = [
 
 [[package]]
 name = "euphoria-desktop"
-version = "0.1.0"
+version = "2026.11.5"
 dependencies = [
  "async-channel",
  "block2 0.6.2",
