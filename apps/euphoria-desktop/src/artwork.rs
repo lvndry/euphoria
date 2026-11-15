@@ -482,9 +482,16 @@ mod tests {
         assert_eq!(store.decode_count(), 0, "lookups decode nothing");
         assert!(store.len() <= ARTWORK_CAPACITY);
         assert!(
-            elapsed < Duration::from_millis(500),
+            elapsed < Duration::from_millis(500) * timing_slack(),
             "10,000 lookups took {elapsed:?}"
         );
+    }
+
+    /// Unoptimized test builds on shared CI runners decode images many
+    /// times slower than the app does, so time limits are only meaningful
+    /// in an optimized build; elsewhere they only catch something hung.
+    fn timing_slack() -> u32 {
+        if cfg!(debug_assertions) { 20 } else { 1 }
     }
 
     #[test]
@@ -494,7 +501,7 @@ mod tests {
         assert!(thumbnails(&bytes).is_some());
         let elapsed = started.elapsed();
         assert!(
-            elapsed < Duration::from_secs(2),
+            elapsed < Duration::from_secs(2) * timing_slack(),
             "a 3000 px cover took {elapsed:?}"
         );
     }
