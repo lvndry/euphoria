@@ -779,7 +779,7 @@ fn steps_card(
 }
 
 fn header_line(app: &EuphoriaApp, planned: Option<&Arc<PlannedTransition>>) -> String {
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let track_line = |track: &crate::library::Track| {
         let mut parts = vec![track.title().to_string()];
         if let Some(key) = track.key() {

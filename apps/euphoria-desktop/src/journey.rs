@@ -158,7 +158,7 @@ impl EuphoriaApp {
                     .unwrap_or_default();
                 let tooltip = format!(
                     "{title}\n{} · {:.1} BPM · energy {:.0}, wants {:.1}",
-                    self.display.key_notation.spell(&track.key),
+                    self.tag_settings.key_notation.spell(&track.key),
                     track.bpm,
                     track.energy,
                     track.target_energy

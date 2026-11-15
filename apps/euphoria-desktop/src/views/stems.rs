@@ -117,7 +117,7 @@ fn export_row(
     let suffix = match (shifted, track.key()) {
         (true, Some(key)) => format!(
             " in {}",
-            app.display
+            app.tag_settings
                 .key_notation
                 .spell(&key.transposed(app.key_shift))
         ),

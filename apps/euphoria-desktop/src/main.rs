@@ -94,8 +94,11 @@ mod stem_export_ui_tests;
 mod stems;
 #[cfg(test)]
 mod suggestion_filter_ui_tests;
+#[cfg(test)]
+mod tag_clarity_ui_tests;
 mod tag_editor;
 mod tag_flow;
+mod tag_reads;
 mod tag_settings;
 mod tag_writing;
 mod theme;

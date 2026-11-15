@@ -88,7 +88,7 @@ The Euphoria library, in `euphoria_core::export::rekordbox`, can write hot cues 
 
 ### Key notation
 
-rekordbox recognises Camelot and musical keys and shows them in the format chosen in **Preferences > View** (tested in rekordbox 7). Open Key codes are written as text; whether rekordbox converts them to its chosen format has not been tested. With **Display key information on the database** it shows the text exactly as the file gives it, so the notation still matters there. Choose it when the file is exported, with `--key-notation`:
+rekordbox recognises Camelot and musical keys and shows them in the format chosen in **Preferences > View** (tested in rekordbox 7). Open Key codes are written as text; whether rekordbox converts them to its chosen format has not been tested. With **Display key information on the database** it shows the text exactly as the file gives it, so the notation still matters there. Choose it when the file is exported, with `--key-notation`, or, in the app's **File > Export Library...** sheet, under **Settings > Key notation**, the one choice the table and the tags use too (the sheet shows it as "Keys as Camelot (8A)" with a link to the settings):
 
 | Notation | Option | A minor | F sharp minor | D flat major |
 | --- | --- | --- | --- | --- |

@@ -107,10 +107,13 @@ impl Settings {
                 });
             }
         };
-        serde_json::from_str(&text).map_err(|source| SettingsError::Format {
+        let format_error = |source| SettingsError::Format {
             path: path.to_path_buf(),
             source,
-        })
+        };
+        let mut stored: serde_json::Value = serde_json::from_str(&text).map_err(format_error)?;
+        adopt_the_old_table_notation(&mut stored);
+        serde_json::from_value(stored).map_err(format_error)
     }
 
     /// Writes the settings file, creating its folder when needed. The file is
@@ -136,6 +139,28 @@ impl Settings {
         // `std::fs::rename` replaces an existing destination on every
         // platform, Windows included, so saving over earlier settings works.
         std::fs::rename(&temporary_path, path).map_err(access(path))
+    }
+}
+
+/// Files from before there was one key notation kept one for the table
+/// (`display`) and one for the tags (`tags`). The tags one wins when both
+/// are stored, since it changes files; the table one is used only when the
+/// tags never stored a choice.
+fn adopt_the_old_table_notation(stored: &mut serde_json::Value) {
+    let Some(table_notation) = stored
+        .pointer("/display/key_notation")
+        .cloned()
+        .filter(|_| stored.pointer("/tags/key_notation").is_none())
+    else {
+        return;
+    };
+    if let Some(tags) = stored.get_mut("tags").and_then(|tags| tags.as_object_mut()) {
+        tags.insert("key_notation".to_string(), table_notation);
+    } else if let Some(root) = stored.as_object_mut() {
+        root.insert(
+            "tags".to_string(),
+            serde_json::json!({ "key_notation": table_notation }),
+        );
     }
 }
 
@@ -206,7 +231,6 @@ mod tests {
                 ..TagSettings::default()
             },
             display: DisplaySettings {
-                key_notation: NotationChoice::OpenKey,
                 tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
             },
             suggestion_filter: SuggestionFilter::default(),
@@ -264,6 +288,45 @@ mod tests {
         assert_eq!(loaded.metronome, MetronomeSettings::default());
     }
 
+    fn load_text(name: &str, text: &str) -> Settings {
+        let folder = temporary_folder(name);
+        let path = folder.join(SETTINGS_FILE_NAME);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let loaded = Settings::load(&path);
+        std::fs::remove_dir_all(&folder).unwrap();
+        loaded.unwrap()
+    }
+
+    #[test]
+    fn two_different_old_key_notations_become_the_tags_one() {
+        let loaded = load_text(
+            "notation-differs",
+            r#"{"tags":{"key_notation":"open-key"},"display":{"key_notation":"musical"}}"#,
+        );
+        assert_eq!(loaded.tags.key_notation, NotationChoice::OpenKey);
+        let saved = serde_json::to_string(&loaded).unwrap();
+        assert!(!saved.contains("musical"), "{saved}");
+        assert!(!saved.contains(r#""display":{"key_notation""#), "{saved}");
+    }
+
+    #[test]
+    fn matching_old_key_notations_stay_and_a_lone_table_notation_is_kept() {
+        let same = load_text(
+            "notation-same",
+            r#"{"tags":{"key_notation":"musical"},"display":{"key_notation":"musical"}}"#,
+        );
+        assert_eq!(same.tags.key_notation, NotationChoice::Musical);
+        let only_table = load_text(
+            "notation-table-only",
+            r#"{"tags":{"program":"serato"},"display":{"key_notation":"open-key"}}"#,
+        );
+        assert_eq!(only_table.tags.key_notation, NotationChoice::OpenKey);
+        assert_eq!(only_table.tags.program, ProgramChoice::Serato);
+        let neither = load_text("notation-neither", r#"{"theme":"deck"}"#);
+        assert_eq!(neither.tags.key_notation, NotationChoice::Camelot);
+    }
+
     #[test]
     fn themes_are_stored_by_name() {
         let text = serde_json::to_string(&Settings {
@@ -293,8 +356,7 @@ mod tests {
                 r#""write_tempo":true,"write_cue_markers":false,"#,
                 r#""replace_existing":false,"include_low_confidence":false,"#,
                 r#""write_after_analysis":true,"schema":1},"#,
-                r#""display":{"key_notation":"camelot","#,
-                r#""tempo_range":{"slowest":90,"fastest":180}},"#,
+                r#""display":{"tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true},"#,
                 r#""inspector_sections":{"mixes":null,"by_ear":null,"key_shift":null,"stems":null,"quality":null,"location":null},"#,
                 r#""track_filters":{"bpm_min":null,"bpm_max":null,"half_or_double":false,"qualities":[],"energy_min":null,"energy_max":null},"next_energy":"keep"}"#

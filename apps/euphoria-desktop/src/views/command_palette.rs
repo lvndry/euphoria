@@ -245,7 +245,7 @@ fn track_row(
     palette: &Palette,
 ) -> gpui::Stateful<Div> {
     let key = track.key().map(|key| {
-        key_chip(&key, &app.theme, app.display.key_notation)
+        key_chip(&key, &app.theme, app.tag_settings.key_notation)
             .w(px(36.0))
             .into_any_element()
     });

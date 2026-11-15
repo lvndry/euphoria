@@ -16,8 +16,8 @@ use gpui::Context;
 use crate::app::EuphoriaApp;
 use crate::tag_settings::TagSettings;
 use crate::tag_writing::{
-    LeftOut, PreviewRow, UndoReport, WriteReport, WriteTarget, plan_writes_with_history,
-    preview_rows, undo_last_with_playlists, write_plans_with_playlists,
+    LeftOut, PreviewRow, UndoReport, WriteReport, WriteTarget, preview_rows,
+    undo_last_with_playlists, write_plans_with_playlists,
 };
 use crate::toast::ToastAction;
 
@@ -77,6 +77,19 @@ pub(crate) fn plan_verified_writes(
     writer: &crate::key_by_ear::CorrectionWriter,
     log_directory: Option<&std::path::Path>,
 ) -> crate::tag_writing::PlannedWrite {
+    plan_verified_writes_reading(targets, settings, cache, writer, log_directory, None)
+}
+
+/// Like [`plan_verified_writes`], taking each file's tags from `reads` when
+/// there is one, so a file is read only the first time.
+pub(crate) fn plan_verified_writes_reading(
+    targets: Vec<WriteTarget>,
+    settings: &TagSettings,
+    cache: Option<&euphoria_core::CachedAnalyzer>,
+    writer: &crate::key_by_ear::CorrectionWriter,
+    log_directory: Option<&std::path::Path>,
+    reads: Option<&crate::tag_reads::TagReads>,
+) -> crate::tag_writing::PlannedWrite {
     let (targets, unchecked) = verified_corrections(targets, cache, writer);
     let history = match log_directory {
         Some(directory) if !settings.replace_existing => {
@@ -85,7 +98,7 @@ pub(crate) fn plan_verified_writes(
         }
         _ => euphoria_core::tags::WrittenValues::default(),
     };
-    let mut planned = plan_writes_with_history(&targets, settings, &history);
+    let mut planned = crate::tag_writing::plan_writes_reading(&targets, settings, &history, reads);
     planned.failures.extend(unchecked);
     planned
 }
@@ -302,7 +315,7 @@ impl EuphoriaApp {
                 this.tag_panel = Some(TagPanel::Preview(Preview {
                     kind: PreviewKind::Analysis { scope },
                     settings,
-                    rows: preview_rows(&planned.plans),
+                    rows: preview_rows(&planned.plans, settings.program.dj_software()),
                     plans: Arc::new(planned.plans),
                     analyses: Arc::new(planned.analyses.into_iter().map(Some).collect()),
                     up_to_date: planned.up_to_date,
@@ -410,6 +423,7 @@ impl EuphoriaApp {
                 {
                     this.last_written = report.written.clone();
                 }
+                this.tags_changed(cx);
                 if report.is_clean() {
                     this.tag_panel = None;
                     let message = if is_edit {
@@ -514,6 +528,7 @@ impl EuphoriaApp {
                     }
                     this.read_track_names(report.restored.clone(), cx);
                 }
+                this.tags_changed(cx);
                 match &undone {
                     Ok(Some(report)) if from_toast && report.is_clean() => {
                         this.tag_panel = None;

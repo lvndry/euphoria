@@ -160,6 +160,10 @@ pub(crate) struct EuphoriaApp {
     /// What the tag settings write to one track, for the settings panel.
     pub(crate) label_preview: Option<crate::label_preview::LabelPreview>,
     pub(crate) label_preview_generation: u64,
+    pub(crate) library_change: Option<crate::label_preview::LibraryChange>,
+    pub(crate) library_change_generation: u64,
+    pub(crate) tag_reads: crate::tag_reads::TagReads,
+    pub(crate) settings_scroll: gpui::ScrollHandle,
     pub(crate) folder_scroll: UniformListScrollHandle,
     pub(crate) tree_focus: FocusHandle,
     pub(crate) sort_order: Option<SortOrder>,
@@ -526,6 +530,10 @@ impl EuphoriaApp {
             tag_task_generation: 0,
             label_preview: None,
             label_preview_generation: 0,
+            library_change: None,
+            library_change_generation: 0,
+            tag_reads: crate::tag_reads::TagReads::default(),
+            settings_scroll: gpui::ScrollHandle::new(),
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
             sort_order: None,
@@ -1183,7 +1191,7 @@ impl EuphoriaApp {
                 ColumnId::Artist => track.artist.as_deref().map(Cow::Borrowed),
                 ColumnId::Key => track
                     .key()
-                    .map(|key| Cow::Owned(self.display.key_notation.spell(&key))),
+                    .map(|key| Cow::Owned(self.tag_settings.key_notation.spell(&key))),
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
@@ -1240,12 +1248,6 @@ impl EuphoriaApp {
             return true;
         }
         false
-    }
-
-    /// Chooses how keys are shown in the table and the track detail.
-    pub(crate) fn set_key_display(&mut self, notation: NotationChoice, cx: &mut Context<'_, Self>) {
-        self.display.key_notation = notation;
-        self.remember_tag_settings(cx);
     }
 
     /// Shows tempos in the range of `preset`.
@@ -1399,7 +1401,7 @@ impl EuphoriaApp {
         self.remember_tag_settings(cx);
     }
 
-    /// Chooses how keys are spelled in tags.
+    /// Chooses how keys are spelled in the table, the tags and the exports.
     pub(crate) fn set_key_notation(
         &mut self,
         notation: NotationChoice,
@@ -1407,6 +1409,17 @@ impl EuphoriaApp {
     ) {
         self.tag_settings.key_notation = notation;
         self.remember_tag_settings(cx);
+        if self.library_export.is_some() {
+            self.change_export_setup(|_| {}, cx);
+        }
+    }
+
+    /// Opens the settings at the key notation, the first row of the body,
+    /// over whatever is open, as the export sheet's link does.
+    pub(crate) fn open_key_notation_setting(&mut self, cx: &mut Context<'_, Self>) {
+        self.open_settings(cx);
+        self.settings_scroll
+            .set_offset(gpui::point(px(0.0), px(0.0)));
     }
 
     /// Chooses where the key and energy label goes.

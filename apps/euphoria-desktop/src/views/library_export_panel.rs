@@ -13,7 +13,6 @@ use crate::format;
 use crate::library_export::{
     ExportProgram, ExportReport, ExportScope, ExportSetup, ExportStage, LibraryExportPanel,
 };
-use crate::tag_settings::NotationChoice;
 use crate::theme::Palette;
 use crate::views::tag_panel::choice_button;
 use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, section_label};
@@ -56,6 +55,46 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
             .test_support()
             .into_any_element(),
     )
+}
+
+/// What the export says about the notation it uses.
+pub(crate) fn keys_line(notation: crate::tag_settings::NotationChoice) -> String {
+    format!("Keys as {}", notation.label())
+}
+
+/// The key notation the export uses, which is the one in the settings.
+fn key_notation_line(
+    app: &EuphoriaApp,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let accent = palette.accent;
+    div()
+        .id("export-key-notation-line")
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child(
+            div()
+                .id("export-key-notation")
+                .child(keys_line(app.tag_settings.key_notation))
+                .test_support(),
+        )
+        .child(div().text_color(palette.text_tertiary).child("\u{b7}"))
+        .child(
+            div()
+                .id("export-change-key-notation")
+                .cursor_pointer()
+                .text_color(accent)
+                .hover(|style| style.underline())
+                .child("Change in Settings")
+                .on_click(cx.listener(|this, _, _, cx| this.open_key_notation_setting(cx)))
+                .test_support(),
+        )
+        .test_support()
+        .into_any_element()
 }
 
 fn setup_contents(
@@ -115,23 +154,7 @@ fn setup_contents(
     ]));
 
     if program.has_key_notation() {
-        contents.push(section_label("Key notation", palette).into_any_element());
-        contents.push(row(NotationChoice::ALL
-            .into_iter()
-            .map(|notation| {
-                choice_button(
-                    format!("export-notation-{notation:?}"),
-                    notation.label(),
-                    setup.key_notation == notation,
-                    palette,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.change_export_setup(|setup| setup.key_notation = notation, cx)
-                }))
-                .test_support()
-                .into_any_element()
-            })
-            .collect()));
+        contents.push(key_notation_line(app, palette, cx));
     }
     if program.has_label() {
         contents.push(section_label("Key and energy label", palette).into_any_element());

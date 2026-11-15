@@ -428,7 +428,7 @@ pub(crate) fn set_summary(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
     );
     let theme = &app.theme;
     let palette = theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
 
     let shown_keys = shape.keys.len().min(KEY_PATH_LIMIT);
     let key_path = div()

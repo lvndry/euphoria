@@ -72,7 +72,7 @@ From libdjinterop's `include/djinterop/engine/engine_schema.hpp`. Whether Engine
 | --- | --- |
 | `--library <FOLDER>` | The `Engine Library` folder. `Music/Engine Library` in your home folder when not given. |
 | `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes in the comment: `comment-start` (the default), `comment-end` or `none`. |
-| `--key-notation <NOTATION>` | How the key is spelled in the label: `camelot` (the default), `musical` or `open-key`. |
+| `--key-notation <NOTATION>` | How the key is spelled in the label: `camelot` (the default), `musical` or `open-key`. In the app's export sheet it is the **Settings > Key notation** choice. |
 | `--beat-grid` | Write each track's beat grid, except grids rated low confidence. |
 | `--cues` | Write cues where each track's sections start, as hot cues 1 to 8. Needs `--beat-grid`. |
 | `--dry-run` | Check the library and say what would change, writing nothing. |
