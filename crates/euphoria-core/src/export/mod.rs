@@ -35,5 +35,5 @@ pub use assemble::{
 pub use corrections::{
     CORRECTIONS_SCHEMA_VERSION, PathInclusion, render_corrections_jsonl, write_corrections_file,
 };
-pub use m3u::{M3uTrack, render_m3u8, write_m3u8_file};
+pub use m3u::{M3uTrack, parse_m3u, read_m3u_file, render_m3u8, write_m3u8_file};
 pub use playlists::{playlist_count, playlists_from_folders};

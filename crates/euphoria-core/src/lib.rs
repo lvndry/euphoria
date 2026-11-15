@@ -62,6 +62,8 @@ pub mod rekordbox_grid;
 pub mod relink;
 /// Why a track is worth checking by ear.
 pub mod review;
+#[cfg(feature = "pitch-shift")]
+pub mod set_render;
 /// Where a track tends to sit in a set: warm-up, build or peak, from its
 /// tempo and loudness compared with the rest of the library.
 pub mod set_stage;
