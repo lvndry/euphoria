@@ -465,7 +465,7 @@ mod tests {
             label: Some(LabelChoice::CommentEnd),
             write_tempo: true,
             write_cue_markers: true,
-            colour_cues_by_energy: true,
+            colour_cues_by_energy: false,
             ..TagSettings::default()
         };
         assert_eq!(
@@ -473,12 +473,13 @@ mod tests {
             concat!(
                 r#"{"program":"virtualdj","key_notation":"open-key","#,
                 r#""label":"comment-end","write_tempo":true,"write_cue_markers":true,"#,
-                r#""replace_existing":false,"include_low_confidence":false,"#,
+                r#""colour_cues_by_energy":false,"replace_existing":false,"include_low_confidence":false,"#,
                 r#""write_after_analysis":true,"schema":1}"#
             )
         );
         let engine: TagSettings = serde_json::from_str(r#"{"program":"engine-dj"}"#).unwrap();
         assert_eq!(engine.program, ProgramChoice::EngineDj);
+        assert!(engine.colour_cues_by_energy);
         assert_eq!(engine.key_notation, NotationChoice::Camelot);
         assert!(engine.write_tempo);
         assert!(

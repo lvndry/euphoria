@@ -360,7 +360,7 @@ mod tests {
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
                 r#""write_tempo":true,"write_cue_markers":false,"#,
-                r#""replace_existing":false,"include_low_confidence":false,"#,
+                r#""colour_cues_by_energy":true,"replace_existing":false,"include_low_confidence":false,"#,
                 r#""write_after_analysis":true,"schema":1},"#,
                 r#""display":{"tempo_range":{"slowest":90,"fastest":180}},"#,
                 r#""suggestion_filter":{"tempo_window_percent":null,"relations":null,"energy_min":null,"energy_max":null,"bpm_min":null,"bpm_max":null,"genre":null},"focus_lanes":{"overview":true,"sections":true,"detail":true,"energy":true,"vocals":true,"stems":true},"metronome":{"sound":"classic","volume":0.7,"accent":true},"#,

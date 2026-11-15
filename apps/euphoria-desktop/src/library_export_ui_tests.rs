@@ -218,3 +218,46 @@ fn the_collection_is_protected_even_when_cues_are_off(cx: &mut TestAppContext) {
         assert!(setup.collection.is_none(), "a hidden collection is dropped");
     });
 }
+
+#[gpui::test]
+fn colouring_cues_by_energy_is_offered_with_cues_and_is_the_remembered_setting(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_fixture_library(cx);
+    open_sheet(&view, cx);
+    click(window, "export-program-engine", cx);
+    assert!(!is_shown(window, "export-cue-colours", cx));
+    change(
+        &view,
+        |setup| {
+            setup.beat_grid = true;
+            setup.cues = true;
+        },
+        cx,
+    );
+    assert!(is_shown(window, "export-cue-colours", cx));
+    cx.update(|cx| {
+        let panel = view.read(cx).library_export.as_ref().unwrap();
+        assert_eq!(panel.setup.cue_colours, euphoria_core::CueColours::Energy);
+    });
+
+    click(window, "export-cue-colours", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(!app.tag_settings.colour_cues_by_energy);
+        let panel = app.library_export.as_ref().unwrap();
+        assert_eq!(panel.setup.cue_colours, euphoria_core::CueColours::Fixed);
+    });
+
+    click(window, "export-program-traktor", cx);
+    change(
+        &view,
+        |setup| {
+            setup.beat_grid = true;
+            setup.collection = Some(PathBuf::from("/no/such/collection.nml"));
+            setup.cues = true;
+        },
+        cx,
+    );
+    assert!(!is_shown(window, "export-cue-colours", cx));
+}
