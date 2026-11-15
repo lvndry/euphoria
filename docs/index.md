@@ -40,6 +40,7 @@ Exports for Serato and Engine DJ are in development.
 - Which DJ program gets what: [DJ program support](reference/dj-program-support.md).
 - Want the key and energy inside the files, for any DJ software: [write tags into your files](guides/write-tags.md), then [set up your DJ program](guides/dj-programs.md).
 - Prefer a window to a terminal: [desktop app](guides/desktop-app.md).
+- Seeing the key and tempo of what plays on your Mac: [Euphoria Live](guides/euphoria-live.md).
 - Layering two tracks: [mashups](guides/mashups.md).
 - Curious how keys are named and mixed: [keys and the Camelot wheel](concepts/keys-and-camelot.md).
 - Curious what the energy number means: [energy rating](concepts/energy.md).

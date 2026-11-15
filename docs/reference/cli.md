@@ -595,6 +595,22 @@ The JSON object has `schema_version` (1), `a`, `b`, `elapsed_milliseconds`, `tem
 
 The exit status is 0 when a plan was made, even one with no window, and 1 when none could be, such as when a track has no beat grid or B cannot reach the tempo of A on a deck.
 
+## euphoria live
+
+Shows the key and tempo of the audio playing on this Mac, as it plays. The analysis is the one of the Live window of the [desktop app](../guides/euphoria-live.md); the audio stays in memory and nothing is recorded, written or sent anywhere.
+
+```
+euphoria live [OPTIONS]
+```
+
+Needs macOS 14.2 or later, and macOS asks once to allow listening. One line is printed per reading, `8A  A minor  124.0 BPM  high`, or `listening…` once while the audio is silent. Ctrl-C stops it.
+
+| Option | Meaning |
+| --- | --- |
+| `--source <PROCESS>` | Listen to one application, by the start of its name. Without it, everything playing is heard except Euphoria. |
+| `--interval <SECONDS>` | Seconds between readings, 0.5 or more. Default 2. |
+| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`. |
+
 ## euphoria next
 
 Ranks the best tracks to play after a track, the same ranking as the **Next after** list of the [desktop app](../guides/desktop-app.md).
