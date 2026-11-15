@@ -11,10 +11,11 @@
 use std::f64::consts::TAU;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use euphoria_core::Key;
+use euphoria_core::prepare::ComparisonClip;
 
 /// The sample rate of every reference sound. The output converts it to its
 /// own when the two differ.
@@ -95,6 +96,24 @@ enum Shape {
     Drone,
     /// Struck: rises at once, dies away and ends.
     Struck,
+    /// A recorded stretch of a track, looped, in the stereo of the track.
+    Clip,
+}
+
+/// How long switching between the two versions of a clip takes, so the
+/// switch does not click.
+const CLIP_SWITCH_SECONDS: f32 = 0.01;
+
+/// The two versions of a clip and which one is heard.
+#[derive(Debug)]
+struct ClipPlayback {
+    clip: Arc<ComparisonClip>,
+    /// True to hear the prepared version.
+    prepared: Arc<AtomicBool>,
+    /// Where the clip is, in samples, shared so both versions stay at the
+    /// same position and the window can show it.
+    cursor: Arc<AtomicUsize>,
+    blend: f32,
 }
 
 /// A reference sound: a drone or a piano note, in mono.
@@ -105,9 +124,37 @@ pub(crate) struct ReferenceSound {
     gain: f64,
     level: ReferenceLevel,
     frame: u64,
+    clip: Option<ClipPlayback>,
 }
 
 impl ReferenceSound {
+    /// A clip of a track in two versions, played in a loop at the level of
+    /// `level`, switching in place between them as `prepared` says.
+    pub(crate) fn comparison(
+        clip: Arc<ComparisonClip>,
+        prepared: Arc<AtomicBool>,
+        cursor: Arc<AtomicUsize>,
+        level: ReferenceLevel,
+    ) -> Self {
+        Self {
+            partials: Vec::new(),
+            shape: Shape::Clip,
+            gain: 1.0,
+            level,
+            frame: 0,
+            clip: Some(ClipPlayback {
+                blend: if prepared.load(Ordering::Relaxed) {
+                    1.0
+                } else {
+                    0.0
+                },
+                clip,
+                prepared,
+                cursor,
+            }),
+        }
+    }
+
     /// The root and the fifth of `key`, with the root an octave lower under
     /// them, held until stopped. A minor and a major key on the same root
     /// share a drone: the third is left out on purpose, so the drone never
@@ -128,6 +175,7 @@ impl ReferenceSound {
             gain: f64::from(DRONE_GAIN),
             level,
             frame: 0,
+            clip: None,
         }
     }
 
@@ -152,6 +200,7 @@ impl ReferenceSound {
             gain: f64::from(PIANO_GAIN),
             level,
             frame: 0,
+            clip: None,
         }
     }
 
@@ -172,7 +221,7 @@ impl ReferenceSound {
 
     fn total_frames(&self) -> Option<u64> {
         match self.shape {
-            Shape::Drone => None,
+            Shape::Drone | Shape::Clip => None,
             Shape::Struck => Some((PIANO_NOTE_SECONDS * f64::from(SAMPLE_RATE)) as u64),
         }
     }
@@ -182,13 +231,40 @@ impl Iterator for ReferenceSound {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        if let Some(playback) = &mut self.clip {
+            let length = playback.clip.original.len();
+            if length == 0 {
+                return None;
+            }
+            let position = playback.cursor.load(Ordering::Relaxed) % length;
+            let target = if playback.prepared.load(Ordering::Relaxed) {
+                1.0
+            } else {
+                0.0
+            };
+            let step = 1.0
+                / (CLIP_SWITCH_SECONDS
+                    * playback.clip.sample_rate as f32
+                    * f32::from(playback.clip.channels));
+            playback.blend = if playback.blend < target {
+                (playback.blend + step).min(target)
+            } else {
+                (playback.blend - step).max(target)
+            };
+            let sample = playback.clip.original[position] * (1.0 - playback.blend)
+                + playback.clip.prepared[position] * playback.blend;
+            playback
+                .cursor
+                .store((position + 1) % length, Ordering::Relaxed);
+            return Some(sample * self.level.get());
+        }
         if self.total_frames().is_some_and(|total| self.frame >= total) {
             return None;
         }
         let seconds = self.frame as f64 / f64::from(SAMPLE_RATE);
         self.frame += 1;
         let (envelope, decay_rate) = match self.shape {
-            Shape::Drone => ((seconds / DRONE_FADE_IN_SECONDS).min(1.0), 0.0),
+            Shape::Drone | Shape::Clip => ((seconds / DRONE_FADE_IN_SECONDS).min(1.0), 0.0),
             Shape::Struck => (
                 (seconds / PIANO_ATTACK_SECONDS).min(1.0),
                 std::f64::consts::LN_2 / PIANO_HALF_LIFE_SECONDS,
@@ -213,10 +289,18 @@ impl rodio::Source for ReferenceSound {
     }
 
     fn channels(&self) -> NonZeroU16 {
-        NonZeroU16::MIN
+        self.clip
+            .as_ref()
+            .and_then(|playback| NonZeroU16::new(playback.clip.channels))
+            .unwrap_or(NonZeroU16::MIN)
     }
 
     fn sample_rate(&self) -> NonZeroU32 {
+        if let Some(playback) = &self.clip
+            && let Some(rate) = NonZeroU32::new(playback.clip.sample_rate)
+        {
+            return rate;
+        }
         NonZeroU32::new(SAMPLE_RATE).unwrap_or(NonZeroU32::MIN)
     }
 
@@ -247,6 +331,39 @@ mod tests {
             .by_ref()
             .take((seconds * f64::from(SAMPLE_RATE)) as usize)
             .collect()
+    }
+
+    #[test]
+    fn a_comparison_switches_between_versions_at_the_same_position() {
+        let clip = Arc::new(ComparisonClip {
+            sample_rate: 1_000,
+            channels: 1,
+            original: vec![0.25; 400],
+            prepared: vec![0.75; 400],
+            start_seconds: 0.0,
+        });
+        let prepared = Arc::new(AtomicBool::new(false));
+        let cursor = Arc::new(AtomicUsize::new(0));
+        let mut sound = ReferenceSound::comparison(
+            clip,
+            prepared.clone(),
+            cursor.clone(),
+            ReferenceLevel::new(1.0),
+        );
+        let first: Vec<f32> = sound.by_ref().take(100).collect();
+        assert!(first.iter().all(|sample| (sample - 0.25).abs() < 1e-6));
+        prepared.store(true, Ordering::Relaxed);
+        let after: Vec<f32> = sound.by_ref().take(100).collect();
+        assert_eq!(
+            cursor.load(Ordering::Relaxed),
+            200,
+            "the position carries on"
+        );
+        assert!(after[0] < 0.75, "the switch is ramped, not a click");
+        assert!((after[99] - 0.75).abs() < 1e-6);
+        let looped: Vec<f32> = sound.by_ref().take(300).collect();
+        assert_eq!(cursor.load(Ordering::Relaxed), 100, "the clip loops");
+        assert!(looped.iter().all(|sample| (sample - 0.75).abs() < 1e-6));
     }
 
     #[test]
