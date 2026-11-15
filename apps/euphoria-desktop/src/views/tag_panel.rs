@@ -27,6 +27,9 @@ use euphoria_core::tags::{describe_serato_value, serato_field_name};
 /// Height of one line of the preview list.
 const PREVIEW_ROW_HEIGHT: f32 = 24.0;
 
+/// How much of the preview list fades while it is worked out again.
+const UPDATING_DIM: f32 = 0.5;
+
 /// The tag panel, while a write or an undo is on screen.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
     let panel = app.tag_panel.as_ref()?;
@@ -220,7 +223,7 @@ fn preview_contents(
         PreviewKind::Analysis { scope } => vec![
             title(&format!(
                 "Write tags for {}",
-                preview.settings.program.label_in_sentence()
+                app.tag_settings.program.label_in_sentence()
             )),
             scope_switch(app, *scope, palette, cx),
         ],
@@ -239,12 +242,22 @@ fn preview_contents(
             .id("tag-summary")
             .text_size(SMALL_TEXT_SIZE)
             .text_color(palette.text_secondary)
-            .child(summary.join(", ") + ".")
+            .child(if preview.updating {
+                "Updating for the new settings\u{2026}".to_string()
+            } else {
+                summary.join(", ") + "."
+            })
             .test_support()
             .into_any_element(),
     );
     if !preview.rows.is_empty() {
-        contents.push(preview_list(preview, palette, cx));
+        let dimmed = app.tag_preview_dim.value(app.tag_preview_dim.now());
+        contents.push(preview_list(
+            preview,
+            1.0 - UPDATING_DIM * dimmed,
+            palette,
+            cx,
+        ));
     }
     contents.extend(problems(
         "Key or tempo left as it is",
@@ -275,7 +288,7 @@ fn preview_contents(
         cx,
     ));
     if matches!(preview.kind, PreviewKind::Analysis { .. }) {
-        contents.push(rules_in_use(&preview.settings, palette, cx));
+        contents.push(rules_in_use(&app.tag_settings, palette, cx));
     }
     if let Some(running) = &preview.program_warning {
         contents.push(
@@ -317,7 +330,7 @@ fn preview_contents(
             palette,
         )
         .id("confirm-tag-write")
-        .when(file_count == 0, |button| {
+        .when(file_count == 0 || preview.updating, |button| {
             button.opacity(0.5).cursor_default()
         })
         .on_click(cx.listener(|this, _, _, cx| this.confirm_tag_write(cx)))
@@ -477,6 +490,7 @@ fn scope_switch(
 /// view.
 fn preview_list(
     preview: &Preview,
+    opacity: f32,
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
@@ -485,6 +499,7 @@ fn preview_list(
     let line = palette.line;
     div()
         .id("tag-preview")
+        .opacity(opacity)
         .flex_shrink_0()
         .h(px(height))
         .border_1()

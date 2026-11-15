@@ -184,6 +184,9 @@ pub(crate) struct Preview {
     /// The DJ programs found running when the write was confirmed, which
     /// the preview asks about before it writes. `None` until then.
     pub(crate) program_warning: Option<Vec<&'static str>>,
+    /// True while the changes are worked out again for settings changed
+    /// since, when the preview cannot be confirmed.
+    pub(crate) updating: bool,
 }
 
 /// The tag panel over the window, at one step of a write or an undo.
@@ -275,6 +278,37 @@ impl EuphoriaApp {
         if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
             return;
         }
+        self.tag_panel = Some(TagPanel::Planning(scope));
+        self.spawn_tag_plan(scope, cx);
+    }
+
+    /// The tag options changed: an open preview is worked out again with
+    /// them, in place, and cannot be confirmed until it is. A preview of
+    /// hand edits only names its fields for the program.
+    pub(crate) fn follow_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
+        let settings = self.tag_settings;
+        let Some(TagPanel::Preview(preview)) = &mut self.tag_panel else {
+            return;
+        };
+        if preview.settings == settings {
+            return;
+        }
+        match preview.kind {
+            PreviewKind::Analysis { scope } => {
+                preview.updating = true;
+                preview.program_warning = None;
+                cx.notify();
+                self.spawn_tag_plan(scope, cx);
+            }
+            PreviewKind::Edit { .. } => {
+                preview.rows = preview_rows(&preview.plans, settings.program.dj_software());
+                preview.settings = settings;
+                cx.notify();
+            }
+        }
+    }
+
+    fn spawn_tag_plan(&mut self, scope: WriteScope, cx: &mut Context<'_, Self>) {
         let library = self.session.library();
         let targets: Vec<WriteTarget> = self
             .tracks_in(scope)
@@ -290,12 +324,17 @@ impl EuphoriaApp {
         let settings = self.tag_settings;
         self.tag_task_generation += 1;
         let generation = self.tag_task_generation;
-        self.tag_panel = Some(TagPanel::Planning(scope));
         cx.notify();
         let cache = self.session.cache();
         let writer = self.by_ear.correction_writer.clone();
         let log_directory = self.write_log_directory.clone();
+        #[cfg(test)]
+        let delay = self.tag_plan_delays.pop_front();
         cx.spawn(async move |this, cx| {
+            #[cfg(test)]
+            if let Some(delay) = delay {
+                cx.background_executor().timer(delay).await;
+            }
             let planned = cx
                 .background_executor()
                 .spawn(async move {
@@ -324,12 +363,32 @@ impl EuphoriaApp {
                     failures: planned.failures,
                     serato_notes: planned.serato_notes,
                     program_warning: None,
+                    updating: false,
                 }));
+                this.follow_tag_settings(cx);
                 cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Whether the preview on show may be written: worked out with the
+    /// settings in force and not being worked out again. A preview whose
+    /// settings were changed is worked out again instead.
+    fn preview_is_current(&mut self, cx: &mut Context<'_, Self>) -> bool {
+        let settings = self.tag_settings;
+        let Some(TagPanel::Preview(preview)) = &self.tag_panel else {
+            return false;
+        };
+        if preview.updating {
+            return false;
+        }
+        if preview.settings != settings {
+            self.follow_tag_settings(cx);
+            return false;
+        }
+        !preview.plans.is_empty()
     }
 
     /// The confirm button of the preview: writes the changes shown, through
@@ -338,13 +397,13 @@ impl EuphoriaApp {
     /// When a DJ program is running, the first click only shows a strip that
     /// says so, and the write waits for "Write anyway".
     pub(crate) fn confirm_tag_write(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.preview_is_current(cx) {
+            return;
+        }
         let running = self.program_checks.running();
         let Some(TagPanel::Preview(preview)) = &mut self.tag_panel else {
             return;
         };
-        if preview.plans.is_empty() {
-            return;
-        }
         if !running.is_empty() {
             preview.program_warning = Some(running);
             cx.notify();
@@ -355,12 +414,12 @@ impl EuphoriaApp {
 
     /// Writes the changes shown without asking about running programs again.
     pub(crate) fn write_confirmed_tags(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.preview_is_current(cx) {
+            return;
+        }
         let Some(TagPanel::Preview(preview)) = &self.tag_panel else {
             return;
         };
-        if preview.plans.is_empty() {
-            return;
-        }
         let Some(log_directory) = self.write_log_directory.clone() else {
             self.report_problem(
                 "Tags cannot be written: there is no data folder to keep their backups in.",
@@ -575,15 +634,15 @@ impl EuphoriaApp {
         });
     }
 
-    /// From the preview, opens the settings instead, so the write can be
-    /// worked out again with other choices.
+    /// From the preview, opens the settings over it. Each change works the
+    /// preview out again, so closing the settings shows what will be
+    /// written with the new choices.
     pub(crate) fn change_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
         if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
             return;
         }
-        self.tag_task_generation += 1;
-        self.tag_panel = None;
         self.settings_open = true;
+        self.refresh_label_preview(cx);
         cx.notify();
     }
 

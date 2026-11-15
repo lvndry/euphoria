@@ -82,6 +82,9 @@ mod metronome_controls;
 mod metronome_ui_tests;
 #[cfg(test)]
 mod missing_ui_tests;
+mod mix_render;
+#[cfg(test)]
+mod mix_render_ui_tests;
 mod mixes;
 mod motion;
 #[cfg(test)]
@@ -96,6 +99,7 @@ mod palette_flow;
 mod panels;
 mod peaks;
 mod planner_candidates;
+mod planner_locks;
 mod planner_playback;
 #[cfg(test)]
 mod planner_ui_tests;
@@ -123,6 +127,7 @@ mod row_actions_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
+mod set_check;
 #[cfg(test)]
 mod set_stage_ui_tests;
 mod settings;
@@ -140,6 +145,8 @@ mod surface_motion;
 mod tag_clarity_ui_tests;
 mod tag_editor;
 mod tag_flow;
+#[cfg(test)]
+mod tag_preview_ui_tests;
 mod tag_reads;
 mod tag_settings;
 mod tag_writing;
