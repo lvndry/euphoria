@@ -69,9 +69,7 @@ fn play_selected(fixture: &Fixture, index: usize, cx: &mut TestAppContext) {
     cx.update(|cx| {
         fixture.view.update(cx, |app, cx| {
             app.select(index, cx);
-            if !app.player.offers_pause() {
-                app.toggle_playback(cx);
-            }
+            app.play_selection(cx);
         })
     });
     settle(fixture, cx);
@@ -210,6 +208,12 @@ fn enter_plays_the_selected_row_in_the_player(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let app = fixture.view.read(cx);
         assert_eq!(app.selected, Some(fixture.wav), "a click selects");
+        assert_eq!(
+            app.rail_anchor,
+            Some(fixture.flac),
+            "and the playing track stays"
+        );
+        assert!(app.player.is_playing());
     });
     cx.update_window(fixture.window, |_, window, cx| window.press("enter", cx))
         .unwrap();

@@ -527,7 +527,7 @@ fn row(
                 this.table_focus.focus(window, cx);
                 this.click_track(track_index, event.modifiers(), cx);
                 if event.click_count() == 2 {
-                    this.open_focus_view(window, cx);
+                    this.play_selection(cx);
                 }
             }))
             .on_drag(

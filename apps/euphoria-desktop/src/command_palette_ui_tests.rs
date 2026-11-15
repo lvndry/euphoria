@@ -203,6 +203,54 @@ fn a_key_lists_its_tracks_first_and_compatible_ones_with_a_pill(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn enter_selects_without_changing_what_plays_and_the_play_shortcut_switches(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_fixture_library(cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("play-button", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    let playing = cx.update(|cx| {
+        view.read(cx)
+            .player
+            .track()
+            .map(std::path::Path::to_path_buf)
+    });
+
+    open_palette(window, cx);
+    ask(window, "stereo", cx);
+    press(window, "enter", cx);
+    assert_eq!(selected(&view, cx), Some(2));
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        assert_eq!(
+            app.player.track().map(std::path::Path::to_path_buf),
+            playing
+        );
+    });
+
+    open_palette(window, cx);
+    ask(window, "mono.mp3", cx);
+    press(window, PLAY, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        assert_eq!(
+            app.player.track(),
+            app.selected_track().map(|track| track.path.as_path())
+        );
+        assert_ne!(
+            app.player.track().map(std::path::Path::to_path_buf),
+            playing
+        );
+    });
+}
+
+#[gpui::test]
 fn enter_selects_the_first_track_and_shows_it_in_the_table(cx: &mut TestAppContext) {
     let (window, view) = open_library(300, cx);
     open_palette(window, cx);

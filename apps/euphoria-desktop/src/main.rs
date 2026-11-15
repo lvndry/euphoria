@@ -333,7 +333,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     let weak_view = view.downgrade();
     cx.on_action(move |_: &TogglePlayback, cx| {
         weak_view
-            .update(cx, |view, cx| view.toggle_playback(cx))
+            .update(cx, |view, cx| view.play_or_pause_selection(cx))
             .ok();
     });
 
