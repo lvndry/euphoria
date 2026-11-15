@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use euphoria_core::harmony::set::LOWEST_ENERGY;
+use euphoria_core::harmony::{TempoMove, Tone};
 use euphoria_core::{Deviation, FileResult, MissingFeature, SetOptions, SetPlan, Transition};
 use serde::Serialize;
 
@@ -70,14 +71,24 @@ fn signed(value: f32) -> String {
 
 /// The key move as the table shows it, coloured when it breaks a rule.
 fn move_words(theme: &Theme, transition: &Transition) -> (String, usize) {
-    let words = match transition.relation {
-        Some(relation) => relation.label(),
-        None => "Key clash",
-    };
+    let words = euphoria_core::harmony::words::movement_label(transition.relation);
     let styled = if transition.key_allowed {
         words.to_string()
     } else {
         theme.bad(words)
+    };
+    (styled, width_of(words))
+}
+
+/// The tempo move of a transition in the shared words, coloured by how big
+/// it is.
+fn tempo_words(theme: &Theme, transition: &Transition) -> (String, usize) {
+    let tempo_move = TempoMove::of(transition.bpm_change_percent);
+    let words = tempo_move.label();
+    let styled = match tempo_move.tone() {
+        Tone::Success => theme.good(words),
+        Tone::Neutral => words.to_string(),
+        Tone::Warning => theme.caution(words),
     };
     (styled, width_of(words))
 }
@@ -89,8 +100,10 @@ struct Row {
     pinned: bool,
 }
 
-const HEADINGS: [&str; 7] = ["#", "Key", "BPM", "Step", "Move", "Energy", "Target"];
-const RIGHT_ALIGNED: [bool; 7] = [true, true, true, true, false, false, true];
+const HEADINGS: [&str; 8] = [
+    "#", "Key", "BPM", "Step", "Tempo", "Move", "Energy", "Target",
+];
+const RIGHT_ALIGNED: [bool; 8] = [true, true, true, true, false, false, false, true];
 
 /// Writes the set as a table, one track per line with the transition into
 /// it, then the planned and actual curves.
@@ -105,7 +118,7 @@ pub fn write_table(writer: &mut impl Write, theme: &Theme, view: &SetView<'_>) -
             let key_text = view.notation.short(planned.key);
             let key = (theme.key(planned.key, &key_text), width_of(&key_text));
             let bpm_text = format!("{:.1}", planned.bpm);
-            let (step, movement) = match position
+            let (step, tempo, movement) = match position
                 .checked_sub(1)
                 .map(|index| &plan.transitions[index])
             {
@@ -117,9 +130,13 @@ pub fn write_table(writer: &mut impl Write, theme: &Theme, view: &SetView<'_>) -
                     } else {
                         theme.bad(step_text)
                     };
-                    ((step, step_width), move_words(theme, transition))
+                    (
+                        (step, step_width),
+                        tempo_words(theme, transition),
+                        move_words(theme, transition),
+                    )
                 }
-                None => ((String::new(), 0), (String::new(), 0)),
+                None => ((String::new(), 0), (String::new(), 0), (String::new(), 0)),
             };
             let energy_text = format!("{:>2}", planned.energy.round() as i32);
             let filled = (planned.energy.round().clamp(0.0, 10.0)) as usize;
@@ -145,6 +162,7 @@ pub fn write_table(writer: &mut impl Write, theme: &Theme, view: &SetView<'_>) -
                     key,
                     (bpm_text.clone(), width_of(&bpm_text)),
                     step,
+                    tempo,
                     movement,
                     energy,
                     (theme.dim(&target_text), width_of(&target_text)),
@@ -448,6 +466,7 @@ struct JsonTransition {
     key_move_allowed: bool,
     bpm_change: f32,
     bpm_change_percent: f32,
+    tempo_move: &'static str,
     tempo_allowed: bool,
     same_artist: bool,
 }
@@ -560,6 +579,7 @@ pub fn write_json(
                 key_move_allowed: transition.key_allowed,
                 bpm_change: round_to_tenths(transition.bpm_change),
                 bpm_change_percent: round_to_tenths(transition.bpm_change_percent),
+                tempo_move: TempoMove::of(transition.bpm_change_percent).code(),
                 tempo_allowed: transition.tempo_allowed,
                 same_artist: transition.same_artist,
             })
@@ -704,7 +724,9 @@ mod tests {
         });
         let first_line = text.lines().next().unwrap();
         assert!(first_line.starts_with("#"));
-        for heading in ["Key", "BPM", "Step", "Move", "Energy", "Target", "Track"] {
+        for heading in [
+            "Key", "BPM", "Step", "Tempo", "Move", "Energy", "Target", "Track",
+        ] {
             assert!(first_line.contains(heading));
         }
         assert!(text.contains("A - One"));

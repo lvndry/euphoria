@@ -61,6 +61,15 @@ impl TempoMove {
         }
     }
 
+    /// The name of the move in JSON: `easy`, `pitch_move` or `big_jump`.
+    pub fn code(self) -> &'static str {
+        match self {
+            TempoMove::Easy => "easy",
+            TempoMove::PitchMove => "pitch_move",
+            TempoMove::BigJump => "big_jump",
+        }
+    }
+
     /// How a chip for the move is coloured.
     pub fn tone(self) -> Tone {
         match self {
@@ -160,6 +169,10 @@ mod tests {
         assert_eq!(TempoMove::of(EASY_BELOW_PERCENT), TempoMove::PitchMove);
         assert_eq!(TempoMove::of(BIG_JUMP_OVER_PERCENT), TempoMove::PitchMove);
         assert_eq!(TempoMove::of(f32::NAN), TempoMove::BigJump);
+        assert_eq!(
+            TempoMove::ALL.map(TempoMove::code),
+            ["easy", "pitch_move", "big_jump"]
+        );
         assert_eq!(
             TempoMove::ALL.map(TempoMove::label),
             ["Easy", "Pitch move", "Big jump"]

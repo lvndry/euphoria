@@ -4,20 +4,22 @@
 //! The key fields of the analyzed files' tags, read fresh on every run
 //! since other programs change them, and compared with the detected key.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use euphoria_core::{FileResult, KeyDifference, TagKey, TagKeyAgreement, TrackAnalysis};
+use euphoria_core::{
+    Correction, FileResult, KeyDifference, ReviewReason, TagKey, TagKeyAgreement, TrackAnalysis,
+};
 use rayon::prelude::*;
 
 use crate::batch::UserEditsByFile;
 
-/// The key field of each analyzed file that has one, and which files have
-/// a key the user set by hand.
+/// The key field of each analyzed file that has one, and what the user set
+/// or confirmed for each file in the desktop app.
 #[derive(Debug, Default)]
 pub struct TagKeys {
     by_path: HashMap<PathBuf, TagKey>,
-    key_set_by_user: HashSet<PathBuf>,
+    corrections: HashMap<PathBuf, Correction>,
 }
 
 impl TagKeys {
@@ -33,18 +35,13 @@ impl TagKeys {
                 Some((result.path.clone(), tag_key))
             })
             .collect();
-        let key_set_by_user = user_edits
+        let corrections = user_edits
             .iter()
-            .filter(|(_, edits)| {
-                edits
-                    .as_ref()
-                    .is_ok_and(|edits| edits.correction.key.is_some())
-            })
-            .map(|(path, _)| path.clone())
+            .filter_map(|(path, edits)| Some((path.clone(), edits.as_ref().ok()?.correction)))
             .collect();
         Self {
             by_path,
-            key_set_by_user,
+            corrections,
         }
     }
 
@@ -56,15 +53,42 @@ impl TagKeys {
                 .iter()
                 .filter_map(|(path, text)| Some((path.to_path_buf(), TagKey::from_text(text)?)))
                 .collect(),
-            key_set_by_user: HashSet::new(),
+            corrections: HashMap::new(),
         }
     }
 
     /// The same, with the key of the file at `path` set by the user.
     #[cfg(test)]
-    pub fn with_key_set_by_user(mut self, path: &Path) -> Self {
-        self.key_set_by_user.insert(path.to_path_buf());
+    pub fn with_key_set_by_user(self, path: &Path) -> Self {
+        self.with_correction(
+            path,
+            Correction::of_key(euphoria_core::Key::new(0, euphoria_core::Mode::Major)),
+        )
+    }
+
+    /// The same, with `correction` kept for the file at `path`.
+    #[cfg(test)]
+    pub fn with_correction(mut self, path: &Path, correction: Correction) -> Self {
+        self.corrections.insert(path.to_path_buf(), correction);
         self
+    }
+
+    /// What the user set or confirmed for the file at `path`.
+    pub fn correction(&self, path: &Path) -> Correction {
+        self.corrections.get(path).copied().unwrap_or_default()
+    }
+
+    /// Why the file at `path` is worth checking by ear, as the desktop app
+    /// lists it: a key or tempo rated low that the user has not set or
+    /// confirmed, or tags that name another key.
+    pub fn review_reasons(&self, path: &Path, analysis: &TrackAnalysis) -> Vec<ReviewReason> {
+        euphoria_core::review_reasons(analysis, &self.correction(path), self.get(path))
+    }
+
+    /// True when the user set or confirmed the key or the tempo of the file
+    /// at `path`.
+    pub fn reviewed(&self, path: &Path) -> bool {
+        euphoria_core::is_reviewed(&self.correction(path))
     }
 
     /// The key field of the file at `path`, when it has one.
@@ -82,7 +106,7 @@ impl TagKeys {
     /// How the key field compares with the detected key, or `None` when
     /// either is missing or the user set the key by hand, which settles it.
     pub fn compared(&self, path: &Path, analysis: &TrackAnalysis) -> Option<TagKeyAgreement> {
-        if self.key_set_by_user.contains(path) {
+        if self.correction(path).key.is_some() {
             return None;
         }
         self.agreement(path, analysis)
@@ -90,8 +114,11 @@ impl TagKeys {
 
     /// The difference between the tags and the detected key that makes the
     /// track worth a look, or `None` when they agree, either is missing or
-    /// the user set the key by hand.
+    /// the user set or confirmed the key.
     pub fn conflict(&self, path: &Path, analysis: &TrackAnalysis) -> Option<KeyDifference> {
+        if self.correction(path).key_confirmed {
+            return None;
+        }
         match self.compared(path, analysis)? {
             TagKeyAgreement::Differs(difference) => Some(difference),
             TagKeyAgreement::Same | TagKeyAgreement::Unreadable => None,

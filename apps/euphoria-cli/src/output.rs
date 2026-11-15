@@ -213,6 +213,12 @@ struct JsonTrack<'result> {
     cues: Vec<JsonCue>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
+    /// Why the track is worth checking by ear: any of "key_unsure",
+    /// "tempo_unsure" and "key_conflict". Empty when the user confirmed
+    /// the doubtful values with "Looks right".
+    review_reasons: Vec<&'static str>,
+    /// True when the user set or confirmed the key or the tempo.
+    reviewed: Option<bool>,
     /// The values the user set by hand, which replace the detected ones:
     /// any of "key", "bpm" and "cues".
     set_by_user: Vec<&'static str>,
@@ -253,6 +259,8 @@ impl<'result> JsonTrack<'result> {
             cues: Vec::new(),
             quality: None,
             needs_review: None,
+            review_reasons: Vec::new(),
+            reviewed: None,
             set_by_user: Vec::new(),
             error,
             missing: false,
@@ -404,6 +412,7 @@ pub fn write_json(
                     .get(&result.path)
                     .and_then(|looked_up| looked_up.as_ref().ok())
                     .unwrap_or(&no_edits);
+                let review_reasons = tag_keys.review_reasons(&result.path, analysis);
                 JsonTrack {
                     schema_version: JSON_SCHEMA_VERSION,
                     path: &result.path,
@@ -449,10 +458,12 @@ pub fn write_json(
                         .map(JsonCue::from)
                         .collect(),
                     quality: analysis.quality.as_ref().map(JsonQuality::from),
-                    needs_review: Some(
-                        analysis.needs_review()
-                            || tag_keys.conflict(&result.path, analysis).is_some(),
-                    ),
+                    needs_review: Some(!review_reasons.is_empty()),
+                    review_reasons: review_reasons
+                        .iter()
+                        .map(euphoria_core::ReviewReason::code)
+                        .collect(),
+                    reviewed: Some(tag_keys.reviewed(&result.path)),
                     set_by_user: set_by_user(edits),
                     error: None,
                     missing: false,
@@ -633,13 +644,15 @@ pub struct Narrowing {
     pub needs_review: bool,
     /// Only tracks with one of these verdicts are listed, when not empty.
     pub verdicts: Vec<QualityVerdict>,
+    /// The tempo and energy ranges the listing was narrowed to, in words.
+    pub ranges: Vec<String>,
     /// How many tracks the listing shows.
     pub shown_count: usize,
 }
 
 impl Narrowing {
     fn is_narrowed(&self) -> bool {
-        self.needs_review || !self.verdicts.is_empty()
+        self.needs_review || !self.verdicts.is_empty() || !self.ranges.is_empty()
     }
 }
 
@@ -687,6 +700,7 @@ pub fn write_analysis_summary(
                 .collect();
             reasons.push(format!("sound quality {}", or_list(&labels)));
         }
+        reasons.extend(narrowing.ranges.iter().cloned());
         writeln!(
             writer,
             "Showing {} of {}, those with {}.",
@@ -697,9 +711,21 @@ pub fn write_analysis_summary(
     }
 
     if !analyses.is_empty() {
-        let review_count = analyses
+        let review_count = results
             .iter()
-            .filter(|analysis| analysis.needs_review())
+            .filter_map(|result| Some((result.path.as_path(), result.outcome.as_ref().ok()?)))
+            .filter(|(path, analysis)| {
+                tag_keys
+                    .review_reasons(path, analysis)
+                    .iter()
+                    .any(|reason| {
+                        matches!(
+                            reason,
+                            euphoria_core::ReviewReason::KeyUnsure
+                                | euphoria_core::ReviewReason::TempoUnsure
+                        )
+                    })
+            })
             .count();
         if review_count == 0 {
             writeln!(writer, "Key and tempo: no track is rated low confidence.")?;
@@ -1936,6 +1962,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         let narrowing = Narrowing {
             needs_review: true,
             verdicts: vec![QualityVerdict::WeakOnABigSystem],
+            ranges: Vec::new(),
             shown_count: 1,
         };
         let shown = summary(&sample_results(), &narrowing);
