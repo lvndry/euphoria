@@ -445,34 +445,129 @@ fn the_space_bar_does_not_reach_the_player_from_the_search_field(cx: &mut TestAp
     assert_eq!(player_status(&view, cx), PlayerStatus::Stopped);
 }
 
-#[gpui::test]
-fn selecting_another_track_while_one_plays_switches_to_it(cx: &mut TestAppContext) {
-    let (window, view) = open_fixture_library(cx);
+fn held_path(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<PathBuf> {
+    cx.update(|cx| view.read(cx).player.track().map(Path::to_path_buf))
+}
+
+fn start_playing_the_first_track(
+    window: AnyWindowHandle,
+    view: &Entity<EuphoriaApp>,
+    cx: &mut TestAppContext,
+) -> PathBuf {
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
         window.click("play-button", cx);
     })
     .unwrap();
     cx.run_until_parked();
+    assert_eq!(player_status(view, cx), PlayerStatus::Playing);
+    held_path(view, cx).unwrap()
+}
+
+#[gpui::test]
+fn clicking_another_row_while_one_plays_only_selects_it(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    let playing = start_playing_the_first_track(window, &view, cx);
 
     cx.update_window(window, |_, window, cx| window.click(track(2), cx))
         .unwrap();
-    assert_eq!(player_status(&view, cx), PlayerStatus::Starting);
     cx.run_until_parked();
     cx.update(|cx| {
         let app = view.read(cx);
+        assert_eq!(app.selected, Some(2));
         assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        assert_eq!(app.player.track(), Some(playing.as_path()));
+    });
+}
+
+#[gpui::test]
+fn the_arrow_keys_while_one_plays_do_not_switch_it(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    let playing = start_playing_the_first_track(window, &view, cx);
+
+    cx.update_window(window, |_, window, cx| {
+        window.click(track(0), cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("up", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| assert_eq!(view.read(cx).selected, Some(1)));
+    assert_eq!(held_path(&view, cx), Some(playing));
+    assert_eq!(player_status(&view, cx), PlayerStatus::Playing);
+}
+
+#[gpui::test]
+fn a_double_click_switches_playback_to_the_row(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    let playing = start_playing_the_first_track(window, &view, cx);
+
+    cx.update_window(window, |_, window, cx| window.double_click(track(2), cx))
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.selected, Some(2));
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        assert_ne!(app.player.track(), Some(playing.as_path()));
         assert_eq!(
             app.player.track(),
             app.selected_track().map(|track| track.path.as_path())
         );
-        assert!(
-            app.player
-                .track()
-                .unwrap()
-                .ends_with("sine-440hz-stereo.wav")
-        );
         assert_eq!(app.player.position_seconds(), 0.0);
+        assert!(
+            !app.focus.is_open,
+            "a double click plays, Enter opens focus"
+        );
+    });
+}
+
+#[gpui::test]
+fn space_plays_the_selected_row_when_another_one_sounds(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    let playing = start_playing_the_first_track(window, &view, cx);
+
+    cx.update_window(window, |_, window, cx| {
+        window.click(track(2), cx);
+        window.press("space", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        assert_ne!(app.player.track(), Some(playing.as_path()));
+        assert_eq!(
+            app.player.track(),
+            app.selected_track().map(|track| track.path.as_path())
+        );
+    });
+
+    cx.update_window(window, |_, window, cx| window.press("space", cx))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(player_status(&view, cx), PlayerStatus::Paused);
+}
+
+#[gpui::test]
+fn the_row_play_button_switches_playback_to_its_row(cx: &mut TestAppContext) {
+    let (window, view) = open_fixture_library(cx);
+    let playing = start_playing_the_first_track(window, &view, cx);
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.hover(track(2), cx);
+        window.render_frame(cx);
+        window.click(("row-play", 2usize), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.selected, Some(2));
+        assert_eq!(app.player.status(), &PlayerStatus::Playing);
+        assert_ne!(app.player.track(), Some(playing.as_path()));
     });
 }
 

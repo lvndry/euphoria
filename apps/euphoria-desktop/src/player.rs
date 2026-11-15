@@ -152,10 +152,23 @@ impl Player {
         }
     }
 
-    /// Follows the selection in the table. While a track is playing, the
-    /// newly selected one starts playing in its place. Otherwise the player
-    /// takes the new track and waits at its beginning.
+    /// Follows the selection in the table. While a track plays, it goes on
+    /// playing: selecting another one never changes the sound. Otherwise the
+    /// player takes the new track and waits at its beginning.
     pub(crate) fn select(
+        &mut self,
+        path: Option<&Path>,
+        duration_seconds: Option<f32>,
+    ) -> Option<PlayerRequest> {
+        if path.is_some() && self.offers_pause() && self.track.as_deref() != path {
+            return None;
+        }
+        self.switch_to(path, duration_seconds)
+    }
+
+    /// Takes `path` as the track, whatever the player was doing. A track
+    /// that was sounding is replaced by the new one, which starts playing.
+    pub(crate) fn switch_to(
         &mut self,
         path: Option<&Path>,
         duration_seconds: Option<f32>,
@@ -404,7 +417,7 @@ mod tests {
         assert!(!player.offers_stems());
 
         player.stems_ready(true);
-        let select = player.select(Some(second()), Some(300.0));
+        let select = player.switch_to(Some(second()), Some(300.0));
         let attempt = match select {
             Some(PlayerRequest::Start {
                 with_stems: true,
@@ -414,10 +427,10 @@ mod tests {
             other => panic!("expected the stems of the new track, got {other:?}"),
         };
         assert!(player.started(attempt, Some(300.0)));
-        stems_request(player.select(Some(first()), Some(420.0)), first());
+        stems_request(player.switch_to(Some(first()), Some(420.0)), first());
 
         player.stems_ready(false);
-        starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+        starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
     }
 
     #[test]
@@ -520,10 +533,20 @@ mod tests {
     }
 
     #[test]
-    fn selecting_another_track_while_playing_switches_to_it() {
+    fn selecting_another_track_while_playing_leaves_the_sound_alone() {
         let mut player = playing();
         player.advance_to(60.0);
-        starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+        assert_eq!(player.select(Some(second()), Some(300.0)), None);
+        assert_eq!(player.track(), Some(first()));
+        assert!(player.is_playing());
+        assert_eq!(player.position_seconds(), 60.0);
+    }
+
+    #[test]
+    fn switching_to_another_track_while_playing_starts_it() {
+        let mut player = playing();
+        player.advance_to(60.0);
+        starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
         assert_eq!(player.track(), Some(second()));
         assert_eq!(player.status(), &PlayerStatus::Starting);
         assert_eq!(player.position_seconds(), 0.0);
@@ -564,7 +587,7 @@ mod tests {
         let mut player = Player::default();
         player.select(Some(first()), Some(420.0));
         let first_attempt = starts(player.toggle(), first(), 0.0);
-        let second_attempt = starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+        let second_attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
         assert!(!player.started(first_attempt, Some(420.0)));
         assert_eq!(player.status(), &PlayerStatus::Starting);
 

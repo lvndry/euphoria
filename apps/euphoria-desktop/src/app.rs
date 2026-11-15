@@ -1713,22 +1713,75 @@ impl EuphoriaApp {
         cx.notify();
     }
 
-    /// Gives the player the selected track. While a track is playing, the
-    /// newly selected one plays in its place.
+    /// Gives the player the selected track. While a track is playing, it
+    /// goes on playing: the selection never changes the sound.
     pub(crate) fn point_player_at_selection(&mut self, cx: &mut Context<'_, Self>) {
+        self.give_player_selection(false, cx);
+    }
+
+    pub(crate) fn give_player_selection(&mut self, interrupt: bool, cx: &mut Context<'_, Self>) {
         self.stop_drone_of_other_tracks();
         let selected = self
             .selected_track()
             .map(|track| (track.path.clone(), track.duration_seconds()));
+        let keeps_playing = !interrupt
+            && selected.is_some()
+            && self.player.offers_pause()
+            && self.player.track() != selected.as_ref().map(|(path, _)| path.as_path());
+        if keeps_playing {
+            return;
+        }
         let plays_stems = selected
             .as_ref()
             .is_some_and(|(path, _)| self.stems.files_to_play(path).is_some());
         self.player.stems_ready(plays_stems);
-        let request = match &selected {
-            Some((path, duration_seconds)) => self.player.select(Some(path), *duration_seconds),
-            None => self.player.select(None, None),
+        let request = match (&selected, interrupt) {
+            (Some((path, duration_seconds)), true) => {
+                self.player.switch_to(Some(path), *duration_seconds)
+            }
+            (Some((path, duration_seconds)), false) => {
+                self.player.select(Some(path), *duration_seconds)
+            }
+            (None, _) => self.player.select(None, None),
         };
         self.carry_out(request, cx);
+    }
+
+    fn selection_is_in_player(&self) -> bool {
+        self.selected_track()
+            .is_some_and(|track| self.player.track() == Some(track.path.as_path()))
+    }
+
+    /// Plays the selected track, replacing the one sounding. When the player
+    /// already holds it, it is resumed or started instead, and left alone
+    /// while it sounds.
+    pub(crate) fn play_selection(&mut self, cx: &mut Context<'_, Self>) {
+        if self.decks.is_open {
+            self.toggle_playback(cx);
+            return;
+        }
+        if !self.selection_is_in_player() {
+            self.give_player_selection(true, cx);
+        }
+        if !self.player.offers_pause() {
+            self.toggle_playback(cx);
+        }
+        cx.notify();
+    }
+
+    /// The space bar and the Play or Pause command: pauses the track that
+    /// sounds when it is the selected one, and plays the selected one when
+    /// it is not.
+    pub(crate) fn play_or_pause_selection(&mut self, cx: &mut Context<'_, Self>) {
+        if self.decks.is_open
+            || self.set_row_to_play().is_some()
+            || self.selection_is_in_player()
+            || self.selected.is_none()
+        {
+            self.toggle_playback(cx);
+        } else {
+            self.play_selection(cx);
+        }
     }
 
     /// Pauses the player when it plays, as when the decks take the sound.
@@ -1777,13 +1830,8 @@ impl EuphoriaApp {
     /// The play button of a table row: plays the track from where the player
     /// has it, or pauses it when it is the one sounding.
     pub(crate) fn play_track_row(&mut self, index: usize, cx: &mut Context<'_, Self>) {
-        if self.selected != Some(index) || !self.marked.is_empty() {
-            self.select(index, cx);
-            if self.player.offers_pause() {
-                return;
-            }
-        }
-        self.toggle_playback(cx);
+        self.select(index, cx);
+        self.play_or_pause_selection(cx);
     }
 
     /// A press or a drag at `pointer_x` on a strip that stands for the whole
@@ -2166,9 +2214,7 @@ impl EuphoriaApp {
             self.load_on_deck(DeckId::B, track_index, cx);
         } else {
             self.select_and_reveal(track_index, cx);
-            if !self.player.offers_pause() {
-                self.toggle_playback(cx);
-            }
+            self.play_selection(cx);
         }
         cx.notify();
     }

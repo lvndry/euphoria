@@ -121,7 +121,7 @@ fn the_focus_view_shows_the_wheel_of_the_selected_tracks_key_in_every_theme(
 }
 
 #[gpui::test]
-fn a_double_click_on_a_row_opens_the_view_on_that_track(cx: &mut TestAppContext) {
+fn a_double_click_on_a_row_plays_it_and_does_not_open_the_view(cx: &mut TestAppContext) {
     let (window, view) = open_library(10, cx);
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
@@ -129,7 +129,7 @@ fn a_double_click_on_a_row_opens_the_view_on_that_track(cx: &mut TestAppContext)
     })
     .unwrap();
     cx.run_until_parked();
-    assert!(is_open(&view, cx));
+    assert!(!is_open(&view, cx));
     assert_eq!(selected(&view, cx), Some(2));
 }
 

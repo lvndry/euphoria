@@ -203,8 +203,8 @@ impl EuphoriaApp {
         match row {
             PaletteRow::Track { index, .. } => {
                 self.reveal_track_in_table(index, window, cx);
-                if play && !self.player.offers_pause() {
-                    self.toggle_playback(cx);
+                if play {
+                    self.play_selection(cx);
                 }
             }
             PaletteRow::Command(position) => {
