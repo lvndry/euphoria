@@ -232,7 +232,7 @@ fn pool_choices(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .test_support(),
         );
     }
-    labelled("Pool", row, &palette)
+    labelled(crate::harmony_words::PICK_FROM_LABEL, row, &palette)
 }
 
 /// The curve to draw on, and once a set is built, a bar for each track of
