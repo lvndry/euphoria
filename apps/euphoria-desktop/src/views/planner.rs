@@ -11,15 +11,18 @@ use euphoria_core::harmony::transition::{
     BarLane, CandidateWindow, Clash, PlanError, Presence, SectionLabel, Side, TrackLanes,
 };
 use gpui::component::Icon;
+use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, Window, div, px,
-    relative,
+    AnyElement, Bounds, Context, Div, FontWeight, Hsla, MouseButton, MouseDownEvent, Pixels,
+    SharedString, TestSupportExt, Window, canvas, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
 use crate::focus::{SectionKind, clock};
 use crate::format;
+use crate::planner_playback::PlanTiming;
+use crate::stems::StemStatus;
 use crate::theme::Palette;
 use crate::transition_plan::{
     BARS_AFTER, BARS_BEFORE, ClashVerdict, PLAY_ACTION, PlanState, PlannedTransition,
@@ -35,6 +38,14 @@ use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, primary_button, secondary_b
 use euphoria_core::harmony::words::{OVERLAP_LABEL, SEPARATE_STEMS_LINK};
 
 type LanePick = fn(&BarLane) -> Presence;
+
+pub(crate) const OVERLAP_HELP: &str =
+    "Where both tracks have vocals or basslines at once. Pick a window with none.";
+pub(crate) const STEMS_NOT_CHECKED: &str = "Vocals and bass overlap isn't checked yet.";
+pub(crate) const NOT_SEPARATED: &str = "Not separated yet";
+pub(crate) const BEST_PLACE_TO_MIX: &str = "Best place to mix";
+pub(crate) const MIX_STARTS: &str = "Mix starts";
+pub(crate) const BARS_HINT: &str = "Bars counted from where B comes in";
 
 const GUTTER_WIDTH: f32 = 96.0;
 const SECTION_HEIGHT: f32 = 22.0;
@@ -218,6 +229,24 @@ fn lane_row(
         .children(pieces)
 }
 
+const UNKNOWN_LANE_HEIGHT: f32 = 16.0;
+
+fn unknown_lane(palette: &Palette) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .w_full()
+        .h(px(UNKNOWN_LANE_HEIGHT))
+        .px(px(6.0))
+        .rounded(RADIUS_SMALL)
+        .bg(palette.text_tertiary.opacity(0.1))
+        .border_1()
+        .border_color(palette.text_tertiary.opacity(0.2))
+        .text_size(LABEL_TEXT_SIZE)
+        .text_color(palette.text_tertiary)
+        .child(NOT_SEPARATED)
+}
+
 fn clash_cells(window: &CandidateWindow) -> Vec<Option<Clash>> {
     let mut cells = vec![None; BARS_BEFORE];
     cells.extend(window.clash_strip.iter().copied().map(Some));
@@ -292,30 +321,61 @@ fn legend(palette: &Palette) -> impl IntoElement {
         ))
         .child(legend_item(
             div().border_2().border_color(palette.accent),
-            "Suggested window",
+            BEST_PLACE_TO_MIX,
             palette,
         ))
         .test_support()
 }
 
+/// "A at 5:09": where in A the playhead is, or playing would start.
+pub(crate) fn a_clock_label(
+    app: &EuphoriaApp,
+    planned: &PlannedTransition,
+    window: &CandidateWindow,
+) -> String {
+    PlanTiming::of(planned, window).map_or(String::new(), |timing| {
+        format!(
+            "A at {}",
+            clock(timing.a_seconds_at(app.plan_playhead_bar()))
+        )
+    })
+}
+
 fn ruler(
+    app: &EuphoriaApp,
     planned: &PlannedTransition,
     window: &CandidateWindow,
     palette: &Palette,
 ) -> impl IntoElement {
-    let a_start = planned
+    let total = (BARS_BEFORE + window.bars + BARS_AFTER) as f32;
+    let drop_bar = planned
         .plan
-        .lanes_a
+        .lanes_b
         .bars
-        .get(window.a_start_bar)
-        .map_or(0.0, |bar| bar.start_seconds);
-    let before_seconds = (a_start - BARS_BEFORE as f64 * planned.plan.lanes_a.bar_seconds).max(0.0);
+        .iter()
+        .skip(window.b_start_bar)
+        .position(|bar| bar.section == Some(SectionLabel::Drop))
+        .filter(|offset| *offset < window.bars + BARS_AFTER);
+    let drop_fraction = drop_bar.map(|offset| (BARS_BEFORE + offset) as f32 / total);
     let marks = ruler_marks(window.bars);
     let last = marks.len().saturating_sub(1);
-    let labels: Vec<AnyElement> = marks
+    let mut labels: Vec<AnyElement> = marks
         .into_iter()
         .enumerate()
+        .filter(|(position, (label, fraction))| {
+            *position == last
+                || label == "bar 1"
+                || drop_fraction.is_none_or(|drop| (fraction - drop).abs() > 3.0 / total)
+        })
         .map(|(position, (label, fraction))| {
+            let label = if label == "bar 1" {
+                match drop_bar {
+                    Some(0) => format!("{MIX_STARTS}, B's drop"),
+                    _ => MIX_STARTS.to_string(),
+                }
+            } else {
+                label
+            };
             let mark = div().absolute().top_0().child(label);
             if position == last {
                 mark.right(relative(1.0 - fraction)).into_any_element()
@@ -324,6 +384,19 @@ fn ruler(
             }
         })
         .collect();
+    if let Some((offset, fraction)) = drop_bar.zip(drop_fraction)
+        && offset > 0
+    {
+        labels.push(
+            div()
+                .absolute()
+                .top_0()
+                .left(relative(fraction))
+                .text_color(palette.text_secondary)
+                .child("B's drop")
+                .into_any_element(),
+        );
+    }
     let ends = div()
         .absolute()
         .top_0()
@@ -332,6 +405,7 @@ fn ruler(
         ))
         .pl(px(6.0))
         .child("A ends");
+    let a_label = a_clock_label(app, planned, window);
     div()
         .id("planner-ruler")
         .flex()
@@ -339,11 +413,14 @@ fn ruler(
         .gap(GAP_MEDIUM)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
+        .tooltip(|window, cx| Tooltip::new(BARS_HINT).build(window, cx))
         .child(
             div()
+                .id("planner-a-clock")
                 .w(px(GUTTER_WIDTH))
                 .flex_shrink_0()
-                .child(format!("A {}", clock(before_seconds))),
+                .child(a_label)
+                .test_support(),
         )
         .child(
             div()
@@ -362,6 +439,8 @@ fn track_block(
     columns: &[Option<usize>],
     palette: &Palette,
     id: &'static str,
+    unknown_id: &'static str,
+    stems_known: bool,
 ) -> impl IntoElement {
     let lane_rows = [
         ("Vocals", amber(), (|bar: &BarLane| bar.vocals) as LanePick),
@@ -405,28 +484,40 @@ fn track_block(
                     true,
                 ))),
         )
-        .children(lane_rows.map(|(label, colour, pick)| {
-            div()
-                .flex()
-                .items_center()
-                .gap(GAP_MEDIUM)
-                .child(
+        .children(
+            lane_rows
+                .into_iter()
+                .enumerate()
+                .map(|(position, (label, colour, pick))| {
                     div()
-                        .w(px(GUTTER_WIDTH))
-                        .flex_shrink_0()
-                        .text_size(SMALL_TEXT_SIZE)
-                        .text_color(palette.text_secondary)
-                        .child(label),
-                )
-                .child(div().flex_1().child(lane_row(
-                    lanes,
-                    columns,
-                    pick,
-                    colour,
-                    palette,
-                    LANE_HEIGHT,
-                )))
-        }))
+                        .flex()
+                        .items_center()
+                        .gap(GAP_MEDIUM)
+                        .child(
+                            div()
+                                .w(px(GUTTER_WIDTH))
+                                .flex_shrink_0()
+                                .text_size(SMALL_TEXT_SIZE)
+                                .text_color(palette.text_secondary)
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .id((id, position))
+                                .flex_1()
+                                .child(if stems_known {
+                                    lane_row(lanes, columns, pick, colour, palette, LANE_HEIGHT)
+                                        .into_any_element()
+                                } else {
+                                    unknown_lane(palette)
+                                        .id((unknown_id, position))
+                                        .test_support()
+                                        .into_any_element()
+                                })
+                                .test_support(),
+                        )
+                }),
+        )
         .test_support()
 }
 
@@ -512,42 +603,19 @@ pub(crate) fn row_strip(window: &CandidateWindow, palette: &Palette) -> Div {
         }))
 }
 
+/// The one line that says the overlap is not checked, with a button to
+/// separate the stems of each track that has none, and the progress and the
+/// way out of a separation that runs.
 fn stems_line(
     app: &EuphoriaApp,
     planned: &PlannedTransition,
     cx: &mut Context<'_, EuphoriaApp>,
-) -> Option<impl IntoElement> {
+) -> Option<AnyElement> {
     let palette = app.theme.palette;
     let (a_known, b_known) = planned.stems_known();
     if a_known && b_known {
         return None;
     }
-    let link =
-        |id: &'static str, side: Side, text: &'static str, path: Option<std::path::PathBuf>| {
-            let is_separating = path.as_deref().is_some_and(|path| {
-                matches!(
-                    app.stems.status(path),
-                    Some(crate::stems::StemStatus::Separating)
-                )
-            });
-            let hover_colour = palette.text;
-            if is_separating {
-                div()
-                    .id(id)
-                    .text_color(palette.text_tertiary)
-                    .child(format!("{text} (separating)"))
-                    .test_support()
-            } else {
-                div()
-                    .id(id)
-                    .cursor_pointer()
-                    .text_color(palette.accent)
-                    .hover(move |style| style.text_color(hover_colour))
-                    .child(text)
-                    .on_click(cx.listener(move |this, _, _, cx| this.separate_plan_stems(side, cx)))
-                    .test_support()
-            }
-        };
     let a_path = app.selected_track().map(|track| track.path.clone());
     let b_path = app
         .focus
@@ -559,23 +627,73 @@ fn stems_line(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(GAP_TIGHT)
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
-        .text_color(palette.text_tertiary)
-        .child("Separate the stems of");
-    if !a_known {
-        line = line.child(link("planner-separate-a", Side::A, "A", a_path));
+        .text_color(palette.text_secondary)
+        .child(STEMS_NOT_CHECKED);
+    let sides = [
+        (
+            a_known,
+            Side::A,
+            "A",
+            "planner-separate-a",
+            "planner-cancel-a",
+            a_path,
+        ),
+        (
+            b_known,
+            Side::B,
+            "B",
+            "planner-separate-b",
+            "planner-cancel-b",
+            b_path,
+        ),
+    ];
+    for (known, side, letter, separate_id, cancel_id, path) in sides {
+        if known {
+            continue;
+        }
+        let Some(path) = path else {
+            continue;
+        };
+        if let Some(phase) = app.stems.phase_of(&path) {
+            let cancelled_path = path.clone();
+            line = line.child(
+                div()
+                    .id(("planner-progress", usize::from(side == Side::B)))
+                    .flex()
+                    .items_center()
+                    .gap(GAP_SMALL)
+                    .child(format!("{letter}: {}", phase.description()))
+                    .child(
+                        secondary_button("Cancel", &palette)
+                            .id(cancel_id)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.cancel_stems_of(&cancelled_path, cx)
+                            }))
+                            .test_support(),
+                    )
+                    .test_support(),
+            );
+            continue;
+        }
+        if let Some(StemStatus::Failed(problem)) = app.stems.status(&path) {
+            line = line.child(
+                div()
+                    .id(("planner-stems-problem", usize::from(side == Side::B)))
+                    .text_color(palette.warning)
+                    .child(format!("{letter}: {problem}"))
+                    .test_support(),
+            );
+        }
+        line = line.child(
+            secondary_button(format!("Separate stems of {letter}"), &palette)
+                .id(separate_id)
+                .on_click(cx.listener(move |this, _, _, cx| this.separate_plan_stems(side, cx)))
+                .test_support(),
+        );
     }
-    if !a_known && !b_known {
-        line = line.child("and");
-    }
-    if !b_known {
-        line = line.child(link("planner-separate-b", Side::B, "B", b_path));
-    }
-    Some(
-        line.child("to check whether vocals and bass overlap")
-            .test_support(),
-    )
+    Some(line.test_support().into_any_element())
 }
 
 fn card(palette: &Palette) -> Div {
@@ -661,16 +779,20 @@ fn window_rows(
                         .child(
                             div()
                                 .text_color(palette.text_secondary)
-                                .child(window_detail(window)),
+                                .child(window_detail(
+                                    window,
+                                    planned.stems_known() == (true, true),
+                                )),
                         ),
                 )
-                .child(
+                .children((verdict != ClashVerdict::NotChecked).then(|| {
                     div()
+                        .id(("planner-window-verdict", index))
                         .flex_shrink_0()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(verdict_colour(verdict, &palette))
-                        .child(verdict.label()),
-                )
+                        .child(verdict.label())
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| this.select_plan_window(index, cx)))
                 .test_support()
         });
@@ -863,7 +985,15 @@ pub(crate) fn render(
         .and_then(|index| app.plan_state(index));
     let planned = match state {
         Some(PlanState::Ready(planned)) => Some(planned),
-        _ => None,
+        Some(PlanState::Computing) | None => app
+            .selected_track()
+            .zip(
+                app.focus
+                    .selected_match
+                    .and_then(|index| app.session.library().track(index)),
+            )
+            .and_then(|(from, to)| app.planner.last_ready(&from.path, &to.path)),
+        Some(PlanState::Failed(_)) => None,
     };
     let top = div()
         .flex()
@@ -895,16 +1025,17 @@ pub(crate) fn render(
         .p(px(18.0))
         .bg(palette.background)
         .overflow_y_scroll()
+        .track_scroll(&app.planner.scroll)
         .child(top);
-    let body: AnyElement = match state {
-        Some(PlanState::Failed(error)) => card(&palette)
+    let body: AnyElement = match (state, planned) {
+        (Some(PlanState::Failed(error)), _) => card(&palette)
             .id("planner-failure")
             .text_color(palette.warning)
             .child(failure_message(app, *error))
             .test_support()
             .into_any_element(),
-        Some(PlanState::Ready(planned)) => match app.planner_window() {
-            Some((_, window)) => planned_body(app, planned, window, cx).into_any_element(),
+        (_, Some(planned)) => match planned.window(app.planner.window) {
+            Some(window) => planned_body(app, planned, window, cx).into_any_element(),
             None => card(&palette)
                 .id("planner-no-window")
                 .text_color(palette.text_secondary)
@@ -941,15 +1072,68 @@ fn planned_body(
         window.bars,
         false,
     );
-    let timelines = card(&palette)
-        .id("planner-timelines")
-        .child(ruler(planned, window, &palette))
+    let total = (BARS_BEFORE + window.bars + BARS_AFTER) as f32;
+    let playhead_fraction =
+        ((app.plan_playhead_bar() as f32 + BARS_BEFORE as f32) / total).clamp(0.0, 1.0);
+    let timeline_bounds = app.planner.timeline_bounds.clone();
+    let seek_bounds = timeline_bounds.clone();
+    let overlay = div()
+        .id("planner-timeline")
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .right_0()
+        .left(px(GUTTER_WIDTH + 12.0))
+        .cursor_pointer()
+        .child(
+            canvas(
+                move |bounds: Bounds<Pixels>, _, _| {
+                    timeline_bounds.replace(Some(bounds));
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .child(
+            div()
+                .id("planner-playhead")
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(relative(playhead_fraction))
+                .w(px(2.0))
+                .bg(palette.text)
+                .test_support(),
+        )
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                if let Some(bounds) = seek_bounds.get() {
+                    let fraction = crate::player::fraction_along(
+                        event.position.x / px(1.0),
+                        bounds.left() / px(1.0),
+                        bounds.size.width / px(1.0),
+                    );
+                    this.seek_plan_timeline(fraction, cx);
+                }
+            }),
+        )
+        .test_support();
+    let grid = div()
+        .id("planner-grid")
+        .relative()
+        .flex()
+        .flex_col()
+        .child(ruler(app, planned, window, &palette))
         .child(track_block(
             format!("A \u{b7} {}", title_of(app.selected)),
             &planned.plan.lanes_a,
             &columns_a,
             &palette,
             "planner-track-a",
+            "planner-unknown-lane-a",
+            planned.plan.lanes_a.stems_known,
         ))
         .child(track_block(
             format!("B \u{b7} {}", title_of(app.focus.selected_match)),
@@ -957,38 +1141,59 @@ fn planned_body(
             &columns_b,
             &palette,
             "planner-track-b",
+            "planner-unknown-lane-b",
+            planned.plan.lanes_b.stems_known,
         ))
         .child(
             div()
                 .id("planner-clash")
                 .flex()
-                .items_center()
-                .gap(GAP_MEDIUM)
+                .flex_col()
+                .gap(GAP_TIGHT)
                 .pt(px(10.0))
                 .border_t_1()
                 .border_color(palette.line)
                 .child(
                     div()
-                        .w(px(GUTTER_WIDTH))
-                        .flex_shrink_0()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(OVERLAP_LABEL),
+                        .id("planner-overlap-help")
+                        .pl(px(GUTTER_WIDTH + 12.0))
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(OVERLAP_HELP)
+                        .test_support(),
                 )
                 .child(
                     div()
-                        .flex_1()
-                        .py(px(3.0))
-                        .child(clash_row(window, &palette, CLASH_HEIGHT)),
+                        .flex()
+                        .items_center()
+                        .gap(GAP_MEDIUM)
+                        .child(
+                            div()
+                                .w(px(GUTTER_WIDTH))
+                                .flex_shrink_0()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(OVERLAP_LABEL),
+                        )
+                        .child(div().flex_1().py(px(3.0)).child(clash_row(
+                            window,
+                            &palette,
+                            CLASH_HEIGHT,
+                        ))),
                 )
                 .test_support(),
         )
-        .child(legend(&palette))
-        .children(stems_line(app, planned, cx));
+        .child(overlay);
+    let timelines = card(&palette)
+        .id("planner-timelines")
+        .child(grid)
+        .child(legend(&palette));
     div()
         .flex()
         .flex_col()
         .gap(GAP_MEDIUM)
+        .child(transport(app, &palette, cx))
         .child(timelines)
+        .children(stems_line(app, planned, cx))
         .child(
             div()
                 .flex()
@@ -997,6 +1202,66 @@ fn planned_body(
                 .child(window_rows(app, planned, cx))
                 .child(steps_card(app, planned, window, cx)),
         )
+}
+
+/// Play the transition, A or B alone, and stop.
+fn transport(
+    app: &EuphoriaApp,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> impl IntoElement {
+    use crate::planner_playback::PlanPlay;
+    let playing = app
+        .planner
+        .playback
+        .as_ref()
+        .map(|playback| playback.kind());
+    let mark = |kind: PlanPlay, button: Div| {
+        if playing == Some(kind) {
+            button.border_color(palette.accent)
+        } else {
+            button
+        }
+    };
+    div()
+        .id("planner-transport")
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(GAP_SMALL)
+        .child(
+            primary_button("Play the transition", palette)
+                .id("planner-play-transition")
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.play_plan(PlanPlay::Transition, None, cx)),
+                )
+                .test_support(),
+        )
+        .child(
+            mark(PlanPlay::A, secondary_button("Play A", palette))
+                .id("planner-play-a")
+                .on_click(cx.listener(|this, _, _, cx| this.play_plan(PlanPlay::A, None, cx)))
+                .test_support(),
+        )
+        .child(
+            mark(PlanPlay::B, secondary_button("Play B", palette))
+                .id("planner-play-b")
+                .on_click(cx.listener(|this, _, _, cx| this.play_plan(PlanPlay::B, None, cx)))
+                .test_support(),
+        )
+        .child(
+            secondary_button("Stop", palette)
+                .id("planner-stop")
+                .on_click(cx.listener(|this, _, _, cx| this.stop_plan_playback(cx)))
+                .test_support(),
+        )
+        .child(
+            div()
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child("Click the timeline to start from there. Space plays and stops."),
+        )
+        .test_support()
 }
 
 /// The line under the strip: whether vocals and bass overlap, or the link
@@ -1015,12 +1280,7 @@ fn overlap_line(
     ]
     .into_iter()
     .flatten()
-    .any(|track| {
-        matches!(
-            app.stems.status(&track.path),
-            Some(crate::stems::StemStatus::Separating)
-        )
-    });
+    .any(|track| matches!(app.stems.status(&track.path), Some(StemStatus::Separating)));
     let answer = if verdict != ClashVerdict::NotChecked {
         div()
             .id("focus-transition-verdict")

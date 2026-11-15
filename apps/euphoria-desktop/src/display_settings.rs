@@ -104,6 +104,9 @@ impl TempoPreset {
 pub(crate) struct DisplaySettings {
     /// The range tempos are shown in.
     pub(crate) tempo_range: TempoRangeSetting,
+    /// Whether the track table has a Stage column. Off until turned on.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) show_stage_column: bool,
 }
 
 #[cfg(test)]
@@ -163,6 +166,7 @@ mod tests {
     fn display_settings_are_stored_by_name_and_missing_ones_take_their_defaults() {
         let settings = DisplaySettings {
             tempo_range: TempoPreset::HipHop.setting(),
+            ..DisplaySettings::default()
         };
         assert_eq!(
             serde_json::to_string(&settings).unwrap(),
@@ -170,5 +174,14 @@ mod tests {
         );
         let partial: DisplaySettings = serde_json::from_str("{}").unwrap();
         assert_eq!(partial.tempo_range, TempoRangeSetting::default());
+        assert!(!partial.show_stage_column);
+        let shown = DisplaySettings {
+            show_stage_column: true,
+            ..DisplaySettings::default()
+        };
+        let text = serde_json::to_string(&shown).unwrap();
+        assert!(text.contains(r#""show_stage_column":true"#), "{text}");
+        let loaded: DisplaySettings = serde_json::from_str(&text).unwrap();
+        assert!(loaded.show_stage_column);
     }
 }

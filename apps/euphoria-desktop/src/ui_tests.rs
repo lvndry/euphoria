@@ -78,6 +78,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -1323,7 +1324,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 11;
+const FOLDER_COLUMN: usize = 12;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1348,6 +1349,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_runner_up: None,
                 key_score_margin: None,
                 key_source: None,
+                loudness_range_lu: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -1911,7 +1913,7 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 10;
+const FORMAT_COLUMN: usize = 11;
 
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
@@ -2865,6 +2867,7 @@ fn track_changing_key() -> DemoTrack {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -3488,6 +3491,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_runner_up: Some(euphoria_core::Key::new(4, euphoria_core::Mode::Minor)),
         key_score_margin: Some(key_margin),
         key_source: None,
+        loudness_range_lu: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
         beat_grid: None,
@@ -3764,6 +3768,7 @@ fn set_tracks() -> Vec<DemoTrack> {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
@@ -5295,6 +5300,7 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: Some(euphoria_core::BeatGrid {
@@ -6016,6 +6022,7 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: Some(120.0),
             tempo_score_margin: None,
             beat_grid: has_grid.then_some(euphoria_core::BeatGrid {

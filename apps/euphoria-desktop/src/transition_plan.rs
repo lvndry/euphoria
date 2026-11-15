@@ -37,7 +37,7 @@ pub(crate) const WINDOWS_LISTED: usize = 5;
 /// The words of the three actions on a window, shared by the plan card of
 /// the focus view and the planner.
 pub(crate) const SET_CUES_ACTION: &str = "Set cues on A and B";
-pub(crate) const PLAY_ACTION: &str = "Play on the decks";
+pub(crate) const PLAY_ACTION: &str = "Open on the decks";
 pub(crate) const SAVE_FAVORITE_ACTION: &str = "Save as favorite transition";
 pub(crate) const UPDATE_FAVORITE_ACTION: &str = "Update favorite transition";
 /// The text link that opens the planner from the plan card.
@@ -118,6 +118,35 @@ pub(crate) struct Planner {
     /// True while the planner is to open as soon as the plan of the picked
     /// match is worked out.
     pub(crate) open_when_ready: bool,
+    /// The transport, while it plays.
+    pub(crate) playback: Option<crate::planner_playback::PlanPlayback>,
+    /// The bar of the timeline playing starts from, counted from the mix
+    /// start; 8 bars before it when none was picked.
+    pub(crate) start_bar: Option<f64>,
+    /// Where the page is scrolled, kept while the decks are open.
+    pub(crate) scroll: gpui::ScrollHandle,
+    /// Where the timeline was last drawn.
+    pub(crate) timeline_bounds: crate::views::waveform::SeenBounds,
+    /// Set while the decks were opened from a plan, to come back to it.
+    pub(crate) return_to: Option<PlanReturn>,
+    last_ready: HashMap<PairKey, Arc<PlannedTransition>>,
+}
+
+/// What the decks remember of the plan they were opened from.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PlanReturn {
+    pub(crate) a: PathBuf,
+    pub(crate) b: PathBuf,
+    pub(crate) window: usize,
+    pub(crate) planner_was_open: bool,
+}
+
+impl Planner {
+    /// The plan of the pair as last worked out, still shown while it is
+    /// worked out again after the stems changed.
+    pub(crate) fn last_ready(&self, from: &Path, to: &Path) -> Option<&Arc<PlannedTransition>> {
+        self.last_ready.get(&(from.to_path_buf(), to.to_path_buf()))
+    }
 }
 
 impl Planner {
@@ -418,7 +447,13 @@ impl EuphoriaApp {
                         .is_some_and(|entry| entry.fingerprint == job.fingerprint);
                     if current {
                         let state = match outcome {
-                            Ok(planned) => PlanState::Ready(Arc::new(planned)),
+                            Ok(planned) => {
+                                let planned = Arc::new(planned);
+                                this.planner
+                                    .last_ready
+                                    .insert(job.key.clone(), Arc::clone(&planned));
+                                PlanState::Ready(planned)
+                            }
                             Err(error) => PlanState::Failed(error),
                         };
                         this.planner.entries.insert(
@@ -500,6 +535,7 @@ impl EuphoriaApp {
     }
 
     pub(crate) fn close_planner(&mut self, cx: &mut Context<'_, Self>) {
+        self.stop_plan_playback(cx);
         if self.planner.is_open {
             self.planner.is_open = false;
             cx.notify();
@@ -511,7 +547,9 @@ impl EuphoriaApp {
             .picked_plan()
             .is_some_and(|planned| index < planned.plan.windows.len())
         {
+            self.stop_plan_playback(cx);
             self.planner.window = index;
+            self.planner.start_bar = None;
             cx.notify();
         }
     }
@@ -576,6 +614,14 @@ impl EuphoriaApp {
             .bars
             .get(window.b_start_bar)
             .map_or(0.0, |bar| bar.start_seconds);
+        let planner_was_open = self.planner.is_open;
+        let from = self.selected_track().map(|track| track.path.clone());
+        let to = self
+            .session
+            .library()
+            .track(b_index)
+            .map(|track| track.path.clone());
+        self.stop_plan_playback(cx);
         if !self.decks.is_open {
             self.toggle_decks(cx);
         }
@@ -585,12 +631,48 @@ impl EuphoriaApp {
         if !self.decks.sync {
             self.toggle_sync(cx);
         }
+        self.planner.return_to = from.zip(to).map(|(a, b)| PlanReturn {
+            a,
+            b,
+            window: index,
+            planner_was_open,
+        });
         self.load_on_deck(crate::deck_audio::DeckId::A, a_index, cx);
         self.load_on_deck(crate::deck_audio::DeckId::B, b_index, cx);
         self.open_deck_source(crate::deck_audio::DeckId::A, a_seconds, false, cx);
         self.open_deck_source(crate::deck_audio::DeckId::B, b_seconds, false, cx);
         self.close_planner(cx);
         self.close_focus_view(cx);
+        cx.notify();
+    }
+
+    /// From the decks back to the plan they were opened from: the same
+    /// tracks and window, the page scrolled as it was. The decks stay
+    /// loaded but are paused, since the planner's transport is the only
+    /// thing that plays while the planner is open.
+    pub(crate) fn back_to_plan(&mut self, window: &mut gpui::Window, cx: &mut Context<'_, Self>) {
+        let Some(back) = self.planner.return_to.take() else {
+            return;
+        };
+        self.pause_decks_for_plan();
+        self.decks.apply_gains();
+        let library = self.session.library();
+        let (Some(a_index), Some(b_index)) = (library.index_of(&back.a), library.index_of(&back.b))
+        else {
+            return;
+        };
+        self.select(a_index, cx);
+        if !self.focus.is_open {
+            self.open_focus_view(window, cx);
+        }
+        self.pick_match(b_index, cx);
+        if back.planner_was_open {
+            self.planner.open_when_ready = true;
+            self.open_planner_when_ready(cx);
+            if self.planner.is_open {
+                self.planner.window = back.window;
+            }
+        }
         cx.notify();
     }
 
@@ -893,13 +975,25 @@ pub(crate) fn window_title(planned: &PlannedTransition, window: &CandidateWindow
     format!("{a_name} ({a_clock}) into {b_name}")
 }
 
-/// The line under a ranked window's title.
-pub(crate) fn window_detail(window: &CandidateWindow) -> String {
-    let mut reason = window.reason.clone();
-    if let Some(first) = reason.get(0..1) {
-        reason = first.to_uppercase() + &reason[1..];
+/// The line under a ranked window's title. While the stems are not both
+/// known, the notice that the overlap is not checked is said once above the
+/// list, so a row says only what differs between windows.
+pub(crate) fn window_detail(window: &CandidateWindow, stems_checked: bool) -> String {
+    if stems_checked {
+        let mut reason = window.reason.clone();
+        if let Some(first) = reason.get(0..1) {
+            reason = first.to_uppercase() + &reason[1..];
+        }
+        return format!("{} bars. {reason}", window.bars);
     }
-    format!("{} bars. {reason}", window.bars)
+    let mut parts = vec![format!("{} bars", window.bars)];
+    if let Some(relation) = window.key_relation {
+        parts.push(format!("key: {}", relation.label().to_lowercase()));
+    }
+    if !window.a_has_room {
+        parts.push("A ends before the window does".to_string());
+    }
+    parts.join(", ")
 }
 
 /// What a step of a window says to do.
@@ -925,16 +1019,16 @@ pub(crate) fn step_line(
     let bar = step.window_bar;
     match step.kind {
         StepKind::StartB => {
-            let on = window.a_section.map_or(String::new(), |label| {
-                format!(" in A's {}", section_name(label))
-            });
-            format!("Bar {bar}: start B from {b_clock} on A's downbeat at {a_clock}{on}.")
+            let section = window
+                .a_section
+                .map_or(String::new(), |label| format!(" ({})", section_name(label)));
+            format!("At {a_clock} in A{section}, start B from {b_clock} on the downbeat.")
         }
         StepKind::SwapBass => {
-            format!("Bar {bar}: swap the basslines, B's bass in and A's out.")
+            format!("At bar {bar}, swap the basslines: B's bass in, A's out.")
         }
-        StepKind::BringInVocals => format!("Bar {bar}: bring B's vocals in."),
-        StepKind::AEnds => format!("Bar {bar}: A ends at {a_clock}."),
+        StepKind::BringInVocals => format!("At bar {bar}, bring B's vocals in."),
+        StepKind::AEnds => format!("A ends at {a_clock}, {} bars later.", window.bars),
     }
 }
 
@@ -1162,7 +1256,20 @@ mod tests {
 
     #[test]
     fn a_window_detail_starts_with_a_capital_and_names_the_length() {
-        assert_eq!(window_detail(&sample_window()), "16 bars. No vocal overlap");
+        assert_eq!(
+            window_detail(&sample_window(), true),
+            "16 bars. No vocal overlap"
+        );
+    }
+
+    #[test]
+    fn a_window_without_checked_stems_says_only_what_differs() {
+        let mut window = sample_window();
+        window.key_relation = Some(Relation::Same);
+        window.reason = "stems missing, clashes not checked, key: same key".to_string();
+        let detail = window_detail(&window, false);
+        assert_eq!(detail, "16 bars, key: same key");
+        assert!(!detail.contains("stems"));
     }
 
     #[test]

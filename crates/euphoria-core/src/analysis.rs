@@ -17,6 +17,7 @@ use crate::error::EuphoriaError;
 use crate::key::Key;
 use crate::key_engine::{KeySource, key_engine};
 use crate::quality::{QualityReport, decode_measuring_quality};
+use crate::set_stage::StageFeatures;
 use crate::tempo_range::TempoRange;
 
 /// Identifies the detection behind a [`TrackAnalysis`]. The analysis cache
@@ -107,9 +108,32 @@ pub struct TrackAnalysis {
     /// order and at most [`MAXIMUM_CUES`](crate::detect::MAXIMUM_CUES).
     /// Empty when the track has no beat grid.
     pub cues: Vec<SectionCue>,
+    /// Loudness range in LU, measured as EBU R128 describes, or `None` when
+    /// there is nothing to measure or the analysis was stored before it was
+    /// recorded. With the integrated loudness of `quality` and the tempo it
+    /// gives the set stage, see [`TrackAnalysis::stage_features`].
+    pub loudness_range_lu: Option<f32>,
 }
 
 impl TrackAnalysis {
+    /// What the set stage of this track is read from. The tempo is the one
+    /// the user corrected it to, or the detected one in the default range,
+    /// whatever range the tempo is reported in.
+    pub fn stage_features(&self) -> StageFeatures {
+        let tempo = match self.tempo_estimate {
+            Some(_) => self.tempo_in(TempoRange::DEFAULT),
+            None => self.bpm,
+        };
+        StageFeatures {
+            tempo: tempo.filter(|tempo| tempo.is_finite() && *tempo > 0.0),
+            integrated_loudness_lufs: self
+                .quality
+                .as_ref()
+                .and_then(|quality| quality.integrated_loudness_lufs),
+            loudness_range_lu: self.loudness_range_lu,
+        }
+    }
+
     /// How far to trust the key, or `None` when there is no key or no
     /// margin to rate it by.
     pub fn key_confidence(&self) -> Option<Confidence> {
@@ -313,6 +337,7 @@ pub fn analyze_file_observed(
     };
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
+    let loudness_range_lu = energy_rating.map(|rating| rating.features.loudness_range_lu);
     observer.stage(path, AnalysisStage::Quality);
     let quality = pending_quality.finish(&audio, loudness);
 
@@ -331,6 +356,7 @@ pub fn analyze_file_observed(
         tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
         beat_grid,
         cues,
+        loudness_range_lu,
     })
 }
 

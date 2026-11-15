@@ -40,6 +40,7 @@ fn plan_track(name: &str, key: &str, bpm: f32) -> DemoTrack {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: Some(bpm),
             tempo_score_margin: None,
             beat_grid: Some(BeatGrid {
@@ -681,7 +682,7 @@ fn the_surfaces_use_the_dj_words_and_the_old_words_are_gone() {
     let plan = include_str!("transition_plan.rs");
     for word in [
         "Set cues on A and B",
-        "Play on the decks",
+        "Open on the decks",
         "Save as favorite transition",
         "Open planner \\u{2192}",
     ] {
@@ -714,4 +715,515 @@ fn escape_goes_up_one_level_from_the_planner_to_the_focus_view_to_the_library(
         "the library is back"
     );
     cx.update(|cx| assert!(!setup.view.read(cx).focus.is_open));
+}
+
+fn open_planner_view(setup: &Setup, cx: &mut TestAppContext) -> usize {
+    open_focus_with_plans(setup, cx);
+    let b_index = pick(setup, &setup.b.clone(), cx);
+    click(setup.window, "plan-open", cx);
+    settle(setup.window, cx);
+    assert!(is_shown(setup.window, "planner-view", cx));
+    b_index
+}
+
+fn timing_of(setup: &Setup, cx: &mut TestAppContext) -> crate::planner_playback::PlanTiming {
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, window) = app.planner_window().unwrap();
+        crate::planner_playback::PlanTiming::of(planned, window).unwrap()
+    })
+}
+
+fn tick(setup: &Setup, a_seconds: f64, b_seconds: f64, cx: &mut TestAppContext) -> bool {
+    cx.update(|cx| {
+        setup.view.update(cx, |app, cx| {
+            let generation = app.planner.playback.as_ref().unwrap().generation();
+            app.step_plan_playback(generation, a_seconds, b_seconds, cx)
+        })
+    })
+}
+
+fn sent(setup: &Setup, cx: &mut TestAppContext) -> Vec<crate::decks::SentCommand> {
+    cx.update(|cx| setup.view.read(cx).decks.sent.borrow().clone())
+}
+
+fn opened(setup: &Setup, cx: &mut TestAppContext) -> Vec<(crate::deck_audio::DeckId, f64)> {
+    cx.update(|cx| setup.view.read(cx).decks.opened.borrow().clone())
+}
+
+#[gpui::test]
+fn the_transport_plays_a_then_both_on_the_planned_bars_with_b_stretched(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::decks::SentCommand;
+    let setup = open_plans("plan-transport", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    let timing = timing_of(&setup, cx);
+    click(setup.window, "planner-play-transition", cx);
+
+    let opens = opened(&setup, cx);
+    let a_open = opens
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    let b_open = opens
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::B)
+        .unwrap();
+    assert!(
+        (a_open.1 - timing.a_seconds_at(-8.0)).abs() < 1e-9,
+        "A opens 8 bars before the mix"
+    );
+    assert!(
+        (b_open.1 - timing.b_seconds_at(0.0)).abs() < 1e-9,
+        "B waits at the mix start"
+    );
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(!app.decks.sync);
+        assert_eq!(app.decks.view(DeckId::B).rate, timing.b_rate);
+        assert_eq!(app.decks.view(DeckId::A).rate, 1.0);
+        assert!(app.decks.view(DeckId::B).keylock);
+    });
+    assert!(sent(&setup, cx).contains(&SentCommand::SetRate {
+        deck: DeckId::B,
+        rate: timing.b_rate
+    }));
+
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    let after: Vec<_> = sent(&setup, cx)[before..].to_vec();
+    assert_eq!(
+        after,
+        vec![SentCommand::Play {
+            deck: DeckId::A,
+            quantized: false
+        }],
+        "A plays alone first"
+    );
+    cx.update(|cx| assert_eq!(setup.view.read(cx).decks.gains_set.get(), [1.0, 0.0]));
+
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, timing.a_seconds_at(-3.0), 0.0, cx));
+    assert_eq!(sent(&setup, cx).len(), before, "B is not due yet");
+    assert!(tick(&setup, timing.a_seconds_at(-0.3), 0.0, cx));
+    let after: Vec<_> = sent(&setup, cx)[before..].to_vec();
+    assert_eq!(
+        after,
+        vec![SentCommand::Play {
+            deck: DeckId::B,
+            quantized: true
+        }],
+        "B comes in on A's downbeat"
+    );
+
+    let half = timing.window_bars as f64 / 2.0;
+    assert!(tick(
+        &setup,
+        timing.a_seconds_at(half),
+        timing.b_seconds_at(half),
+        cx
+    ));
+    cx.update(|cx| {
+        let [a, b] = setup.view.read(cx).decks.gains_set.get();
+        assert!((a - b).abs() < 1e-5 && (a * a + b * b - 1.0).abs() < 1e-4);
+    });
+
+    click(setup.window, "planner-stop", cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.planner.playback.is_none());
+        assert!(!app.decks.view(DeckId::A).playing && !app.decks.view(DeckId::B).playing);
+    });
+}
+
+#[gpui::test]
+fn play_a_and_play_b_play_one_track_at_the_planned_place(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::decks::SentCommand;
+    let setup = open_plans("plan-play-one", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    let timing = timing_of(&setup, cx);
+
+    click(setup.window, "planner-play-a", cx);
+    let a_open = *opened(&setup, cx)
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    assert!((a_open.1 - timing.a_seconds_at(-8.0)).abs() < 1e-9);
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert_eq!(
+        sent(&setup, cx)[before..].to_vec(),
+        vec![SentCommand::Play {
+            deck: DeckId::A,
+            quantized: false
+        }]
+    );
+
+    click(setup.window, "planner-play-b", cx);
+    let b_open = *opened(&setup, cx)
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::B)
+        .unwrap();
+    assert!((b_open.1 - timing.b_seconds_at(0.0)).abs() < 1e-9);
+    cx.update(|cx| {
+        assert_eq!(
+            setup.view.read(cx).decks.view(DeckId::B).rate,
+            timing.b_rate
+        );
+    });
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    let after = sent(&setup, cx)[before..].to_vec();
+    assert!(after.contains(&SentCommand::Play {
+        deck: DeckId::B,
+        quantized: false
+    }));
+    assert!(!after.contains(&SentCommand::Play {
+        deck: DeckId::A,
+        quantized: false
+    }));
+    cx.update(|cx| assert_eq!(setup.view.read(cx).decks.gains_set.get(), [0.0, 1.0]));
+}
+
+#[gpui::test]
+fn clicking_the_timeline_seeks_and_space_plays_and_stops(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("plan-seek", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    let timing = timing_of(&setup, cx);
+    assert!(is_shown(setup.window, "planner-playhead", cx));
+
+    click(setup.window, "planner-timeline", cx);
+    let expected = timing.bar_at_fraction(0.5).round();
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert_eq!(
+            app.planner.start_bar,
+            Some(expected),
+            "a click while stopped moves the playhead"
+        );
+        assert!(app.planner.playback.is_none());
+    });
+
+    press(setup.window, "space", cx);
+    cx.update(|cx| assert!(setup.view.read(cx).plan_is_playing(), "space plays"));
+    let a_open = *opened(&setup, cx)
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    assert!(
+        (a_open.1 - timing.a_seconds_at(expected)).abs() < 1e-9,
+        "from the clicked bar"
+    );
+
+    cx.update(|cx| {
+        setup
+            .view
+            .update(cx, |app, cx| app.seek_plan_timeline(0.25, cx))
+    });
+    let bar = timing.bar_at_fraction(0.25).round();
+    let a_open = *opened(&setup, cx)
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    assert!(
+        (a_open.1 - timing.a_seconds_at(bar)).abs() < 1e-9,
+        "a click while playing restarts there"
+    );
+
+    press(setup.window, "space", cx);
+    cx.update(|cx| assert!(!setup.view.read(cx).plan_is_playing(), "space stops"));
+}
+
+#[gpui::test]
+fn the_axis_says_where_the_mix_starts_and_where_a_ends(cx: &mut TestAppContext) {
+    use crate::views::planner;
+    let setup = open_plans("plan-axis", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    for id in [
+        "planner-ruler",
+        "planner-a-clock",
+        "planner-overlap-help",
+        "planner-legend",
+    ] {
+        assert!(is_shown(setup.window, id, cx), "{id}");
+    }
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, window) = app.planner_window().unwrap();
+        let label = planner::a_clock_label(app, planned, window);
+        assert!(label.starts_with("A at "), "{label}");
+        assert!(!label.contains("A 0"), "{label}");
+    });
+    assert_eq!(planner::MIX_STARTS, "Mix starts");
+    assert_eq!(planner::BARS_HINT, "Bars counted from where B comes in");
+    assert_eq!(
+        planner::OVERLAP_HELP,
+        "Where both tracks have vocals or basslines at once. Pick a window with none."
+    );
+    assert_eq!(planner::BEST_PLACE_TO_MIX, "Best place to mix");
+    let source = include_str!("views/planner.rs");
+    let production = source.split("#[cfg(test)]").next().unwrap();
+    assert!(!production.contains("\"Suggested window\""));
+    assert!(!production.contains("\"bar 1\" =>"));
+}
+
+#[gpui::test]
+fn lanes_without_stems_say_not_separated_yet_and_known_ones_do_not(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-unknown-lanes", &[0], cx);
+    open_planner_view(&setup, cx);
+    assert_eq!(crate::views::planner::NOT_SEPARATED, "Not separated yet");
+    for position in 0..3_usize {
+        assert!(is_shown(
+            setup.window,
+            ("planner-unknown-lane-b", position),
+            cx
+        ));
+        assert!(!is_shown(
+            setup.window,
+            ("planner-unknown-lane-a", position),
+            cx
+        ));
+    }
+}
+
+struct StubStems;
+
+static STUB_STEMS: std::sync::Mutex<Option<euphoria_core::stems::StemFiles>> =
+    std::sync::Mutex::new(None);
+
+/// Holds the stub separation until the test has looked at the progress, so
+/// a slow runner cannot let it finish before the first look.
+static STUB_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+impl crate::stems::StemSeparation for StubStems {
+    fn stems(
+        &mut self,
+        _: &Path,
+        _: &dyn euphoria_core::stems::SeparationObserver,
+    ) -> Result<euphoria_core::stems::StemFiles, EuphoriaError> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !STUB_RELEASED.load(std::sync::atomic::Ordering::SeqCst)
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        Ok(STUB_STEMS.lock().unwrap().clone().unwrap())
+    }
+}
+
+#[gpui::test]
+fn the_separate_button_separates_b_in_place_and_the_lanes_fill_when_it_finishes(
+    cx: &mut TestAppContext,
+) {
+    let setup = open_plans("plan-separate-button", &[0], cx);
+    let folder = ScratchFolder::new("plan-separate-button-stub");
+    *STUB_STEMS.lock().unwrap() = Some(write_stems_with_vocals_for(&folder, 64, 6));
+    STUB_RELEASED.store(false, std::sync::atomic::Ordering::SeqCst);
+    let folder_a = ScratchFolder::new("plan-separate-button-a");
+    let files_a = write_stems_with_vocals_for(&folder_a, 64, 6);
+    cx.update(|cx| {
+        setup.view.update(cx, |app, _| {
+            app.stems = StemSession::new(|| Ok(Box::new(StubStems)));
+            app.stems.mark_ready(&setup.a, files_a.clone());
+        })
+    });
+    open_planner_view(&setup, cx);
+    assert!(is_shown(setup.window, "planner-stems-line", cx));
+    assert!(
+        !is_shown(setup.window, "planner-separate-a", cx),
+        "A has stems"
+    );
+    assert!(is_shown(setup.window, "planner-separate-b", cx));
+    assert_eq!(
+        crate::views::planner::STEMS_NOT_CHECKED,
+        "Vocals and bass overlap isn't checked yet."
+    );
+    cx.update(|cx| {
+        assert!(
+            !setup
+                .view
+                .read(cx)
+                .planner_window()
+                .unwrap()
+                .0
+                .stems_known()
+                .1
+        )
+    });
+
+    click(setup.window, "planner-separate-b", cx);
+    settle(setup.window, cx);
+    assert!(
+        is_shown(setup.window, ("planner-progress", 1_usize), cx),
+        "progress shows in place"
+    );
+    assert!(is_shown(setup.window, "planner-cancel-b", cx));
+    assert!(!is_shown(setup.window, "planner-separate-b", cx));
+    STUB_RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < deadline {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(300));
+        cx.run_until_parked();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let known = cx.update(|cx| {
+            setup
+                .view
+                .read(cx)
+                .planner_window()
+                .is_some_and(|(planned, _)| planned.stems_known() == (true, true))
+        });
+        if known {
+            break;
+        }
+    }
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, _) = app.planner_window().expect("the plan is back");
+        assert_eq!(planned.stems_known(), (true, true));
+        assert!(app.planner.is_open, "no navigation was needed");
+    });
+    assert!(
+        !is_shown(setup.window, "planner-stems-line", cx),
+        "the line goes when both are known"
+    );
+    assert!(!is_shown(
+        setup.window,
+        ("planner-unknown-lane-b", 0_usize),
+        cx
+    ));
+}
+
+#[gpui::test]
+fn the_stems_notice_is_said_once_and_the_rows_say_only_what_differs(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-single-notice", &[], cx);
+    open_planner_view(&setup, cx);
+    assert!(is_shown(setup.window, "planner-stems-line", cx));
+    assert!(is_shown(setup.window, "planner-separate-a", cx));
+    assert!(is_shown(setup.window, "planner-separate-b", cx));
+    let rows = cx.update(|cx| {
+        setup
+            .view
+            .read(cx)
+            .planner_window()
+            .unwrap()
+            .0
+            .plan
+            .windows
+            .len()
+    });
+    assert!(rows >= 2);
+    for index in 0..rows {
+        assert!(is_shown(setup.window, ("planner-window", index), cx));
+        assert!(
+            !is_shown(setup.window, ("planner-window-verdict", index), cx),
+            "no Stems needed on row {index}"
+        );
+    }
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, _) = app.planner_window().unwrap();
+        for window in &planned.plan.windows {
+            let detail = crate::transition_plan::window_detail(window, false);
+            assert!(!detail.to_lowercase().contains("stems"), "{detail}");
+            assert!(!detail.contains("not checked"), "{detail}");
+        }
+    });
+}
+
+#[gpui::test]
+fn the_step_lines_read_naturally(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-steps-words", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    let steps: Vec<String> = cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, window) = app.planner_window().unwrap();
+        window
+            .steps
+            .iter()
+            .map(|step| crate::transition_plan::step_line(step, planned, window))
+            .collect()
+    });
+    assert!(
+        steps[0].starts_with("At ") && steps[0].contains(", start B from "),
+        "{steps:?}"
+    );
+    assert!(steps[0].ends_with("on the downbeat."), "{steps:?}");
+    let last = steps.last().unwrap();
+    assert!(
+        last.starts_with("A ends at ") && last.ends_with(" bars later."),
+        "{steps:?}"
+    );
+    assert!(
+        steps.iter().all(|step| !step.starts_with("Bar ")),
+        "{steps:?}"
+    );
+}
+
+#[gpui::test]
+fn back_to_plan_returns_to_the_same_window_and_escape_does_too(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("plan-back", &[0, 1], cx);
+    let b_index = open_planner_view(&setup, cx);
+    click(setup.window, ("planner-window", 1_usize), cx);
+    cx.update(|cx| {
+        setup.view.update(cx, |app, _| {
+            app.planner
+                .scroll
+                .set_offset(gpui::point(px(0.0), px(-40.0)))
+        })
+    });
+    let scroll_before = cx.update(|cx| setup.view.read(cx).planner.scroll.offset());
+
+    click(setup.window, "planner-play", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.decks.is_open && !app.focus.is_open && app.planner.return_to.is_some());
+    });
+    assert!(is_shown(setup.window, "decks-back-to-plan", cx));
+
+    click(setup.window, "decks-back-to-plan", cx);
+    settle(setup.window, cx);
+    for _ in 0..10 {
+        cx.run_until_parked();
+    }
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.focus.is_open && app.planner.is_open);
+        assert_eq!(app.selected, Some(0));
+        assert_eq!(app.focus.selected_match, Some(b_index));
+        assert_eq!(app.planner.window, 1);
+        assert!(app.planner.return_to.is_none());
+        assert_eq!(app.planner.scroll.offset(), scroll_before);
+        assert!(!app.decks.view(DeckId::A).playing && !app.decks.view(DeckId::B).playing);
+    });
+    assert!(is_shown(setup.window, "planner-view", cx));
+
+    click(setup.window, "planner-play", cx);
+    settle(setup.window, cx);
+    press(setup.window, "escape", cx);
+    for _ in 0..10 {
+        cx.run_until_parked();
+    }
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(
+            app.planner.is_open && app.focus.is_open,
+            "Esc goes back to the plan"
+        );
+        assert_eq!(app.planner.window, 1);
+    });
 }

@@ -733,6 +733,7 @@ fn cell_contents(
             optional_text(track, track.bpm().map(format::bpm), &palette).into_any_element()
         }
         ColumnId::Energy => energy(track, &palette).into_any_element(),
+        ColumnId::Stage => stage(app, track, track_index, &palette).into_any_element(),
         ColumnId::Cues => optional_text(track, track.cue_count().map(format::count), &palette)
             .text_color(palette.text_secondary)
             .into_any_element(),
@@ -838,6 +839,20 @@ fn quality(track: &Track, palette: &Palette) -> Div {
             palette.text
         })
         .child(format::quality_verdict(report.verdict))
+}
+
+/// The set stage in a word, with what it means on hover, or a dash when the
+/// analyzed track has none.
+fn stage(app: &EuphoriaApp, track: &Track, track_index: usize, palette: &Palette) -> Div {
+    let value = app
+        .session
+        .library()
+        .stage_at(track_index)
+        .map(|stage| stage.label().to_string());
+    optional_text(track, value, palette)
+        .min_w_0()
+        .truncate()
+        .text_color(palette.text_secondary)
 }
 
 /// The energy rating as a number beside a bar that fills with it, or a dash

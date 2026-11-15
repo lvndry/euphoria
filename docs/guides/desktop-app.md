@@ -83,7 +83,7 @@ The keys type a letter when a text field has the keyboard, so S, A and Space do 
 
 Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
 
-### Filter by tempo, energy and quality
+### Filter by tempo, energy, quality and stage
 
 The **Filter** button at the right of the heading, beside the track count, opens a bar of filters under the heading. Nothing else shows until you use it. The bar stays open while any filter is set, and the button closes it again once none is.
 
@@ -92,11 +92,12 @@ The **Filter** button at the right of the heading, beside the track count, opens
 | BPM | A minimum and a maximum, from 30 to 300, typed with a point or a comma (`127.5` or `127,5`), the same field rules as the [metronome](#metronome). Leave one side empty for no limit. It uses the tempo you corrected when there is one. |
 | ½ / 2× | Off by default. When on, a track also matches if half or double its tempo falls in the range, so 70 to 75 also shows a 142 BPM track (and a 36 BPM one). It does nothing without a BPM range. |
 | Energy | A minimum and a maximum, from 1 to 10. It uses the energy you corrected when there is one. |
+| Stage | Chips for Warm-up, Build and Peak, the [set stage](../concepts/set-stage.md) of each track among all the tracks of your library. A track matches when it has any of the chosen ones; a track with no tempo has no stage and is hidden while a chip is on. Pointing at a chip says what the stage means. It is not the energy. |
 | Quality | Chips for Lossless, Good, Acceptable, Weak, Limited BW, Re-encoded? and Damaged, named as in the Quality column (pointing at a chip shows the full verdict name). A track matches when it has any of the chosen ones; Damaged matches files with [dropped or missing audio](../concepts/audio-quality.md) whatever their verdict. |
 
 The filters combine with each other (a track must pass every filter that is set), with the folder, playlist, **Needs review** or **Favorites** you chose in the sidebar, and with the search box. They apply as you type. A value that is not a number in range leaves that side open.
 
-Tracks that are still queued, being analyzed, failed or missing have no tempo, energy or quality yet, so they are hidden while a BPM, energy or quality filter is set. They come back when you clear it.
+Tracks that are still queued, being analyzed, failed or missing have no tempo, energy, quality or stage yet, so they are hidden while a BPM, energy, quality or stage filter is set. They come back when you clear it.
 
 While a filter is set the heading says, for example, `37 of 1,284 tracks`. **Clear** at the end of the bar removes every filter and empties the fields; it leaves the ½ / 2× choice as it was. The filters are remembered between launches in `settings.json`, so the list opens narrowed the way you left it; a settings file from an older version opens with no filters.
 
@@ -114,6 +115,12 @@ The tracks go through the normal analysis queue: the same workers and memory lim
 Only the analysis is replaced. Your corrections, **Looks right** confirmations, stars, playlists, edited cues and set builder locks are kept in the cache and the app apart from the analysis. The **Analyze again** button of a failed track under [Needs review](#settle-a-track-under-needs-review) uses the same queue. With writing after analysis on, re-analyzed tracks follow the same rules as new ones, so new values go into tags only where those rules allow, which keeps your own tags and updates only Euphoria's earlier ones.
 
 Not tested: a real run over a large library on this build. The 2,000-track test uses a stubbed analysis.
+
+### Set stage
+
+The inspector shows a **Stage** line under the key, tempo and energy, such as `Stage: Peak`: where the track tends to sit in a set, from its tempo and loudness compared with the rest of your library. It is not the same as Energy; [set stage](../concepts/set-stage.md) explains the difference, how it is computed and how well it matches a DJ's own warm-up, build and peak folders. A track with no tempo has no stage, and no track has one until the library holds 10 tracks with a tempo. Stages are recomputed as the library changes.
+
+To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
 
 ### Resize the columns
 
@@ -204,6 +211,16 @@ A section you opened or closed yourself stays as you left it, for every track, a
 The key and tempo boxes show the key name ("C# minor") and the unit ("per minute") whole, with the confidence word on a line of its own under the value.
 
 The waveform is read from the file when you select the track.
+
+### Cover art
+
+Euphoria shows the cover Finder shows. The inspector header has a 56 point square at its left with the cover of the selected track; the player bar shows it at 40 points before the title, the focus view at 72 points before the title, and each deck's header at 28 points before the track name. Corners are rounded like the other surfaces. A track with no cover keeps the music note.
+
+The cover is the picture inside the file (ID3 attached pictures in MP3, AIFF and WAV, `covr` in M4A, MP4 and AAC, the pictures of FLAC and Ogg), the front cover when there are several, and the first picture otherwise. Without one, Euphoria uses an image in the same folder named `cover`, `folder`, `front` or `albumart` (JPEG or PNG, any letter case). Euphoria only reads covers and never writes into your audio files.
+
+Covers are read only for the tracks on screen, never for the whole library, and always in the background: the window draws the note first and the cover when it is ready. The picture is cut to a square and reduced to 192 and 80 pixels, sharp at 2x. The last 64 covers stay in memory, and a cover is read again only when its audio file changed. Nothing is stored on disk, so a cover you change in a folder image shows after you restart or touch the audio file.
+
+Not there yet: covers in the table rows, the ⌘K palette and the "Next after" rows; the Deck theme's strip header shows no cover.
 
 ### How sure the key and the tempo are
 
@@ -309,6 +326,22 @@ In most themes the player is a bar along the bottom of the window, with the play
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
 If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence. Without `EUPHORIA_LOG`, the terminal shows Euphoria's own warnings and only errors from the libraries it uses; set `EUPHORIA_LOG=warn` to see library warnings as well, such as a decoder skipping a few junk bytes at the start of a file.
+
+### Media keys and Now Playing
+
+On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, length and position there.
+
+| Command | What it does |
+| --- | --- |
+| Play, Pause, play/pause key | Plays or pauses the track in the player. When the selected track is not the one the player holds, Play resumes the held one. |
+| Next, Previous | Select and play the next or previous row of the table as shown. In the [set builder](#build-a-set) with a set, they follow the set order, as the set does when a track ends. Previous goes back to the start of the track when more than 3 seconds in. |
+| Drag the position in Now Playing | Seeks the track. |
+
+While the [decks](#decks) are open, the keys control one deck: the one that plays, the favoured side of the crossfader first, so deck A while it is centered, and when neither plays, the favoured deck that has a track. Next and Previous do nothing on the decks.
+
+Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
+
+Not there yet: artwork in Now Playing, the playback rate of the tempo control, and Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
 
 ## Metronome
 
@@ -482,22 +515,24 @@ Pick a track in **Mixes into** and the **Transition** tab gives the best window 
 Three buttons act on the best window, with the same words in the planner, and the link **Open planner →** sits in the header of the Plan card:
 
 - **Set cues on A and B** writes the plan's cues as your own cues: **Mix out** and **Mix out end** on A, **Mix in**, **Bass swap** and **Vocals in** on B, each on the first free hot cue pad. The cues a track already has stay, and a cue of the same name is replaced, so pressing it again does not pile up copies. One undo, the undo in the Cues tab, takes back the cues of both tracks together.
-- **Play on the decks** opens the decks, loads A on deck A and B on deck B, each paused on its downbeat at the start of the window, with sync on so that B follows A's tempo, and leaves the focus view. Play deck A, then deck B: B starts on the next downbeat of A. The load is not tested with real audio output.
+- **Open on the decks** opens the decks, loads A on deck A and B on deck B, each paused on its downbeat at the start of the window, with sync on so that B follows A's tempo, and leaves the planner and the focus view, for mixing by hand. Play deck A, then deck B: B starts on the next downbeat of A. The decks header then shows **← Back to plan**, and **Esc** does the same: it returns to the planner with the same two tracks, the same window and the page scrolled as it was. The decks stay loaded but are paused, because while the planner is open its own transport is the only thing that plays. The load is not tested with real audio output.
 - **Save as favorite transition** marks the transition from A into B as a [favorite](#favorite-transitions) with the window's sentence as its note.
 - **Open planner →**, a link in the card header, covers the focus view with the planner. **Esc**, or the **Focus view** button, goes back.
 
 The planner shows, from top to bottom:
 
-- A **bar ruler**: A's time at the left edge, then the bars from 32 before the window (bar -32) through bar 1, the start of the window, to the bar after its end, and **A ends**.
-- Both tracks on that grid, each with its section bands and its **Vocals**, **Bass** and **Drums** lanes, one cell per bar. B appears at bar 1 and goes on after A ends. A stem that is not known, because the track has no stems, is a quiet fill and not an empty lane.
-- The **Vocals and bass overlap** row, with a legend: **Fine**, **Both basslines**, **Both vocals**, **Unknown** and **Suggested window**, the outline.
-- Up to five **suggested windows**, ranked, each with its rank, a title such as "Outro (5:24) into Intro", a line of detail and a verdict. Click one and the outline and the steps follow it.
-- **Window N, step by step**, the steps of the chosen window as an ordered list: start B, swap the bass, bring B's vocals in, and A ends.
-- The buttons **Set cues on A and B**, **Play on the decks** and **Save as favorite transition**, which marks the transition from A into B as a [favorite](#favorite-transitions) with the chosen window's sentence as its note.
+- A **transport**: **Play the transition**, **Play A**, **Play B** and **Stop**. The transition plays A from 8 bars before the mix start, then B comes in on the planned bar, on A's downbeat, with B time-stretched to the plan's tempo (key lock on, the same stretch as the decks), and an equal-power crossfade runs across the window. **Play A** and **Play B** play one track from the same place, B at the plan's tempo. The sound is the decks' own mix, so the decks open behind the planner and **Sync** is switched off while it plays, and given back when it stops. A line follows the sound across the timeline. Click the timeline and it plays from that bar, or, when stopped, the line waits there. **Space** plays and stops. The line moves under **Reduce motion** too: it is information, not decoration, and it is drawn from where the sound is, not animated.
+- A **bar ruler**. Bars are counted from where B comes in, as the hint on the ruler says: **Mix starts** at the start of the window, bars before it counted back (bar -16, bar -32) and after it forward, then **B's drop** where B's drop section starts, when it is in view, and **A ends**. At the left, **A at 5:09** is the time in A under the line, or where playing would start.
+- Both tracks on that grid, each with its section bands and its **Vocals**, **Bass** and **Drums** lanes, one cell per bar. B appears at the mix start and goes on after A ends. A lane whose stems are not known says **Not separated yet** in the lane, and is never drawn as present. A lane that is full from start to end on a track that has stems is real data: the stem was above the presence threshold in every bar. It can also be bleed from the model, which the thresholds do not tell apart.
+- A line, **Where both tracks have vocals or basslines at once. Pick a window with none.**, and the **Vocals and bass overlap** row under it, with a legend: **Fine**, **Both basslines**, **Both vocals**, **Unknown** and **Best place to mix**, the outline.
+- When a stem is missing, one line: **Vocals and bass overlap isn't checked yet.**, with a button **Separate stems of B** (and of A) next to it. It shows the progress of the separation in place, with **Cancel**, and the reason when it fails. The lanes and the row fill in when it finishes, without leaving the planner. A track asked for while another separates waits its turn. **Cancel** takes a waiting track out of line; the separation that runs cannot be interrupted, so it finishes in the background and keeps its stems in the cache, where asking again finds them at once.
+- Up to five **suggested windows**, ranked, each with its rank, a title such as "Outro (5:24) into Intro", the bars and the key relation, and, once both tracks have stems, a verdict. Click one and the outline and the steps follow it.
+- **Window N, step by step**, for example "At 6:14 in A (Main), start B from 2:43 on the downbeat." and "A ends at 6:45, 16 bars later."
+- The buttons **Set cues on A and B**, **Open on the decks** and **Save as favorite transition**, which marks the transition from A into B as a [favorite](#favorite-transitions) with the chosen window's sentence as its note.
 
-When the stems of A or B are missing, a quiet line says "Separate the stems of A and B to check whether vocals and bass overlap", with a link for each track that starts its separation, and the clash row shows the bars as unknown. When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
+When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
 
-The energy and the stem levels the plan reads are measured once off the main thread and kept in the `plan-signals` folder of Euphoria's data folder, so a second plan of the same track is quick. The look of the planner on a real display is not tested; the headless window tests what it shows and what its buttons do.
+The energy and the stem levels the plan reads are measured once off the main thread and kept in the `plan-signals` folder of Euphoria's data folder, so a second plan of the same track is quick. The look of the planner on a real display is not tested; the headless window tests what it shows and what its buttons do. The transport is tested by the commands it sends the decks and the bars it opens them at, not by listening to real audio output.
 
 Not tested outside the headless window: the look on a real display, and the lanes on tracks over an hour long.
 

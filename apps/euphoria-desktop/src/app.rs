@@ -304,6 +304,7 @@ pub(crate) struct EuphoriaApp {
     /// The command palette, opened with Command K or Command P.
     pub(crate) palette: crate::command_palette::CommandPalette,
     settings_path: Option<PathBuf>,
+    artwork: crate::artwork::ArtworkStore,
     waveforms: WaveformCache,
     vocal_lanes: HashMap<PathBuf, VocalLane>,
     waveform_task: Option<Task<()>>,
@@ -637,6 +638,7 @@ impl EuphoriaApp {
                 scroll: gpui::ScrollHandle::new(),
             },
             settings_path,
+            artwork: crate::artwork::ArtworkStore::new(crate::artwork::ARTWORK_CAPACITY),
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
             vocal_lanes: HashMap::new(),
             waveform_task: None,
@@ -1025,7 +1027,12 @@ impl EuphoriaApp {
                 .width
                 / px(1.0)
         });
-        self.table_layout = TableLayout::new(table_width, &self.column_widths, longest_path);
+        self.table_layout = TableLayout::with_stage_column(
+            table_width,
+            &self.column_widths,
+            longest_path,
+            self.display.show_stage_column,
+        );
     }
 
     /// Reads the title and artist of `paths` from their tags, a batch at a
@@ -1224,6 +1231,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Stage => library
+                    .stage_at(*index)
+                    .map(|stage| Cow::Borrowed(stage.label())),
                 ColumnId::Cues => track
                     .cue_count()
                     .map(|count| Cow::Owned(crate::format::count(count))),
@@ -1403,6 +1413,12 @@ impl EuphoriaApp {
         self.session.set_tempo_range(range);
         self.refresh_visible();
         self.refresh_mixes();
+        self.remember_tag_settings(cx);
+    }
+
+    /// Shows or hides the Stage column of the track table.
+    pub(crate) fn toggle_stage_column(&mut self, cx: &mut Context<'_, Self>) {
+        self.display.show_stage_column = !self.display.show_stage_column;
         self.remember_tag_settings(cx);
     }
 
@@ -1796,6 +1812,10 @@ impl EuphoriaApp {
     /// sounds when it is the selected one, and plays the selected one when
     /// it is not.
     pub(crate) fn play_or_pause_selection(&mut self, cx: &mut Context<'_, Self>) {
+        if self.planner.is_open {
+            self.toggle_plan_playback(cx);
+            return;
+        }
         if self.decks.is_open
             || self.set_row_to_play().is_some()
             || self.selection_is_in_player()
@@ -2081,15 +2101,26 @@ impl EuphoriaApp {
         self.request_stems_of(path, cx);
     }
 
-    /// Asks the stems of the track at `path` to be separated.
+    /// Asks the stems of the track at `path` to be separated, now, or in
+    /// line behind the separation that runs.
     pub(crate) fn request_stems_of(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
-        if self.stems.start(&path) {
+        let started = self.stems.start(&path);
+        if !started && !self.stems.enqueue(&path) {
+            return;
+        }
+        if started {
             cx.spawn(async move |this, cx| {
                 loop {
-                    let finished = this
-                        .update(cx, |this, _cx| this.stems.poll())
-                        .ok()
-                        .flatten();
+                    let polled = this
+                        .update(cx, |this, cx| {
+                            let finished = this.stems.poll();
+                            cx.notify();
+                            (finished, this.stems.is_busy())
+                        })
+                        .ok();
+                    let Some((finished, is_busy)) = polled else {
+                        break;
+                    };
                     if let Some(path) = finished {
                         this.update(cx, |this, cx| {
                             if this.player.track() == Some(path.as_path()) {
@@ -2105,12 +2136,21 @@ impl EuphoriaApp {
                             }
                         })
                         .ok();
+                    }
+                    if !is_busy {
                         break;
                     }
                     cx.background_executor().timer(STEM_POLL_INTERVAL).await;
                 }
             })
             .detach();
+        }
+        cx.notify();
+    }
+
+    /// Stops waiting for the stems of the track at `path`.
+    pub(crate) fn cancel_stems_of(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
+        if self.stems.cancel(path) {
             cx.notify();
         }
     }
@@ -2594,6 +2634,11 @@ impl EuphoriaApp {
         }));
     }
 
+    /// The covers kept in memory.
+    pub(crate) fn artwork(&self) -> &crate::artwork::ArtworkStore {
+        &self.artwork
+    }
+
     /// The waveform of the track at `path`, when it was read.
     pub(crate) fn waveform_of(&self, path: &Path) -> Option<&Waveform> {
         self.waveforms.get(path)
@@ -2862,6 +2907,11 @@ impl Render for EuphoriaApp {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     if this.close_panels(cx) {
+                        return;
+                    }
+                    if this.planner.return_to.is_some() && this.decks.is_open && !this.focus.is_open
+                    {
+                        this.back_to_plan(window, cx);
                         return;
                     }
                     if this.focus.lanes_menu_open {

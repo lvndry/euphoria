@@ -46,6 +46,7 @@ fn analysis(bpm: f64, bar_count: usize, key: Option<Key>) -> TrackAnalysis {
         key_runner_up: None,
         key_score_margin: None,
         key_source: None,
+        loudness_range_lu: None,
         tempo_estimate: Some(bpm as f32),
         tempo_score_margin: None,
         beat_grid: Some(grid),

@@ -18,7 +18,7 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
-use crate::assets::MUSIC_ICON_PATH;
+use crate::artwork::ThumbnailSize;
 use crate::camelot::CamelotPosition;
 use crate::decks::SuggestionScope;
 use crate::format;
@@ -28,6 +28,7 @@ use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{key_stretches, shows_key_timeline};
+use crate::views::artwork::cover_tile;
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -383,24 +384,14 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
         .flex()
         .items_center()
         .gap(GAP_MEDIUM)
-        .child(
-            div()
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .size(px(56.0))
-                .rounded(RADIUS_MEDIUM)
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.raised)
-                .child(
-                    Icon::default()
-                        .path(MUSIC_ICON_PATH)
-                        .size(px(20.0))
-                        .text_color(palette.text_tertiary),
-                ),
-        )
+        .child(cover_tile(
+            app,
+            &track.path,
+            px(56.0),
+            ThumbnailSize::Large,
+            "inspector-cover",
+            cx,
+        ))
         .child(
             div()
                 .flex()
@@ -706,9 +697,33 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .gap(GAP_SMALL)
         .child(boxes)
         .children(tag_key_line(track, notation, palette))
+        .children(stage_line(track, app, palette))
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
+}
+
+/// The set stage of the track, such as "Stage: Peak", explained on hover.
+/// Nothing when the track has no stage.
+fn stage_line(track: &Track, app: &EuphoriaApp, palette: &Palette) -> Option<AnyElement> {
+    let library = app.session.library();
+    let stage = library.stage_at(library.index_of(&track.path)?)?;
+    Some(
+        div()
+            .id("track-stage")
+            .flex()
+            .items_center()
+            .gap(GAP_TIGHT)
+            .text_size(LABEL_TEXT_SIZE)
+            .text_color(palette.text_tertiary)
+            .child("Stage:")
+            .child(div().text_color(palette.text).child(stage.label()))
+            .tooltip(|window, cx| {
+                Tooltip::new(crate::track_filters::STAGE_EXPLANATION).build(window, cx)
+            })
+            .test_support()
+            .into_any_element(),
+    )
 }
 
 /// What the key field of the file's tags says next to the key above: the
