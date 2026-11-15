@@ -17,16 +17,17 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
 use euphoria_core::harmony::{
-    KeyFit, Layering, MashupReason, MashupTrack, MixTrack, Side, StemProfile, TempoFit, mashups_for,
+    KeyFit, Layering, MashupReason, MashupTrack, MixTrack, Side, StemPart, StemProfile, TempoFit,
+    mashups_for,
 };
-use euphoria_core::mashup::{LayerAudio, MashupLayer, write_mashup};
+use euphoria_core::mashup::{MashupDeck, MashupLayer, write_mashup};
 use euphoria_core::shift::ExistingOutput;
-use euphoria_core::stems::{Stem, StemCache, StemFiles, profile_stems};
+use euphoria_core::stems::{Stem, StemCache, StemFiles, layerable_profile};
 use euphoria_core::{CachedAnalyzer, Key};
 use gpui::Context;
 
 use crate::app::EuphoriaApp;
-use crate::deck_audio::{DeckCommand, DeckId, GridTiming};
+use crate::deck_audio::{DeckCommand, DeckId};
 use crate::decks::{DeckMode, DeckView};
 use crate::library::Track;
 
@@ -35,12 +36,6 @@ const IDEA_LIMIT: usize = 40;
 
 /// How often the window looks for stems found in the background.
 const STEM_SCAN_POLL: Duration = Duration::from_millis(250);
-
-/// Stem levels that leave only the vocals, in the order of [`Stem::ALL`].
-pub(crate) const VOCALS_ONLY: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-
-/// Stem levels that leave everything but the vocals.
-pub(crate) const INSTRUMENTAL_ONLY: [f32; 4] = [1.0, 1.0, 1.0, 0.0];
 
 /// How a deck is set up when a track goes on it.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -65,17 +60,9 @@ impl MashupIdea {
     /// of one over the instrumental of the other. `None` for a deck that
     /// plays its whole track.
     pub(crate) fn stem_levels(&self) -> [Option<[f32; 4]>; 2] {
-        match self.layering {
-            Some(Layering::VocalsOver {
-                vocals_from: Side::Candidate,
-                ..
-            }) => [Some(INSTRUMENTAL_ONLY), Some(VOCALS_ONLY)],
-            Some(Layering::VocalsOver {
-                vocals_from: Side::Reference,
-                ..
-            }) => [Some(VOCALS_ONLY), Some(INSTRUMENTAL_ONLY)],
-            Some(Layering::Instrumentals { .. }) | None => [None, None],
-        }
+        self.layering.map_or([None, None], |layering| {
+            layering.parts().map(StemPart::levels)
+        })
     }
 }
 
@@ -200,7 +187,7 @@ fn check_stems(
             stem_cache.as_ref()?.cached(&content)
         });
         let measured =
-            files.and_then(|files| profile_stems(&files).ok().map(|profile| (files, profile)));
+            files.and_then(|files| layerable_profile(&files).map(|profile| (files, profile)));
         if found.send((path, measured)).is_err() {
             return;
         }
@@ -214,32 +201,21 @@ pub(crate) fn apply_stem_levels(view: &DeckView) {
     }
 }
 
-/// The downbeat at or before `seconds` in a track with `grid`, or its first
-/// downbeat when `seconds` comes before it.
-pub(crate) fn downbeat_at_or_before(grid: &GridTiming, seconds: f64) -> f64 {
-    let bar = grid.bar_seconds();
-    let bars = ((seconds - grid.first_downbeat_seconds) / bar + 1e-6)
-        .floor()
-        .max(0.0);
-    grid.first_downbeat_seconds + bars * bar
+/// The side of the mashup finder a deck holds: A the reference, B the
+/// candidate.
+pub(crate) fn side_of(deck: DeckId) -> Side {
+    match deck {
+        DeckId::A => Side::Reference,
+        DeckId::B => Side::Candidate,
+    }
 }
 
-/// The name suggested for a mashup of the tracks titled `first` and
-/// `second`.
-pub(crate) fn suggested_name(first: &str, second: &str) -> String {
-    let clean = |title: &str| {
-        title
-            .chars()
-            .map(|character| {
-                if matches!(character, '/' | '\\' | ':') {
-                    '-'
-                } else {
-                    character
-                }
-            })
-            .collect::<String>()
-    };
-    format!("{} x {} (mashup).wav", clean(first), clean(second))
+/// The part `view` plays, when it is one of the parts.
+pub(crate) fn part_of(view: &DeckView) -> Option<StemPart> {
+    if view.stem_files.is_none() || !view.use_stems {
+        return Some(StemPart::Full);
+    }
+    StemPart::of_levels(Some(view.stem_levels))
 }
 
 impl EuphoriaApp {
@@ -290,7 +266,10 @@ impl EuphoriaApp {
             .idea_index
             .and_then(|position| self.decks.ideas.get(position))
             .map(|idea| idea.track_index);
-        let options = filter.mashup_options();
+        let options = euphoria_core::harmony::MashupOptions {
+            reference_part: self.reference_part(),
+            ..filter.mashup_options()
+        };
         let ideas: Vec<MashupIdea> = mashups_for(&reference, &candidates, &options)
             .into_iter()
             .take(IDEA_LIMIT)
@@ -307,6 +286,40 @@ impl EuphoriaApp {
         self.decks.idea_index =
             previous.and_then(|track| ideas.iter().position(|idea| idea.track_index == track));
         self.decks.ideas = ideas;
+    }
+
+    /// The part deck A plays, when the user chose it by hand: the ideas
+    /// that go with it rank first.
+    fn reference_part(&self) -> Option<StemPart> {
+        if !self.decks.pairing.is_set_by_hand(Side::Reference) {
+            return None;
+        }
+        part_of(self.decks.view(DeckId::A)).filter(|part| *part != StemPart::Full)
+    }
+
+    /// Plays `part` of `deck`'s track, as the user chose: the other deck
+    /// switches to the partner part, vocals over an instrumental, unless
+    /// the user set it by hand since its track was loaded.
+    pub(crate) fn choose_deck_part(
+        &mut self,
+        deck: DeckId,
+        part: StemPart,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let view = self.decks.view(deck);
+        if view.stem_files.is_none() || view.track_index.is_none() {
+            return;
+        }
+        let ranked_part = self.reference_part();
+        let partner = self.decks.pairing.choose(side_of(deck), part);
+        self.set_deck_stems(deck, part.levels(), cx);
+        if let Some(partner) = partner {
+            self.set_deck_stems(deck.other(), partner.levels(), cx);
+        }
+        if self.decks.mode == DeckMode::Mashup && self.reference_part() != ranked_part {
+            self.refresh_suggestions();
+        }
+        cx.notify();
     }
 
     /// Looks for the stems of the library's tracks in the background, once
@@ -469,9 +482,14 @@ impl EuphoriaApp {
         let Some(slot) = Stem::ALL.iter().position(|each| *each == stem) else {
             return;
         };
+        let ranked_part = self.reference_part();
+        self.decks.pairing.adjust(side_of(deck));
         let view = self.decks.view_mut(deck);
         view.stem_levels[slot] = level.clamp(0.0, 1.0);
         view.stem_mix.set_level(stem, view.stem_levels[slot]);
+        if self.decks.mode == DeckMode::Mashup && self.reference_part() != ranked_part {
+            self.refresh_suggestions();
+        }
         cx.notify();
     }
 
@@ -483,27 +501,19 @@ impl EuphoriaApp {
             let view = self.decks.view(deck);
             let path = view.path.clone()?;
             view.problem.is_none().then_some(())?;
-            let position = self.decks.position_seconds(deck);
-            let start_seconds = view
-                .grid
-                .map_or(position, |grid| downbeat_at_or_before(&grid, position));
-            let audio = match (&view.stem_files, view.use_stems) {
-                (Some(files), true) => LayerAudio::Stems(
-                    Stem::ALL
-                        .iter()
-                        .zip(view.stem_levels)
-                        .map(|(stem, level)| (files.path(*stem), level))
-                        .collect(),
-                ),
-                _ => LayerAudio::File(path),
-            };
-            layers.push(MashupLayer {
-                audio,
-                start_seconds,
+            let deck = MashupDeck {
+                path,
+                stems: view.stem_files.clone(),
+                stem_levels: view.use_stems.then_some(view.stem_levels),
+                position_seconds: self.decks.position_seconds(deck),
+                grid: view
+                    .grid
+                    .map(|grid| (grid.first_downbeat_seconds, grid.bpm)),
                 rate: view.rate,
                 shift_semitones: view.shift_semitones,
                 gain: view.volume,
-            });
+            };
+            layers.push(deck.layer());
         }
         Some(layers)
     }
@@ -525,7 +535,7 @@ impl EuphoriaApp {
                 .map(|track| track.title().to_string())
                 .unwrap_or_default()
         };
-        let name = suggested_name(&title(DeckId::A), &title(DeckId::B));
+        let name = euphoria_core::mashup::suggested_file_name(&title(DeckId::A), &title(DeckId::B));
         let directory = self
             .decks
             .view(DeckId::A)
@@ -625,6 +635,8 @@ impl EuphoriaApp {
 
 #[cfg(test)]
 mod tests {
+    use euphoria_core::harmony::{INSTRUMENTAL_ONLY, VOCALS_ONLY};
+
     use super::*;
 
     fn idea(layering: Option<Layering>) -> MashupIdea {
@@ -670,27 +682,6 @@ mod tests {
         assert_eq!(
             idea(Some(Layering::Instrumentals { collision: 0.2 })).stem_levels(),
             [None, None]
-        );
-    }
-
-    #[test]
-    fn an_export_starts_on_the_downbeat_at_or_before_the_deck() {
-        let grid = GridTiming {
-            first_downbeat_seconds: 0.5,
-            bpm: 120.0,
-        };
-        assert_eq!(downbeat_at_or_before(&grid, 0.0), 0.5);
-        assert_eq!(downbeat_at_or_before(&grid, 0.5), 0.5);
-        assert_eq!(downbeat_at_or_before(&grid, 2.4), 0.5);
-        assert_eq!(downbeat_at_or_before(&grid, 2.5), 2.5);
-        assert_eq!(downbeat_at_or_before(&grid, 9.0), 8.5);
-    }
-
-    #[test]
-    fn the_suggested_name_has_both_titles_and_no_folder_separators() {
-        assert_eq!(
-            suggested_name("Night/Day", "Dawn: Edit"),
-            "Night-Day x Dawn- Edit (mashup).wav"
         );
     }
 }

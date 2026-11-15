@@ -65,6 +65,94 @@ pub struct MashupLayer {
     pub gain: f32,
 }
 
+/// The beats in a bar, in the 4/4 time of dance music.
+const BEATS_PER_BAR: f64 = 4.0;
+
+/// The downbeat at or before `seconds` in a track whose beat grid starts
+/// at `first_downbeat_seconds` at `bpm`, or its first downbeat when
+/// `seconds` comes before it.
+pub fn downbeat_at_or_before(first_downbeat_seconds: f64, bpm: f64, seconds: f64) -> f64 {
+    let bar = BEATS_PER_BAR * 60.0 / bpm;
+    let bars = ((seconds - first_downbeat_seconds) / bar + 1e-6)
+        .floor()
+        .max(0.0);
+    first_downbeat_seconds + bars * bar
+}
+
+/// The file name suggested for a mashup of the tracks titled `first` and
+/// `second`, without folder separators.
+pub fn suggested_file_name(first: &str, second: &str) -> String {
+    let clean = |title: &str| {
+        title
+            .chars()
+            .map(|character| {
+                if matches!(character, '/' | '\\' | ':') {
+                    '-'
+                } else {
+                    character
+                }
+            })
+            .collect::<String>()
+    };
+    format!("{} x {} (mashup).wav", clean(first), clean(second))
+}
+
+/// One deck of a mashup as it is set up to play, the way the decks of the
+/// desktop app and `euphoria mashup` describe it.
+#[cfg(feature = "stems")]
+#[derive(Debug, Clone, PartialEq)]
+pub struct MashupDeck {
+    /// The track.
+    pub path: PathBuf,
+    /// The stems of the track, when it has been separated.
+    pub stems: Option<crate::stems::StemFiles>,
+    /// The level of each stem in the order of
+    /// [`crate::stems::Stem::ALL`], or `None` to play the whole track.
+    /// Ignored without stems.
+    pub stem_levels: Option<[f32; 4]>,
+    /// Where the deck is in its track, in seconds.
+    pub position_seconds: f64,
+    /// The first downbeat and the tempo of the track's beat grid, when it
+    /// has one.
+    pub grid: Option<(f64, f64)>,
+    /// The speed the deck plays at, as a share of the track's own.
+    pub rate: f64,
+    /// Semitones the deck's pitch is shifted by.
+    pub shift_semitones: i8,
+    /// The deck's fader, 0 to 1.
+    pub gain: f32,
+}
+
+#[cfg(feature = "stems")]
+impl MashupDeck {
+    /// The deck as a layer of the mashup: from the downbeat at or before
+    /// where it is, at its speed, shift, fader and stems.
+    pub fn layer(&self) -> MashupLayer {
+        let start_seconds = self
+            .grid
+            .map_or(self.position_seconds, |(first_downbeat, bpm)| {
+                downbeat_at_or_before(first_downbeat, bpm, self.position_seconds)
+            });
+        let audio = match (&self.stems, self.stem_levels) {
+            (Some(files), Some(levels)) => LayerAudio::Stems(
+                crate::stems::Stem::ALL
+                    .iter()
+                    .zip(levels)
+                    .map(|(stem, level)| (files.path(*stem), level))
+                    .collect(),
+            ),
+            _ => LayerAudio::File(self.path.clone()),
+        };
+        MashupLayer {
+            audio,
+            start_seconds,
+            rate: self.rate,
+            shift_semitones: self.shift_semitones,
+            gain: self.gain,
+        }
+    }
+}
+
 /// What [`write_mashup`] wrote.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WrittenMashup {
@@ -738,6 +826,84 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["mashup.wav", "track.wav"]);
+    }
+
+    #[test]
+    fn a_mashup_starts_on_the_downbeat_at_or_before_the_deck() {
+        assert_eq!(downbeat_at_or_before(0.5, 120.0, 0.0), 0.5);
+        assert_eq!(downbeat_at_or_before(0.5, 120.0, 0.5), 0.5);
+        assert_eq!(downbeat_at_or_before(0.5, 120.0, 2.4), 0.5);
+        assert_eq!(downbeat_at_or_before(0.5, 120.0, 2.5), 2.5);
+        assert_eq!(downbeat_at_or_before(0.5, 120.0, 9.0), 8.5);
+    }
+
+    #[test]
+    fn the_suggested_name_has_both_titles_and_no_folder_separators() {
+        assert_eq!(
+            suggested_file_name("Night/Day", "Dawn: Edit"),
+            "Night-Day x Dawn- Edit (mashup).wav"
+        );
+    }
+
+    #[cfg(feature = "stems")]
+    #[test]
+    fn a_deck_plays_its_stems_only_when_it_has_them_and_levels() {
+        use crate::stems::{Stem, StemFiles};
+        let folder = Path::new("/separated");
+        let deck = MashupDeck {
+            path: PathBuf::from("/music/track.wav"),
+            stems: Some(StemFiles::in_directory(folder.to_path_buf())),
+            stem_levels: Some(crate::harmony::VOCALS_ONLY),
+            position_seconds: 9.0,
+            grid: Some((0.5, 120.0)),
+            rate: 0.96,
+            shift_semitones: -2,
+            gain: 0.8,
+        };
+        let layer = deck.layer();
+        assert_eq!(layer.start_seconds, 8.5);
+        assert_eq!(
+            (layer.rate, layer.shift_semitones, layer.gain),
+            (0.96, -2, 0.8)
+        );
+        let LayerAudio::Stems(stems) = &layer.audio else {
+            panic!("{:?}", layer.audio);
+        };
+        let levels: Vec<(Stem, f32)> = Stem::ALL
+            .iter()
+            .zip(stems)
+            .map(|(stem, (path, level))| {
+                assert_eq!(
+                    path,
+                    &StemFiles::in_directory(folder.to_path_buf()).path(*stem)
+                );
+                (*stem, *level)
+            })
+            .collect();
+        assert_eq!(
+            levels,
+            [
+                (Stem::Drums, 0.0),
+                (Stem::Bass, 0.0),
+                (Stem::Other, 0.0),
+                (Stem::Vocals, 1.0)
+            ]
+        );
+        let whole = MashupDeck {
+            stem_levels: None,
+            grid: None,
+            ..deck.clone()
+        };
+        assert_eq!(
+            whole.layer().audio,
+            LayerAudio::File(PathBuf::from("/music/track.wav"))
+        );
+        assert_eq!(whole.layer().start_seconds, 9.0);
+        let unseparated = MashupDeck {
+            stems: None,
+            ..deck
+        };
+        assert!(matches!(unseparated.layer().audio, LayerAudio::File(_)));
     }
 
     #[test]
