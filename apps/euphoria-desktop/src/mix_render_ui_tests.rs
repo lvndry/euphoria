@@ -50,6 +50,7 @@ fn track(name: &str, key: &str, bpm: f32) -> DemoTrack {
             ],
             key_timeline: Vec::new(),
             quality: None,
+            pitch_class_profile: None,
         }),
     }
 }

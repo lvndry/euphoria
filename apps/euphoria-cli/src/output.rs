@@ -206,6 +206,11 @@ struct JsonTrack<'result> {
     /// have one. It is not the energy.
     stage: Option<&'static str>,
     tuning_cents: Option<f32>,
+    /// How strongly each of the 12 notes sounds in what the key detector
+    /// heard, C first, from 0 to 1 with the strongest at 1. `None` when
+    /// there is no key, and for analyses saved before it was measured until
+    /// the track is analyzed again.
+    pitch_class_profile: Option<[f32; 12]>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
     /// Whose beat grid the track has: "rekordbox", "detected" or "you", or
@@ -258,6 +263,7 @@ impl<'result> JsonTrack<'result> {
             energy: None,
             stage: None,
             tuning_cents: None,
+            pitch_class_profile: None,
             key_timeline: Vec::new(),
             beat_grid: None,
             beat_grid_source: None,
@@ -451,6 +457,9 @@ pub fn write_json(
                     energy: analysis.energy,
                     stage: stages.get(&result.path).map(euphoria_core::SetStage::slug),
                     tuning_cents: analysis.tuning_cents.map(round_to_tenths),
+                    pitch_class_profile: analysis
+                        .pitch_class_profile
+                        .map(|profile| profile.map(share_to_thousandths)),
                     key_timeline: analysis
                         .key_timeline
                         .iter()
@@ -529,38 +538,21 @@ fn set_by_user(edits: &UserEdits) -> Vec<&'static str> {
 }
 
 /// Writes the table that goes into pipes and files, with the same columns
-/// whatever the width, so that scripts can read it. The Conf column holds
-/// the confidence of the key and of the tempo, each as H, M or L for high,
-/// medium or low, or U for a value the user set. A terminal gets the table
-/// of [`crate::view`] instead.
+/// whatever the width, so that scripts can read it. A terminal gets the
+/// table of [`crate::view`] instead.
 pub fn write_plain_table(
     writer: &mut impl Write,
     results: &[FileResult],
-    user_edits: &UserEditsByFile,
     notation: KeyNotationChoice,
 ) -> io::Result<()> {
     if !results.iter().any(|result| result.outcome.is_ok()) {
         return Ok(());
     }
-    let header = [
-        "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
-    ];
-    let rows: Vec<[String; 8]> = results
+    let header = ["Key", "", "BPM", "Energy", "Quality", "Time", "File"];
+    let rows: Vec<[String; 7]> = results
         .iter()
         .filter_map(|result| {
             let analysis = result.outcome.as_ref().ok()?;
-            let correction = user_edits
-                .get(&result.path)
-                .and_then(|looked_up| looked_up.as_ref().ok())
-                .map(|edits| edits.correction);
-            let key_letter = match correction.and_then(|correction| correction.key) {
-                Some(_) => "U",
-                None => confidence_letter(analysis.key_confidence()),
-            };
-            let tempo_letter = match correction.and_then(|correction| correction.bpm) {
-                Some(_) => "U",
-                None => confidence_letter(analysis.tempo_confidence()),
-            };
             Some([
                 analysis
                     .key
@@ -575,7 +567,6 @@ pub fn write_plain_table(
                     .energy
                     .map(|energy| energy.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                format!("{key_letter}/{tempo_letter}"),
                 analysis
                     .quality
                     .as_ref()
@@ -596,26 +587,16 @@ pub fn write_plain_table(
 
     let header_cells = header.map(str::to_string);
     for row in std::iter::once(&header_cells).chain(&rows) {
-        let [
-            camelot,
-            key_name,
-            bpm,
-            energy,
-            confidence,
-            quality,
-            duration,
-            file,
-        ] = row;
+        let [camelot, key_name, bpm, energy, quality, duration, file] = row;
         writeln!(
             writer,
-            "{camelot:<camelot_width$}  {key_name:<key_name_width$}  {bpm:>bpm_width$}  {energy:>energy_width$}  {confidence:<confidence_width$}  {quality:<quality_width$}  {duration:>duration_width$}  {file}",
+            "{camelot:<camelot_width$}  {key_name:<key_name_width$}  {bpm:>bpm_width$}  {energy:>energy_width$}  {quality:<quality_width$}  {duration:>duration_width$}  {file}",
             camelot_width = widths[0],
             key_name_width = widths[1],
             bpm_width = widths[2],
             energy_width = widths[3],
-            confidence_width = widths[4],
-            quality_width = widths[5],
-            duration_width = widths[6],
+            quality_width = widths[4],
+            duration_width = widths[5],
         )?;
     }
     Ok(())
@@ -630,15 +611,6 @@ fn plain_verdict(verdict: QualityVerdict) -> &'static str {
         QualityVerdict::Acceptable => "Acceptable",
         QualityVerdict::WeakOnABigSystem => "Weak",
         QualityVerdict::LikelyReencoded => "Re-encoded?",
-    }
-}
-
-fn confidence_letter(confidence: Option<Confidence>) -> &'static str {
-    match confidence {
-        Some(Confidence::High) => "H",
-        Some(Confidence::Medium) => "M",
-        Some(Confidence::Low) => "L",
-        None => "-",
     }
 }
 
@@ -701,10 +673,9 @@ pub fn write_analysis_summary(
         let mut reasons = Vec::new();
         if narrowing.needs_review {
             reasons.push(if has_conflicts {
-                "a key or tempo rated low confidence or a key that differs from the tags"
-                    .to_string()
+                "a doubtful key or BPM or a key that differs from the tags".to_string()
             } else {
-                "a key or tempo rated low confidence".to_string()
+                "a doubtful key or BPM".to_string()
             });
         }
         if !narrowing.verdicts.is_empty() {
@@ -743,14 +714,13 @@ pub fn write_analysis_summary(
             })
             .count();
         if review_count == 0 {
-            writeln!(writer, "Key and tempo: no track is rated low confidence.")?;
+            writeln!(writer, "Key and tempo: no track is in doubt.")?;
         } else {
             writeln!(
                 writer,
-                "Key and tempo: {} of {} rated low confidence ({}), worth checking by ear.",
+                "Key and tempo: {} of {} worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.",
                 theme.bold(review_count),
                 counted(analyses.len(), "track", "tracks"),
-                theme.caution("●○○")
             )?;
             if !narrowing.needs_review {
                 hints.push(if has_conflicts {
@@ -1597,6 +1567,11 @@ fn round_to_tenths(value: f32) -> f32 {
     }
 }
 
+/// For values from 0 to 1, which cannot overflow when scaled.
+fn share_to_thousandths(value: f32) -> f32 {
+    (value * 1000.0).round() / 1000.0
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -1637,6 +1612,9 @@ mod tests {
                     key_score_margin: Some(0.02),
                     key_source: None,
                     loudness_range_lu: None,
+                    pitch_class_profile: Some([
+                        0.81234, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3,
+                    ]),
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
                     beat_grid: None,
@@ -1668,6 +1646,7 @@ mod tests {
                     key_score_margin: None,
                     key_source: None,
                     loudness_range_lu: None,
+                    pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
@@ -1784,15 +1763,14 @@ mod tests {
     #[test]
     fn the_plain_table_keeps_its_columns_for_scripts() {
         let expected = "\
-Key             BPM  Energy  Conf  Quality  Time  File
-8A   A minor  170.0       7  H/L   Weak     6:48  music/low tide.flac
--                 -       -  -/-   -        1:00  music/intro.wav
+Key             BPM  Energy  Quality  Time  File
+8A   A minor  170.0       7  Weak     6:48  music/low tide.flac
+-                 -       -  -        1:00  music/intro.wav
 ";
         assert_eq!(
             render(|writer, results| write_plain_table(
                 writer,
                 results,
-                &UserEditsByFile::new(),
                 KeyNotationChoice::Camelot,
             )),
             expected
@@ -1810,13 +1788,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
     fn the_plain_table_follows_the_key_notation() {
         let results = sample_results();
         let mut table = Vec::new();
-        write_plain_table(
-            &mut table,
-            &results,
-            &UserEditsByFile::new(),
-            KeyNotationChoice::Musical,
-        )
-        .unwrap();
+        write_plain_table(&mut table, &results, KeyNotationChoice::Musical).unwrap();
         let table = String::from_utf8(table).unwrap();
         let first_row = table.lines().nth(1).unwrap();
         let key = results[0].outcome.as_ref().unwrap().key.unwrap();
@@ -1833,13 +1805,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
             }),
         }];
         let mut table = Vec::new();
-        write_plain_table(
-            &mut table,
-            &failed,
-            &UserEditsByFile::new(),
-            KeyNotationChoice::Camelot,
-        )
-        .unwrap();
+        write_plain_table(&mut table, &failed, KeyNotationChoice::Camelot).unwrap();
         assert!(table.is_empty());
     }
 
@@ -1864,7 +1830,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
     }
 
     #[test]
-    fn values_the_user_set_are_marked_in_the_table_and_the_json() {
+    fn values_the_user_set_are_marked_in_the_json() {
         let results = sample_results();
         let mut user_edits = UserEditsByFile::new();
         user_edits.insert(
@@ -1874,17 +1840,6 @@ Key             BPM  Energy  Conf  Quality  Time  File
                 cues: None,
             }),
         );
-        let mut table = Vec::new();
-        write_plain_table(
-            &mut table,
-            &results,
-            &user_edits,
-            KeyNotationChoice::Camelot,
-        )
-        .unwrap();
-        let table = String::from_utf8(table).unwrap();
-        assert!(table.contains("H/U"), "{table}");
-
         let mut json = Vec::new();
         write_json(
             &mut json,
@@ -1974,7 +1929,7 @@ Key             BPM  Energy  Conf  Quality  Time  File
             analysis.quality = Some(good);
         }
         let expected = "\
-Key and tempo: 1 of 2 tracks rated low confidence (●○○), worth checking by ear.
+Key and tempo: 1 of 2 tracks worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.
 Sound quality: 1 track good, 1 weak on a big system.
 1 file could not be analyzed; the errors above say why.
 hint: --needs-review lists only the tracks to check by ear.
@@ -1994,7 +1949,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         let shown = summary(&sample_results(), &narrowing);
         assert!(
             shown.starts_with(
-                "Showing 1 of 2 tracks, those with a key or tempo rated low confidence and sound quality weak on a big system.\n"
+                "Showing 1 of 2 tracks, those with a doubtful key or BPM and sound quality weak on a big system.\n"
             ),
             "{shown}"
         );
@@ -2006,7 +1961,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         let results = &sample_results()[1..2];
         assert_eq!(
             summary(results, &Narrowing::default()),
-            "Key and tempo: no track is rated low confidence.\n"
+            "Key and tempo: no track is in doubt.\n"
         );
         assert_eq!(summary(&[], &Narrowing::default()), "");
     }
@@ -2054,6 +2009,13 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert_eq!(parsed[0]["duration_seconds"], 408.4);
         assert_eq!(parsed[0]["energy"], 7);
         assert_eq!(parsed[0]["tuning_cents"], -31.3);
+        assert_eq!(
+            parsed[0]["pitch_class_profile"],
+            serde_json::json!([
+                0.812, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3
+            ])
+        );
+        assert!(parsed[1]["pitch_class_profile"].is_null());
         assert_eq!(
             parsed[0]["key_timeline"],
             serde_json::json!([

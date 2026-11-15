@@ -185,7 +185,8 @@ impl EuphoriaApp {
         }
         let current = self
             .player
-            .track()
+            .pending_track()
+            .or(self.player.track())
             .and_then(|path| self.session.library().index_of(path))
             .or(self.selected);
         let current_row =

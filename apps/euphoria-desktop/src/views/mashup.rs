@@ -5,7 +5,7 @@
 //! and the tracks that layer over deck A's, with why, arrows to step through
 //! them, and the export.
 
-use euphoria_core::harmony::MashupReason;
+use euphoria_core::harmony::{MashupReason, StemPart};
 use euphoria_core::stems::Stem;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
@@ -15,7 +15,6 @@ use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
 use crate::decks::DeckMode;
 use crate::format;
-use crate::mashup::{INSTRUMENTAL_ONLY, VOCALS_ONLY};
 use crate::views::controls::choice_button;
 use crate::views::decks::{deck_part, fader, filter_controls, scope_buttons};
 use crate::views::key_chip::key_chip;
@@ -82,21 +81,17 @@ pub(crate) fn deck_controls(
     };
     let mut preset_row = None;
     if view.stem_files.is_some() {
-        let use_stems = view.use_stems;
-        let levels = view.stem_levels;
+        let playing = crate::mashup::part_of(view);
         let mut buttons = Vec::new();
-        for (position, (name, preset)) in [
-            ("Full", None),
-            ("Vocals", Some(VOCALS_ONLY)),
-            ("Instrumental", Some(INSTRUMENTAL_ONLY)),
+        for (position, (name, part)) in [
+            ("Full", StemPart::Full),
+            ("Vocals", StemPart::Vocals),
+            ("Instrumental", StemPart::Instrumental),
         ]
         .into_iter()
         .enumerate()
         {
-            let chosen = match preset {
-                None => !use_stems,
-                Some(preset) => use_stems && levels == preset,
-            };
+            let chosen = playing == Some(part);
             buttons.push(
                 choice_button(
                     ("deck-stem-preset", deck_number(deck) * 10 + position),
@@ -104,7 +99,7 @@ pub(crate) fn deck_controls(
                     chosen,
                     &palette,
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_deck_stems(deck, preset, cx)))
+                .on_click(cx.listener(move |this, _, _, cx| this.choose_deck_part(deck, part, cx)))
                 .test_support()
                 .into_any_element(),
             );

@@ -30,6 +30,9 @@ pub mod error;
 pub mod export;
 /// Starred tracks and marked transitions, kept with the playlists.
 pub mod favorites;
+/// A light audio fingerprint that recognises which track of a library is
+/// playing, and where in it.
+pub mod fingerprint;
 /// Key relations, ranking of the tracks that mix into another, and sets
 /// ordered along an energy curve.
 pub mod harmony;
@@ -38,9 +41,14 @@ pub mod key;
 pub mod key_engine;
 /// Finding audio files in folders.
 pub mod library;
+/// Reading the key, tempo and energy of the audio the computer is playing.
+pub mod live;
+/// Transitions the user placed by hand, which planning a mix keeps.
 pub mod locked_transitions;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
+/// How strongly each of the 12 notes sounds in a track.
+pub mod pitch_classes;
 /// The energy and stem levels the transition planner reads.
 pub mod plan_signals;
 /// Playlists the user builds, kept by the content of their files.
@@ -131,6 +139,9 @@ pub use library::{
     find_audio_files, is_supported_audio_file, scan_audio_files,
 };
 pub use locked_transitions::{BlendBars, LockedTransition, locked_blend};
+#[cfg(feature = "libkeyfinder")]
+pub use pitch_classes::pitch_class_profile;
+pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use euphoria_core::harmony::{
-    BpmRange, EnergyDirection, EnergyRange, MashupOptions, MixOptions, Relation,
+    BpmRange, EnergyDirection, EnergyRange, MashupOptions, MixOptions, Relation, StemPairing,
     next_tracks_favoring,
 };
 use euphoria_core::stems::StemFiles;
@@ -216,16 +216,7 @@ impl SuggestionFilter {
     /// ignoring case. A candidate without a genre is out of a pool narrowed
     /// by one.
     pub(crate) fn genre_fits(&self, genre: Option<&str>) -> bool {
-        let Some(wanted) = self
-            .genre
-            .as_deref()
-            .map(str::trim)
-            .filter(|wanted| !wanted.is_empty())
-        else {
-            return true;
-        };
-        let wanted = wanted.to_lowercase();
-        genre.is_some_and(|genre| genre.to_lowercase().contains(&wanted))
+        euphoria_core::harmony::genre_fits(self.genre.as_deref(), genre)
     }
 
     /// This filter with the fields of `typed` in place of its own, and the
@@ -429,6 +420,9 @@ pub(crate) struct Decks {
     pub(crate) idea_index: Option<usize>,
     /// The stems found in the cache, and how they sound.
     pub(crate) stem_library: StemLibrary,
+    /// Which decks the user set to a part by hand, so the other deck
+    /// follows only when it was not.
+    pub(crate) pairing: StemPairing,
     /// Where each deck's stem faders were last drawn.
     pub(crate) stem_fader_bounds: [[SeenBounds; 4]; 2],
     /// Counts loads, so a file opened after another was asked for is
@@ -505,6 +499,7 @@ impl Default for Decks {
             ideas: Vec::new(),
             idea_index: None,
             stem_library: StemLibrary::default(),
+            pairing: StemPairing::default(),
             stem_fader_bounds: Default::default(),
             load_generation: [0, 0],
             is_refreshing: false,
@@ -772,6 +767,8 @@ impl EuphoriaApp {
         view.use_stems = setup.stem_levels.is_some() && stem_files.is_some();
         view.stem_levels = setup.stem_levels.unwrap_or([1.0; 4]);
         view.stem_files = stem_files;
+        self.decks.pairing.load(crate::mashup::side_of(deck));
+        let view = self.decks.view_mut(deck);
         // A new mix for the new source: the old one may still be heard
         // fading out on the audio thread.
         view.stem_mix = Arc::new(StemMix::default());
