@@ -122,6 +122,12 @@ The inspector shows a **Stage** line under the key, tempo and energy, such as `S
 
 To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
 
+### Notes
+
+Under the key, tempo and energy (in the Deck theme, in a column of its own next to them), a strip of 12 bars shows how strongly each note sounds in the track, every octave together, from C to B. The notes of the key are lit in the key's colour and the others are grey, so a doubtful key can be checked by eye: the lit bars should be the tallest. The heading names the key in the notation you chose, and the note names follow its key signature, sharps for a key with sharps and flats for a key with flats. A key you set lights its own notes, which makes it easy to compare with the detected one. Pointing at the strip explains it. [Accuracy](../concepts/accuracy.md#reading-the-notes) shows how to read it, and why a minor key and its relative major are easily confused.
+
+A track analyzed before Euphoria measured notes shows one line instead: *Right-click the track and choose Analyze again to see its notes.* [Analyze tracks again](#analyze-tracks-again) measures them and keeps your corrections.
+
 ### Resize the columns
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.

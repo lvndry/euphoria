@@ -78,6 +78,8 @@ mod motion_ui_tests;
 mod next_rail;
 #[cfg(test)]
 mod next_rail_ui_tests;
+#[cfg(test)]
+mod note_strip_ui_tests;
 mod output_stream;
 mod palette_flow;
 mod panels;

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="230" viewBox="0 0 800 230" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<title id="chart-title">A minor and C major light the same notes</title>
+<desc id="chart-desc">Two copies of the same note strip of a made up track whose loudest notes are A, E and C. The first lights the notes of A minor, the second those of C major: the same seven notes, A B C D E F G. Only the tonic differs, A or C. Here A is the tallest bar, which points to A minor.</desc>
+<style>
+.surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
+.title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 13px; }
+.label { fill: #52514e; font-size: 13px; }
+.note { fill: #898781; font-size: 12px; }
+.note-lit { fill: #0b0b0b; font-size: 12px; font-weight: 600; }
+.lit { fill: #2a78d6; }
+.unlit { fill: #d9d8d2; }
+.tonic { fill: none; stroke: #0b0b0b; stroke-width: 1.5; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; stroke: rgba(255,255,255,0.10); }
+  .title, .note-lit { fill: #f0efec; }
+  .subtitle, .label { fill: #c3c2b7; }
+  .note { fill: #898781; }
+  .lit { fill: #8fbcf2; }
+  .unlit { fill: #383835; }
+  .tonic { stroke: #f0efec; }
+}
+</style>
+<rect x="0.5" y="0.5" width="799" height="229" rx="12" class="surface"/>
+<text x="24" y="36" class="title" text-anchor="start">A minor and C major light the same notes</text>
+<text x="24" y="58" class="subtitle" text-anchor="start">One track, two readings. The lit bars are the notes of the key; the outlined bar is its tonic.</text>
+<text x="24" y="96" class="label" text-anchor="start">A minor (8A)</text>
+<rect x="24" y="129.6" width="20" height="62.4" rx="4" class="lit"/>
+<text x="34" y="212" class="note-lit" text-anchor="middle">C</text>
+<rect x="52" y="174.4" width="20" height="17.6" rx="4" class="unlit"/>
+<text x="62" y="212" class="note" text-anchor="middle">C#</text>
+<rect x="80" y="148" width="20" height="44" rx="4" class="lit"/>
+<text x="90" y="212" class="note-lit" text-anchor="middle">D</text>
+<rect x="108" y="176" width="20" height="16" rx="4" class="unlit"/>
+<text x="118" y="212" class="note" text-anchor="middle">Eb</text>
+<rect x="136" y="126.4" width="20" height="65.6" rx="4" class="lit"/>
+<text x="146" y="212" class="note-lit" text-anchor="middle">E</text>
+<rect x="164" y="152" width="20" height="40" rx="4" class="lit"/>
+<text x="174" y="212" class="note-lit" text-anchor="middle">F</text>
+<rect x="192" y="172.8" width="20" height="19.2" rx="4" class="unlit"/>
+<text x="202" y="212" class="note" text-anchor="middle">F#</text>
+<rect x="220" y="144" width="20" height="48" rx="4" class="lit"/>
+<text x="230" y="212" class="note-lit" text-anchor="middle">G</text>
+<rect x="248" y="172" width="20" height="20" rx="4" class="unlit"/>
+<text x="258" y="212" class="note" text-anchor="middle">Ab</text>
+<rect x="276" y="112" width="20" height="80" rx="4" class="lit"/>
+<rect x="273" y="109" width="26" height="86" rx="6" class="tonic"/>
+<text x="286" y="212" class="note-lit" text-anchor="middle">A</text>
+<rect x="304" y="176" width="20" height="16" rx="4" class="unlit"/>
+<text x="314" y="212" class="note" text-anchor="middle">Bb</text>
+<rect x="332" y="150.4" width="20" height="41.6" rx="4" class="lit"/>
+<text x="342" y="212" class="note-lit" text-anchor="middle">B</text>
+<text x="416" y="96" class="label" text-anchor="start">C major (8B)</text>
+<rect x="416" y="129.6" width="20" height="62.4" rx="4" class="lit"/>
+<rect x="413" y="126.6" width="26" height="68.4" rx="6" class="tonic"/>
+<text x="426" y="212" class="note-lit" text-anchor="middle">C</text>
+<rect x="444" y="174.4" width="20" height="17.6" rx="4" class="unlit"/>
+<text x="454" y="212" class="note" text-anchor="middle">C#</text>
+<rect x="472" y="148" width="20" height="44" rx="4" class="lit"/>
+<text x="482" y="212" class="note-lit" text-anchor="middle">D</text>
+<rect x="500" y="176" width="20" height="16" rx="4" class="unlit"/>
+<text x="510" y="212" class="note" text-anchor="middle">Eb</text>
+<rect x="528" y="126.4" width="20" height="65.6" rx="4" class="lit"/>
+<text x="538" y="212" class="note-lit" text-anchor="middle">E</text>
+<rect x="556" y="152" width="20" height="40" rx="4" class="lit"/>
+<text x="566" y="212" class="note-lit" text-anchor="middle">F</text>
+<rect x="584" y="172.8" width="20" height="19.2" rx="4" class="unlit"/>
+<text x="594" y="212" class="note" text-anchor="middle">F#</text>
+<rect x="612" y="144" width="20" height="48" rx="4" class="lit"/>
+<text x="622" y="212" class="note-lit" text-anchor="middle">G</text>
+<rect x="640" y="172" width="20" height="20" rx="4" class="unlit"/>
+<text x="650" y="212" class="note" text-anchor="middle">Ab</text>
+<rect x="668" y="112" width="20" height="80" rx="4" class="lit"/>
+<text x="678" y="212" class="note-lit" text-anchor="middle">A</text>
+<rect x="696" y="176" width="20" height="16" rx="4" class="unlit"/>
+<text x="706" y="212" class="note" text-anchor="middle">Bb</text>
+<rect x="724" y="150.4" width="20" height="41.6" rx="4" class="lit"/>
+<text x="734" y="212" class="note-lit" text-anchor="middle">B</text>
+</svg>
