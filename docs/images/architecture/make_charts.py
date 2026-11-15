@@ -40,7 +40,7 @@ CORE_MODULE_GROUPS = [
 # crates/euphoria-core/Cargo.toml and its build.rs, with a second line saying
 # what for. Tags are read and written by the crate's own code.
 CORE_LIBRARIES = [
-    ("libkeyfinder", "key, C++, optional"),
+    ("matrixmultiply", "the drone-v2 key network"),
     ("stratum-dsp", "tempo"),
     ("Symphonia", "decoding"),
     ("blake3", "content hashes for the cache"),
@@ -193,8 +193,7 @@ def crates_diagram():
     description = (
         f"Three crates, {front_end_names}, each point down to euphoria-core, and none to another. "
         f"euphoria-core, in {CORE_FOLDER}, holds all product logic in its modules. {module_lines}. "
-        f"Its main libraries are {library_names}; libkeyfinder, a C++ library, is drawn dashed because "
-        "it is behind the optional libkeyfinder feature, on by default."
+        f"Its main libraries are {library_names}."
     )
     return document(width, height, title, description, body)
 

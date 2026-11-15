@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use euphoria_core::detect::{KeyFinderDetector, StratumDetector};
+use euphoria_core::detect::{DroneDetector, StratumDetector};
 use euphoria_core::shift::PitchShifter;
 use euphoria_core::{AudioBuffer, Key, TempoRange, decode_mono};
 use rayon::prelude::*;
@@ -80,7 +80,7 @@ fn shift_mono(audio: &AudioBuffer, semitones: i8) -> Result<AudioBuffer> {
 }
 
 fn key_and_tempo(audio: &AudioBuffer) -> Result<(Option<Key>, Option<f64>)> {
-    let key = KeyFinderDetector
+    let key = DroneDetector
         .read_key(audio)
         .map_err(|error| anyhow::anyhow!(error.chain()))?
         .key;

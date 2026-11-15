@@ -144,22 +144,6 @@ fn drop_short_sections(path: &mut [usize], track_key: usize, minimum_windows: us
     }
 }
 
-/// The key whose scores add up to the most over every window, or `None`
-/// when no key scores above zero.
-#[cfg(feature = "libkeyfinder")]
-pub(crate) fn highest_total<const KEY_COUNT: usize>(
-    window_scores: &[[f64; KEY_COUNT]],
-) -> Option<usize> {
-    let mut totals = [0.0; KEY_COUNT];
-    for scores in window_scores {
-        for (total, score) in totals.iter_mut().zip(scores) {
-            *total += score;
-        }
-    }
-    let best = best_index(&totals);
-    (totals[best] > 0.0).then_some(best)
-}
-
 /// The index of the highest value, the first one among equals.
 pub(crate) fn best_index<const KEY_COUNT: usize>(values: &[f64; KEY_COUNT]) -> usize {
     let mut best = 0;
@@ -377,14 +361,5 @@ mod tests {
             runs(&[Some(1), Some(1), None, Some(1)]),
             [(0..2, Some(1)), (2..3, None), (3..4, Some(1))]
         );
-    }
-
-    #[cfg(feature = "libkeyfinder")]
-    #[test]
-    fn the_highest_total_wins_the_vote_and_silence_has_no_winner() {
-        let scores = [[0.8, 0.5, 0.5], [0.5, 0.7, 0.5], [0.5, 0.7, 0.5]];
-        assert_eq!(highest_total(&scores), Some(1));
-        assert_eq!(highest_total(&[[0.0; 3]; 4]), None);
-        assert_eq!(highest_total::<3>(&[]), None);
     }
 }
