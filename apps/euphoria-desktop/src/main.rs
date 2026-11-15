@@ -68,6 +68,7 @@ mod media_keys_flow;
 mod media_keys_macos;
 #[cfg(test)]
 mod media_keys_ui_tests;
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 mod menu_bar;
 #[cfg(target_os = "macos")]
 mod menu_bar_macos;

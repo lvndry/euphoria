@@ -87,7 +87,7 @@ fn install_menu_bar(model: &Entity<LiveModel>, cx: &mut App) {
         cx.global_mut::<LiveRuntime>().menu_bar = true;
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = model;
+    let _ = (model, cx);
 }
 
 fn panel_options(cx: &App) -> WindowOptions {
