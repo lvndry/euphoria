@@ -7003,6 +7003,21 @@ fn looks_right_keeps_the_detected_values_and_settles_the_doubt(cx: &mut TestAppC
 
     assert!(reasons_of(&view, 3, cx).is_empty());
     assert_eq!(review_counts(&view, cx), (4, 4));
+    assert!(
+        !is_shown(window, "key-confidence", cx) && !is_shown(window, "tempo-confidence", cx),
+        "a value checked with Looks right no longer says it needs review"
+    );
+}
+
+#[gpui::test]
+fn a_low_confidence_value_says_it_is_to_review(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 3, cx);
+    assert!(is_shown(window, "tempo-confidence", cx));
+    assert_eq!(
+        crate::views::inspector::confidence_text(euphoria_core::Confidence::Low),
+        "to review"
+    );
 }
 
 #[gpui::test]

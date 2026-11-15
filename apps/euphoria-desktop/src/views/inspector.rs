@@ -613,6 +613,8 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
 
     let key_trust = match (correction.key, key_confidence) {
         (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
+        // Checked with "Looks right": nothing is left to review.
+        (None, Some(Confidence::Low)) if correction.key_confirmed => None,
         (None, Some(confidence)) => Some(confidence_word(
             "Key",
             "key-confidence",
@@ -623,6 +625,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     };
     let tempo_trust = match (correction.bpm, tempo_confidence) {
         (Some(_), _) => Some(set_by_you("tempo-set-by-you", "tempo", palette)),
+        (None, Some(Confidence::Low)) if correction.bpm_confirmed => None,
         (None, Some(confidence)) => Some(confidence_word(
             "BPM",
             "tempo-confidence",
@@ -786,6 +789,14 @@ fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
         .child(text.into())
 }
 
+/// The word under a detected value: a low one is something to review.
+pub(crate) fn confidence_text(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::Low => "to review",
+        other => other.as_str(),
+    }
+}
+
 /// How far to trust a detected value, in a word, explained on hover.
 fn confidence_word(
     label: &'static str,
@@ -806,16 +817,17 @@ fn confidence_word(
         Confidence::Low => (
             palette.warning,
             format!(
-                "{label} confidence: low. Check it by ear; the track is listed under Needs review."
+                "{label} confidence: low. Check it by ear, then choose Looks right or correct it; the track is listed under Needs review until then."
             )
             .into(),
         ),
     };
+    let word = confidence_text(confidence);
     div()
         .id(id)
         .whitespace_nowrap()
         .text_color(colour)
-        .child(confidence.as_str())
+        .child(word)
         .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
         .test_support()
         .into_any_element()
