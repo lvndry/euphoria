@@ -82,6 +82,8 @@ mod output_stream;
 mod palette_flow;
 mod panels;
 mod peaks;
+#[cfg(test)]
+mod piano_ui_tests;
 mod planner_candidates;
 mod planner_playback;
 #[cfg(test)]
