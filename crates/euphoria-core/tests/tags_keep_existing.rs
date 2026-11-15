@@ -14,7 +14,7 @@ use euphoria_core::tags::{
     TagWriteOptions, TextChange, WriteLog, WrittenValues, apply_plan, plan_edit, plan_write,
     plan_write_with_history, read_tags,
 };
-use euphoria_core::{Confidence, Key, Mode};
+use euphoria_core::{Confidence, Correction, Key, Mode};
 
 fn scratch(test: &str) -> PathBuf {
     let folder = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("keep-existing-{test}"));
@@ -299,4 +299,36 @@ fn a_low_confidence_value_is_left_out_and_a_correction_is_written() {
             .skipped()
             .is_empty()
     );
+}
+
+#[test]
+fn a_confirmed_low_confidence_key_and_tempo_are_written_and_an_unconfirmed_one_is_skipped() {
+    let path = track(&scratch("confirmed"));
+    let low = TagValues {
+        key_confidence: Some(Confidence::Low),
+        bpm_confidence: Some(Confidence::Low),
+        ..a_minor(75.0)
+    };
+
+    let unconfirmed = low.with_confirmations(&Correction::default());
+    let plan = plan_write(&path, unconfirmed, &safe()).unwrap();
+    assert_eq!(plan.skipped().len(), 2);
+
+    let key_only = low.with_confirmations(&Correction::default().confirming_key());
+    let plan = plan_write(&path, key_only, &safe()).unwrap();
+    let lines: Vec<String> = plan
+        .skipped()
+        .iter()
+        .map(|skipped| skipped.describe())
+        .collect();
+    assert_eq!(lines, ["tempo not written (rated low confidence)"]);
+    assert!(plan.changes().iter().any(|change| change.field == "TKEY"));
+
+    let both = low.with_confirmations(&Correction::default().confirming_key().confirming_bpm());
+    let plan = plan_write(&path, both, &safe()).unwrap();
+    assert!(plan.skipped().is_empty());
+    apply_plan(&plan).unwrap();
+    let tags = read_tags(&path).unwrap();
+    assert_eq!(tags.key.as_deref(), Some("8A"));
+    assert_eq!(tags.bpm.as_deref(), Some("75"));
 }

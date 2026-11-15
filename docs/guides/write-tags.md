@@ -40,7 +40,7 @@ Earlier versions replaced the key and tempo of every file with what the analysis
 | Before | Now | To get the old behaviour back |
 | --- | --- | --- |
 | A key and tempo already in the file were replaced. | A key or tempo that can be read is kept, and the preview says `key kept (already tagged 8A)`. | `--overwrite` |
-| Keys and tempos rated low confidence were written. | They are left out, and the preview says `key not written (rated low confidence)`. A key or tempo you corrected counts as high confidence and is always written. | `--include-low-confidence` |
+| Keys and tempos rated low confidence were written. | They are left out, and the preview says `key not written (rated low confidence)`. A key or tempo you corrected, or confirmed with **Looks right**, counts as high confidence and is always written. | `--include-low-confidence` |
 | The `8A - Energy 7` label went in front of every comment. | The `generic` preset writes no label. The DJ presets (`rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj`, `mixxx`) keep writing it at the start of the comment. | `--label comment-start` |
 | Writing went ahead while a DJ program was running. | Euphoria warns, and the command needs `--yes` to go on. | `--yes` |
 
@@ -68,7 +68,7 @@ Writing again never adds a second label. When the key or the energy changed, for
 
 Only text that has exactly the form of a label counts as one: a Camelot code (`8A`), an energy rating (`Energy 7`), or a key followed by an energy rating (`8A - Energy 7`, `Am - Energy 7`, `1m - Energy 7`), at the very start of the comment and followed by ` - ` or by nothing. Everything else is your own text and is kept, including comments such as `A - side`, `Am - my favourite`, `8A-side remix` and `High Energy 7`. A comment of your own that begins with a bare Camelot code and ` - `, such as `8A - my note`, cannot be told apart from a label, and its `8A` is replaced by the new label.
 
-In the desktop app, **Settings > Writing tags** shows a box titled **In your files** at the top of the options, and keeps it in view while you scroll them. It shows, for the selected track or a built-in example, the fields that would change and where the label ends up, and it updates as soon as you change the program, the label place, the tempo, the replace and low confidence choices or the cue markers. A row an option turns off stays, struck out, such as "BPM · not written". A line under it, **Would change in your library: 12 of 18 files**, counts the files of your library the same choices would change. It is the same plan **Write tags** shows, so a key a file already has appears as "kept (already tagged 8A)" when replacing is off. Nothing is written from it.
+In the desktop app, **Settings > Writing tags** shows a box titled **In your files** at the top of the options, and keeps it in view while you scroll them. It shows, for the selected track or a built-in example (when the selected track's file is missing, it shows the example, captioned "Example (the selected track's file is missing)"), the fields that would change and where the label ends up, and it updates as soon as you change the program, the label place, the tempo, the replace and low confidence choices or the cue markers. A row an option turns off stays, struck out, such as "BPM · not written". A line under it, **Would change in your library: 12 of 18 files**, counts the files of your library the same choices would change. It is the same plan **Write tags** shows, so a key a file already has appears as "kept (already tagged 8A)" when replacing is off. Nothing is written from it.
 
 The key notation is the one choice under **Settings > Key notation**, shared with the table and the exports; `--key-notation` sets it for one command. The **Write tags** preview in the app lists the rules in use, such as "Keys already in files are kept", and its button says how many files it writes, such as **Write tags to 18 files**.
 
@@ -146,7 +146,7 @@ It is on by default, because a key or tempo in the file is what DJ programs read
 When it is on, each newly analyzed track goes through the same planning and writing as **Write tags**, so every safe default above applies:
 
 - A key or tempo the file already has is kept, unless **Keep keys and tempos already in files** is off. A value Euphoria wrote earlier is still updated.
-- A key or tempo rated low confidence is left out, unless **Write low confidence values** is on. A key or tempo you corrected counts as high confidence, and a correction you make is written the same way.
+- A key or tempo rated low confidence is left out, unless **Write low confidence values** is on. A key or tempo you corrected, or confirmed with **Looks right**, counts as high confidence, and a correction you make is written the same way.
 - Your DJ program and key notation, the energy label place and the tempo choice are respected.
 - Every write is logged with its backups, so the toast's **Undo**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. An automatic write is undone as one write per batch, and each batch ends with its own toast, which replaces the one before.
 

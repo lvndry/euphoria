@@ -61,18 +61,7 @@ pub(crate) fn clamp_bpm(bpm: f32) -> f32 {
     ((bpm.clamp(MINIMUM_BPM, MAXIMUM_BPM) * 10.0).round() / 10.0).clamp(MINIMUM_BPM, MAXIMUM_BPM)
 }
 
-/// The tempo typed in the field, or `None` when it is not a number from
-/// [`MINIMUM_BPM`] to [`MAXIMUM_BPM`]. A comma or a point both start the
-/// decimals, so "127,5" and "127.5" read alike. The tempo is rounded to a
-/// tenth.
-pub(crate) fn parse_bpm(text: &str) -> Option<f32> {
-    let typed = text.trim().replace(',', ".");
-    let bpm: f32 = typed.parse().ok()?;
-    if !bpm.is_finite() || !(MINIMUM_BPM..=MAXIMUM_BPM).contains(&bpm) {
-        return None;
-    }
-    Some(clamp_bpm(bpm))
-}
+pub(crate) use euphoria_core::track_filter::parse_bpm;
 
 /// The sounds the metronome can click with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

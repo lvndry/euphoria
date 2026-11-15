@@ -29,6 +29,9 @@ pub(crate) enum PreviewSource {
     SelectedTrack,
     /// A built-in track: 8A, 128 beats per minute, energy 7.
     Example,
+    /// The built-in track, because the selected track's file cannot be
+    /// read.
+    ExampleForMissingFile,
 }
 
 impl PreviewSource {
@@ -37,6 +40,9 @@ impl PreviewSource {
         match self {
             PreviewSource::SelectedTrack => "Selected track",
             PreviewSource::Example => "Example",
+            PreviewSource::ExampleForMissingFile => {
+                "Example (the selected track's file is missing)"
+            }
         }
     }
 }
@@ -410,24 +416,29 @@ pub(crate) struct PreviewInput {
 }
 
 impl PreviewInput {
-    /// The selected track, when it has an analysis, and the example
-    /// otherwise.
+    /// The selected track, when it has an analysis and its file can be
+    /// read, and the example otherwise.
     pub(crate) fn choose(selected: Option<WriteTarget>) -> Option<Self> {
-        match selected.filter(|target| target.analysis.is_some()) {
-            Some(target) => Some(Self {
-                source: PreviewSource::SelectedTrack,
-                target,
-            }),
-            None => Some(Self {
-                source: PreviewSource::Example,
-                target: WriteTarget {
-                    path: example_file()?,
-                    analysis: Some(example_analysis()),
-                    correction: Default::default(),
-                    edited_cues: None,
-                },
-            }),
-        }
+        let selected = selected.filter(|target| target.analysis.is_some());
+        let source = match &selected {
+            Some(target) if std::fs::File::open(&target.path).is_ok() => {
+                return Some(Self {
+                    source: PreviewSource::SelectedTrack,
+                    target: selected?,
+                });
+            }
+            Some(_) => PreviewSource::ExampleForMissingFile,
+            None => PreviewSource::Example,
+        };
+        Some(Self {
+            source,
+            target: WriteTarget {
+                path: example_file()?,
+                analysis: Some(example_analysis()),
+                correction: Default::default(),
+                edited_cues: None,
+            },
+        })
     }
 }
 
