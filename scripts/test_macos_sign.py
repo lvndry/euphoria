@@ -36,8 +36,8 @@ class SigningOrderTests(unittest.TestCase):
         self.bundle = self.folder / "Euphoria.app"
         for relative in (
             "Contents/MacOS/Euphoria",
-            "Contents/Frameworks/libkeyfinder.dylib",
-            "Contents/Frameworks/libfftw3.dylib",
+            "Contents/Frameworks/libfirst.dylib",
+            "Contents/Frameworks/libsecond.dylib",
             "Contents/Frameworks/Helper.framework/Versions/A/Helper",
             "Contents/Helpers/tool",
         ):
@@ -79,7 +79,7 @@ class SigningOrderTests(unittest.TestCase):
             self.assertEqual(call[:-1], ["--force", "--sign", "-", "--timestamp=none"])
 
     def test_files_are_signed_in_the_order_given(self):
-        first = self.bundle / "Contents/Frameworks/libkeyfinder.dylib"
+        first = self.bundle / "Contents/Frameworks/libfirst.dylib"
         second = self.bundle / "Contents/MacOS/Euphoria"
         calls = self.run_script("files", "--identity", "-", str(first), str(second))
         self.assertEqual([call[-1] for call in calls], [str(first), str(second)])

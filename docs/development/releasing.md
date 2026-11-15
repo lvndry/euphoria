@@ -39,10 +39,10 @@ The workflow works the number out itself from the date and the existing tags, wi
 1. **Check and choose the version** (Linux runner). Stops unless it was started by the owner on `main`, and unless CI passed on that commit. Works out the next version and the previous tag, and stops if the tag exists already.
 2. **Build for macOS** (`macos-15`, Apple Silicon). Sets the version in every crate's `Cargo.toml`, in the workspace's dependency on `euphoria-core` and in `Cargo.lock`, with `scripts/release/set_version.py`, and checks that `Cargo.lock` still matches. Then it builds:
    - `Euphoria-<version>.dmg`, with `scripts/bundle-macos.sh`.
-   - `euphoria-<version>-aarch64-apple-darwin.tar.gz`, with `scripts/release/package-cli.sh`: the command line tool in `bin/`, libkeyfinder and FFTW in `lib/`, the licence, the licences of the vendored Signalsmith libraries in `licenses/`, and the README. It runs from wherever it is unpacked, and a Homebrew formula can install `bin/` and `lib/` as they are.
+   - `euphoria-<version>-aarch64-apple-darwin.tar.gz`, with `scripts/release/package-cli.sh`: the command line tool in `bin/`, any library it links from outside macOS in `lib/` (none today), the licence, the licences of the vendored Signalsmith libraries in `licenses/`, and the README. It runs from wherever it is unpacked, and a Homebrew formula can install `bin/` and `lib/` as they are.
    - `Euphoria.dmg`, the same disk image under a name without the version.
    - `SHA256SUMS`, the SHA-256 checksum of each file.
-3. **Build for Linux** (`ubuntu-22.04`, x86_64), at the same time as the macOS build. Sets the version the same way, installs libkeyfinder from source with `.github/scripts/install-linux-dependencies.sh`, and builds:
+3. **Build for Linux** (`ubuntu-22.04`, x86_64), at the same time as the macOS build. Sets the version the same way, installs the system libraries and ONNX Runtime with `.github/scripts/install-linux-dependencies.sh`, and builds:
    - `Euphoria-<version>-x86_64.AppImage`, with `scripts/bundle-linux.sh`.
    - `euphoria-<version>-x86_64-unknown-linux-gnu.tar.gz`, with `scripts/release/package-cli.sh`: the same layout as the macOS tarball, with the run path `$ORIGIN/../lib`.
    - `Euphoria-x86_64.AppImage`, the same AppImage under a name without the version.
@@ -102,7 +102,7 @@ The Linux files are built for x86_64. An arm64 build would work the same way, si
 
 ## Apple Silicon only
 
-The release is built for Apple Silicon. A build for Intel Macs would need libkeyfinder and FFTW built for Intel too, which Homebrew on the Apple Silicon runners does not provide, and a universal binary would need both. Apple no longer sells Intel Macs. The app needs at least the macOS version of the runner, because Homebrew builds its libraries for the macOS it runs on; the release notes and the app's `Info.plist` say which.
+The release is built for Apple Silicon. Apple no longer sells Intel Macs. The release notes and the app's `Info.plist` give the oldest macOS it runs on.
 
 ## Signing and notarization
 
@@ -130,7 +130,7 @@ Notarizing needs an active Apple Developer Program membership at the time of eve
 **The app: none.** It is signed with the hardened runtime and no entitlements file, because nothing needs an exception:
 
 - No JIT and no unsigned executable memory: ONNX Runtime is linked statically and runs its kernels as compiled code, and nothing generates code at run time.
-- Library validation passes: libkeyfinder, FFTW and the other dylibs are re-signed with the same Developer ID as the app, so they are loaded by a binary of the same team. The Homebrew cask copies the app as it is.
+- Library validation passes: the app links no library from outside macOS, and any dylib a future build bundles is re-signed with the same Developer ID as the app, so it is loaded by a binary of the same team. The Homebrew cask copies the app as it is.
 - No audio input: the app only plays audio, so `com.apple.security.device.audio-input` is not needed.
 - No App Sandbox: it is not distributed through the Mac App Store.
 

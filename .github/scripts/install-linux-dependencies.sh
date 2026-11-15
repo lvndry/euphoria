@@ -2,20 +2,19 @@
 # Copyright 2026 The Euphoria contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Installs the packages the Linux build and packaging need, then libkeyfinder
-# and the ONNX Runtime the stem separation links. The package mirrors are
-# sometimes unreachable for a minute, so each network step is retried with a
-# growing pause before the job is failed.
+# Installs the packages the Linux build and packaging need, then the ONNX
+# Runtime the stem separation links. The package mirrors are sometimes
+# unreachable for a minute, so each network step is retried with a growing
+# pause before the job is failed.
 set -euo pipefail
 
 attempts=5
 
-# cmake, FFTW and pkg-config build libkeyfinder and the core. The desktop app
-# adds the libraries GPUI's X11 and Wayland back ends and cpal's ALSA output
-# link against, and libclang for the bindings of the time stretcher. patchelf
-# and rsvg-convert package the AppImage.
+# pkg-config finds the libraries GPUI's X11 and Wayland back ends and cpal's
+# ALSA output link against, libclang makes the bindings of the time
+# stretcher, and patchelf and rsvg-convert package the AppImage.
 packages=(
-  cmake libfftw3-dev pkg-config
+  pkg-config
   libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev
   libx11-xcb-dev libxkbcommon-x11-dev libclang-dev
   patchelf librsvg2-bin
@@ -59,7 +58,6 @@ if [[ "${EUPHORIA_APT_PACKAGES_INSTALLED:-}" != "1" ]]; then
   retry update_package_lists
   retry sudo apt-get install -y -o Acquire::Retries=3 "${packages[@]}"
 fi
-retry "$(dirname "$0")/install-libkeyfinder.sh"
 
 # The stem separation links the ONNX Runtime that the ort crate downloads,
 # pyke's prebuilt libonnxruntime.a, which was built with GCC 13 and asks

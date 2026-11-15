@@ -822,7 +822,7 @@ To get an application you can keep in the Dock and put in Applications, build an
 open target/release/bundle/Euphoria.app
 ```
 
-The script builds the app in release mode, makes the icon from `assets/logo`, copies libkeyfinder and FFTW into the bundle so it runs without Homebrew, signs it (ad hoc by default, with a Developer ID when `EUPHORIA_SIGN_IDENTITY` is set), and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
+The script builds the app in release mode, makes the icon from `assets/logo`, signs it (ad hoc by default, with a Developer ID when `EUPHORIA_SIGN_IDENTITY` is set), and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
 
 ## Try it without music
 

@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Packages the euphoria command line tool as a tarball that runs on a Mac
-# without Homebrew, or on Linux without libkeyfinder and FFTW installed:
+# without Homebrew, or on Linux without the ONNX Runtime installed:
 #
 #   ./scripts/release/package-cli.sh <output folder>
 #
 # Builds the CLI in release mode and writes
 # <output folder>/euphoria-<version>-<target>.tar.gz, holding one folder of
-# the same name with bin/euphoria, lib/ with libkeyfinder and FFTW, the
+# the same name with bin/euphoria, lib/ with the libraries it links that are
+# not part of the system (the ONNX Runtime on Linux, none on macOS), the
 # licence and the README. The executable finds its libraries through the run
 # path @executable_path/../lib on macOS and $ORIGIN/../lib on Linux, so the
 # folder can be unpacked anywhere. A Homebrew formula can install bin/ and

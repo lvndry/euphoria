@@ -26,7 +26,7 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 | | Key exact | Key MIREX score | Tempo Accuracy 1 | Tempo Accuracy 2 | CPU seconds per track |
 | --- | --- | --- | --- | --- | --- |
 | drone-v2, key | 69.9% | 75.4% | | | 0.31 |
-| libkeyfinder with tuning correction, key | 60.6% | 69.4% | | | 0.27 |
+| libkeyfinder with tuning correction, key (no longer shipped) | 60.6% | 69.4% | | | 0.27 |
 | stratum-dsp, key | 30.6% | 45.4% | | | 2.39 |
 | stratum-dsp, tempo | | | 85.8% | 94.3% | 0.38 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
@@ -152,7 +152,7 @@ Using libkeyfinder's key when the network is unsure was tried, with the threshol
 
 The network and the spectrogram run inside Euphoria in plain Rust, with no inference library, GPU or download: the weights, 441 KB, are compiled into the program. The Rust spectrogram reproduces drone's own Python code, which uses librosa: given the same audio, the features differ by at most 0.002 (one step of the 16 bit floats drone stores them in) and the key probabilities by at most 0.00001, and all 604 keys are identical. Through Euphoria's own decoder all 604 keys also agree with drone's, which decodes with ffmpeg, though the probabilities move by up to 0.07, since the two decoders do not give exactly the same samples. The scores above are Euphoria's, and they equal those of drone's Python package on the same files.
 
-`--key-engine` on the [command line](../reference/cli.md#options) chooses the detector: `auto`, the default, as described here; `drone`, the same; or `keyfinder`, libkeyfinder alone, as before. Audio shorter than the 1.5 seconds the network reads at least is read followed by silence. On one second excerpts of the previews that gives the exact key for 43.9%, against 26.8% for libkeyfinder, which `auto` used for such audio before; the [per genre table](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md#without-libkeyfinder) has every genre.
+drone-v2 is the only key detector Euphoria ships; libkeyfinder, which it used before, was removed once drone-v2 and Euphoria's own note spectrum measured as good or better, within chance in every genre, at each part libkeyfinder still had: the key over time, the pitch-class profile and the key of very short audio. Audio shorter than the 1.5 seconds the network reads at least is read followed by silence. On one second excerpts of the previews that gives the exact key for 43.9%, against 26.8% for libkeyfinder, which `auto` used for such audio before; the [per genre table](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md#without-libkeyfinder) has every genre.
 
 ### What the benchmark does and does not show
 
@@ -279,7 +279,7 @@ drone-v2 gives every key a probability, and the confidence is how far the probab
 
 On the half the edges were set on, the bands are right 90.9%, 67.2% and 40.7% of the time. Low is what to check by ear: about one of those keys in four is right. Of the 182 previews whose drone-v2 key is wrong, the runner up is the annotated key for 66, so the key or its runner up is right for 80.8% of the previews.
 
-The rest of this section describes libkeyfinder's confidence, which `--key-engine keyfinder` uses.
+The rest of this section describes the confidence of libkeyfinder, which Euphoria used before drone-v2 and no longer ships. Analyses stored by those versions are still rated on its scale until they are analyzed again.
 
 libkeyfinder scores every one of the 24 keys against a track, and the key is the best score. The confidence is how far that score is above the runner up's: when two keys score almost the same, the detector had little to choose between them. Of the measures tried, this margin separated right keys from wrong ones best (on the first half of the previews, a right key has the larger margin 70% of the time), better than the score of the key itself (58%).
 
@@ -348,7 +348,7 @@ The tuning is used: a track measured at least 20 cents off is analyzed as if it 
 
 | On the 604 previews | Exact | Fifth | Relative | Parallel | Other | MIREX score | CPU seconds per track | Tracks scored higher | Tracks scored lower |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| libkeyfinder with tuning correction, as Euphoria uses it | 60.6% | 11.3% | 6.8% | 5.5% | 15.9% | 69.4% | 0.26 | | |
+| libkeyfinder with tuning correction, as Euphoria used it | 60.6% | 11.3% | 6.8% | 5.5% | 15.9% | 69.4% | 0.26 | | |
 | Without tuning correction | 60.4% | 11.1% | 6.5% | 5.6% | 16.4% | 69.0% | 0.23 | 0 | 4 |
 | With a vote between sections | 60.9% | 11.3% | 7.0% | 5.5% | 15.4% | 69.7% | 0.26 | 8 | 7 |
 

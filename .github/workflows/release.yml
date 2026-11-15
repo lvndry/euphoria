@@ -126,9 +126,8 @@ jobs:
   build:
     name: Build for macOS
     needs: prepare
-    # macos-15 runs on Apple Silicon. Intel is left out: Homebrew on these
-    # runners provides libkeyfinder and FFTW for arm64 only, and Apple sells
-    # no Intel Macs any more.
+    # macos-15 runs on Apple Silicon. Intel is left out: Apple sells no Intel
+    # Macs any more.
     runs-on: macos-15
     timeout-minutes: 60
     permissions:
@@ -150,8 +149,6 @@ jobs:
           python3 scripts/release/set_version.py "$VERSION"
           git add --all
           echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
-      - name: Install libkeyfinder
-        run: brew install libkeyfinder
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
@@ -339,7 +336,7 @@ jobs:
           python3 scripts/release/set_version.py "$VERSION"
           git add --all
           echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
-      - name: Install system libraries and libkeyfinder
+      - name: Install system libraries and the ONNX Runtime
         run: ./.github/scripts/install-linux-dependencies.sh
       - name: Install Rust
         run: |

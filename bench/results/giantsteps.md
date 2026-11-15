@@ -7,7 +7,7 @@ Measured on 10 November 2026 on an Apple M5 (10 cores), macOS 27.2, with 4 worke
 
 ## Without libkeyfinder
 
-Measured on 15 November 2026 on an Apple M5, macOS 27.2, with three worker threads, in one run of `euphoria-bench key-parts bench/data --segments <GiantSteps+ new_annotations>`. It compares each part libkeyfinder had in Euphoria with what replaces it: the pitch-class profile (now Euphoria's note spectrum), the key over time (now drone-v2's scores of 7 second windows), the `keyfinder` key engine and the key of audio shorter than drone-v2 reads (now drone-v2), and the tuning correction (now applied to drone-v2). The expert segment annotations are those of [GiantSteps+](https://zenodo.org/records/4153506). Genres with fewer than 20 previews are grouped.
+Measured on 15 November 2026 on an Apple M5, macOS 27.2, with three worker threads, in one run of `euphoria-bench key-parts bench/data --segments <GiantSteps+ new_annotations>`, a mode removed with libkeyfinder, since it needs it to compare. It compares each part libkeyfinder had in Euphoria with what replaces it: the pitch-class profile (now Euphoria's note spectrum), the key over time (now drone-v2's scores of 7 second windows), the `keyfinder` key engine and the key of audio shorter than drone-v2 reads (now drone-v2), and the tuning correction (now applied to drone-v2). The expert segment annotations are those of [GiantSteps+](https://zenodo.org/records/4153506). Genres with fewer than 20 previews are grouped.
 
 ### Pitch-class profile
 

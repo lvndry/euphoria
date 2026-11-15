@@ -13,10 +13,10 @@
 # target/release/bundle/Euphoria-<version>.dmg. Pass --no-dmg to stop after
 # the app, and --skip-build to package the binary already in target/release.
 #
-# libkeyfinder and FFTW are copied into Contents/Frameworks by
-# scripts/macos_libraries.py, with their install names changed so the app
-# finds them there, and the script then checks that every library of every
-# binary in the bundle is part of macOS or of the bundle.
+# Any library the app links that is not part of macOS is copied into
+# Contents/Frameworks by scripts/macos_libraries.py, with its install name
+# changed so the app finds it there, and the script then checks that every
+# library of every binary in the bundle is part of macOS or of the bundle.
 #
 # Signing, by the environment:
 #   nothing set            an ad hoc signature, which lets the app run on the Mac
