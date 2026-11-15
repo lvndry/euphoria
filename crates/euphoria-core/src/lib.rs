@@ -7,6 +7,8 @@
 
 /// Analyzing files and batches of files.
 pub mod analysis;
+/// The cover art of a track: embedded in its tags, or an image beside it.
+pub mod artwork;
 /// Decoding audio files to mono samples.
 pub mod audio;
 pub mod audio_budget;
