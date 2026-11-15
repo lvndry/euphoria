@@ -122,6 +122,12 @@ The inspector shows a **Stage** line under the key, tempo and energy, such as `S
 
 To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
 
+### Notes
+
+Under the key, tempo and energy (in the Deck theme, in a column of its own next to them), a strip of 12 bars shows how strongly each note sounds in the track, every octave together, from C to B. The notes of the key are lit in the key's colour and the others are grey, so a doubtful key can be checked by eye: the lit bars should be the tallest. The heading names the key in the notation you chose, and the note names follow its key signature, sharps for a key with sharps and flats for a key with flats. A key you set lights its own notes, which makes it easy to compare with the detected one. Pointing at the strip explains it. [Accuracy](../concepts/accuracy.md#reading-the-notes) shows how to read it, and why a minor key and its relative major are easily confused.
+
+A track analyzed before Euphoria measured notes shows one line instead: *Right-click the track and choose Analyze again to see its notes.* [Analyze tracks again](#analyze-tracks-again) measures them and keeps your corrections.
+
 ### Resize the columns
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
@@ -161,7 +167,7 @@ Limits: typing a bare note such as `a` or `c` is a word, not a key; add `m` or `
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. Each row carries a small chip for each reason, such as **Key unsure**, and the inspector says how to [settle it](#settle-a-track-under-needs-review). [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. Each row carries a small chip for each reason, such as **Key: relative or 5th?**, and the inspector says how to [settle it](#settle-a-track-under-needs-review). The confidence rating itself is not shown; [accuracy](../concepts/accuracy.md#confidence) explains how it is set.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. The entry appears only while at least one file is missing; when the last one is found again or removed, the table returns to **All tracks**. See [Missing files](#missing-files).
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
@@ -200,7 +206,7 @@ The inspector shows the selected track. Three things are always in view, from th
 | Section | Holds | Open at first |
 | --- | --- | --- |
 | **Mixes well with** | The tracks in your library that mix with this one. | Yes |
-| **Check by ear** | The key tone, the chord and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key unsure** or **Tag says**. |
+| **Check by ear** | The key tone, the chord and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key: relative or 5th?** or **Tag says**. |
 | **Hear it in another key** | Transposes playback only, and the tone, piano and chords of **Check by ear** follow it. Nothing is saved; the exports of the shifted copy and stems are here. | No |
 | **Stems** | Separate the track and choose what to hear. | No |
 | **Sound quality** | The verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak. | No, but it opens by itself for a weak, likely re-encoded or damaged file. |
@@ -208,7 +214,7 @@ The inspector shows the selected track. Three things are always in view, from th
 
 A section you opened or closed yourself stays as you left it, for every track, and beats the opening by itself. The choice is kept in `settings.json`, per section, not per track. In the Deck theme the strip keeps the header, the boxes with the wheel and the waveform in view, with the title in a column at least 220 pixels wide on one line (an ellipsis and the full name on hover when it is longer). The sections become small tabs at the strip's right, **Mixes**, **By ear**, **Other key**, **Stems**, **Quality** and **Location**; click one to show it in the last area of the strip, one at a time. The strip opens on the section that would open by itself, else on **Mixes**.
 
-The key and tempo boxes show the key name ("C# minor") and the unit ("per minute") whole, with the confidence word on a line of its own under the value.
+The tempo and energy boxes each read on one line, such as "124.0 BPM" and "7 out of 10", and the key box shows the key name ("C# minor") whole under the key. A value you set shows **by you** on a line of its own, with a "reset to ..." line to go back to the detected value.
 
 The waveform is read from the file when you select the track.
 
@@ -222,9 +228,9 @@ Covers are read only for the tracks on screen, never for the whole library, and 
 
 Not there yet: covers in the table rows, the ⌘K palette and the "Next after" rows; the Deck theme's strip header shows no cover.
 
-### How sure the key and the tempo are
+### What else the key and the tempo could be
 
-The Key and BPM boxes say quietly how far to trust the value: **high** or **medium** on a line under the value, and **to review**, in the warning colour (an amber, not the red of an error), when Euphoria is unsure and the track is under **Needs review**. Once you choose **Looks right** or correct the value, **to review** goes away. Point at the word for what it means.
+The Key and BPM boxes show no confidence word. A key or tempo Euphoria doubts puts the track under **Needs review**, which says in words what may be wrong: the key may be its relative or a fifth away, or the BPM half or double.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
 
@@ -245,8 +251,8 @@ A track is under **Needs review** for one or more of four reasons. In the list e
 
 | Chip | What it means | How to settle it |
 | --- | --- | --- |
-| **Key unsure** | The key is rated low confidence. | Play the key tone or the piano under the Key box (see [check the key by ear](#check-the-key-by-ear-and-correct-it)). Then click **Try** with the second best key if it is right, **Correct...** to pick another, or **Looks right** to keep the detected key. |
-| **Tempo unsure** | The tempo is rated low confidence, most often because it is counted at half or double speed. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. Click **½ ×** or **2 ×** to use half or double, or **Looks right** to keep it. |
+| **Key: relative or 5th?** | The key is rated low confidence: it may be its relative key or a key a fifth away. | Play the key tone or the piano under the Key box (see [check the key by ear](#check-the-key-by-ear-and-correct-it)). Then click **Try** with the second best key if it is right, **Correct...** to pick another, or **Looks right** to keep the detected key. |
+| **BPM: half or double?** | The tempo is rated low confidence: the BPM may be half or double, the most common tempo error. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. Click **½ ×** or **2 ×** to use half or double, or **Looks right** to keep it. |
 | **Tag says 8A** | The key field in the file's tags names another key than the one detected (the same case as the red **≠**; see [when the tags name another key](#when-the-tags-name-another-key)). | The box offers **Keep** the tags' key, which sets it as your key, or **Use** the detected key, which confirms it. Either way the conflict does not come back. |
 | **Failed** | The file could not be analyzed. The box gives the reason. | Fix the file if the reason points to a problem, then click **Analyze again**. A file that fails again stays under Needs review. |
 
@@ -528,6 +534,7 @@ The planner is one screen. On the left is **A**, the track you came from, and un
 - When a stem is missing, one line: **Vocals and bass overlap isn't checked yet.**, with a button **Separate stems of B** (and of A) next to it. It shows the progress of the separation in place, with **Cancel**, and the reason when it fails. The lanes and the row fill in when it finishes, without leaving the planner. A track asked for while another separates waits its turn. **Cancel** takes a waiting track out of line; the separation that runs cannot be interrupted, so it finishes in the background and keeps its stems in the cache, where asking again finds them at once.
 - Small numbered **markers** above the ruler for the suggested windows, at where their mix point lies. Press one to jump there; if the transition was playing, it plays again from 8 bars before. The tooltip names the window, for example "Main (6:14) into Drop", with its bars and key relation. The best one is chosen automatically when you pick B.
 - **Drag B**: press on B's rows and drag left or right. The mix point moves in whole bars of A (drag right to bring B in later) and the plan is worked out again for that place: the overlap row, the line below and the cues follow, and it snaps onto a suggested window when it reaches one. Sound stops while you drag and the transition plays again from 8 bars before the new mix point when you let go. Pressing B without moving does nothing.
+- **Locked transitions.** Dragging B to a new mix point, or pressing the marker of a window, locks the transition of A into B where you put it. The planner opens on it the next time you plan the pair, and [rendering a set](render-a-mix.md) keeps it instead of planning that transition again. The card under the timeline then says **Placed by hand and locked: rendering a set keeps it.**, with **Unlock**, which gives the transition back to the plan and shows its best window. Locks are kept with the playlists in `playlists.sqlite3`, by the content of each file and its path, so they survive a move or a tag write.
 - One line: "At 6:14 in A (Main), B comes in from 2:43 · A ends at 6:45", and the buttons **Save as favorite transition**, **Set cues on A and B** and **Open on the decks**. **Save as favorite transition** marks the transition from A into B as a [favorite](#favorite-transitions) with the window's sentence as its note.
 
 When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
@@ -577,7 +584,7 @@ The app can write the key, tempo and energy it found into the files themselves, 
 
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The preview is titled with the DJ program the tags are written for, such as "Write tags for rekordbox"; choose it in the [settings](#settings).
-3. The preview lists every file that would change, each field by name (Key, BPM, Comment) with the value it has now and the value it would get; rest the pointer on a name to see the tag frame, such as TKEY. Under the list, **Rules in use** gives three or four short lines from your settings, such as "Keys already in files are kept", "Low confidence values are skipped" and "Energy label at the start of the comment", with a **Change settings** link that opens the settings. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
+3. The preview lists every file that would change, each field by name (Key, BPM, Comment) with the value it has now and the value it would get; rest the pointer on a name to see the tag frame, such as TKEY. Under the list, **Rules in use** gives three or four short lines from your settings, such as "Keys already in files are kept", "Low confidence values are skipped" and "Energy label at the start of the comment", with a **Change settings** link that opens the settings over the preview. Each change you make there works the preview out again at once, so when you close the settings it shows what the new choices write; while it updates, the list dims, the line above it says "Updating for the new settings…", and the write button cannot be clicked. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
 4. Click the button, which says what it does and how many files it touches, such as **Write tags to 18 files**. Nothing is written before that, and **Cancel** or Escape closes the preview without writing. A key or tempo left as it is, because the file already has one or because it is rated low confidence, is listed in the preview with the reason. When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the click first shows a strip that says the program may lose the change; **Write anyway** goes on.
 5. The app shows how far it has got. When every file was written, the window closes the preview and ends with a [toast](#toasts) such as "Wrote key and BPM to 18 files", with **Undo**. When some files could not be written, or the log, cache or playlists could not be updated, the preview stays open and lists them with the reason. Unwritten files are left as they were.
 
@@ -664,8 +671,10 @@ In the table, a row that is off the curve or reached by a mix that breaks a rule
 - The arrows move a track one place, and **Remove** takes it out (or select a row and press Delete). The set is explained again at once: the moves, the steps and the curve follow your order.
 - **Add tracks.** In the library, point at a track and press its **+** button, or select tracks and press A: they join the end of the set, unlocked, and the set is explained again. A track already in the set is not added twice, and a set holds at most 60 tracks. The play buttons on set rows look like the row buttons of the library table.
 - **Play the set.** Point at a row and press its play button, double-click the row, or select it and press Space: the track plays from the start in the player at the bottom of the window, and the playing row is marked with the accent colour and a pause button. Press the button again, or the player's own button, to pause and resume. When a track ends, the set goes on with the next track in set order, not library order, and stops after the last one.
-- **Play transition** on a row plays the last 20 seconds of the track before it, then goes on into that track from its start. The 20 seconds is fixed: the set builder does not plan mix points, and this is a plain one-after-the-other preview with no crossfade. To hear a mix with both tracks at once, use the transition planner on the decks.
+- **Play transition** on a row plays the last 20 seconds of the track before it, then goes on into that track from its start. The 20 seconds is fixed: this preview is a plain one after the other with no crossfade. To hear the planned transitions, use **Render mix…** or the transition planner.
 - While the decks are open they hold the player, so the play buttons show "Close the decks to use the track player." and do nothing.
+- **Render mix…** asks where to save the set as one continuous mix (a name ending in `.flac` writes FLAC, `.mp3` a 320 kbps MP3 with a chapter per track, anything else WAV), then renders it in the background, as [`euphoria set render`](render-a-mix.md) does: each track blended into the next at a section start, beatmatched with its key kept, and the transitions you locked in the planner kept as they are. The button becomes a progress bar with **Cancel**, which stops the render and writes nothing. When it is done, a toast says so with **Show in Finder**, and a CUE sheet, a tracklist and chapter lines are written beside the mix as `NAME.cue`, `NAME.tracklist.txt` and `NAME.chapters.txt`. The sections are read from the cues each track shows, so cues you edited count. Not tested on a real display: the look of the progress bar; the headless window tests the render, its files and Cancel.
+- **Check transitions**, under **Show details**, plans the mix of the set without rendering it and lists each transition with why it is placed there. Under a blend where both tracks would sing at once it says so in the warning colour, with a button for each fix that applies: move the blend to a window where only one sings (which locks it there), cut the outgoing vocals with its stems, or swap the bass early and fade the outgoing track out before the other sings. See [When both tracks sing at once](render-a-mix.md#when-both-tracks-sing-at-once). Vocals are only checked for tracks with separated stems.
 - **Save as playlist** keeps the set as a playlist named after its curve, such as "Set: Journey, 20 tracks", in the sidebar with the others. **Export playlist…** saves it first if needed, then asks where to write the file, as an M3U8 playlist.
 
 A pool with more than 4,000 tracks that have a key, a tempo and an energy is refused: choose a folder or a playlist.
@@ -703,7 +712,7 @@ The headless interface tests cover the sheet opening, a rekordbox export of a sm
 
 ## Settings
 
-Open the settings with **Euphoria > Settings…** (Command comma), or choose **Change settings** in the Write tags preview.
+Open the settings with **Euphoria > Settings…** (Command comma), or choose **Change settings** in the Write tags preview, which keeps the preview open underneath and updates it as you change the options.
 
 How keys and tempos are shown:
 
@@ -781,6 +790,7 @@ Changes to what is on screen ease instead of cutting, and each one has a set tim
 | --- | --- |
 | Settings, Export, tag editor and Write tags preview: backdrop fades in, card fades in and rises 8 px | 180 ms in, 120 ms out |
 | Notice, held tags and confirmation strips grow to their height | 220 ms |
+| Write tags preview list dims while it is worked out again for changed settings, and comes back | 120 ms |
 | Focus view and the library crossfade, both ways | 180 ms |
 | Switching theme blends the colours | 160 ms |
 | Sidebar, sections, toast, palette | as described where they are introduced |
@@ -811,9 +821,13 @@ The count above the table says how many tracks were filled in this way, for exam
 
 If the cache cannot be opened, the app says why in a notice along the bottom of the window and analyzes without it, so results are not remembered until the problem is fixed. `euphoria cache clear` resets a damaged cache. The [command reference](../reference/cli.md#the-analysis-cache) explains how files are recognised and when a track is analyzed again.
 
+## Live
+
+The **Live** button in the toolbar, **View, Live** and Command Shift L open a small panel that stays on top and shows the key and tempo of whatever the Mac is playing, with the tracks of your library that mix in. Live keeps running in the menu bar when you close the window. See [Euphoria Live](euphoria-live.md).
+
 ## Quitting
 
-You can quit while tracks are being analyzed. The app closes at once: tracks already finished are remembered, and the ones that were waiting or in progress are analyzed the next time the app starts.
+You can quit while tracks are being analyzed. With Live running and **Keep Live running when the window is closed** on, closing the window leaves Euphoria in the menu bar; **Quit Euphoria** there, or Command Q, quits it. The app closes at once: tracks already finished are remembered, and the ones that were waiting or in progress are analyzed the next time the app starts.
 
 ## Build Euphoria.app
 

@@ -63,6 +63,7 @@ impl EuphoriaApp {
             Some(PlanState::Computing) => {}
             Some(PlanState::Ready(_)) => {
                 self.planner.play_when_ready = false;
+                self.show_planner_lock();
                 self.play_plan(PlanPlay::Transition, Some(-LEAD_IN_BARS), cx);
             }
             Some(PlanState::Failed(_)) | None => {
@@ -157,20 +158,23 @@ impl EuphoriaApp {
         cx.notify();
     }
 
-    /// The button came up: the transition plays again from 8 bars before
-    /// the new mix point.
+    /// The button came up: the transition is locked at the new mix point
+    /// and plays again from 8 bars before it.
     pub(crate) fn end_b_drag(&mut self, cx: &mut Context<'_, Self>) {
         if self.planner.drag.take().is_some_and(|drag| drag.moved) {
+            self.lock_planner_window(cx);
             self.planner.start_bar = None;
             self.play_plan(PlanPlay::Transition, Some(-LEAD_IN_BARS), cx);
         }
     }
 
     /// A press on the marker of ranked window `index`: the mix point jumps
-    /// there, and the transition replays when it was playing.
+    /// there and the transition is locked there, and it replays when it
+    /// was playing.
     pub(crate) fn jump_to_window(&mut self, index: usize, cx: &mut Context<'_, Self>) {
         let was_playing = self.plan_is_playing();
         self.select_plan_window(index, cx);
+        self.lock_planner_window(cx);
         if was_playing {
             self.play_plan(PlanPlay::Transition, Some(-LEAD_IN_BARS), cx);
         }

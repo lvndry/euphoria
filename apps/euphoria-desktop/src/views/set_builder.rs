@@ -745,6 +745,10 @@ fn summary(
                     .test_support(),
             );
         }
+        details = details.child(check_link(app, cx));
+        if let Some(check) = transition_check(app, cx) {
+            details = details.child(check);
+        }
         summary = summary.child(details.test_support());
     }
     summary.test_support().into_any_element()
@@ -1126,6 +1130,164 @@ fn row_button(
         .into_any_element()
 }
 
+/// The small link that checks the transitions of the set.
+fn check_link(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
+    let palette = app.theme.palette;
+    let raised = palette.raised;
+    div()
+        .id("check-set")
+        .flex()
+        .items_center()
+        .px(px(6.0))
+        .py(px(2.0))
+        .rounded(RADIUS_SMALL)
+        .cursor_pointer()
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .hover(move |style| style.bg(raised))
+        .child(if app.set_builder.is_checking {
+            "Checking\u{2026}"
+        } else {
+            crate::set_check::CHECK_ACTION
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.check_set_transitions(cx)))
+        .test_support()
+        .into_any_element()
+}
+
+/// Each transition of the checked set: where the next track comes in and
+/// why, and where both tracks would sing at once, with a button per fix.
+fn transition_check(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
+    let plan = app.checked_transitions()?;
+    let palette = app.theme.palette;
+    let mut list = div()
+        .id("set-transitions")
+        .flex()
+        .flex_col()
+        .gap(GAP_SMALL)
+        .p(px(10.0))
+        .rounded(RADIUS_LARGE)
+        .bg(palette.raised)
+        .text_size(SMALL_TEXT_SIZE);
+    for (index, transition) in plan.transitions.iter().enumerate() {
+        let next = plan
+            .tracks
+            .get(index + 1)
+            .map(|track| track.title_or_file_name())
+            .unwrap_or_default();
+        let mut row = div()
+            .id(("set-transition", index))
+            .flex()
+            .flex_col()
+            .gap(GAP_TIGHT)
+            .child(
+                div()
+                    .text_color(palette.text_secondary)
+                    .child(format!("Into {next}: {}", transition.reason)),
+            );
+        if let Some(overlap) = &transition.vocal_overlap {
+            let mut warning = div()
+                .id(("set-vocal-warning", index))
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(GAP_SMALL)
+                .child(div().text_color(palette.warning).child(overlap.warning()));
+            match &transition.vocal_fix {
+                Some(fix) => {
+                    warning = warning.child(
+                        div()
+                            .text_color(palette.text_secondary)
+                            .child(format!("Fixed: {}", fix.label().to_lowercase())),
+                    );
+                }
+                None if overlap.fixes.is_empty() => {
+                    warning = warning.child(
+                        div()
+                            .text_color(palette.text_secondary)
+                            .child("Separate the stems of this track to cut its vocals."),
+                    );
+                }
+                None => {
+                    for (fix_index, fix) in overlap.fixes.iter().enumerate() {
+                        let chosen = fix.clone();
+                        warning = warning.child(
+                            secondary_button(fix.label(), &palette)
+                                .id(("set-vocal-fix", index * 3 + fix_index))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.apply_set_vocal_fix(index, chosen.clone(), cx);
+                                }))
+                                .test_support(),
+                        );
+                    }
+                }
+            }
+            row = row.child(warning.test_support());
+        }
+        list = list.child(row.test_support());
+    }
+    Some(list.test_support().into_any_element())
+}
+
+/// The button that renders the set as one mix, or while it renders, how
+/// far it has got and Cancel.
+fn render_mix_control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
+    let palette = app.theme.palette;
+    let Some(run) = &app.set_builder.render else {
+        return secondary_button(crate::mix_render::RENDER_ACTION, &palette)
+            .id("render-mix")
+            .on_click(cx.listener(|this, _, _, cx| this.choose_mix_render(cx)))
+            .test_support()
+            .into_any_element();
+    };
+    let fraction = run.shared.fraction();
+    let label = if run.shared.is_cancelled() {
+        "Cancelling\u{2026}".to_string()
+    } else {
+        match fraction {
+            Some(fraction) => format!(
+                "Rendering {} {}%",
+                run.output
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                (fraction * 100.0).round()
+            ),
+            None => "Reading the tracks\u{2026}".to_string(),
+        }
+    };
+    div()
+        .id("render-mix-progress")
+        .flex()
+        .items_center()
+        .gap(GAP_SMALL)
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child(
+            div()
+                .w(px(120.0))
+                .h(px(6.0))
+                .rounded(RADIUS_SMALL)
+                .bg(palette.raised)
+                .child(
+                    div()
+                        .h_full()
+                        .w(relative(fraction.unwrap_or(0.0)))
+                        .rounded(RADIUS_SMALL)
+                        .bg(palette.accent),
+                ),
+        )
+        .child(label)
+        .child(
+            secondary_button("Cancel", &palette)
+                .id("cancel-render-mix")
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_mix_render(cx)))
+                .test_support(),
+        )
+        .test_support()
+        .into_any_element()
+}
+
 fn set_actions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let saved = app
@@ -1158,6 +1320,7 @@ fn set_actions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .on_click(cx.listener(|this, _, _, cx| this.export_set(cx)))
                 .test_support(),
         )
+        .child(render_mix_control(app, cx))
         .when_some(saved, |actions, name| {
             actions.child(
                 div()

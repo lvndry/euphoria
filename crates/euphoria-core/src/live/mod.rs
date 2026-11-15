@@ -17,7 +17,7 @@ mod macos;
 pub use analyzer::{LevelReading, LiveAnalyzer, LiveKey, LiveReading, LiveSettings, LiveTempo};
 pub use buffer::RollingBuffer;
 pub use capture::{AudioCapture, AudioSink, CaptureError, ListenSource};
-pub use engine::{ANALYSIS_INTERVAL, LiveEngine};
+pub use engine::{ANALYSIS_INTERVAL, LiveEngine, MatcherHandle};
 #[cfg(target_os = "macos")]
 pub use macos::ProcessTapCapture;
 

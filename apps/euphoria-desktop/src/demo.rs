@@ -73,7 +73,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
             } else {
                 Mode::Minor
             };
-            let analysis = TrackAnalysis {
+            let mut analysis = TrackAnalysis {
                 duration_seconds: 240.0 + next(300) as f32,
                 key: (next(40) != 0).then(|| Key::new(next(12) as u8, mode)),
                 bpm: (next(40) != 0).then(|| 112.0 + next(200) as f32 / 10.0),
@@ -83,6 +83,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 key_score_margin: None,
                 key_source: None,
                 loudness_range_lu: None,
+                pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -90,6 +91,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 key_timeline: Vec::new(),
                 quality: Some(demo_quality(extension, number)),
             };
+            analysis.pitch_class_profile = analysis.key.map(|key| demo_profile(key, number));
             let outcome = if next(150) == 0 {
                 Err(format!(
                     "cannot decode {}: malformed audio data",
@@ -101,6 +103,22 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
             DemoTrack { path, outcome }
         })
         .collect()
+}
+
+/// Invented notes for a track in `key`: the tonic loudest, the rest of the
+/// scale loud and the other notes quiet, varied by track number.
+fn demo_profile(key: Key, number: usize) -> [f32; 12] {
+    let in_key = euphoria_core::notes_in_key(key);
+    std::array::from_fn(|pitch_class| {
+        let variation = ((number * 7 + pitch_class * 13) % 30) as f32 / 100.0;
+        if pitch_class == usize::from(key.tonic()) {
+            1.0
+        } else if in_key[pitch_class] {
+            0.55 + variation
+        } else {
+            0.12 + variation / 2.0
+        }
+    })
 }
 
 /// An invented quality report: lossless formats are lossless, and the rest

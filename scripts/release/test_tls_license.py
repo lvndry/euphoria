@@ -12,7 +12,12 @@ import tempfile
 import unittest
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
-LIBRARIES = ("webpki-root-certs-CDLA-Permissive-2.0", "demucs-NOTICE")
+LIBRARIES = (
+    "webpki-root-certs-CDLA-Permissive-2.0",
+    "demucs-NOTICE",
+    "lame-LGPL-2.0",
+    "mp3lame-LGPL-3.0",
+)
 
 
 class PackagedStemLicenseTests(unittest.TestCase):

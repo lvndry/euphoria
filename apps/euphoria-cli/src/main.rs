@@ -20,6 +20,7 @@ mod prepare;
 mod rewrites;
 mod scan;
 mod set;
+mod set_render;
 mod set_view;
 mod shift;
 mod stages;
@@ -200,7 +201,7 @@ enum Command {
         after_help = help::plan_examples(),
     )]
     Plan(plan::PlanArguments),
-    /// Order tracks into a set that follows an energy curve, every mix in key.
+    /// Order tracks into a set along an energy curve, or render a set as one mix.
     #[command(after_help = help::set_examples())]
     Set {
         #[command(subcommand)]
@@ -234,6 +235,11 @@ struct AnalyzeArguments {
     /// terminal is always shown this way.
     #[arg(long)]
     detail: bool,
+    /// Show the 12 notes the key analysis heard as a row of bars, with
+    /// the notes of the key marked, to check a doubtful key by eye. Shows
+    /// every track in detail.
+    #[arg(long, conflicts_with = "json")]
+    notes: bool,
     /// List only the tracks whose key or tempo is rated low confidence or
     /// whose tags name another key, and the files that could not be
     /// analyzed. A key or tempo you set or confirmed with "Looks right" in
@@ -503,7 +509,8 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let stdout_is_terminal = std::io::stdout().is_terminal();
     let layout = if arguments.json {
         Layout::Json
-    } else if arguments.detail || (stdout_is_terminal && audio_files.len() == 1) {
+    } else if arguments.detail || arguments.notes || (stdout_is_terminal && audio_files.len() == 1)
+    {
         Layout::Detail
     } else if stdout_is_terminal {
         Layout::Table
@@ -513,6 +520,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let view_options = ViewOptions {
         notation: arguments.key_notation,
         tempo_range: analysis.tempo_range(),
+        notes: arguments.notes,
         width: if stdout_is_terminal {
             view::terminal_width()
         } else {
@@ -586,7 +594,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         Layout::PlainTable => output::write_plain_table(
             &mut standard_output,
             &listed_results,
-            &user_edits,
             arguments.key_notation,
         )?,
         Layout::Table => view::write_table(
@@ -594,7 +601,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &standard_output_theme,
             &listed_results,
             &view_options,
-            &corrections,
             &tag_keys,
         )?,
         Layout::Detail => {

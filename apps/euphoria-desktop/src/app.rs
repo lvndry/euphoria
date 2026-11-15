@@ -28,7 +28,7 @@ use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track}
 use crate::mixes::{MixSuggestion, suggestions};
 use crate::panels::{PanelEdge, Panels};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
-use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
+use crate::playback::{AudioOutput, OpenRequest, PlaybackProblem, TrackSource, Voice, VoiceState};
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
 use crate::playlists::PlaylistId;
 use crate::settings::{FolderTreeMemory, Settings};
@@ -200,6 +200,11 @@ pub(crate) struct EuphoriaApp {
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans_in_progress: usize,
+    /// The window this view is in, for work that needs the window from a task.
+    pub(crate) window_handle: gpui::AnyWindowHandle,
+    /// A track Live asked to show that the library did not have yet, because
+    /// the window was just opened and is still reading its folders.
+    pub(crate) pending_reveal: Option<PathBuf>,
     /// Long actions running on threads that have no state of their own.
     pub(crate) background_jobs: crate::busy::BackgroundJobs,
     /// When the logo started moving, for the activity indicator.
@@ -212,11 +217,18 @@ pub(crate) struct EuphoriaApp {
     pub(crate) modal_fades: ModalFades,
     pub(crate) strip_growth: StripGrowth,
     pub(crate) focus_fade: Presence,
+    /// How far the Write tags preview has dimmed while it is worked out
+    /// again.
+    pub(crate) tag_preview_dim: Presence,
     pub(crate) theme_fade: Option<ThemeFade>,
     #[cfg(test)]
     pub(crate) revealed: Vec<PathBuf>,
     #[cfg(test)]
     pub(crate) last_written: Vec<PathBuf>,
+    /// How long each coming plan of Write tags waits before it starts, so
+    /// tests can make one finish after a later one.
+    #[cfg(test)]
+    pub(crate) tag_plan_delays: std::collections::VecDeque<Duration>,
     /// Which sections of the track detail are open, and their motion.
     pub(crate) inspector_sections: crate::inspector_sections::InspectorSections,
     /// The section the Deck strip shows, when the user picked one.
@@ -297,6 +309,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
+    /// Reads the waveform of the player's track when it is not the
+    /// selected one and was not read yet.
+    player_waveform_task: Option<Task<()>>,
     is_following_playhead: bool,
     pub(crate) query: String,
     /// The tempo, quality and energy filters on the track list.
@@ -579,6 +594,8 @@ impl EuphoriaApp {
             table_focus: cx.focus_handle(),
             notice,
             scans_in_progress: 0,
+            window_handle: window.window_handle(),
+            pending_reveal: None,
             background_jobs: crate::busy::BackgroundJobs::default(),
             logo_clock: crate::logo_motion::LogoClock::default(),
             unavailable_folders: Vec::new(),
@@ -592,11 +609,14 @@ impl EuphoriaApp {
             modal_fades: ModalFades::default(),
             strip_growth: StripGrowth::default(),
             focus_fade: Presence::at_rest(false),
+            tag_preview_dim: Presence::at_rest(false),
             theme_fade: None,
             #[cfg(test)]
             revealed: Vec::new(),
             #[cfg(test)]
             last_written: Vec::new(),
+            #[cfg(test)]
+            tag_plan_delays: std::collections::VecDeque::new(),
             inspector_sections: crate::inspector_sections::InspectorSections::new(
                 settings.inspector_sections,
             ),
@@ -632,6 +652,7 @@ impl EuphoriaApp {
             cue_name_input,
             voice: None,
             start_task: None,
+            player_waveform_task: None,
             is_following_playhead: false,
             query: String::new(),
             track_filters: settings.track_filters.clone(),
@@ -733,6 +754,21 @@ impl EuphoriaApp {
     pub(crate) fn selected_track(&self) -> Option<&Track> {
         self.selected
             .and_then(|index| self.session.library().track(index))
+    }
+
+    /// The library track the player holds: the one heard while sound comes
+    /// out.
+    pub(crate) fn player_track(&self) -> Option<&Track> {
+        self.player
+            .track()
+            .and_then(|path| self.session.library().track_by_path(path))
+    }
+
+    /// The waveform of the player's track, once it has been read.
+    pub(crate) fn player_waveform(&self) -> Option<&Waveform> {
+        self.player
+            .track()
+            .and_then(|path| self.waveforms.get(path))
     }
 
     /// The waveform of the selected track, once it has been asked for.
@@ -863,6 +899,7 @@ impl EuphoriaApp {
         self.start_collecting(cx);
         self.note_first_run_progress();
         cx.notify();
+        self.reveal_pending(cx);
     }
 
     /// Shows a problem in the notice strip, after any that is already there
@@ -1522,6 +1559,13 @@ impl EuphoriaApp {
         self.focus_fade
             .follow(self.focus.is_open, crate::motion::PANEL);
         self.focus_fade.drive(window);
+        let is_updating = matches!(
+            &self.tag_panel,
+            Some(TagPanel::Preview(preview)) if preview.updating
+        );
+        self.tag_preview_dim
+            .follow(is_updating, crate::motion::FAST);
+        self.tag_preview_dim.drive(window);
     }
 
     /// Chooses the DJ program tags are written for.
@@ -1585,6 +1629,7 @@ impl EuphoriaApp {
             self.report(problem);
         }
         self.refresh_label_preview(cx);
+        self.follow_tag_settings(cx);
         cx.notify();
     }
 
@@ -1799,7 +1844,36 @@ impl EuphoriaApp {
         self.carry_out(request, cx);
     }
 
-    fn selection_is_in_player(&self) -> bool {
+    /// Plays the library track at `index` from `from_seconds`, whatever the
+    /// player was doing. A track that sounds goes on until this one is
+    /// ready to be heard.
+    pub(crate) fn play_library_track(
+        &mut self,
+        index: usize,
+        from_seconds: f32,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some((path, duration_seconds)) = self
+            .session
+            .library()
+            .track(index)
+            .map(|track| (track.path.clone(), track.duration_seconds()))
+        else {
+            return;
+        };
+        self.stop_drone_of_other_tracks();
+        self.player
+            .stems_ready(self.stems.files_to_play(&path).is_some());
+        for request in self
+            .player
+            .play_track(&path, duration_seconds, from_seconds)
+        {
+            self.carry_out(Some(request), cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn selection_is_in_player(&self) -> bool {
         self.selected_track()
             .is_some_and(|track| self.player.track() == Some(track.path.as_path()))
     }
@@ -1919,20 +1993,34 @@ impl EuphoriaApp {
                 with_stems,
                 attempt,
             }) => {
-                self.voice = None;
-                let semitones = self.key_shift;
-                let opening = if with_stems {
-                    self.open_stems(&path, from_seconds, semitones)
+                let stems = if with_stems {
+                    match self.stems.files_to_play(&path) {
+                        Some(files) => Some((files, self.stems.mix())),
+                        None => {
+                            self.finish_starting(attempt, Err(PlaybackProblem::FileMissing), cx);
+                            return;
+                        }
+                    }
                 } else {
-                    TrackSource::open_shifted(&path, from_seconds, semitones)
+                    None
                 };
+                let opening = self.output.open(OpenRequest {
+                    path,
+                    from_seconds,
+                    semitones: self.key_shift,
+                    stems,
+                });
                 self.start_task = Some(cx.spawn(async move |this, cx| {
-                    let opened = cx.background_executor().spawn(async move { opening }).await;
+                    let opened = opening
+                        .recv()
+                        .await
+                        .unwrap_or(Err(PlaybackProblem::NotDecodable));
                     this.update(cx, |this, cx| this.finish_starting(attempt, opened, cx))
                         .ok();
                 }));
             }
             Some(PlayerRequest::Pause) => {
+                self.start_task = None;
                 if let Some(active) = &self.voice {
                     active.state.set_held(true);
                     active.voice.pause();
@@ -1977,9 +2065,11 @@ impl EuphoriaApp {
                     if let Some(playing) = self.player.track() {
                         state.set_tempo(self.tempo.playback_for(playing));
                     }
+                    self.voice = None;
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });
+                            self.load_player_waveform(cx);
                             self.follow_playhead(cx);
                         }
                         Err(problem) => self.player.interrupted(problem.message().to_string()),
@@ -2011,21 +2101,6 @@ impl EuphoriaApp {
             }
         })
         .detach();
-    }
-
-    /// The stems of the track at `path`, mixed as the player hears them
-    /// and shifted by `semitones`, to be played in place of the track.
-    fn open_stems(
-        &self,
-        path: &Path,
-        from_seconds: f32,
-        semitones: i8,
-    ) -> Result<TrackSource, PlaybackProblem> {
-        let files = self
-            .stems
-            .files_to_play(path)
-            .ok_or(PlaybackProblem::FileMissing)?;
-        TrackSource::open_stems_shifted(&files, self.stems.mix(), from_seconds, semitones)
     }
 
     /// The track detail's stem switch changed what is heard. Between
@@ -2607,6 +2682,27 @@ impl EuphoriaApp {
             .save(settings_path)
             .err()
             .map(|error| format!("Could not save settings: {error}."))
+    }
+
+    /// Reads the waveform of the player's track for the player bar, unless
+    /// it is kept or already being read.
+    fn load_player_waveform(&mut self, cx: &mut Context<'_, Self>) {
+        let Some((path, tempo)) = self
+            .player_track()
+            .filter(|track| track.analysis().is_some())
+            .map(|track| (track.path.clone(), track.bpm()))
+        else {
+            return;
+        };
+        let is_kept = matches!(
+            self.waveforms.get(&path),
+            Some(Waveform::Ready(..)) | Some(Waveform::Unreadable(_))
+        );
+        if is_kept || self.waveform_task_path.as_ref() == Some(&path) {
+            self.waveforms.touch(&path);
+            return;
+        }
+        self.player_waveform_task = Some(self.decode_waveform(path, tempo, cx));
     }
 
     /// Decodes the selected track in the background and keeps its peaks,
