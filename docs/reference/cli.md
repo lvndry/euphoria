@@ -584,7 +584,8 @@ euphoria set render [OPTIONS] <SET>...
 | `--tracklist` | Also write `NAME.tracklist.txt` beside the mix: one numbered line per track with the time it starts. |
 | `--cue` | Also write `NAME.cue` beside the mix: a CUE sheet with each track's title, artist and start. |
 | `--chapters` | Also write `NAME.chapters.txt` beside the mix: one line per track, `0:00 Artist - Title`, for a video description. |
-| `--dry-run` | Print the plan and write nothing. |
+| `--dry-run` | Print the plan, with a warning under every blend where both tracks sing, and write nothing. |
+| `--fix-vocals [FIX]` | Fix every blend where both tracks sing: `move` the blend to a window where only one sings, `cut` the outgoing vocals with its stems, or `fade` it out before the incoming one sings. Alone, the first fix that applies, in that order. Locked blends are never moved. |
 | `--force` | Replace the mix and the files beside it if they exist. Without it, an existing file is refused before anything is rendered. |
 
 The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.

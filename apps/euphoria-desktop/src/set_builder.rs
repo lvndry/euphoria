@@ -80,6 +80,14 @@ pub(crate) struct SetBuilder {
     pub(crate) details_open: bool,
     /// The render of the set as one mix, while it runs.
     pub(crate) render: Option<crate::mix_render::MixRenderRun>,
+    /// The transitions of the set as last checked.
+    pub(crate) checked: Option<crate::set_check::CheckedSet>,
+    /// True while the transitions are being checked.
+    pub(crate) is_checking: bool,
+    /// The fix chosen for each blend where both tracks would sing, by the
+    /// pair of tracks.
+    pub(crate) vocal_fixes:
+        std::collections::HashMap<(PathBuf, PathBuf), euphoria_core::set_render::VocalFixChoice>,
     build_generation: u64,
     build_task: Option<Task<()>>,
 }
@@ -102,6 +110,9 @@ impl Default for SetBuilder {
             playing: None,
             details_open: false,
             render: None,
+            checked: None,
+            is_checking: false,
+            vocal_fixes: std::collections::HashMap::new(),
             build_generation: 0,
             build_task: None,
         }

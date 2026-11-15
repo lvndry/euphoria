@@ -6,6 +6,7 @@
 //! progress bar and Cancel, then a CUE sheet, a tracklist and chapter lines
 //! beside the mix.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -13,8 +14,8 @@ use std::time::Duration;
 
 use euphoria_core::harmony::transition::PlanTrack;
 use euphoria_core::set_render::{
-    MixFormat, MixInput, RenderOptions, RenderProgress, RenderTrack, chapters, cue_sheet,
-    format_mix_time, plan_mix, render_mix, tracklist,
+    MixFormat, MixInput, MixPlan, RenderOptions, RenderProgress, RenderTrack, VocalFixChoice,
+    chapters, cue_sheet, format_mix_time, plan_mix, render_mix, tracklist,
 };
 use euphoria_core::shift::ExistingOutput;
 use euphoria_core::{EuphoriaError, LockedTransition, locked_blend};
@@ -79,14 +80,20 @@ pub(crate) struct MixRenderRun {
     pub(crate) output: PathBuf,
 }
 
-/// Everything a render needs, taken from the window before it starts.
-struct MixRenderJob {
+/// Everything planning the mix of the set needs, taken from the window.
+pub(crate) struct MixPlanJob {
     title: String,
     sides: Vec<PlanSide>,
     tracks: Vec<RenderTrack>,
     locks: Vec<LockedTransition>,
-    output: PathBuf,
+    vocal_fixes: HashMap<(PathBuf, PathBuf), VocalFixChoice>,
     signals_directory: Option<PathBuf>,
+}
+
+/// Everything a render needs.
+struct MixRenderJob {
+    plan: MixPlanJob,
+    output: PathBuf,
 }
 
 /// What a finished render wrote.
@@ -119,37 +126,57 @@ pub(crate) fn mix_output(output: PathBuf) -> (PathBuf, MixFormat) {
     }
 }
 
-impl MixRenderJob {
-    fn run(self, shared: Arc<RenderShared>) -> Result<MixRenderDone, EuphoriaError> {
+impl MixPlanJob {
+    /// Reads the energy and stems of every track and plans the mix. Reads
+    /// files, so it runs off the main thread.
+    pub(crate) fn plan(&self) -> MixPlan {
         let directory = self.signals_directory.as_deref();
         let signals: Vec<_> = self
             .sides
             .iter()
             .map(|side| signals_of(side, directory))
             .collect();
-        if shared.is_cancelled() {
-            return Err(EuphoriaError::MixCancelled);
+        let mut tracks = self.tracks.clone();
+        for (track, side) in tracks.iter_mut().zip(&self.sides) {
+            track.instrumental_stems = side.instrumental_stems();
         }
         let inputs: Vec<MixInput<'_>> = self
             .sides
             .iter()
             .zip(&signals)
-            .zip(&self.tracks)
+            .zip(&tracks)
             .enumerate()
-            .map(|(index, ((side, signals), track))| MixInput {
-                track: track.clone(),
-                plan: PlanTrack {
-                    analysis: &side.analysis,
-                    sections: &side.sections,
-                    energy: &signals.energy,
-                    stems: signals.stems.as_ref(),
-                },
-                locked_exit: self.tracks.get(index + 1).and_then(|next| {
-                    locked_blend(&self.locks, (&track.path, None), (&next.path, None))
-                }),
+            .map(|(index, ((side, signals), track))| {
+                let next = tracks.get(index + 1);
+                MixInput {
+                    track: track.clone(),
+                    plan: PlanTrack {
+                        analysis: &side.analysis,
+                        sections: &side.sections,
+                        energy: &signals.energy,
+                        stems: signals.stems.as_ref(),
+                    },
+                    locked_exit: next.and_then(|next| {
+                        locked_blend(&self.locks, (&track.path, None), (&next.path, None))
+                    }),
+                    exit_vocal_fix: next.and_then(|next| {
+                        self.vocal_fixes
+                            .get(&(track.path.clone(), next.path.clone()))
+                            .copied()
+                    }),
+                }
             })
             .collect();
-        let plan = plan_mix(&inputs);
+        plan_mix(&inputs)
+    }
+}
+
+impl MixRenderJob {
+    fn run(self, shared: Arc<RenderShared>) -> Result<MixRenderDone, EuphoriaError> {
+        let plan = self.plan.plan();
+        if shared.is_cancelled() {
+            return Err(EuphoriaError::MixCancelled);
+        }
         let (output, format) = mix_output(self.output.clone());
         let options = RenderOptions {
             format,
@@ -174,7 +201,7 @@ impl MixRenderJob {
             (
                 cue_path,
                 cue_sheet(
-                    &self.title,
+                    &self.plan.title,
                     &audio_file_name,
                     format,
                     &plan.tracks,
@@ -183,7 +210,7 @@ impl MixRenderJob {
             ),
             (
                 tracklist_path,
-                tracklist(&self.title, &plan.tracks, &rendered.timeline),
+                tracklist(&self.plan.title, &plan.tracks, &rendered.timeline),
             ),
             (chapters_path, chapters(&plan.tracks, &rendered.timeline)),
         ];
@@ -199,6 +226,45 @@ impl MixRenderJob {
 }
 
 impl EuphoriaApp {
+    /// What planning the mix of the set needs, or `None`, with a notice,
+    /// when a track is not analyzed yet.
+    pub(crate) fn mix_plan_job(&mut self, cx: &mut Context<'_, Self>) -> Option<MixPlanJob> {
+        let planned = self.set_builder.planned.as_ref()?;
+        let library = self.session.library();
+        let mut sides = Vec::with_capacity(planned.paths.len());
+        let mut tracks = Vec::with_capacity(planned.paths.len());
+        for path in &planned.paths {
+            let side = library
+                .track_by_path(path)
+                .and_then(|track| Some((track, plan_side(track, self)?)));
+            let Some((track, side)) = side else {
+                self.notice = Some(format!(
+                    "The mix cannot be planned: {} is not analyzed yet.",
+                    path.display()
+                ));
+                cx.notify();
+                return None;
+            };
+            tracks.push(RenderTrack {
+                path: path.clone(),
+                artist: track.artist.clone(),
+                title: Some(track.title().to_string()),
+                duration_seconds: f64::from(side.analysis.duration_seconds),
+                grid: side.analysis.beat_grid,
+                instrumental_stems: Vec::new(),
+            });
+            sides.push(side);
+        }
+        Some(MixPlanJob {
+            title: self.set_name(),
+            sides,
+            tracks,
+            locks: self.session.locked_transitions().to_vec(),
+            vocal_fixes: self.set_builder.vocal_fixes.clone(),
+            signals_directory: self.planner.signals_directory.clone(),
+        })
+    }
+
     /// Asks where to save the set as one mix, then renders it there.
     pub(crate) fn choose_mix_render(&mut self, cx: &mut Context<'_, Self>) {
         let Some(planned) = self.set_builder.planned.as_ref() else {
@@ -243,40 +309,12 @@ impl EuphoriaApp {
         if self.set_builder.render.is_some() {
             return;
         }
-        let Some(planned) = self.set_builder.planned.as_ref() else {
+        let Some(plan) = self.mix_plan_job(cx) else {
             return;
         };
-        let library = self.session.library();
-        let mut sides = Vec::with_capacity(planned.paths.len());
-        let mut tracks = Vec::with_capacity(planned.paths.len());
-        for path in &planned.paths {
-            let side = library
-                .track_by_path(path)
-                .and_then(|track| Some((track, plan_side(track, self)?)));
-            let Some((track, side)) = side else {
-                self.notice = Some(format!(
-                    "The mix cannot be rendered: {} is not analyzed yet.",
-                    path.display()
-                ));
-                cx.notify();
-                return;
-            };
-            tracks.push(RenderTrack {
-                path: path.clone(),
-                artist: track.artist.clone(),
-                title: Some(track.title().to_string()),
-                duration_seconds: f64::from(side.analysis.duration_seconds),
-                grid: side.analysis.beat_grid,
-            });
-            sides.push(side);
-        }
         let job = MixRenderJob {
-            title: self.set_name(),
-            sides,
-            tracks,
-            locks: self.session.locked_transitions().to_vec(),
+            plan,
             output: output.clone(),
-            signals_directory: self.planner.signals_directory.clone(),
         };
         let shared = Arc::new(RenderShared::default());
         self.set_builder.render = Some(MixRenderRun {
