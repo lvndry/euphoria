@@ -277,6 +277,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) metronome: crate::metronome_controls::MetronomeState,
     /// The field the metronome's tempo is typed in.
     pub(crate) metronome_input: Entity<InputState>,
+    /// The playback tempo of the selected track, set in the focus view.
+    pub(crate) tempo: crate::tempo_controls::TempoState,
+    /// The field the playback tempo is typed in.
+    pub(crate) tempo_input: Entity<InputState>,
     /// Moving, adding, renaming and deleting the selected track's cues.
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
     /// The field the name of a cue is typed in.
@@ -455,6 +459,16 @@ impl EuphoriaApp {
                 }
             },
         );
+        let tempo_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
+        let tempo_entered = cx.subscribe_in(
+            &tempo_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.commit_tempo(window, cx);
+                }
+            },
+        );
         let cue_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Cue name"));
         let cue_named = cx.subscribe(
             &cue_name_input,
@@ -604,6 +618,8 @@ impl EuphoriaApp {
             bpm_input,
             metronome: crate::metronome_controls::MetronomeState::new(settings.metronome),
             metronome_input,
+            tempo: crate::tempo_controls::TempoState::default(),
+            tempo_input,
             cue_editor: crate::cue_editing::CueEditor::default(),
             cue_name_input,
             voice: None,
@@ -633,6 +649,7 @@ impl EuphoriaApp {
                 transition_noted,
                 bpm_entered,
                 metronome_entered,
+                tempo_entered,
                 cue_named,
                 search_changed,
                 palette_typed,
@@ -1720,6 +1737,8 @@ impl EuphoriaApp {
             self.palette.recent.record(&path);
         }
         self.key_shift = 0;
+        let selected_path = self.selected_track().map(|track| track.path.clone());
+        self.tempo.forget_unless_for(selected_path.as_deref());
         self.set_stem_focus(None, cx);
         self.cue_editor.forget_selection();
         self.refresh_mixes();
@@ -1896,11 +1915,13 @@ impl EuphoriaApp {
             }
             Some(PlayerRequest::Pause) => {
                 if let Some(active) = &self.voice {
+                    active.state.set_held(true);
                     active.voice.pause();
                 }
             }
             Some(PlayerRequest::Resume) => {
                 if let Some(active) = &self.voice {
+                    active.state.set_held(false);
                     active.voice.resume();
                 }
                 self.follow_playhead(cx);
@@ -1934,6 +1955,9 @@ impl EuphoriaApp {
                 if self.player.started(attempt, source.duration_seconds()) {
                     // The control may have changed while the file opened.
                     state.set_shift(self.key_shift);
+                    if let Some(playing) = self.player.track() {
+                        state.set_tempo(self.tempo.playback_for(playing));
+                    }
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });

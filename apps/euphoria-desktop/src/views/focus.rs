@@ -237,7 +237,7 @@ fn chip(label: &'static str, value: impl IntoElement, palette: &Palette) -> Div 
         .flex()
         .items_center()
         .gap(GAP_SMALL)
-        .h(px(30.0))
+        .min_h(px(30.0))
         .px(px(10.0))
         .rounded(RADIUS_MEDIUM)
         .border_1()
@@ -340,15 +340,9 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                         .test_support(),
                 )
                 .child(
-                    chip(
-                        "BPM",
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(track.bpm().map_or_else(dash, format::bpm)),
-                        &palette,
-                    )
-                    .id("focus-chip-bpm")
-                    .test_support(),
+                    chip("BPM", bpm_stat(track, app), &palette)
+                        .id("focus-chip-bpm")
+                        .test_support(),
                 )
                 .child(
                     chip(
@@ -373,7 +367,41 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                     .test_support()
                 })),
         )
+        .children(crate::views::tempo::tempo_control(app, &palette, cx))
         .children(header_wheel(track, app))
+}
+
+/// The tempo in the BPM chip: the track's own, or while the playback tempo
+/// differs, the target with the original beneath it.
+fn bpm_stat(track: &Track, app: &EuphoriaApp) -> Div {
+    let palette = app.theme.palette;
+    let own = track.bpm();
+    let rate = app.tempo.rate_for(&track.path);
+    match own {
+        Some(own) if !crate::tempo_controls::is_original(rate) => div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("focus-bpm-target")
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(format::bpm(crate::tempo_controls::target_for_rate(
+                        own, rate,
+                    )))
+                    .test_support(),
+            )
+            .child(
+                div()
+                    .id("focus-bpm-original")
+                    .text_size(LABEL_TEXT_SIZE)
+                    .text_color(palette.text_tertiary)
+                    .child(format!("{} original", format::bpm(own)))
+                    .test_support(),
+            ),
+        _ => div()
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(own.map_or_else(|| "\u{2013}".to_string(), format::bpm)),
+    }
 }
 
 /// The side of the Camelot wheel in the header.
