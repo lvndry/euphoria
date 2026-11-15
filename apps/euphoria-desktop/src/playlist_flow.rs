@@ -490,7 +490,7 @@ impl EuphoriaApp {
                 analysis: track
                     .analysis()
                     .map(|analysis| track.correction.apply(analysis.clone())),
-                display_name: match &track.artist {
+                display_name: match track.shown_artist() {
                     Some(artist) => format!("{artist} - {}", track.title()),
                     None => track.title().to_string(),
                 },

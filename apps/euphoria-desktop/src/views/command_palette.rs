@@ -273,7 +273,7 @@ fn track_row(
                 .text_color(palette.text)
                 .child(track.title().to_string()),
         );
-    if let Some(artist) = track.artist.as_deref() {
+    if let Some(artist) = track.shown_artist() {
         title = title.child(
             div()
                 .min_w_0()

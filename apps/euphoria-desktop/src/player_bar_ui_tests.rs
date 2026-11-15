@@ -3,7 +3,8 @@
 
 //! The player bar and the sound, used through the real root view in a
 //! headless window: the bar shows the track that is heard, never the one
-//! selected or the one still opening.
+//! selected or the one still opening, and a click on its title or cover
+//! shows that track in the library without touching the sound.
 //!
 //! The three fixture tracks get lengths of their own here, 7:01, 5:00 and
 //! 3:20, so the length the bar shows tells which track it belongs to.
@@ -11,14 +12,16 @@
 use std::path::{Path, PathBuf};
 
 use gpui::test::TestWindowExt;
-use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
+use gpui::{AnyWindowHandle, AppContext as _, Entity, Pixels, Size, TestAppContext, px, size};
 
 use crate::app::EuphoriaApp;
 use crate::playback::testing::SlowOpeningOutput;
 use crate::player::PlayerStatus;
-use crate::ui_tests::{click, deck_tracks, index_of_track, open_window_on};
+use crate::settings::Settings;
+use crate::ui_tests::{click, deck_tracks, index_of_track, open_window_with};
+use crate::views::inspector::STRIP_PLAYING_TITLE_ID;
 use crate::views::next_rail::{play_id, preview_play_id, row_id};
-use crate::views::player::{BarContent, BarDetail, content};
+use crate::views::player::{BarContent, BarDetail, COVER_LINK_ID, TITLE_LINK_ID, content};
 use crate::waveforms::Waveform;
 
 struct Fixture {
@@ -31,6 +34,10 @@ struct Fixture {
 }
 
 fn open(cx: &mut TestAppContext) -> Fixture {
+    open_sized(size(px(1440.0), px(900.0)), cx)
+}
+
+fn open_sized(window_size: Size<Pixels>, cx: &mut TestAppContext) -> Fixture {
     let mut tracks = deck_tracks();
     for (track, seconds) in tracks.iter_mut().zip([421.0, 300.0, 200.0]) {
         if let Ok(analysis) = &mut track.outcome {
@@ -38,7 +45,14 @@ fn open(cx: &mut TestAppContext) -> Fixture {
         }
     }
     let output = SlowOpeningOutput::default();
-    let (window, view) = open_window_on(tracks, Box::new(output.clone()), cx);
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(output.clone()),
+        Settings::default(),
+        None,
+        window_size,
+        cx,
+    );
     let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
     let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
     let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
@@ -331,4 +345,114 @@ fn pausing_while_the_next_track_opens_keeps_the_one_heard(cx: &mut TestAppContex
     assert_eq!(status(&fixture, cx), PlayerStatus::Paused);
     assert_eq!(fixture.output.sounding(), [flac]);
     bar_is_all_of(&fixture, fixture.flac, "7:01", cx);
+}
+
+/// Plays the FLAC, then selects the WAV, so the bar and the selection name
+/// different tracks.
+fn play_the_flac_and_select_the_wav(fixture: &Fixture, cx: &mut TestAppContext) {
+    play_the_flac(fixture, cx);
+    cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |app, cx| app.select(fixture.wav, cx))
+    });
+    settle(fixture, cx);
+}
+
+/// Checks that the FLAC is selected and shown in the table, and that it
+/// still plays as it did.
+fn the_flac_is_shown_and_still_plays(fixture: &Fixture, cx: &mut TestAppContext) {
+    let flac = path_of(fixture, fixture.flac, cx);
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.selected, Some(fixture.flac));
+        assert!(app.visible.contains(&fixture.flac));
+        assert_eq!(
+            app.selected_track().map(|track| track.path.clone()),
+            Some(flac.clone()),
+            "the inspector shows the playing track"
+        );
+    });
+    assert!(fixture.output.waiting().is_empty(), "no sound is asked for");
+    assert_eq!(held(fixture, cx), Some(flac.clone()));
+    assert_eq!(status(fixture, cx), PlayerStatus::Playing);
+    assert_eq!(fixture.output.sounding(), [flac]);
+}
+
+#[gpui::test]
+fn clicking_the_title_selects_the_playing_track_and_leaves_it_playing(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_the_flac_and_select_the_wav(&fixture, cx);
+
+    click(fixture.window, TITLE_LINK_ID, cx);
+    settle(&fixture, cx);
+
+    the_flac_is_shown_and_still_plays(&fixture, cx);
+}
+
+#[gpui::test]
+fn clicking_the_title_takes_off_a_search_that_hides_the_playing_track(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_the_flac_and_select_the_wav(&fixture, cx);
+    cx.update(|cx| {
+        fixture.view.update(cx, |app, _| {
+            app.query = "no track is called this".into();
+            app.refresh_visible();
+        })
+    });
+    settle(&fixture, cx);
+    cx.update(|cx| assert!(!fixture.view.read(cx).visible.contains(&fixture.flac)));
+
+    click(fixture.window, TITLE_LINK_ID, cx);
+    settle(&fixture, cx);
+
+    cx.update(|cx| assert!(fixture.view.read(cx).query.is_empty()));
+    the_flac_is_shown_and_still_plays(&fixture, cx);
+}
+
+#[gpui::test]
+fn clicking_the_cover_selects_the_playing_track(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_the_flac_and_select_the_wav(&fixture, cx);
+
+    click(fixture.window, COVER_LINK_ID, cx);
+    settle(&fixture, cx);
+
+    the_flac_is_shown_and_still_plays(&fixture, cx);
+}
+
+#[gpui::test]
+fn clicking_the_title_while_paused_keeps_the_track_paused(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_the_flac_and_select_the_wav(&fixture, cx);
+    cx.update(|cx| fixture.view.update(cx, |app, cx| app.toggle_playback(cx)));
+    settle(&fixture, cx);
+    assert_eq!(status(&fixture, cx), PlayerStatus::Paused);
+
+    click(fixture.window, TITLE_LINK_ID, cx);
+    settle(&fixture, cx);
+
+    cx.update(|cx| assert_eq!(fixture.view.read(cx).selected, Some(fixture.flac)));
+    assert_eq!(status(&fixture, cx), PlayerStatus::Paused);
+    assert_eq!(
+        held(&fixture, cx),
+        Some(path_of(&fixture, fixture.flac, cx))
+    );
+}
+
+#[gpui::test]
+fn clicking_the_playing_title_in_the_deck_strip_selects_the_playing_track(cx: &mut TestAppContext) {
+    // The strip scrolls sideways and its waveform note sits past 1440
+    // points, so the window is wide enough to show it.
+    let fixture = open_sized(size(px(2400.0), px(900.0)), cx);
+    cx.update(|cx| {
+        fixture.view.update(cx, |app, cx| {
+            app.set_theme(crate::theme::ThemeName::Deck, cx)
+        })
+    });
+    play_the_flac_and_select_the_wav(&fixture, cx);
+    click(fixture.window, STRIP_PLAYING_TITLE_ID, cx);
+    settle(&fixture, cx);
+
+    the_flac_is_shown_and_still_plays(&fixture, cx);
 }
