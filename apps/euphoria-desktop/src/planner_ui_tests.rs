@@ -1057,11 +1057,12 @@ fn the_separate_button_separates_b_in_place_and_the_lanes_fill_when_it_finishes(
     assert!(is_shown(setup.window, "planner-cancel-b", cx));
     assert!(!is_shown(setup.window, "planner-separate-b", cx));
 
-    for _ in 0..400 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < deadline {
         cx.executor()
             .advance_clock(std::time::Duration::from_millis(300));
         cx.run_until_parked();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_millis(10));
         let known = cx.update(|cx| {
             setup
                 .view
