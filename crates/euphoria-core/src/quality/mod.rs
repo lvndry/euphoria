@@ -8,6 +8,7 @@
 
 mod cutoff;
 pub(crate) mod peak;
+mod replace;
 
 use std::path::Path;
 
@@ -24,6 +25,9 @@ use crate::error::EuphoriaError;
 pub use cutoff::Cutoff;
 use cutoff::SpectralCutoffMeter;
 use peak::TruePeakMeter;
+pub use replace::{
+    DEFAULT_REPLACE_THRESHOLD, ReplaceProblem, ReplaceSummary, compare_for_replacement,
+};
 
 /// A sample at least this close to full scale counts towards clipping.
 const FULL_SCALE: f32 = 0.999;
