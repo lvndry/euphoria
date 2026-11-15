@@ -83,6 +83,7 @@ pub(crate) fn tracks(count: usize) -> Vec<DemoTrack> {
                 key_score_margin: None,
                 key_source: None,
                 loudness_range_lu: None,
+                pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,

@@ -13,6 +13,7 @@ use crate::detect::{KeyDetector, KeyReading, KeySection};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
 use crate::key_engine::KeySource;
+use crate::pitch_classes::{PITCH_CLASS_COUNT, normalised};
 
 const A_PITCH_CLASS: usize = 9;
 
@@ -94,22 +95,52 @@ impl KeyFinderDetector {
             tuning_cents: tuning.map(|tuning| tuning.cents),
             timeline,
             source: key.map(|_| KeySource::KeyFinder),
+            pitch_class_profile: key.and_then(|_| normalised(analysis.pitch_class_totals())),
         })
     }
 
-    /// How far a track is tuned from concert pitch, and its key over time
-    /// measured against `track_key`, a key another detector decided. The
-    /// sections that stay in the key of the track carry `track_key`.
-    pub fn tuning_and_timeline(
+    /// How far a track is tuned from concert pitch, its key over time
+    /// measured against `track_key`, a key another detector decided, and
+    /// its pitch-class profile. The sections that stay in the key of the
+    /// track carry `track_key`.
+    pub fn follow_key(
         &self,
         audio: &AudioBuffer,
         track_key: Key,
-    ) -> Result<(Option<f32>, Vec<KeySection>), EuphoriaError> {
+    ) -> Result<KeyFollowing, EuphoriaError> {
         let tuning = measure_tuning(audio);
         let analysis = ChromaAnalysis::of_audio(audio, tuning.filter(is_worth_correcting))?;
-        let timeline = analysis.timeline(track_key, audio.duration_seconds())?;
-        Ok((tuning.map(|tuning| tuning.cents), timeline))
+        Ok(KeyFollowing {
+            tuning_cents: tuning.map(|tuning| tuning.cents),
+            timeline: analysis.timeline(track_key, audio.duration_seconds())?,
+            pitch_class_profile: normalised(analysis.pitch_class_totals()),
+        })
     }
+
+    /// How strongly each of the 12 notes sounds in mono `samples` at
+    /// `sample_rate`, C first, from 0 to 1 with the strongest at 1, or
+    /// `None` when no note sounds. A track at least 20 cents from concert
+    /// pitch is heard as if tuned to it.
+    pub fn pitch_class_profile(
+        &self,
+        audio: &AudioBuffer,
+    ) -> Result<Option<[f32; PITCH_CLASS_COUNT]>, EuphoriaError> {
+        let correction = measure_tuning(audio).filter(is_worth_correcting);
+        let analysis = ChromaAnalysis::of_audio(audio, correction)?;
+        Ok(normalised(analysis.pitch_class_totals()))
+    }
+}
+
+/// What [`KeyFinderDetector::follow_key`] measures.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyFollowing {
+    /// The offset from A = 440 Hz in cents, or `None` when it could not be
+    /// measured.
+    pub tuning_cents: Option<f32>,
+    /// The key over time.
+    pub timeline: Vec<KeySection>,
+    /// The pitch-class profile, or `None` when no note sounds.
+    pub pitch_class_profile: Option<[f32; PITCH_CLASS_COUNT]>,
 }
 
 impl KeyDetector for KeyFinderDetector {
@@ -210,6 +241,17 @@ impl ChromaAnalysis {
             chromagram,
             seconds_per_hop,
         })
+    }
+
+    /// How strongly each note sounds over the whole track, C first, as the
+    /// chromagram's bands do.
+    fn pitch_class_totals(&self) -> [f64; PITCH_CLASS_COUNT] {
+        let whole_track = self.chromagram.mean_of_hops(0..self.chromagram.hop_count());
+        let mut totals = [0.0_f64; PITCH_CLASS_COUNT];
+        for (band, magnitude) in whole_track.iter().enumerate() {
+            totals[band % PITCH_CLASS_COUNT] += magnitude;
+        }
+        totals
     }
 
     fn key_of_whole_track(&self) -> Result<Option<Key>, EuphoriaError> {
@@ -389,6 +431,29 @@ mod tests {
         assert_eq!(ranking.runner_up, key_from_code(9));
         assert!((ranking.score_margin - 0.05).abs() < 1.0e-6);
         assert_eq!(rank(&[0.0; KEY_COUNT]), None);
+    }
+
+    #[test]
+    fn the_profile_lights_the_notes_of_the_chords() {
+        let audio = buffer(chord_progression(key("A minor"), 0.0, 24.0));
+
+        let profile = KeyFinderDetector
+            .read_key(&audio)
+            .unwrap()
+            .pitch_class_profile
+            .unwrap();
+
+        let harmonic_minor_scale = [9, 11, 0, 2, 4, 5, 8];
+        let weakest_in_scale = harmonic_minor_scale
+            .iter()
+            .map(|pitch_class| profile[*pitch_class])
+            .fold(f32::MAX, f32::min);
+        let strongest_outside = (0..12)
+            .filter(|pitch_class| !harmonic_minor_scale.contains(pitch_class))
+            .map(|pitch_class| profile[pitch_class])
+            .fold(0.0, f32::max);
+        assert!(weakest_in_scale > strongest_outside, "{profile:?}");
+        assert_eq!(profile.iter().copied().fold(0.0, f32::max), 1.0);
     }
 
     #[test]

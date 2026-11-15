@@ -40,6 +40,8 @@ pub mod key_engine;
 pub mod library;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
+/// How strongly each of the 12 notes sounds in a track.
+pub mod pitch_classes;
 /// The energy and stem levels the transition planner reads.
 pub mod plan_signals;
 /// Playlists the user builds, kept by the content of their files.
@@ -124,6 +126,9 @@ pub use library::{
     AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
     find_audio_files, is_supported_audio_file, scan_audio_files,
 };
+#[cfg(feature = "libkeyfinder")]
+pub use pitch_classes::pitch_class_profile;
+pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,
