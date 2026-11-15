@@ -79,6 +79,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -1350,6 +1351,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_score_margin: None,
                 key_source: None,
                 loudness_range_lu: None,
+                pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -2868,6 +2870,7 @@ fn track_changing_key() -> DemoTrack {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -3492,6 +3495,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_score_margin: Some(key_margin),
         key_source: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
         beat_grid: None,
@@ -3584,14 +3588,12 @@ fn a_key_that_differs_from_the_tags_is_marked_listed_for_review_and_explained(
 }
 
 #[gpui::test]
-fn the_key_box_shows_its_confidence_and_the_runner_up_only_when_the_key_is_not_high(
-    cx: &mut TestAppContext,
-) {
+fn the_key_box_offers_the_runner_up_only_when_the_key_is_not_high(cx: &mut TestAppContext) {
     let (window, view) = open_tracks_to_review(None, cx);
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
-        assert!(window.try_find("key-confidence").is_some());
-        assert!(window.try_find("tempo-confidence").is_some());
+        assert!(window.try_find("key-confidence").is_none());
+        assert!(window.try_find("tempo-confidence").is_none());
         assert!(
             window.try_find("runner-up-key").is_none(),
             "a key rated high"
@@ -3602,7 +3604,7 @@ fn the_key_box_shows_its_confidence_and_the_runner_up_only_when_the_key_is_not_h
             window.try_find("runner-up-key").is_some(),
             "a key rated medium"
         );
-        let key_box = window.find("key-confidence").bounds();
+        let key_box = window.find("runner-up-key").bounds();
         assert!(
             window
                 .find("inspector")
@@ -3769,6 +3771,7 @@ fn set_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
@@ -4615,7 +4618,6 @@ fn a_click_takes_the_runner_up_key_and_another_resets_it(cx: &mut TestAppContext
     click(window, "runner-up-key", cx);
     assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("9A"));
     assert!(is_shown(window, "key-set-by-you", cx));
-    assert!(!is_shown(window, "key-confidence", cx));
     assert!(
         !is_shown(window, "runner-up-key", cx),
         "the runner up is the key now"
@@ -4632,7 +4634,7 @@ fn a_click_takes_the_runner_up_key_and_another_resets_it(cx: &mut TestAppContext
     click(window, "key-reset", cx);
     assert_eq!(selected_key_and_bpm(&view, cx).0.as_deref(), Some("8A"));
     assert!(is_shown(window, "runner-up-key", cx));
-    assert!(is_shown(window, "key-confidence", cx));
+    assert!(!is_shown(window, "key-set-by-you", cx));
 }
 
 #[gpui::test]
@@ -5301,6 +5303,7 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: Some(euphoria_core::BeatGrid {
@@ -6023,6 +6026,7 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: Some(120.0),
             tempo_score_margin: None,
             beat_grid: has_grid.then_some(euphoria_core::BeatGrid {
@@ -6656,12 +6660,11 @@ fn remove_stems_deletes_them_and_offers_to_separate_again(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn statistic_labels_notes_and_confidence_stay_whole_in_every_theme_at_the_narrowest_inspector(
+fn statistic_labels_and_notes_stay_whole_in_every_theme_at_the_narrowest_inspector(
     cx: &mut TestAppContext,
 ) {
     let mut measured = 0;
     let mut measured_notes = 0;
-    let mut measured_trust = 0;
     for theme in ThemeName::ALL {
         let panels = Panels {
             inspector_width: 0,
@@ -6680,7 +6683,7 @@ fn statistic_labels_notes_and_confidence_stay_whole_in_every_theme_at_the_narrow
         );
         select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
         for label in ["Key", "BPM", "Energy"] {
-            for prefix in ["statistic-label", "statistic-note", "statistic-trust"] {
+            for prefix in ["statistic-label", "statistic-note"] {
                 let id = gpui::SharedString::from(format!("{prefix}-{label}"));
                 let height = cx
                     .update_window(window, |_, window, cx| {
@@ -6691,10 +6694,8 @@ fn statistic_labels_notes_and_confidence_stay_whole_in_every_theme_at_the_narrow
                 if let Some(height) = height {
                     if prefix == "statistic-label" {
                         measured += 1;
-                    } else if prefix == "statistic-note" {
-                        measured_notes += 1;
                     } else {
-                        measured_trust += 1;
+                        measured_notes += 1;
                     }
                     assert!(
                         height < px(20.0),
@@ -6708,11 +6709,116 @@ fn statistic_labels_notes_and_confidence_stay_whole_in_every_theme_at_the_narrow
         measured >= 12,
         "the statistics were not shown in every theme"
     );
-    assert!(measured_trust >= 8, "the confidence words were not shown");
     assert!(
-        measured_notes >= 12,
+        measured_notes >= 4,
         "the notes were not shown in every theme"
     );
+}
+
+#[gpui::test]
+fn the_bpm_and_the_energy_read_on_one_line_in_aligned_boxes(cx: &mut TestAppContext) {
+    for theme in ThemeName::ALL {
+        let panels = Panels {
+            inspector_width: 0,
+            ..Panels::default()
+        };
+        let mut tracks = tracks_with_reasons();
+        for demo in &mut tracks {
+            if demo.path.ends_with("sure.mp3")
+                && let Ok(analysis) = &mut demo.outcome
+            {
+                analysis.pitch_class_profile =
+                    Some([0.9, 0.1, 0.5, 0.2, 0.9, 0.4, 0.1, 0.5, 0.2, 1.0, 0.2, 0.3]);
+            }
+        }
+        let (window, view) = open_folders(
+            &["/Demo/reasons"],
+            tracks,
+            Settings {
+                theme,
+                panels,
+                ..Settings::default()
+            },
+            None,
+            cx,
+        );
+        for (name, has_alternative) in [("sure.mp3", false), ("unsure tempo.mp3", true)] {
+            select_track(&view, library_index_of(&view, name, cx), cx);
+            cx.update_window(window, |_, window, cx| {
+                window.render_frame(cx);
+                let inspector = window.find("inspector").bounds();
+                let tempo_unit = window.find("tempo-unit").bounds();
+                let energy_unit = window.find("energy-unit").bounds();
+                let key_label = window.find("statistic-label-Key").bounds();
+                let tempo_label = window.find("statistic-label-BPM").bounds();
+                let energy_label = window.find("statistic-label-Energy").bounds();
+                for (unit, bounds) in [("BPM", tempo_unit), ("out of 10", energy_unit)] {
+                    assert!(
+                        bounds.size.height < px(20.0),
+                        "{unit} wraps in {theme:?} for {name}: {:?}",
+                        bounds.size.height
+                    );
+                    assert!(
+                        bounds.right() <= inspector.right(),
+                        "{unit} runs past the inspector in {theme:?} for {name}"
+                    );
+                }
+                assert!(window.try_find("statistic-note-Energy").is_none());
+                assert_eq!(
+                    window.try_find("statistic-note-BPM").is_some(),
+                    has_alternative,
+                    "the BPM box has a second line only for the other tempo, {theme:?} {name}"
+                );
+                if has_alternative {
+                    let note = window.find("statistic-note-BPM").bounds();
+                    assert!(note.size.height < px(20.0), "{theme:?} {name}");
+                }
+                let notes_id = if has_alternative {
+                    "notes-not-measured"
+                } else {
+                    "note-strip"
+                };
+                let notes = window.try_find(notes_id).map(|found| found.bounds());
+                assert!(
+                    notes.is_some(),
+                    "{notes_id} is shown in {theme:?} for {name}"
+                );
+                if let Some(notes) = notes {
+                    if theme == ThemeName::Deck {
+                        assert!(
+                            notes.left() >= energy_unit.right(),
+                            "the notes column overlaps the boxes in {theme:?} for {name}"
+                        );
+                    } else {
+                        assert!(
+                            notes.top() >= energy_unit.bottom(),
+                            "the notes overlap the boxes in {theme:?} for {name}"
+                        );
+                        assert!(
+                            notes.right() <= inspector.right(),
+                            "the notes run past the inspector in {theme:?} for {name}"
+                        );
+                    }
+                }
+                if theme == ThemeName::Deck {
+                    assert_eq!(key_label.top(), tempo_label.top(), "{theme:?} {name}");
+                    assert_eq!(key_label.top(), energy_label.top(), "{theme:?} {name}");
+                    assert_eq!(tempo_unit.top(), energy_unit.top(), "{theme:?} {name}");
+                    assert!(
+                        tempo_unit.right() <= energy_label.left(),
+                        "BPM stays in its box in {theme:?} for {name}"
+                    );
+                } else if !has_alternative {
+                    assert_eq!(
+                        tempo_unit.top() - tempo_label.top(),
+                        energy_unit.top() - energy_label.top(),
+                        "the BPM and Energy lines keep one shape in {theme:?} for {name}"
+                    );
+                }
+            })
+            .unwrap();
+        }
+    }
 }
 
 #[gpui::test]
@@ -6793,12 +6899,12 @@ fn toggling_a_section_opens_it_and_is_written_to_the_settings(cx: &mut TestAppCo
     select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Stems),
+        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
         cx,
     );
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
+        crate::views::inspector_section::toggle_id(SectionKind::Stems),
         cx,
     );
     assert!(is_shown(window, section_body_id(SectionKind::Stems), cx));
@@ -7077,7 +7183,14 @@ fn each_row_under_needs_review_carries_a_chip_for_each_of_its_reasons(cx: &mut T
         .iter()
         .map(|reason| crate::views::review::chip_label(reason, notation))
         .collect();
-    assert_eq!(words, ["Key unsure", "Tempo unsure", "Tag says 9A"]);
+    assert_eq!(
+        words,
+        [
+            "Key: relative or 5th?",
+            "BPM: half or double?",
+            "Tag says 9A"
+        ]
+    );
     assert_eq!(
         crate::views::review::chip_label(&reasons_of(&view, 4, cx)[0], notation),
         "Failed"
@@ -7184,20 +7297,49 @@ fn looks_right_keeps_the_detected_values_and_settles_the_doubt(cx: &mut TestAppC
     assert!(reasons_of(&view, 3, cx).is_empty());
     assert_eq!(review_counts(&view, cx), (4, 4));
     assert!(
-        !is_shown(window, "key-confidence", cx) && !is_shown(window, "tempo-confidence", cx),
-        "a value checked with Looks right no longer says it needs review"
+        !is_shown(window, "key-set-by-you", cx) && !is_shown(window, "tempo-set-by-you", cx),
+        "a value checked with Looks right is still the detected one"
     );
 }
 
 #[gpui::test]
-fn a_low_confidence_value_says_it_is_to_review(cx: &mut TestAppContext) {
+fn looks_right_stops_offering_the_runner_up_key_and_the_other_tempo(cx: &mut TestAppContext) {
     let (window, view) = open_tracks_with_reasons(cx);
     select_track(&view, 3, cx);
-    assert!(is_shown(window, "tempo-confidence", cx));
-    assert_eq!(
-        crate::views::inspector::confidence_text(euphoria_core::Confidence::Low),
-        "to review"
+    assert!(is_shown(window, "runner-up-key", cx));
+    assert!(is_shown(window, "tempo-alternative", cx));
+
+    click(window, "review-key-looks-right", cx);
+    assert!(
+        !is_shown(window, "runner-up-key", cx),
+        "a confirmed key offers no runner up"
     );
+    cx.update(|cx| {
+        let track = view.read(cx).selected_track().unwrap();
+        let (_, runner_up) = crate::views::by_ear::heard_keys(track, 0).unwrap();
+        assert_eq!(runner_up, None, "Check by ear offers no runner up either");
+    });
+    assert!(is_shown(window, "tempo-alternative", cx));
+
+    click(window, "review-tempo-looks-right", cx);
+    assert!(
+        !is_shown(window, "tempo-alternative", cx),
+        "a confirmed tempo offers no half or double"
+    );
+    assert!(reasons_of(&view, 3, cx).is_empty());
+    assert!(!is_shown(window, "review-box", cx));
+}
+
+#[gpui::test]
+fn a_doubtful_value_is_explained_under_needs_review_without_a_confidence_word(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 3, cx);
+    assert!(is_shown(window, "review-key-unsure", cx));
+    assert!(is_shown(window, "review-tempo-unsure", cx));
+    assert!(!is_shown(window, "key-confidence", cx));
+    assert!(!is_shown(window, "tempo-confidence", cx));
 }
 
 #[gpui::test]

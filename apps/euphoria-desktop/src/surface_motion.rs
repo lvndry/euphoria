@@ -126,23 +126,30 @@ pub(crate) enum Modal {
     Settings,
     Export,
     TagPanel,
+    Prepare,
 }
 
 impl Modal {
-    const ALL: [Modal; 3] = [Modal::Settings, Modal::Export, Modal::TagPanel];
+    const ALL: [Modal; 4] = [
+        Modal::Settings,
+        Modal::Export,
+        Modal::TagPanel,
+        Modal::Prepare,
+    ];
 
     fn index(self) -> usize {
         match self {
             Modal::Settings => 0,
             Modal::Export => 1,
             Modal::TagPanel => 2,
+            Modal::Prepare => 3,
         }
     }
 }
 
 /// The fade of every dialog.
 pub(crate) struct ModalFades {
-    presences: [Presence; 3],
+    presences: [Presence; 4],
 }
 
 impl Default for ModalFades {

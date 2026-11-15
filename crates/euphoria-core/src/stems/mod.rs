@@ -40,7 +40,7 @@ pub use export::{
 };
 pub use levels::measure_stem_levels;
 pub use model::{WEIGHTS_BYTES, WEIGHTS_SHA256, WEIGHTS_URL, default_weights_path};
-pub use profile::{StemActivity, profile_stems, stem_activity};
+pub use profile::{StemActivity, layerable_profile, profile_stems, stem_activity};
 pub use vocal_activity::{
     VOCAL_ACTIVITY_FILE_NAME, VocalActivity, VocalLevels, VocalWindow, vocal_activity,
 };

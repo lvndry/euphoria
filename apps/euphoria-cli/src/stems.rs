@@ -221,14 +221,14 @@ fn format_elapsed(elapsed: Duration) -> String {
 /// The progress of one separation on standard error: a spinner while the
 /// model loads and the file decodes, a bar while the model downloads and
 /// while the segments are separated. Nothing is drawn off a terminal.
-struct SeparationProgress {
+pub(crate) struct SeparationProgress {
     bar: ProgressBar,
     track_name: String,
     separated_any: std::sync::atomic::AtomicBool,
 }
 
 impl SeparationProgress {
-    fn new(file: &Path) -> Self {
+    pub(crate) fn new(file: &Path) -> Self {
         let target = if std::io::stderr().is_terminal() {
             ProgressDrawTarget::stderr()
         } else {
@@ -277,7 +277,7 @@ impl SeparationProgress {
         self.bar.set_length(length);
     }
 
-    fn finish(&self) {
+    pub(crate) fn finish(&self) {
         self.bar.finish_and_clear();
     }
 }

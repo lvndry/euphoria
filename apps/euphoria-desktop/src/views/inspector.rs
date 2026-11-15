@@ -36,6 +36,7 @@ use crate::views::inspector_section;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::next_rail;
+use crate::views::note_strip::note_strip;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::review;
 use crate::views::stems;
@@ -56,8 +57,8 @@ use crate::waveforms::Waveform;
 pub(crate) const STRIP_TITLE_COLUMN: f32 = 220.0;
 
 /// The width of the key, tempo and energy boxes in the Deck strip, room for
-/// "per minute" and "C# minor" whole.
-const STRIP_STATISTICS_WIDTH: f32 = 264.0;
+/// "124.0 BPM" and "C# minor" whole.
+const STRIP_STATISTICS_WIDTH: f32 = 360.0;
 
 /// The width of the last area of the strip: the tabs over the section they show.
 const STRIP_SECTION_WIDTH: f32 = 272.0;
@@ -207,6 +208,11 @@ pub(crate) fn render(
         .flatten()
         .map(|section| sized(divided(section), Some(room.wheel_size())));
 
+    let strip_notes = (!is_column)
+        .then(|| note_strip(track, theme, app.tag_settings.key_notation))
+        .flatten()
+        .map(|notes| sized(div().child(notes), Some(STRIP_STATISTICS_WIDTH)));
+
     let header = if is_column {
         summary(track, app, cx)
     } else {
@@ -236,6 +242,7 @@ pub(crate) fn render(
             statistics(track, app, cx),
             Some(STRIP_STATISTICS_WIDTH),
         ))
+        .children(strip_notes)
         .children(strip_wheel)
         .child(sized(waveform_section(track, app, room, cx), None))
         .children(
@@ -453,10 +460,10 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
 }
 
 /// The key, the tempo and the energy in three boxes. The key and the tempo
-/// say quietly how far to trust them, and, when the core offers one, what
-/// else they could be: the runner up key when the key is not rated high,
-/// and half or double the tempo. A click on either takes it instead. A
-/// value the user set says so, with a way back to the detected one.
+/// say, when the core offers one, what else they could be: the runner up
+/// key when the key is not rated high, and half or double the tempo. A
+/// click on either takes it instead. A value the user set says so, with a
+/// way back to the detected one.
 fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = &theme.palette;
@@ -470,12 +477,10 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     };
     let analysis = track.analysis();
     let correction = track.correction;
-    let key_confidence = analysis.and_then(|analysis| analysis.key_confidence());
-    let tempo_confidence = analysis.and_then(|analysis| analysis.tempo_confidence());
     let runner_up = shown_runner_up(track);
     let tempo_alternative = analysis
         .and_then(|analysis| analysis.tempo_alternative_in(app.session.library().tempo_range()))
-        .filter(|_| correction.bpm.is_none());
+        .filter(|_| correction.bpm.is_none() && !correction.bpm_confirmed);
 
     let (key_code, key_note) = match (track.key(), correction.key) {
         (Some(key), Some(_)) => {
@@ -531,9 +536,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
 
     let (tempo, tempo_note) = match track.bpm() {
         Some(bpm) => (
-            format::bpm(bpm),
+            value_with_unit(format::bpm(bpm), "BPM", "tempo-unit", palette),
             match (correction.bpm, tempo_alternative, track.detected_bpm()) {
-                (Some(_), _, detected) => reset_note(
+                (Some(_), _, detected) => Some(reset_note(
                     "tempo-reset",
                     match detected {
                         Some(detected) => format!("reset to {}", format::bpm(detected)),
@@ -542,7 +547,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                     palette,
                     cx,
                     |this, cx| this.reset_bpm(cx),
-                ),
+                )),
                 (None, Some(alternative), _) => {
                     let hover_colour = palette.text;
                     let description: SharedString = format!(
@@ -550,31 +555,33 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                         format::bpm(alternative)
                     )
                     .into();
-                    quiet_note(format!("or {}", format::bpm(alternative)), palette)
-                        .id("tempo-alternative")
-                        .cursor_pointer()
-                        .hover(move |style| style.text_color(hover_colour))
-                        .tooltip(move |window, cx| {
-                            Tooltip::new(description.clone()).build(window, cx)
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.accept_bpm(alternative, cx);
-                        }))
-                        .test_support()
-                        .into_any_element()
+                    let alternative_note =
+                        quiet_note(format!("or {}", format::bpm(alternative)), palette)
+                            .id("tempo-alternative")
+                            .cursor_pointer()
+                            .hover(move |style| style.text_color(hover_colour))
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(description.clone()).build(window, cx)
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.accept_bpm(alternative, cx);
+                            }))
+                            .test_support()
+                            .into_any_element();
+                    Some(alternative_note)
                 }
-                _ => quiet_note("per minute", palette).into_any_element(),
+                _ => None,
             },
         ),
         None => (
-            "\u{2013}".to_string(),
-            quiet_note(not_known_yet, palette).into_any_element(),
+            statistic_value("\u{2013}"),
+            Some(quiet_note(not_known_yet, palette).into_any_element()),
         ),
     };
     let (energy, energy_note) = match (track.energy(), correction.energy) {
         (Some(rating), Some(_)) => (
-            rating.to_string(),
-            reset_note(
+            value_with_unit(rating.to_string(), "out of 10", "energy-unit", palette),
+            Some(reset_note(
                 "energy-reset",
                 match track.detected_energy() {
                     Some(detected) => format!("reset to {detected}"),
@@ -583,58 +590,41 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 palette,
                 cx,
                 |this, cx| this.reset_energy(cx),
-            ),
+            )),
         ),
         (Some(rating), None) => (
-            rating.to_string(),
-            quiet_note("of 10", palette).into_any_element(),
+            value_with_unit(rating.to_string(), "out of 10", "energy-unit", palette),
+            None,
         ),
         (None, _) if track.analysis().is_some() => (
-            "\u{2013}".to_string(),
-            quiet_note("not rated", palette).into_any_element(),
+            statistic_value("\u{2013}"),
+            Some(quiet_note("not rated", palette).into_any_element()),
         ),
         (None, _) => (
-            "\u{2013}".to_string(),
-            quiet_note(not_known_yet, palette).into_any_element(),
+            statistic_value("\u{2013}"),
+            Some(quiet_note(not_known_yet, palette).into_any_element()),
         ),
     };
-    let energy_trust = correction
+    let energy_set_mark = correction
         .energy
         .map(|_| set_by_you("energy-set-by-you", "energy", palette));
 
-    let key_trust = match (correction.key, key_confidence) {
-        (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
-        // Checked with "Looks right": nothing is left to review.
-        (None, Some(Confidence::Low)) if correction.key_confirmed => None,
-        (None, Some(confidence)) => Some(confidence_word(
-            "Key",
-            "key-confidence",
-            confidence,
-            palette,
-        )),
-        (None, None) => None,
-    };
-    let tempo_trust = match (correction.bpm, tempo_confidence) {
-        (Some(_), _) => Some(set_by_you("tempo-set-by-you", "tempo", palette)),
-        (None, Some(Confidence::Low)) if correction.bpm_confirmed => None,
-        (None, Some(confidence)) => Some(confidence_word(
-            "BPM",
-            "tempo-confidence",
-            confidence,
-            palette,
-        )),
-        (None, None) => None,
-    };
+    let key_set_mark = correction
+        .key
+        .map(|_| set_by_you("key-set-by-you", "key", palette));
+    let tempo_set_mark = correction
+        .bpm
+        .map(|_| set_by_you("tempo-set-by-you", "tempo", palette));
 
     let is_column = theme.layout == Layout::InspectorRight;
     let boxes = if is_column {
         let compact =
-            |label, trust, value, note| statistic_compact(label, trust, value, note, palette);
-        let key_box = compact("Key", key_trust, key_value, key_note);
-        let tempo_box = compact("BPM", tempo_trust, statistic_value(tempo), tempo_note)
+            |label, set_mark, value, note| statistic_compact(label, set_mark, value, note, palette);
+        let key_box = compact("Key", key_set_mark, key_value, Some(key_note));
+        let tempo_box = compact("BPM", tempo_set_mark, tempo, tempo_note)
             .border_t_1()
             .border_color(palette.line);
-        let energy_box = compact("Energy", energy_trust, statistic_value(energy), energy_note)
+        let energy_box = compact("Energy", energy_set_mark, energy, energy_note)
             .border_t_1()
             .border_color(palette.line);
         div()
@@ -666,28 +656,22 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             .rounded(RADIUS_LARGE)
             .border_1()
             .border_color(palette.line)
-            .child(statistic("Key", key_trust, key_value, key_note, palette))
+            .child(statistic(
+                "Key",
+                key_set_mark,
+                key_value,
+                Some(key_note),
+                palette,
+            ))
             .child(
-                statistic(
-                    "BPM",
-                    tempo_trust,
-                    statistic_value(tempo),
-                    tempo_note,
-                    palette,
-                )
-                .border_l_1()
-                .border_color(palette.line),
+                statistic("BPM", tempo_set_mark, tempo, tempo_note, palette)
+                    .border_l_1()
+                    .border_color(palette.line),
             )
             .child(
-                statistic(
-                    "Energy",
-                    energy_trust,
-                    statistic_value(energy),
-                    energy_note,
-                    palette,
-                )
-                .border_l_1()
-                .border_color(palette.line),
+                statistic("Energy", energy_set_mark, energy, energy_note, palette)
+                    .border_l_1()
+                    .border_color(palette.line),
             )
     };
 
@@ -698,6 +682,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .child(boxes)
         .children(tag_key_line(track, notation, palette))
         .children(stage_line(track, app, palette))
+        .when(is_column, |section| {
+            section.children(note_strip(track, theme, notation))
+        })
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
@@ -774,15 +761,15 @@ fn tag_key_line(track: &Track, notation: NotationChoice, palette: &Palette) -> O
 }
 
 /// The runner up key, offered beside the key when the key is not rated
-/// high and the user has not set one.
+/// high and the user has neither set it nor confirmed it with Looks right.
 pub(crate) fn shown_runner_up(track: &Track) -> Option<euphoria_core::Key> {
     let analysis = track.analysis()?;
     let is_doubtful = analysis
         .key_confidence()
         .is_some_and(|confidence| confidence != Confidence::High);
-    analysis
-        .key_runner_up
-        .filter(|_| is_doubtful && track.correction.key.is_none())
+    analysis.key_runner_up.filter(|_| {
+        is_doubtful && track.correction.key.is_none() && !track.correction.key_confirmed
+    })
 }
 
 /// The value of a box, large.
@@ -795,6 +782,23 @@ fn statistic_value(value: impl Into<SharedString>) -> Div {
         .child(value.into())
 }
 
+/// The value of a box, large, with its unit after it on the same baseline
+/// in the style of a quiet note, such as "124.0 BPM" or "7 out of 10".
+fn value_with_unit(
+    value: String,
+    unit: &'static str,
+    unit_id: &'static str,
+    palette: &Palette,
+) -> Div {
+    div()
+        .flex()
+        .items_baseline()
+        .gap(GAP_TIGHT)
+        .whitespace_nowrap()
+        .child(statistic_value(value))
+        .child(quiet_note(unit, palette).id(unit_id).test_support())
+}
+
 /// The quiet line under the value of a box.
 fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
     div()
@@ -802,50 +806,6 @@ fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
         .text_size(LABEL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
         .child(text.into())
-}
-
-/// The word under a detected value: a low one is something to review.
-pub(crate) fn confidence_text(confidence: Confidence) -> &'static str {
-    match confidence {
-        Confidence::Low => "to review",
-        other => other.as_str(),
-    }
-}
-
-/// How far to trust a detected value, in a word, explained on hover.
-fn confidence_word(
-    label: &'static str,
-    id: &'static str,
-    confidence: Confidence,
-    palette: &Palette,
-) -> AnyElement {
-    let (colour, explanation): (_, SharedString) = match confidence {
-        Confidence::High => (
-            palette.text_tertiary,
-            format!("{label} confidence: high. The detector clearly preferred this answer.").into(),
-        ),
-        Confidence::Medium => (
-            palette.text_tertiary,
-            format!("{label} confidence: medium. Usually right, worth a listen if it matters.")
-                .into(),
-        ),
-        Confidence::Low => (
-            palette.warning,
-            format!(
-                "{label} confidence: low. Check it by ear, then choose Looks right or correct it; the track is listed under Needs review until then."
-            )
-            .into(),
-        ),
-    };
-    let word = confidence_text(confidence);
-    div()
-        .id(id)
-        .whitespace_nowrap()
-        .text_color(colour)
-        .child(word)
-        .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
-        .test_support()
-        .into_any_element()
 }
 
 /// Says that the user set the value, which wins over the detected one.
@@ -905,30 +865,30 @@ fn statistic_note(label: &'static str, note: AnyElement) -> impl IntoElement {
         .test_support()
 }
 
-/// How far to trust a statistic, in a word of its own under the value.
-fn statistic_trust(
+/// The mark under a value the user set, on a line of its own.
+fn statistic_set_mark(
     label: &'static str,
-    trust: Option<AnyElement>,
+    set_mark: Option<AnyElement>,
 ) -> impl Iterator<Item = impl IntoElement> {
-    trust.into_iter().map(move |trust| {
+    set_mark.into_iter().map(move |set_mark| {
         div()
-            .id(SharedString::from(format!("statistic-trust-{label}")))
+            .id(SharedString::from(format!("statistic-set-mark-{label}")))
             .flex()
             .flex_shrink_0()
             .whitespace_nowrap()
             .text_size(LABEL_TEXT_SIZE)
-            .child(trust)
+            .child(set_mark)
             .test_support()
     })
 }
 
-/// One box: its label, the value, a quiet note under it, and under that
-/// how far to trust the value.
+/// One box: its label, the value, a quiet note under it when it has one,
+/// and under that whether the user set the value.
 fn statistic(
     label: &'static str,
-    trust: Option<AnyElement>,
+    set_mark: Option<AnyElement>,
     value: Div,
-    note: AnyElement,
+    note: Option<AnyElement>,
     palette: &Palette,
 ) -> Div {
     div()
@@ -941,25 +901,26 @@ fn statistic(
         .py(px(10.0))
         .child(statistic_label(label, palette))
         .child(value)
-        .child(statistic_note(label, note))
-        .children(statistic_trust(label, trust))
+        .children(note.map(|note| statistic_note(label, note)))
+        .children(statistic_set_mark(label, set_mark))
 }
 
 /// Width of the label column of the compact statistics, room for the
 /// longest label ("Energy") at its size.
 const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 
-/// The least width of a box of the strip, room for "per minute" and
+/// The least width of a box of the strip, room for "124.0 BPM" and
 /// "C# minor" at their size beside the padding.
 const STATISTIC_CELL_WIDTH: f32 = 84.0;
 
 /// One line of the column: the label, and beside it the value with its
-/// note under it and under that how far to trust the value.
+/// note under it when it has one and under that whether the user set the
+/// value.
 fn statistic_compact(
     label: &'static str,
-    trust: Option<AnyElement>,
+    set_mark: Option<AnyElement>,
     value: Div,
-    note: AnyElement,
+    note: Option<AnyElement>,
     palette: &Palette,
 ) -> Div {
     div()
@@ -981,8 +942,8 @@ fn statistic_compact(
                 .flex_col()
                 .flex_shrink_0()
                 .child(value)
-                .child(statistic_note(label, note))
-                .children(statistic_trust(label, trust)),
+                .children(note.map(|note| statistic_note(label, note)))
+                .children(statistic_set_mark(label, set_mark)),
         )
 }
 
