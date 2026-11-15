@@ -55,6 +55,8 @@ mod library_export_ui_tests;
 mod logging;
 mod logo_motion;
 mod mashup;
+#[cfg(test)]
+mod mashup_ui_tests;
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 mod media_keys;
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
