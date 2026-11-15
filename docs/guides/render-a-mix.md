@@ -47,6 +47,27 @@ The words after the colon are the planner's: whether the vocals or the basslines
 
 In the desktop app's [transition planner](desktop-app.md#plan-a-transition-in-the-focus-view), dragging B to a new mix point, or pressing the marker of another window, locks that transition. `set render`, in the app and on the command line, keeps a locked transition exactly where you put it and never plans it again; its line in the plan starts with "Locked, placed by hand.". The transitions around it are planned to fit: the one before ends before it starts. **Unlock** in the planner gives a transition back to the plan.
 
+### When both tracks sing at once
+
+Two voices over each other make both hard to follow, so `set render` warns about every blend where both tracks sing in the same bars, under its line in the plan:
+
+```
+2.     5:12  Artist - Second track
+             ↳ Main (bar 81) into Breakdown (bar 17), 16 bars: 6 bars of both vocals, bass swap at bar 9, key: same key
+               ! Both tracks sing for 6 bars, from bar 11 of the blend
+               Fixes, for --fix-vocals: move (move the blend to bar 97 into bar 1), cut (cut the outgoing vocals with its stems), fade (swap the bass early and fade out by bar 11)
+```
+
+Vocals are only known for tracks whose stems are separated, so a blend is only checked when both tracks have them. Three fixes are offered, each only when it applies:
+
+- **move**: blend over another window the planner ranks, one where only one track sings and that fits between the blends around it. A transition you locked by hand is never moved this way.
+- **cut**: play the outgoing track from its drums, bass and other stems from the start of the blend, so its vocals are gone (switched over half a second just before). It needs the outgoing track's stems, at the track's sample rate.
+- **fade**: swap the bass early and fade the outgoing track out completely before the bar where both would sing, with the incoming track at full level by half way there. It needs at least 2 bars before that bar.
+
+`--fix-vocals` applies the first fix that applies to every such blend, in the order above; `--fix-vocals move`, `cut` or `fade` applies that one wherever it applies. The fixed line then says which. Without the option the plan only warns, so run `--dry-run` first to see them.
+
+In the desktop app, **Check transitions**, under **Show details** in the set builder, lists every transition of the set with its reason, and under a blend where both sing, the warning and a button per fix. Moving locks the transition at the new window, as a drag in the planner does; cutting and fading hold for the renders of the set while the app runs. **Render mix…** uses them.
+
 ### Sections you edited
 
 The sections are read from the cues each track shows, so cues you moved or named by hand in the app count, as they do in the planner.
@@ -96,6 +117,6 @@ Rendering runs on one core. A track that needs no stretching is copied through; 
 ## Limits
 
 - The command line has no way to move one transition; lock it in the desktop app's planner, and the command line keeps it.
-- When both tracks of a blend have vocals at once, the plan says so in its line ("4 bars of both vocals") but the render does not change anything about it.
+- Cutting the vocals relies on the separation: some vocal bleed into the other stems stays audible.
 - Tracks whose tempos are an octave apart, such as 70 into 140, are played one after the other.
 - Not tested: listening to a whole rendered set from a real library, and RF64 files over 4 GB written end to end (the header is tested on its own).

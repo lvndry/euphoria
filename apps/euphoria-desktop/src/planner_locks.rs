@@ -79,6 +79,18 @@ impl EuphoriaApp {
         if self.planner_lock() == Some(blend) {
             return;
         }
+        self.lock_transition(a, b, blend, cx);
+    }
+
+    /// Locks `blend` as the transition of the track at `a` into the one at
+    /// `b`, in place of any lock of that pair.
+    pub(crate) fn lock_transition(
+        &mut self,
+        a: PathBuf,
+        b: PathBuf,
+        blend: BlendBars,
+        cx: &mut Context<'_, Self>,
+    ) {
         let cache = self.session.cache();
         let entries = PlaylistEntry::for_file(&a, cache.as_deref())
             .and_then(|from| Ok((from, PlaylistEntry::for_file(&b, cache.as_deref())?)));

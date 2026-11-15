@@ -259,6 +259,22 @@ pub(crate) fn plan_side(track: &Track, app: &EuphoriaApp) -> Option<PlanSide> {
     })
 }
 
+impl PlanSide {
+    /// The stems of the track without its vocals, when they are separated
+    /// and can stand in for it.
+    /// Reads the file when its stems are only in the cache, so it runs off
+    /// the main thread.
+    pub(crate) fn instrumental_stems(&self) -> Vec<PathBuf> {
+        let files = self.stem_files.clone().or_else(|| {
+            let hash = ContentHash::of_file(&self.path).ok()?;
+            StemCache::open_default().ok()?.cached(&hash)
+        });
+        files.map_or_else(Vec::new, |files| {
+            euphoria_core::set_render::usable_instrumental(&self.path, files.instrumental())
+        })
+    }
+}
+
 fn fingerprint(a: &PlanSide, b: &PlanSide) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for side in [a, b] {

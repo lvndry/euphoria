@@ -19,8 +19,8 @@ use euphoria_core::harmony::transition::{
 use euphoria_core::plan_signals::{SignalsCache, TrackSignals};
 use euphoria_core::set_render::{
     DEFAULT_MP3_BITRATE_KBPS, MP3_BITRATES, MixFormat, MixInput, MixMove, MixPlan, MixTimeline,
-    RenderOptions, RenderProgress, RenderTrack, chapters, cue_sheet, format_mix_time, mix_timeline,
-    plan_mix, render_mix, tracklist,
+    RenderOptions, RenderProgress, RenderTrack, VocalFixChoice, chapters, cue_sheet,
+    format_mix_time, mix_timeline, plan_mix, render_mix, tracklist,
 };
 use euphoria_core::shift::ExistingOutput;
 use euphoria_core::{
@@ -70,9 +70,22 @@ pub struct RenderArguments {
     /// NAME.chapters.txt.
     #[arg(long)]
     chapters: bool,
-    /// Show where each track comes in and why, without rendering.
+    /// Show where each track comes in and why, and where both tracks of a
+    /// blend sing at once, without rendering.
     #[arg(long)]
     dry_run: bool,
+    /// Fix every blend where both tracks would sing at once: move it to a
+    /// window where only one sings, cut the outgoing vocals with its stems,
+    /// or fade it out before the incoming one sings. Without a value, the
+    /// first fix that applies, in that order.
+    #[arg(
+        long,
+        value_enum,
+        value_name = "FIX",
+        num_args = 0..=1,
+        default_missing_value = "first"
+    )]
+    fix_vocals: Option<VocalFixArgument>,
     /// Replace the mix and the files beside it if they exist.
     #[arg(long)]
     force: bool,
@@ -100,6 +113,31 @@ impl FormatChoice {
             FormatChoice::Mp3 => MixFormat::Mp3 {
                 bitrate_kbps: mp3_bitrate,
             },
+        }
+    }
+}
+
+/// A fix for `--fix-vocals`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum VocalFixArgument {
+    /// The first fix that applies: move, then cut, then fade.
+    First,
+    /// Move the blend to a window where only one track sings.
+    Move,
+    /// Cut the outgoing track's vocals with its stems.
+    Cut,
+    /// Swap the bass early and fade the outgoing track out before the
+    /// incoming one sings.
+    Fade,
+}
+
+impl VocalFixArgument {
+    fn choice(self) -> VocalFixChoice {
+        match self {
+            VocalFixArgument::First => VocalFixChoice::First,
+            VocalFixArgument::Move => VocalFixChoice::Move,
+            VocalFixArgument::Cut => VocalFixChoice::Cut,
+            VocalFixArgument::Fade => VocalFixChoice::Fade,
         }
     }
 }
@@ -176,7 +214,11 @@ pub fn run(arguments: &RenderArguments) -> Result<ExitCode> {
         );
     }
     let tracks = analyze(&files, &arguments.analysis)?;
-    let plan = plan(&tracks, &locked_transitions()?);
+    let plan = plan(
+        &tracks,
+        &locked_transitions()?,
+        arguments.fix_vocals.map(VocalFixArgument::choice),
+    );
     let timeline = mix_timeline(&plan).map_err(|reason| anyhow::anyhow!(reason))?;
 
     let mut standard_output = std::io::stdout().lock();
@@ -382,6 +424,7 @@ struct Loaded {
     analysis: TrackAnalysis,
     sections: Vec<PlanSection>,
     signals: TrackSignals,
+    instrumental_stems: Vec<PathBuf>,
     artist: Option<String>,
     title: Option<String>,
 }
@@ -410,7 +453,9 @@ fn analyze(files: &[PathBuf], options: &AnalysisOptions) -> Result<Vec<Loaded>> 
             _ => AutomaticCues.sections(&analysis),
         };
         let name = read_track_name(&path).ok();
+        let instrumental_stems = instrumental_stems(&path);
         loaded.push(Loaded {
+            instrumental_stems,
             artist: name.as_ref().and_then(|name| name.artist.clone()),
             title: name.and_then(|name| name.title),
             content: ContentHash::of_file(&path).ok(),
@@ -421,6 +466,25 @@ fn analyze(files: &[PathBuf], options: &AnalysisOptions) -> Result<Vec<Loaded>> 
         });
     }
     Ok(loaded)
+}
+
+/// The stems of the track at `path` without its vocals, when `euphoria
+/// stems` or the app separated it and they can stand in for it.
+#[cfg(feature = "stems")]
+fn instrumental_stems(path: &Path) -> Vec<PathBuf> {
+    let files = ContentHash::of_file(path).ok().and_then(|hash| {
+        euphoria_core::stems::StemCache::open_default()
+            .ok()?
+            .cached(&hash)
+    });
+    files.map_or_else(Vec::new, |files| {
+        euphoria_core::set_render::usable_instrumental(path, files.instrumental())
+    })
+}
+
+#[cfg(not(feature = "stems"))]
+fn instrumental_stems(_path: &Path) -> Vec<PathBuf> {
+    Vec::new()
 }
 
 /// The transitions the user locked in the desktop app, or none when no
@@ -434,7 +498,11 @@ fn locked_transitions() -> Result<Vec<LockedTransition>> {
     store.load_locked_transitions().map_err(with_causes)
 }
 
-fn plan(tracks: &[Loaded], locks: &[LockedTransition]) -> MixPlan {
+fn plan(
+    tracks: &[Loaded],
+    locks: &[LockedTransition],
+    vocal_fix: Option<VocalFixChoice>,
+) -> MixPlan {
     let inputs: Vec<MixInput<'_>> = tracks
         .iter()
         .enumerate()
@@ -445,6 +513,7 @@ fn plan(tracks: &[Loaded], locks: &[LockedTransition]) -> MixPlan {
                 title: track.title.clone(),
                 duration_seconds: f64::from(track.analysis.duration_seconds),
                 grid: track.analysis.beat_grid,
+                instrumental_stems: track.instrumental_stems.clone(),
             },
             plan: PlanTrack {
                 analysis: &track.analysis,
@@ -452,6 +521,7 @@ fn plan(tracks: &[Loaded], locks: &[LockedTransition]) -> MixPlan {
                 energy: &track.signals.energy,
                 stems: track.signals.stems.as_ref(),
             },
+            exit_vocal_fix: vocal_fix,
             locked_exit: tracks.get(index + 1).and_then(|next| {
                 locked_blend(
                     locks,
@@ -463,6 +533,9 @@ fn plan(tracks: &[Loaded], locks: &[LockedTransition]) -> MixPlan {
         .collect();
     plan_mix(&inputs)
 }
+
+/// Marks a blend where both tracks sing.
+const WARNING_SIGN: &str = "!";
 
 fn write_plan(
     writer: &mut impl Write,
@@ -496,6 +569,34 @@ fn write_plan(
                 MixMove::Sequence => theme.caution(&transition.reason),
             };
             writeln!(writer, "{:width$}  {:>8}  ↳ {reason}", "", "")?;
+            if let Some(overlap) = &transition.vocal_overlap {
+                let fixed = transition
+                    .vocal_fix
+                    .as_ref()
+                    .map(|fix| format!(", fixed: {}", fix.label().to_lowercase()));
+                writeln!(
+                    writer,
+                    "{:width$}  {:>8}    {}{}",
+                    "",
+                    "",
+                    theme.caution(format!("{} {}", WARNING_SIGN, overlap.warning())),
+                    fixed.unwrap_or_default()
+                )?;
+                if transition.vocal_fix.is_none() {
+                    let fixes: Vec<String> = overlap
+                        .fixes
+                        .iter()
+                        .map(|fix| format!("{} ({})", fix.code(), fix.label().to_lowercase()))
+                        .collect();
+                    let advice = if fixes.is_empty() {
+                        "no fix applies: separate the stems of the outgoing track to cut its vocals"
+                            .to_string()
+                    } else {
+                        format!("Fixes, for --fix-vocals: {}", fixes.join(", "))
+                    };
+                    writeln!(writer, "{:width$}  {:>8}    {}", "", "", theme.dim(advice))?;
+                }
+            }
         }
     }
     Ok(())

@@ -100,6 +100,7 @@ fn track(path: &Path, seconds: f64, grid: Option<BeatGrid>) -> RenderTrack {
         title: None,
         duration_seconds: seconds,
         grid,
+        instrumental_stems: Vec::new(),
     }
 }
 
@@ -112,6 +113,8 @@ fn blend(a_start_bar: usize, b_start_bar: usize, bars: usize) -> MixTransition {
             bass_swap_bar: None,
         }),
         reason: "test".to_string(),
+        vocal_overlap: None,
+        vocal_fix: None,
     }
 }
 
@@ -185,6 +188,8 @@ fn tracks_without_a_grid_play_one_after_the_other_untouched() {
         transitions: vec![MixTransition {
             mix: MixMove::Sequence,
             reason: "test".to_string(),
+            vocal_overlap: None,
+            vocal_fix: None,
         }],
     };
     let output = folder.path().join("mix.wav");
@@ -381,6 +386,7 @@ fn planning_keeps_each_blend_out_after_the_blend_in_and_says_why() {
                 stems: None,
             },
             locked_exit: None,
+            exit_vocal_fix: None,
         })
         .collect();
     let plan = plan_mix(&inputs);
@@ -455,6 +461,7 @@ fn a_locked_blend_is_kept_and_the_blend_before_it_makes_room() {
                 stems: None,
             },
             locked_exit: (index == 1).then_some(locked),
+            exit_vocal_fix: None,
         })
         .collect();
     let plan = plan_mix(&inputs);
@@ -471,6 +478,187 @@ fn a_locked_blend_is_kept_and_the_blend_before_it_makes_room() {
     };
     assert!(before.b_start_bar + before.bars <= locked.a_start_bar);
     mix_timeline(&plan).unwrap();
+}
+
+fn singing_throughout(bars: usize) -> crate::harmony::transition::StemLevels {
+    let hops = bars * 8;
+    crate::harmony::transition::StemLevels {
+        hop_seconds: 0.25,
+        vocals: vec![0.2; hops],
+        bass: vec![0.0005; hops],
+        drums: vec![0.2; hops],
+    }
+}
+
+#[test]
+fn a_blend_where_both_sing_is_warned_and_fixed_as_asked() {
+    let analyses = [analysis(120.0, 64, true), analysis(120.0, 64, true)];
+    let stems = singing_throughout(64);
+    let plan_with = |choice: Option<VocalFixChoice>, instrumental: bool| {
+        let inputs: Vec<MixInput<'_>> = analyses
+            .iter()
+            .enumerate()
+            .map(|(index, analysis)| {
+                let mut render_track = track(
+                    Path::new(&format!("/{index}.wav")),
+                    f64::from(analysis.duration_seconds),
+                    analysis.beat_grid,
+                );
+                if instrumental {
+                    render_track.instrumental_stems = vec![PathBuf::from("/stems/drums.wav")];
+                }
+                MixInput {
+                    track: render_track,
+                    plan: PlanTrack {
+                        analysis,
+                        sections: &[],
+                        energy: &[],
+                        stems: Some(&stems),
+                    },
+                    locked_exit: None,
+                    exit_vocal_fix: choice,
+                }
+            })
+            .collect();
+        plan_mix(&inputs)
+    };
+
+    let warned = plan_with(None, false);
+    let overlap = warned.transitions[0]
+        .vocal_overlap
+        .clone()
+        .expect("both sing in every bar");
+    assert_eq!(overlap.first_bar, 1);
+    assert!(overlap.bars >= 16);
+    assert!(overlap.fixes.is_empty(), "{:?}", overlap.fixes);
+    assert!(overlap.warning().starts_with("Both tracks sing for "));
+    assert_eq!(warned.transitions[0].vocal_fix, None);
+
+    let cut = plan_with(Some(VocalFixChoice::First), true);
+    assert_eq!(
+        cut.transitions[0].vocal_fix,
+        Some(VocalFix::CutOutgoingVocals)
+    );
+    let timeline = mix_timeline(&cut).unwrap();
+    let MixMove::Blend(blend) = cut.transitions[0].mix else {
+        panic!("a blend");
+    };
+    let exit_start = blend.a_start_bar as f64 * 2.0;
+    assert_eq!(
+        timeline.placements[0].instrumental_from_seconds,
+        Some(exit_start)
+    );
+    assert_eq!(timeline.placements[1].instrumental_from_seconds, None);
+}
+
+#[test]
+fn fading_out_before_both_sing_ends_the_outgoing_track_early() {
+    let mut plan = MixPlan {
+        tracks: vec![
+            track(Path::new("/a.wav"), 120.0, Some(grid(120.0, 0.0))),
+            track(Path::new("/b.wav"), 120.0, Some(grid(120.0, 0.0))),
+        ],
+        transitions: vec![blend(32, 0, 16)],
+    };
+    plan.transitions[0].vocal_fix = Some(VocalFix::FadeOutBefore { bar: 9 });
+    let timeline = mix_timeline(&plan).unwrap();
+    let [outgoing, incoming] = timeline.placements.as_slice() else {
+        panic!("two placements");
+    };
+    let exit = outgoing.exit.unwrap();
+    assert!((exit.fall_end_seconds - (64.0 + 16.0)).abs() < 1e-9);
+    assert!((exit.rise_end_seconds - (64.0 + 8.0)).abs() < 1e-9);
+    assert!(outgoing.gains_at(80.0).0 < 1e-6, "silent from bar 9");
+    assert_eq!(incoming.gains_at(72.0).0, 1.0);
+    assert_eq!(outgoing.gains_at(73.0).1, 0.0, "the bass went with it");
+}
+
+#[test]
+fn cutting_the_vocals_plays_the_stems_from_the_blend_on() {
+    let folder = tempfile::tempdir().unwrap();
+    let singing = folder.path().join("singing.wav");
+    let silent_stem = folder.path().join("drums.wav");
+    let incoming = folder.path().join("incoming.wav");
+    let loud: Vec<f32> = (0..12 * 44_100)
+        .map(|index| 0.5 * (index as f32 * 0.0627).sin())
+        .collect();
+    write_mono(&singing, 44_100, &loud);
+    write_mono(&silent_stem, 44_100, &vec![0.0; 12 * 44_100]);
+    write_mono(&incoming, 44_100, &vec![0.0; 12 * 44_100]);
+    let mut outgoing_track = track(&singing, 12.0, Some(grid(120.0, 0.0)));
+    outgoing_track.instrumental_stems = vec![silent_stem];
+    let mut transition = blend(2, 0, 2);
+    transition.vocal_fix = Some(VocalFix::CutOutgoingVocals);
+    let plan = MixPlan {
+        tracks: vec![
+            outgoing_track,
+            track(&incoming, 12.0, Some(grid(120.0, 0.0))),
+        ],
+        transitions: vec![transition],
+    };
+    let output = folder.path().join("mix.wav");
+    render_mix(&plan, &output, &wav_options(), &mut NoProgress).unwrap();
+    let (mix, rate) = decode(&output);
+    let level = |from: f64, to: f64| {
+        let frames =
+            &mix[(from * f64::from(rate)) as usize * 2..(to * f64::from(rate)) as usize * 2];
+        frames
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0_f32, f32::max)
+    };
+    assert!(level(1.0, 3.0) > 0.4, "the track plays before the blend");
+    assert!(
+        level(4.05, 7.9) < 1e-3,
+        "its stems, silent here, play from the blend"
+    );
+}
+
+#[test]
+fn a_locked_blend_where_both_sing_is_offered_a_move_but_never_moved() {
+    let analyses = [analysis(120.0, 64, true), analysis(120.0, 64, true)];
+    let outgoing_stems = singing_throughout(64);
+    let mut incoming_stems = singing_throughout(64);
+    for level in &mut incoming_stems.vocals[8 * 8..] {
+        *level = 0.0005;
+    }
+    let locked = Blend {
+        a_start_bar: 32,
+        b_start_bar: 0,
+        bars: 16,
+        bass_swap_bar: None,
+    };
+    let inputs: Vec<MixInput<'_>> = analyses
+        .iter()
+        .zip([&outgoing_stems, &incoming_stems])
+        .enumerate()
+        .map(|(index, (analysis, stems))| MixInput {
+            track: track(
+                Path::new(&format!("/{index}.wav")),
+                f64::from(analysis.duration_seconds),
+                analysis.beat_grid,
+            ),
+            plan: PlanTrack {
+                analysis,
+                sections: &[],
+                energy: &[],
+                stems: Some(stems),
+            },
+            locked_exit: (index == 0).then_some(locked),
+            exit_vocal_fix: Some(VocalFixChoice::First),
+        })
+        .collect();
+    let plan = plan_mix(&inputs);
+    let transition = &plan.transitions[0];
+    assert_eq!(transition.mix, MixMove::Blend(locked));
+    let overlap = transition.vocal_overlap.as_ref().unwrap();
+    assert_eq!(overlap.bars, 8);
+    let Some(VocalFix::MoveWindow { blend, reason }) = overlap.fixes.first() else {
+        panic!("{:?}", overlap.fixes);
+    };
+    assert!(blend.b_start_bar >= 8, "{blend:?}");
+    assert!(reason.contains("no vocal overlap"), "{reason}");
+    assert_eq!(transition.vocal_fix, None, "a lock is never moved");
 }
 
 #[cfg(feature = "mp3")]

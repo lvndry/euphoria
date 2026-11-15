@@ -17,6 +17,7 @@ mod plan;
 mod render;
 mod sheets;
 mod timeline;
+mod vocals;
 mod wav;
 
 #[cfg(test)]
@@ -32,6 +33,8 @@ pub use render::{
     RenderProgress, RenderedMix, render_mix,
 };
 pub use sheets::{chapters, cue_sheet, format_mix_time, tracklist};
+pub use vocals::{FADE_OUT_MINIMUM_BARS, VocalFix, VocalFixChoice, VocalOverlap};
+
 pub use timeline::{Crossfade, MixTimeline, Placement, TEMPO_RAMP_SECONDS, mix_timeline};
 
 /// A track of the mix.
@@ -48,6 +51,10 @@ pub struct RenderTrack {
     /// The beat grid, or `None` when the track has none: it is then played
     /// after the track before it ends, not blended.
     pub grid: Option<BeatGrid>,
+    /// The stems of the track other than its vocals, at the track's sample
+    /// rate, or empty when it has none. A blend out of the track can play
+    /// them instead of the track to cut its vocals.
+    pub instrumental_stems: Vec<PathBuf>,
 }
 
 impl RenderTrack {
@@ -61,10 +68,30 @@ impl RenderTrack {
         }
     }
 
+    /// Whether the track has stems to play it without its vocals.
+    pub fn has_instrumental(&self) -> bool {
+        !self.instrumental_stems.is_empty()
+    }
+
     /// The title, or the file name when the tags give none.
     pub fn title_or_file_name(&self) -> String {
         self.title.clone().unwrap_or_else(|| file_stem(&self.path))
     }
+}
+
+/// `stems` when they can stand in for the track at `path`: every one is
+/// there and at the track's sample rate. Empty otherwise.
+pub fn usable_instrumental(path: &Path, stems: Vec<PathBuf>) -> Vec<PathBuf> {
+    let rate_of = |file: &Path| {
+        crate::audio_stream::AudioStream::open(file)
+            .ok()
+            .map(|stream| stream.sample_rate())
+    };
+    let Some(track_rate) = rate_of(path) else {
+        return Vec::new();
+    };
+    let usable = !stems.is_empty() && stems.iter().all(|stem| rate_of(stem) == Some(track_rate));
+    if usable { stems } else { Vec::new() }
 }
 
 fn file_stem(path: &Path) -> String {
@@ -92,6 +119,10 @@ pub struct MixTransition {
     pub mix: MixMove,
     /// Why, in one line.
     pub reason: String,
+    /// Both tracks singing during the blend, when the stems show it.
+    pub vocal_overlap: Option<VocalOverlap>,
+    /// The fix applied to the overlap, if any.
+    pub vocal_fix: Option<VocalFix>,
 }
 
 /// The tracks of a mix in play order, and the transition between each and

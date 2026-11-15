@@ -151,3 +151,64 @@ fn cancel_stops_the_render_and_writes_nothing(cx: &mut TestAppContext) {
         assert_eq!(toast.as_deref(), Some("Rendering the mix was cancelled"));
     });
 }
+
+fn wait_for_check(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) {
+    for _ in 0..200 {
+        cx.run_until_parked();
+        if cx.update(|cx| !view.read(cx).set_builder.is_checking) {
+            return;
+        }
+    }
+    panic!("the check did not finish");
+}
+
+#[gpui::test]
+fn a_blend_where_both_sing_is_warned_and_cut_with_the_stems(cx: &mut TestAppContext) {
+    let (window, view, scratch) = open_built_set("mix-vocals", cx);
+    let paths = cx.update(|cx| view.read(cx).set_builder.planned.clone().unwrap().paths);
+    let mut stem_folders = Vec::new();
+    for (index, path) in paths.iter().enumerate() {
+        let folder = ScratchFolder::new(&format!("mix-vocals-stems-{index}"));
+        let files = crate::ui_tests::write_stems_with_vocals_for(&folder, 48, 48);
+        cx.update(|cx| view.update(cx, |app, _| app.stems.mark_ready(path, files)));
+        stem_folders.push(folder);
+    }
+    click(window, "set-details-toggle", cx);
+    click(window, "check-set", cx);
+    wait_for_check(&view, cx);
+    assert!(is_shown(window, "set-transitions", cx));
+    assert!(is_shown(window, ("set-vocal-warning", 0usize), cx));
+    let fixes = cx.update(|cx| {
+        let app = view.read(cx);
+        let overlap = app.checked_transitions().unwrap().transitions[0]
+            .vocal_overlap
+            .clone()
+            .expect("both sing throughout");
+        overlap.fixes
+    });
+    assert_eq!(
+        fixes.first(),
+        Some(&euphoria_core::set_render::VocalFix::CutOutgoingVocals)
+    );
+
+    click(window, ("set-vocal-fix", 0usize), cx);
+    wait_for_check(&view, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let transition = &app.checked_transitions().unwrap().transitions[0];
+        assert_eq!(
+            transition.vocal_fix,
+            Some(euphoria_core::set_render::VocalFix::CutOutgoingVocals)
+        );
+    });
+
+    let output = scratch.0.join("cut.wav");
+    cx.update(|cx| view.update(cx, |app, cx| app.begin_mix_render(output.clone(), cx)));
+    wait_for_render(&view, cx);
+    assert!(
+        output.exists(),
+        "{:?}",
+        cx.update(|cx| view.read(cx).notice.clone())
+    );
+    drop(stem_folders);
+}
