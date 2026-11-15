@@ -159,10 +159,10 @@ fn nothing_to_show(app: &EuphoriaApp) -> &'static str {
     } else if app.session.library().tracks().is_empty() {
         "No tracks yet"
     } else if app.filter == LibraryFilter::NeedsReview && app.folder.is_some() {
-        "Nothing to review in this folder: every key and tempo is rated medium or high, and \
+        "Nothing to review in this folder: no key or BPM is in doubt, and \
          every file was analyzed"
     } else if app.filter == LibraryFilter::NeedsReview {
-        "Nothing to review: every key and tempo is rated medium or high, and every file was \
+        "Nothing to review: no key or BPM is in doubt, and every file was \
          analyzed"
     } else if app.filter == LibraryFilter::Missing {
         "No missing files: every track is where it was"
@@ -298,7 +298,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
 }
 
 /// Why tracks are listed under Needs review, under its heading.
-const REVIEW_EXPLANATION: &str = "A key or tempo rated low confidence, a key that differs from the one in the file's tags (\u{2260}), or a file that could not be analyzed. Check them by ear.";
+const REVIEW_EXPLANATION: &str = "A key that may be its relative or a fifth away, a BPM that may be half or double, a key that differs from the one in the file's tags (\u{2260}), or a file that could not be analyzed. Check them by ear.";
 
 fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let layout = &app.table_layout;
