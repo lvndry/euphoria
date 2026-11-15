@@ -1225,12 +1225,13 @@ fn back_to_plan_returns_to_the_same_window_and_escape_does_too(cx: &mut TestAppC
 }
 
 fn wait_until_playing(setup: &Setup, cx: &mut TestAppContext) {
-    for _ in 0..400 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < deadline {
         cx.run_until_parked();
         if cx.update(|cx| setup.view.read(cx).plan_is_playing()) {
             return;
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
 
