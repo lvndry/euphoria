@@ -170,6 +170,7 @@ pub(crate) fn plan_writes(targets: &[WriteTarget], settings: &TagSettings) -> Pl
 
 /// Like [`plan_writes`], knowing which values in the files Euphoria wrote
 /// earlier, so that they are updated and not kept.
+#[cfg(test)]
 pub(crate) fn plan_writes_with_history(
     targets: &[WriteTarget],
     settings: &TagSettings,
