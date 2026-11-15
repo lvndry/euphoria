@@ -41,6 +41,7 @@ const DISCLOSURE_WIDTH: f32 = 16.0;
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let counts = app.sidebar_counts();
+    let is_analyzing = app.session.progress().is_active();
     let hover_background = palette.raised;
 
     let in_library = app.playlist.is_none() && !app.set_builder.is_open && !app.showing_favorites;
@@ -66,7 +67,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "All tracks",
-                Some(counts.total),
+                Some(RowCount::Settled(counts.total)),
                 all_tracks_is_current,
                 &palette,
             )
@@ -81,7 +82,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Needs review",
-                Some(counts.needs_review),
+                Some(RowCount::when_settling(counts.needs_review, is_analyzing)),
                 needs_review_is_current,
                 &palette,
             )
@@ -96,7 +97,10 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Favorites",
-                Some(app.session.favorites().tracks().len()),
+                Some(RowCount::when_settling(
+                    app.session.favorites().tracks().len(),
+                    is_analyzing,
+                )),
                 favorites_are_current,
                 &palette,
             )
@@ -112,7 +116,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             sidebar.child(
                 row(
                     "Missing files",
-                    Some(counts.missing),
+                    Some(RowCount::Settled(counts.missing)),
                     missing_is_current,
                     &palette,
                 )
@@ -271,7 +275,7 @@ fn folder_row(
         row_after(
             Some(disclosure),
             node.name.clone(),
-            Some(node.track_count),
+            Some(RowCount::Settled(node.track_count)),
             is_current,
             &palette,
         )
@@ -293,9 +297,35 @@ fn folder_row(
     )
 }
 
+/// The number at the end of a sidebar row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowCount {
+    /// A number that is final.
+    Settled(usize),
+    /// A number that analysis is still moving, shown with an ellipsis.
+    Settling(usize),
+}
+
+impl RowCount {
+    pub(crate) fn when_settling(count: usize, is_analyzing: bool) -> Self {
+        if is_analyzing {
+            RowCount::Settling(count)
+        } else {
+            RowCount::Settled(count)
+        }
+    }
+
+    pub(crate) fn text(self) -> String {
+        match self {
+            RowCount::Settled(count) => format::count(count),
+            RowCount::Settling(count) => format!("{}\u{2026}", format::count(count)),
+        }
+    }
+}
+
 fn row(
     label: impl Into<SharedString>,
-    count: Option<usize>,
+    count: Option<RowCount>,
     is_current: bool,
     palette: &Palette,
 ) -> Div {
@@ -306,7 +336,7 @@ fn row(
 fn row_after(
     leading: Option<AnyElement>,
     label: impl Into<SharedString>,
-    count: Option<usize>,
+    count: Option<RowCount>,
     is_current: bool,
     palette: &Palette,
 ) -> Div {
@@ -334,7 +364,7 @@ fn row_after(
                 .flex_shrink_0()
                 .font_weight(FontWeight::NORMAL)
                 .text_color(palette.text_tertiary)
-                .child(format::count(count))
+                .child(count.text())
         }))
 }
 

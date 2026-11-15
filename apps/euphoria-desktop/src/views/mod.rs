@@ -113,8 +113,14 @@ pub(crate) fn primary_button(label: impl Into<SharedString>, palette: &Palette) 
 
 /// A card in the middle of the window over a dimmed backdrop, for a panel
 /// that needs an answer before the window is used again. Clicks on the
-/// backdrop go nowhere.
-pub(crate) fn modal(id: &'static str, width: Pixels, palette: &Palette) -> (Stateful<Div>, Div) {
+/// backdrop go nowhere. `fade` runs from 0 to 1 as the dialog comes in: the
+/// backdrop darkens, and the card fades in and rises.
+pub(crate) fn modal(
+    id: &'static str,
+    width: Pixels,
+    palette: &Palette,
+    fade: f32,
+) -> (Stateful<Div>, Div) {
     let backdrop = div()
         .id(id)
         .absolute()
@@ -124,7 +130,7 @@ pub(crate) fn modal(id: &'static str, width: Pixels, palette: &Palette) -> (Stat
         .flex()
         .items_center()
         .justify_center()
-        .bg(gpui::black().opacity(if palette.is_dark { 0.55 } else { 0.3 }))
+        .bg(gpui::black().opacity(if palette.is_dark { 0.55 } else { 0.3 } * fade))
         .occlude();
     let card = div()
         .flex()
@@ -134,6 +140,8 @@ pub(crate) fn modal(id: &'static str, width: Pixels, palette: &Palette) -> (Stat
         .max_h(gpui::relative(0.86))
         .gap(px(14.0))
         .p(px(20.0))
+        .mt(px(2.0 * crate::surface_motion::CARD_RISE * (1.0 - fade)))
+        .opacity(fade)
         .rounded(px(10.0))
         .border_1()
         .border_color(palette.line)

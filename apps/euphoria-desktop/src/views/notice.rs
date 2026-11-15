@@ -4,16 +4,55 @@
 //! A strip along the bottom of the window that reports a problem.
 
 use gpui::prelude::*;
-use gpui::{Context, Div, SharedString, Stateful, TestSupportExt, div, px};
+use gpui::{
+    AnyElement, Bounds, Context, Div, Pixels, SharedString, Stateful, TestSupportExt, canvas, div,
+    px,
+};
 
 use crate::app::EuphoriaApp;
+use crate::surface_motion::{Strip, UNMEASURED_STRIP_HEIGHT};
 use crate::views::SMALL_TEXT_SIZE;
 
+/// `strip` with its height grown to the share of its full height that its
+/// appearance has reached. The strip keeps its full height inside the clip,
+/// so its text does not reflow while it grows.
+fn grown(app: &EuphoriaApp, which: Strip, strip: impl IntoElement) -> AnyElement {
+    let fraction = app.strip_growth.value(which);
+    let seen_height = app.strip_growth.seen_height(which);
+    let natural_height = seen_height.get().unwrap_or(UNMEASURED_STRIP_HEIGHT);
+    div()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .overflow_hidden()
+        .when(fraction < 1.0, |clip| clip.h(px(natural_height * fraction)))
+        .child(
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_shrink_0()
+                .child(strip)
+                .child(
+                    canvas(
+                        move |bounds: Bounds<Pixels>, _, _| {
+                            seen_height.set(Some(bounds.size.height / px(1.0)));
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                ),
+        )
+        .into_any_element()
+}
+
 /// The notice strip, when there is a problem to report.
-pub(crate) fn render(
-    app: &EuphoriaApp,
-    cx: &mut Context<'_, EuphoriaApp>,
-) -> Option<Stateful<Div>> {
+pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
+    render_strip(app, cx).map(|strip| grown(app, Strip::Notice, strip))
+}
+
+fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<Stateful<Div>> {
     let palette = app.theme.palette;
     let message = app.notice.clone()?;
     Some(
@@ -55,6 +94,13 @@ pub(crate) fn render(
 /// The strip that says tracks are ready to tag but a DJ program is running,
 /// and offers to write them anyway.
 pub(crate) fn render_held_tags(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<AnyElement> {
+    render_held_tags_strip(app, cx).map(|strip| grown(app, Strip::HeldTags, strip))
+}
+
+fn render_held_tags_strip(
     app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<impl IntoElement> {
@@ -114,6 +160,13 @@ pub(crate) fn render_held_tags(
 /// The strip that asks whether to link a missing track to a file Euphoria
 /// cannot check, while one waits for an answer.
 pub(crate) fn render_link_confirmation(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<AnyElement> {
+    render_link_confirmation_strip(app, cx).map(|strip| grown(app, Strip::LinkConfirmation, strip))
+}
+
+fn render_link_confirmation_strip(
     app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<Stateful<Div>> {
@@ -176,6 +229,13 @@ pub(crate) fn render_link_confirmation(
 /// The strip that asks whether to replace the files an export of stems
 /// would overwrite, while one waits for an answer.
 pub(crate) fn render_stem_export_confirmation(
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<AnyElement> {
+    render_stem_export_confirmation_strip(app, cx).map(|strip| grown(app, Strip::StemExport, strip))
+}
+
+fn render_stem_export_confirmation_strip(
     app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<impl IntoElement> {

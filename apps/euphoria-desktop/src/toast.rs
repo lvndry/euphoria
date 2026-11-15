@@ -10,24 +10,14 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-#[cfg(not(test))]
-use crate::logo_motion::system_reduces_motion;
+use crate::motion::{self, Sources, ease_out};
 
 /// How long a toast stays, not counting the time the pointer is over it.
 pub(crate) const STAY: Duration = Duration::from_secs(10);
 /// Seconds the toast takes to slide up and fade in.
-pub(crate) const ENTER_SECONDS: f32 = 0.18;
+pub(crate) const ENTER_SECONDS: f32 = motion::PANEL.as_secs_f32();
 /// How far the toast slides, in pixels.
 pub(crate) const SLIDE_DISTANCE: f32 = 10.0;
-
-#[cfg(test)]
-fn system_reduces_motion() -> bool {
-    true
-}
-
-fn ease_out(progress: f32) -> f32 {
-    1.0 - (1.0 - progress.clamp(0.0, 1.0)).powi(3)
-}
 
 /// What the toast offers beside its text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,8 +56,7 @@ pub(crate) struct Toast {
 pub(crate) struct Toasts {
     current: Option<Toast>,
     next_id: u64,
-    now: Box<dyn Fn() -> Instant>,
-    reduces_motion: Box<dyn Fn() -> bool>,
+    sources: Sources,
 }
 
 impl Default for Toasts {
@@ -75,8 +64,7 @@ impl Default for Toasts {
         Self {
             current: None,
             next_id: 0,
-            now: Box::new(Instant::now),
-            reduces_motion: Box::new(system_reduces_motion),
+            sources: Sources::default(),
         }
     }
 }
@@ -88,14 +76,13 @@ impl Toasts {
         now: impl Fn() -> Instant + 'static,
         reduces_motion: impl Fn() -> bool + 'static,
     ) -> Self {
-        self.now = Box::new(now);
-        self.reduces_motion = Box::new(reduces_motion);
+        self.sources = Sources::fake(now, reduces_motion);
         self
     }
 
     /// The moment to measure this frame at.
     pub(crate) fn now(&self) -> Instant {
-        (self.now)()
+        self.sources.now()
     }
 
     pub(crate) fn current(&self) -> Option<&Toast> {
@@ -106,7 +93,7 @@ impl Toasts {
     pub(crate) fn show(&mut self, message: String, action: Option<ToastAction>) -> u64 {
         let now = self.now();
         self.next_id += 1;
-        let enter_seconds = if (self.reduces_motion)() {
+        let enter_seconds = if self.sources.reduces_motion() {
             0.0
         } else {
             ENTER_SECONDS

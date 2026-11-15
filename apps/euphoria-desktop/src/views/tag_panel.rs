@@ -13,6 +13,7 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::format;
+use crate::surface_motion::Modal;
 use crate::tag_flow::{Preview, PreviewKind, TagPanel, WriteScope};
 use crate::tag_settings::TagSettings;
 use crate::tag_writing::{LeftOut, PreviewRow};
@@ -27,7 +28,12 @@ const PREVIEW_ROW_HEIGHT: f32 = 24.0;
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
     let panel = app.tag_panel.as_ref()?;
     let palette = app.theme.palette;
-    let (backdrop, card) = modal("tag-panel", px(760.0), &palette);
+    let (backdrop, card) = modal(
+        "tag-panel",
+        px(760.0),
+        &palette,
+        app.modal_fades.value(Modal::TagPanel),
+    );
     let card = card.id("tag-panel-card");
     let contents: Vec<AnyElement> = match panel {
         TagPanel::Planning(scope) => vec![

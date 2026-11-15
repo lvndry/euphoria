@@ -14,10 +14,10 @@ use euphoria_core::quality::QualityVerdict;
 use serde::{Deserialize, Serialize};
 
 use crate::library::{ReviewReason, Track};
-use crate::sidebar_slide::{ease_out, system_reduces_motion};
+use crate::motion::{self, Transition};
 
-/// Seconds an open or a close takes.
-pub(crate) const MOTION_SECONDS: f32 = 0.18;
+#[cfg(test)]
+const MOTION_SECONDS: f32 = 0.18;
 
 /// A section below the waveform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,27 +141,15 @@ impl SectionChoices {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Travel {
-    from: f32,
-    started: Instant,
-}
-
 /// How far open one section is on its way, from 0.0 closed to 1.0 open.
 pub(crate) struct SectionMotion {
-    target: f32,
-    travel: Option<Travel>,
-    now: Box<dyn Fn() -> Instant>,
-    reduces_motion: Box<dyn Fn() -> bool>,
+    transition: Transition,
 }
 
 impl SectionMotion {
     pub(crate) fn at_rest(is_open: bool) -> Self {
         Self {
-            target: if is_open { 1.0 } else { 0.0 },
-            travel: None,
-            now: Box::new(Instant::now),
-            reduces_motion: Box::new(system_reduces_motion),
+            transition: Transition::at_rest(is_open),
         }
     }
 
@@ -171,68 +159,44 @@ impl SectionMotion {
         now: impl Fn() -> Instant + 'static,
         reduces_motion: impl Fn() -> bool + 'static,
     ) -> Self {
-        self.now = Box::new(now);
-        self.reduces_motion = Box::new(reduces_motion);
+        self.transition = self
+            .transition
+            .with_sources(motion::Sources::fake(now, reduces_motion));
         self
     }
 
     pub(crate) fn now(&self) -> Instant {
-        (self.now)()
+        self.transition.now()
     }
 
     /// How open the section is at `now`.
     pub(crate) fn fraction(&self, now: Instant) -> f32 {
-        match self.travel {
-            Some(travel) => {
-                let elapsed = now.saturating_duration_since(travel.started).as_secs_f32();
-                travel.from + (self.target - travel.from) * ease_out(elapsed / self.seconds(travel))
-            }
-            None => self.target,
-        }
-    }
-
-    fn seconds(&self, travel: Travel) -> f32 {
-        MOTION_SECONDS * (self.target - travel.from).abs()
+        self.transition.value(now)
     }
 
     /// True while the height still changes after `now`, so another frame is due.
     pub(crate) fn is_moving(&self, now: Instant) -> bool {
-        self.travel.is_some_and(|travel| {
-            now.saturating_duration_since(travel.started).as_secs_f32() < self.seconds(travel)
-        })
+        self.transition.is_moving(now)
     }
 
     pub(crate) fn settle(&mut self, now: Instant) {
-        if self.travel.is_some() && !self.is_moving(now) {
-            self.travel = None;
-        }
+        self.transition.settle(now);
     }
 
     /// Opens or closes from wherever the section is now. With motion
     /// reduced it jumps.
     pub(crate) fn go_to(&mut self, is_open: bool) {
-        let now = self.now();
-        let current = self.fraction(now);
-        self.target = if is_open { 1.0 } else { 0.0 };
-        if (self.reduces_motion)() || (current - self.target).abs() < f32::EPSILON {
-            self.travel = None;
-            return;
-        }
-        self.travel = Some(Travel {
-            from: current,
-            started: now,
-        });
+        self.transition.go_to(is_open, motion::PANEL);
     }
 
     /// Takes the open or closed state without moving, for a section that
     /// changes because another track was selected.
     pub(crate) fn snap_to(&mut self, is_open: bool) {
-        self.target = if is_open { 1.0 } else { 0.0 };
-        self.travel = None;
+        self.transition.snap_to(is_open);
     }
 
     pub(crate) fn is_target_open(&self) -> bool {
-        self.target > 0.5
+        self.transition.is_target_full()
     }
 }
 
@@ -411,7 +375,7 @@ mod tests {
         let (mut motion, _, _, origin) = fake_motion(false);
         motion.go_to(true);
         motion.settle(origin + Duration::from_secs(1));
-        assert!(motion.travel.is_none());
+        assert!(!motion.is_moving(origin + Duration::from_secs(1)));
         assert_eq!(motion.fraction(origin + Duration::from_secs(9)), 1.0);
     }
 }

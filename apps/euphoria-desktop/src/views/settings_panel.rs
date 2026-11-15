@@ -10,6 +10,7 @@ use gpui::{AnyElement, Context, FontWeight, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::display_settings::TempoPreset;
+use crate::surface_motion::Modal;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 use crate::theme::Palette;
 use crate::views::tag_panel::choice_button;
@@ -19,7 +20,12 @@ use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, sec
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let palette = app.theme.palette;
     let settings = app.tag_settings;
-    let (backdrop, card) = modal("settings-panel", px(680.0), &palette);
+    let (backdrop, card) = modal(
+        "settings-panel",
+        px(680.0),
+        &palette,
+        app.modal_fades.value(Modal::Settings),
+    );
 
     let programs = ProgramChoice::ALL
         .iter()
