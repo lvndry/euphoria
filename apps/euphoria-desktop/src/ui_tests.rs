@@ -851,7 +851,7 @@ fn the_empty_window_has_no_player(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-const USUAL_WINDOW: gpui::Size<gpui::Pixels> = gpui::Size {
+pub(crate) const USUAL_WINDOW: gpui::Size<gpui::Pixels> = gpui::Size {
     width: px(1440.0),
     height: px(900.0),
 };
@@ -3509,7 +3509,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
 
 /// Four made up tracks: one rated high, one with a doubtful key, one with
 /// a doubtful tempo counted at half time, and one that failed.
-fn tracks_to_review() -> Vec<DemoTrack> {
+pub(crate) fn tracks_to_review() -> Vec<DemoTrack> {
     let track = |name: &str, outcome| DemoTrack {
         path: PathBuf::from(format!("/Demo/review/{name}.mp3")),
         outcome,

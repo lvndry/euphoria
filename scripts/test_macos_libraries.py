@@ -4,14 +4,14 @@
 
 """Tests scripts/macos_libraries.py on real binaries and on small libraries
 built with clang. Needs macOS, the Xcode command line tools and, for the
-tests on a real binary, a build that links libkeyfinder:
+tests on a real binary, a build:
 
     cargo build --release -p euphoria-desktop
     python3 -m unittest scripts/test_macos_libraries.py
 
 The real binary is the release build of the desktop app, or the file named
 by EUPHORIA_LINKED_BINARY, such as CI's debug build of the euphoria command,
-which links the same libraries.
+which links the same libraries: only those macOS ships.
 """
 
 import os
@@ -109,133 +109,27 @@ Load command 8
 
 @unittest.skipUnless(
     platform.system() == "Darwin" and BINARY.exists(),
-    "needs macOS and a build that links libkeyfinder",
+    "needs macOS and a release build",
 )
-class BundleTests(unittest.TestCase):
-    def setUp(self):
-        self.folder = pathlib.Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.folder)
-        self.app = self.folder / "Test.app"
-        self.executable = self.app / "Contents" / "MacOS" / "Test"
-        self.frameworks = self.app / "Contents" / "Frameworks"
-        self.executable.parent.mkdir(parents=True)
-        shutil.copyfile(BINARY, self.executable)
-        self.executable.chmod(0o755)
-
-    def bundle(self):
-        macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
-
-    def problems(self):
-        return macos_libraries.verify(self.app, self.executable)
-
-    def test_the_real_build_is_bundled_and_verified(self):
-        self.assertTrue(self.problems(), "an unbundled binary should not verify")
-        self.bundle()
-        self.assertEqual(self.problems(), [])
-        names = sorted(path.name for path in self.frameworks.iterdir())
-        self.assertIn("libkeyfinder.2.dylib", names)
-        self.assertIn("libfftw3.3.dylib", names)
-        for path in [self.executable, *self.frameworks.iterdir()]:
-            binary = macos_libraries.MachO(path)
-            for install_name, _ in binary.dependencies:
-                self.assertTrue(
-                    install_name.startswith(("@rpath/", "/usr/lib/", "/System/")),
-                    f"{path.name} refers to {install_name}",
-                )
-            for run_path in binary.run_paths:
-                self.assertTrue(
-                    run_path.startswith("@"), f"{path.name} has the run path {run_path}"
-                )
-
-    def test_a_missing_library_inside_the_bundle_is_rejected(self):
-        self.bundle()
-        (self.frameworks / "libfftw3.3.dylib").unlink()
-        problems = self.problems()
-        self.assertTrue(
-            any(
-                "libfftw3.3.dylib" in problem and "does not resolve" in problem
-                for problem in problems
+class RealBinaryTests(unittest.TestCase):
+    def test_the_real_build_links_only_system_libraries(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        app = folder / "Test.app"
+        executable = app / "Contents" / "MacOS" / "Test"
+        frameworks = app / "Contents" / "Frameworks"
+        executable.parent.mkdir(parents=True)
+        shutil.copyfile(BINARY, executable)
+        executable.chmod(0o755)
+        for install_name, _ in macos_libraries.MachO(executable).dependencies:
+            self.assertTrue(
+                macos_libraries.is_system(install_name),
+                f"the build links {install_name}, which is not part of macOS",
             )
-        )
-
-    def test_a_library_needing_one_that_does_not_exist_cannot_be_bundled(self):
-        self.bundle()
-        keyfinder = self.frameworks / "libkeyfinder.2.dylib"
-        run(
-            "install_name_tool",
-            "-change",
-            "@rpath/libfftw3.3.dylib",
-            "@rpath/libnot-there.dylib",
-            keyfinder,
-        )
-        self.assertTrue(
-            any("libnot-there.dylib" in problem for problem in self.problems())
-        )
-
-        # The same broken reference met while bundling stops the bundling.
-        broken = self.folder / "elsewhere" / "libkeyfinder.2.dylib"
-        broken.parent.mkdir()
-        shutil.copyfile(keyfinder, broken)
-        shutil.rmtree(self.frameworks)
-        shutil.copyfile(BINARY, self.executable)
-        run("install_name_tool", "-add_rpath", broken.parent, self.executable)
-        original = next(
-            name
-            for name, _ in macos_libraries.MachO(self.executable).dependencies
-            if "libkeyfinder" in name
-        )
-        run(
-            "install_name_tool",
-            "-change",
-            original,
-            "@rpath/libkeyfinder.2.dylib",
-            self.executable,
-        )
-        with self.assertRaisesRegex(macos_libraries.LibraryError, "libnot-there.dylib"):
-            self.bundle()
-
-    def test_a_reference_through_a_run_path_outside_the_bundle_is_bundled(self):
-        # The library is reached through @rpath and a run path that leads out
-        # of the bundle, which the old check, looking for Homebrew paths, let
-        # through.
-        outside = self.folder / "outside"
-        outside.mkdir()
-        original = next(
-            name
-            for name, _ in macos_libraries.MachO(self.executable).dependencies
-            if "libkeyfinder" in name
-        )
-        shutil.copyfile(
-            macos_libraries.resolve(original, [(self.executable, [])], self.executable),
-            outside / "libkeyfinder.2.dylib",
-        )
-        run(
-            "install_name_tool",
-            "-change",
-            original,
-            "@rpath/libkeyfinder.2.dylib",
-            self.executable,
-        )
-        run("install_name_tool", "-add_rpath", outside, self.executable)
-        problems = self.problems()
-        self.assertTrue(any("outside" in problem for problem in problems), problems)
-
-        self.bundle()
-        self.assertEqual(self.problems(), [])
-        self.assertTrue((self.frameworks / "libkeyfinder.2.dylib").exists())
-        self.assertNotIn(str(outside), macos_libraries.MachO(self.executable).run_paths)
-
-    def test_a_run_path_that_leads_outside_is_reported(self):
-        self.bundle()
-        run(
-            "install_name_tool",
-            "-add_rpath",
-            "/opt/homebrew/lib",
-            self.frameworks / "libfftw3.3.dylib",
-        )
-        self.assertTrue(
-            any("/opt/homebrew/lib" in problem for problem in self.problems())
-        )
+        self.assertEqual(macos_libraries.verify(app, executable), [])
+        macos_libraries.bundle(app, executable, frameworks, RUN_PATH)
+        self.assertEqual(list(frameworks.iterdir()), [])
+        self.assertEqual(macos_libraries.verify(app, executable), [])
 
 
 def compile_library(folder, name, links=(), architecture="arm64", minimum="13.0"):
@@ -410,6 +304,77 @@ class SyntheticLibraryTests(unittest.TestCase):
             problems,
         )
 
+    def compile_chain(self):
+        compile_library(self.outside, "second")
+        compile_library(self.outside, "first", links=["second"])
+        compile_executable(self.executable, self.outside, ["first"])
+
+    def test_a_missing_library_inside_the_bundle_is_rejected(self):
+        self.compile_chain()
+        self.assertEqual(self.bundle_and_verify(), [])
+        (self.frameworks / "libsecond.dylib").unlink()
+        problems = macos_libraries.verify(self.app, self.executable)
+        self.assertTrue(
+            any(
+                "libsecond.dylib" in problem and "does not resolve" in problem
+                for problem in problems
+            ),
+            problems,
+        )
+
+    def test_a_library_needing_one_that_does_not_exist_cannot_be_bundled(self):
+        self.compile_chain()
+        self.assertEqual(self.bundle_and_verify(), [])
+        first = self.frameworks / "libfirst.dylib"
+        run(
+            "install_name_tool",
+            "-change",
+            "@rpath/libsecond.dylib",
+            "@rpath/libnot-there.dylib",
+            first,
+        )
+        problems = macos_libraries.verify(self.app, self.executable)
+        self.assertTrue(
+            any("libnot-there.dylib" in problem for problem in problems), problems
+        )
+
+        # The same broken reference met while bundling stops the bundling.
+        elsewhere = self.folder / "elsewhere"
+        elsewhere.mkdir()
+        shutil.copyfile(first, elsewhere / "libfirst.dylib")
+        shutil.rmtree(self.frameworks)
+        compile_executable(self.executable, self.outside, ["first"])
+        self.replace_run_paths(self.executable, [str(elsewhere)])
+        with self.assertRaisesRegex(macos_libraries.LibraryError, "libnot-there.dylib"):
+            macos_libraries.bundle(self.app, self.executable, self.frameworks, RUN_PATH)
+
+    def test_a_reference_through_a_run_path_outside_the_bundle_is_bundled(self):
+        self.compile_chain()
+        problems = macos_libraries.verify(self.app, self.executable)
+        self.assertTrue(
+            any(str(self.outside) in problem for problem in problems), problems
+        )
+        self.assertEqual(self.bundle_and_verify(), [])
+        self.assertTrue((self.frameworks / "libfirst.dylib").exists())
+        self.assertTrue((self.frameworks / "libsecond.dylib").exists())
+        self.assertNotIn(
+            str(self.outside), macos_libraries.MachO(self.executable).run_paths
+        )
+
+    def test_a_run_path_that_leads_outside_is_reported(self):
+        self.compile_chain()
+        self.assertEqual(self.bundle_and_verify(), [])
+        run(
+            "install_name_tool",
+            "-add_rpath",
+            "/opt/homebrew/lib",
+            self.frameworks / "libsecond.dylib",
+        )
+        problems = macos_libraries.verify(self.app, self.executable)
+        self.assertTrue(
+            any("/opt/homebrew/lib" in problem for problem in problems), problems
+        )
+
     def test_a_walk_that_would_not_end_is_an_error(self):
         compile_library(self.outside, "first")
         compile_executable(self.executable, self.outside, ["first"])
@@ -560,7 +525,7 @@ class SyntheticLibraryTests(unittest.TestCase):
 
 @unittest.skipUnless(
     platform.system() == "Darwin" and BINARY.exists(),
-    "needs macOS and a build that links libkeyfinder",
+    "needs macOS and a release build",
 )
 class RealBundleVersionTests(unittest.TestCase):
     def test_the_real_bundle_needs_the_newest_macos_of_its_files(self):

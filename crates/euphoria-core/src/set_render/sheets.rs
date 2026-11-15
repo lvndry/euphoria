@@ -64,7 +64,11 @@ pub fn cue_sheet(
             cue_text(&track.title_or_file_name())
         );
         if let Some(artist) = &track.artist {
-            let _ = writeln!(sheet, "    PERFORMER \"{}\"", cue_text(artist));
+            let _ = writeln!(
+                sheet,
+                "    PERFORMER \"{}\"",
+                cue_text(&crate::artists::shown_artist(artist))
+            );
         }
         let _ = writeln!(sheet, "    INDEX 01 {}", cue_time(placement.start_seconds));
     }

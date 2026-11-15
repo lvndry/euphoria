@@ -1298,7 +1298,9 @@ pub fn display_name(path: &Path) -> String {
     };
     match read_track_name(path) {
         Ok(name) => match (name.artist, name.title) {
-            (Some(artist), Some(title)) => format!("{artist} - {title}"),
+            (Some(artist), Some(title)) => {
+                format!("{} - {title}", euphoria_core::shown_artist(&artist))
+            }
             (None, Some(title)) => title,
             (_, None) => fallback(),
         },

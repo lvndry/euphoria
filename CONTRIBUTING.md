@@ -15,19 +15,18 @@ Please do not attach copyrighted audio.
 
 ## Setting up
 
-You need a Rust toolchain (1.89 or newer), CMake, pkg-config and libkeyfinder.
+You need a Rust toolchain (1.89 or newer) and a C++ compiler, which builds the vendored time stretcher.
 
-macOS:
-
-```
-brew install rust cmake libkeyfinder
-```
-
-Debian and Ubuntu, which do not package libkeyfinder, so the script builds it from source:
+macOS, with the Xcode Command Line Tools (`xcode-select --install`) for the compiler:
 
 ```
-sudo apt-get install cargo cmake pkg-config libfftw3-dev
-./.github/scripts/install-libkeyfinder.sh
+brew install rust
+```
+
+Debian and Ubuntu:
+
+```
+sudo apt-get install cargo build-essential
 ```
 
 Then:

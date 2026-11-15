@@ -3,6 +3,7 @@
 
 //! The tracks the user has added and the order and subset shown in the table.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -75,6 +76,8 @@ pub(crate) struct Track {
     pub(crate) tag_title: Option<String>,
     /// The artist in the file's tags, once read.
     pub(crate) artist: Option<String>,
+    /// The album in the file's tags, once read.
+    pub(crate) album: Option<String>,
     /// The key field of the file's tags, once read, when it has one.
     pub(crate) tag_key: Option<TagKey>,
     /// The genre in the file's tags, once read.
@@ -128,6 +131,7 @@ impl Track {
             path,
             tag_title: None,
             artist: None,
+            album: None,
             tag_key: None,
             file_name,
             format,
@@ -144,17 +148,34 @@ impl Track {
         self.tag_title.as_deref().unwrap_or(&self.file_name)
     }
 
-    /// Takes the title, artist, genre and key field from the file's tags.
+    /// The artists in the tags as they are shown, "A, B" for a tag that
+    /// lists A and B, or `None` when the tags have none.
+    pub(crate) fn shown_artist(&self) -> Option<Cow<'_, str>> {
+        self.artist.as_deref().map(euphoria_core::shown_artist)
+    }
+
+    /// The artists as shown, or the folder when the tags name none.
+    pub(crate) fn artist_or_folder(&self) -> String {
+        self.shown_artist()
+            .map_or_else(|| self.folder.clone(), Cow::into_owned)
+    }
+
+    /// Takes the title, artist, album, genre and key field from the file's
+    /// tags.
     fn set_names(&mut self, name: TrackName) {
         self.title_lowercase = name
             .title
             .as_deref()
             .unwrap_or(&self.file_name)
             .to_lowercase();
-        self.artist_lowercase = name.artist.as_deref().map(str::to_lowercase);
+        self.artist_lowercase = name
+            .artist
+            .as_deref()
+            .map(|artist| euphoria_core::shown_artist(artist).to_lowercase());
         self.genre_lowercase = name.genre.as_deref().map(str::to_lowercase);
         self.tag_title = name.title;
         self.artist = name.artist;
+        self.album = name.album;
         self.tag_key = name.key;
         self.genre = name.genre;
     }
@@ -1183,6 +1204,30 @@ mod tests {
         assert_eq!(track.artist.as_deref(), Some("Marine Layer"));
         assert_eq!(track.genre.as_deref(), Some("Deep House"));
         assert_eq!(track.file_name, "Low Tide.aiff");
+    }
+
+    #[test]
+    fn a_tag_with_several_artists_shows_them_with_commas_and_keeps_the_tag() {
+        let mut library = sample_library();
+        library.set_names(
+            Path::new("/music/techno/Undertow.wav"),
+            tag_names(
+                Some("Umuthi (The Cure)".to_string()),
+                Some("BlaQRhythm;Elo Mude".to_string()),
+            ),
+        );
+        let track = library
+            .track_by_path(Path::new("/music/techno/Undertow.wav"))
+            .unwrap();
+        assert_eq!(track.artist.as_deref(), Some("BlaQRhythm;Elo Mude"));
+        assert_eq!(
+            track.shown_artist().as_deref(),
+            Some("BlaQRhythm, Elo Mude")
+        );
+        assert_eq!(track.artist_or_folder(), "BlaQRhythm, Elo Mude");
+        assert_eq!(visible(&library, "blaqrhythm", None), ["Undertow.wav"]);
+        assert_eq!(visible(&library, "elo mude", None), ["Undertow.wav"]);
+        assert_eq!(visible(&library, "blaqrhythm, elo", None), ["Undertow.wav"]);
     }
 
     #[test]

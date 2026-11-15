@@ -13,9 +13,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use euphoria_core::{
-    AnalysisObserver, Cache, CachePolicy, CachedBatch, Correction, Cue, EuphoriaError, KeyEngine,
-    Progress, TempoRange, TrackCues, Unobserved, analyze_files_cached_observed,
-    analyze_files_observed, default_cache_path, set_key_engine,
+    AnalysisObserver, Cache, CachePolicy, CachedBatch, Correction, Cue, EuphoriaError, Progress,
+    TempoRange, TrackCues, Unobserved, analyze_files_cached_observed, analyze_files_observed,
+    default_cache_path,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 
@@ -52,20 +52,21 @@ pub struct AnalysisOptions {
     /// Changing it needs no new analysis.
     #[arg(long, value_name = "SLOWEST-FASTEST", default_value_t = TempoRange::DEFAULT)]
     tempo_range: TempoRange,
-    /// Which detector decides the key: auto (the drone-v2 network, which also
-    /// follows the key over time), drone (the same network) or keyfinder
-    /// (libkeyfinder alone, as before drone-v2). Each engine's analyses are
-    /// cached apart.
-    #[arg(long, value_name = "ENGINE", default_value_t = KeyEngine::Auto, value_parser = parse_key_engine)]
-    key_engine: KeyEngine,
+    /// Accepted so that scripts written for earlier versions keep working:
+    /// auto and drone both mean drone-v2, the only key detector.
+    #[arg(long, value_name = "ENGINE", hide = true, value_parser = parse_key_engine)]
+    key_engine: Option<String>,
 }
 
-fn parse_key_engine(text: &str) -> Result<KeyEngine, String> {
-    let engine: KeyEngine = text.parse()?;
-    if engine.is_available() {
-        Ok(engine)
-    } else {
-        Err(format!("this build of Euphoria has no {engine} key engine"))
+fn parse_key_engine(text: &str) -> Result<String, String> {
+    match text {
+        "auto" | "drone" => Ok(text.to_string()),
+        "keyfinder" => Err(
+            "the keyfinder engine was removed: drone-v2 decides every key, and is exact on \
+             more GiantSteps previews than libkeyfinder was"
+                .to_string(),
+        ),
+        _ => Err(format!("unknown key engine {text:?}: use auto")),
     }
 }
 
@@ -130,7 +131,6 @@ pub fn analyze_in_default_range(
     options: &AnalysisOptions,
     display: Display,
 ) -> Result<CachedBatch> {
-    set_key_engine(options.key_engine)?;
     let policy = if options.no_cache {
         None
     } else if options.reanalyze {

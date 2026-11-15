@@ -7,6 +7,8 @@
 
 /// Analyzing files and batches of files.
 pub mod analysis;
+/// The artists an artist tag names, and how they are shown.
+pub mod artists;
 /// The cover art of a track: embedded in its tags, or an image beside it.
 pub mod artwork;
 /// Decoding audio files to mono samples.
@@ -40,7 +42,7 @@ pub mod fingerprint;
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
 pub mod key;
-pub mod key_engine;
+pub mod key_source;
 /// Finding audio files in folders.
 pub mod library;
 /// Reading the key, tempo and energy of the audio the computer is playing.
@@ -98,6 +100,7 @@ pub use analysis::{
     Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
     analyzer_version,
 };
+pub use artists::{artist_names, shown_artist};
 pub use audio::{
     AudioBuffer, DecodeDamage, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, SEVERE_LOST_SHARE,
     declared_duration_seconds, decode_mono,
@@ -138,7 +141,7 @@ pub use harmony::{
     TempoScaling, TrackFeatures, Transition, build_set, evaluate_set, mixes_into,
 };
 pub use key::{Key, Mode};
-pub use key_engine::{KeyEngine, KeySource, key_engine, set_key_engine};
+pub use key_source::KeySource;
 pub use library::{
     AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
     find_audio_files, is_supported_audio_file, scan_audio_files,

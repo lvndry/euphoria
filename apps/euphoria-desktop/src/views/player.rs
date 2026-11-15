@@ -308,6 +308,28 @@ fn wave_strip(
         .children(cue_marks)
 }
 
+/// The id of the playing track's title in the player bar.
+pub(crate) const TITLE_LINK_ID: &str = "player-title";
+
+/// The id of the playing track's cover in the player bar.
+pub(crate) const COVER_LINK_ID: &str = "player-cover-link";
+
+/// What the playing track's title and cover say on hover.
+const SHOW_IN_LIBRARY_TOOLTIP: &str = "Show in the library";
+
+/// Makes `element` show the playing track in the table and the inspector
+/// when clicked, leaving playing as it is.
+pub(crate) fn shows_playing_track_on_click(
+    element: Stateful<Div>,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> impl IntoElement {
+    element
+        .cursor_pointer()
+        .tooltip(|window, cx| Tooltip::new(SHOW_IN_LIBRARY_TOOLTIP).build(window, cx))
+        .on_click(cx.listener(|this, _, _, cx| this.show_playing_track(cx)))
+        .test_support()
+}
+
 /// The title of the library track at `path`, or its file name.
 fn title_of(app: &EuphoriaApp, path: &std::path::Path) -> String {
     app.session.library().track_by_path(path).map_or_else(
@@ -362,9 +384,7 @@ pub(crate) fn content(app: &EuphoriaApp) -> BarContent {
             "Could not play {}: {reason}",
             title_of(app, path)
         ))),
-        (None, None, None, Some(track)) => Some(BarDetail::Artist(
-            track.artist.clone().unwrap_or_else(|| track.folder.clone()),
-        )),
+        (None, None, None, Some(track)) => Some(BarDetail::Artist(track.artist_or_folder())),
         (None, None, None, None) => None,
     };
     let has_waveform = matches!(
@@ -430,14 +450,15 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
         .bg(palette.sidebar)
         .child(play_button(app, cx))
         .children(track.map(|track| {
-            cover_tile(
+            let cover = cover_tile(
                 app,
                 &track.path,
                 px(40.0),
                 ThumbnailSize::Small,
                 "player-cover",
                 cx,
-            )
+            );
+            shows_playing_track_on_click(div().id(COVER_LINK_ID).child(cover), cx)
         }))
         .child(
             div()
@@ -450,16 +471,28 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
                         .flex()
                         .items_baseline()
                         .gap(GAP_SMALL)
-                        .child(
-                            div()
+                        .child(match name {
+                            Some(name) => shows_playing_track_on_click(
+                                div()
+                                    .id(TITLE_LINK_ID)
+                                    .truncate()
+                                    .min_w_0()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .hover(move |style| {
+                                        style.text_color(palette.accent).underline()
+                                    })
+                                    .child(name),
+                                cx,
+                            )
+                            .into_any_element(),
+                            None => div()
                                 .truncate()
                                 .min_w_0()
                                 .font_weight(FontWeight::MEDIUM)
-                                .when(name.is_none(), |title| {
-                                    title.text_color(palette.text_tertiary)
-                                })
-                                .child(name.unwrap_or_else(|| "No track selected".to_string())),
-                        )
+                                .text_color(palette.text_tertiary)
+                                .child("No track selected")
+                                .into_any_element(),
+                        })
                         .children(tempo_text.map(|text| {
                             div()
                                 .id("player-tempo")

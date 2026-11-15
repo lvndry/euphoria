@@ -831,19 +831,17 @@ pub fn write_analysis_summary(
         .collect();
     if !parts.is_empty() {
         writeln!(writer, "Sound quality: {}.", parts.join(", "))?;
-        let worth_a_look: Vec<&str> = [
-            (QualityVerdict::WeakOnABigSystem, "weak"),
-            (QualityVerdict::LikelyReencoded, "reencoded"),
-        ]
-        .iter()
-        .filter(|(verdict, _)| verdicts.contains(verdict))
-        .map(|(_, name)| *name)
-        .collect();
-        if !worth_a_look.is_empty() && narrowing.verdicts.is_empty() {
-            hints.push(format!(
-                "--quality {} lists the tracks worth replacing, and --detail says why.",
-                worth_a_look.join(",")
-            ));
+        let worth_replacing = verdicts.iter().any(|verdict| {
+            matches!(
+                verdict,
+                QualityVerdict::WeakOnABigSystem | QualityVerdict::LikelyReencoded
+            )
+        });
+        if worth_replacing && narrowing.verdicts.is_empty() {
+            hints.push(
+                "euphoria quality lists the files worth replacing, worst first, with why."
+                    .to_string(),
+            );
         }
     }
 
@@ -1940,7 +1938,7 @@ Key and tempo: 1 of 2 tracks worth checking by ear, where the key may be its rel
 Sound quality: 1 track good, 1 weak on a big system.
 1 file could not be analyzed; the errors above say why.
 hint: --needs-review lists only the tracks to check by ear.
-hint: --quality weak lists the tracks worth replacing, and --detail says why.
+hint: euphoria quality lists the files worth replacing, worst first, with why.
 ";
         assert_eq!(summary(&results, &Narrowing::default()), expected);
     }
@@ -1989,7 +1987,7 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert_eq!(parsed[1]["quality"]["verdict"], "limited-bandwidth");
         let text = summary(&results, &Narrowing::default());
         assert!(text.contains("1 track limited bandwidth"), "{text}");
-        assert!(text.contains("--quality weak lists"), "{text}");
+        assert!(text.contains("euphoria quality lists"), "{text}");
     }
 
     #[test]

@@ -54,7 +54,7 @@ The Euphoria mark at the top left of the toolbar is also the activity indicator.
 | Column | Shows |
 | --- | --- |
 | Title | The title in the file's tags, or the file name when there is none |
-| Artist | The artist in the file's tags |
+| Artist | The artist in the file's tags. A tag that lists several artists, separated by a semicolon, a NUL or a slash with spaces around it, shows them as "BlaQRhythm, Elo Mude". A slash inside a name, as in AC/DC, stays. The tag in the file is not changed. |
 | Key | The key's code, coloured by its Camelot number: Camelot (8A) unless you choose musical (Am) or Open Key (1m) in the [settings](#settings) |
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
@@ -330,13 +330,15 @@ Select a track and press Space, or click the round play button, to hear it. Pres
 
 In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, the track's waveform as a seek bar and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
 
+To find the playing track again after browsing, click its title or its cover in the player bar. The title is underlined in the accent colour when you point at it, with the tooltip **Show in the library**. The track is selected, scrolled into view and shown in the inspector. A search, a filter, a folder or a playlist that hides it is taken off, and the focus view and the set builder close so the table is in view. It keeps playing, or stays paused, as it was. In the Deck theme, while another track is selected, the strip reads "Playing *title*", and clicking that title does the same.
+
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 
 If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence. Without `EUPHORIA_LOG`, the terminal shows Euphoria's own warnings and only errors from the libraries it uses; set `EUPHORIA_LOG=warn` to see library warnings as well, such as a decoder skipping a few junk bytes at the start of a file.
 
 ### Media keys and Now Playing
 
-On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, length and position there.
+On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, album, cover, length and position there.
 
 | Command | What it does |
 | --- | --- |
@@ -346,9 +348,13 @@ On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, 
 
 While the [decks](#decks) are open, the keys control one deck: the one that plays, the favoured side of the crossfader first, so deck A while it is centered, and when neither plays, the favoured deck that has a track. Next and Previous do nothing on the decks.
 
-Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
+Now Playing is told what plays when the track, the play state, the [playback tempo](#change-the-tempo-of-the-playing-track) or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. The length and the position are those of the track as recorded, and macOS counts them at the playback tempo, so at +5% the position moves 5% faster and reaches the end with the track, as the player bar does. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
 
-Not there yet: artwork in Now Playing, the playback rate of the tempo control, and Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
+Now Playing shows the track you hear. A track you ask for while another plays waits aside until its sound starts, as in the player bar, and Now Playing changes to it then.
+
+The cover is the one the player bar shows: the picture in the file's tags, else a `cover`, `folder`, `front` or `albumart` image in its folder, cut to a square and reduced to at most 600 pixels on a side. It is read in the background when the track changes, so the new track shows without a cover for a moment, never with the old one.
+
+Not there yet: Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
 
 ## Metronome
 
@@ -843,7 +849,7 @@ To get an application you can keep in the Dock and put in Applications, build an
 open target/release/bundle/Euphoria.app
 ```
 
-The script builds the app in release mode, makes the icon from `assets/logo`, copies libkeyfinder and FFTW into the bundle so it runs without Homebrew, signs it (ad hoc by default, with a Developer ID when `EUPHORIA_SIGN_IDENTITY` is set), and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
+The script builds the app in release mode, makes the icon from `assets/logo`, signs it (ad hoc by default, with a Developer ID when `EUPHORIA_SIGN_IDENTITY` is set), and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
 
 ## Try it without music
 

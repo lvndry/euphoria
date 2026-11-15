@@ -1273,7 +1273,7 @@ impl EuphoriaApp {
                 ColumnId::Number => (row + 1 == self.visible.len())
                     .then(|| Cow::Owned(crate::format::count(row + 1))),
                 ColumnId::Title => Some(Cow::Borrowed(track.title())),
-                ColumnId::Artist => track.artist.as_deref().map(Cow::Borrowed),
+                ColumnId::Artist => track.shown_artist(),
                 ColumnId::Key => track
                     .key()
                     .map(|key| Cow::Owned(self.tag_settings.key_notation.spell(&key))),
@@ -3203,10 +3203,13 @@ impl Render for EuphoriaApp {
                 cfg!(target_os = "macos") && !window.is_window_active(),
                 |root| root.child(views::toolbar::inactive_window_controls(&palette)),
             )
-            .when(self.switches.wants_frame(), |window_element| {
-                window.request_animation_frame();
-                window_element
-            })
+            .when(
+                self.switches.wants_frame() | self.by_ear.wants_frame(),
+                |window_element| {
+                    window.request_animation_frame();
+                    window_element
+                },
+            )
     }
 }
 
