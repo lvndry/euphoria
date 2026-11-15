@@ -60,7 +60,8 @@ impl Euphoria {
         let mut command = Command::new(env!("CARGO_BIN_EXE_euphoria"));
         command
             .args(arguments)
-            .env("EUPHORIA_DATA_DIR", self.data_directory.path());
+            .env("EUPHORIA_DATA_DIR", self.data_directory.path())
+            .env("EUPHORIA_ASSUME_NO_DJ_PROGRAMS", "1");
         command
     }
 

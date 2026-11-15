@@ -32,7 +32,15 @@ pub fn default_engine_library() -> Option<PathBuf> {
     library.is_dir().then_some(library)
 }
 
+/// Set to `1` to treat every DJ program as closed, for scripted or test
+/// runs on a machine where one happens to be open. Euphoria then no longer
+/// protects writes from a program saving the same file.
+pub const ASSUME_NO_DJ_PROGRAMS: &str = "EUPHORIA_ASSUME_NO_DJ_PROGRAMS";
+
 fn process_is_running(unix_name: &str, windows_image: &str) -> Option<bool> {
+    if std::env::var_os(ASSUME_NO_DJ_PROGRAMS).is_some_and(|value| value == "1") {
+        return Some(false);
+    }
     if cfg!(windows) {
         let output = std::process::Command::new("tasklist")
             .args(["/FI", &format!("IMAGENAME eq {windows_image}"), "/NH"])
