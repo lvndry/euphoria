@@ -29,7 +29,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 /// The changes that build the database, one per schema version, applied in
 /// order. Each entry is applied once, inside the transaction that records
 /// its version.
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     "
     CREATE TABLE playlists (
         position INTEGER NOT NULL PRIMARY KEY,
@@ -46,9 +46,10 @@ const MIGRATIONS: [&str; 2] = [
     ) WITHOUT ROWID;
     ",
     crate::favorites::FAVORITES_MIGRATION,
+    crate::locked_transitions::LOCKED_TRANSITIONS_MIGRATION,
 ];
 
-const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
+pub(crate) const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 
 /// One track of a playlist: the content of its file and where that file was
 /// last seen.
