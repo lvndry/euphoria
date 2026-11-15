@@ -681,3 +681,105 @@ fn changing_the_track_returns_to_the_full_track(cx: &mut TestAppContext) {
         assert_eq!(app.stems.mode(), crate::stems::StemMode::Full);
     });
 }
+
+fn lanes_menu_is_open(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> bool {
+    cx.update(|cx| view.read(cx).focus.lanes_menu_open)
+}
+
+fn open_lanes_menu(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let (window, view) = open_library(10, cx);
+    click(window, track(3), cx);
+    open_focus(window, cx);
+    click(window, "focus-lanes", cx);
+    settle(window, cx);
+    assert!(lanes_menu_is_open(&view, cx));
+    (window, view)
+}
+
+#[gpui::test]
+fn the_layers_menu_is_drawn_over_the_key_wheel_and_the_key_lock(cx: &mut TestAppContext) {
+    let (window, view) = open_lanes_menu(cx);
+    let lane = Lane::ALL[1];
+    let row_id = ("focus-lane-toggle", lane.number());
+    let offset = cx
+        .update_window(window, |_, window, _| {
+            let menu = window.find("focus-lanes-menu").bounds();
+            let wheel = window.find("camelot-wheel").bounds();
+            let key_lock = window.find("focus-key-lock").bounds();
+            assert!(
+                menu.intersects(&wheel),
+                "the menu opens over the wheel at this size"
+            );
+            let row = window.find(row_id).bounds();
+            let overlap = row.intersect(&key_lock);
+            assert!(
+                overlap.size.width > px(4.0) && overlap.size.height > px(4.0),
+                "a row of the menu lies over the key lock toggle"
+            );
+            overlap.center() - row.origin
+        })
+        .unwrap();
+    let (key_lock_before, lane_before) = cx.update(|cx| {
+        let app = view.read(cx);
+        (app.tempo.key_lock, app.focus.lanes.is_shown(lane))
+    });
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click_at(row_id, offset, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(
+            app.tempo.key_lock, key_lock_before,
+            "the key lock under the menu gets no click"
+        );
+        assert_ne!(
+            app.focus.lanes.is_shown(lane),
+            lane_before,
+            "the menu row on top takes the click"
+        );
+        assert!(
+            app.focus.lanes_menu_open,
+            "toggling a layer keeps the menu open"
+        );
+    });
+}
+
+#[gpui::test]
+fn the_layers_menu_closes_on_a_click_outside_and_on_its_button(cx: &mut TestAppContext) {
+    let (window, view) = open_lanes_menu(cx);
+    click(window, "focus-chip-key", cx);
+    assert!(
+        !lanes_menu_is_open(&view, cx),
+        "a click elsewhere closes it"
+    );
+
+    click(window, "focus-lanes", cx);
+    assert!(lanes_menu_is_open(&view, cx));
+    click(window, "focus-lanes", cx);
+    assert!(
+        !lanes_menu_is_open(&view, cx),
+        "the button closes it instead of closing and opening again"
+    );
+}
+
+#[gpui::test]
+fn the_layers_menu_stays_inside_a_short_window(cx: &mut TestAppContext) {
+    let (window, _view) = open_lanes_menu(cx);
+    cx.simulate_window_resize(window, gpui::size(px(900.0), px(220.0)));
+    settle(window, cx);
+    cx.update_window(window, |_, window, _| {
+        let viewport = window.viewport_size();
+        let menu = window.find("focus-lanes-menu").bounds();
+        assert!(menu.left() >= px(0.0) && menu.top() >= px(0.0), "{menu:?}");
+        assert!(
+            menu.right() <= viewport.width && menu.bottom() <= viewport.height,
+            "{menu:?} in {viewport:?}"
+        );
+    })
+    .unwrap();
+}

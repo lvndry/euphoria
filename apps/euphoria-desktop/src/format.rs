@@ -51,6 +51,28 @@ pub(crate) fn count(value: usize) -> String {
     grouped
 }
 
+/// A count short enough for a badge: exact below 1,000, then thousands or
+/// millions, with one decimal below ten of them, for example "628", "2.2k",
+/// "12k" or "1.2M". It rounds down, so a count never reads higher than it is
+/// and 9,999 stays "9.9k" instead of becoming "10.0k".
+pub(crate) fn compact_count(value: usize) -> String {
+    if value < 1_000 {
+        return value.to_string();
+    }
+    let (unit, suffix) = if value < 1_000_000 {
+        (1_000, "k")
+    } else {
+        (1_000_000, "M")
+    };
+    let whole = value / unit;
+    let tenths = value % unit * 10 / unit;
+    if whole >= 10 || tenths == 0 {
+        format!("{whole}{suffix}")
+    } else {
+        format!("{whole}.{tenths}{suffix}")
+    }
+}
+
 /// A signed percentage with one decimal, for example "+1.6%" or "-0.8%".
 pub(crate) fn signed_percent(percent: f32) -> String {
     if percent.abs() < 0.05 {
@@ -137,6 +159,31 @@ pub(crate) fn quality_details(report: &QualityReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_counts_stay_exact_below_a_thousand_and_round_down_above() {
+        for (value, expected) in [
+            (0, "0"),
+            (999, "999"),
+            (1_000, "1k"),
+            (1_049, "1k"),
+            (1_050, "1k"),
+            (1_099, "1k"),
+            (1_100, "1.1k"),
+            (2_200, "2.2k"),
+            (9_950, "9.9k"),
+            (9_999, "9.9k"),
+            (10_000, "10k"),
+            (12_500, "12k"),
+            (999_999, "999k"),
+            (1_000_000, "1M"),
+            (1_250_000, "1.2M"),
+            (9_999_999, "9.9M"),
+            (12_500_000, "12M"),
+        ] {
+            assert_eq!(compact_count(value), expected, "{value}");
+        }
+    }
 
     #[test]
     fn long_durations_show_hours_once_there_are_any() {

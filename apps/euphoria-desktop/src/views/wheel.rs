@@ -4,9 +4,11 @@
 //! The Camelot wheel: twelve numbers around it, the major keys (B) on the
 //! outer ring and the minor keys (A) on the inner ring, each cell labelled.
 //! The selected key's cell is filled with the accent colour and the cells of
-//! the keys that mix with it with a lighter tint, so the moves a DJ can make
-//! are visible at a glance.
+//! the keys that mix with it, the matching keys, with an accent tint and an
+//! accent ring, so the moves a DJ can make are visible at a glance.
 
+use euphoria_core::harmony::Relation;
+use euphoria_core::harmony::words::relation_name;
 use euphoria_core::{Key, Mode};
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
@@ -16,6 +18,7 @@ use gpui::{
 };
 
 use crate::camelot::CamelotPosition;
+use crate::mixes::keys_related_by;
 use crate::theme::{Palette, blend};
 
 /// The size the radii below are drawn for; the wheel is scaled from it.
@@ -45,14 +48,92 @@ const ARC_STEP_DEGREES: f32 = 3.0;
 const CELL_LABEL_SIZE: f32 = 9.5;
 /// Size of the code in the middle.
 const CODE_SIZE: f32 = 14.0;
+/// How much accent the fill of a matching key keeps over the quiet fill:
+/// enough to tell it from the other keys at a glance, little enough that the
+/// text on it stays readable and the selected key stays the strongest.
+const MATCHING_STRENGTH: f32 = 0.45;
+/// Width of the accent ring around a matching key.
+const MATCHING_RING_WIDTH: f32 = 1.5;
 
 /// How strongly a cell of the wheel is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Emphasis {
     /// The selected key.
     Selected,
-    /// A key that mixes with the selected key.
-    Compatible,
+    /// A key that mixes with the selected key by this move.
+    Matching(Relation),
+}
+
+/// The fills, ring and label colours of the wheel in one palette.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct WheelColours {
+    /// The fill of a key that is neither selected nor matching.
+    pub(crate) quiet: Hsla,
+    /// The label on a quiet key.
+    pub(crate) quiet_label: Hsla,
+    /// The fill of a matching key.
+    pub(crate) matching: Hsla,
+    /// The ring around a matching key.
+    pub(crate) matching_ring: Hsla,
+    /// The label on a matching key.
+    pub(crate) matching_label: Hsla,
+    /// The fill of the selected key.
+    pub(crate) selected: Hsla,
+    /// The label on the selected key.
+    pub(crate) selected_label: Hsla,
+}
+
+impl WheelColours {
+    /// The wheel's colours in `palette`.
+    pub(crate) fn of(palette: &Palette) -> Self {
+        Self {
+            quiet: palette.raised,
+            quiet_label: palette.text_secondary,
+            matching: blend(palette.accent, palette.raised, MATCHING_STRENGTH),
+            matching_ring: palette.accent,
+            matching_label: palette.text,
+            selected: palette.accent,
+            selected_label: palette.accent_ink,
+        }
+    }
+
+    fn fill(&self, emphasis: Option<Emphasis>) -> Hsla {
+        match emphasis {
+            Some(Emphasis::Selected) => self.selected,
+            Some(Emphasis::Matching(_)) => self.matching,
+            None => self.quiet,
+        }
+    }
+
+    fn label(&self, emphasis: Option<Emphasis>) -> Hsla {
+        match emphasis {
+            Some(Emphasis::Selected) => self.selected_label,
+            Some(Emphasis::Matching(_)) => self.matching_label,
+            None => self.quiet_label,
+        }
+    }
+}
+
+/// The id of the cell for the key `code`, which says how the cell is drawn:
+/// `camelot-selected-12A`, `camelot-matching-1A` or `camelot-key-5B`.
+pub(crate) fn cell_id(code: &str, emphasis: Option<Emphasis>) -> SharedString {
+    let state = match emphasis {
+        Some(Emphasis::Selected) => "selected",
+        Some(Emphasis::Matching(_)) => "matching",
+        None => "key",
+    };
+    format!("camelot-{state}-{code}").into()
+}
+
+/// What hovering a cell says: its code and key and, on a matching key, the
+/// move that reaches it, such as "1A, Bb minor, one step on the wheel".
+pub(crate) fn cell_description(code: &str, key: Key, emphasis: Option<Emphasis>) -> String {
+    match emphasis {
+        Some(Emphasis::Matching(relation)) => {
+            format!("{code}, {key}, {}", relation_name(relation).to_lowercase())
+        }
+        _ => format!("{code}, {key}"),
+    }
 }
 
 /// The key a wheel cell stands for.
@@ -82,26 +163,12 @@ pub(crate) fn wheel(
     let middle_radius = MIDDLE_RADIUS * scale;
     let hole_radius = HOLE_RADIUS * scale;
     let label_size = (CELL_LABEL_SIZE * scale).max(SMALLEST_LABEL_SIZE);
-    let quiet = palette.raised;
-    let selected = palette.accent;
-    let compatible = blend(palette.accent, palette.raised, 0.4);
+    let colours = WheelColours::of(palette);
     let emphasis_of = move |position: CamelotPosition| {
         emphasized
             .iter()
             .find(|(emphasized_position, _)| *emphasized_position == position)
             .map(|(_, emphasis)| *emphasis)
-    };
-    let fill_of = move |emphasis: Option<Emphasis>| match emphasis {
-        Some(Emphasis::Selected) => selected,
-        Some(Emphasis::Compatible) => compatible,
-        None => quiet,
-    };
-    let label_colour = |emphasis: Option<Emphasis>| -> Hsla {
-        match emphasis {
-            Some(Emphasis::Selected) => palette.accent_ink,
-            Some(Emphasis::Compatible) => palette.text,
-            None => palette.text_secondary,
-        }
     };
 
     let cells: Vec<(CamelotPosition, Option<Emphasis>)> = (1..=12_u8)
@@ -109,41 +176,40 @@ pub(crate) fn wheel(
         .map(|position| (position, emphasis_of(position)))
         .collect();
     let painted = cells.clone();
-    let labels = cells
-        .iter()
-        .enumerate()
-        .map(|(index, (position, emphasis))| {
-            let (radius, letter) = if position.is_major {
-                ((outer_radius + middle_radius) / 2.0, 'B')
+    let labels = cells.iter().map(|(position, emphasis)| {
+        let (radius, letter) = if position.is_major {
+            ((outer_radius + middle_radius) / 2.0, 'B')
+        } else {
+            ((middle_radius + hole_radius) / 2.0, 'A')
+        };
+        let radians = (f32::from(position.number % 12) * SEGMENT_DEGREES).to_radians();
+        let centre_x = size / 2.0 + radius * radians.sin();
+        let centre_y = size / 2.0 - radius * radians.cos();
+        let code = format!("{}{letter}", position.number);
+        let description: SharedString =
+            cell_description(&code, key_at(*position), *emphasis).into();
+        div()
+            .id(cell_id(&code, *emphasis))
+            .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
+            .absolute()
+            .left(px(centre_x - 12.0))
+            .top(px(centre_y - 7.0))
+            .w(px(24.0))
+            .h(px(14.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(label_size))
+            .line_height(px(14.0))
+            .font_weight(if emphasis.is_some() {
+                FontWeight::SEMIBOLD
             } else {
-                ((middle_radius + hole_radius) / 2.0, 'A')
-            };
-            let radians = (f32::from(position.number % 12) * SEGMENT_DEGREES).to_radians();
-            let centre_x = size / 2.0 + radius * radians.sin();
-            let centre_y = size / 2.0 - radius * radians.cos();
-            let code = format!("{}{letter}", position.number);
-            let description: SharedString = format!("{code}, {}", key_at(*position)).into();
-            div()
-                .id(("camelot-cell", index))
-                .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
-                .absolute()
-                .left(px(centre_x - 12.0))
-                .top(px(centre_y - 7.0))
-                .w(px(24.0))
-                .h(px(14.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(label_size))
-                .line_height(px(14.0))
-                .font_weight(if emphasis.is_some() {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::NORMAL
-                })
-                .text_color(label_colour(*emphasis))
-                .child(code)
-        });
+                FontWeight::NORMAL
+            })
+            .text_color(colours.label(*emphasis))
+            .child(code)
+            .test_support()
+    });
 
     div()
         .id("camelot-wheel")
@@ -156,8 +222,19 @@ pub(crate) fn wheel(
                 move |bounds: Bounds<Pixels>, _, window, _| {
                     let centre = bounds.center();
                     for (position, emphasis) in &painted {
-                        if let Some(path) = cell_path(centre, *position, scale) {
-                            window.paint_path(path, fill_of(*emphasis));
+                        if let Some(path) = cell_path(PathBuilder::fill(), centre, *position, scale)
+                        {
+                            window.paint_path(path, colours.fill(*emphasis));
+                        }
+                        if matches!(emphasis, Some(Emphasis::Matching(_)))
+                            && let Some(ring) = cell_path(
+                                PathBuilder::stroke(px(MATCHING_RING_WIDTH)),
+                                centre,
+                                *position,
+                                scale,
+                            )
+                        {
+                            window.paint_path(ring, colours.matching_ring);
                         }
                     }
                 },
@@ -182,19 +259,25 @@ pub(crate) fn wheel(
         .into_any_element()
 }
 
-/// The keys to colour for a selected key and the keys that mix with it.
+/// The keys to colour for the selected `key`: the key itself and, when
+/// `show_matching` is on, every key one of `relations` reaches, each with its
+/// move.
 pub(crate) fn emphasis_for(
-    selected: CamelotPosition,
-    compatible: impl IntoIterator<Item = CamelotPosition>,
+    key: &Key,
+    relations: &[Relation],
+    show_matching: bool,
 ) -> Vec<(CamelotPosition, Emphasis)> {
-    let mut emphasized = vec![(selected, Emphasis::Selected)];
-    for position in compatible {
-        if !emphasized
-            .iter()
-            .any(|(emphasized_position, _)| *emphasized_position == position)
-        {
-            emphasized.push((position, Emphasis::Compatible));
-        }
+    let mut emphasized = vec![(CamelotPosition::of(key), Emphasis::Selected)];
+    if show_matching {
+        emphasized.extend(
+            keys_related_by(key, relations)
+                .iter()
+                .filter_map(|matching| {
+                    key.relation_to(matching).map(|relation| {
+                        (CamelotPosition::of(matching), Emphasis::Matching(relation))
+                    })
+                }),
+        );
     }
     emphasized
 }
@@ -203,6 +286,7 @@ pub(crate) fn emphasis_for(
 /// numbers run clockwise, as on a clock face; the major key of a number is
 /// on the outer ring and its minor key on the inner ring.
 fn cell_path(
+    mut builder: PathBuilder,
     centre: Point<Pixels>,
     position: CamelotPosition,
     scale: f32,
@@ -224,7 +308,6 @@ fn cell_path(
         centre + point(px(radius * radians.sin()), px(-radius * radians.cos()))
     };
 
-    let mut builder = PathBuilder::fill();
     builder.move_to(on_circle(outer, start));
     for degrees in angles.iter().skip(1) {
         builder.line_to(on_circle(outer, *degrees));
@@ -239,61 +322,94 @@ fn cell_path(
 #[cfg(test)]
 mod tests {
     use euphoria_core::Key;
+    use euphoria_core::harmony::MixOptions;
 
     use super::*;
-    use crate::mixes::compatible_keys;
+    use crate::theme::{AppTheme, ThemeName};
 
     fn position(text: &str) -> CamelotPosition {
         CamelotPosition::of(&text.parse::<Key>().unwrap())
     }
 
-    fn emphasized_codes(key: &str) -> Vec<(String, Emphasis)> {
+    fn emphasized_codes(key: &str, relations: &[Relation]) -> Vec<(String, Emphasis)> {
         let key: Key = key.parse().unwrap();
-        emphasis_for(
-            CamelotPosition::of(&key),
-            compatible_keys(&key).iter().map(CamelotPosition::of),
-        )
-        .into_iter()
-        .map(|(position, emphasis)| {
-            let letter = if position.is_major { 'B' } else { 'A' };
-            (format!("{}{letter}", position.number), emphasis)
-        })
-        .collect()
+        let mut emphasized: Vec<(String, Emphasis)> = emphasis_for(&key, relations, true)
+            .into_iter()
+            .map(|(position, emphasis)| {
+                let letter = if position.is_major { 'B' } else { 'A' };
+                (format!("{}{letter}", position.number), emphasis)
+            })
+            .collect();
+        emphasized.sort_by(|first, second| first.0.cmp(&second.0));
+        emphasized
     }
 
     #[test]
     fn a_minor_key_lights_its_own_cell_its_neighbours_and_its_relative_major() {
-        let mut emphasized = emphasized_codes("A minor");
-        emphasized.sort_by(|first, second| first.0.cmp(&second.0));
         assert_eq!(
-            emphasized,
+            emphasized_codes("A minor", &MixOptions::default().relations),
             [
-                ("7A".to_string(), Emphasis::Compatible),
+                ("7A".to_string(), Emphasis::Matching(Relation::Adjacent)),
                 ("8A".to_string(), Emphasis::Selected),
-                ("8B".to_string(), Emphasis::Compatible),
-                ("9A".to_string(), Emphasis::Compatible),
+                ("8B".to_string(), Emphasis::Matching(Relation::Relative)),
+                ("9A".to_string(), Emphasis::Matching(Relation::Adjacent)),
             ]
         );
     }
 
     #[test]
-    fn the_two_rings_of_one_number_are_told_apart() {
-        let emphasized = emphasis_for(position("A minor"), [position("C major")]);
+    fn twelve_a_reaches_round_the_top_of_the_wheel_to_one_a() {
+        let twelve_a = Key::new(1, Mode::Minor);
+        assert_eq!(twelve_a.camelot(), "12A");
         assert_eq!(
-            emphasized,
+            emphasized_codes("C# minor", &MixOptions::default().relations),
             [
-                (position("A minor"), Emphasis::Selected),
-                (position("C major"), Emphasis::Compatible),
+                ("11A".to_string(), Emphasis::Matching(Relation::Adjacent)),
+                ("12A".to_string(), Emphasis::Selected),
+                ("12B".to_string(), Emphasis::Matching(Relation::Relative)),
+                ("1A".to_string(), Emphasis::Matching(Relation::Adjacent)),
             ]
         );
-        assert_ne!(position("A minor"), position("C major"));
-        assert_eq!(position("A minor").number, position("C major").number);
     }
 
     #[test]
-    fn the_selected_key_is_listed_once_even_when_it_is_also_compatible() {
-        let emphasized = emphasis_for(position("A minor"), [position("A minor")]);
-        assert_eq!(emphasized, [(position("A minor"), Emphasis::Selected)]);
+    fn with_matching_keys_off_only_the_selected_key_is_coloured() {
+        let key: Key = "A minor".parse().unwrap();
+        assert_eq!(
+            emphasis_for(&key, &Relation::ALL, false),
+            [(position("A minor"), Emphasis::Selected)]
+        );
+    }
+
+    #[test]
+    fn the_same_key_move_never_takes_the_selected_cell() {
+        assert_eq!(
+            emphasized_codes("A minor", &[Relation::Same]),
+            [("8A".to_string(), Emphasis::Selected)]
+        );
+    }
+
+    #[test]
+    fn a_matching_cell_names_the_move_that_reaches_it() {
+        let b_flat_minor = key_at(position("Bb minor"));
+        assert_eq!(
+            cell_description(
+                "3A",
+                b_flat_minor,
+                Some(Emphasis::Matching(Relation::Adjacent))
+            ),
+            "3A, Bb minor, one step on the wheel"
+        );
+        assert_eq!(
+            cell_description("3A", b_flat_minor, Some(Emphasis::Selected)),
+            "3A, Bb minor"
+        );
+        assert_eq!(cell_description("3A", b_flat_minor, None), "3A, Bb minor");
+        assert_eq!(
+            cell_id("3A", Some(Emphasis::Matching(Relation::Adjacent))),
+            "camelot-matching-3A"
+        );
+        assert_eq!(cell_id("3A", None), "camelot-key-3A");
     }
 
     #[test]
@@ -306,28 +422,43 @@ mod tests {
     }
 
     #[test]
-    fn every_key_has_a_cell_of_its_own_on_its_ring() {
+    fn every_key_has_a_cell_and_a_ring_of_its_own_on_its_ring() {
         let centre = point(px(0.0), px(0.0));
         for number in 1..=12_u8 {
             for is_major in [false, true] {
-                assert!(cell_path(centre, CamelotPosition { number, is_major }, 1.0).is_some());
+                let position = CamelotPosition { number, is_major };
+                assert!(cell_path(PathBuilder::fill(), centre, position, 1.0).is_some());
+                assert!(cell_path(PathBuilder::stroke(px(1.5)), centre, position, 1.0).is_some());
             }
         }
     }
 
     #[test]
-    fn labels_read_at_least_4_5_to_1_in_every_theme() {
-        use crate::theme::{AppTheme, ThemeName};
+    fn matching_keys_stand_out_and_every_label_reads_in_every_theme() {
         for name in ThemeName::ALL {
-            let palette = AppTheme::named(name).palette;
-            let compatible = blend(palette.accent, palette.raised, 0.4);
-            for (label, fill) in [
-                (palette.accent_ink, palette.accent),
-                (palette.text, compatible),
-                (palette.text_secondary, palette.raised),
+            let colours = WheelColours::of(&AppTheme::named(name).palette);
+            let matching_against_quiet = contrast(colours.matching, colours.quiet);
+            assert!(
+                matching_against_quiet >= 1.5,
+                "{name:?}: matching fill against the other keys {matching_against_quiet:.2}"
+            );
+            let selected_against_matching = contrast(colours.selected, colours.matching);
+            assert!(
+                selected_against_matching >= 1.5,
+                "{name:?}: selected fill against a matching one {selected_against_matching:.2}"
+            );
+            let ring_against_quiet = contrast(colours.matching_ring, colours.quiet);
+            assert!(
+                ring_against_quiet >= 3.0,
+                "{name:?}: ring against the other keys {ring_against_quiet:.2}"
+            );
+            for (label, fill, what) in [
+                (colours.selected_label, colours.selected, "selected"),
+                (colours.matching_label, colours.matching, "matching"),
+                (colours.quiet_label, colours.quiet, "quiet"),
             ] {
                 let ratio = contrast(label, fill);
-                assert!(ratio >= 4.5, "{name:?}: contrast {ratio:.2}");
+                assert!(ratio >= 4.5, "{name:?}: {what} label {ratio:.2}");
             }
         }
     }

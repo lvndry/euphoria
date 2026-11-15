@@ -249,6 +249,19 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .test_support()
         .into_any_element(),
     );
+    parts.push(
+        toggle_row(
+            "show-matching-keys",
+            "Show matching keys on the wheel",
+            "Marks the keys that mix with the selected one. Click the wheel to choose the key moves.",
+            display.show_matching_keys,
+            &app.switches,
+            &palette,
+        )
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_matching_keys(cx)))
+        .test_support()
+        .into_any_element(),
+    );
     parts.push(part_heading("Writing tags", &palette).into_any_element());
     let writing_box_index = parts.len();
     parts.push(label_preview_box(app, "label-preview", &palette).into_any_element());

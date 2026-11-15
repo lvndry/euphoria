@@ -99,7 +99,7 @@ impl TempoPreset {
 }
 
 /// How keys and tempos are shown, kept in the settings file.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct DisplaySettings {
     /// The range tempos are shown in.
@@ -107,6 +107,24 @@ pub(crate) struct DisplaySettings {
     /// Whether the track table has a Stage column. Off until turned on.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) show_stage_column: bool,
+    /// Whether the Camelot wheel marks the keys that mix with the selected
+    /// one. On until turned off.
+    #[serde(skip_serializing_if = "is_on")]
+    pub(crate) show_matching_keys: bool,
+}
+
+impl Default for DisplaySettings {
+    fn default() -> Self {
+        Self {
+            tempo_range: TempoRangeSetting::default(),
+            show_stage_column: false,
+            show_matching_keys: true,
+        }
+    }
+}
+
+fn is_on(value: &bool) -> bool {
+    *value
 }
 
 #[cfg(test)]
@@ -183,5 +201,19 @@ mod tests {
         assert!(text.contains(r#""show_stage_column":true"#), "{text}");
         let loaded: DisplaySettings = serde_json::from_str(&text).unwrap();
         assert!(loaded.show_stage_column);
+    }
+
+    #[test]
+    fn matching_keys_show_until_turned_off_and_off_is_remembered() {
+        let partial: DisplaySettings = serde_json::from_str("{}").unwrap();
+        assert!(partial.show_matching_keys);
+        let hidden = DisplaySettings {
+            show_matching_keys: false,
+            ..DisplaySettings::default()
+        };
+        let text = serde_json::to_string(&hidden).unwrap();
+        assert!(text.contains(r#""show_matching_keys":false"#), "{text}");
+        let loaded: DisplaySettings = serde_json::from_str(&text).unwrap();
+        assert!(!loaded.show_matching_keys);
     }
 }

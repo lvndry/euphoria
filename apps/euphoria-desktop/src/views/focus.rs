@@ -14,20 +14,18 @@ use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Pixels, ScrollEvent, SharedString, TestSupportExt, Window, canvas, div, px,
-    relative,
+    Anchor, AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, ScrollEvent, SharedString, TestSupportExt, Window, anchored, canvas,
+    deferred, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
 use crate::artwork::ThumbnailSize;
-use crate::camelot::CamelotPosition;
 use crate::focus::{
     CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
 };
 use crate::format;
 use crate::library::Track;
-use crate::mixes::keys_related_by;
 use crate::peaks::BandPeaks;
 use crate::stems::{StemFocus, StemStatus};
 use crate::theme::Palette;
@@ -40,7 +38,6 @@ use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::track_overview::{LaneFrame, LaneInputs, VOCALS_HEIGHT, overview_lanes};
 use crate::views::waveform::{WaveformColours, waveform};
-use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{
     GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
     TITLE_TEXT_SIZE,
@@ -156,8 +153,10 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .on_click(cx.listener(move |this, _, _, cx| this.zoom_focus(factor, 0.5, cx)))
             .test_support()
     };
+    let lanes_button_bounds = app.focus.lanes_button_bounds.clone();
     let lanes_button = div()
         .id("focus-lanes")
+        .relative()
         .flex()
         .items_center()
         .h(px(28.0))
@@ -173,14 +172,20 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
         .child(LAYERS_LABEL)
+        .child(
+            canvas(
+                move |bounds, _, _| lanes_button_bounds.set(Some(bounds)),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
         .on_click(cx.listener(|this, _, _, cx| this.toggle_focus_lanes_menu(cx)))
         .test_support();
     let menu = app.focus.lanes_menu_open.then(|| {
-        div()
+        let button_bounds = app.focus.lanes_button_bounds.clone();
+        let list = div()
             .id("focus-lanes-menu")
-            .absolute()
-            .top(px(32.0))
-            .right_0()
             .flex()
             .flex_col()
             .w(px(170.0))
@@ -191,6 +196,14 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .bg(palette.panel)
             .shadow_lg()
             .occlude()
+            .on_mouse_down_out(cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                let is_on_button = button_bounds
+                    .get()
+                    .is_some_and(|bounds| bounds.contains(&event.position));
+                if !is_on_button {
+                    this.close_focus_lanes_menu(cx);
+                }
+            }))
             .children(Lane::ALL.map(|lane| {
                 let is_shown = app.focus.lanes.is_shown(lane);
                 div()
@@ -221,6 +234,16 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_focus_lane(lane, cx)))
                     .test_support()
             }))
+            .test_support();
+        div().absolute().top(px(32.0)).right_0().child(
+            deferred(
+                anchored()
+                    .anchor(Anchor::TopRight)
+                    .snap_to_window_with_margin(px(8.0))
+                    .child(list),
+            )
+            .with_priority(gpui::base::POPUP_PRIORITY),
+        )
     });
     div()
         .flex()
@@ -378,7 +401,12 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                 })),
         )
         .children(crate::views::tempo::tempo_control(app, &palette, cx))
-        .children(header_wheel(track, app))
+        .children(crate::views::inspector::key_wheel_of(
+            track,
+            app,
+            HEADER_WHEEL_SIZE,
+            cx,
+        ))
 }
 
 /// The tempo in the BPM chip: the track's own, or while the playback tempo
@@ -416,24 +444,6 @@ fn bpm_stat(track: &Track, app: &EuphoriaApp) -> Div {
 
 /// The side of the Camelot wheel in the header.
 const HEADER_WHEEL_SIZE: f32 = 76.0;
-
-/// The Camelot wheel of the track's key, with the keys the suggestion filter
-/// moves to tinted.
-fn header_wheel(track: &Track, app: &EuphoriaApp) -> Option<AnyElement> {
-    let key = track.key()?;
-    let relations = app.decks.filter.mix_options().relations;
-    Some(wheel(
-        key.camelot(),
-        emphasis_for(
-            CamelotPosition::of(&key),
-            keys_related_by(&key, &relations)
-                .iter()
-                .map(CamelotPosition::of),
-        ),
-        &app.theme.palette,
-        HEADER_WHEEL_SIZE,
-    ))
-}
 
 /// A lane: its name in the gutter and its content on the shared axis.
 fn lane_row(label: impl IntoElement, height: f32, content: impl IntoElement) -> Div {
