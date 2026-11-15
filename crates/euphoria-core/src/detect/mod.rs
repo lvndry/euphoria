@@ -27,7 +27,7 @@ pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, cues_on_grid, detect_beat_g
 #[cfg(feature = "drone")]
 pub use drone::{DroneDetector, KeyProbabilities};
 #[cfg(feature = "libkeyfinder")]
-pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant};
+pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant, KeyFollowing};
 pub use stratum::StratumDetector;
 pub use tuning::{Tuning, measure_tuning};
 
@@ -59,11 +59,11 @@ pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, Eu
         if engine == KeyEngine::Auto {
             return match reading.key {
                 Some(key) => {
-                    let (tuning_cents, timeline) =
-                        KeyFinderDetector.tuning_and_timeline(audio, key)?;
+                    let following = KeyFinderDetector.follow_key(audio, key)?;
                     Ok(KeyReading {
-                        tuning_cents,
-                        timeline,
+                        tuning_cents: following.tuning_cents,
+                        timeline: following.timeline,
+                        pitch_class_profile: following.pitch_class_profile,
                         ..reading
                     })
                 }
@@ -159,6 +159,12 @@ pub struct KeyReading {
     /// The detector that decided the key, which sets how its confidence is
     /// rated. `None` when there is no key.
     pub source: Option<KeySource>,
+    /// How strongly each of the 12 notes sounds in the track, C first, from
+    /// 0 to 1 with the strongest at 1, as libkeyfinder's chromagram hears
+    /// it after tuning correction. `None` when there is no key, and when
+    /// libkeyfinder does not run: with the drone engine alone and in builds
+    /// without it.
+    pub pitch_class_profile: Option<[f32; 12]>,
 }
 
 /// A tempo estimate before it is placed in a [`TempoRange`], with what its

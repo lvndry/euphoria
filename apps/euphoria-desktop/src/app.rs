@@ -28,7 +28,7 @@ use crate::library::{LibraryCounts, LibraryFilter, SortColumn, SortOrder, Track}
 use crate::mixes::{MixSuggestion, suggestions};
 use crate::panels::{PanelEdge, Panels};
 use crate::peaks::{PEAK_COUNT, compute_band_peaks};
-use crate::playback::{AudioOutput, PlaybackProblem, TrackSource, Voice, VoiceState};
+use crate::playback::{AudioOutput, OpenRequest, PlaybackProblem, TrackSource, Voice, VoiceState};
 use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
 use crate::playlists::PlaylistId;
 use crate::settings::{FolderTreeMemory, Settings};
@@ -138,6 +138,11 @@ pub(crate) struct EuphoriaApp {
     pub(crate) tag_panel: Option<TagPanel>,
     /// The sheet that exports the library to a DJ program, while open.
     pub(crate) library_export: Option<crate::library_export::LibraryExportPanel>,
+    /// The sheet that prepares the selected files for a club system, while
+    /// open.
+    pub(crate) prepare_panel: Option<crate::prepare_files::PreparePanel>,
+    /// The manifests of the last prepare run of this session, for reverting.
+    pub(crate) last_prepare_manifests: Vec<PathBuf>,
     /// How the export finds out whether a DJ program is running.
     pub(crate) running_checks: crate::library_export::RunningChecks,
     /// The checks of whether a DJ program is running before tags are written,
@@ -292,6 +297,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) voice: Option<ActiveVoice>,
     /// Opens the file of the track about to play.
     start_task: Option<Task<()>>,
+    /// Reads the waveform of the player's track when it is not the
+    /// selected one and was not read yet.
+    player_waveform_task: Option<Task<()>>,
     is_following_playhead: bool,
     pub(crate) query: String,
     /// The tempo, quality and energy filters on the track list.
@@ -526,6 +534,8 @@ impl EuphoriaApp {
             tag_panel: None,
             auto_tags: crate::auto_tags::AutoTags::default(),
             library_export: None,
+            prepare_panel: None,
+            last_prepare_manifests: Vec::new(),
             running_checks: crate::library_export::RunningChecks::REAL,
             program_checks: if cfg!(test) {
                 euphoria_core::export::program_files::DjProgramChecks {
@@ -625,6 +635,7 @@ impl EuphoriaApp {
             cue_name_input,
             voice: None,
             start_task: None,
+            player_waveform_task: None,
             is_following_playhead: false,
             query: String::new(),
             track_filters: settings.track_filters.clone(),
@@ -726,6 +737,21 @@ impl EuphoriaApp {
     pub(crate) fn selected_track(&self) -> Option<&Track> {
         self.selected
             .and_then(|index| self.session.library().track(index))
+    }
+
+    /// The library track the player holds: the one heard while sound comes
+    /// out.
+    pub(crate) fn player_track(&self) -> Option<&Track> {
+        self.player
+            .track()
+            .and_then(|path| self.session.library().track_by_path(path))
+    }
+
+    /// The waveform of the player's track, once it has been read.
+    pub(crate) fn player_waveform(&self) -> Option<&Waveform> {
+        self.player
+            .track()
+            .and_then(|path| self.waveforms.get(path))
     }
 
     /// The waveform of the selected track, once it has been asked for.
@@ -1282,6 +1308,10 @@ impl EuphoriaApp {
             self.close_library_export(cx);
             return true;
         }
+        if self.prepare_panel.is_some() {
+            self.close_prepare_files(cx);
+            return true;
+        }
         if self.tag_panel.is_some() {
             self.close_tag_panel(cx);
             return true;
@@ -1497,6 +1527,8 @@ impl EuphoriaApp {
             .sync(Modal::Export, self.library_export.is_some());
         self.modal_fades
             .sync(Modal::TagPanel, self.tag_panel.is_some());
+        self.modal_fades
+            .sync(Modal::Prepare, self.prepare_panel.is_some());
         self.modal_fades.drive(window);
         let holds_tags = !self.auto_tags.held_by().is_empty() && self.auto_tags.pending_count() > 0;
         self.strip_growth.sync(Strip::Notice, self.notice.is_some());
@@ -1786,7 +1818,36 @@ impl EuphoriaApp {
         self.carry_out(request, cx);
     }
 
-    fn selection_is_in_player(&self) -> bool {
+    /// Plays the library track at `index` from `from_seconds`, whatever the
+    /// player was doing. A track that sounds goes on until this one is
+    /// ready to be heard.
+    pub(crate) fn play_library_track(
+        &mut self,
+        index: usize,
+        from_seconds: f32,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some((path, duration_seconds)) = self
+            .session
+            .library()
+            .track(index)
+            .map(|track| (track.path.clone(), track.duration_seconds()))
+        else {
+            return;
+        };
+        self.stop_drone_of_other_tracks();
+        self.player
+            .stems_ready(self.stems.files_to_play(&path).is_some());
+        for request in self
+            .player
+            .play_track(&path, duration_seconds, from_seconds)
+        {
+            self.carry_out(Some(request), cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn selection_is_in_player(&self) -> bool {
         self.selected_track()
             .is_some_and(|track| self.player.track() == Some(track.path.as_path()))
     }
@@ -1906,20 +1967,34 @@ impl EuphoriaApp {
                 with_stems,
                 attempt,
             }) => {
-                self.voice = None;
-                let semitones = self.key_shift;
-                let opening = if with_stems {
-                    self.open_stems(&path, from_seconds, semitones)
+                let stems = if with_stems {
+                    match self.stems.files_to_play(&path) {
+                        Some(files) => Some((files, self.stems.mix())),
+                        None => {
+                            self.finish_starting(attempt, Err(PlaybackProblem::FileMissing), cx);
+                            return;
+                        }
+                    }
                 } else {
-                    TrackSource::open_shifted(&path, from_seconds, semitones)
+                    None
                 };
+                let opening = self.output.open(OpenRequest {
+                    path,
+                    from_seconds,
+                    semitones: self.key_shift,
+                    stems,
+                });
                 self.start_task = Some(cx.spawn(async move |this, cx| {
-                    let opened = cx.background_executor().spawn(async move { opening }).await;
+                    let opened = opening
+                        .recv()
+                        .await
+                        .unwrap_or(Err(PlaybackProblem::NotDecodable));
                     this.update(cx, |this, cx| this.finish_starting(attempt, opened, cx))
                         .ok();
                 }));
             }
             Some(PlayerRequest::Pause) => {
+                self.start_task = None;
                 if let Some(active) = &self.voice {
                     active.state.set_held(true);
                     active.voice.pause();
@@ -1964,9 +2039,11 @@ impl EuphoriaApp {
                     if let Some(playing) = self.player.track() {
                         state.set_tempo(self.tempo.playback_for(playing));
                     }
+                    self.voice = None;
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });
+                            self.load_player_waveform(cx);
                             self.follow_playhead(cx);
                         }
                         Err(problem) => self.player.interrupted(problem.message().to_string()),
@@ -1998,21 +2075,6 @@ impl EuphoriaApp {
             }
         })
         .detach();
-    }
-
-    /// The stems of the track at `path`, mixed as the player hears them
-    /// and shifted by `semitones`, to be played in place of the track.
-    fn open_stems(
-        &self,
-        path: &Path,
-        from_seconds: f32,
-        semitones: i8,
-    ) -> Result<TrackSource, PlaybackProblem> {
-        let files = self
-            .stems
-            .files_to_play(path)
-            .ok_or(PlaybackProblem::FileMissing)?;
-        TrackSource::open_stems_shifted(&files, self.stems.mix(), from_seconds, semitones)
     }
 
     /// The track detail's stem switch changed what is heard. Between
@@ -2596,6 +2658,27 @@ impl EuphoriaApp {
             .map(|error| format!("Could not save settings: {error}."))
     }
 
+    /// Reads the waveform of the player's track for the player bar, unless
+    /// it is kept or already being read.
+    fn load_player_waveform(&mut self, cx: &mut Context<'_, Self>) {
+        let Some((path, tempo)) = self
+            .player_track()
+            .filter(|track| track.analysis().is_some())
+            .map(|track| (track.path.clone(), track.bpm()))
+        else {
+            return;
+        };
+        let is_kept = matches!(
+            self.waveforms.get(&path),
+            Some(Waveform::Ready(..)) | Some(Waveform::Unreadable(_))
+        );
+        if is_kept || self.waveform_task_path.as_ref() == Some(&path) {
+            self.waveforms.touch(&path);
+            return;
+        }
+        self.player_waveform_task = Some(self.decode_waveform(path, tempo, cx));
+    }
+
     /// Decodes the selected track in the background and keeps its peaks,
     /// unless they are already kept or already being decoded. Tracks without
     /// an analysis are not decoded.
@@ -2986,6 +3069,7 @@ impl Render for EuphoriaApp {
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
             .children(views::library_export_panel::render(self, cx))
+            .children(views::prepare_panel::render(self, cx))
             .when(self.settings_open, |window| {
                 window.child(views::settings_panel::render(self, cx))
             })
