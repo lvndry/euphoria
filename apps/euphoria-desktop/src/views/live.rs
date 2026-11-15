@@ -37,8 +37,17 @@ use crate::views::{
 
 /// The width of the panel.
 pub(crate) const PANEL_WIDTH: f32 = 360.0;
-/// The tallest the panel gets before the list scrolls.
+/// The height the panel opens at, before its content is measured.
 pub(crate) const PANEL_HEIGHT: f32 = 560.0;
+/// The shortest the panel gets.
+const PANEL_MINIMUM_HEIGHT: f32 = 150.0;
+/// The tallest the panel gets, as a share of the display, before the list
+/// scrolls.
+const PANEL_MAXIMUM_SHARE: f32 = 0.7;
+/// What the panel holds besides the Next list, to leave it the rest.
+const PANEL_FIXED_HEIGHT: f32 = 300.0;
+/// The least room the Next list gets, about two rows.
+const PANEL_ROW_ROOM: f32 = 120.0;
 
 const BIG_KEY_SIZE: f32 = 44.0;
 const COVER_SIDE: f32 = 40.0;
@@ -145,6 +154,13 @@ pub(crate) struct LiveView {
     pub(crate) focus: FocusHandle,
     /// The row the arrow keys are on, among those the Next list shows.
     pub(crate) selected_row: Option<usize>,
+    /// How tall the content was last drawn, in points.
+    pub(crate) content_height: std::rc::Rc<std::cell::Cell<Option<f32>>>,
+    /// The height the window was last given, in points.
+    pub(crate) window_height: f32,
+    /// Where the popover's top left corner belongs, from the top left of the
+    /// main display, once it is opened under the menu bar item.
+    pub(crate) top_left: Option<(f32, f32)>,
 }
 
 impl LiveView {
@@ -158,6 +174,9 @@ impl LiveView {
             scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
             selected_row: None,
+            content_height: std::rc::Rc::default(),
+            window_height: PANEL_HEIGHT,
+            top_left: None,
         }
     }
 
@@ -779,6 +798,7 @@ fn next_section(
     model_entity: &Entity<LiveModel>,
     scroll: &ScrollHandle,
     selected_row: Option<usize>,
+    list_height: f32,
 ) -> Div {
     let palette = model.theme.palette;
     let control = segmented(
@@ -820,7 +840,6 @@ fn next_section(
     div()
         .flex()
         .flex_col()
-        .flex_1()
         .min_h_0()
         .gap(GAP_SMALL)
         .child(
@@ -845,15 +864,14 @@ fn next_section(
                 .relative()
                 .flex()
                 .flex_col()
-                .flex_1()
                 .min_h_0()
                 .child(
                     div()
                         .id("live-next-list")
                         .flex()
                         .flex_col()
-                        .flex_1()
                         .min_h_0()
+                        .max_h(px(list_height))
                         .overflow_y_scroll()
                         .track_scroll(scroll)
                         .gap(GAP_TIGHT)
@@ -961,47 +979,77 @@ fn earlier_row(model: &LiveModel, is_open: bool, cx: &Context<'_, LiveView>) -> 
 }
 
 impl Render for LiveView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let model_entity = self.model.clone();
-        let model = self.model.read(cx);
-        let palette = model.theme.palette;
         let picker_open = self.picker_open;
         let earlier_open = self.earlier_open;
+        let screen_height = cx
+            .primary_display()
+            .map_or(PANEL_HEIGHT / PANEL_MAXIMUM_SHARE, |display| {
+                display.bounds().size.height / px(1.0)
+            });
+        let maximum_height = (screen_height * PANEL_MAXIMUM_SHARE).max(PANEL_MINIMUM_HEIGHT);
+        if let (Some(content), Some(top_left)) = (self.content_height.get(), self.top_left) {
+            let wanted = content.clamp(PANEL_MINIMUM_HEIGHT, maximum_height).ceil();
+            if (wanted - self.window_height).abs() >= 1.0 {
+                self.window_height = wanted;
+                window.defer(cx, move |window, cx| {
+                    crate::panel_frame::set_height_keeping_top(window, top_left, wanted, cx);
+                });
+            }
+        }
+        let model = self.model.read(cx);
+        let palette = model.theme.palette;
+        let seen_height = self.content_height.clone();
 
-        div()
-            .id("live-panel")
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                match event.keystroke.key.as_str() {
-                    "down" => this.move_row(1, cx),
-                    "up" => this.move_row(-1, cx),
-                    "enter" => this.open_selected_row(cx),
-                    "escape" => window.remove_window(),
-                    _ => {}
-                }
-            }))
-            .flex()
-            .flex_col()
-            .size_full()
-            .gap(GAP_MEDIUM)
-            .p(GAP_MEDIUM)
-            .rounded(RADIUS_LARGE)
-            .border_1()
-            .border_color(palette.line)
-            .bg(palette.background)
-            .text_color(palette.text)
-            .text_size(TEXT_SIZE)
-            .child(header(model, self, cx))
-            .when(picker_open, |panel| panel.child(source_options(model, cx)))
-            .child(readout(model))
-            .children(library_card(model, cx))
-            .children(learning_note(model))
-            .child(next_section(
-                model,
-                &model_entity,
-                &self.scroll,
-                self.selected_row,
-            ))
-            .children(earlier_row(model, earlier_open, cx))
+        div().size_full().child(
+            div()
+                .id("live-panel")
+                .track_focus(&self.focus)
+                .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                    match event.keystroke.key.as_str() {
+                        "down" => this.move_row(1, cx),
+                        "up" => this.move_row(-1, cx),
+                        "enter" => this.open_selected_row(cx),
+                        "escape" => window.remove_window(),
+                        _ => {}
+                    }
+                }))
+                .relative()
+                .flex()
+                .flex_col()
+                .w_full()
+                .gap(GAP_MEDIUM)
+                .p(GAP_MEDIUM)
+                .rounded(RADIUS_LARGE)
+                .border_1()
+                .border_color(palette.line)
+                .bg(palette.background)
+                .text_color(palette.text)
+                .text_size(TEXT_SIZE)
+                .child(header(model, self, cx))
+                .when(picker_open, |panel| panel.child(source_options(model, cx)))
+                .child(readout(model))
+                .children(library_card(model, cx))
+                .children(learning_note(model))
+                .child(next_section(
+                    model,
+                    &model_entity,
+                    &self.scroll,
+                    self.selected_row,
+                    (maximum_height - PANEL_FIXED_HEIGHT).max(PANEL_ROW_ROOM),
+                ))
+                .children(earlier_row(model, earlier_open, cx))
+                .child(
+                    gpui::canvas(
+                        move |bounds: gpui::Bounds<gpui::Pixels>, _, _| {
+                            seen_height.set(Some(bounds.size.height / px(1.0)));
+                        },
+                        |_, _, _, _| (),
+                    )
+                    .absolute()
+                    .size_full(),
+                ),
+        )
     }
 }

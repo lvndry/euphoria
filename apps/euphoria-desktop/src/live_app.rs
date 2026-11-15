@@ -97,7 +97,7 @@ fn install_menu_bar(model: &Entity<LiveModel>, cx: &mut App) {
     let _ = (model, cx);
 }
 
-fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> WindowOptions {
+fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> (WindowOptions, (f32, f32)) {
     let width = px(PANEL_WIDTH);
     let height = px(PANEL_HEIGHT);
     let display = cx.primary_display().map(|display| display.bounds());
@@ -116,7 +116,7 @@ fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> WindowOptions {
         }
         _ => fallback,
     };
-    WindowOptions {
+    let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
             origin,
             size: size(width, height),
@@ -127,7 +127,8 @@ fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> WindowOptions {
         is_minimizable: false,
         window_background: gpui::WindowBackgroundAppearance::Transparent,
         ..Default::default()
-    }
+    };
+    (options, (origin.x / px(1.0), origin.y / px(1.0)))
 }
 
 /// How soon after the panel closed itself a click on the menu bar item still
@@ -163,7 +164,7 @@ fn open_panel_at(anchor: Option<PanelAnchor>, cx: &mut App) {
             model.start(cx);
         }
     });
-    let options = panel_options(anchor, cx);
+    let (options, top_left) = panel_options(anchor, cx);
     let view_model = model.clone();
     match gpui::open_window(options, cx, |window, cx| {
         let view = cx.new(|cx| LiveView::new(view_model, cx));
@@ -182,6 +183,7 @@ fn open_panel_at(anchor: Option<PanelAnchor>, cx: &mut App) {
         view
     }) {
         Ok((window, view)) => {
+            view.update(cx, |view, _| view.top_left = Some(top_left));
             cx.global_mut::<LiveRuntime>().panel = Some(window);
             cx.activate(true);
             window

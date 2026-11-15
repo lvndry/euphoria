@@ -473,11 +473,20 @@ impl LiveModel {
             bpm: self.reading.tempo.map(|tempo| tempo.bpm),
             title,
         };
-        let same_as_last = self.earlier.last().is_some_and(|last| {
-            last.key == entry.key
-                && last.title == entry.title
-                && last.bpm.map(f32::round) == entry.bpm.map(f32::round)
-        });
+        let same_reading = |last: &Earlier| {
+            last.key == entry.key && last.bpm.map(f32::round) == entry.bpm.map(f32::round)
+        };
+        if let Some(last) = self.earlier.last_mut()
+            && same_reading(last)
+            && last.title.is_none()
+            && entry.title.is_some()
+        {
+            last.title = entry.title.clone();
+        }
+        let same_as_last = self
+            .earlier
+            .last()
+            .is_some_and(|last| same_reading(last) && last.title == entry.title);
         if !same_as_last {
             self.earlier.push(entry);
             if self.earlier.len() > HISTORY_LIMIT + 1 {

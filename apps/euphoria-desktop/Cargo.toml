@@ -34,6 +34,7 @@ objc2-foundation.workspace = true
 objc2-media-player.workspace = true
 block2.workspace = true
 objc2-service-management.workspace = true
+raw-window-handle = "0.6"
 
 [dev-dependencies]
 rusqlite.workspace = true

@@ -94,6 +94,7 @@ mod next_rail_ui_tests;
 mod note_strip_ui_tests;
 mod output_stream;
 mod palette_flow;
+mod panel_frame;
 mod panels;
 mod peaks;
 mod planner_candidates;
