@@ -524,3 +524,120 @@ fn aiff_output_keeps_rate_channels_and_length() {
     assert_eq!((rate, channels), (copy_rate, copy_channels));
     assert_eq!(original.len(), copy.len());
 }
+
+#[test]
+fn tag_only_writes_replaygain_without_touching_the_audio_and_reverts() {
+    let folder = tempfile::tempdir().unwrap();
+    let settings = PrepareSettings::default();
+    for (name, label) in [
+        ("sine-440hz-stereo.wav", "wav"),
+        ("sine-440hz-mono.flac", "flac"),
+        ("sine-440hz-mono.aiff", "aiff"),
+        ("sine-440hz-mono.mp3", "mp3"),
+        ("sine-440hz-mono.m4a", "m4a"),
+    ] {
+        let extension = name.rsplit('.').next().unwrap();
+        let input = folder.path().join(format!("{label}.{extension}"));
+        std::fs::copy(fixture(name), &input).unwrap();
+        tag_with_picture(
+            &input,
+            if extension == "flac" {
+                TagType::VorbisComments
+            } else if extension == "m4a" {
+                TagType::Mp4Ilst
+            } else {
+                TagType::Id3v2
+            },
+        );
+        let (audio_before, _, _) = decode(&input);
+        let plan = plan_track(&input, &settings, None, LossyOutput::Flac).unwrap();
+        let fields = ReplayGainFields::from_plan(&plan).unwrap();
+        assert_eq!(
+            fields.gain.as_deref().unwrap(),
+            format!(
+                "{:+.2} dB",
+                REPLAYGAIN_REFERENCE_LUFS - plan.measured_lufs.unwrap()
+            )
+        );
+
+        let mut manifest = Manifest::new(RunMode::TagOnly, &settings);
+        tag_track(&mut manifest, &input, &fields).unwrap();
+        assert_eq!(read_replaygain(&input).unwrap(), fields, "{label}");
+        let (audio_after, _, _) = decode(&input);
+        assert_eq!(audio_before, audio_after, "{label}: the audio changed");
+        let tagged = Probe::open(&input).unwrap().read().unwrap();
+        assert_eq!(
+            tagged.primary_tag().unwrap().title().as_deref(),
+            Some("Night Drive"),
+            "{label}"
+        );
+
+        let manifest_path = manifest.save(folder.path()).unwrap();
+        let report = revert(&manifest_path).unwrap();
+        assert_eq!(report.restored, [input.clone()], "{label}");
+        assert_eq!(
+            read_replaygain(&input).unwrap(),
+            ReplayGainFields::default(),
+            "{label}"
+        );
+        assert!(!manifest_path.exists());
+    }
+}
+
+#[test]
+fn revert_removes_only_what_the_run_wrote_and_checks_the_checksum() {
+    let folder = tempfile::tempdir().unwrap();
+    let settings = PrepareSettings::default();
+    let mut manifest = Manifest::new(RunMode::Copies, &settings);
+    let mut outputs = Vec::new();
+    let mut inputs = Vec::new();
+    for name in ["one", "two"] {
+        let input = folder.path().join(format!("{name}.wav"));
+        write_wav(&input, 2, &sine(440.0, 0.1, 1.0));
+        let run = prepare_file(&input, &settings, None, LossyOutput::Flac);
+        manifest.record_copy(&input, &run.prepared.output).unwrap();
+        outputs.push(run.prepared.output);
+        inputs.push(input);
+    }
+    let unrelated = folder.path().join("unrelated (prepared).wav");
+    std::fs::write(&unrelated, b"not ours").unwrap();
+    std::fs::write(&outputs[1], b"edited by the user").unwrap();
+    let manifest_path = manifest.save(folder.path()).unwrap();
+    assert_eq!(manifests_in(folder.path()), [manifest_path.clone()]);
+
+    let report = revert(&manifest_path).unwrap();
+    assert_eq!(report.removed, [outputs[0].clone()]);
+    assert_eq!(report.kept.len(), 1);
+    assert_eq!(report.kept[0].0, outputs[1]);
+    assert!(!outputs[0].exists());
+    assert!(outputs[1].exists(), "a changed file is kept");
+    assert!(unrelated.exists());
+    assert!(inputs.iter().all(|input| input.exists()));
+    assert!(manifest_path.exists(), "what was not undone stays recorded");
+    assert_eq!(Manifest::load(&manifest_path).unwrap().entries.len(), 1);
+}
+
+#[test]
+fn the_comparison_clip_is_level_matched_and_the_same_length() {
+    let folder = tempfile::tempdir().unwrap();
+    let input = folder.path().join("peaky.wav");
+    write_wav(&input, 2, &peaky_track());
+    let settings = PrepareSettings::default();
+    let plan = plan_track(&input, &settings, None, LossyOutput::Flac).unwrap();
+    let clip = comparison_clip(&input, &plan, &settings, 1.0, 3.0).unwrap();
+    assert_eq!(clip.original.len(), clip.prepared.len());
+    assert_eq!(clip.original.len(), 3 * RATE as usize * 2);
+    let loudness = |samples: &[f32]| {
+        let mut meter = EbuR128::new(2, RATE, Mode::I).unwrap();
+        meter.add_frames_f32(samples).unwrap();
+        meter.loudness_global().unwrap()
+    };
+    assert!((loudness(&clip.original) - loudness(&clip.prepared)).abs() < 0.1);
+    assert!(!folder.path().read_dir().unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("prepared")
+    }));
+}
