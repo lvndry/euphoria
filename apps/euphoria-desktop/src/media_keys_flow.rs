@@ -61,7 +61,7 @@ impl EuphoriaApp {
             return Some(NowPlaying {
                 path: Some(track.path.clone()),
                 title: track.title().to_string(),
-                artist: track.artist.clone(),
+                artist: track.shown_artist().map(std::borrow::Cow::into_owned),
                 album: track.album.clone(),
                 duration_seconds: view.duration_seconds,
                 elapsed_seconds: self.decks.position_seconds(deck),
@@ -89,7 +89,7 @@ impl EuphoriaApp {
                 },
                 |track| track.title().to_string(),
             ),
-            artist: track.and_then(|track| track.artist.clone()),
+            artist: track.and_then(|track| track.shown_artist().map(std::borrow::Cow::into_owned)),
             album: track.and_then(|track| track.album.clone()),
             duration_seconds: self.player.duration_seconds().map(f64::from),
             elapsed_seconds: f64::from(self.player.position_seconds()),
