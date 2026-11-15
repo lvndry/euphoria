@@ -109,6 +109,18 @@ pub(crate) fn energy_pill(change: i32) -> Option<String> {
     }
 }
 
+/// The energy of a track in the Live panel's list, with how it differs from
+/// what is heard: "energy 7 \u{2191}1", "energy 3 \u{2193}6" or "energy 7 =".
+/// This is the wording the main list uses once energy shows its rating.
+pub(crate) fn energy_text(energy: Option<u8>, change: Option<i32>) -> Option<String> {
+    let energy = energy?;
+    Some(match change {
+        Some(change) if change > 0 => format!("energy {energy} \u{2191}{change}"),
+        Some(change) if change < 0 => format!("energy {energy} \u{2193}{}", -change),
+        _ => format!("energy {energy} ="),
+    })
+}
+
 /// What the ranking works from.
 pub(crate) struct NextQuery<'inputs> {
     pub(crate) library: &'inputs Library,
@@ -292,6 +304,21 @@ mod tests {
         let rows = rank(&library, EnergyChoice::Lift, &TrackFilters::default(), &[]);
         let changes: Vec<Option<i32>> = rows.iter().map(|row| row.energy_change).collect();
         assert_eq!(changes, [Some(1), Some(0), Some(-1)]);
+    }
+
+    #[test]
+    fn the_energy_text_shows_the_rating_and_which_way_it_moves() {
+        assert_eq!(
+            energy_text(Some(7), Some(1)).as_deref(),
+            Some("energy 7 \u{2191}1")
+        );
+        assert_eq!(
+            energy_text(Some(3), Some(-6)).as_deref(),
+            Some("energy 3 \u{2193}6")
+        );
+        assert_eq!(energy_text(Some(7), Some(0)).as_deref(), Some("energy 7 ="));
+        assert_eq!(energy_text(Some(5), None).as_deref(), Some("energy 5 ="));
+        assert_eq!(energy_text(None, Some(2)), None);
     }
 
     #[test]

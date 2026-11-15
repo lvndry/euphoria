@@ -60,6 +60,7 @@ mod live_show_tests;
 #[cfg(test)]
 mod live_ui_tests;
 mod logging;
+mod login_item;
 mod logo_motion;
 mod mashup;
 #[cfg(test)]
@@ -174,11 +175,12 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, EditTags,
-    ExportLibrary, FocusSearch, OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder,
-    OpenSettings, PlanTransition, PlayNextRow, PlayPaletteTrack, Quit, ResetColumnWidths,
-    RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks, ToggleFavorite,
-    ToggleLiveListening, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
-    UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    ExportLibrary, FocusSearch, OpenCommandPalette, OpenEuphoria, OpenFocusView, OpenLive,
+    OpenSetBuilder, OpenSettings, PlanTransition, PlayNextRow, PlayPaletteTrack, Quit,
+    ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks,
+    ToggleFavorite, ToggleLiveKeepRunning, ToggleLiveListening, ToggleLiveOpenAtLogin,
+    ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
+    UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -218,7 +220,12 @@ fn main() {
             cx.on_window_closed(|cx, _| quit_unless_live_stays(cx))
                 .detach();
             register_global_commands(cx);
-            if live_only {
+            let opened_at_login = login_item::launched_as_login_item()
+                && live_settings::live_settings_path()
+                    .map(|path| live_settings::LiveSettings::load(&path))
+                    .unwrap_or_default()
+                    .open_at_login;
+            if live_only || opened_at_login {
                 install_menus(ThemeName::default(), false, cx);
                 cx.set_activation_policy(gpui::ActivationPolicy::Accessory);
                 live_app::open_panel(cx);
@@ -319,6 +326,9 @@ fn register_global_commands(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &OpenLive, cx| live_app::open_panel(cx));
     cx.on_action(|_: &ToggleLiveListening, cx| live_app::toggle_listening(cx));
+    cx.on_action(|_: &ToggleLiveKeepRunning, cx| live_app::toggle_keep_running(cx));
+    cx.on_action(|_: &ToggleLiveOpenAtLogin, cx| live_app::toggle_open_at_login(cx));
+    cx.on_action(|_: &OpenEuphoria, cx| open_euphoria(cx));
 }
 
 /// The window of the library, while it is open.

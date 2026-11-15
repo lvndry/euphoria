@@ -16,7 +16,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSString, ns_string};
 
-use crate::menu_bar::{MenuBarCommand, MenuBarState, MenuBarSurface};
+use crate::menu_bar::{MenuBarCommand, MenuBarState, MenuBarSurface, PanelAnchor};
 
 struct TargetState {
     sender: async_channel::Sender<MenuBarCommand>,
@@ -46,7 +46,7 @@ define_class!(
             if wants_menu {
                 self.show_menu();
             } else {
-                self.send(MenuBarCommand::TogglePanel);
+                self.send(MenuBarCommand::TogglePanel(self.anchor()));
             }
         }
 
@@ -67,7 +67,7 @@ define_class!(
 
         #[unsafe(method(showPanel:))]
         fn show_panel(&self, _sender: Option<&AnyObject>) {
-            self.send(MenuBarCommand::TogglePanel);
+            self.send(MenuBarCommand::TogglePanel(self.anchor()));
         }
 
         #[unsafe(method(showMatchedTrack:))]
@@ -99,6 +99,23 @@ impl MenuTarget {
 }
 
 impl MenuTarget {
+    /// The middle of the item and the bottom of the menu bar, from the top
+    /// left of the main display.
+    fn anchor(&self) -> Option<PanelAnchor> {
+        let mtm = self.mtm();
+        let item = self.ivars().item.borrow().clone()?;
+        let frame = item.button(mtm)?.window()?.frame();
+        let main_height = objc2_app_kit::NSScreen::screens(mtm)
+            .firstObject()?
+            .frame()
+            .size
+            .height;
+        Some(PanelAnchor {
+            center_x: (frame.origin.x + frame.size.width / 2.0) as i32,
+            top: (main_height - frame.origin.y) as i32,
+        })
+    }
+
     fn show_menu(&self) {
         let mtm = self.mtm();
         let (Some(state), Some(item)) = (

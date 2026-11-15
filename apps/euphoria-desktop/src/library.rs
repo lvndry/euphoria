@@ -144,6 +144,11 @@ impl Track {
         self.tag_title.as_deref().unwrap_or(&self.file_name)
     }
 
+    /// The artist in the file's tags, once read.
+    pub(crate) fn artist(&self) -> Option<&str> {
+        self.artist.as_deref()
+    }
+
     /// Takes the title, artist, genre and key field from the file's tags.
     fn set_names(&mut self, name: TrackName) {
         self.title_lowercase = name
