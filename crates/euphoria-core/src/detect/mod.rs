@@ -28,7 +28,7 @@ pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, cues_on_grid, detect_beat_g
 #[cfg(feature = "drone")]
 pub use drone::{DroneDetector, KeyProbabilities};
 #[cfg(feature = "libkeyfinder")]
-pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant};
+pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant, KeyFollowing};
 pub(crate) use note_spectrum::pitch_class_profile as pitch_class_profile_at;
 pub use stratum::StratumDetector;
 pub use tuning::{Tuning, measure_tuning};
@@ -54,9 +54,14 @@ pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, Eu
     #[cfg(feature = "drone")]
     if engine != KeyEngine::KeyFinder || !cfg!(feature = "libkeyfinder") {
         let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
+        let reading = DroneDetector.read_key_over_time(audio, tuning_cents)?;
+        let pitch_class_profile = reading
+            .key
+            .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents));
         return Ok(KeyReading {
             tuning_cents,
-            ..DroneDetector.read_key_over_time(audio, tuning_cents)?
+            pitch_class_profile,
+            ..reading
         });
     }
     #[cfg(feature = "libkeyfinder")]
@@ -68,10 +73,13 @@ pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, Eu
     {
         let _ = engine;
         let key = StratumDetector.detect_key(audio)?;
+        let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
         Ok(KeyReading {
             key,
-            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            tuning_cents,
             source: key.map(|_| KeySource::Stratum),
+            pitch_class_profile: key
+                .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents)),
             ..KeyReading::default()
         })
     }
@@ -143,6 +151,10 @@ pub struct KeyReading {
     /// The detector that decided the key, which sets how its confidence is
     /// rated. `None` when there is no key.
     pub source: Option<KeySource>,
+    /// How strongly each of the 12 notes sounds in the track, C first, from
+    /// 0 to 1 with the strongest at 1, as Euphoria's note spectrum hears it
+    /// on the scale of the measured tuning. `None` when there is no key.
+    pub pitch_class_profile: Option<[f32; 12]>,
 }
 
 /// A tempo estimate before it is placed in a [`TempoRange`], with what its

@@ -141,6 +141,8 @@ pub(crate) struct EuphoriaApp {
     /// The sheet that prepares the selected files for a club system, while
     /// open.
     pub(crate) prepare_panel: Option<crate::prepare_files::PreparePanel>,
+    /// The manifests of the last prepare run of this session, for reverting.
+    pub(crate) last_prepare_manifests: Vec<PathBuf>,
     /// How the export finds out whether a DJ program is running.
     pub(crate) running_checks: crate::library_export::RunningChecks,
     /// The checks of whether a DJ program is running before tags are written,
@@ -530,6 +532,7 @@ impl EuphoriaApp {
             auto_tags: crate::auto_tags::AutoTags::default(),
             library_export: None,
             prepare_panel: None,
+            last_prepare_manifests: Vec::new(),
             running_checks: crate::library_export::RunningChecks::REAL,
             program_checks: if cfg!(test) {
                 euphoria_core::export::program_files::DjProgramChecks {

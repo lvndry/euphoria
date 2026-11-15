@@ -153,7 +153,7 @@ fn measure_preview(
     let started = ThreadTime::now();
     let drone = DroneDetector.read_key(audio)?;
     let old_timeline = match drone.key {
-        Some(key) => KeyFinderDetector.tuning_and_timeline(audio, key)?.1,
+        Some(key) => KeyFinderDetector.follow_key(audio, key)?.timeline,
         None => Vec::new(),
     };
     let old_seconds = started.elapsed().as_secs_f64();

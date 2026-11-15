@@ -79,6 +79,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -1350,6 +1351,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_score_margin: None,
                 key_source: None,
                 loudness_range_lu: None,
+                pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -2868,6 +2870,7 @@ fn track_changing_key() -> DemoTrack {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -3492,6 +3495,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_score_margin: Some(key_margin),
         key_source: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
         beat_grid: None,
@@ -3769,6 +3773,7 @@ fn set_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
@@ -5301,6 +5306,7 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: Some(euphoria_core::BeatGrid {
@@ -6023,6 +6029,7 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: Some(120.0),
             tempo_score_margin: None,
             beat_grid: has_grid.then_some(euphoria_core::BeatGrid {
@@ -6793,12 +6800,12 @@ fn toggling_a_section_opens_it_and_is_written_to_the_settings(cx: &mut TestAppCo
     select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Stems),
+        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
         cx,
     );
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
+        crate::views::inspector_section::toggle_id(SectionKind::Stems),
         cx,
     );
     assert!(is_shown(window, section_body_id(SectionKind::Stems), cx));

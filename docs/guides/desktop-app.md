@@ -122,6 +122,12 @@ The inspector shows a **Stage** line under the key, tempo and energy, such as `S
 
 To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
 
+### Notes
+
+Under the key, tempo and energy (in the Deck theme, in a column of its own next to them), a strip of 12 bars shows how strongly each note sounds in the track, every octave together, from C to B. The notes of the key are lit in the key's colour and the others are grey, so a doubtful key can be checked by eye: the lit bars should be the tallest. The heading names the key in the notation you chose, and the note names follow its key signature, sharps for a key with sharps and flats for a key with flats. A key you set lights its own notes, which makes it easy to compare with the detected one. Pointing at the strip explains it. [Accuracy](../concepts/accuracy.md#reading-the-notes) shows how to read it, and why a minor key and its relative major are easily confused.
+
+A track analyzed before Euphoria measured notes shows one line instead: *Right-click the track and choose Analyze again to see its notes.* [Analyze tracks again](#analyze-tracks-again) measures them and keeps your corrections.
+
 ### Resize the columns
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.
@@ -603,7 +609,9 @@ A key or tempo you corrected is written in place of the detected one. Each file 
 
 Right click the selected tracks and choose **Prepare files…** to write copies that play evenly on a club system. The sheet has the loudness target (-14, -11, -9 or -7 LUFS), the true-peak ceiling, whether to correct tuning, what MP3 and AAC tracks become (FLAC or WAV, never lossy), and where the copies go: next to each original, or in a folder you choose.
 
-Under the options a table shows what each file gets, from the same measurement a `euphoria prepare --dry-run` makes: its loudness before and after, the gain, the dB of limiting, the tuning change, and notes such as **Gain capped** (the track would need more than 3 dB of limiting, so it gets less gain) and **Clipped** (it already has clipped passages, which are reported and not repaired). **Prepare** writes the copies with a progress bar, and a toast ends it with **Prepared 12 files** and **Show in Finder**. The originals are never changed and no file is overwritten. The [guide](prepare-files.md) explains each option. The name suffix is fixed to ` (prepared)` in the app; the command line can change it.
+Under the options a table shows what each file gets, from the same measurement a `euphoria prepare --dry-run` makes: its loudness before and after, the gain, the dB of limiting, the tuning change, and notes such as **Gain capped** (the track would need more than 3 dB of limiting, so it gets less gain) and **Clipped** (it already has clipped passages, which are reported and not repaired). **Prepare** writes the copies with a progress bar, and a toast ends it with **Prepared 12 files** and **Show in Finder**. The originals are never changed and no file is overwritten.
+
+**What to do** can be **Tag loudness only (ReplayGain)**: the sheet then writes ReplayGain track gain and peak into the tags of the originals and nothing else, with no copies and the audio untouched. **Listen: original and prepared**, under the table, plays 20 seconds from the middle of the selected file in a loop, first its prepared version and then, with the **Original** and **Prepared** buttons, the original, switching at the same position; both are at the same loudness, so you hear the limiter and the tuning change and not the level. The comparison is made in memory and writes nothing. Each run is recorded in a manifest next to its files, and **Revert last run** in the sheet removes the copies the last run of the session wrote, or puts back the tags it changed, keeping any file that changed since. The [guide](prepare-files.md) explains each option. The name suffix is fixed to ` (prepared)` in the app; the command line can change it.
 
 ## Playlists
 

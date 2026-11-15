@@ -5,13 +5,14 @@
 //! options, a table with what each file gets, and a progress bar while the
 //! copies are written.
 
-use euphoria_core::prepare::{LossyOutput, TrackPlan};
+use euphoria_core::prepare::{LossyOutput, ReplayGainFields, TrackPlan};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, TestSupportExt, div, px, relative};
 
 use crate::app::EuphoriaApp;
 use crate::prepare_files::{
-    CEILINGS_DB, PreparePanel, PrepareStage, PreviewRow, TARGETS_LUFS, destination_text, files,
+    CEILINGS_DB, PrepareMode, PreparePanel, PrepareStage, PreviewRow, TARGETS_LUFS,
+    destination_text, files,
 };
 use crate::surface_motion::Modal;
 use crate::theme::Palette;
@@ -103,6 +104,28 @@ fn setup_contents(
         .into_any_element(),
     ];
 
+    let tag_only = panel.mode == PrepareMode::TagOnly;
+    let modes = [
+        (PrepareMode::Copies, "Write copies", "prepare-mode-copies"),
+        (
+            PrepareMode::TagOnly,
+            "Tag loudness only (ReplayGain)",
+            "prepare-mode-tags",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (mode, label, id))| {
+        segment(id, label, panel.mode == mode, index == 0, palette)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.change_prepare_options(|panel| panel.mode = mode, cx)
+            }))
+            .test_support()
+            .into_any_element()
+    })
+    .collect();
+    contents.push(labelled("What to do", choices(modes, palette), palette));
+
     let targets = TARGETS_LUFS
         .into_iter()
         .enumerate()
@@ -160,25 +183,26 @@ fn setup_contents(
             .into_any_element()
         })
         .collect();
-    contents.push(
-        div()
-            .flex()
-            .flex_wrap()
-            .gap(GAP_MEDIUM)
-            .child(labelled("Loudness", choices(targets, palette), palette))
-            .child(labelled(
-                "True-peak ceiling",
-                choices(ceilings, palette),
-                palette,
-            ))
-            .child(labelled(
-                "MP3 and AAC become",
-                choices(lossy, palette),
-                palette,
-            ))
-            .into_any_element(),
-    );
-    contents.push(
+    if !tag_only {
+        contents.push(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(GAP_MEDIUM)
+                .child(labelled("Loudness", choices(targets, palette), palette))
+                .child(labelled(
+                    "True-peak ceiling",
+                    choices(ceilings, palette),
+                    palette,
+                ))
+                .child(labelled(
+                    "MP3 and AAC become",
+                    choices(lossy, palette),
+                    palette,
+                ))
+                .into_any_element(),
+        );
+        contents.push(
         toggle_row(
             "prepare-tune",
             "Correct tuning",
@@ -196,46 +220,58 @@ fn setup_contents(
         .test_support()
         .into_any_element(),
     );
-    contents.push(
-        div()
-            .flex()
-            .items_center()
-            .gap(GAP_MEDIUM)
-            .child(
-                div()
-                    .id("prepare-destination")
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(SMALL_TEXT_SIZE)
-                    .text_color(palette.text_secondary)
-                    .child(format!(
-                        "Copies go to: {}",
-                        destination_text(panel.output_folder.as_deref())
-                    ))
-                    .test_support(),
-            )
-            .when(panel.output_folder.is_some(), |row| {
-                row.child(
-                    secondary_button("Next to originals", palette)
-                        .id("prepare-next-to-originals")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.change_prepare_options(|panel| panel.output_folder = None, cx)
-                        }))
+        contents.push(
+            div()
+                .flex()
+                .items_center()
+                .gap(GAP_MEDIUM)
+                .child(
+                    div()
+                        .id("prepare-destination")
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(format!(
+                            "Copies go to: {}",
+                            destination_text(panel.output_folder.as_deref())
+                        ))
                         .test_support(),
                 )
-            })
-            .child(
-                secondary_button("Choose folder\u{2026}", palette)
-                    .id("prepare-choose-folder")
-                    .on_click(cx.listener(|this, _, _, cx| this.choose_prepare_folder(cx)))
-                    .test_support(),
+                .when(panel.output_folder.is_some(), |row| {
+                    row.child(
+                        secondary_button("Next to originals", palette)
+                            .id("prepare-next-to-originals")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.change_prepare_options(|panel| panel.output_folder = None, cx)
+                            }))
+                            .test_support(),
+                    )
+                })
+                .child(
+                    secondary_button("Choose folder\u{2026}", palette)
+                        .id("prepare-choose-folder")
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_prepare_folder(cx)))
+                        .test_support(),
+                )
+                .into_any_element(),
+        );
+    } else {
+        contents.push(
+            quiet(
+                "Writes ReplayGain track gain and peak into the tags of the originals, so players that apply ReplayGain level the tracks. The audio is not touched and no copy is written. Revert undoes it.",
+                palette,
             )
+            .id("prepare-tag-only-note")
+            .test_support()
             .into_any_element(),
-    );
+        );
+    }
 
     contents.push(section_label("What each file gets", palette).into_any_element());
-    contents.push(table(panel, palette));
+    contents.push(table(panel, palette, cx));
+    contents.push(comparison_controls(panel, palette, cx));
     contents.push(summary_line(panel, palette));
     if let Some(problem) = &panel.problem {
         contents.push(
@@ -250,10 +286,10 @@ fn setup_contents(
     }
     let can_write = panel.files_to_write() > 0 && !panel.is_measuring();
     let confirm = dialog_primary_button(
-        if panel.files_to_write() > 0 {
-            format!("Prepare {}", files(panel.files_to_write()))
-        } else {
-            "Prepare".to_string()
+        match (panel.files_to_write(), panel.mode) {
+            (0, _) => "Prepare".to_string(),
+            (count, PrepareMode::Copies) => format!("Prepare {}", files(count)),
+            (count, PrepareMode::TagOnly) => format!("Tag {}", files(count)),
         },
         palette,
     )
@@ -270,6 +306,14 @@ fn setup_contents(
             .justify_end()
             .gap(GAP_SMALL)
             .pt(px(4.0))
+            .when(!app.last_prepare_manifests.is_empty(), |row| {
+                row.child(
+                    secondary_button("Revert last run", palette)
+                        .id("prepare-revert")
+                        .on_click(cx.listener(|this, _, _, cx| this.revert_last_prepare(cx)))
+                        .test_support(),
+                )
+            })
             .child(
                 secondary_button("Cancel", palette)
                     .id("prepare-cancel")
@@ -310,7 +354,7 @@ fn summary_line(panel: &PreparePanel, palette: &Palette) -> AnyElement {
         .into_any_element()
 }
 
-fn table(panel: &PreparePanel, palette: &Palette) -> AnyElement {
+fn table(panel: &PreparePanel, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let header = row_cells(
         div().text_color(palette.text_tertiary),
         "File".to_string(),
@@ -342,7 +386,7 @@ fn table(panel: &PreparePanel, palette: &Palette) -> AnyElement {
                         .rows
                         .iter()
                         .enumerate()
-                        .map(|(index, row)| preview_row(index, row, palette)),
+                        .map(|(index, row)| preview_row(index, row, panel, palette, cx)),
                 ),
         )
         .test_support()
@@ -384,7 +428,13 @@ fn row_cells(
         .child(cell(NOTE_WIDTH, note))
 }
 
-fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement {
+fn preview_row(
+    index: usize,
+    row: &PreviewRow,
+    panel: &PreparePanel,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
     let dash = "\u{2013}".to_string();
     let (loudness, gain, limiting, tuning, note, note_colour) = match &row.outcome {
         None => (
@@ -403,6 +453,7 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
             reason.clone(),
             palette.danger,
         ),
+        Some(Ok(plan)) if panel.mode == PrepareMode::TagOnly => tag_cells(plan, palette),
         Some(Ok(plan)) => plan_cells(plan, palette),
     };
     row_cells(
@@ -415,6 +466,11 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
         note,
     )
     .id(("prepare-row", index))
+    .cursor_pointer()
+    .when(panel.selected_row == Some(index), |row| {
+        row.bg(Palette::tint(palette.accent)).rounded(RADIUS_SMALL)
+    })
+    .on_click(cx.listener(move |this, _, _, cx| this.select_prepare_row(index, cx)))
     .text_color(palette.text)
     .child(div().w(px(0.0)).h(px(0.0)).text_color(note_colour))
     .test_support()
@@ -466,6 +522,133 @@ fn plan_cells(
         notes.join(", "),
         colour,
     )
+}
+
+fn tag_cells(
+    plan: &TrackPlan,
+    palette: &Palette,
+) -> (String, String, String, String, String, gpui::Hsla) {
+    let dash = "\u{2013}".to_string();
+    if let Some(reason) = plan.skipped {
+        return (
+            dash.clone(),
+            dash.clone(),
+            dash.clone(),
+            dash,
+            format!("Skipped: {}", reason_word(reason)),
+            palette.text_tertiary,
+        );
+    }
+    let gain = ReplayGainFields::from_plan(plan)
+        .and_then(|fields| fields.gain)
+        .unwrap_or_else(|| dash.clone());
+    (
+        plan.measured_lufs.map_or(dash.clone(), number_label),
+        gain.replace('-', "\u{2212}"),
+        dash.clone(),
+        dash,
+        "ReplayGain".to_string(),
+        palette.text_tertiary,
+    )
+}
+
+fn comparison_controls(
+    panel: &PreparePanel,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let selected = panel
+        .selected_row
+        .and_then(|index| panel.rows.get(index))
+        .filter(|row| row.can_run());
+    let mut row = div().flex().items_center().gap(GAP_MEDIUM);
+    let Some(selected) = selected else {
+        return row
+            .child(
+                quiet(
+                    "Select a file in the table to hear it before and after, at the same loudness.",
+                    palette,
+                )
+                .id("prepare-ab-hint")
+                .test_support(),
+            )
+            .into_any_element();
+    };
+    match &panel.comparison {
+        Some(comparison) if comparison.problem.is_some() => {
+            row = row.child(
+                div()
+                    .id("prepare-ab-problem")
+                    .flex_1()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.danger)
+                    .child(comparison.problem.clone().unwrap_or_default())
+                    .test_support(),
+            );
+        }
+        Some(comparison) if comparison.clip.is_none() => {
+            row = row.child(
+                quiet("Making the comparison in memory\u{2026}", palette)
+                    .id("prepare-ab-loading")
+                    .test_support(),
+            );
+        }
+        Some(comparison) => {
+            let prepared = comparison
+                .prepared
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let sides =
+                [
+                    (false, "Original", "prepare-ab-original"),
+                    (true, "Prepared", "prepare-ab-prepared"),
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(index, (side, label, id))| {
+                    segment(id, label, prepared == side, index == 0, palette)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_prepare_comparison_side(side, cx)
+                        }))
+                        .test_support()
+                        .into_any_element()
+                })
+                .collect();
+            row = row
+                .child(segmented(sides, palette))
+                .child(
+                    quiet(
+                        format!(
+                            "{}: both at the same loudness, switching in place",
+                            selected.file_name
+                        ),
+                        palette,
+                    )
+                    .flex_1()
+                    .min_w_0()
+                    .truncate(),
+                )
+                .child(
+                    secondary_button("Stop", palette)
+                        .id("prepare-ab-stop")
+                        .on_click(cx.listener(|this, _, _, cx| this.stop_prepare_comparison(cx)))
+                        .test_support(),
+                );
+        }
+        None => {
+            row = row
+                .child(
+                    secondary_button("Listen: original and prepared", palette)
+                        .id("prepare-ab-listen")
+                        .on_click(cx.listener(|this, _, _, cx| this.start_prepare_comparison(cx)))
+                        .test_support(),
+                )
+                .child(quiet(
+                    "20 seconds from the middle of the track, made in memory. Nothing is written.",
+                    palette,
+                ));
+        }
+    }
+    row.into_any_element()
 }
 
 fn reason_word(reason: euphoria_core::prepare::SkipReason) -> &'static str {
