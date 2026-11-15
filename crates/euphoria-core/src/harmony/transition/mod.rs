@@ -201,6 +201,31 @@ pub fn plan_transition(
     })
 }
 
+/// A window of `bars` bars that starts on bar `a_start` of A and bar
+/// `b_start` of B, scored like the ranked ones, wherever it falls, or `None`
+/// when B does not last that long or A has no bar `a_start`.
+pub fn window_at(
+    plan: &TransitionPlan,
+    a: &PlanTrack<'_>,
+    b: &PlanTrack<'_>,
+    a_start: usize,
+    b_start: usize,
+    bars: usize,
+) -> Option<CandidateWindow> {
+    if bars == 0 || a_start >= plan.lanes_a.bars.len() || b_start + bars > plan.lanes_b.bars.len() {
+        return None;
+    }
+    let input = windows::SearchInput {
+        a: &plan.lanes_a,
+        b: &plan.lanes_b,
+        a_sections: a.sections,
+        b_sections: b.sections,
+        a_key: a.analysis.key,
+        b_key: b.analysis.key,
+    };
+    Some(windows::evaluate(&input, a_start, b_start, bars))
+}
+
 /// The cues that carry out `window`, on the beat grids of `a` and `b`, or
 /// `None` when either has no beat grid.
 pub fn cues_for_window(

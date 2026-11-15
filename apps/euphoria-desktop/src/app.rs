@@ -2199,6 +2199,9 @@ impl EuphoriaApp {
 
     /// Ranks the tracks to play after the playing one again.
     pub(crate) fn refresh_next_rows(&mut self) {
+        if self.planner.is_open {
+            self.refresh_plan_candidates();
+        }
         let Some(playing_index) = self.rail_anchor else {
             self.next_rows.clear();
             return;
@@ -2856,6 +2859,11 @@ impl Render for EuphoriaApp {
                         this.close_focus_view(cx);
                         return;
                     }
+                }
+                if this.planner.is_open && matches!(event.keystroke.key.as_str(), "up" | "down") {
+                    let step = if event.keystroke.key == "up" { -1 } else { 1 };
+                    this.step_candidate(step, cx);
+                    return;
                 }
                 // With the keyboard on the window itself, the arrow keys
                 // move through the table as they do when the table has it.

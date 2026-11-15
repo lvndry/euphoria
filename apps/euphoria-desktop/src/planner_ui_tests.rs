@@ -352,8 +352,9 @@ fn the_planner_opens_from_the_tab_and_escape_goes_back_to_the_focus_view(cx: &mu
         "planner-track-b",
         "planner-clash",
         "planner-legend",
-        "planner-windows",
-        "planner-steps",
+        "planner-markers",
+        "planner-plan",
+        "planner-candidates-column",
     ] {
         assert!(is_shown(setup.window, id, cx), "{id}");
     }
@@ -371,22 +372,15 @@ fn the_planner_opens_from_the_tab_and_escape_goes_back_to_the_focus_view(cx: &mu
 }
 
 #[gpui::test]
-fn clicking_a_window_moves_the_outline_and_changes_the_steps(cx: &mut TestAppContext) {
-    let setup = open_plans("plan-windows", &[0, 1], cx);
-    open_focus_with_plans(&setup, cx);
-    pick(&setup, &setup.b.clone(), cx);
-    click(setup.window, "plan-open", cx);
-    settle(setup.window, cx);
-
-    let steps_of = |cx: &mut TestAppContext| -> Vec<String> {
+fn the_window_markers_jump_between_the_suggested_windows(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("plan-markers", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    let line_of = |cx: &mut TestAppContext| {
         cx.update(|cx| {
             let app = setup.view.read(cx);
             let (planned, window) = app.planner_window().unwrap();
-            window
-                .steps
-                .iter()
-                .map(|step| crate::transition_plan::step_line(step, planned, window))
-                .collect()
+            crate::transition_plan::window_line(planned, window)
         })
     };
     let listed = cx.update(|cx| {
@@ -400,21 +394,58 @@ fn clicking_a_window_moves_the_outline_and_changes_the_steps(cx: &mut TestAppCon
             .len()
     });
     assert!((3..=5).contains(&listed), "{listed} windows");
-    for index in 0..listed {
-        assert!(is_shown(setup.window, ("planner-window", index), cx));
-    }
-    let first = steps_of(cx);
-    assert!(is_shown(
-        setup.window,
-        ("planner-step", first.len() - 1),
-        cx
-    ));
+    assert!(
+        is_shown(setup.window, ("planner-window", 0_usize), cx),
+        "the chosen window is marked"
+    );
+    let jump_to = (1..listed)
+        .find(|index| is_shown(setup.window, ("planner-window", *index), cx))
+        .expect("another window is in view");
+    let first = line_of(cx);
 
-    click(setup.window, ("planner-window", 1_usize), cx);
+    click(setup.window, "planner-play-transition", cx);
+    click(setup.window, ("planner-window", jump_to), cx);
     settle(setup.window, cx);
-    cx.update(|cx| assert_eq!(setup.view.read(cx).planner.window, 1));
-    let second = steps_of(cx);
-    assert_ne!(first, second, "the step list follows the chosen window");
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert_eq!(app.planner.window, jump_to);
+        assert!(app.planner.custom.is_none());
+        assert!(
+            app.plan_is_playing(),
+            "it plays again from the new mix point"
+        );
+    });
+    assert_ne!(first, line_of(cx), "the line follows the chosen window");
+    let timing = timing_of(&setup, cx);
+    let a_open = *opened(&setup, cx)
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    assert!((a_open.1 - timing.a_seconds_at(-8.0)).abs() < 1e-9);
+}
+
+#[gpui::test]
+fn the_plan_reads_in_one_line(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-one-line", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    assert!(is_shown(setup.window, "planner-summary", cx));
+    assert!(
+        !is_shown(setup.window, "planner-steps", cx),
+        "the step list is gone"
+    );
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, window) = app.planner_window().unwrap();
+        let line = crate::transition_plan::window_line(planned, window);
+        assert!(line.starts_with("At "), "{line}");
+        assert!(line.contains(" in A"), "{line}");
+        assert!(line.contains(", B comes in from "), "{line}");
+        assert!(
+            line.contains(" \u{b7} A ends at ") || line.ends_with("before the window does"),
+            "{line}"
+        );
+    });
 }
 
 #[gpui::test]
@@ -897,7 +928,12 @@ fn clicking_the_timeline_seeks_and_space_plays_and_stops(cx: &mut TestAppContext
     let timing = timing_of(&setup, cx);
     assert!(is_shown(setup.window, "planner-playhead", cx));
 
-    click(setup.window, "planner-timeline", cx);
+    assert!(is_shown(setup.window, "planner-timeline", cx));
+    cx.update(|cx| {
+        setup
+            .view
+            .update(cx, |app, cx| app.seek_plan_timeline(0.5, cx))
+    });
     let expected = timing.bar_at_fraction(0.5).round();
     cx.update(|cx| {
         let app = setup.view.read(cx);
@@ -1129,35 +1165,6 @@ fn the_stems_notice_is_said_once_and_the_rows_say_only_what_differs(cx: &mut Tes
 }
 
 #[gpui::test]
-fn the_step_lines_read_naturally(cx: &mut TestAppContext) {
-    let setup = open_plans("plan-steps-words", &[0, 1], cx);
-    open_planner_view(&setup, cx);
-    let steps: Vec<String> = cx.update(|cx| {
-        let app = setup.view.read(cx);
-        let (planned, window) = app.planner_window().unwrap();
-        window
-            .steps
-            .iter()
-            .map(|step| crate::transition_plan::step_line(step, planned, window))
-            .collect()
-    });
-    assert!(
-        steps[0].starts_with("At ") && steps[0].contains(", start B from "),
-        "{steps:?}"
-    );
-    assert!(steps[0].ends_with("on the downbeat."), "{steps:?}");
-    let last = steps.last().unwrap();
-    assert!(
-        last.starts_with("A ends at ") && last.ends_with(" bars later."),
-        "{steps:?}"
-    );
-    assert!(
-        steps.iter().all(|step| !step.starts_with("Bar ")),
-        "{steps:?}"
-    );
-}
-
-#[gpui::test]
 fn back_to_plan_returns_to_the_same_window_and_escape_does_too(cx: &mut TestAppContext) {
     use crate::deck_audio::DeckId;
     let setup = open_plans("plan-back", &[0, 1], cx);
@@ -1170,6 +1177,7 @@ fn back_to_plan_returns_to_the_same_window_and_escape_does_too(cx: &mut TestAppC
                 .set_offset(gpui::point(px(0.0), px(-40.0)))
         })
     });
+    settle(setup.window, cx);
     let scroll_before = cx.update(|cx| setup.view.read(cx).planner.scroll.offset());
 
     click(setup.window, "planner-play", cx);
@@ -1213,4 +1221,174 @@ fn back_to_plan_returns_to_the_same_window_and_escape_does_too(cx: &mut TestAppC
         );
         assert_eq!(app.planner.window, 1);
     });
+}
+
+fn wait_until_playing(setup: &Setup, cx: &mut TestAppContext) {
+    for _ in 0..400 {
+        cx.run_until_parked();
+        if cx.update(|cx| setup.view.read(cx).plan_is_playing()) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+fn candidate_paths(setup: &Setup, cx: &mut TestAppContext) -> Vec<PathBuf> {
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        app.planner
+            .candidates
+            .iter()
+            .filter_map(|row| app.session.library().track(row.track_index))
+            .map(|track| track.path.clone())
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn clicking_a_candidate_makes_it_b_and_plays_the_transition_at_once(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::decks::SentCommand;
+    let setup = open_plans("plan-candidate-click", &[0, 1, 2], cx);
+    open_planner_view(&setup, cx);
+    let listed = candidate_paths(&setup, cx);
+    assert!(
+        listed.contains(&setup.b) && listed.contains(&setup.c),
+        "{listed:?}"
+    );
+    assert!(!listed.contains(&setup.a), "A is not its own candidate");
+    assert!(is_shown(setup.window, "planner-candidates", cx));
+
+    let c_index = index_of(&setup.view, &setup.c.clone(), cx);
+    click(setup.window, ("planner-candidate", c_index), cx);
+    for _ in 0..10 {
+        cx.run_until_parked();
+    }
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert_eq!(app.focus.selected_match, Some(c_index), "it is B now");
+        assert!(
+            app.plan_is_playing(),
+            "the transition plays without another step"
+        );
+        assert!(!app.planner.play_when_ready);
+    });
+    let timing = timing_of(&setup, cx);
+    let opens = opened(&setup, cx);
+    let a_open = opens
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    assert!((a_open.1 - timing.a_seconds_at(-8.0)).abs() < 1e-9);
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert_eq!(
+        sent(&setup, cx)[before..].to_vec(),
+        vec![SentCommand::Play {
+            deck: DeckId::A,
+            quantized: false
+        }]
+    );
+}
+
+#[gpui::test]
+fn up_and_down_move_to_the_next_candidate_and_play_it(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-candidate-keys", &[0, 1, 2], cx);
+    open_planner_view(&setup, cx);
+    let listed = candidate_paths(&setup, cx);
+    assert!(listed.len() >= 2);
+    let top = index_of(&setup.view, &listed[0], cx);
+    let next = index_of(&setup.view, &listed[1], cx);
+    let picked = |cx: &mut TestAppContext| cx.update(|cx| setup.view.read(cx).focus.selected_match);
+    let start = picked(cx);
+    assert_eq!(
+        start,
+        Some(next),
+        "the picked track is the second candidate"
+    );
+
+    press(setup.window, "up", cx);
+    wait_until_playing(&setup, cx);
+    assert_eq!(picked(cx), Some(top), "up moved to the first candidate");
+    cx.update(|cx| assert!(setup.view.read(cx).plan_is_playing()));
+
+    cx.update(|cx| setup.view.update(cx, |app, cx| app.stop_plan_playback(cx)));
+    press(setup.window, "down", cx);
+    wait_until_playing(&setup, cx);
+    assert_eq!(picked(cx), Some(next), "down moved to the next one");
+    cx.update(|cx| assert!(setup.view.read(cx).plan_is_playing(), "and plays it"));
+}
+
+#[gpui::test]
+fn the_filters_decide_which_tracks_are_candidates(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-candidate-filter", &[0, 1, 2], cx);
+    open_planner_view(&setup, cx);
+    let everyone = candidate_paths(&setup, cx);
+    assert!(everyone.contains(&setup.b) && everyone.contains(&setup.c));
+    cx.update(|cx| {
+        setup.view.update(cx, |app, _| {
+            app.track_filters = crate::track_filters::TrackFilters {
+                bpm_min: Some(118.5),
+                bpm_max: Some(120.0),
+                ..Default::default()
+            };
+            app.refresh_next_rows();
+        })
+    });
+    let filtered = candidate_paths(&setup, cx);
+    assert_eq!(filtered, vec![setup.c.clone()]);
+}
+
+#[gpui::test]
+fn dragging_b_snaps_to_bars_and_replays_from_eight_bars_before(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("plan-drag", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    settle(setup.window, cx);
+    let (before, bar_width, bars) = cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (_, window) = app.planner_window().unwrap();
+        let bounds = app
+            .planner
+            .timeline_bounds
+            .get()
+            .expect("the timeline was drawn");
+        let total = (crate::transition_plan::BARS_BEFORE
+            + window.bars
+            + crate::transition_plan::BARS_AFTER) as f32;
+        (
+            window.a_start_bar,
+            bounds.size.width / px(1.0) / total,
+            window.bars,
+        )
+    });
+    cx.update(|cx| {
+        setup.view.update(cx, |app, cx| {
+            app.begin_b_drag(100.0);
+            app.drag_b_to(100.0 + bar_width * 2.4, cx);
+        })
+    });
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (_, window) = app.planner_window().unwrap();
+        assert_eq!(window.a_start_bar, before + 2, "2.4 bars snap to 2");
+        assert_eq!(window.bars, bars);
+        assert!(app.planner.custom.is_some() || app.planner.window != 0);
+        assert!(!app.plan_is_playing(), "no sound while dragging");
+    });
+    cx.update(|cx| setup.view.update(cx, |app, cx| app.end_b_drag(cx)));
+    cx.run_until_parked();
+    cx.update(|cx| assert!(setup.view.read(cx).plan_is_playing(), "release replays"));
+    let timing = timing_of(&setup, cx);
+    let a_open = *opened(&setup, cx)
+        .iter()
+        .rev()
+        .find(|(deck, _)| *deck == DeckId::A)
+        .unwrap();
+    assert!((a_open.1 - timing.a_seconds_at(-8.0)).abs() < 1e-9);
+    assert!(
+        (timing.a_mix_seconds - (before + 2) as f64 * timing.a_bar_seconds).abs() < 1e-9,
+        "the mix point moved by two bars of A"
+    );
 }

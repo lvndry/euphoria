@@ -15,7 +15,7 @@ use std::sync::Arc;
 use euphoria_core::harmony::Relation;
 use euphoria_core::harmony::transition::{
     CandidateWindow, Clash, PlanError, PlanOptions, PlanSection, PlanTrack, Presence, SectionLabel,
-    Side, StepKind, SuggestedCues, TransitionPlan, cues_for_window, plan_transition,
+    Side, SuggestedCues, TransitionPlan, cues_for_window, plan_transition,
 };
 use euphoria_core::plan_signals::{
     SignalsCache, TrackSignals, measure_energy, signals_with_energy, stem_signature,
@@ -60,9 +60,44 @@ pub(crate) struct PlannedTransition {
     pub(crate) a_key: Option<Key>,
     pub(crate) b_key: Option<Key>,
     pub(crate) cues_by_window: Vec<Option<SuggestedCues>>,
+    a_analysis: TrackAnalysis,
+    b_analysis: TrackAnalysis,
+    a_sections: Vec<PlanSection>,
+    b_sections: Vec<PlanSection>,
 }
 
 impl PlannedTransition {
+    fn tracks(&self) -> (PlanTrack<'_>, PlanTrack<'_>) {
+        let track = |analysis, sections| PlanTrack {
+            analysis,
+            sections,
+            energy: &[],
+            stems: None,
+        };
+        (
+            track(&self.a_analysis, &self.a_sections),
+            track(&self.b_analysis, &self.b_sections),
+        )
+    }
+
+    /// A window that starts on bar `a_start` of A and bar `b_start` of B,
+    /// where the user dragged it, scored like the ranked ones.
+    pub(crate) fn window_at(
+        &self,
+        a_start: usize,
+        b_start: usize,
+        bars: usize,
+    ) -> Option<CandidateWindow> {
+        let (a, b) = self.tracks();
+        euphoria_core::harmony::transition::window_at(&self.plan, &a, &b, a_start, b_start, bars)
+    }
+
+    /// The cues that carry out `window`.
+    pub(crate) fn cues_for(&self, window: &CandidateWindow) -> Option<SuggestedCues> {
+        let (a, b) = self.tracks();
+        cues_for_window(window, &a, &b)
+    }
+
     pub(crate) fn window(&self, index: usize) -> Option<&CandidateWindow> {
         self.plan.windows.get(index)
     }
@@ -130,6 +165,27 @@ pub(crate) struct Planner {
     /// Set while the decks were opened from a plan, to come back to it.
     pub(crate) return_to: Option<PlanReturn>,
     last_ready: HashMap<PairKey, Arc<PlannedTransition>>,
+    /// The tracks that fit after A, ranked like the Next after list.
+    pub(crate) candidates: Vec<crate::next_rail::NextRow>,
+    /// The window the user dragged B to, when it is not a ranked one.
+    pub(crate) custom: Option<CandidateWindow>,
+    /// A drag of B along the timeline, while the button is down.
+    pub(crate) drag: Option<BlockDrag>,
+    /// True until the plan of the candidate just clicked is worked out and
+    /// its transition starts.
+    pub(crate) play_when_ready: bool,
+    /// Where B's rows were last drawn.
+    pub(crate) b_block_bounds: crate::views::waveform::SeenBounds,
+}
+
+/// B dragged along the timeline from `start_x`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlockDrag {
+    pub(crate) start_x: f32,
+    pub(crate) a_start_bar: usize,
+    pub(crate) b_start_bar: usize,
+    pub(crate) bars: usize,
+    pub(crate) moved: bool,
 }
 
 /// What the decks remember of the plan they were opened from.
@@ -294,6 +350,10 @@ fn compute(job: &PlanJob) -> Result<PlannedTransition, PlanError> {
         a_key: job.a.analysis.key,
         b_key: job.b.analysis.key,
         cues_by_window,
+        a_analysis: job.a.analysis.clone(),
+        b_analysis: job.b.analysis.clone(),
+        a_sections: job.a.sections.clone(),
+        b_sections: job.b.sections.clone(),
     })
 }
 
@@ -318,7 +378,10 @@ impl EuphoriaApp {
     /// The window the planner has chosen of the picked plan.
     pub(crate) fn planner_window(&self) -> Option<(&Arc<PlannedTransition>, &CandidateWindow)> {
         let planned = self.picked_plan()?;
-        Some((planned, planned.window(self.planner.window)?))
+        match &self.planner.custom {
+            Some(custom) => Some((planned, custom)),
+            None => Some((planned, planned.window(self.planner.window)?)),
+        }
     }
 
     /// The sentence the transition tab and the planner give for window
@@ -465,6 +528,7 @@ impl EuphoriaApp {
                         );
                     }
                     this.open_planner_when_ready(cx);
+                    this.play_when_plan_ready(cx);
                     this.pump_plans(cx);
                     cx.notify();
                 })
@@ -491,6 +555,7 @@ impl EuphoriaApp {
     /// The plans of the selected track are worked out again, after its
     /// cues or its stems changed.
     pub(crate) fn plans_of_track_changed(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
+        self.planner.custom = None;
         self.planner.forget_track(path);
         self.request_visible_plans(cx);
         cx.notify();
@@ -507,6 +572,9 @@ impl EuphoriaApp {
         }
         self.planner.is_open = true;
         self.planner.window = 0;
+        self.planner.custom = None;
+        self.planner.start_bar = None;
+        self.refresh_plan_candidates();
         cx.notify();
     }
 
@@ -549,6 +617,7 @@ impl EuphoriaApp {
         {
             self.stop_plan_playback(cx);
             self.planner.window = index;
+            self.planner.custom = None;
             self.planner.start_bar = None;
             cx.notify();
         }
@@ -557,10 +626,15 @@ impl EuphoriaApp {
     /// Gives A and B the cues that carry out window `index`, as one edit
     /// that one undo takes back.
     pub(crate) fn set_plan_cues(&mut self, index: usize, cx: &mut Context<'_, Self>) {
-        let Some(cues) = self
-            .picked_plan()
-            .and_then(|planned| planned.cues_by_window.get(index).cloned().flatten())
-        else {
+        let cues = match (&self.planner.custom, self.planner.is_open) {
+            (Some(custom), true) => self
+                .picked_plan()
+                .and_then(|planned| planned.cues_for(custom)),
+            _ => self
+                .picked_plan()
+                .and_then(|planned| planned.cues_by_window.get(index).cloned().flatten()),
+        };
+        let Some(cues) = cues else {
             return;
         };
         let Some(a_path) = self.selected_track().map(|track| track.path.clone()) else {
@@ -587,10 +661,11 @@ impl EuphoriaApp {
     /// Loads A and B on the decks at the start of window `index`, B at A's
     /// tempo, each on its downbeat, paused.
     pub(crate) fn preview_on_decks(&mut self, index: usize, cx: &mut Context<'_, Self>) {
-        let Some(window) = self
-            .picked_plan()
-            .and_then(|planned| planned.window(index).cloned())
-        else {
+        let custom = self.planner.custom.clone().filter(|_| self.planner.is_open);
+        let Some(window) = custom.or_else(|| {
+            self.picked_plan()
+                .and_then(|planned| planned.window(index).cloned())
+        }) else {
             return;
         };
         let Some(planned) = self.picked_plan().cloned() else {
@@ -996,40 +1071,22 @@ pub(crate) fn window_detail(window: &CandidateWindow, stems_checked: bool) -> St
     parts.join(", ")
 }
 
-/// What a step of a window says to do.
-pub(crate) fn step_line(
-    step: &euphoria_core::harmony::transition::Step,
-    planned: &PlannedTransition,
-    window: &CandidateWindow,
-) -> String {
-    let lanes_a = &planned.plan.lanes_a;
-    let lanes_b = &planned.plan.lanes_b;
-    let a_clock = clock(
-        lanes_a
-            .bars
-            .get(step.a_bar)
-            .map_or(0.0, |bar| bar.start_seconds),
-    );
-    let b_clock = clock(
-        lanes_b
-            .bars
-            .get(step.b_bar)
-            .map_or(0.0, |bar| bar.start_seconds),
-    );
-    let bar = step.window_bar;
-    match step.kind {
-        StepKind::StartB => {
-            let section = window
-                .a_section
-                .map_or(String::new(), |label| format!(" ({})", section_name(label)));
-            format!("At {a_clock} in A{section}, start B from {b_clock} on the downbeat.")
-        }
-        StepKind::SwapBass => {
-            format!("At bar {bar}, swap the basslines: B's bass in, A's out.")
-        }
-        StepKind::BringInVocals => format!("At bar {bar}, bring B's vocals in."),
-        StepKind::AEnds => format!("A ends at {a_clock}, {} bars later.", window.bars),
-    }
+/// The whole plan of a window in one line, such as "At 6:14 in A (Main), B
+/// comes in from 2:43 \u{b7} A ends at 6:45".
+pub(crate) fn window_line(planned: &PlannedTransition, window: &CandidateWindow) -> String {
+    let at = |lanes: &euphoria_core::harmony::transition::TrackLanes, bar: usize| {
+        lanes.bars.get(bar).map(|lane| clock(lane.start_seconds))
+    };
+    let a_clock = at(&planned.plan.lanes_a, window.a_start_bar).unwrap_or_default();
+    let b_clock = at(&planned.plan.lanes_b, window.b_start_bar).unwrap_or_default();
+    let section = window
+        .a_section
+        .map_or(String::new(), |label| format!(" ({})", section_name(label)));
+    let ends = at(&planned.plan.lanes_a, window.a_start_bar + window.bars)
+        .map_or("A ends before the window does".to_string(), |clock| {
+            format!("A ends at {clock}")
+        });
+    format!("At {a_clock} in A{section}, B comes in from {b_clock} \u{b7} {ends}")
 }
 
 /// The marks of the bar ruler of a window of `bars` bars, each with how
