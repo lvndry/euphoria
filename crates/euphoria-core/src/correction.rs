@@ -192,6 +192,7 @@ mod tests {
     use super::*;
     use crate::confidence::Confidence;
     use crate::key::Mode;
+    use crate::tempo_range::TempoRange;
 
     fn doubtful() -> TrackAnalysis {
         TrackAnalysis {
@@ -205,6 +206,7 @@ mod tests {
             key_runner_up: Some(Key::new(4, Mode::Minor)),
             key_score_margin: Some(0.001),
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: Some(87.0),
             tempo_score_margin: Some(0.01),
             beat_grid: None,
@@ -327,5 +329,16 @@ mod tests {
             Correction::of_bpm(87.5).unwrap().with_bpm(None).unwrap(),
             Correction::default()
         );
+    }
+
+    #[test]
+    fn the_set_stage_reads_the_corrected_tempo_and_otherwise_the_default_range() {
+        let detected = doubtful();
+        assert_eq!(detected.stage_features().tempo, Some(174.0));
+        let in_other_range = doubtful().with_tempo_range(TempoRange::new(70.0, 140.0).unwrap());
+        assert_eq!(in_other_range.bpm, Some(87.0));
+        assert_eq!(in_other_range.stage_features().tempo, Some(174.0));
+        let corrected = Correction::of_bpm(120.0).unwrap().apply(in_other_range);
+        assert_eq!(corrected.stage_features().tempo, Some(120.0));
     }
 }

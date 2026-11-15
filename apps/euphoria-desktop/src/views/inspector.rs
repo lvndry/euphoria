@@ -697,9 +697,33 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .gap(GAP_SMALL)
         .child(boxes)
         .children(tag_key_line(track, notation, palette))
+        .children(stage_line(track, app, palette))
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
+}
+
+/// The set stage of the track, such as "Stage: Peak", explained on hover.
+/// Nothing when the track has no stage.
+fn stage_line(track: &Track, app: &EuphoriaApp, palette: &Palette) -> Option<AnyElement> {
+    let library = app.session.library();
+    let stage = library.stage_at(library.index_of(&track.path)?)?;
+    Some(
+        div()
+            .id("track-stage")
+            .flex()
+            .items_center()
+            .gap(GAP_TIGHT)
+            .text_size(LABEL_TEXT_SIZE)
+            .text_color(palette.text_tertiary)
+            .child("Stage:")
+            .child(div().text_color(palette.text).child(stage.label()))
+            .tooltip(|window, cx| {
+                Tooltip::new(crate::track_filters::STAGE_EXPLANATION).build(window, cx)
+            })
+            .test_support()
+            .into_any_element(),
+    )
 }
 
 /// What the key field of the file's tags says next to the key above: the

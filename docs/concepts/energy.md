@@ -9,6 +9,8 @@ Euphoria gives every track an energy rating from 1 to 10. Key and tempo tell you
 
 The rating describes how intense a track sounds, not how good it is. A 4 is not a worse track than an 8.
 
+To see where a track tends to sit in a set, from its tempo and loudness among your other tracks, use the separate [set stage](set-stage.md) suggestion: it is not the same thing, and on a DJ's own warm-up, build and peak folders it follows them where this rating does not.
+
 ## What the numbers mean
 
 | Rating | How it sounds |

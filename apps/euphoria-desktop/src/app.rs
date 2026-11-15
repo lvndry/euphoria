@@ -1027,7 +1027,12 @@ impl EuphoriaApp {
                 .width
                 / px(1.0)
         });
-        self.table_layout = TableLayout::new(table_width, &self.column_widths, longest_path);
+        self.table_layout = TableLayout::with_stage_column(
+            table_width,
+            &self.column_widths,
+            longest_path,
+            self.display.show_stage_column,
+        );
     }
 
     /// Reads the title and artist of `paths` from their tags, a batch at a
@@ -1226,6 +1231,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Stage => library
+                    .stage_at(*index)
+                    .map(|stage| Cow::Borrowed(stage.label())),
                 ColumnId::Cues => track
                     .cue_count()
                     .map(|count| Cow::Owned(crate::format::count(count))),
@@ -1405,6 +1413,12 @@ impl EuphoriaApp {
         self.session.set_tempo_range(range);
         self.refresh_visible();
         self.refresh_mixes();
+        self.remember_tag_settings(cx);
+    }
+
+    /// Shows or hides the Stage column of the track table.
+    pub(crate) fn toggle_stage_column(&mut self, cx: &mut Context<'_, Self>) {
+        self.display.show_stage_column = !self.display.show_stage_column;
         self.remember_tag_settings(cx);
     }
 

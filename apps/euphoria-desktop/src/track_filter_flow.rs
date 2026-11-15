@@ -9,7 +9,7 @@ use gpui::{Context, Entity, Window};
 
 use crate::app::EuphoriaApp;
 use crate::format;
-use crate::track_filters::{QualityChoice, TypedTrackFilters};
+use crate::track_filters::{QualityChoice, SetStage, TypedTrackFilters};
 
 impl EuphoriaApp {
     /// Reads the four range fields into the filters and narrows the list.
@@ -33,6 +33,13 @@ impl EuphoriaApp {
     ) {
         let mut filters = self.track_filters.clone();
         filters.toggle_quality(choice);
+        self.set_track_filters(filters, cx);
+    }
+
+    /// Adds `stage` to the set stages shown, or takes it out.
+    pub(crate) fn toggle_track_stage(&mut self, stage: SetStage, cx: &mut Context<'_, Self>) {
+        let mut filters = self.track_filters.clone();
+        filters.toggle_stage(stage);
         self.set_track_filters(filters, cx);
     }
 

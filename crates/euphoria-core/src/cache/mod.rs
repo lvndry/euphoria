@@ -87,7 +87,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 12] = [
+const MIGRATIONS: [&str; 13] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -152,6 +152,9 @@ const MIGRATIONS: [&str; 12] = [
     "
     ALTER TABLE corrections ADD COLUMN key_confirmed INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE corrections ADD COLUMN bpm_confirmed INTEGER NOT NULL DEFAULT 0;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN loudness_range_lu REAL;
 ",
 ];
 
@@ -302,7 +305,7 @@ impl Cache {
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
                     tempo_estimate, tempo_score_margin, quality,
                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                    key_source
+                    key_source, loudness_range_lu
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -331,6 +334,7 @@ impl Cache {
                     quality: quality_in_column(row, 14)?,
                     beat_grid: beat_grid_in_columns(row, 15)?,
                     cues: cues_in_column(row, 19)?,
+                    loudness_range_lu: row.get(21)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -396,9 +400,9 @@ impl Cache {
                      energy, energy_model_version, tuning_cents, key_timeline,
                      key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality,
                      grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                     key_source
+                     key_source, loudness_range_lu
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -424,6 +428,7 @@ impl Cache {
                     analysis.beat_grid.and_then(|grid| grid.drift_seconds),
                     cues_text(&analysis.cues),
                     analysis.key_source.map(KeySource::as_str),
+                    analysis.loudness_range_lu,
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -965,6 +970,7 @@ mod tests {
             key_runner_up: Some("A major".parse().unwrap()),
             key_score_margin: Some(0.012_5),
             key_source: None,
+            loudness_range_lu: Some(6.25),
             tempo_estimate: Some(63.99),
             tempo_score_margin: Some(0.47),
             beat_grid: Some(BeatGrid {
@@ -1065,7 +1071,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1084,7 +1090,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1289,7 +1295,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1312,7 +1318,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1338,7 +1344,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1370,7 +1376,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL,
-                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL)"
+                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1395,7 +1401,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1428,7 +1434,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 12);
+        assert_eq!(SCHEMA_VERSION, 13);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1497,7 +1503,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 12);
+        assert_eq!(SCHEMA_VERSION, 13);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1551,7 +1557,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 12);
+        assert_eq!(SCHEMA_VERSION, 13);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1616,7 +1622,7 @@ mod tests {
                     &format!(
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL)"
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1639,7 +1645,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1760,6 +1766,7 @@ mod tests {
                     key_runner_up: None,
                     key_score_margin: None,
                     key_source: None,
+                    loudness_range_lu: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,

@@ -99,7 +99,7 @@ pub fn rank<'pool>(
         .iter()
         .filter(|candidate| {
             !same_file(&candidate.path, &playing.path)
-                && filters.matches(&Filtered(&candidate.analysis))
+                && filters.matches(&Filtered(&candidate.analysis, None))
         })
         .collect();
     let options = MixOptions {
