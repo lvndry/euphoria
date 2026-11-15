@@ -2220,7 +2220,7 @@ fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
     cx.update(|cx| {
         let app = view.read(cx);
         assert!(app.settings_open);
-        assert!(app.tag_panel.is_none());
+        assert!(matches!(app.tag_panel, Some(TagPanel::Preview(_))));
     });
 }
 

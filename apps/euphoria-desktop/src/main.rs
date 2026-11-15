@@ -124,6 +124,8 @@ mod surface_motion;
 mod tag_clarity_ui_tests;
 mod tag_editor;
 mod tag_flow;
+#[cfg(test)]
+mod tag_preview_ui_tests;
 mod tag_reads;
 mod tag_settings;
 mod tag_writing;

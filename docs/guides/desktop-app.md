@@ -577,7 +577,7 @@ The app can write the key, tempo and energy it found into the files themselves, 
 
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The preview is titled with the DJ program the tags are written for, such as "Write tags for rekordbox"; choose it in the [settings](#settings).
-3. The preview lists every file that would change, each field by name (Key, BPM, Comment) with the value it has now and the value it would get; rest the pointer on a name to see the tag frame, such as TKEY. Under the list, **Rules in use** gives three or four short lines from your settings, such as "Keys already in files are kept", "Low confidence values are skipped" and "Energy label at the start of the comment", with a **Change settings** link that opens the settings. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
+3. The preview lists every file that would change, each field by name (Key, BPM, Comment) with the value it has now and the value it would get; rest the pointer on a name to see the tag frame, such as TKEY. Under the list, **Rules in use** gives three or four short lines from your settings, such as "Keys already in files are kept", "Low confidence values are skipped" and "Energy label at the start of the comment", with a **Change settings** link that opens the settings over the preview. Each change you make there works the preview out again at once, so when you close the settings it shows what the new choices write; while it updates, the list dims, the line above it says "Updating for the new settings…", and the write button cannot be clicked. **Selected tracks** and **All shown** switch between the selection and every track the table shows, such as a whole folder. Files that already hold the values, tracks not analyzed yet and files that cannot be written safely are counted or listed with the reason.
 4. Click the button, which says what it does and how many files it touches, such as **Write tags to 18 files**. Nothing is written before that, and **Cancel** or Escape closes the preview without writing. A key or tempo left as it is, because the file already has one or because it is rated low confidence, is listed in the preview with the reason. When rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ is running, the click first shows a strip that says the program may lose the change; **Write anyway** goes on.
 5. The app shows how far it has got. When every file was written, the window closes the preview and ends with a [toast](#toasts) such as "Wrote key and BPM to 18 files", with **Undo**. When some files could not be written, or the log, cache or playlists could not be updated, the preview stays open and lists them with the reason. Unwritten files are left as they were.
 
@@ -703,7 +703,7 @@ The headless interface tests cover the sheet opening, a rekordbox export of a sm
 
 ## Settings
 
-Open the settings with **Euphoria > Settings…** (Command comma), or choose **Change settings** in the Write tags preview.
+Open the settings with **Euphoria > Settings…** (Command comma), or choose **Change settings** in the Write tags preview, which keeps the preview open underneath and updates it as you change the options.
 
 How keys and tempos are shown:
 
@@ -781,6 +781,7 @@ Changes to what is on screen ease instead of cutting, and each one has a set tim
 | --- | --- |
 | Settings, Export, tag editor and Write tags preview: backdrop fades in, card fades in and rises 8 px | 180 ms in, 120 ms out |
 | Notice, held tags and confirmation strips grow to their height | 220 ms |
+| Write tags preview list dims while it is worked out again for changed settings, and comes back | 120 ms |
 | Focus view and the library crossfade, both ways | 180 ms |
 | Switching theme blends the colours | 160 ms |
 | Sidebar, sections, toast, palette | as described where they are introduced |
