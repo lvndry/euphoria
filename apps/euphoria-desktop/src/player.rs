@@ -160,7 +160,7 @@ impl Player {
         path: Option<&Path>,
         duration_seconds: Option<f32>,
     ) -> Option<PlayerRequest> {
-        if self.offers_pause() && self.track.as_deref() != path {
+        if path.is_some() && self.offers_pause() && self.track.as_deref() != path {
             return None;
         }
         self.switch_to(path, duration_seconds)
@@ -417,7 +417,7 @@ mod tests {
         assert!(!player.offers_stems());
 
         player.stems_ready(true);
-        let select = player.select(Some(second()), Some(300.0));
+        let select = player.switch_to(Some(second()), Some(300.0));
         let attempt = match select {
             Some(PlayerRequest::Start {
                 with_stems: true,
@@ -427,10 +427,10 @@ mod tests {
             other => panic!("expected the stems of the new track, got {other:?}"),
         };
         assert!(player.started(attempt, Some(300.0)));
-        stems_request(player.select(Some(first()), Some(420.0)), first());
+        stems_request(player.switch_to(Some(first()), Some(420.0)), first());
 
         player.stems_ready(false);
-        starts(player.select(Some(second()), Some(300.0)), second(), 0.0);
+        starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
     }
 
     #[test]

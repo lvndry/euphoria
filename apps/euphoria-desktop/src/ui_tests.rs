@@ -445,7 +445,7 @@ fn the_space_bar_does_not_reach_the_player_from_the_search_field(cx: &mut TestAp
     assert_eq!(player_status(&view, cx), PlayerStatus::Stopped);
 }
 
-fn held_path(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<std::path::PathBuf> {
+fn held_path(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<PathBuf> {
     cx.update(|cx| view.read(cx).player.track().map(Path::to_path_buf))
 }
 
