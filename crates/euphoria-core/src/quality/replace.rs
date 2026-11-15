@@ -124,7 +124,7 @@ impl QualityReport {
 
     /// One short, concrete sentence for `problem`, for a row of a list:
     /// "MP3, 128 kbit/s", "FLAC, but the sound stops at 16.0 kHz like a
-    /// 128 kbit/s MP3", "Clipped: 0.42% of the samples are at full scale".
+    /// 128 kbit/s MP3", "0.42% of the samples clipped at full scale".
     /// [`QualityReport::reason`] and [`QualityReport::notes`] say more.
     pub fn problem_reason(&self, problem: ReplaceProblem, path: &Path) -> String {
         let format = self.format_description(path);
@@ -140,7 +140,7 @@ impl QualityReport {
             },
             ReplaceProblem::LowBitrate | ReplaceProblem::MediumBitrate => format,
             ReplaceProblem::Clipped => format!(
-                "Clipped: {} of the samples are at full scale",
+                "{} of the samples clipped at full scale",
                 percent(self.clipped_share)
             ),
         }
@@ -518,7 +518,7 @@ mod tests {
         );
         assert_eq!(
             clipped(0.0042).problem_reason(ReplaceProblem::Clipped, Path::new("a.wav")),
-            "Clipped: 0.42% of the samples are at full scale"
+            "0.42% of the samples clipped at full scale"
         );
         assert_eq!(
             truncated(2.6).problem_reason(ReplaceProblem::Damaged, Path::new("a.mp3")),

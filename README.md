@@ -20,6 +20,7 @@ Available now:
 - Energy rating from 1 to 10, on Euphoria's own [documented scale](docs/concepts/energy.md)
 - [Audio quality](docs/concepts/audio-quality.md) for DJ use: codec, real bit rate, where the content stops, and files that were likely re-encoded from a lower quality source
 - `euphoria analyze`, a command line tool with table and JSON output
+- `euphoria quality`, which lists the files to replace, worst first, with why: low bit rate, fake lossless, damaged or clipped, also as CSV or an M3U8 playlist
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
 - `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos and playlists, plus beat grids and cues with `--beat-grid` and `--cues`; importing it in Traktor has not yet been tested
 - `euphoria export engine`, which writes keys, tempos, beat grids and hot cues into the tracks of your Engine DJ library after saving a copy; not yet tested in Engine DJ

@@ -272,6 +272,31 @@ pub fn live_examples() -> StyledStr {
     )
 }
 
+pub fn quality_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria quality ~/Music/DJ",
+                "The files to replace, worst first",
+            ),
+            (
+                "euphoria quality ~/Music/DJ --m3u replace.m3u8",
+                "The same list as a playlist for a DJ program",
+            ),
+            (
+                "euphoria quality ~/Music/DJ --min acceptable",
+                "Also the medium bit rate files",
+            ),
+            (
+                "euphoria quality ~/Music/DJ --all --csv quality.csv",
+                "Every track with its verdict, as a spreadsheet",
+            ),
+        ],
+        "Damaged and clipped files are listed whatever --min is.",
+    )
+}
+
 pub fn next_examples() -> StyledStr {
     examples(
         "Examples",

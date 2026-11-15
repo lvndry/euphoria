@@ -1998,6 +1998,7 @@ dependencies = [
  "rayon",
  "roxmltree 0.21.2",
  "rusqlite",
+ "rustfft",
  "same-file",
  "serde",
  "serde_json",

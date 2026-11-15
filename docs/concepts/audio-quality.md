@@ -18,6 +18,16 @@ Euphoria gives every track a quality verdict for DJ use, with a one sentence rea
 
 The verdict is about the file, not the music. A great track in a weak file is still a great track: the verdict tells you which files are worth replacing with a better copy before you play them loud.
 
+## Find the files to replace
+
+`euphoria quality` lists the files of a folder that are worth replacing, worst first, each with a short reason:
+
+```
+euphoria quality ~/Music/DJ
+```
+
+The first line counts them, such as `37 of 576 tracks to replace: 2 heavily damaged, 9 fake lossless, 21 low bit rate, 5 clipped.` Heavily damaged files come first, then lossless files made from a lossy one (fake lossless) and other re-encoded files, then files weak on a big system, then lightly damaged and clipped files. `--min acceptable` adds the medium bit rate files, and `--m3u` writes the list as a playlist to find the files in a DJ program. Tracks analyzed before are read from the cache. A Limited bandwidth file is never listed: nothing better exists. See [`euphoria quality`](../reference/cli.md#euphoria-quality) for the options.
+
 ## What is measured
 
 | Measurement | What it is |

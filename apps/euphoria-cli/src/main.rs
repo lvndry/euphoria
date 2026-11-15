@@ -17,6 +17,7 @@ mod output;
 mod plan;
 mod playlists;
 mod prepare;
+mod quality;
 mod rewrites;
 mod scan;
 mod set;
@@ -91,6 +92,18 @@ enum Command {
         after_help = help::analyze_examples(),
     )]
     Analyze(AnalyzeArguments),
+    /// List the files whose audio is too poor for a club system, worst first, with why.
+    #[command(
+        long_about = "List the files whose audio is too poor for a club system, worst first, \
+                      each with a plain reason, so you can buy or download a better copy.\n\n\
+                      A file is listed when it is heavily damaged, lossless but made from a \
+                      lossy file (fake lossless), re-encoded from a lower bit rate, low bit \
+                      rate, damaged or clipped. The verdicts are those of euphoria analyze, \
+                      read from the cache when the tracks were analyzed before; tracks not yet \
+                      analyzed are analyzed and saved.",
+        after_help = help::quality_examples(),
+    )]
+    Quality(quality::QualityArguments),
     /// List the playlists built in the desktop app.
     Playlists,
     /// Write the analysis into the tags of your files, or undo the last write.
@@ -357,6 +370,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Analyze(arguments) => analyze(&arguments),
         Command::Export { target } => export::run(target),
         Command::Tags { command } => tags::run(command),
+        Command::Quality(arguments) => quality::run(&arguments),
         Command::Playlists => playlists::list(),
         Command::Corrections { command } => corrections::run(command),
         Command::Shift(arguments) => shift::run(&arguments),
