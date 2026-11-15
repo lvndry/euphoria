@@ -2,12 +2,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::fingerprint::{FingerprintIndex, Match, fingerprint};
+
 use super::analyzer::{LiveAnalyzer, LiveReading, LiveSettings};
 use super::capture::{AudioCapture, CaptureError, ListenSource};
+
+/// Where the engine finds the fingerprints of a library to recognise the
+/// audio against. It can be filled after listening started.
+pub type MatcherHandle = Arc<RwLock<Option<Arc<FingerprintIndex>>>>;
+
+/// How much of the latest audio is matched, and how much is needed first.
+const MATCH_SECONDS: f32 = 15.0;
+const MINIMUM_MATCH_SECONDS: f32 = 8.0;
+/// The audio is matched on every this many readings.
+const MATCH_EVERY_READINGS: u32 = 3;
 
 /// How often the key, tempo and energy are read again.
 pub const ANALYSIS_INTERVAL: Duration = Duration::from_secs(2);
@@ -29,6 +41,7 @@ impl LiveEngine {
         source: ListenSource,
         settings: LiveSettings,
         interval: Duration,
+        matcher: MatcherHandle,
     ) -> Result<Self, CaptureError> {
         let (sender, receiver) = mpsc::channel::<Vec<f32>>();
         let sink_sender: Sender<Vec<f32>> = sender;
@@ -45,6 +58,8 @@ impl LiveEngine {
             .spawn(move || {
                 let mut analyzer = LiveAnalyzer::new(sample_rate, settings);
                 let mut last_analysis = Instant::now();
+                let mut readings_made = 0_u32;
+                let mut last_match: Option<Match> = None;
                 loop {
                     match receiver.recv_timeout(Duration::from_millis(100)) {
                         Ok(samples) => {
@@ -58,9 +73,22 @@ impl LiveEngine {
                     }
                     if last_analysis.elapsed() >= interval {
                         last_analysis = Instant::now();
-                        let reading = analyzer
+                        let mut reading = analyzer
                             .analyze()
                             .unwrap_or_else(|_| analyzer.listening_reading());
+                        if reading.listening || reading.heard_seconds < MINIMUM_MATCH_SECONDS {
+                            last_match = None;
+                        } else if readings_made.is_multiple_of(MATCH_EVERY_READINGS) {
+                            let index = matcher
+                                .read()
+                                .ok()
+                                .and_then(|handle| handle.as_ref().map(Arc::clone));
+                            last_match = index.and_then(|index| {
+                                index.find(&fingerprint(&analyzer.recent_audio(MATCH_SECONDS)))
+                            });
+                        }
+                        readings_made = readings_made.wrapping_add(1);
+                        reading.matched = last_match;
                         if let Ok(mut current) = shared.lock() {
                             *current = reading;
                         }

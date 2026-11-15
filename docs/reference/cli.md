@@ -609,7 +609,8 @@ Needs macOS 14.2 or later, and macOS asks once to allow listening. One line is p
 | --- | --- |
 | `--source <PROCESS>` | Listen to one application, by the start of its name. Without it, everything playing is heard except Euphoria. |
 | `--interval <SECONDS>` | Seconds between readings, 0.5 or more. Default 2. |
-| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`. |
+| `--from <FOLDER\|FILE>` | Recognise which of these tracks plays, also when it is played up to 10 percent faster or slower. Their fingerprints are made once and kept in the cache, so the first run over a large folder takes a while. A recognised track is printed as `matched: <path>`. |
+| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`, and `match` (`path`, `position_seconds`, `tempo_ratio`, `pitch_follows_tempo`, or `null`). |
 
 ## euphoria next
 

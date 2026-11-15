@@ -13,7 +13,7 @@ use gpui::{
 };
 
 use crate::format;
-use crate::live_model::{ListenState, LiveModel};
+use crate::live_model::{Learning, ListenState, LiveModel};
 use crate::next_rail::{EnergyChoice, NextRow};
 use crate::theme::Palette;
 use crate::views::controls::{pressed_button, segment, segmented};
@@ -40,6 +40,8 @@ pub(crate) const KEY_ID: &str = "live-key";
 pub(crate) const BPM_ID: &str = "live-bpm";
 pub(crate) const WAITING_ID: &str = "live-waiting";
 pub(crate) const OPEN_ID: &str = "live-open";
+pub(crate) const MATCH_ID: &str = "live-match";
+pub(crate) const LEARNING_ID: &str = "live-learning";
 
 pub(crate) fn energy_id(choice: EnergyChoice) -> (&'static str, usize) {
     ("live-energy", choice.index())
@@ -373,6 +375,74 @@ fn source_picker(model: &LiveModel, picker_open: bool, cx: &Context<'_, LiveView
         })
 }
 
+fn position_text(seconds: f32) -> String {
+    let whole = seconds.max(0.0) as u32;
+    format!("{}:{:02}", whole / 60, whole % 60)
+}
+
+/// The words for how a matched track is played compared with the file.
+pub(crate) fn playback_words(playback: euphoria_core::fingerprint::Playback) -> Option<String> {
+    let change = (playback.tempo_ratio - 1.0) * 100.0;
+    if change.abs() < 1.0 {
+        return None;
+    }
+    let tempo = format::signed_percent(change);
+    Some(if playback.pitch_follows_tempo {
+        format!("{tempo}, pitch follows")
+    } else {
+        format!("{tempo}, key lock")
+    })
+}
+
+fn recognition(model: &LiveModel) -> Option<AnyElement> {
+    let palette = model.theme.palette;
+    if let Some((track, found)) = model.matched_track() {
+        let heard = model.reading.heard_seconds.min(15.0);
+        let position = found.start_seconds + heard * found.playback.tempo_ratio;
+        let words = playback_words(found.playback);
+        return Some(
+            div()
+                .id(MATCH_ID)
+                .flex()
+                .flex_col()
+                .gap(GAP_TIGHT)
+                .p(GAP_SMALL)
+                .rounded(RADIUS_LARGE)
+                .border_1()
+                .border_color(palette.accent.opacity(0.4))
+                .child(section_label("IN YOUR LIBRARY", &palette))
+                .child(div().truncate().child(track.title().to_string()))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(GAP_SMALL)
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(format!("at {}", position_text(position)))
+                        .children(words.map(|words| pill(words, false, &palette))),
+                )
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    if let Learning::Working { total } = model.learning {
+        return Some(
+            div()
+                .id(LEARNING_ID)
+                .text_size(LABEL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child(format!(
+                    "Learning your library to recognise tracks: {} of {total}",
+                    model.learned_count()
+                ))
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    None
+}
+
 fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
     let palette = model.theme.palette;
     let track = model.library.as_ref()?.track(next.track_index)?;
@@ -587,6 +657,7 @@ impl Render for LiveView {
             .child(big_reading(model))
             .child(figures(model))
             .child(level_meter(model, &palette))
+            .children(recognition(model))
             .child(next_section(model, &model_entity))
             .child(
                 div()

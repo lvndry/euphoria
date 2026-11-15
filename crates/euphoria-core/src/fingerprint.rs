@@ -70,6 +70,10 @@ const RATIO_STEP: f32 = 0.02;
 /// differ by more.
 const OFFSET_TOLERANCE_FRAMES: i64 = 1;
 const SCALED_OFFSET_TOLERANCE_FRAMES: i64 = 5;
+/// A moved query replaces the one at the track's own speed only with this
+/// many times its votes, so a track played as it is does not read as a
+/// small tempo change.
+const SCALED_PREFERENCE: f32 = 1.2;
 
 /// Bumped when hashes change meaning, so stored ones are made again.
 pub const FINGERPRINT_VERSION: u32 = 1;
@@ -143,9 +147,10 @@ impl Fingerprint {
         if !bytes.len().is_multiple_of(8) {
             return None;
         }
+        let (chunks, _) = bytes.as_chunks::<8>();
         Some(Self::from_hashes(
-            bytes
-                .chunks_exact(8)
+            chunks
+                .iter()
                 .map(|chunk| {
                     (
                         u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
@@ -279,6 +284,17 @@ fn spectral_peaks(samples: &[f32]) -> Vec<Peak> {
     peaks
 }
 
+/// A hash and the hashes whose gap is one frame shorter and one longer: a
+/// tempo of the grid that is a little off moves a gap by about a frame.
+fn gap_neighbours(hash: u32) -> impl Iterator<Item = u32> {
+    let gap = hash & 0x7f;
+    [gap.checked_sub(1), Some(gap), Some(gap + 1)]
+        .into_iter()
+        .flatten()
+        .filter(|near| (SHORTEST_PAIR_FRAMES as u32..=LONGEST_PAIR_FRAMES as u32).contains(near))
+        .map(move |near| (hash & !0x7f) | near)
+}
+
 fn frequency_step(bin: f32) -> Option<i32> {
     if bin < LOWEST_BIN as f32 * 0.8 || bin > HIGHEST_BIN as f32 * 1.25 {
         return None;
@@ -358,12 +374,20 @@ struct Candidate {
     playback: Playback,
 }
 
+/// The most tracks an index holds, and the longest a track may be, in frames
+/// (2.3 hours): a hash is kept with its track and frame in one 32 bit number.
+pub const MAXIMUM_TRACKS: usize = 1 << TRACK_BITS;
+const TRACK_BITS: u32 = 14;
+const FRAME_BITS: u32 = 18;
+
 /// The fingerprints of a library, searched by hash. Hashes are kept in one
-/// list sorted by hash, which costs 12 bytes a hash and nothing else.
+/// list sorted by hash, which costs 8 bytes a hash and nothing else.
 #[derive(Debug, Clone, Default)]
 pub struct FingerprintIndex {
-    entries: Vec<(u32, u32, u32)>,
+    entries: Vec<(u32, u32)>,
     is_sorted: bool,
+    stored_thinning: u32,
+    extra_thinning: u32,
 }
 
 impl FingerprintIndex {
@@ -372,17 +396,39 @@ impl FingerprintIndex {
         Self {
             entries: Vec::new(),
             is_sorted: true,
+            stored_thinning: 1,
+            extra_thinning: 1,
         }
+    }
+
+    /// Tells the index how the fingerprints added to it were thinned, with
+    /// [`Fingerprint::thinned`] by `stored` and then [`Fingerprint::thinned_again`]
+    /// by `extra`, so a query uses only the hashes that could be in it and
+    /// its shares are measured against those.
+    pub fn set_thinning(&mut self, stored: u32, extra: u32) {
+        self.stored_thinning = stored.max(1);
+        self.extra_thinning = extra.max(1);
+    }
+
+    fn could_hold(&self, hash: u32) -> bool {
+        (hash.wrapping_mul(2_654_435_761) >> 16).is_multiple_of(self.stored_thinning)
+            && (hash.wrapping_mul(2_246_822_519) >> 11).is_multiple_of(self.extra_thinning)
     }
 
     /// Adds a track under `track`, an id the caller chooses. Call
     /// [`FingerprintIndex::freeze`] after the last one and before searching.
+    /// A track beyond [`MAXIMUM_TRACKS`], and hashes past the frame a track
+    /// may last to, are left out.
     pub fn add(&mut self, track: usize, fingerprint: &Fingerprint) {
+        if track >= MAXIMUM_TRACKS {
+            return;
+        }
         self.entries.extend(
             fingerprint
                 .hashes()
                 .iter()
-                .map(|(hash, frame)| (*hash, track as u32, *frame)),
+                .filter(|(_, frame)| *frame < (1 << FRAME_BITS))
+                .map(|(hash, frame)| (*hash, ((track as u32) << FRAME_BITS) | *frame)),
         );
         self.is_sorted = false;
     }
@@ -401,7 +447,21 @@ impl FingerprintIndex {
         self.entries.len()
     }
 
-    fn hits(&self, hash: u32) -> &[(u32, u32, u32)] {
+    fn usable(&self, hashes: &[(u32, u32)], neighbours: bool) -> Vec<(u32, u32)> {
+        hashes
+            .iter()
+            .copied()
+            .filter(|(hash, _)| {
+                if neighbours {
+                    gap_neighbours(*hash).any(|near| self.could_hold(near))
+                } else {
+                    self.could_hold(*hash)
+                }
+            })
+            .collect()
+    }
+
+    fn hits(&self, hash: u32) -> &[(u32, u32)] {
         let start = self.entries.partition_point(|entry| entry.0 < hash);
         let end = start + self.entries[start..].partition_point(|entry| entry.0 == hash);
         &self.entries[start..end]
@@ -415,7 +475,7 @@ impl FingerprintIndex {
     pub fn find(&self, query: &Fingerprint) -> Option<Match> {
         debug_assert!(self.is_sorted, "freeze the index before searching it");
         let mut passes: Vec<(Vec<(u32, u32)>, Playback)> = vec![(
-            query.hashes.clone(),
+            self.usable(&query.hashes, false),
             Playback {
                 tempo_ratio: 1.0,
                 pitch_follows_tempo: false,
@@ -442,7 +502,7 @@ impl FingerprintIndex {
                         })
                         .collect();
                     passes.push((
-                        pair_peaks(&moved),
+                        self.usable(&pair_peaks(&moved), true),
                         Playback {
                             tempo_ratio: ratio,
                             pitch_follows_tempo,
@@ -459,9 +519,20 @@ impl FingerprintIndex {
             } else {
                 SCALED_OFFSET_TOLERANCE_FRAMES
             };
-            for (track, offset, votes) in self.tally(hashes, tolerance) {
+            let neighbours = playback.tempo_ratio != 1.0;
+            for (track, offset, votes) in self.tally(hashes, tolerance, neighbours) {
                 runner_ups.push((track, votes));
-                if best.is_none_or(|current| votes > current.votes) {
+                let score = |votes: u32, ratio: f32| {
+                    if ratio == 1.0 {
+                        votes as f32
+                    } else {
+                        votes as f32 / SCALED_PREFERENCE
+                    }
+                };
+                if best.is_none_or(|current| {
+                    score(votes, playback.tempo_ratio)
+                        > score(current.votes, current.playback.tempo_ratio)
+                }) {
                     best = Some(Candidate {
                         track,
                         offset,
@@ -501,12 +572,31 @@ impl FingerprintIndex {
     }
 
     /// The best offset of each track with votes, with its votes.
-    fn tally(&self, hashes: &[(u32, u32)], tolerance: i64) -> Vec<(u32, i64, u32)> {
+    fn tally(
+        &self,
+        hashes: &[(u32, u32)],
+        tolerance: i64,
+        neighbours: bool,
+    ) -> Vec<(u32, i64, u32)> {
         let mut votes: HashMap<(u32, i64), u32> = HashMap::new();
+        let mut counted: Vec<(u32, i64)> = Vec::new();
         for (hash, query_frame) in hashes {
-            for (_, track, track_frame) in self.hits(*hash) {
-                let offset = i64::from(*track_frame) - i64::from(*query_frame);
-                *votes.entry((*track, offset)).or_default() += 1;
+            counted.clear();
+            let near: Vec<u32> = if neighbours {
+                gap_neighbours(*hash).collect()
+            } else {
+                vec![*hash]
+            };
+            for hash in near {
+                for (_, packed) in self.hits(hash) {
+                    let track = packed >> FRAME_BITS;
+                    let offset =
+                        i64::from(packed & ((1 << FRAME_BITS) - 1)) - i64::from(*query_frame);
+                    if !counted.contains(&(track, offset)) {
+                        counted.push((track, offset));
+                        *votes.entry((track, offset)).or_default() += 1;
+                    }
+                }
             }
         }
         let mut best_per_track: HashMap<u32, (i64, u32)> = HashMap::new();
@@ -655,8 +745,10 @@ mod tests {
         let tracks: Vec<Vec<f32>> = (0..count as u64).map(synthetic_track).collect();
         let mut index = FingerprintIndex::new();
         for (id, track) in tracks.iter().enumerate() {
-            index.add(id, &fingerprint(&audio(track.clone(), TRACK_RATE)));
+            let print = fingerprint(&audio(track.clone(), TRACK_RATE));
+            index.add(id, &print.thinned(STORED_THINNING));
         }
+        index.set_thinning(STORED_THINNING, 1);
         index.freeze();
         Library { tracks, index }
     }
@@ -841,6 +933,7 @@ mod tests {
             full.add(id, &print);
             thin.add(id, &print.thinned(4));
         }
+        thin.set_thinning(4, 1);
         full.freeze();
         thin.freeze();
         assert!(thin.hash_count() * 3 < full.hash_count());
@@ -945,8 +1038,8 @@ mod tests {
                 let line = format!(
                     "{:+.0}% {label}: {}/{} right (wrong track {}, no match {}, wrong position {}), named the playback {}, lowest share {:.2}",
                     (ratio - 1.0) * 100.0,
-                    outcome.right * 1,
-                    outcome.tried * 3 / 3,
+                    outcome.right,
+                    outcome.tried,
                     outcome.wrong_track,
                     outcome.no_match,
                     outcome.wrong_position,

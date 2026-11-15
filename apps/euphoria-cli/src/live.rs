@@ -6,13 +6,15 @@
 //! Live window of the desktop app. The audio stays in memory.
 
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
 use clap::Args;
 use euphoria_core::live::{
-    AudioCapture, CaptureError, ListenSource, LiveEngine, LiveReading, LiveSettings,
+    AudioCapture, CaptureError, ListenSource, LiveEngine, LiveReading, LiveSettings, MatcherHandle,
 };
 use serde_json::json;
 
@@ -32,16 +34,71 @@ pub struct LiveArguments {
     /// Print one JSON object per line, for scripts and stream overlays.
     #[arg(long)]
     json: bool,
+    /// Recognise which of these tracks is playing, also when it is played
+    /// faster or slower by up to 10 percent: folders or audio files. Their
+    /// fingerprints are made once and kept in the cache, so the first run
+    /// over a large folder takes a while.
+    #[arg(long, value_name = "FOLDER|FILE")]
+    from: Vec<PathBuf>,
+}
+
+/// The tracks Live recognises what it hears as.
+pub(crate) struct LiveLibrary {
+    pub(crate) matcher: MatcherHandle,
+    pub(crate) paths: Vec<PathBuf>,
+}
+
+fn learn_library(
+    arguments: &LiveArguments,
+    messages: &mut dyn Write,
+) -> Result<Option<LiveLibrary>> {
+    if arguments.from.is_empty() {
+        return Ok(None);
+    }
+    let cache_path = euphoria_core::default_cache_path().map_err(crate::with_causes)?;
+    let analyzer = euphoria_core::Cache::open(&cache_path)
+        .and_then(euphoria_core::CachedAnalyzer::new)
+        .map_err(crate::with_causes)?;
+    let scan = euphoria_core::scan_audio_files(&arguments.from).map_err(crate::with_causes)?;
+    let paths = scan.files;
+    if paths.is_empty() {
+        bail!("no audio files found in --from");
+    }
+    if !arguments.json {
+        writeln!(
+            messages,
+            "Learning {} tracks to recognise them; the first time takes a while.",
+            paths.len()
+        )?;
+    }
+    let learned = analyzer.fingerprint_library(&paths, &|_| {}, &|| false);
+    if !arguments.json {
+        writeln!(
+            messages,
+            "Recognising {} tracks ({} learned now, {} unreadable).",
+            paths.len() - learned.failed,
+            learned.made,
+            learned.failed
+        )?;
+    }
+    let matcher = MatcherHandle::default();
+    if let Ok(mut handle) = matcher.write() {
+        *handle = Some(Arc::new(learned.index));
+    }
+    Ok(Some(LiveLibrary { matcher, paths }))
 }
 
 pub fn run(arguments: &LiveArguments) -> Result<ExitCode> {
     let capture = platform_capture()?;
     let mut standard_output = std::io::stdout().lock();
+    let mut messages = std::io::stderr().lock();
+    let library = learn_library(arguments, &mut messages)?;
     run_with(
         capture,
         arguments,
+        library,
         &mut standard_output,
-        &mut std::io::stderr().lock(),
+        &mut messages,
         &|| false,
     )
 }
@@ -62,6 +119,7 @@ fn platform_capture() -> Result<Box<dyn AudioCapture>> {
 pub(crate) fn run_with(
     capture: Box<dyn AudioCapture>,
     arguments: &LiveArguments,
+    library: Option<LiveLibrary>,
     output: &mut dyn Write,
     messages: &mut dyn Write,
     should_stop: &dyn Fn() -> bool,
@@ -71,8 +129,18 @@ pub(crate) fn run_with(
     }
     let interval = Duration::from_secs_f32(arguments.interval);
     let source = choose_source(capture.as_ref(), arguments.source.as_deref())?;
-    let engine = LiveEngine::start(capture, source.clone(), LiveSettings::default(), interval)
-        .map_err(describe_capture_error)?;
+    let (matcher, paths) = match library {
+        Some(library) => (library.matcher, library.paths),
+        None => (MatcherHandle::default(), Vec::new()),
+    };
+    let engine = LiveEngine::start(
+        capture,
+        source.clone(),
+        LiveSettings::default(),
+        interval,
+        matcher,
+    )
+    .map_err(describe_capture_error)?;
     if !arguments.json {
         writeln!(
             messages,
@@ -82,6 +150,7 @@ pub(crate) fn run_with(
     }
     let mut was_listening = false;
     let mut hinted = false;
+    let mut last_matched = None;
     loop {
         std::thread::sleep(interval);
         let reading = engine.latest();
@@ -108,9 +177,16 @@ pub(crate) fn run_with(
             was_listening = false;
             hinted = false;
             if arguments.json {
-                writeln!(output, "{}", reading_json(&reading, source.label()))?;
+                writeln!(output, "{}", reading_json(&reading, source.label(), &paths))?;
             } else {
                 writeln!(output, "{}", reading_line(&reading))?;
+                let matched = reading.matched.map(|found| found.track);
+                if matched != last_matched
+                    && let Some(path) = matched.and_then(|track| paths.get(track))
+                {
+                    writeln!(output, "matched: {}", path.display())?;
+                }
+                last_matched = matched;
             }
             output.flush()?;
         }
@@ -165,7 +241,11 @@ pub(crate) fn reading_line(reading: &LiveReading) -> String {
         .to_string()
 }
 
-pub(crate) fn reading_json(reading: &LiveReading, source: &str) -> serde_json::Value {
+pub(crate) fn reading_json(
+    reading: &LiveReading,
+    source: &str,
+    paths: &[PathBuf],
+) -> serde_json::Value {
     json!({
         "listening": false,
         "source": source,
@@ -177,6 +257,16 @@ pub(crate) fn reading_json(reading: &LiveReading, source: &str) -> serde_json::V
         "bpm": reading.tempo.map(|live| f64::from((live.bpm * 10.0).round() as i32) / 10.0),
         "bpm_confidence": reading.tempo.map(|live| live.confidence.as_str()),
         "energy": reading.energy,
+        "match": reading.matched.and_then(|found| {
+            paths.get(found.track).map(|path| json!({
+                "path": path,
+                "position_seconds": (found.start_seconds
+                    + reading.heard_seconds.min(15.0) * found.playback.tempo_ratio)
+                    .round(),
+                "tempo_ratio": (found.playback.tempo_ratio * 100.0).round() / 100.0,
+                "pitch_follows_tempo": found.playback.pitch_follows_tempo,
+            }))
+        }),
         "level_db": reading.level.map(|level| level.rms_db.round()),
     })
 }
@@ -249,6 +339,7 @@ mod tests {
             source: None,
             interval: 0.5,
             json,
+            from: Vec::new(),
         }
     }
 
@@ -271,6 +362,16 @@ mod tests {
     }
 
     fn run_for(audio: Vec<f32>, json: bool, readings: usize, polls: usize) -> (String, String) {
+        run_library(audio, json, readings, polls, None)
+    }
+
+    fn run_library(
+        audio: Vec<f32>,
+        json: bool,
+        readings: usize,
+        polls: usize,
+        library: Option<LiveLibrary>,
+    ) -> (String, String) {
         let capture = Playing {
             audio,
             sink: None,
@@ -283,6 +384,7 @@ mod tests {
         let _ = run_with(
             Box::new(capture),
             &arguments(json),
+            library,
             &mut output,
             &mut messages,
             &|| {
@@ -370,10 +472,82 @@ mod tests {
         let result = run_with(
             Box::new(capture),
             &options,
+            None,
             &mut Vec::new(),
             &mut Vec::new(),
             &|| true,
         );
         assert!(result.is_err());
+    }
+
+    fn melody(seed: u32, seconds: f32) -> Vec<f32> {
+        let total = (seconds * SAMPLE_RATE as f32) as usize;
+        let mut samples = vec![0.0; total];
+        let mut state = seed.wrapping_mul(2_654_435_761) | 1;
+        let step = SAMPLE_RATE as usize / 4;
+        let mut start = 0;
+        while start < total {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let frequency = 220.0 * 2.0_f32.powf(((state >> 24) % 24) as f32 / 12.0);
+            for offset in 0..(step * 2).min(total - start) {
+                let time = offset as f32 / SAMPLE_RATE as f32;
+                samples[start + offset] += 0.3
+                    * (-time * 5.0).exp()
+                    * ((TAU * frequency * time).sin() + 0.4 * (TAU * 2.0 * frequency * time).sin());
+            }
+            start += step;
+        }
+        samples
+    }
+
+    fn library_of_melodies() -> (Vec<Vec<f32>>, LiveLibrary) {
+        let tracks: Vec<Vec<f32>> = (1..=4).map(|seed| melody(seed, 60.0)).collect();
+        let mut index = euphoria_core::fingerprint::FingerprintIndex::new();
+        for (id, track) in tracks.iter().enumerate() {
+            let audio = euphoria_core::AudioBuffer::new(
+                track.clone(),
+                NonZeroU32::new(SAMPLE_RATE).unwrap(),
+            );
+            index.add(id, &euphoria_core::fingerprint::fingerprint(&audio));
+        }
+        index.freeze();
+        let matcher = MatcherHandle::default();
+        *matcher.write().unwrap() = Some(Arc::new(index));
+        let paths = (1..=4)
+            .map(|number| PathBuf::from(format!("/music/track {number}.flac")))
+            .collect();
+        (tracks, LiveLibrary { matcher, paths })
+    }
+
+    #[test]
+    fn a_recognised_track_is_printed_once_with_its_path() {
+        let (tracks, library) = library_of_melodies();
+        let played = tracks[2][SAMPLE_RATE as usize * 15..SAMPLE_RATE as usize * 30].to_vec();
+        let (output, _) = run_library(played, false, 3, 240, Some(library));
+        let matches: Vec<&str> = output
+            .lines()
+            .filter(|line| line.starts_with("matched: "))
+            .collect();
+        assert_eq!(matches, ["matched: /music/track 3.flac"], "{output}");
+    }
+
+    #[test]
+    fn json_names_the_match_and_how_it_is_played() {
+        let (tracks, library) = library_of_melodies();
+        let played = tracks[0][SAMPLE_RATE as usize * 15..SAMPLE_RATE as usize * 30].to_vec();
+        let (output, _) = run_library(played, true, 3, 240, Some(library));
+        let last: serde_json::Value = serde_json::from_str(output.lines().last().unwrap()).unwrap();
+        assert_eq!(last["match"]["path"], "/music/track 1.flac");
+        assert_eq!(last["match"]["pitch_follows_tempo"], false);
+        assert!((last["match"]["tempo_ratio"].as_f64().unwrap() - 1.0).abs() < 0.001);
+        let position = last["match"]["position_seconds"].as_f64().unwrap();
+        assert!((position - 30.0).abs() <= 3.0, "{position}");
+    }
+
+    #[test]
+    fn without_a_library_json_has_no_match() {
+        let (output, _) = run_for(programme(14.0), true, 2, 240);
+        let last: serde_json::Value = serde_json::from_str(output.lines().last().unwrap()).unwrap();
+        assert!(last["match"].is_null());
     }
 }

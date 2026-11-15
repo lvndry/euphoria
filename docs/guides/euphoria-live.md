@@ -92,30 +92,43 @@ macOS asks for permission for the program that runs `euphoria`, so from a termin
 
 Measured on an Apple silicon Mac with a build of the `fast` profile, which is optimised like a release: listening costs about 5 percent of one core at a two second interval, with the buffer full, and about 65 to 90 MB of memory.
 
-## Recognising a track of your library (not in the app yet)
+## Recognising a track of your library
 
-The core can already recognise which track of a library a few seconds of audio come from, and where in it: `euphoria_core::fingerprint`. It is not wired into the Live panel yet, so the panel has no "match" line today and the Next list ranks from the key and tempo heard. What exists:
+When what plays is a file in your library, Live says which one and where in it, and the Next list ranks from that track's own key, tempo and energy instead of the ones heard. The panel shows an **In your library** card with the title, the position, and how the track is played: for example "+6.0%, key lock", or "-4.0%, pitch follows" for a turntable or a pitch fader without key lock. In a terminal, add `--from` and `euphoria live` prints `matched: <path>` when it recognises a track, and `--json` adds a `match` object with `path`, `position_seconds`, `tempo_ratio` and `pitch_follows_tempo`.
 
-- **How it works.** The audio is brought to 8 kHz, and the spectrogram is searched for peaks louder than everything near them in time and frequency, above 190 Hz so the kick and bass that repeat in every four-on-the-floor track do not match tracks to each other. Pairs of nearby peaks are hashed from their two frequencies and the time between them, so a hash does not depend on level, on where in the track it sits, or much on what else plays. Matching counts, per track and offset, how many hashes agree: at least 8 and 5 percent of the query's hashes, and twice the next track's.
-- **Accuracy**, on generated tracks (10 tracks of 60 s with random melodies over a kick, 15 s excerpts from three positions each, 30 queries per row), a track is right when the track is found and the position is within half a second:
+```
+euphoria live --from ~/Music/DJ
+```
 
-| Query | Right | Wrong track | No match |
-| --- | --- | --- | --- |
-| The same audio | 30 of 30 | 0 | 0 |
-| Gain of -18 dB | 30 of 30 | 0 | 0 |
-| Gain of +12 dB | 30 of 30 | 0 | 0 |
-| Captured at 48 kHz, tracks stored at 11 kHz | 30 of 30 | 0 | 0 |
-| Mixed with a second track at -10 dB | 29 of 30 | 0 | 1 |
-| Mixed with a second track at -3 dB, either track counts as right | 16 of 30 | 0 | 14 |
+Without a match, Live ranks from the key and tempo it hears, so Spotify and YouTube work as before.
 
-  Four generated tracks that are not in the library matched nothing, nor did silence or noise. These are synthetic: real music, rekordbox playing a track pitched up or down, a long loop, or a remix of a library track are **not tested**, and a track pitched more than a few percent will not match, because the hashes encode frequencies.
-- **Cost.** About 57 hashes per second of audio, so 27 KB per minute of a track at 8 bytes a hash, or 7 KB when the stored hashes are thinned to a quarter, which a full query still matches. A library of 10,000 five minute tracks is then about 340 MB thinned by four. Fingerprinting 15 s of live audio is a few milliseconds.
+**Learning the library.** The first time, Euphoria decodes each analyzed track of the library once to make its fingerprint and keeps it in the analysis cache, in a table of its own that never touches an analysis, so nothing is analyzed again. In the app this runs in the background, one track at a time at about a third of a core, and the panel says "Learning your library to recognise tracks: 120 of 800" until it is done; tracks are recognised only after that. `euphoria live --from` does it before it starts listening. Tracks the cache has no analysis for are left out in the app. Moving or retagging a file does not make its fingerprint again, because it is kept under the content of the file.
 
-To finish it in the app, the fingerprints need a table in the analysis cache (migration 14 on main today), filled by a background pass over the library that decodes each track once and never changes the analysis, so no re-analysis of the library is forced. The Live model then matches the buffer of the last 15 s every few seconds and shows the match, the position and the track's own key and tempo in place of the heard ones.
+**How it works.** The audio is brought to 8 kHz, and the spectrogram is searched for peaks louder than everything near them in time and frequency, above 190 Hz so the kick and bass that repeat in every four on the floor track do not match tracks to each other. Pairs of nearby peaks are hashed from their two frequencies and the time between them, so a hash does not depend on level, on where in the track it sits, or much on what else plays. Matching counts, per track and offset, how many hashes agree: at least 8, at least 5 percent of the query's hashes, and twice the next track's.
+
+**Played faster or slower.** DJs play tracks at plus or minus 8 percent, with the pitch following the tempo or, with key lock, staying put. Both move the time between two peaks, and the first moves their frequencies too, so a plain hash would never match. The peaks of the last 15 seconds are moved as each tempo change from 90 to 110 percent in steps of 2 would move them, with the pitch following and without, then hashed and matched; the step that agrees with the most hashes wins, and its tempo change names how the track is played. Frequencies are hashed on a log scale and a gap that is a frame off is tried too, so an off-grid tempo such as +5 percent still matches. A moved match needs 7 percent of the hashes to agree where a track at its own speed needs 5, because it is one of 21 tries.
+
+**Accuracy**, on generated tracks: 10 tracks of 60 s with random melodies over a kick, 15 s excerpts, an index thinned as the cache stores it (a quarter of the hashes). A track is right when it is found and the position is within half a second, or 0.6 s when played at another speed.
+
+| Query | Right | Wrong track |
+| --- | --- | --- |
+| The same audio | 30 of 30 | 0 |
+| Gain of -18 dB or +12 dB | 30 of 30, both | 0 |
+| Captured at 48 kHz, tracks stored at 11 kHz | 30 of 30 | 0 |
+| Mixed with a second track at -10 dB | 28 of 30 | 0 |
+| Mixed with a second track at -3 dB, either track counts as right | 14 of 30 | 0 |
+| Key lock, -8, -5, -3, +3, +5, +7 and +8 percent | 15 of 15 at each | 0 |
+| Pitch follows tempo, -8, -5, -3, +3, +7 and +8 percent | 15 of 15 at each | 0 |
+| Pitch follows tempo, +5 percent | 14 of 15 | 0 |
+
+The tempo rows use 5 tracks at 3 positions. Twelve generated tracks that are not in the library matched nothing, nor did silence or noise. Through the real process tap, a generated track played by `afplay` at 0.92, 0.94, 1.06 and 1.08 times its speed, which keeps the pitch, was recognised as the right file each time, and at its own speed too. Real music, a remix of a library track, and turntable playback through the tap are **not tested**.
+
+**Cost.** About 71 hashes per second of audio; the cache stores a quarter of them, 18 per second, 8 bytes each: 43 KB for a five minute track, 430 MB for 10,000 tracks on disk. In memory the index is one sorted list of 8 bytes a hash, capped at 16 million hashes (128 MB), thinned further when the library is larger, which costs recall; a library over about 16,000 tracks is not indexed beyond that count. Fingerprinting 15 s of live audio takes about 3 ms. Searching 15 s at all 21 tempos takes about 70 ms with a library of 1,000 tracks and 280 ms with one of 10,000 on an Apple silicon Mac, once every three readings, about 6 seconds, which is about 5 percent of a core on top of the 5 percent of the analysis. The first pass over a library costs a decode of every track: the app spreads it out; `--from` runs it at full speed.
 
 ## Limits
 
 - **A mix of two tracks gives a blended key.** While two tracks play together, the key of the 25 seconds is that of the blend, with a lower confidence, and the tempo may sit between the two. Wait for the transition to finish.
 - **A new track takes about 8 seconds** to show a key, and a key change takes longer than that to show, because the key is read from 25 seconds.
 - **Not tested with every source.** It is tested with generated tones and kick patterns, with a generated track played by `afplay` and heard through the process tap (126 BPM and C major came back right, with the tap read at the output device's rate), and by hand against music playing on the Mac that built it. Sources that play through another device than the default output, Bluetooth outputs and rekordbox itself are not tested.
+- **Recognition needs a learned library and a track at its own tempo, within 10 percent.** Tracks beyond 10 percent, loops, edits and remixes are not recognised, and two tracks mixed at about equal level are recognised only part of the time.
 - **Process names are those macOS knows.** A browser plays audio from a helper process, so `--source` must name that process.
