@@ -102,7 +102,7 @@ pub fn analyze_examples() -> StyledStr {
                 "Everything, for a script",
             ),
         ],
-        "In the table, ●●● is high confidence, ●●○ medium and ●○○ low: worth checking by ear.",
+        "In the table, the Review column names the tracks worth checking by ear and why.",
     )
 }
 

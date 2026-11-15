@@ -62,9 +62,9 @@ Every release, with its notes and the command line tool for both systems, is on 
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key                  BPM       Energy              Quality   Time  File
- 8A  A minor  ●●●  124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
- 9A  E minor  ●●○  122.0  ●●●       4  ━━━━──────  good      7:12  Saffron.m4a
+Key             BPM  Energy              Quality   Time  File
+ 8A  A minor  124.0       6  ━━━━━━────  lossless  6:48  Low Tide.flac
+ 9A  E minor  122.0       4  ━━━━──────  good      7:12  Saffron.m4a
 ```
 
 One file is shown in detail, with the runner up key, the half or double tempo and the reason for its sound quality: `euphoria analyze ~/Music/DJ/Saffron.m4a`.

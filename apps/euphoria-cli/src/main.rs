@@ -607,7 +607,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         Layout::PlainTable => output::write_plain_table(
             &mut standard_output,
             &listed_results,
-            &user_edits,
             arguments.key_notation,
         )?,
         Layout::Table => view::write_table(
@@ -615,7 +614,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &standard_output_theme,
             &listed_results,
             &view_options,
-            &corrections,
             &tag_keys,
         )?,
         Layout::Detail => {

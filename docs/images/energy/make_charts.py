@@ -34,13 +34,14 @@ FEATURE_WEIGHTS = [
     ("Tempo, when known", 0.0),
 ]
 
-# "From measurements to a rating", the row "Tracks, rated with the detected
-# tempo" for ratings 1 to 10 of the 604 GiantSteps Key previews.
-GIANTSTEPS_TRACKS_PER_RATING = [26, 22, 53, 67, 86, 91, 102, 79, 42, 36]
+# "From measurements to a rating", the row "GiantSteps previews, version 3"
+# for ratings 1 to 10 of the 604 GiantSteps Key previews.
+GIANTSTEPS_TRACKS_PER_RATING = [11, 20, 21, 60, 80, 95, 101, 103, 66, 47]
 
 # "Energy curve": energy_curve on a two minute preview from the GiantSteps
 # benchmark set, 8 second windows every 4 seconds, as (window centre in
-# seconds, rating), and the rating of the whole preview.
+# seconds, rating), the windows left out of the main body, and the rating of
+# the preview in version 3 and in version 2.
 CURVE_WINDOW_SECONDS = 8
 CURVE_STEP_SECONDS = 4
 CURVE_POINTS = [
@@ -49,31 +50,47 @@ CURVE_POINTS = [
     (68, 9), (72, 9), (76, 10), (80, 9), (84, 9), (88, 10), (92, 9), (96, 10),
     (100, 9), (104, 6), (108, 7), (112, 8), (116, 8),
 ]
-CURVE_WHOLE_TRACK_RATING = 6
+CURVE_LEFT_OUT_CENTRES = {40, 44, 48, 52, 56}
+CURVE_TRACK_RATING = 7
+CURVE_VERSION_2_RATING = 6
 
 # "How well it works", the table of agreement by genre: Spearman correlation
-# of the score with listeners' arousal for the old weights (version 1) and the
-# new weights (version 2), and the number of songs. DEAM rows are the 586 held
+# of the score with listeners' arousal for version 2 and version 3, and the
+# number of songs. DEAM rows are the 586 held
 # out songs, PMEmo rows the 226 held out songs with a genre label.
 GENRE_AGREEMENT = [
-    ("DEAM, all genres", 586, 0.601, 0.656),
-    ("Electronic", 110, 0.650, 0.709),
-    ("Rock", 135, 0.570, 0.669),
-    ("Folk", 99, 0.609, 0.732),
-    ("Pop", 81, 0.729, 0.735),
-    ("Jazz", 81, 0.688, 0.685),
-    ("Classical", 71, 0.454, 0.458),
-    ("Country", 71, 0.507, 0.474),
-    ("Blues", 62, 0.405, 0.599),
-    ("Experimental", 54, 0.694, 0.751),
-    ("International", 44, 0.695, 0.787),
-    ("Hip-hop", 32, 0.442, 0.621),
-    ("Soul and R&B", 36, 0.626, 0.805),
-    ("PMEmo, all genres", 226, 0.526, 0.760),
-    ("Hip-hop and rap", 32, 0.600, 0.823),
-    ("Pop", 26, 0.535, 0.631),
-    ("Country", 22, 0.705, 0.775),
-    ("Dance and electronic", 19, 0.349, 0.524),
+    ("DEAM, all genres", 586, 0.656, 0.671),
+    ("Electronic", 110, 0.709, 0.746),
+    ("Rock", 135, 0.669, 0.684),
+    ("Folk", 99, 0.732, 0.717),
+    ("Pop", 81, 0.735, 0.728),
+    ("Jazz", 81, 0.685, 0.657),
+    ("Classical", 71, 0.458, 0.585),
+    ("Country", 71, 0.474, 0.499),
+    ("Blues", 62, 0.599, 0.610),
+    ("Experimental", 54, 0.751, 0.779),
+    ("International", 44, 0.787, 0.748),
+    ("Hip-hop", 32, 0.621, 0.643),
+    ("Soul and R&B", 36, 0.805, 0.763),
+    ("PMEmo, all genres", 226, 0.760, 0.755),
+    ("Hip-hop and rap", 32, 0.823, 0.804),
+    ("Pop", 26, 0.631, 0.626),
+    ("Country", 22, 0.775, 0.760),
+    ("Dance and electronic", 19, 0.524, 0.502),
+]
+
+# "The rating and the curve agree": share of tracks whose rating is 2 or more
+# steps from the median of their curve, in version 2 and in version 3, with
+# the number of tracks.
+CURVE_AGREEMENT = [
+    ("Library, afro house", 20, 0.20, 0.10),
+    ("Library, deep house", 20, 0.35, 0.0),
+    ("Library, melodic house", 20, 0.30, 0.0),
+    ("Library, tech house", 20, 0.15, 0.10),
+    ("Library, all folders", 85, 0.27, 0.05),
+    ("GiantSteps previews", 604, 0.175, 0.053),
+    ("DEAM excerpts", 1802, 0.019, 0.006),
+    ("PMEmo choruses", 794, 0.037, 0.008),
 ]
 
 STYLE = """
@@ -297,9 +314,8 @@ def giantsteps_spread_chart():
 
     description = (
         "Column chart of how many of the 604 GiantSteps Key previews get each rating "
-        "with the detected tempo: 26, 22, 53, 67, 86, 91, 102, 79, 42 and 36 tracks "
-        "for ratings 1 to 10. The previews cover the whole scale, with most between 4 and 8 "
-        "and the peak at 7."
+        "in version 3: 11, 20, 21, 60, 80, 95, 101, 103, 66 and 47 tracks for ratings 1 "
+        "to 10. The previews cover the whole scale, with most between 4 and 8 and the peak at 8."
     )
     return document(width, height, "How the GiantSteps previews spread over the scale", description, body)
 
@@ -318,7 +334,7 @@ def energy_curve_chart():
     to_y = scale(1, 10, plot_bottom, plot_top)
     body = [
         text(24, 36, "Energy curve of a two minute preview", "title"),
-        text(24, 58, "A rating every 4 seconds, each over an 8 second window, against the rating of the whole preview.", "subtitle"),
+        text(24, 58, "A rating every 4 seconds over 8 second windows. The grey band is more than 6 LU below the body.", "subtitle"),
     ]
     for rating_tick in (1, 4, 7, 10):
         body.append(line(to_x(0), to_y(rating_tick), to_x(120), to_y(rating_tick), "grid"))
@@ -336,20 +352,28 @@ def energy_curve_chart():
     wash = [(steps[0][0], plot_bottom), *steps, (steps[-1][0], plot_bottom)]
     wash_points = " ".join(f"{number(x)},{number(y)}" for x, y in wash)
     body.append(f'<polygon points="{wash_points}" class="series-wash"/>')
-    body.append(line(to_x(0), to_y(CURVE_WHOLE_TRACK_RATING), to_x(120), to_y(CURVE_WHOLE_TRACK_RATING), "reference"))
+    left_out_start = to_x(min(CURVE_LEFT_OUT_CENTRES) - half_step)
+    left_out_end = to_x(max(CURVE_LEFT_OUT_CENTRES) + half_step)
+    body.append(
+        f'<rect x="{number(left_out_start)}" y="{number(plot_top)}" width="{number(left_out_end - left_out_start)}" '
+        f'height="{number(plot_bottom - plot_top)}" class="muted-fill" fill-opacity="0.18"/>'
+    )
+    body.append(text((left_out_start + left_out_end) / 2, plot_top - 8, "Left out", "label", "middle"))
+    body.append(line(to_x(0), to_y(CURVE_TRACK_RATING), to_x(120), to_y(CURVE_TRACK_RATING), "reference"))
     body.append(polyline(steps, "series-line"))
-    body.append(text(plot_right + 10, to_y(CURVE_WHOLE_TRACK_RATING) - 4, "Whole preview", "label"))
-    body.append(text(plot_right + 10, to_y(CURVE_WHOLE_TRACK_RATING) + 13, f"rates {CURVE_WHOLE_TRACK_RATING}", "label"))
+    body.append(text(plot_right + 10, to_y(CURVE_TRACK_RATING) - 4, "The preview", "label"))
+    body.append(text(plot_right + 10, to_y(CURVE_TRACK_RATING) + 13, f"rates {CURVE_TRACK_RATING}", "label"))
     body.append(text(to_x(49), to_y(1) - 14, "Breakdown", "label", "middle"))
-    body.append(text(to_x(62) - 10, to_y(9.2), "Drop", "label", "end"))
+    body.append(text(to_x(66), to_y(9.6), "Drop", "label", "end"))
 
     description = (
         "Step chart of the energy rating of a two minute preview from the benchmark set, "
         "one rating every 4 seconds over 8 second windows. It starts at 10, eases down to 2 "
         "by half a minute, falls to 1 in a breakdown between about 40 and 60 seconds, jumps "
         "back to 8 and then 9 or 10 at the drop just after one minute and stays high to the "
-        "end. The whole preview rates 6, "
-        "so the windows reach both higher and lower than the rating of the whole track."
+        "end. The breakdown is more than 6 LU below the loud part, so it is left out of the main "
+        "body, and the preview rates 7, the mean of the body. Rated whole, as in version 2, it "
+        "rated 6."
     )
     return document(width, height, "Energy curve of a two minute preview", description, body)
 
@@ -364,7 +388,7 @@ def agreement_by_genre_chart():
     body = [
         text(24, 36, "Agreement with listeners by genre", "title"),
         text(24, 58, "Correlation of the energy score with listeners' arousal, on songs held out from the fitting.", "subtitle"),
-        text(24, 80, "Grey: weights of version 1. Blue: weights of version 2.", "subtitle"),
+        text(24, 80, "Grey: version 2, the whole track. Blue: version 3, the body of the curve.", "subtitle"),
     ]
     for tick in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
         body.append(line(to_x(tick), chart_top, to_x(tick), chart_bottom, "grid"))
@@ -379,11 +403,43 @@ def agreement_by_genre_chart():
 
     description = (
         "Dot plot of the correlation between the energy score and listeners' arousal, by genre, "
-        "for the weights of version 1 and of version 2. Version 2 is higher in 13 of 16 genre "
-        "groups, level in jazz and classical, and 0.03 lower in DEAM country music. Overall it "
-        "rises from 0.60 to 0.66 on DEAM and from 0.53 to 0.76 on PMEmo."
+        "for version 2 and version 3. Version 3 sits close to version 2 in every group: higher in "
+        "9 of 18 and lower in 9, every change inside its interval. The largest moves are classical "
+        "music, up 0.13, and soul and R&B, down 0.04. Overall it moves from 0.66 to 0.67 on DEAM "
+        "and from 0.76 to 0.75 on PMEmo."
     )
     return document(width, height, "Agreement with listeners by genre", description, body)
+
+
+def curve_agreement_chart():
+    width = 800
+    row_height = 30
+    chart_top = 104
+    height = chart_top + row_height * len(CURVE_AGREEMENT) + 64
+    to_x = scale(0, 0.4, 250, 740)
+    chart_bottom = chart_top + row_height * len(CURVE_AGREEMENT)
+    body = [
+        text(24, 36, "How often the rating and the curve disagree", "title"),
+        text(24, 58, "Share of tracks rated 2 or more steps away from the median of their own curve.", "subtitle"),
+        text(24, 80, "Grey: version 2, the whole track. Blue: version 3, the body of the curve.", "subtitle"),
+    ]
+    for tick in (0, 0.1, 0.2, 0.3, 0.4):
+        body.append(line(to_x(tick), chart_top, to_x(tick), chart_bottom, "grid" if tick else "axis"))
+        body.append(text(to_x(tick), chart_bottom + 20, f"{tick:.0%}", "tick", "middle"))
+    body.append(text(to_x(0.2), chart_bottom + 44, "Tracks 2 or more steps from their curve", "label", "middle"))
+    for index, (name, count, before, after) in enumerate(CURVE_AGREEMENT):
+        row_middle = chart_top + row_height * index + row_height / 2
+        body.append(text(to_x(0) - 14, row_middle + 4.5, f"{name} ({count})", "label", "end"))
+        body.append(line(to_x(before), row_middle, to_x(after), row_middle, "reference"))
+        body.append(f'<circle cx="{number(to_x(before))}" cy="{number(row_middle)}" r="5" class="muted-fill ring"/>')
+        body.append(dot(to_x(after), row_middle))
+    description = (
+        "Dot plot of the share of tracks whose rating is 2 or more steps away from the median of "
+        "their own energy curve, for version 2 and version 3. Version 3 lowers it in every group: "
+        "from 27% to 5% in one DJ library of full length tracks, from 17.5% to 5.3% in the "
+        "GiantSteps previews, from 1.9% to 0.6% in DEAM and from 3.7% to 0.8% in PMEmo."
+    )
+    return document(width, height, "How often the rating and the curve disagree", description, body)
 
 
 CHARTS = {
@@ -392,6 +448,7 @@ CHARTS = {
     "giantsteps-spread.svg": giantsteps_spread_chart,
     "agreement-by-genre.svg": agreement_by_genre_chart,
     "energy-curve.svg": energy_curve_chart,
+    "curve-agreement.svg": curve_agreement_chart,
 }
 
 

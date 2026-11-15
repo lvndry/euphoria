@@ -19,12 +19,12 @@ While it works, each track being analyzed has a line saying what Euphoria is doi
 
 ## Read the table
 
-Each row is a track: its key, coloured by its place on the Camelot wheel, its tempo, its energy from 1 to 10, its sound quality in a word, its length and its file. The dots after the key and the tempo say how sure Euphoria is: `●●●` sure, `●●○` fairly sure, `●○○` worth checking by ear. In a narrow window, the less needed columns are left out.
+Each row is a track: its key, coloured by its place on the Camelot wheel, its tempo, its energy from 1 to 10, its sound quality in a word, its length and its file. A Review column names the tracks worth checking by ear and why. In a narrow window, the less needed columns are left out.
 
 Below the table, a summary says what the numbers count, for example:
 
 ```
-Key and tempo: 3 of 124 tracks rated low confidence (●○○), worth checking by ear.
+Key and tempo: 3 of 124 tracks worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.
 Sound quality: 86 tracks good, 31 weak on a big system, 7 likely re-encoded.
 hint: --needs-review lists only the tracks to check by ear.
 hint: euphoria quality lists the files worth replacing, worst first, with why.
