@@ -75,6 +75,11 @@ define_class!(
             self.send(MenuBarCommand::ShowMatchedTrack);
         }
 
+        #[unsafe(method(showMatchedTrack:))]
+        fn show_matched_track(&self, _sender: Option<&AnyObject>) {
+            self.send(MenuBarCommand::ShowMatchedTrack);
+        }
+
         #[unsafe(method(quit:))]
         fn quit(&self, _sender: Option<&AnyObject>) {
             self.send(MenuBarCommand::Quit);
