@@ -101,7 +101,7 @@ The JSON output has `cost` and `lower_bound`: the cost of the set, and the cost 
 
 ## Compared with other tools
 
-The desktop app suggests the next track from the one playing, one step at a time, which suits a DJ who decides as they go. The set builder plans the whole set at once, so it saves high energy tracks for the peak instead of spending them early.
+The desktop app suggests the next track from the one playing, one step at a time, which suits a DJ who decides as they go. [`euphoria next`](../reference/cli.md#euphoria-next) gives the same ranking on the command line. The set builder plans the whole set at once, so it saves high energy tracks for the peak instead of spending them early.
 
 ## Limits
 

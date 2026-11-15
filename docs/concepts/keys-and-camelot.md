@@ -55,7 +55,7 @@ Four more moves have a name in harmonic mixing. They change more notes, so the r
 
 | Move | From 8A (A minor) | From 8B (C major) | How it sounds |
 | --- | --- | --- | --- |
-| **Diagonal** | 7B | 9A | One step and the other letter. The keys share six of their seven notes, so the blend holds together while the mood shifts. |
+| **Wheel diagonal** | 7B | 9A | One step and the other letter. The keys share six of their seven notes, so the blend holds together while the mood shifts. |
 | **Energy boost** | 10A | 10B | Two numbers up, same letter. The key rises by a whole tone, a clear lift in energy. |
 | **Mood change** | 11B | 5A | The same home note in the other mode, such as A minor to A major. A dramatic change of mood. |
 | **Semitone boost** | 3A | 3B | Seven numbers up, same letter. The key rises by a semitone, a dramatic lift whose melodies clash. |
@@ -73,6 +73,35 @@ Numbers wrap around the wheel: one step up from 12A is 1A, and an energy boost f
 When you ask what can follow a track, Euphoria keeps the tracks whose key makes one of the moves you allow and whose tempo is close enough, 6 percent by default. A track at half or double the tempo can count as a tempo match if you allow it. Tracks without a detected key are left out; tracks without a detected tempo are kept and listed last.
 
 The list is ordered by move, from the same key to the boldest move you allowed, then by tempo difference, then by how close the energy is.
+
+## How Euphoria names a move
+
+The desktop app and the command line take these words from one place, the core, so a move reads the same everywhere:
+
+| Move | Words | Plain meaning |
+| --- | --- | --- |
+| 8A to 8A | **Same key** | The same key. |
+| 8A to 7A or 9A | **One step on the wheel** | A fifth apart. |
+| 8A to 8B | **Relative** | The other letter, the same number. |
+| 8A to 7B | **Wheel diagonal** | One step and a major/minor switch. |
+| 8A to 10A | **Energy boost** | Two numbers up. |
+| 8A to 11B | **Mood change** | The same home note in the other mode. |
+| 8A to 3A | **Semitone boost** | Seven numbers up. |
+| none of these | **Key clash** | The keys have no relation on the wheel. |
+
+The flag values of `euphoria set build --moves` and the `key_move` field of the JSON stay `same`, `adjacent`, `relative`, `diagonal`, `energy-boost`, `mood-change` and `semitone-boost`, so scripts do not depend on the words.
+
+## Tempo moves
+
+How far the pitch fader has to move to match a track is named by the size of the tempo change, up or down:
+
+| Tempo change | Name | Meaning |
+| --- | --- | --- |
+| under 3 percent | **Easy** | Easy to match by ear. |
+| 3 to 6 percent | **Pitch move** | A clear move of the pitch fader. |
+| over 6 percent | **Big jump** | A big jump; the tracks will sound sped up or slowed down. |
+
+3 percent is a **Pitch move** and so is 6; only a change over 6 percent is a **Big jump**. The name appears next to the percent in the app's **Tempo** chip and in `euphoria set build`, `euphoria plan` and `euphoria next`.
 
 ## Tracks off concert pitch and tracks that change key
 
