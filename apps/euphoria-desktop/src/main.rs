@@ -55,6 +55,8 @@ mod library_export_ui_tests;
 mod live_app;
 mod live_model;
 mod live_settings;
+#[cfg(test)]
+mod live_ui_tests;
 mod logging;
 mod logo_motion;
 mod mashup;

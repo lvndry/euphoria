@@ -287,6 +287,15 @@ impl LiveModel {
         cx.notify();
     }
 
+    /// Replaces what was heard, for a test of the list that needs an energy
+    /// the generated audio does not have.
+    #[cfg(test)]
+    pub(crate) fn pretend_heard(&mut self, reading: LiveReading, cx: &mut Context<'_, Self>) {
+        self.reading = reading;
+        self.rank(cx);
+        cx.notify();
+    }
+
     /// The reference the list ranks from: the key and tempo heard.
     fn reference(&self) -> Option<TrackFeatures> {
         if self.reading.listening {

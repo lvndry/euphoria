@@ -14,7 +14,6 @@ use std::time::{Duration, Instant};
 
 use euphoria_core::TrackAnalysis;
 use euphoria_core::live::{AudioCapture, AudioSink, CaptureError, ListenSource};
-use gpui::test::TestWindowExt;
 use gpui::{
     AnyWindowHandle, AppContext as _, Bounds, Entity, Point, TestAppContext, WindowBounds,
     WindowOptions, px, size,
@@ -130,6 +129,8 @@ fn library() -> Library {
         ("Relative", "8A", 124.0, 5),
         ("Far Key", "3A", 126.0, 6),
         ("Too Fast", "8B", 170.0, 6),
+        ("Calm", "8B", 126.0, 3),
+        ("Peak", "8B", 126.0, 9),
     ] {
         let path = PathBuf::from(format!("/music/{name}.flac"));
         library.add_files(vec![path.clone()]);
@@ -247,7 +248,10 @@ fn rows(model: &Entity<LiveModel>, cx: &mut TestAppContext) -> Vec<String> {
         model
             .next_rows
             .iter()
-            .map(|row| library.track(row.track_index).unwrap().title().to_string())
+            .map(|row| {
+                let title = library.track(row.track_index).unwrap().title();
+                title.trim_end_matches(".flac").to_string()
+            })
             .collect()
     })
 }
@@ -313,6 +317,13 @@ fn keep_lift_and_drop_reorder_the_same_candidates(cx: &mut TestAppContext) {
     poll_until(&model, cx, |model| {
         hears_a_key(model) && !model.next_rows.is_empty()
     });
+    cx.update(|cx| {
+        model.update(cx, |model, cx| {
+            let mut reading = model.reading;
+            reading.energy = Some(6);
+            model.pretend_heard(reading, cx);
+        })
+    });
     let kept = rows(&model, cx);
     click(window, energy_id(EnergyChoice::Lift), cx);
     let lifted = rows(&model, cx);
@@ -322,9 +333,10 @@ fn keep_lift_and_drop_reorder_the_same_candidates(cx: &mut TestAppContext) {
     assert_ne!(kept, lifted);
     assert_ne!(lifted, dropped);
     assert_eq!(
-        lifted[0], "One Step",
+        lifted[0], "Peak",
         "the most energetic mix comes first on Lift"
     );
+    assert_eq!(dropped[0], "Calm", "the calmest mix comes first on Drop");
 }
 
 #[gpui::test]

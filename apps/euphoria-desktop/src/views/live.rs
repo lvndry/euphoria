@@ -269,6 +269,7 @@ fn figures(model: &LiveModel) -> Div {
     let reading = &model.reading;
     let shown = model.is_listening() && !reading.listening;
     let figure = |label: &'static str, value: Option<String>, id: Option<&'static str>| {
+        let has_value = value.is_some();
         let value_element = div()
             .text_size(px(BIG_FIGURE_SIZE))
             .font_weight(FontWeight::SEMIBOLD)
@@ -285,16 +286,16 @@ fn figures(model: &LiveModel) -> Div {
             .gap(GAP_TIGHT)
             .child(section_label(label, &palette))
             .child(match id {
-                Some(id) => value_element.id(id).test_support().into_any_element(),
-                None => value_element.into_any_element(),
+                Some(id) if has_value => value_element.id(id).test_support().into_any_element(),
+                _ => value_element.into_any_element(),
             })
     };
     let bpm = shown
-        .then(|| reading.tempo)
+        .then_some(reading.tempo)
         .flatten()
         .map(|tempo| format!("{:.1}", tempo.bpm));
     let energy = shown
-        .then(|| reading.energy)
+        .then_some(reading.energy)
         .flatten()
         .map(|energy| energy.to_string());
     div()
@@ -476,11 +477,6 @@ fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
     } else {
         "No track in your library mixes in with this."
     };
-    let title = if model.reading.key.is_some() {
-        "Next"
-    } else {
-        "Next"
-    };
     div()
         .flex()
         .flex_col()
@@ -492,7 +488,7 @@ fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(section_label(title, &palette))
+                .child(section_label("Next", &palette))
                 .child(control),
         )
         .child(
