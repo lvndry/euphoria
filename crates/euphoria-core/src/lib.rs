@@ -38,6 +38,8 @@ pub mod key;
 pub mod key_engine;
 /// Finding audio files in folders.
 pub mod library;
+/// Reading the key, tempo and energy of the audio the computer is playing.
+pub mod live;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
 /// The energy and stem levels the transition planner reads.
