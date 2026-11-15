@@ -246,7 +246,11 @@ fn pool_choices(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .test_support(),
         );
     }
-    labelled(crate::harmony_words::PICK_FROM_LABEL, row, &palette)
+    labelled(
+        euphoria_core::harmony::words::PICK_FROM_LABEL,
+        row,
+        &palette,
+    )
 }
 
 /// The curve to draw on, and once a set is built, a bar for each track of
@@ -813,7 +817,9 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             with_rule_tooltip(
                 div()
                     .text_color(colour)
-                    .child(crate::harmony_words::movement_label(transition.relation)),
+                    .child(euphoria_core::harmony::words::movement_label(
+                        transition.relation,
+                    )),
                 "set-row-key",
             )
         });

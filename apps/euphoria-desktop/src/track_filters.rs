@@ -3,183 +3,41 @@
 
 //! The filters of the track list: a tempo range, quality verdicts and an
 //! energy range, combined with AND, on top of the sidebar selection and the
-//! search box.
+//! search box. The matching lives in the core, shared with the command line;
+//! this module adds what only the window needs.
 
-use euphoria_core::quality::QualityVerdict;
-use serde::{Deserialize, Serialize};
+use euphoria_core::quality::QualityReport;
+pub(crate) use euphoria_core::track_filter::{MAXIMUM_ENERGY, MINIMUM_ENERGY};
+pub(crate) use euphoria_core::{FilterableTrack, QualityChoice, TrackFilters, TypedTrackFilters};
 
 use crate::format;
 use crate::library::Track;
-use crate::metronome::parse_bpm;
 
-/// The lowest energy rating.
-pub(crate) const MINIMUM_ENERGY: u8 = 1;
-
-/// The highest energy rating.
-pub(crate) const MAXIMUM_ENERGY: u8 = 10;
-
-/// What a quality chip of the filter bar stands for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum QualityChoice {
-    /// Tracks with this verdict.
-    Verdict(QualityVerdict),
-    /// Tracks whose file is damaged.
-    Damaged,
-}
-
-impl QualityChoice {
-    /// The chips, from the best verdict to damaged files.
-    pub(crate) const ALL: [QualityChoice; 7] = [
-        QualityChoice::Verdict(QualityVerdict::Lossless),
-        QualityChoice::Verdict(QualityVerdict::Good),
-        QualityChoice::Verdict(QualityVerdict::Acceptable),
-        QualityChoice::Verdict(QualityVerdict::WeakOnABigSystem),
-        QualityChoice::Verdict(QualityVerdict::LikelyReencoded),
-        QualityChoice::Verdict(QualityVerdict::LimitedBandwidth),
-        QualityChoice::Damaged,
-    ];
-
-    /// The word the chip shows, the same as the Quality column.
-    pub(crate) fn chip_label(self) -> &'static str {
-        match self {
-            QualityChoice::Verdict(verdict) => format::quality_verdict(verdict),
-            QualityChoice::Damaged => "Damaged",
-        }
-    }
-
-    /// The full name, for the chip's tooltip.
-    pub(crate) fn full_label(self) -> &'static str {
-        match self {
-            QualityChoice::Verdict(verdict) => verdict.label(),
-            QualityChoice::Damaged => "Damaged",
-        }
-    }
-
-    fn fits(self, track: &Track) -> bool {
-        let Some(report) = track.quality() else {
-            return false;
-        };
-        match self {
-            QualityChoice::Verdict(verdict) => report.verdict == verdict,
-            QualityChoice::Damaged => report.is_damaged(),
-        }
+/// The word the chip of a quality choice shows, the same as the Quality
+/// column.
+pub(crate) fn chip_label(choice: QualityChoice) -> &'static str {
+    match choice {
+        QualityChoice::Verdict(verdict) => format::quality_verdict(verdict),
+        QualityChoice::Damaged => "Damaged",
     }
 }
 
-/// The text of the four range fields as the user typed it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct TypedTrackFilters {
-    pub(crate) bpm_from: String,
-    pub(crate) bpm_to: String,
-    pub(crate) energy_from: String,
-    pub(crate) energy_to: String,
-}
-
-/// The filters on the track list. A field left empty is no filter.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub(crate) struct TrackFilters {
-    /// The slowest tempo shown, in beats per minute.
-    pub(crate) bpm_min: Option<f32>,
-    /// The fastest tempo shown.
-    pub(crate) bpm_max: Option<f32>,
-    /// Whether a track at half or double the tempo range is shown too.
-    pub(crate) half_or_double: bool,
-    /// The verdicts shown. Empty shows every quality.
-    pub(crate) qualities: Vec<QualityChoice>,
-    /// The lowest energy shown.
-    pub(crate) energy_min: Option<u8>,
-    /// The highest energy shown.
-    pub(crate) energy_max: Option<u8>,
-}
-
-impl TrackFilters {
-    /// True when the filters narrow the list. The half and double toggle
-    /// alone does not.
-    pub(crate) fn is_active(&self) -> bool {
-        self.has_tempo() || self.has_energy() || !self.qualities.is_empty()
+impl FilterableTrack for Track {
+    fn is_analyzed(&self) -> bool {
+        self.analysis().is_some()
     }
 
-    fn has_tempo(&self) -> bool {
-        self.bpm_min.is_some() || self.bpm_max.is_some()
+    fn bpm(&self) -> Option<f32> {
+        Track::bpm(self)
     }
 
-    fn has_energy(&self) -> bool {
-        self.energy_min.is_some() || self.energy_max.is_some()
+    fn energy(&self) -> Option<u8> {
+        Track::energy(self)
     }
 
-    /// Whether `track` passes every filter. A track without an analysis
-    /// passes only while no tempo, energy or quality filter is set.
-    pub(crate) fn matches(&self, track: &Track) -> bool {
-        if !self.is_active() {
-            return true;
-        }
-        if track.analysis().is_none() {
-            return false;
-        }
-        if self.has_tempo() && !track.bpm().is_some_and(|bpm| self.tempo_fits(bpm)) {
-            return false;
-        }
-        if self.has_energy()
-            && !track
-                .energy()
-                .is_some_and(|energy| self.energy_fits(energy))
-        {
-            return false;
-        }
-        self.qualities.is_empty() || self.qualities.iter().any(|choice| choice.fits(track))
+    fn quality(&self) -> Option<&QualityReport> {
+        Track::quality(self)
     }
-
-    fn tempo_fits(&self, bpm: f32) -> bool {
-        let within = |bpm: f32| {
-            self.bpm_min.is_none_or(|minimum| bpm >= minimum)
-                && self.bpm_max.is_none_or(|maximum| bpm <= maximum)
-        };
-        within(bpm) || (self.half_or_double && (within(bpm * 2.0) || within(bpm / 2.0)))
-    }
-
-    fn energy_fits(&self, energy: u8) -> bool {
-        self.energy_min.is_none_or(|minimum| energy >= minimum)
-            && self.energy_max.is_none_or(|maximum| energy <= maximum)
-    }
-
-    /// Adds `choice` to the verdicts shown, or takes it out when it is there.
-    pub(crate) fn toggle_quality(&mut self, choice: QualityChoice) {
-        match self.qualities.iter().position(|chosen| *chosen == choice) {
-            Some(position) => {
-                self.qualities.remove(position);
-            }
-            None => self.qualities.push(choice),
-        }
-    }
-
-    /// These filters with the ranges read from `typed`. A field that is
-    /// empty or does not read leaves that end open.
-    pub(crate) fn with_typed(&self, typed: &TypedTrackFilters) -> TrackFilters {
-        TrackFilters {
-            bpm_min: parse_bpm(&typed.bpm_from),
-            bpm_max: parse_bpm(&typed.bpm_to),
-            energy_min: parse_energy(&typed.energy_from),
-            energy_max: parse_energy(&typed.energy_to),
-            ..self.clone()
-        }
-    }
-}
-
-/// The energy typed in a field, or `None` when it is not a number from 1 to
-/// 10. A comma or a point both start the decimals, and the rating is rounded
-/// to a whole number.
-pub(crate) fn parse_energy(text: &str) -> Option<u8> {
-    let typed: f32 = text.trim().replace(',', ".").parse().ok()?;
-    if !typed.is_finite() {
-        return None;
-    }
-    let rounded = typed.round();
-    if rounded < f32::from(MINIMUM_ENERGY) || rounded > f32::from(MAXIMUM_ENERGY) {
-        return None;
-    }
-    Some(rounded as u8)
 }
 
 /// The four fields the ranges are typed in.
@@ -194,7 +52,7 @@ pub(crate) struct TrackFilterInputs {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use euphoria_core::quality::QualityReport;
+    use euphoria_core::quality::{QualityReport, QualityVerdict};
     use euphoria_core::{Correction, DecodeDamage, TrackAnalysis};
 
     use super::*;
@@ -498,7 +356,7 @@ mod tests {
         ] {
             assert!(QualityChoice::ALL.contains(&QualityChoice::Verdict(verdict)));
             assert_eq!(
-                QualityChoice::Verdict(verdict).chip_label(),
+                chip_label(QualityChoice::Verdict(verdict)),
                 format::quality_verdict(verdict)
             );
             assert_eq!(

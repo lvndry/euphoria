@@ -664,7 +664,7 @@ fn the_surfaces_use_the_dj_words_and_the_old_words_are_gone() {
             assert!(!production.contains(word), "{name} still says {word}");
         }
     }
-    let words = include_str!("harmony_words.rs");
+    let words = include_str!("../../../crates/euphoria-core/src/harmony/words.rs");
     for word in [
         "One step on the wheel",
         "Wheel diagonal",

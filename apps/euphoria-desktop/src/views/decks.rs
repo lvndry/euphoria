@@ -20,7 +20,6 @@ use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
 use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
-use crate::harmony_words::relation_name;
 use crate::player::fraction_along;
 use crate::theme::Palette;
 use crate::views::controls::{choice_button, pressed_button, toggle_row};
@@ -32,6 +31,7 @@ use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_SMALL};
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
 use crate::waveforms::Waveform;
+use euphoria_core::harmony::words::relation_name;
 
 /// Height of a deck's waveform.
 const DECK_WAVEFORM_HEIGHT: f32 = 64.0;

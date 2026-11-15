@@ -55,7 +55,7 @@ impl Relation {
             Relation::Same => "Same key",
             Relation::Adjacent => "One step on the wheel",
             Relation::Relative => "Relative",
-            Relation::Diagonal => "Diagonal",
+            Relation::Diagonal => "Wheel diagonal",
             Relation::EnergyBoost => "Energy boost",
             Relation::MoodChange => "Mood change",
             Relation::SemitoneBoost => "Semitone boost",

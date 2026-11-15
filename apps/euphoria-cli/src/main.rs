@@ -6,8 +6,10 @@
 mod batch;
 mod corrections;
 mod export;
+mod filters;
 mod grid_import;
 mod help;
+mod next;
 mod output;
 mod plan;
 mod playlists;
@@ -32,7 +34,6 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
-use euphoria_core::quality::QualityVerdict;
 use euphoria_core::{
     CachedBatch, EuphoriaError, FileResult, TrackAnalysis, clear_cache, default_cache_path,
 };
@@ -127,6 +128,21 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Rank the best tracks to play after a track: key, tempo and energy.
+    #[command(
+        long_about = "Rank the best tracks to play after a track, the same ranking as the \
+                      Next after list of the desktop app.\n\n\
+                      Candidates come from the folder of the track, or from --from: a folder, \
+                      audio files or a playlist built in the desktop app. A candidate mixes \
+                      in when its key is the same, one step on the wheel or the relative key, \
+                      and its tempo is within 6 percent. Among those, the order follows the \
+                      energy you ask for: kept, lifted with --lift or dropped with --drop. \
+                      Each row says how the key moves, how far the tempo moves (Easy, Pitch \
+                      move or Big jump) and how the energy changes. A key or tempo you set in \
+                      the desktop app is the one used.",
+        after_help = help::next_examples(),
+    )]
+    Next(next::NextArguments),
     /// Plan how to mix one track into the next: tempo, clashes and the best windows.
     #[command(
         long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
@@ -175,13 +191,12 @@ struct AnalyzeArguments {
     detail: bool,
     /// List only the tracks whose key or tempo is rated low confidence or
     /// whose tags name another key, and the files that could not be
-    /// analyzed.
+    /// analyzed. A key or tempo you set or confirmed with "Looks right" in
+    /// the desktop app is no longer in doubt.
     #[arg(long)]
     needs_review: bool,
-    /// List only the tracks with one of these sound qualities, separated by
-    /// commas, such as weak,reencoded to find the files to replace.
-    #[arg(long, value_enum, value_delimiter = ',', value_name = "QUALITY")]
-    quality: Vec<QualityChoice>,
+    #[command(flatten)]
+    filters: filters::FilterArguments,
     /// How keys are shown in the table and the detailed view.
     #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
     key_notation: KeyNotationChoice,
@@ -193,39 +208,6 @@ struct AnalyzeArguments {
     collection: Option<PathBuf>,
     #[command(flatten)]
     analysis: AnalysisOptions,
-}
-
-/// A sound quality to list with `--quality`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum QualityChoice {
-    /// Lossless files with a full spectrum.
-    Lossless,
-    /// Lossless files whose content stops below 19 kHz with a gradual roll-off.
-    #[value(alias = "limited-bandwidth")]
-    Limited,
-    /// High bit rate files with the spectrum that bit rate keeps.
-    Good,
-    /// Medium bit rate files, fine in most rooms.
-    Acceptable,
-    /// Low bit rate files, whose top end suffers on a big system.
-    #[value(alias = "weak-on-a-big-system")]
-    Weak,
-    /// Files whose sound stops where a lower quality file's would.
-    #[value(alias = "likely-reencoded", alias = "re-encoded")]
-    Reencoded,
-}
-
-impl QualityChoice {
-    fn verdict(self) -> QualityVerdict {
-        match self {
-            QualityChoice::Lossless => QualityVerdict::Lossless,
-            QualityChoice::Limited => QualityVerdict::LimitedBandwidth,
-            QualityChoice::Good => QualityVerdict::Good,
-            QualityChoice::Acceptable => QualityVerdict::Acceptable,
-            QualityChoice::Weak => QualityVerdict::WeakOnABigSystem,
-            QualityChoice::Reencoded => QualityVerdict::LikelyReencoded,
-        }
-    }
 }
 
 /// A shell to write completions for.
@@ -323,6 +305,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Shift(arguments) => shift::run(&arguments),
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
+        Command::Next(arguments) => next::run(&arguments),
         Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
@@ -368,6 +351,7 @@ enum Layout {
 }
 
 fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
+    let track_filters = arguments.filters.track_filters()?;
     let analysis = &arguments.analysis;
     let (missing_paths, present_paths): (Vec<PathBuf>, Vec<PathBuf>) = arguments
         .paths
@@ -426,24 +410,15 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         grid_import::ImportSummary::of(&files, &grid_infos)
     });
 
-    let verdicts: Vec<QualityVerdict> = arguments
-        .quality
-        .iter()
-        .map(|choice| choice.verdict())
-        .collect();
+    let verdicts = arguments.filters.verdicts();
     let is_listed = |path: &Path, analysis: &TrackAnalysis| {
-        (!arguments.needs_review
-            || analysis.needs_review()
-            || tag_keys.conflict(path, analysis).is_some())
-            && (verdicts.is_empty()
-                || analysis
-                    .quality
-                    .as_ref()
-                    .is_some_and(|quality| verdicts.contains(&quality.verdict)))
+        (!arguments.needs_review || !tag_keys.review_reasons(path, analysis).is_empty())
+            && track_filters.matches(&filters::Filtered(analysis))
     };
     let narrowing = Narrowing {
         needs_review: arguments.needs_review,
         verdicts: verdicts.clone(),
+        ranges: arguments.filters.describe_ranges(),
         shown_count: results
             .iter()
             .filter(|result| {
@@ -500,7 +475,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         let one_track_in_detail = layout == Layout::Detail
             && results.len() == 1
             && !arguments.needs_review
-            && verdicts.is_empty();
+            && !track_filters.is_active();
         if needs_space && (!one_track_in_detail || cached_count > 0) {
             writeln!(report)?;
         }
@@ -577,6 +552,8 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                         FileFacts {
                             tag_key: tag_keys.get(&result.path),
                             grid_info: grid_infos.get(&result.path),
+                            review: tag_keys.review_reasons(&result.path, track),
+                            reviewed: tag_keys.reviewed(&result.path),
                         },
                     )?;
                 }
@@ -646,27 +623,5 @@ mod tests {
     #[test]
     fn the_command_line_is_well_formed() {
         Cli::command().debug_assert();
-    }
-
-    #[test]
-    fn every_quality_choice_names_its_own_verdict() {
-        let verdicts: Vec<QualityVerdict> = QualityChoice::value_variants()
-            .iter()
-            .map(|choice| choice.verdict())
-            .collect();
-        for verdict in [
-            QualityVerdict::Lossless,
-            QualityVerdict::LimitedBandwidth,
-            QualityVerdict::Good,
-            QualityVerdict::Acceptable,
-            QualityVerdict::WeakOnABigSystem,
-            QualityVerdict::LikelyReencoded,
-        ] {
-            assert!(verdicts.contains(&verdict), "{verdict:?}");
-        }
-        assert_eq!(
-            QualityChoice::from_str("weak-on-a-big-system", false).unwrap(),
-            QualityChoice::Weak
-        );
     }
 }

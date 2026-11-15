@@ -11,7 +11,8 @@ use clap::ValueEnum;
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::{
-    Confidence, Correction, FileResult, Key, TagKey, TagKeyAgreement, TempoRange, TrackAnalysis,
+    Confidence, Correction, FileResult, Key, ReviewReason, TagKey, TagKeyAgreement, TempoRange,
+    TrackAnalysis,
 };
 
 use crate::batch::Corrections;
@@ -213,10 +214,11 @@ enum Column {
     EnergyBar,
     Quality,
     Time,
+    Review,
 }
 
 impl Column {
-    const ALL: [Column; 10] = [
+    const ALL: [Column; 11] = [
         Column::Key,
         Column::KeyCompanion,
         Column::KeyConfidence,
@@ -227,15 +229,17 @@ impl Column {
         Column::EnergyBar,
         Column::Quality,
         Column::Time,
+        Column::Review,
     ];
 
     /// The order columns are left out in when the window is narrow, the
     /// most decorative first. The key, the tempo and the file always stay.
-    const DROP_ORDER: [&'static [Column]; 7] = [
+    const DROP_ORDER: [&'static [Column]; 8] = [
         &[Column::EnergyBar],
         &[Column::KeyCompanion],
         &[Column::Time],
         &[Column::TagKey],
+        &[Column::Review],
         &[Column::KeyConfidence, Column::BpmConfidence],
         &[Column::Quality],
         &[Column::Energy],
@@ -249,6 +253,7 @@ impl Column {
             Column::Quality => "Quality",
             Column::Time => "Time",
             Column::TagKey => "Tags",
+            Column::Review => "Review",
             Column::KeyCompanion
             | Column::KeyConfidence
             | Column::BpmConfidence
@@ -308,15 +313,22 @@ fn tag_key_cell(
     }
 }
 
+/// The cells a row has besides the analysis: the tags and the review.
+struct Notes {
+    tag_key: String,
+    review: String,
+}
+
 fn row(
     theme: &Theme,
     analysis: &TrackAnalysis,
     correction: Option<&Correction>,
     options: &ViewOptions,
-    tag_key: String,
+    notes: Notes,
     folder: String,
     name: String,
 ) -> Row {
+    let Notes { tag_key, review } = notes;
     let low_mark = |confidence: Option<Confidence>| {
         if confidence == Some(Confidence::Low) {
             theme.caution("?")
@@ -350,6 +362,7 @@ fn row(
                 Column::KeyConfidence if key_set => theme.user("you"),
                 Column::KeyConfidence => confidence_meter(theme, analysis.key_confidence()),
                 Column::TagKey => tag_key.clone(),
+                Column::Review => review.clone(),
                 Column::Bpm => bpm.clone(),
                 Column::BpmConfidence if bpm_set => theme.user("you"),
                 Column::BpmConfidence => confidence_meter(theme, analysis.tempo_confidence()),
@@ -372,6 +385,52 @@ fn row(
         bpm_marked: Cell::new(format!("{bpm}{}", low_mark(analysis.tempo_confidence()))),
         folder,
         name,
+    }
+}
+
+/// A reason to review a track in a few words for the table.
+fn review_word(reason: &ReviewReason) -> &'static str {
+    match reason {
+        ReviewReason::Failed(_) => "failed",
+        ReviewReason::KeyUnsure => "key",
+        ReviewReason::TempoUnsure => "tempo",
+        ReviewReason::KeyConflict { .. } => "tags",
+    }
+}
+
+/// A reason to review a track in words for the detailed view.
+fn review_sentence(
+    reason: &ReviewReason,
+    analysis: &TrackAnalysis,
+    options: &ViewOptions,
+) -> String {
+    match reason {
+        ReviewReason::Failed(message) => format!("could not be analyzed: {message}"),
+        ReviewReason::KeyUnsure => match analysis.key_runner_up {
+            Some(runner_up) => format!(
+                "key unsure (runner up {}  {})",
+                options.notation.short(runner_up),
+                options.notation.companion(runner_up)
+            ),
+            None => "key unsure".to_string(),
+        },
+        ReviewReason::TempoUnsure => "tempo unsure".to_string(),
+        ReviewReason::KeyConflict { tag_key } => {
+            format!("the tags say {}", options.notation.short(*tag_key))
+        }
+    }
+}
+
+/// What the Review column shows: the reasons in a word each, "checked" for
+/// a track the user already settled, and nothing otherwise.
+fn review_cell(theme: &Theme, reasons: &[ReviewReason], reviewed: bool) -> String {
+    if !reasons.is_empty() {
+        let words: Vec<&str> = reasons.iter().map(review_word).collect();
+        theme.caution(words.join("+"))
+    } else if reviewed {
+        theme.dim("checked")
+    } else {
+        String::new()
     }
 }
 
@@ -512,7 +571,13 @@ pub fn write_table(
                 .get(*path)
                 .and_then(|looked_up| looked_up.as_ref().ok());
             let tag_key = tag_key_cell(theme, tag_keys, path, analysis, options);
-            row(theme, analysis, correction, options, tag_key, folder, name)
+            let review = review_cell(
+                theme,
+                &tag_keys.review_reasons(path, analysis),
+                tag_keys.reviewed(path),
+            );
+            let notes = Notes { tag_key, review };
+            row(theme, analysis, correction, options, notes, folder, name)
         })
         .collect();
 
@@ -536,11 +601,11 @@ pub fn write_table(
         .copied()
         .filter(|column| column_width(*column, &rows) > 0)
         .filter(|column| {
-            *column != Column::TagKey
+            !matches!(column, Column::TagKey | Column::Review)
                 || rows.iter().any(|row| {
                     row.cells
                         .iter()
-                        .any(|(kept, cell)| *kept == Column::TagKey && cell.width > 0)
+                        .any(|(kept, cell)| kept == column && cell.width > 0)
                 })
         })
         .collect();
@@ -747,12 +812,16 @@ fn write_tag_key(
 }
 
 /// What was read about a file besides its analysis, for the detailed view.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FileFacts<'facts> {
     /// The key field of the file's tags.
     pub tag_key: Option<&'facts TagKey>,
     /// Where the beat grid came from, when a collection was given.
     pub grid_info: Option<&'facts GridInfo>,
+    /// Why the track is worth checking by ear.
+    pub review: Vec<ReviewReason>,
+    /// True when the user set or confirmed the key or the tempo.
+    pub reviewed: bool,
 }
 
 /// Writes everything known about one track, a label per line: the key with
@@ -768,7 +837,12 @@ pub fn write_detail(
     correction: Option<&Correction>,
     facts: FileFacts<'_>,
 ) -> io::Result<()> {
-    let FileFacts { tag_key, grid_info } = facts;
+    let FileFacts {
+        tag_key,
+        grid_info,
+        review,
+        reviewed,
+    } = facts;
     let key_set = correction.is_some_and(|correction| correction.key.is_some());
     let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
     let name = path
@@ -848,6 +922,27 @@ pub fn write_detail(
             }
         }
         None => write_line(writer, theme, "Tempo", &theme.dim("none found"))?,
+    }
+
+    if !review.is_empty() {
+        let words: Vec<String> = review
+            .iter()
+            .map(|reason| review_sentence(reason, analysis, options))
+            .collect();
+        write_wrapped(
+            writer,
+            theme,
+            "Review",
+            &theme.caution(words.join(", ")),
+            width,
+        )?;
+    } else if reviewed {
+        write_line(
+            writer,
+            theme,
+            "Review",
+            &theme.user("checked by you, no longer in doubt"),
+        )?;
     }
 
     if let Some(grid) = analysis.beat_grid {
@@ -1064,11 +1159,29 @@ mod tests {
     #[test]
     fn a_wide_table_shows_every_column_without_the_common_folder() {
         let expected = "\
-Key                  BPM       Energy              Quality  Time  File
- 8A  A minor  ●●●  124.9  ●●●       7  ━━━━━━━───  weak     6:48  house/low tide.flac
- 8A  A minor  ●○○  124.9  ●●○       7  ━━━━━━━───  weak     6:48  techno/a rather long name of a track (extended mix).mp3
+Key                  BPM       Energy              Quality  Time  Review  File
+ 8A  A minor  ●●●  124.9  ●●●       7  ━━━━━━━───  weak     6:48          house/low tide.flac
+ 8A  A minor  ●○○  124.9  ●●○       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
 ";
         assert_eq!(table(200), expected);
+    }
+
+    #[test]
+    fn the_review_column_gives_each_reason_a_word_and_marks_checked_tracks() {
+        let theme = Theme::PLAIN;
+        assert_eq!(review_cell(&theme, &[], false), "");
+        assert_eq!(review_cell(&theme, &[], true), "checked");
+        let key = Key::new(0, Mode::Major);
+        let reasons = [
+            ReviewReason::KeyUnsure,
+            ReviewReason::TempoUnsure,
+            ReviewReason::KeyConflict { tag_key: key },
+        ];
+        assert_eq!(review_cell(&theme, &reasons, true), "key+tempo+tags");
+        assert_eq!(
+            review_cell(&theme, &[ReviewReason::Failed("x".into())], false),
+            "failed"
+        );
     }
 
     #[test]

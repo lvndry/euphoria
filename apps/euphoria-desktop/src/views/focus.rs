@@ -25,9 +25,6 @@ use crate::focus::{
     CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
 };
 use crate::format;
-use crate::harmony_words::{
-    LAYERS_LABEL, OVERLAP_LABEL, TEMPO_LABEL, TempoMove, relation_hint, relation_name,
-};
 use crate::library::Track;
 use crate::mixes::keys_related_by;
 use crate::peaks::BandPeaks;
@@ -48,6 +45,9 @@ use crate::views::{
 };
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, TEXT_SIZE, secondary_button, section_label};
 use crate::waveforms::Waveform;
+use euphoria_core::harmony::words::{
+    LAYERS_LABEL, OVERLAP_LABEL, TEMPO_LABEL, TempoMove, relation_hint, relation_name,
+};
 
 /// Width of the column of lane names.
 const GUTTER: f32 = 84.0;

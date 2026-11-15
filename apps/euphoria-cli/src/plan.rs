@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
+use euphoria_core::harmony::TempoMove;
 use euphoria_core::harmony::transition::{
     AutomaticCues, CandidateWindow, Clash, PlanOptions, PlanTrack, SectionSource, TransitionPlan,
     WINDOW_LENGTHS, plan_transition,
@@ -61,6 +62,7 @@ struct PlanJson<'plan> {
     a: String,
     b: String,
     elapsed_milliseconds: f64,
+    tempo_move: &'static str,
     plan: &'plan TransitionPlan,
 }
 
@@ -134,6 +136,7 @@ pub fn run(arguments: &PlanArguments) -> Result<ExitCode> {
             a: loaded[0].path.display().to_string(),
             b: loaded[1].path.display().to_string(),
             elapsed_milliseconds: elapsed.as_secs_f64() * 1000.0,
+            tempo_move: TempoMove::of(plan.alignment.tempo_change_percent as f32).code(),
             plan: &plan,
         };
         let mut document = serde_json::to_value(&document)?;
@@ -264,17 +267,16 @@ fn write_plan(
     )?;
     writeln!(
         writer,
-        "{}  B {:.1} to {:.1} BPM, played at {:.3}x ({:+.1}%)",
+        "{}  B {:.1} to {:.1} BPM, played at {:.3}x ({:+.1}%, {})",
         theme.dim("Tempo"),
         alignment.bpm_b,
         alignment.bpm_a,
         alignment.rate,
-        alignment.tempo_change_percent
+        alignment.tempo_change_percent,
+        TempoMove::of(alignment.tempo_change_percent as f32).label()
     )?;
     if let (Some(first), Some(second)) = (tracks[0].analysis.key, tracks[1].analysis.key) {
-        let relation = first
-            .relation_to(&second)
-            .map_or("Key clash", |relation| relation.label());
+        let relation = euphoria_core::harmony::words::movement_label(first.relation_to(&second));
         writeln!(
             writer,
             "{}    {} to {}  {}",

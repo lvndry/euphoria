@@ -48,6 +48,8 @@ pub mod quality;
 pub mod rekordbox_grid;
 /// Linking a track whose file went missing to where the file is now.
 pub mod relink;
+/// Why a track is worth checking by ear.
+pub mod review;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
@@ -65,6 +67,8 @@ pub mod tags;
 pub mod tempo_range;
 /// The cues of a track: those analysis placed, or the user's.
 pub mod track_cues;
+/// Filtering tracks by tempo, energy and sound quality.
+pub mod track_filter;
 /// Reading the title, artist and key stored in audio files.
 pub mod track_name;
 
@@ -120,7 +124,9 @@ pub use playlists::{
     default_playlists_path, locate_entry, locate_moved_files,
 };
 pub use relink::{RelinkMatch, check_relink, find_in_folder};
+pub use review::{ReviewReason, failed_reason, is_reviewed, review_reasons};
 pub use tag_key::{KeyDifference, TagKey, TagKeyAgreement};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
+pub use track_filter::{FilterableTrack, QualityChoice, TrackFilters, TypedTrackFilters};
 pub use track_name::{TrackName, read_track_name};

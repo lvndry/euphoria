@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::{
-    BeatGrid, Confidence, Correction, Cue, Key, KeyDifference, TagKey, TagKeyAgreement, TempoRange,
+    BeatGrid, Correction, Cue, Key, KeyDifference, TagKey, TagKeyAgreement, TempoRange,
     TrackAnalysis, TrackCues, TrackName,
 };
 
@@ -58,18 +58,7 @@ impl From<&str> for TrackFailure {
     }
 }
 
-/// One reason a track is listed under Needs review.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ReviewReason {
-    /// Analysis failed; the text says why.
-    Failed(String),
-    /// The key is rated low confidence.
-    KeyUnsure,
-    /// The tempo is rated low confidence.
-    TempoUnsure,
-    /// The key field of the file's tags names another key.
-    KeyConflict { tag_key: Key },
-}
+pub(crate) use euphoria_core::ReviewReason;
 
 /// One audio file in the library, with the text the table shows for it.
 #[derive(Debug, Clone, PartialEq)]
@@ -335,27 +324,9 @@ impl Track {
     /// user set or confirmed is no longer in doubt.
     pub(crate) fn review_reasons(&self) -> Vec<ReviewReason> {
         match &self.status {
-            TrackStatus::Failed(message) => vec![ReviewReason::Failed(message.clone())],
+            TrackStatus::Failed(message) => euphoria_core::failed_reason(message.clone()),
             TrackStatus::Analyzed(analysis) => {
-                let mut reasons = Vec::new();
-                if self.correction.key.is_none()
-                    && !self.correction.key_confirmed
-                    && analysis.key_confidence() == Some(Confidence::Low)
-                {
-                    reasons.push(ReviewReason::KeyUnsure);
-                }
-                if self.correction.bpm.is_none()
-                    && !self.correction.bpm_confirmed
-                    && analysis.tempo_confidence() == Some(Confidence::Low)
-                {
-                    reasons.push(ReviewReason::TempoUnsure);
-                }
-                if self.key_conflict().is_some()
-                    && let Some(tag_key) = self.tag_key.as_ref().and_then(|tagged| tagged.key)
-                {
-                    reasons.push(ReviewReason::KeyConflict { tag_key });
-                }
-                reasons
+                euphoria_core::review_reasons(analysis, &self.correction, self.tag_key.as_ref())
             }
             TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => Vec::new(),
         }

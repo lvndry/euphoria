@@ -107,7 +107,7 @@ pub(crate) fn render(
         .map(|(index, choice)| {
             chip(
                 ("filter-quality", index),
-                choice.chip_label(),
+                crate::track_filters::chip_label(choice),
                 filters.qualities.contains(&choice),
                 &palette,
             )
