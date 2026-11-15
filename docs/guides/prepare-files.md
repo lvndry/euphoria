@@ -12,7 +12,7 @@ euphoria prepare ~/Music/Friday --dry-run
 euphoria prepare ~/Music/Friday --out ~/Music/Prepared
 ```
 
-The first command measures every track and prints what would change. The second writes the copies.
+The first command measures every track and prints what would change. The second writes the copies. The [desktop app](desktop-app.md#prepare-files) does the same from the right-click menu of the selection.
 
 ## Why loudness matching matters in a club
 

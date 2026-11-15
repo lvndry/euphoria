@@ -90,6 +90,9 @@ mod player_wave;
 mod player_wave_ui_tests;
 mod playlist_flow;
 mod playlists;
+mod prepare_files;
+#[cfg(test)]
+mod prepare_files_ui_tests;
 mod progress;
 mod reference_sound;
 mod relink_flow;

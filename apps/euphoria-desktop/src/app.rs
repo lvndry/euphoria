@@ -138,6 +138,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) tag_panel: Option<TagPanel>,
     /// The sheet that exports the library to a DJ program, while open.
     pub(crate) library_export: Option<crate::library_export::LibraryExportPanel>,
+    /// The sheet that prepares the selected files for a club system, while
+    /// open.
+    pub(crate) prepare_panel: Option<crate::prepare_files::PreparePanel>,
     /// How the export finds out whether a DJ program is running.
     pub(crate) running_checks: crate::library_export::RunningChecks,
     /// The checks of whether a DJ program is running before tags are written,
@@ -526,6 +529,7 @@ impl EuphoriaApp {
             tag_panel: None,
             auto_tags: crate::auto_tags::AutoTags::default(),
             library_export: None,
+            prepare_panel: None,
             running_checks: crate::library_export::RunningChecks::REAL,
             program_checks: if cfg!(test) {
                 euphoria_core::export::program_files::DjProgramChecks {
@@ -1282,6 +1286,10 @@ impl EuphoriaApp {
             self.close_library_export(cx);
             return true;
         }
+        if self.prepare_panel.is_some() {
+            self.close_prepare_files(cx);
+            return true;
+        }
         if self.tag_panel.is_some() {
             self.close_tag_panel(cx);
             return true;
@@ -1497,6 +1505,8 @@ impl EuphoriaApp {
             .sync(Modal::Export, self.library_export.is_some());
         self.modal_fades
             .sync(Modal::TagPanel, self.tag_panel.is_some());
+        self.modal_fades
+            .sync(Modal::Prepare, self.prepare_panel.is_some());
         self.modal_fades.drive(window);
         let holds_tags = !self.auto_tags.held_by().is_empty() && self.auto_tags.pending_count() > 0;
         self.strip_growth.sync(Strip::Notice, self.notice.is_some());
@@ -2978,6 +2988,7 @@ impl Render for EuphoriaApp {
             .children(views::notice::render(self, cx))
             .children(views::tag_panel::render(self, cx))
             .children(views::library_export_panel::render(self, cx))
+            .children(views::prepare_panel::render(self, cx))
             .when(self.settings_open, |window| {
                 window.child(views::settings_panel::render(self, cx))
             })
