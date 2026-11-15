@@ -998,13 +998,22 @@ struct StubStems;
 static STUB_STEMS: std::sync::Mutex<Option<euphoria_core::stems::StemFiles>> =
     std::sync::Mutex::new(None);
 
+/// Holds the stub separation until the test has looked at the progress, so
+/// a slow runner cannot let it finish before the first look.
+static STUB_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 impl crate::stems::StemSeparation for StubStems {
     fn stems(
         &mut self,
         _: &Path,
         _: &dyn euphoria_core::stems::SeparationObserver,
     ) -> Result<euphoria_core::stems::StemFiles, EuphoriaError> {
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !STUB_RELEASED.load(std::sync::atomic::Ordering::SeqCst)
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         Ok(STUB_STEMS.lock().unwrap().clone().unwrap())
     }
 }
@@ -1016,6 +1025,7 @@ fn the_separate_button_separates_b_in_place_and_the_lanes_fill_when_it_finishes(
     let setup = open_plans("plan-separate-button", &[0], cx);
     let folder = ScratchFolder::new("plan-separate-button-stub");
     *STUB_STEMS.lock().unwrap() = Some(write_stems_with_vocals_for(&folder, 64, 6));
+    STUB_RELEASED.store(false, std::sync::atomic::Ordering::SeqCst);
     let folder_a = ScratchFolder::new("plan-separate-button-a");
     let files_a = write_stems_with_vocals_for(&folder_a, 64, 6);
     cx.update(|cx| {
@@ -1056,6 +1066,7 @@ fn the_separate_button_separates_b_in_place_and_the_lanes_fill_when_it_finishes(
     );
     assert!(is_shown(setup.window, "planner-cancel-b", cx));
     assert!(!is_shown(setup.window, "planner-separate-b", cx));
+    STUB_RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while std::time::Instant::now() < deadline {
