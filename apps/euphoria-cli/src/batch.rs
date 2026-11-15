@@ -34,12 +34,12 @@ const DEFAULT_MAXIMUM_JOBS: usize = 8;
 pub struct AnalysisOptions {
     /// Number of files to analyze at once. Defaults to the number of
     /// cores, at most 8.
-    #[arg(long, short = 'j')]
+    #[arg(long, short = 'j', value_parser = at_least_one_usize)]
     jobs: Option<NonZeroUsize>,
     /// Minutes of audio to hold in memory at once, over all files being
     /// analyzed. A file waits when it would pass the limit, and a file longer
     /// than the limit runs alone. Defaults to 60, about 5 GB.
-    #[arg(long, value_name = "MINUTES")]
+    #[arg(long, value_name = "MINUTES", value_parser = at_least_one_u32)]
     audio_budget: Option<NonZeroU32>,
     /// Analyze every file and neither read nor update the cache.
     #[arg(long, conflicts_with = "reanalyze")]
@@ -67,6 +67,20 @@ fn parse_key_engine(text: &str) -> Result<KeyEngine, String> {
     } else {
         Err(format!("this build of Euphoria has no {engine} key engine"))
     }
+}
+
+fn at_least_one_usize(text: &str) -> Result<NonZeroUsize, String> {
+    let number: usize = text
+        .parse()
+        .map_err(|_| format!("{text:?} is not a whole number"))?;
+    NonZeroUsize::new(number).ok_or_else(|| "must be at least 1".to_string())
+}
+
+fn at_least_one_u32(text: &str) -> Result<NonZeroU32, String> {
+    let number: u32 = text
+        .parse()
+        .map_err(|_| format!("{text:?} is not a whole number"))?;
+    NonZeroU32::new(number).ok_or_else(|| "must be at least 1".to_string())
 }
 
 impl AnalysisOptions {

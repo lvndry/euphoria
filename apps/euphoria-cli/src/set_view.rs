@@ -375,7 +375,7 @@ fn deviation_messages(view: &SetView<'_>) -> Vec<String> {
                 let from = plan.tracks[position - 1].key;
                 let to = plan.tracks[position].key;
                 let what = match relation {
-                    Some(relation) => format!("a {} move", relation.label().to_lowercase()),
+                    Some(relation) => relation.label().to_lowercase(),
                     None => "no harmonic move".to_string(),
                 };
                 messages.push(format!(
@@ -410,6 +410,7 @@ fn deviation_messages(view: &SetView<'_>) -> Vec<String> {
 
 #[derive(Serialize)]
 struct JsonSet<'set> {
+    schema_version: u32,
     curve: &'set [f32],
     requested_tracks: usize,
     duration_seconds: f32,
@@ -519,6 +520,7 @@ pub fn write_json(
 ) -> io::Result<()> {
     let plan = view.plan;
     let set = JsonSet {
+        schema_version: output::JSON_SCHEMA_VERSION,
         curve: view.options.curve.levels(),
         requested_tracks: view.options.track_count,
         duration_seconds: round_to_tenths(view.total_seconds()),
@@ -612,7 +614,7 @@ pub fn write_json(
                 let error = result.outcome.as_ref().err()?;
                 Some(JsonFailure {
                     path: &result.path,
-                    error: error.chain().to_string(),
+                    error: output::describe(error),
                 })
             })
             .collect(),

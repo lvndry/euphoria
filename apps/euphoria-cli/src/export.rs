@@ -33,6 +33,7 @@ use euphoria_core::{
 use crate::batch::{self, AnalysisOptions};
 use crate::playlists::find_playlist;
 use crate::style::Theme;
+use crate::tags::{Decision, decide_with_prompt, report_nothing_written};
 use crate::terminal::Printable;
 use crate::{grid_import, output, with_causes};
 use euphoria_core::export::rekordbox_collection::{self as collection, CuedTracks};
@@ -214,6 +215,9 @@ pub struct EngineArguments {
     /// Check the library and show what would change, writing nothing.
     #[arg(long)]
     dry_run: bool,
+    /// Write without asking for confirmation.
+    #[arg(long, short = 'y', conflicts_with = "dry_run")]
+    yes: bool,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -319,6 +323,9 @@ pub struct VirtualDjArguments {
     /// Show what would change and write nothing.
     #[arg(long)]
     dry_run: bool,
+    /// Write without asking for confirmation.
+    #[arg(long, short = 'y', conflicts_with = "dry_run")]
+    yes: bool,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -751,22 +758,45 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
 
     let now = ModifiedTime::now();
     let backup = program_files::virtualdj_backup_path(&database, now);
-    let merge = if library.tracks.is_empty() {
-        Err(anyhow!(
-            "none of the files could be exported, so nothing was written"
-        ))
-    } else if arguments.dry_run {
-        preview_database_update(&database, &virtualdj_tracks, &options).map_err(with_causes)
-    } else {
-        update_database_file(&database, &backup, &virtualdj_tracks, &options).map_err(with_causes)
-    };
-
     let mut standard_error = std::io::stderr().lock();
     let theme = Theme::stderr();
     output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
     output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
-    let merge = merge?;
-    if !arguments.dry_run && !merge.updated.is_empty() {
+    let preview = if library.tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else {
+        preview_database_update(&database, &virtualdj_tracks, &options).map_err(with_causes)
+    }?;
+    let (merge, decision) = if arguments.dry_run || preview.updated.is_empty() {
+        (preview, Decision::Stop)
+    } else {
+        write_planned_update(&mut standard_error, &database, &preview.updated)?;
+        let decision = decide_to_write(
+            preview.updated.len(),
+            &database,
+            arguments.yes,
+            &theme,
+            &mut standard_error,
+        )?;
+        match decision {
+            Decision::Write => (
+                update_database_file(&database, &backup, &virtualdj_tracks, &options)
+                    .map_err(with_causes)?,
+                decision,
+            ),
+            _ => (preview, decision),
+        }
+    };
+    let written = matches!(decision, Decision::Write);
+    let declined = !arguments.dry_run && !written && !merge.updated.is_empty();
+    let not_confirmed = if declined {
+        report_nothing_written(decision, &theme, &mut standard_error)?
+    } else {
+        false
+    };
+    if written && !merge.updated.is_empty() {
         writeln!(
             standard_error,
             "Updated {} in {}",
@@ -785,6 +815,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
             output::counted(merge.updated.len(), "song", "songs"),
             Printable(database.display())
         )?;
+    } else if declined {
     } else {
         writeln!(
             standard_error,
@@ -846,7 +877,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     let (missing_count, failed_count) = output::missing_and_failed(&skipped);
     let missing_count = missing_count + left_out_of_playlist.missing;
     output::write_skipped_summary(&mut standard_error, failed_count, missing_count)?;
-    if !arguments.dry_run && !merge.updated.is_empty() {
+    if written && !merge.updated.is_empty() {
         output::write_import_steps(&mut standard_error, &theme, Program::VirtualDj)?;
     }
     drop(standard_error);
@@ -855,7 +886,10 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
     Ok(output::exit_status(
-        merge.updated.is_empty() || failed_count > 0 || left_out_of_playlist.replaced > 0,
+        merge.updated.is_empty()
+            || failed_count > 0
+            || left_out_of_playlist.replaced > 0
+            || not_confirmed,
         missing_count > 0,
     ))
 }
@@ -954,21 +988,43 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
     };
     let now = ModifiedTime::now();
     let backup = program_files::engine_backup_path(&library, now);
-    let update = if tracks.is_empty() {
-        Err(anyhow!(
-            "none of the files could be exported, so nothing was written"
-        ))
-    } else if arguments.dry_run {
-        preview_library_update(&database, &tracks, &options).map_err(with_causes)
-    } else {
-        update_library(&database, &backup, &tracks, &options).map_err(with_causes)
-    };
-
     let mut standard_error = std::io::stderr().lock();
     let theme = Theme::stderr();
     output::write_skipped_tracks(&mut standard_error, &theme, &skipped)?;
-    let update = update?;
+    let preview = if tracks.is_empty() {
+        Err(anyhow!(
+            "none of the files could be exported, so nothing was written"
+        ))
+    } else {
+        preview_library_update(&database, &tracks, &options).map_err(with_causes)
+    }?;
     output::write_unread_tags(&mut standard_error, &theme, &unread_tags)?;
+    let (update, decision) = if arguments.dry_run || preview.updated.is_empty() {
+        (preview, Decision::Stop)
+    } else {
+        write_planned_update(&mut standard_error, &database, &preview.updated)?;
+        let decision = decide_to_write(
+            preview.updated.len(),
+            &library,
+            arguments.yes,
+            &theme,
+            &mut standard_error,
+        )?;
+        match decision {
+            Decision::Write => (
+                update_library(&database, &backup, &tracks, &options).map_err(with_causes)?,
+                decision,
+            ),
+            _ => (preview, decision),
+        }
+    };
+    let written = matches!(decision, Decision::Write);
+    let declined = !arguments.dry_run && !written && !update.updated.is_empty();
+    let not_confirmed = if declined {
+        report_nothing_written(decision, &theme, &mut standard_error)?
+    } else {
+        false
+    };
     let schema = update
         .schema
         .map(|schema| format!(" (schema {schema})"))
@@ -986,6 +1042,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
             "Dry run: {updated} of {}{schema} would be updated; nothing was written.",
             Printable(database.display())
         )?;
+    } else if declined {
     } else {
         writeln!(
             standard_error,
@@ -1067,7 +1124,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
     let (missing_count, failed_count) = output::missing_and_failed(&skipped);
     let missing_count = missing_count + left_out_of_playlist.missing;
     output::write_skipped_summary(&mut standard_error, failed_count, missing_count)?;
-    if !arguments.dry_run && !update.updated.is_empty() {
+    if written && !update.updated.is_empty() {
         output::write_import_steps(&mut standard_error, &theme, Program::Engine)?;
     }
 
@@ -1075,7 +1132,10 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
         return Err(with_causes(store_error).context("some results were not saved to the cache"));
     }
     Ok(output::exit_status(
-        update.updated.is_empty() || failed_count > 0 || left_out_of_playlist.replaced > 0,
+        update.updated.is_empty()
+            || failed_count > 0
+            || left_out_of_playlist.replaced > 0
+            || not_confirmed,
         missing_count > 0,
     ))
 }
@@ -1129,6 +1189,50 @@ fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
 
 /// "Artist - Title" from the file's tags, the title alone without an
 /// artist, and the file name when the tags say nothing.
+/// Says which tracks are about to be written into a DJ program's library,
+/// before the confirmation.
+fn write_planned_update(
+    writer: &mut impl Write,
+    library: &Path,
+    updated: &[PathBuf],
+) -> Result<()> {
+    const LISTED: usize = 10;
+    writeln!(
+        writer,
+        "{} of {} will be updated:",
+        output::counted(updated.len(), "track", "tracks"),
+        Printable(library.display()),
+    )?;
+    for path in updated.iter().take(LISTED) {
+        writeln!(writer, "  {}", Printable(path.display()))?;
+    }
+    if updated.len() > LISTED {
+        writeln!(writer, "  and {} more", updated.len() - LISTED)?;
+    }
+    Ok(())
+}
+
+fn decide_to_write(
+    count: usize,
+    library: &Path,
+    yes: bool,
+    theme: &Theme,
+    standard_error: &mut impl Write,
+) -> Result<Decision> {
+    decide_with_prompt(
+        count,
+        false,
+        yes,
+        theme,
+        standard_error,
+        format_args!(
+            "Write {} into {}? A copy is saved first. [y/N]",
+            output::counted(count, "track", "tracks"),
+            Printable(library.display())
+        ),
+    )
+}
+
 pub fn display_name(path: &Path) -> String {
     let fallback = || {
         path.file_stem()

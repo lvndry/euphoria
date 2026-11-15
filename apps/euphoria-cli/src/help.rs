@@ -115,6 +115,14 @@ pub fn tags_examples() -> StyledStr {
                 "Write the fields rekordbox reads",
             ),
             (
+                "euphoria tags undo --list",
+                "See the writes that can be undone",
+            ),
+            (
+                "euphoria tags undo --dry-run",
+                "See the files the next undo restores",
+            ),
+            (
                 "euphoria tags undo",
                 "Put back the tags the last write replaced",
             ),
@@ -191,6 +199,10 @@ pub fn engine_export_examples() -> StyledStr {
                 "euphoria export engine ~/Music/DJ --beat-grid --cues",
                 "Write grids and hot cues too",
             ),
+            (
+                "euphoria export engine ~/Music/DJ --yes",
+                "Write without asking first",
+            ),
         ],
         "",
     )
@@ -243,11 +255,36 @@ pub fn virtualdj_export_examples() -> StyledStr {
                 "See what would change",
             ),
             (
+                "euphoria export virtualdj ~/Music/DJ --yes",
+                "Write without asking first",
+            ),
+            (
                 "euphoria export virtualdj ~/Music/DJ --beat-grid --cues",
                 "Write grids and hot cues too",
             ),
         ],
         "",
+    )
+}
+
+pub fn completions_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria completions zsh > ~/.zfunc/_euphoria",
+                "Install for zsh, with ~/.zfunc in fpath",
+            ),
+            (
+                "euphoria completions bash > ~/.local/share/bash-completion/completions/euphoria",
+                "Install for bash",
+            ),
+            (
+                "euphoria completions fish > ~/.config/fish/completions/euphoria.fish",
+                "Install for fish",
+            ),
+        ],
+        "Homebrew installs them for you.",
     )
 }
 

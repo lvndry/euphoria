@@ -53,7 +53,7 @@ impl Relation {
     pub fn label(&self) -> &'static str {
         match self {
             Relation::Same => "Same key",
-            Relation::Adjacent => "Adjacent",
+            Relation::Adjacent => "One step on the wheel",
             Relation::Relative => "Relative",
             Relation::Diagonal => "Diagonal",
             Relation::EnergyBoost => "Energy boost",

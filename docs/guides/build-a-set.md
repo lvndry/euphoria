@@ -36,13 +36,13 @@ Smoother moves cost a little less than bolder ones, so among sets that follow th
 ## Reading the result
 
 ```
- #  Key    BPM  Step  Move          Energy         Target  Track
- 1   4A  125.4                       4 ━━━━──────     4.0  Artist - Title
- 2   4A  124.6  -0.8  Same key       5 ━━━━━─────     4.5  Artist - Title
- 3   4A  125.6  +1.0  Same key       5 ━━━━━─────     5.1  Artist - Title
- 4   5A  125.8  +0.2  Adjacent       6 ━━━━━━────     5.6  Artist - Title
+ #  Key    BPM  Step  Move                   Energy         Target  Track
+ 1   4A  125.4                               4 ━━━━──────     4.0  Artist - Title
+ 2   4A  124.6  -0.8  Same key               5 ━━━━━─────     4.5  Artist - Title
+ 3   4A  125.6  +1.0  Same key               5 ━━━━━─────     5.1  Artist - Title
+ 4   5A  125.8  +0.2  One step on the wheel  6 ━━━━━━────     5.6  Artist - Title
 ...
-12   9A  123.8  -0.9  Energy boost   9 ━━━━━━━━━─     8.9  Artist - Title
+12   9A  123.8  -0.9  Energy boost           9 ━━━━━━━━━─     8.9  Artist - Title
 ...
 
 Curve   ▃▄▄▅▅▅▆▆▇▇▇▇▇▇▆▆▅▅▅▄

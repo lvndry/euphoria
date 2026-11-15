@@ -66,6 +66,10 @@ struct Cli {
         display_order = 1000
     )]
     color: ColorChoice,
+    /// Keep the technical detail in error messages, such as the decoder's
+    /// own reason a file cannot be read.
+    #[arg(long, global = true, display_order = 1001)]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -140,6 +144,13 @@ enum Command {
     Set {
         #[command(subcommand)]
         command: set::SetCommand,
+    },
+    /// Print a script that completes `euphoria` commands and options in your shell.
+    #[command(after_help = help::completions_examples())]
+    Completions {
+        /// The shell to write the script for.
+        #[arg(value_enum)]
+        shell: ShellChoice,
     },
     /// Show where the saved analyses are, or forget them.
     #[command(after_help = help::cache_examples())]
@@ -217,6 +228,36 @@ impl QualityChoice {
     }
 }
 
+/// A shell to write completions for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ShellChoice {
+    Bash,
+    Zsh,
+    Fish,
+    #[value(name = "powershell")]
+    PowerShell,
+}
+
+impl ShellChoice {
+    fn shell(self) -> clap_complete::Shell {
+        match self {
+            ShellChoice::Bash => clap_complete::Shell::Bash,
+            ShellChoice::Zsh => clap_complete::Shell::Zsh,
+            ShellChoice::Fish => clap_complete::Shell::Fish,
+            ShellChoice::PowerShell => clap_complete::Shell::PowerShell,
+        }
+    }
+}
+
+fn write_completions(shell: ShellChoice) -> Result<ExitCode> {
+    let mut script = Vec::new();
+    clap_complete::generate(shell.shell(), &mut Cli::command(), "euphoria", &mut script);
+    let mut standard_output = std::io::stdout().lock();
+    standard_output.write_all(&script)?;
+    standard_output.flush()?;
+    Ok(ExitCode::SUCCESS)
+}
+
 #[derive(Debug, Subcommand)]
 enum CacheCommand {
     /// Print where the cache database is stored.
@@ -240,6 +281,7 @@ fn main() -> ExitCode {
         .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches))
         .unwrap_or_else(|error| error.format(&mut command).exit());
 
+    output::set_verbose(cli.verbose);
     match run(cli) {
         Ok(exit_code) => exit_code,
         Err(error) if is_broken_pipe(&error) => ExitCode::SUCCESS,
@@ -259,9 +301,15 @@ fn main() -> ExitCode {
 /// error worth reporting.
 fn is_broken_pipe(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
-        cause
+        let io_kind = cause
             .downcast_ref::<std::io::Error>()
-            .is_some_and(|io_error| io_error.kind() == std::io::ErrorKind::BrokenPipe)
+            .map(std::io::Error::kind)
+            .or_else(|| {
+                cause
+                    .downcast_ref::<serde_json::Error>()
+                    .and_then(serde_json::Error::io_error_kind)
+            });
+        io_kind == Some(std::io::ErrorKind::BrokenPipe)
     })
 }
 
@@ -275,6 +323,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Shift(arguments) => shift::run(&arguments),
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
+        Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
         Command::Stems(arguments) => stems::run(&arguments),
@@ -331,7 +380,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         let mut standard_error = std::io::stderr().lock();
         scan::write_notices(&mut standard_error, &standard_error_theme, &scan)?;
         output::write_no_audio_files(&mut standard_error, &standard_error_theme)?;
-        return Ok(output::exit_status(false, scan.has_unreadable()));
+        return Ok(output::exit_status(false, true));
     }
     let audio_files = scan.files.clone();
     let collection_grids = arguments
@@ -494,9 +543,12 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &grid_infos,
             &scan,
         )?,
-        Layout::PlainTable => {
-            output::write_plain_table(&mut standard_output, &listed_results, &user_edits)?
-        }
+        Layout::PlainTable => output::write_plain_table(
+            &mut standard_output,
+            &listed_results,
+            &user_edits,
+            arguments.key_notation,
+        )?,
         Layout::Table => view::write_table(
             &mut standard_output,
             &standard_output_theme,
@@ -551,7 +603,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
 }
 
 pub(crate) fn with_causes(error: EuphoriaError) -> anyhow::Error {
-    anyhow::anyhow!(error.chain())
+    anyhow::anyhow!(output::describe(&error))
 }
 
 #[cfg(test)]
@@ -567,6 +619,21 @@ mod tests {
             .context("writing the table")
             .unwrap_err();
         assert!(is_broken_pipe(&error));
+    }
+
+    #[test]
+    fn recognises_a_broken_pipe_inside_a_json_error() {
+        struct ClosedPipe;
+        impl Write for ClosedPipe {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let error = serde_json::to_writer_pretty(ClosedPipe, &[1, 2, 3]).unwrap_err();
+        assert!(is_broken_pipe(&anyhow::Error::from(error)));
     }
 
     #[test]
