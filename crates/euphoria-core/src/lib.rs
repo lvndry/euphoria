@@ -44,6 +44,7 @@ pub mod mashup;
 pub mod plan_signals;
 /// Playlists the user builds, kept by the content of their files.
 pub mod playlists;
+pub mod prepare;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
 /// The beat grid a DJ fixed in rekordbox, read from the collection XML.
