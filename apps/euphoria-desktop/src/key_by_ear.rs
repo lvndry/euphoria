@@ -13,6 +13,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use euphoria_core::{Correction, Key};
 use gpui::{Context, Window};
@@ -21,7 +22,7 @@ use crate::app::EuphoriaApp;
 use crate::format;
 use crate::library::Track;
 use crate::playback::Voice;
-use crate::reference_sound::{PIANO_LOWEST_C, ReferenceLevel, ReferenceSound};
+use crate::reference_sound::{PIANO_LOWEST_C, PIANO_NOTE_SECONDS, ReferenceLevel, ReferenceSound};
 
 /// How many steps the volume of the reference sounds has.
 pub(crate) const LEVEL_STEPS: u8 = 5;
@@ -33,6 +34,9 @@ const STARTING_LEVEL_STEP: u8 = 3;
 /// How many piano notes may ring at once. Each ends by itself; a quick run
 /// past this cuts the oldest short.
 const RINGING_NOTE_LIMIT: usize = 12;
+
+/// How long a chord played as an arpeggio waits between its notes.
+pub(crate) const ARPEGGIO_STEP: Duration = Duration::from_millis(120);
 
 /// The drone that is sounding, for which track and in which key.
 struct Drone {
@@ -125,6 +129,11 @@ pub(crate) struct ByEar {
     ringing_notes: VecDeque<Box<dyn Voice>>,
     level: ReferenceLevel,
     level_step: u8,
+    /// The piano keys lit by a chord that is sounding, by pitch class, each
+    /// with the number of the note that lit it.
+    lit_keys: HashMap<u8, u64>,
+    /// Counts the chord notes struck, so a key is only unlit by its own note.
+    notes_struck: u64,
     /// True while the key picker and the tempo field are open.
     pub(crate) is_editing: bool,
     /// Why the tempo typed was not taken, when it was not.
@@ -140,6 +149,8 @@ impl Default for ByEar {
             ringing_notes: VecDeque::new(),
             level: ReferenceLevel::new(level_of(STARTING_LEVEL_STEP)),
             level_step: STARTING_LEVEL_STEP,
+            lit_keys: HashMap::new(),
+            notes_struck: 0,
             is_editing: false,
             bpm_problem: None,
             correction_writer: CorrectionWriter::default(),
@@ -151,6 +162,19 @@ impl ByEar {
     /// The key the drone plays, while one plays.
     pub(crate) fn drone_key(&self) -> Option<Key> {
         self.drone.as_ref().map(|drone| drone.key)
+    }
+
+    /// The pitch classes of the piano keys lit by a chord, lowest first.
+    #[cfg(test)]
+    pub(crate) fn lit_keys(&self) -> Vec<u8> {
+        let mut keys: Vec<u8> = self.lit_keys.keys().copied().collect();
+        keys.sort_unstable();
+        keys
+    }
+
+    /// True while the piano key `pitch_class` is lit by a chord.
+    pub(crate) fn is_lit(&self, pitch_class: u8) -> bool {
+        self.lit_keys.contains_key(&pitch_class)
     }
 
     /// The step the volume is at, 1 to [`LEVEL_STEPS`].
@@ -172,6 +196,18 @@ pub(crate) fn scale_of(key: Key) -> [u8; 7] {
         euphoria_core::Mode::Minor => [0, 2, 3, 5, 7, 8, 10],
     };
     steps.map(|step| (key.tonic() + step) % 12)
+}
+
+/// The notes of the tonic triad of `key`, root first, as MIDI notes stacked
+/// upward from the root in the octave of the piano: the root, the minor or
+/// major third and the fifth.
+pub(crate) fn triad_of(key: Key) -> [u8; 3] {
+    let third = match key.mode() {
+        euphoria_core::Mode::Major => 4,
+        euphoria_core::Mode::Minor => 3,
+    };
+    let root = PIANO_LOWEST_C + key.tonic();
+    [root, root + third, root + 7]
 }
 
 impl EuphoriaApp {
@@ -209,7 +245,11 @@ impl EuphoriaApp {
     /// Strikes the piano key `pitch_class`, 0 (C) to 11 (B), in the octave
     /// from middle C.
     pub(crate) fn play_piano_note(&mut self, pitch_class: u8, cx: &mut Context<'_, Self>) {
-        let note = PIANO_LOWEST_C + pitch_class % 12;
+        self.strike_piano_note(PIANO_LOWEST_C + pitch_class % 12, cx);
+    }
+
+    /// Strikes MIDI note `note` on the piano voice. True when it sounds.
+    fn strike_piano_note(&mut self, note: u8, cx: &mut Context<'_, Self>) -> bool {
         let sound = ReferenceSound::piano_note(
             note,
             self.selected_tuning_cents(),
@@ -221,12 +261,61 @@ impl EuphoriaApp {
                     self.by_ear.ringing_notes.pop_front();
                 }
                 self.by_ear.ringing_notes.push_back(voice);
+                true
             }
             Err(problem) => {
                 self.notice = Some(problem.message().to_string());
                 cx.notify();
+                false
             }
         }
+    }
+
+    /// Plays the tonic triad of `key` on the piano voice, all notes at once
+    /// or, when `arpeggiated`, one after another [`ARPEGGIO_STEP`] apart.
+    /// The piano keys of the notes are lit while they ring.
+    pub(crate) fn play_chord(&mut self, key: Key, arpeggiated: bool, cx: &mut Context<'_, Self>) {
+        for (index, note) in triad_of(key).into_iter().enumerate() {
+            let delay = if arpeggiated {
+                ARPEGGIO_STEP * index as u32
+            } else {
+                Duration::ZERO
+            };
+            if delay.is_zero() {
+                self.strike_chord_note(note, cx);
+            } else {
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(delay).await;
+                    this.update(cx, |this, cx| this.strike_chord_note(note, cx))
+                        .ok();
+                })
+                .detach();
+            }
+        }
+    }
+
+    fn strike_chord_note(&mut self, note: u8, cx: &mut Context<'_, Self>) {
+        if !self.strike_piano_note(note, cx) {
+            return;
+        }
+        let pitch_class = note % 12;
+        self.by_ear.notes_struck += 1;
+        let token = self.by_ear.notes_struck;
+        self.by_ear.lit_keys.insert(pitch_class, token);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_secs_f64(PIANO_NOTE_SECONDS))
+                .await;
+            this.update(cx, |this, cx| {
+                if this.by_ear.lit_keys.get(&pitch_class) == Some(&token) {
+                    this.by_ear.lit_keys.remove(&pitch_class);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Sets the volume of the reference sounds, those playing included, to
@@ -494,9 +583,7 @@ mod tests {
             });
         }
         assert!(
-            has_queued
-                .recv_timeout(std::time::Duration::from_secs(30))
-                .is_ok(),
+            has_queued.recv_timeout(Duration::from_secs(30)).is_ok(),
             "the edit waited for the write"
         );
         assert_eq!(writer.pending(path), Some(second));
@@ -516,6 +603,27 @@ mod tests {
             .unwrap();
         assert_eq!(*kept.lock().unwrap(), [first, second]);
         assert_eq!(writer.pending(path), None);
+    }
+
+    #[test]
+    fn a_triad_stacks_the_root_the_third_of_the_mode_and_the_fifth() {
+        let names = |key: Key| triad_of(key).map(|note| note % 12);
+        assert_eq!(names(Key::new(9, Mode::Minor)), [9, 0, 4], "8A: A C E");
+        assert_eq!(names(Key::new(0, Mode::Major)), [0, 4, 7], "8B: C E G");
+        assert_eq!(names(Key::new(4, Mode::Minor)), [4, 7, 11], "9A: E G B");
+        assert_eq!(names(Key::new(7, Mode::Major)), [7, 11, 2], "9B: G B D");
+        assert_eq!(names(Key::new(1, Mode::Minor)), [1, 4, 8], "C# minor");
+        assert_eq!(triad_of(Key::new(9, Mode::Minor)), [69, 72, 76]);
+        for tonic in 0..12 {
+            for mode in [Mode::Major, Mode::Minor] {
+                let triad = triad_of(Key::new(tonic, mode));
+                assert!(triad.windows(2).all(|pair| pair[0] < pair[1]));
+                assert!(
+                    triad.iter().all(|note| note % 12 == 0
+                        || scale_of(Key::new(tonic, mode)).contains(&(note % 12)))
+                );
+            }
+        }
     }
 
     #[test]
