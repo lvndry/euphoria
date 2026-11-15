@@ -66,7 +66,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "All tracks",
-                Some(counts.total),
+                Some(RowCount::Settled(counts.total)),
                 all_tracks_is_current,
                 &palette,
             )
@@ -81,7 +81,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Needs review",
-                Some(counts.needs_review),
+                Some(needs_review_count(app)),
                 needs_review_is_current,
                 &palette,
             )
@@ -96,7 +96,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Favorites",
-                Some(app.session.favorites().tracks().len()),
+                Some(favorites_count(app)),
                 favorites_are_current,
                 &palette,
             )
@@ -112,7 +112,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             sidebar.child(
                 row(
                     "Missing files",
-                    Some(counts.missing),
+                    Some(RowCount::Settled(counts.missing)),
                     missing_is_current,
                     &palette,
                 )
@@ -271,7 +271,7 @@ fn folder_row(
         row_after(
             Some(disclosure),
             node.name.clone(),
-            Some(node.track_count),
+            Some(RowCount::Settled(node.track_count)),
             is_current,
             &palette,
         )
@@ -293,9 +293,51 @@ fn folder_row(
     )
 }
 
+/// The number at the end of a sidebar row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowCount {
+    /// A number that is final.
+    Settled(usize),
+    /// A number that analysis is still moving, shown with an ellipsis.
+    Settling(usize),
+}
+
+impl RowCount {
+    pub(crate) fn when_settling(count: usize, is_analyzing: bool) -> Self {
+        if is_analyzing {
+            RowCount::Settling(count)
+        } else {
+            RowCount::Settled(count)
+        }
+    }
+
+    pub(crate) fn text(self) -> String {
+        match self {
+            RowCount::Settled(count) => format::count(count),
+            RowCount::Settling(count) => format!("{}\u{2026}", format::count(count)),
+        }
+    }
+}
+
+/// The count on the Needs review row, tentative while analysis runs.
+pub(crate) fn needs_review_count(app: &EuphoriaApp) -> RowCount {
+    RowCount::when_settling(
+        app.sidebar_counts().needs_review,
+        app.session.progress().is_active(),
+    )
+}
+
+/// The count on the Favorites row, tentative while analysis runs.
+pub(crate) fn favorites_count(app: &EuphoriaApp) -> RowCount {
+    RowCount::when_settling(
+        app.session.favorites().tracks().len(),
+        app.session.progress().is_active(),
+    )
+}
+
 fn row(
     label: impl Into<SharedString>,
-    count: Option<usize>,
+    count: Option<RowCount>,
     is_current: bool,
     palette: &Palette,
 ) -> Div {
@@ -306,7 +348,7 @@ fn row(
 fn row_after(
     leading: Option<AnyElement>,
     label: impl Into<SharedString>,
-    count: Option<usize>,
+    count: Option<RowCount>,
     is_current: bool,
     palette: &Palette,
 ) -> Div {
@@ -334,7 +376,7 @@ fn row_after(
                 .flex_shrink_0()
                 .font_weight(FontWeight::NORMAL)
                 .text_color(palette.text_tertiary)
-                .child(format::count(count))
+                .child(count.text())
         }))
 }
 

@@ -46,6 +46,49 @@ pub(crate) struct Palette {
 }
 
 impl Palette {
+    /// The palette `amount` of the way from `from` to `to`, each colour mixed
+    /// channel by channel. 0 gives `from` and 1 gives `to` exactly.
+    pub(crate) fn mix(from: Palette, to: Palette, amount: f32) -> Palette {
+        if amount <= 0.0 {
+            return from;
+        }
+        if amount >= 1.0 {
+            return to;
+        }
+        let colour = |first: Hsla, second: Hsla| {
+            let first = first.to_rgb();
+            let second = second.to_rgb();
+            let step = |start: f32, end: f32| start + (end - start) * amount;
+            Hsla::from(gpui::Rgba {
+                r: step(first.r, second.r),
+                g: step(first.g, second.g),
+                b: step(first.b, second.b),
+                a: step(first.a, second.a),
+            })
+        };
+        Palette {
+            background: colour(from.background, to.background),
+            sidebar: colour(from.sidebar, to.sidebar),
+            panel: colour(from.panel, to.panel),
+            raised: colour(from.raised, to.raised),
+            line: colour(from.line, to.line),
+            text: colour(from.text, to.text),
+            text_secondary: colour(from.text_secondary, to.text_secondary),
+            text_tertiary: colour(from.text_tertiary, to.text_tertiary),
+            accent: colour(from.accent, to.accent),
+            accent_ink: colour(from.accent_ink, to.accent_ink),
+            selection: colour(from.selection, to.selection),
+            waveform: colour(from.waveform, to.waveform),
+            danger: colour(from.danger, to.danger),
+            warning: colour(from.warning, to.warning),
+            is_dark: if amount < 0.5 {
+                from.is_dark
+            } else {
+                to.is_dark
+            },
+        }
+    }
+
     /// Dark neutral grey with a blue accent.
     fn slate() -> Self {
         Self {
