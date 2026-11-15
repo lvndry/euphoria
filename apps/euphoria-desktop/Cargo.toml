@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 euphoria-core = { workspace = true, features = ["stems"] }
 gpui.workspace = true
+image.workspace = true
 rayon.workspace = true
 rodio.workspace = true
 log.workspace = true

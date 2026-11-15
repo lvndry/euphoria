@@ -20,6 +20,7 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::artwork::ThumbnailSize;
 use crate::camelot::CamelotPosition;
 use crate::focus::{
     CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
@@ -32,6 +33,7 @@ use crate::stems::StemStatus;
 use crate::theme::Palette;
 use crate::track_overview::TimeRange;
 use crate::transition_plan::OPEN_PLANNER_LINK;
+use crate::views::artwork::cover_tile;
 use crate::views::controls::choice_button;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -298,6 +300,14 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
         .items_center()
         .gap(GAP_LARGE)
         .flex_wrap()
+        .child(cover_tile(
+            app,
+            &track.path,
+            px(72.0),
+            ThumbnailSize::Large,
+            "focus-cover",
+            cx,
+        ))
         .child(
             div()
                 .flex()

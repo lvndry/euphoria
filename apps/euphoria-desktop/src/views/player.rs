@@ -17,10 +17,12 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::artwork::ThumbnailSize;
 use crate::library::Track;
 use crate::peaks::BandPeaks;
 use crate::player_wave::{BarPeaksCache, played_bars, section_ticks};
 use crate::views::SMALL_TEXT_SIZE;
+use crate::views::artwork::cover_tile;
 use crate::views::cues;
 use crate::views::waveform::SeenBounds;
 use crate::views::{GAP_MEDIUM, LABEL_TEXT_SIZE, RADIUS_SMALL};
@@ -340,6 +342,16 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
         .border_color(palette.line)
         .bg(palette.sidebar)
         .child(play_button(app, cx))
+        .children(track.map(|track| {
+            cover_tile(
+                app,
+                &track.path,
+                px(40.0),
+                ThumbnailSize::Small,
+                "player-cover",
+                cx,
+            )
+        }))
         .child(
             div()
                 .flex()

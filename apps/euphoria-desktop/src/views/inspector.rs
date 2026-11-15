@@ -18,7 +18,7 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
-use crate::assets::MUSIC_ICON_PATH;
+use crate::artwork::ThumbnailSize;
 use crate::camelot::CamelotPosition;
 use crate::decks::SuggestionScope;
 use crate::format;
@@ -28,6 +28,7 @@ use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{key_stretches, shows_key_timeline};
+use crate::views::artwork::cover_tile;
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -383,24 +384,14 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
         .flex()
         .items_center()
         .gap(GAP_MEDIUM)
-        .child(
-            div()
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .size(px(56.0))
-                .rounded(RADIUS_MEDIUM)
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.raised)
-                .child(
-                    Icon::default()
-                        .path(MUSIC_ICON_PATH)
-                        .size(px(20.0))
-                        .text_color(palette.text_tertiary),
-                ),
-        )
+        .child(cover_tile(
+            app,
+            &track.path,
+            px(56.0),
+            ThumbnailSize::Large,
+            "inspector-cover",
+            cx,
+        ))
         .child(
             div()
                 .flex()
