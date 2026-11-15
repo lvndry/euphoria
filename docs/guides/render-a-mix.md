@@ -87,7 +87,7 @@ The mix is written under a temporary name next to `--out` and moved into place o
 
 ## In the desktop app
 
-**Render mix…** in the set builder renders the set on the page, with a progress bar and **Cancel**, and writes the CUE sheet, tracklist and chapters beside the mix every time. See [Build a set](desktop-app.md#build-a-set).
+**Render mix…** in the set builder renders the set on the page, as MP3 when the name you give ends in `.mp3`, with a progress bar and **Cancel**, and writes the CUE sheet, tracklist and chapters beside the mix every time. See [Build a set](desktop-app.md#build-a-set).
 
 ## How long it takes
 
