@@ -20,6 +20,7 @@ mod prepare;
 mod rewrites;
 mod scan;
 mod set;
+mod set_render;
 mod set_view;
 mod shift;
 mod stages;
@@ -200,7 +201,7 @@ enum Command {
         after_help = help::plan_examples(),
     )]
     Plan(plan::PlanArguments),
-    /// Order tracks into a set that follows an energy curve, every mix in key.
+    /// Order tracks into a set along an energy curve, or render a set as one mix.
     #[command(after_help = help::set_examples())]
     Set {
         #[command(subcommand)]
@@ -593,7 +594,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         Layout::PlainTable => output::write_plain_table(
             &mut standard_output,
             &listed_results,
-            &user_edits,
             arguments.key_notation,
         )?,
         Layout::Table => view::write_table(
@@ -601,7 +601,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &standard_output_theme,
             &listed_results,
             &view_options,
-            &corrections,
             &tag_keys,
         )?,
         Layout::Detail => {

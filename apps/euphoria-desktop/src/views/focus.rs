@@ -498,8 +498,8 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         Some(Waveform::Ready(columns, _)) => Some(columns.clone()),
         _ => None,
     };
-    let progress = app.player.progress();
     let is_selected_playing = app.player.track() == Some(track.path.as_path());
+    let progress = app.player.progress().filter(|_| is_selected_playing);
     let position = f64::from(app.player.position_seconds());
 
     let overview = lanes.overview.then(|| {
@@ -731,7 +731,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .left(px(GUTTER + LANE_GAP))
         .right_0()
     };
-    let playhead = (is_selected_playing || app.player.progress().is_some())
+    let playhead = is_selected_playing
         .then_some(position)
         .filter(|seconds| viewport.contains(*seconds))
         .map(|seconds| {

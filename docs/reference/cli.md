@@ -36,11 +36,11 @@ A `-` means nothing was detected, for example in silence or a track shorter than
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key                  Tags      BPM       Energy              Quality   Time  File
- 8A  A minor  ●●●  =         124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
-10B  D major  ●○○  9A other  149.8  ●●●       6  ━━━━━━────  weak      2:00  edits/Intro.m4a
+Key           Tags        BPM  Energy              Quality   Time  Review    File
+ 8A  A minor  =         124.0       6  ━━━━━━────  lossless  6:48            Low Tide.flac
+10B  D major  9A other  149.8       6  ━━━━━━────  weak      2:00  key+tags  edits/Intro.m4a
 
-Key and tempo: 1 of 2 tracks rated low confidence (●○○), worth checking by ear.
+Key and tempo: 1 of 2 tracks worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.
 Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1 different key).
 Sound quality: 1 track lossless, 1 weak on a big system.
 hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key.
@@ -48,9 +48,9 @@ hint: --detail says which reading to trust.
 hint: --quality weak lists the tracks worth replacing, and --detail says why.
 ```
 
-The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The three dots after the key and after the tempo rate how far to trust them: `●●●` is high confidence, `●●○` medium and `●○○` low. On the benchmark a key rated high was exactly right about three times in four and one rated low less than half the time; [accuracy](../concepts/accuracy.md#confidence) has the figures. Tracks with `●○○` are worth checking by ear, and `--needs-review` lists only those, along with the tracks whose tags name another key (see the Tags column below). A key or tempo you set yourself in the desktop app shows `you` in place of the dots: see [Corrections](#corrections).
+The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The table shows no confidence ratings; the Review column below says which tracks are worth checking by ear, and `--needs-review` lists only those. The ratings are still in the [JSON output](#json-output), and [accuracy](../concepts/accuracy.md#confidence) explains how they are set.
 
-The Review column says why a track is worth checking, in a word for each reason: `key` (the key is rated low), `tempo` (the tempo is rated low), `tags` (the tags name another key) and `failed`. It is the list the desktop app shows as **Needs review**, computed by the same code. A track whose doubtful values you confirmed with **Looks right** in the app shows `checked` and is no longer listed by `--needs-review`; a key or tempo you set is not in doubt either. The column is left out when no track has a reason or a confirmation, and in a narrow window it is left out right after the Tags column. The plain table has no Review column; use `--json`.
+The Review column says why a track is worth checking, in a word for each reason: `key` (the key may be its relative or a fifth away), `tempo` (the BPM may be half or double), `tags` (the tags name another key) and `failed`. It is the list the desktop app shows as **Needs review**, computed by the same code. A track whose doubtful values you confirmed with **Looks right** in the app shows `checked` and is no longer listed by `--needs-review`; a key or tempo you set is not in doubt either. The column is left out when no track has a reason or a confirmation, and in a narrow window it is left out right after the Tags column. The plain table has no Review column; use `--json`.
 
 The Tags column compares the key already written in each file's tags with the detected key. Euphoria reads the key field of every format it writes: `TKEY` in MP3, AIFF and WAV files, `initialkey` or `KEY` in M4A files, and `INITIALKEY` or `KEY` in FLAC and Ogg files, in Camelot (`8A`, `08A`), Open Key (`1m`) or musical notation (`Am`, `A min`, `A minor`, `Abm`), so a key written by Euphoria, rekordbox, Mixed In Key or Traktor is read alike. A tempo after the key, as in `8A 114`, and an energy label, as in `8A - Energy 7`, are ignored. `=` means the tags name the detected key, `?` that the field holds text that is not a key, and otherwise the column shows the key from the tags and how it differs: `fifth` (one step on the Camelot wheel), `relative` (the same number, the other letter), `parallel` (the same home note, the other mode) or `other`. A track whose tags name another key is listed by `--needs-review`, unless you set or confirmed its key yourself. The column is left out when no file has a key in its tags. Analyzing only reads the tags: it never changes them.
 
@@ -60,9 +60,9 @@ Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use 
 
 The folder that holds every file is left out of the File column, so a folder shows its file names and the subfolders below it. A name too long for the window is shortened in the middle, keeping its end and extension.
 
-In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the Tags column, the Review column, the confidence dots, the quality, then the energy. With the dots left out, a key or tempo rated low is marked with a `?`. The key, the tempo and the file always stay.
+In a narrow window, the least needed columns are left out first: the energy bar, the key in the other notation, the time, the Tags column, the Review column, the quality, then the energy. The key, the tempo and the file always stay.
 
-After the table, standard error gets a summary in plain sentences: how many tracks have a key or tempo rated low and not yet confirmed by you, how many have a key in their tags that differs from the detected one and in which way, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
+After the table, standard error gets a summary in plain sentences: how many tracks have a doubtful key or BPM not yet confirmed by you, how many have a key in their tags that differs from the detected one and in which way, how many have each sound quality, how many files could not be analyzed, and `hint:` lines on where to look next.
 
 ### The detailed view
 
@@ -72,15 +72,13 @@ Intro.m4a
 /Users/you/Music/DJ
 
   Key            10B  D major
-                 ●○○ low confidence, worth checking by ear
                  runner up 9A  E minor
   Key in tags    9A  E minor
                  different key, differs from the detected key
                  The keys share few notes, so one reading is wrong or the track changes key.
                  Check by ear before you mix on it.
   Tempo          149.8 BPM
-                 ●●● high confidence
-  Review         key unsure (runner up 9A  E minor), the tags say 9A
+  Review         key may be its relative or a fifth away (runner up 9A  E minor), the tags say 9A
   Beat grid      first downbeat at 0.412 s, 149.82 BPM
                  ●●○ medium confidence
   Energy         6 of 10  ━━━━━━────
@@ -103,20 +101,20 @@ With `--notes`, a Notes row under the key shows how strongly each note sounds in
 
 The marked bars should be the tallest. [Reading the notes](../concepts/accuracy.md#reading-the-notes) explains what to look for. A track analyzed before Euphoria measured notes says so; `--reanalyze` measures them.
 
-One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, why the track is worth checking by ear (or that you already checked it), the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
+One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, why the track is worth checking by ear (or that you already checked it), the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
 
 ### The plain table
 
-Into a pipe or a file, the table has the same columns as before the terminal table existed, with no colour, so scripts that read it keep working:
+Into a pipe or a file, the table has fixed columns and no colour:
 
 ```
 $ euphoria analyze ~/Music/DJ | cat
-Key             BPM  Energy  Conf  Quality   Time  File
-8A   A minor  124.0       6  H/M   Lossless  6:48  /Users/you/Music/DJ/Low Tide.flac
-10B  D major  149.8       6  L/H   Weak      2:00  /Users/you/Music/DJ/Intro.m4a
+Key             BPM  Energy  Quality   Time  File
+8A   A minor  124.0       6  Lossless  6:48  /Users/you/Music/DJ/Low Tide.flac
+10B  D major  149.8       6  Weak      2:00  /Users/you/Music/DJ/Intro.m4a
 ```
 
-The Conf column rates the key and the tempo, in that order: `H` for high, `M` for medium and `L` for low, or `U` for a value you set yourself. The summary still goes to standard error, so piped output holds only the table.
+The plain table has no confidence column; scripts that need the ratings read `confidence` and `bpm_confidence` from `--json`. The summary still goes to standard error, so piped output holds only the table.
 
 The tuning of a track and its key over time are in the detailed view and the [JSON output](#json-output).
 
@@ -127,7 +125,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--json` | Print a JSON array instead of a table. |
 | `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
 | `--notes` | Add to the [detailed view](#the-detailed-view) the 12 notes the key analysis heard, as a row of bars with the notes of the key marked. Shows every track in detail. Cannot be combined with `--json`, which always has them. |
-| `--needs-review` | List only the tracks whose key or tempo is rated low confidence or whose tags name another key, and the files that could not be analyzed. A key or tempo you set or confirmed with **Looks right** in the desktop app is no longer in doubt, so such a track is not listed for it. |
+| `--needs-review` | List only the tracks whose key or tempo is rated low confidence (the key may be its relative or a fifth away, the BPM half or double) or whose tags name another key, and the files that could not be analyzed. A key or tempo you set or confirmed with **Looks right** in the desktop app is no longer in doubt, so such a track is not listed for it. |
 | `--bpm <RANGE>` | List only the tracks in a tempo range, in beats per minute: `120-126`, `120-` for 120 and faster, `-126` for 126 and slower, or one tempo. A comma works as a decimal point: `120,5-126`. Tempos from 30 to 300. The tempo is the one shown, so a tempo you set yourself is used and a detected one is in the `--tempo-range`. |
 | `--half-double` | With `--bpm`, also list the tracks at half or double a tempo in the range: `--bpm 120-126 --half-double` lists a track at 61 or at 244 too. |
 | `--energy <RANGE>` | List only the tracks in an energy range from 1 to 10: `6-8`, `6-` for 6 and more, `-8` for 8 and less, or one rating. An energy you set yourself is used. |
@@ -579,6 +577,33 @@ Standard output gets a table, one track per line, with the tempo step from the t
 The JSON object has `schema_version` (1), `tracks` (position from 1, absolute path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_move, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
 
 The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
+
+## euphoria set render
+
+Renders a set as one continuous mix: each track blended into the next at a section start, beatmatched with its key kept, written as a WAV or FLAC file.
+
+```
+euphoria set render [OPTIONS] <SET>...
+```
+
+`SET` is the name of a playlist built in the desktop app, an M3U or M3U8 playlist file, or audio files in play order. A folder is refused, since it has no order. Tracks are analyzed first or read from the cache, with your corrections applied. Each transition is the best window [`euphoria plan`](#euphoria-plan) ranks that starts after the blend into the outgoing track has ended, unless you locked it in the desktop app's planner, which keeps it as you placed it; a pair that cannot blend plays one after the other. Sections are read from the cues each track shows, your edited cues included. The [guide](../guides/render-a-mix.md) explains where tracks come in and how a blend sounds.
+
+| Option | Meaning |
+| --- | --- |
+| `-o`, `--out <FILE>` | The mix to write, ending in `.wav` (24 bit, RF64 past 4 GB) or `.flac` (24 bit). Required unless `--dry-run`. `--output` is the same. |
+| `--format <FORMAT>` | `wav` or `flac`. Defaults to the extension of `--out`; a name without one gets it added, and a name with the other one is refused. |
+| `--tracklist` | Also write `NAME.tracklist.txt` beside the mix: one numbered line per track with the time it starts. |
+| `--cue` | Also write `NAME.cue` beside the mix: a CUE sheet with each track's title, artist and start. |
+| `--chapters` | Also write `NAME.chapters.txt` beside the mix: one line per track, `0:00 Artist - Title`, for a video description. |
+| `--dry-run` | Print the plan, with a warning under every blend where both tracks sing, and write nothing. |
+| `--fix-vocals [FIX]` | Fix every blend where both tracks sing: `move` the blend to a window where only one sings, `cut` the outgoing vocals with its stems, or `fade` it out before the incoming one sings. Alone, the first fix that applies, in that order. Locked blends are never moved. |
+| `--force` | Replace the mix and the files beside it if they exist. Without it, an existing file is refused before anything is rendered. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Standard output has the name of the set, its track count and length, then one line per track with the time it starts in the mix and under it, after `↳`, why the transition into the next track is where it is. A transition played one after the other is shown in the caution colour. Standard error has a progress bar while rendering, then a line for each file written.
+
+The exit status is 0 when the mix was written, or the plan printed with `--dry-run`, and 1 when a track cannot be analyzed or read, or a file cannot be written.
 
 ## euphoria plan
 
@@ -1047,7 +1072,7 @@ A file found where it was last seen, with the same size and modification time, i
 
 ### Corrections
 
-When you correct a key, a tempo or an energy in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `you` in the terminal table, `set by you` in the detailed view, `U` in the Conf column of the plain table and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
+When you correct a key, a tempo or an energy in the [desktop app](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it), the correction is kept in the cache, recognised by the file's content like an analysis. `euphoria analyze` shows the corrected value and marks it `set by you` in the detailed view and in `set_by_user`, `euphoria export rekordbox` exports it, and `euphoria tags write` writes it. With `--no-cache`, or without a cache, corrections are not read and the detected values are used. To show a correction, a file at its recorded path with its recorded size and modification time is trusted, as for an analysis; before a correction goes into tags or an export, the whole file is read to be sure it is the file that was corrected. When that check fails, because the file cannot be read or the cache cannot be queried, the file is left out of the write or the export and listed with the reason, rather than given the detected values.
 
 Corrections are kept apart from the analyses, so neither `--reanalyze`, a new version of Euphoria analyzing every track again, nor `euphoria cache clear` loses them. They follow a file that is moved or renamed, and one whose tags `euphoria tags write`, `euphoria tags undo` or the app change. A file whose content is changed by another program is a new file to the cache, and loses its corrections. Resetting a value in the app removes its correction. [`euphoria corrections export`](#euphoria-corrections-export) writes them all out, to train a key model on.
 

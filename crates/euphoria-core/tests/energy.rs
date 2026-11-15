@@ -247,7 +247,89 @@ fn each_curve_point_is_the_rating_of_its_window() {
     let start = sample_count(point.start_seconds);
     let end = start + sample_count(point.duration_seconds);
     let window = buffer(samples[start..end].to_vec());
+    let features = energy_features(&window).unwrap().unwrap();
+    assert_eq!(
+        point.rating,
+        Some(rate_features(&features, Some(120.0)).unwrap())
+    );
     assert_eq!(point.rating, rate_energy(&window, Some(120.0)).unwrap());
+}
+
+/// A track with `intro_seconds` of a quiet held tone, `body_seconds` of loud
+/// kicks over noise, then `outro_seconds` of the quiet tone again.
+fn track_with_a_quiet_intro(intro_seconds: f32, body_seconds: f32, outro_seconds: f32) -> Vec<f32> {
+    let mut samples = sine(440.0, 0.02, intro_seconds);
+    samples.extend(mix(
+        &pulse_train(KICK_FREQUENCY, 8.0, 0.8, body_seconds),
+        &noise(0.2, body_seconds),
+    ));
+    samples.extend(sine(440.0, 0.02, outro_seconds));
+    samples
+}
+
+fn curve_ratings(audio: &AudioBuffer) -> Vec<u8> {
+    energy_curve(audio, None)
+        .expect("the audio has a curve")
+        .iter()
+        .filter_map(|point| point.rating.map(|rating| rating.rating))
+        .collect()
+}
+
+fn median(values: &[u8]) -> f32 {
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let middle = sorted.len() / 2;
+    if sorted.len().is_multiple_of(2) {
+        (f32::from(sorted[middle - 1]) + f32::from(sorted[middle])) / 2.0
+    } else {
+        f32::from(sorted[middle])
+    }
+}
+
+#[test]
+fn a_long_quiet_intro_does_not_pull_the_rating_below_the_body_of_the_curve() {
+    let intro_seconds = 96.0;
+    let audio = buffer(track_with_a_quiet_intro(intro_seconds, 96.0, 0.0));
+    let ratings = curve_ratings(&audio);
+    let first_body_window = (intro_seconds / ENERGY_CURVE_HOP_SECONDS) as usize;
+    let body_level = median(&ratings[first_body_window..]);
+
+    let whole_track = rate_features(&energy_features(&audio).unwrap().unwrap(), None).unwrap();
+    assert!(
+        f32::from(whole_track.rating) + 2.0 <= body_level,
+        "averaged over the whole track {whole_track:?}, body {body_level}, curve {ratings:?}"
+    );
+
+    let rating = rate_energy(&audio, None).unwrap().unwrap();
+    assert!(
+        (f32::from(rating.rating) - body_level).abs() <= 1.0,
+        "rating {rating:?}, body {body_level}, curve {ratings:?}"
+    );
+    assert_eq!(rating.features, whole_track.features);
+}
+
+#[test]
+fn the_rating_of_a_track_and_its_curve_agree_within_one() {
+    let audio = buffer(track_with_a_quiet_intro(32.0, 96.0, 16.0));
+    let ratings = curve_ratings(&audio);
+    let rating = rate_energy(&audio, None).unwrap().unwrap();
+    assert!(
+        (f32::from(rating.rating) - median(&ratings)).abs() <= 1.0,
+        "rating {rating:?}, curve {ratings:?}"
+    );
+}
+
+#[test]
+fn a_track_whose_curve_has_no_rated_window_is_rated_from_its_features() {
+    let mut samples = silence(8.0);
+    samples.extend(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 2.0));
+    let audio = buffer(samples);
+    assert!(curve_ratings(&audio).is_empty());
+    let features = energy_features(&audio).unwrap().unwrap();
+    assert_eq!(
+        rate_energy(&audio, None).unwrap(),
+        Some(rate_features(&features, None).unwrap())
+    );
 }
 
 #[test]
