@@ -269,9 +269,14 @@ fn header(model: &LiveModel, view: &LiveView, cx: &Context<'_, LiveView>) -> Div
         .filter(|_| model.is_listening())
         .map_or(0.0, |level| level.meter_position());
     let dot_side = DOT_SMALLEST + (DOT_LARGEST - DOT_SMALLEST) * level;
+    let needs_permission = model.is_listening() && model.reading.no_signal_seconds >= 10.0;
     let (dot_colour, dot_tip) = match &model.state {
+        ListenState::Listening if needs_permission => (
+            palette.text_tertiary.opacity(0.7),
+            "Only silence so far. Nothing is recorded.".to_string(),
+        ),
         ListenState::Listening => (
-            palette.danger.opacity(0.55 + 0.45 * level),
+            palette.accent.opacity(0.55 + 0.45 * level),
             format!(
                 "Listening to {}. Nothing is recorded: the audio stays in memory.",
                 model.source.label()
