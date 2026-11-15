@@ -20,9 +20,9 @@ use objc2_core_audio::{
     AudioHardwareCreateAggregateDevice, AudioHardwareDestroyAggregateDevice,
     AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
     AudioObjectPropertyAddress, CATapDescription, kAudioDevicePropertyDeviceUID,
-    kAudioHardwarePropertyDefaultSystemOutputDevice, kAudioHardwarePropertyProcessObjectList,
-    kAudioHardwarePropertyTranslatePIDToProcessObject, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+    kAudioDevicePropertyNominalSampleRate, kAudioHardwarePropertyDefaultSystemOutputDevice,
+    kAudioHardwarePropertyProcessObjectList, kAudioHardwarePropertyTranslatePIDToProcessObject,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
     kAudioProcessPropertyIsRunningOutput, kAudioProcessPropertyPID, kAudioTapPropertyFormat,
 };
 use objc2_core_audio_types::{AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp};
@@ -308,8 +308,6 @@ impl AudioCapture for ProcessTapCapture {
             unsafe { (functions.destroy)(tap) };
             return Err(CaptureError::Failed("the tap has no audio format".into()));
         };
-        let sample_rate = NonZeroU32::new(format.mSampleRate as u32)
-            .unwrap_or(NonZeroU32::new(48_000).expect("48000 is not zero"));
         let channels = format.mChannelsPerFrame.max(1) as usize;
         let interleaved = format.mFormatFlags & NON_INTERLEAVED == 0;
 
@@ -327,6 +325,12 @@ impl AudioCapture for ProcessTapCapture {
             }
         };
 
+        // The device delivers audio at its own clock, which is the output
+        // device's rate, not always the one the tap's format names.
+        let device_rate = get_value::<f64>(aggregate, kAudioDevicePropertyNominalSampleRate, None)
+            .filter(|rate| *rate >= 8_000.0);
+        let sample_rate = NonZeroU32::new(device_rate.unwrap_or(format.mSampleRate) as u32)
+            .unwrap_or(NonZeroU32::new(48_000).expect("48000 is not zero"));
         let state = Mutex::new((sink, Vec::<f32>::new()));
         let block = RcBlock::new(
             move |_now: NonNull<AudioTimeStamp>,
