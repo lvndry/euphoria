@@ -623,3 +623,38 @@ fn a_track_whose_only_section_is_its_start_may_mix_out_anywhere_on_a_phrase() {
             .all(|window| window.a_start_bar % PHRASE_BARS == 0)
     );
 }
+
+#[test]
+fn a_window_at_any_bars_is_scored_like_the_ranked_one_and_refused_off_the_ends() {
+    let a = song_a();
+    let b = song_b();
+    let plan = plan(&a, &b);
+    let ranked = plan.windows.first().unwrap().clone();
+    let again = window_at(
+        &plan,
+        &a.track(),
+        &b.track(),
+        ranked.a_start_bar,
+        ranked.b_start_bar,
+        ranked.bars,
+    )
+    .unwrap();
+    assert_eq!(again.clash_strip, ranked.clash_strip);
+    assert_eq!(again.score, ranked.score);
+
+    let moved = window_at(
+        &plan,
+        &a.track(),
+        &b.track(),
+        ranked.a_start_bar + 3,
+        ranked.b_start_bar,
+        16,
+    )
+    .unwrap();
+    assert_eq!(moved.a_start_bar, ranked.a_start_bar + 3);
+    assert_eq!(moved.clash_strip.len(), 16);
+
+    assert!(window_at(&plan, &a.track(), &b.track(), 10_000, 0, 16).is_none());
+    assert!(window_at(&plan, &a.track(), &b.track(), 0, 127, 16).is_none());
+    assert!(window_at(&plan, &a.track(), &b.track(), 0, 0, 0).is_none());
+}

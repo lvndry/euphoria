@@ -37,13 +37,13 @@ fn analysed() -> TrackAnalysis {
         key_runner_up: None,
         key_score_margin: None,
         key_source: None,
-        loudness_range_lu: None,
         tempo_estimate: None,
         tempo_score_margin: None,
         beat_grid: None,
         cues: Vec::new(),
         key_timeline: Vec::new(),
         quality: None,
+        loudness_range_lu: None,
     }
 }
 
