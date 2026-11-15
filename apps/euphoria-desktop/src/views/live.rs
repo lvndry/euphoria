@@ -20,6 +20,7 @@ use crate::next_rail::{EnergyChoice, NextRow};
 use crate::theme::Palette;
 use crate::views::controls::{pressed_button, segment, segmented};
 use crate::views::key_chip::key_chip;
+use crate::views::next_rail;
 use crate::views::{
     GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE, RADIUS_SMALL,
     SMALL_TEXT_SIZE, TEXT_SIZE, primary_button, secondary_button, section_label, tabular_digits,
@@ -128,26 +129,6 @@ fn confidence_colour(confidence: Confidence, palette: &Palette) -> gpui::Hsla {
         Confidence::Medium => palette.text_secondary,
         Confidence::Low => palette.warning,
     }
-}
-
-fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
-    div()
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .h(px(18.0))
-        .px(px(7.0))
-        .rounded(RADIUS_LARGE)
-        .border_1()
-        .whitespace_nowrap()
-        .text_size(LABEL_TEXT_SIZE)
-        .border_color(if is_key { palette.accent } else { palette.line })
-        .text_color(if is_key {
-            palette.text
-        } else {
-            palette.text_secondary
-        })
-        .child(text)
 }
 
 fn indicator(model: &LiveModel, palette: &Palette) -> impl IntoElement {
@@ -550,14 +531,14 @@ fn next_row(model: &LiveModel, next: &NextRow, is_selected: bool) -> Option<AnyE
                                     ),
                             ),
                     )
-                    .child(
-                        div().flex().items_center().gap(GAP_SMALL).children(
-                            next.pills()
-                                .into_iter()
-                                .enumerate()
-                                .map(|(position, text)| pill(text, position == 0, &palette)),
+                    .child(div().flex().items_center().gap(GAP_SMALL).children(
+                        next_rail::row_pills(
+                            next.pills(next_rail::PLAYING),
+                            "live-energy-pill",
+                            next.track_index,
+                            &palette,
                         ),
-                    ),
+                    )),
             )
             .test_support()
             .into_any_element(),
