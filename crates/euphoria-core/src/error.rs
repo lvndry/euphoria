@@ -231,6 +231,15 @@ pub enum EuphoriaError {
         /// What went wrong.
         reason: String,
     },
+    /// A track could not be prepared for a club system, or its prepared
+    /// copy could not be written.
+    #[error("cannot prepare {path}: {reason}")]
+    Prepare {
+        /// The original track.
+        path: PathBuf,
+        /// What went wrong.
+        reason: String,
+    },
     /// A mashup could not be rendered or written.
     #[error("cannot render the mashup at {path}: {reason}")]
     Mashup {

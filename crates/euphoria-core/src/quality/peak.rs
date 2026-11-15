@@ -5,11 +5,11 @@ use std::f32::consts::PI;
 
 /// Taps of the interpolation filter on each side of the point between two
 /// samples, as in the four times oversampling EBU R128 asks for.
-const HALF_TAPS: usize = 6;
-const TAPS: usize = 2 * HALF_TAPS;
+pub(crate) const HALF_TAPS: usize = 6;
+pub(crate) const TAPS: usize = 2 * HALF_TAPS;
 /// Points computed between two samples: a quarter, a half and three
 /// quarters of the way.
-const PHASES: usize = 3;
+pub(crate) const PHASES: usize = 3;
 
 /// The highest true peak over every channel, estimated by interpolating
 /// four times between samples with a windowed sinc filter. Interpolation
@@ -111,7 +111,7 @@ impl TruePeakMeter {
 /// A Hann windowed sinc for each point between two samples. Tap `tap`
 /// weighs the sample `tap - HALF_TAPS + 1` places after the earlier of the
 /// two samples.
-fn coefficients() -> [[f32; TAPS]; PHASES] {
+pub(crate) fn coefficients() -> [[f32; TAPS]; PHASES] {
     let mut table = [[0.0; TAPS]; PHASES];
     for (phase, weights) in table.iter_mut().enumerate() {
         let fraction = (phase + 1) as f32 / (PHASES + 1) as f32;

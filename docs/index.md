@@ -31,6 +31,7 @@ Exports for Serato and Engine DJ are in development.
 
 - New here: [install Euphoria](getting-started/installation.md), then follow the [quick start](getting-started/quick-start.md).
 - Preparing a set: [analyze your library](guides/analyze-your-library.md), [build a set along an energy curve](guides/build-a-set.md), then [render it as one mix](guides/render-a-mix.md).
+- Playing a set evenly on a club system: [prepare files](guides/prepare-files.md).
 - Using rekordbox: [export to rekordbox](guides/export-to-rekordbox.md).
 - Using Traktor: [export to Traktor](guides/export-to-traktor.md).
 - Using Engine DJ: [export to Engine DJ](guides/export-to-engine-dj.md).
