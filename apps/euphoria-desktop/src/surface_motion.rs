@@ -33,7 +33,7 @@ pub(crate) enum Closing {
     /// The fade out has begun: close when it ends.
     Started,
     /// A fade out is already under way.
-    AlreadyClosing,
+    Pending,
 }
 
 impl Presence {
@@ -59,6 +59,7 @@ impl Presence {
         self.transition.value(now)
     }
 
+    #[cfg(test)]
     pub(crate) fn is_moving(&self, now: Instant) -> bool {
         self.transition.is_moving(now)
     }
@@ -88,7 +89,7 @@ impl Presence {
     /// Starts the fade out of a surface asked to close.
     pub(crate) fn start_closing(&mut self, exit: Duration) -> Closing {
         if self.is_closing {
-            return Closing::AlreadyClosing;
+            return Closing::Pending;
         }
         let now = self.now();
         if self.transition.value(now) <= 0.0 || !self.transition.is_target_full() {
@@ -184,6 +185,7 @@ impl ModalFades {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn is_moving(&self) -> bool {
         self.presences
             .iter()
@@ -208,7 +210,7 @@ impl Strip {
         Strip::StemExport,
     ];
 
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         Self::ALL
             .iter()
             .position(|strip| *strip == self)
@@ -334,10 +336,7 @@ mod tests {
         assert!(!fades.is_moving());
 
         assert_eq!(fades.start_closing(Modal::Settings), Closing::Started);
-        assert_eq!(
-            fades.start_closing(Modal::Settings),
-            Closing::AlreadyClosing
-        );
+        assert_eq!(fades.start_closing(Modal::Settings), Closing::Pending);
         clock.at(0.18 + 0.06);
         let middle = fades.value(Modal::Settings);
         assert!(middle > 0.0 && middle < 1.0, "{middle}");

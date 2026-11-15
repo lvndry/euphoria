@@ -21,6 +21,7 @@ fn grown(app: &EuphoriaApp, which: Strip, strip: impl IntoElement) -> AnyElement
     let seen_height = app.strip_growth.seen_height(which);
     let natural_height = seen_height.get().unwrap_or(UNMEASURED_STRIP_HEIGHT);
     div()
+        .id(("strip-clip", which.index()))
         .flex()
         .flex_col()
         .flex_shrink_0()
@@ -44,6 +45,7 @@ fn grown(app: &EuphoriaApp, which: Strip, strip: impl IntoElement) -> AnyElement
                     .size_full(),
                 ),
         )
+        .test_support()
         .into_any_element()
 }
 
@@ -52,7 +54,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
     render_strip(app, cx).map(|strip| grown(app, Strip::Notice, strip))
 }
 
-fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<Stateful<Div>> {
+fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<impl IntoElement> {
     let palette = app.theme.palette;
     let message = app.notice.clone()?;
     Some(
@@ -87,7 +89,8 @@ fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<
                     .hover(move |style| style.bg(palette.raised).text_color(palette.text))
                     .on_click(cx.listener(|this, _, _, cx| this.dismiss_notice(cx)))
                     .child("Dismiss"),
-            ),
+            )
+            .test_support(),
     )
 }
 

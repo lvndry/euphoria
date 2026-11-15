@@ -53,20 +53,11 @@ pub(crate) struct Toast {
     enter_seconds: f32,
 }
 
+#[derive(Default)]
 pub(crate) struct Toasts {
     current: Option<Toast>,
     next_id: u64,
     sources: Sources,
-}
-
-impl Default for Toasts {
-    fn default() -> Self {
-        Self {
-            current: None,
-            next_id: 0,
-            sources: Sources::default(),
-        }
-    }
 }
 
 impl Toasts {

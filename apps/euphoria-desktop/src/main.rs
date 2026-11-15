@@ -61,6 +61,8 @@ mod metronome_ui_tests;
 mod missing_ui_tests;
 mod mixes;
 mod motion;
+#[cfg(test)]
+mod motion_ui_tests;
 mod output_stream;
 mod palette_flow;
 mod panels;

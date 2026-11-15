@@ -41,7 +41,6 @@ const DISCLOSURE_WIDTH: f32 = 16.0;
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let counts = app.sidebar_counts();
-    let is_analyzing = app.session.progress().is_active();
     let hover_background = palette.raised;
 
     let in_library = app.playlist.is_none() && !app.set_builder.is_open && !app.showing_favorites;
@@ -82,7 +81,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Needs review",
-                Some(RowCount::when_settling(counts.needs_review, is_analyzing)),
+                Some(needs_review_count(app)),
                 needs_review_is_current,
                 &palette,
             )
@@ -97,10 +96,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Favorites",
-                Some(RowCount::when_settling(
-                    app.session.favorites().tracks().len(),
-                    is_analyzing,
-                )),
+                Some(favorites_count(app)),
                 favorites_are_current,
                 &palette,
             )
@@ -321,6 +317,22 @@ impl RowCount {
             RowCount::Settling(count) => format!("{}\u{2026}", format::count(count)),
         }
     }
+}
+
+/// The count on the Needs review row, tentative while analysis runs.
+pub(crate) fn needs_review_count(app: &EuphoriaApp) -> RowCount {
+    RowCount::when_settling(
+        app.sidebar_counts().needs_review,
+        app.session.progress().is_active(),
+    )
+}
+
+/// The count on the Favorites row, tentative while analysis runs.
+pub(crate) fn favorites_count(app: &EuphoriaApp) -> RowCount {
+    RowCount::when_settling(
+        app.session.favorites().tracks().len(),
+        app.session.progress().is_active(),
+    )
 }
 
 fn row(

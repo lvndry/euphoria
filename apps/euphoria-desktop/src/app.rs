@@ -1397,7 +1397,7 @@ impl EuphoriaApp {
     ) {
         match self.modal_fades.start_closing(modal) {
             Closing::Now => finish(self, cx),
-            Closing::AlreadyClosing => {}
+            Closing::Pending => {}
             Closing::Started => {
                 cx.notify();
                 cx.spawn(async move |this, cx| {

@@ -11,6 +11,7 @@ use crate::motion::{self, Transition};
 use crate::panels::SIDEBAR_WIDTH;
 
 /// Seconds a slide across the full sidebar width takes.
+#[cfg(test)]
 pub(crate) const SLIDE_SECONDS: f32 = 0.22;
 
 /// Where the sidebar is on its way in or out.
