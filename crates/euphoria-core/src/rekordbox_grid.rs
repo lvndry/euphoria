@@ -26,11 +26,12 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::analysis::TrackAnalysis;
+use crate::analysis::{TrackAnalysis, with_section_energy};
 use crate::audio::{AudioBuffer, decode_mono};
 use crate::correction::Correction;
 use crate::detect::{BeatGrid, cues_on_grid};
 use crate::error::EuphoriaError;
+use crate::tempo_range::TempoRange;
 
 const LOCATION_PREFIX: &str = "file://localhost";
 const BEATS_PER_BAR: f64 = 4.0;
@@ -292,14 +293,30 @@ impl TrackAnalysis {
     /// placed on the bars of `grid` in `audio`.
     ///
     /// The tempo is reported as the grid has it, whatever the tempo range,
-    /// and is no longer rated for confidence: the DJ set it.
-    pub fn on_imported_grid(mut self, grid: BeatGrid, audio: &AudioBuffer) -> Self {
+    /// and is no longer rated for confidence: the DJ set it. Each cue gets
+    /// the energy of its section, rated with the tempo the track's energy
+    /// was rated with.
+    ///
+    /// # Errors
+    ///
+    /// [`EuphoriaError::UnsupportedSampleRate`] when `audio` has a sample
+    /// rate the energy rating does not take.
+    pub fn on_imported_grid(
+        mut self,
+        grid: BeatGrid,
+        audio: &AudioBuffer,
+    ) -> Result<Self, EuphoriaError> {
+        let energy_tempo = match self.tempo_estimate {
+            Some(_) => self.tempo_in(TempoRange::DEFAULT),
+            None => self.bpm,
+        }
+        .filter(|tempo| tempo.is_finite() && *tempo > 0.0);
         self.bpm = Some(grid.bpm as f32);
         self.tempo_estimate = None;
         self.tempo_score_margin = None;
-        self.cues = cues_on_grid(audio, &grid);
+        self.cues = with_section_energy(cues_on_grid(audio, &grid), audio, energy_tempo)?;
         self.beat_grid = Some(grid);
-        self
+        Ok(self)
     }
 
     /// [`TrackAnalysis::on_imported_grid`] for the audio file at `path`,
@@ -307,13 +324,14 @@ impl TrackAnalysis {
     ///
     /// # Errors
     ///
-    /// [`EuphoriaError::Decode`] when the file cannot be decoded.
+    /// [`EuphoriaError::Decode`] when the file cannot be decoded, and as
+    /// [`TrackAnalysis::on_imported_grid`] fails.
     pub fn on_imported_grid_of_file(
         self,
         grid: BeatGrid,
         path: &Path,
     ) -> Result<Self, EuphoriaError> {
-        Ok(self.on_imported_grid(grid, &decode_mono(path)?))
+        self.on_imported_grid(grid, &decode_mono(path)?)
     }
 }
 

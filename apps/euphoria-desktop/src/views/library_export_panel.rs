@@ -5,6 +5,7 @@
 //! tracks, the program's options and the file or database, then a review of
 //! what would be written, then the result.
 
+use euphoria_core::CueColours;
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, TestSupportExt, div, px};
 
@@ -239,6 +240,21 @@ fn setup_contents(
                 cx,
                 |setup| setup.playlists = !setup.playlists,
             ));
+        }
+        if program.has_cue_colours() && setup.cues {
+            toggles.push(
+                toggle_row(
+                    "export-cue-colours",
+                    "Colour cues by energy",
+                    "Blue for calm sections up to red for intense ones. Your own cues keep their pad colour.",
+                    setup.cue_colours == CueColours::Energy,
+                    &app.switches,
+                    palette,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_colour_cues_by_energy(cx)))
+                .test_support()
+                .into_any_element(),
+            );
         }
         contents.push(section_label("Contents", palette).into_any_element());
         contents.push(column(toggles));

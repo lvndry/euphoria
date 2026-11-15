@@ -361,6 +361,7 @@ mod tests {
             seconds: 5.0,
             name: "Drop".to_string(),
             hot_cue: None,
+            energy: None,
         }];
         analyzer.set_edited_cues(&track, Some(&cues)).unwrap();
 

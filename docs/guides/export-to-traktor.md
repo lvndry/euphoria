@@ -80,6 +80,8 @@ Traktor's analysis replaces an imported grid. Before analyzing imported tracks, 
 
 With `--cues`, each track whose beat grid is written gets hot cues 1 to 8 at the starts of its sections: Start, Main, Breakdown, Drop and Outro, or numbered sections on a track without that arc, at most 8, each on the first beat of a bar. Traktor lists hot cues among its cues, so the export does not add a second, memory copy of each one, as the rekordbox export does. dj-data-converter does the same.
 
+Traktor colours each cue by its type, not one by one **(not verified)**, so the cues are not coloured by the energy of their sections and `export traktor` has no `--cue-colors`. They show in Traktor's colour for a hot cue. The energy of each section is still in the [detailed view](../reference/cli.md#the-detailed-view) and the app.
+
 Euphoria never changes cues you set. `--cues` needs `--collection`, naming your Traktor `collection.nml`, which is only read:
 
 ```

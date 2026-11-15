@@ -489,6 +489,40 @@ A track gets at most 8 cues, one per hot cue pad from A to H. When there would b
 
 ![The energy rating of a two minute preview, with the cues Euphoria sets on it: Start at 0.2 seconds where the rating is 2 to 3, Main at 15.7 seconds where it rises to 7 and 8, Breakdown at 77.7 seconds where it falls to 1, and Drop at 93.1 seconds where it comes back to 7 and 8.](../images/beat-grid/cues.svg)
 
+### Energy of each cue
+
+Each cue carries the energy of its section, from 1 to 10, from that cue to the next one, or to the end of the track for the last. It is read from the track's [energy curve](energy.md): the mean score of the 8 second windows whose centre falls inside the section, cut into ten ratings as the track's own rating is. A section therefore rates where the curve under it sits, on the same scale as the track. A section too short to hold the centre of a window takes the window nearest to its middle, and a silent section has none.
+
+Exports to DJ programs colour each cue by that energy, from cool to warm, in five steps:
+
+![Five colour steps of energy: 1 and 2 blue, 3 and 4 teal, 5 and 6 green, 7 and 8 amber, 9 and 10 red. rekordbox and VirtualDJ get Euphoria's own colours, Engine DJ and Serato the nearest of their own pad colours, and Traktor none.](../images/cue-colours/scale.svg)
+
+On the player, a DJ sees where the track lifts and where it drops before hearing it. Only the cues analysis placed are coloured this way. Cues you [edited in the desktop app](../guides/desktop-app.md#cue-points) keep the colour each program gives their pad, since the sections between them were never rated. To keep every cue in the pad colours, pass `--cue-colors fixed` or turn off **Colour cues by energy** in the app.
+
+| Program | Where the colour goes |
+| --- | --- |
+| rekordbox | `Red`, `Green` and `Blue` of each hot cue in the XML, in Euphoria's colours. Memory cues get none. rekordbox shows hot cues in a palette of its own and may show the nearest of its colours. **(not verified)** |
+| Engine DJ | The colour of each hot cue in `quickCues`, from the pad colours Engine DJ writes itself. **(not verified)** |
+| VirtualDJ | `Color` of each hot cue in `database.xml`, in Euphoria's colours. **(not verified)** |
+| Serato | The colour of each cue point in `Serato Markers2`, from Serato's own pad colours. **(not verified)** |
+| Traktor | None. Traktor colours a cue by its type, so the cues keep Traktor's colour for a hot cue. **(not verified)** |
+
+`euphoria analyze` shows the energy beside each cue in the [detailed view](../reference/cli.md#the-detailed-view) and as `energy` in the JSON, and the desktop app beside each cue of the list. The energy of each section is measured when a track is analyzed. A track analyzed before this has cues with no energy, and they keep the pad colours until it is analyzed again, for example with `euphoria analyze --reanalyze`.
+
+It is not scored against listeners: no dataset rates the sections of a track. With energy model version 2, when each section was rated from its own features rather than from the curve, it was checked on 36 full length tracks of one DJ library, about 8 from each genre folder (1 afrobeats and 3 organic house tracks, as those folders are small), counting the cues rather than scoring them. The Start cue is below the most intense cue of its track on 29 of 35 tracks. A Drop is rated above the Breakdown before it far less often:
+
+| Folder | Tracks | Drop above its Breakdown | Same | Below |
+| --- | --- | --- | --- | --- |
+| tech house | 8 | 8 | 1 | 3 |
+| organic house | 3 | 5 | 0 | 0 |
+| melodic house | 8 | 7 | 2 | 7 |
+| deep house | 8 | 4 | 3 | 9 |
+| afro house | 8 | 3 | 0 | 4 |
+| afrobeats | 1 | 1 | 0 | 1 |
+| All | 36 | 28 | 6 | 24 |
+
+So on deep, melodic and afro house a breakdown is often rated as intense as the drop after it, or more. The rating leans mostly on spectral flux, how busy the sound is, and gives no weight to the share of the kick and the bass, whose absence is what makes a breakdown one; a breakdown full of pads, vocals and risers is likely busy enough to rate high. This was not measured feature by feature. Read the colours as how busy and loud each section is, not as where the kick comes back.
+
 ### How they are found
 
 Two layers find the cues, and only the second knows anything about DJs.

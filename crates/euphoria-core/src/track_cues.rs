@@ -75,6 +75,9 @@ pub struct Cue {
     pub name: String,
     /// The hot cue pad the cue is on, or `None` for a memory cue only.
     pub hot_cue: Option<HotCue>,
+    /// The energy rating, from 1 to 10, of the section the cue starts, as
+    /// analysis measured it. The user's cues have none.
+    pub energy: Option<u8>,
 }
 
 /// Where the cues of a track come from.
@@ -106,6 +109,7 @@ impl TrackCues {
                 seconds: section_cue.seconds,
                 name: section_cue.section.name().to_string(),
                 hot_cue: Some(hot_cue),
+                energy: section_cue.energy,
             })
             .collect();
         Self {
@@ -114,9 +118,13 @@ impl TrackCues {
         }
     }
 
-    /// The user's cues, put in order of time.
+    /// The user's cues, put in order of time. They carry no energy: a cue
+    /// the user moved or added starts a section analysis did not rate.
     pub fn edited(mut cues: Vec<Cue>) -> Self {
         cues.sort_by(|first, second| first.seconds.total_cmp(&second.seconds));
+        for cue in &mut cues {
+            cue.energy = None;
+        }
         Self {
             cues,
             origin: CueOrigin::Edited,
@@ -219,6 +227,7 @@ mod tests {
             seconds,
             name: name.to_string(),
             hot_cue: hot_cue.and_then(HotCue::from_letter),
+            energy: None,
         }
     }
 
@@ -254,10 +263,12 @@ mod tests {
                 SectionCue {
                     seconds: 0.5,
                     section: CueSection::Start,
+                    energy: None,
                 },
                 SectionCue {
                     seconds: 31.5,
                     section: CueSection::Main,
+                    energy: None,
                 },
             ],
         }
@@ -282,6 +293,19 @@ mod tests {
             cues.cues,
             vec![cue(0.5, "Start", Some('A')), cue(31.5, "Main", Some('B'))]
         );
+    }
+
+    #[test]
+    fn automatic_cues_keep_the_energy_of_their_sections() {
+        let mut analysis = analysis_with_cues();
+        analysis.cues[0].energy = Some(3);
+        analysis.cues[1].energy = Some(8);
+        let energies: Vec<Option<u8>> = TrackCues::of(&analysis, None)
+            .cues
+            .iter()
+            .map(|cue| cue.energy)
+            .collect();
+        assert_eq!(energies, vec![Some(3), Some(8)]);
     }
 
     #[test]

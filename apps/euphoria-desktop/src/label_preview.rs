@@ -379,6 +379,7 @@ fn example_analysis() -> TrackAnalysis {
         cues: vec![euphoria_core::detect::SectionCue {
             seconds: 0.1,
             section: euphoria_core::detect::CueSection::Start,
+            energy: None,
         }],
         key_timeline: Vec::new(),
         quality: None,
@@ -458,6 +459,7 @@ pub(crate) fn plan_preview(
     let unrestricted_settings = TagSettings {
         write_tempo: true,
         write_cue_markers: true,
+        colour_cues_by_energy: true,
         replace_existing: true,
         include_low_confidence: true,
         ..*settings

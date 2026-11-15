@@ -5,7 +5,7 @@
 //! lined up with it, and the list where cues are added, renamed, put on a
 //! hot cue pad, deleted, undone and reset to the automatic ones.
 
-use euphoria_core::{Cue, HotCue};
+use euphoria_core::{Cue, HotCue, energy_cue_colour};
 use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
@@ -560,6 +560,9 @@ fn cue_row(
         .h(px(CUE_ROW_HEIGHT))
         .child(pad)
         .child(name)
+        .when_some(cue.energy, |row, energy| {
+            row.child(energy_badge(index, energy, palette))
+        })
         .child(
             div()
                 .id(("cue-time", index))
@@ -586,6 +589,32 @@ fn cue_row(
                 .on_click(cx.listener(move |this, _, _, cx| this.delete_cue(index, cx)))
                 .test_support(),
         )
+        .test_support()
+}
+
+/// The energy of the section cue `index` starts, beside a dot in the colour
+/// the cue gets in exports.
+fn energy_badge(index: usize, energy: u8, palette: &Palette) -> impl IntoElement {
+    let [red, green, blue] = energy_cue_colour(energy);
+    div()
+        .id(("cue-energy", index))
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(GAP_TIGHT)
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child(
+            div()
+                .size(px(6.0))
+                .rounded_full()
+                .bg(gpui::rgb(u32::from_be_bytes([0, red, green, blue]))),
+        )
+        .child(energy.to_string())
+        .tooltip(move |window, cx| {
+            Tooltip::new(format!("Energy {energy} of 10 from this cue to the next"))
+                .build(window, cx)
+        })
         .test_support()
 }
 
@@ -669,6 +698,7 @@ mod tests {
             seconds,
             name: name.to_string(),
             hot_cue: letter.and_then(HotCue::from_letter),
+            energy: None,
         }
     }
 

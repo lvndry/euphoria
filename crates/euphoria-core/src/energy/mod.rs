@@ -281,6 +281,90 @@ pub fn energy_curve(
     Ok(points)
 }
 
+/// The energy of one section of a track.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SectionEnergy {
+    /// The rating, from 1 (calm) to 10 (intense).
+    pub rating: u8,
+    /// Position on the scale from 0.0 to 1.0, the mean score of the
+    /// windows of the curve it was read from.
+    pub score: f32,
+}
+
+/// Rates each section of the audio from its [`energy_curve`]: the section
+/// that starts at each of `starts_seconds` runs to the next start, and the
+/// last one to the end of the audio.
+///
+/// A section's score is the mean score of the rated windows of the curve
+/// whose centre falls inside it, so a section rates where the curve under
+/// it sits, on the same scale as [`rate_energy`]. A section too short to
+/// hold the centre of a window takes the window whose centre is nearest to
+/// its own middle. A section that is silent, past the end or empty, such
+/// as one whose start is out of order, has no rating.
+///
+/// Fails as [`energy_curve`] does for an unsupported sample rate or an
+/// unusable tempo.
+pub fn rate_sections(
+    audio: &AudioBuffer,
+    starts_seconds: &[f64],
+    tempo: Option<f32>,
+) -> Result<Vec<Option<SectionEnergy>>, EuphoriaError> {
+    let curve = energy_curve(audio, tempo)?;
+    Ok(sections_of_curve(
+        &curve,
+        starts_seconds,
+        f64::from(audio.duration_seconds()),
+    ))
+}
+
+fn sections_of_curve(
+    curve: &[EnergyCurvePoint],
+    starts_seconds: &[f64],
+    duration_seconds: f64,
+) -> Vec<Option<SectionEnergy>> {
+    let centre = |point: &EnergyCurvePoint| {
+        f64::from(point.start_seconds) + f64::from(point.duration_seconds) / 2.0
+    };
+    starts_seconds
+        .iter()
+        .enumerate()
+        .map(|(index, start)| {
+            let start = start.max(0.0);
+            let end = starts_seconds
+                .get(index + 1)
+                .copied()
+                .unwrap_or(duration_seconds)
+                .min(duration_seconds);
+            if start >= end {
+                return None;
+            }
+            let inside: Vec<f32> = curve
+                .iter()
+                .filter(|point| (start..end).contains(&centre(point)))
+                .filter_map(|point| point.rating.map(|rating| rating.score))
+                .collect();
+            let score = if inside.is_empty() {
+                let middle = (start + end) / 2.0;
+                curve
+                    .iter()
+                    .min_by(|first, second| {
+                        (centre(first) - middle)
+                            .abs()
+                            .total_cmp(&(centre(second) - middle).abs())
+                    })?
+                    .rating?
+                    .score
+            } else {
+                inside.iter().sum::<f32>() / inside.len() as f32
+            };
+            Some(SectionEnergy {
+                rating: rating_of(score),
+                score,
+            })
+        })
+        .collect()
+}
+
 fn check_sample_rate(sample_rate: NonZeroU32) -> Result<(), EuphoriaError> {
     let supported = ENERGY_MINIMUM_SAMPLE_RATE..=ENERGY_MAXIMUM_SAMPLE_RATE;
     if supported.contains(&sample_rate.get()) {

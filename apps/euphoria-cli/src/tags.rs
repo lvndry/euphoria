@@ -95,6 +95,18 @@ pub struct WriteArguments {
     /// already in the files are kept. Mixxx and VirtualDJ read them too.
     #[arg(long)]
     serato_markers: bool,
+    /// How the cue points written with --serato-markers are coloured: by
+    /// the energy of the section each one starts, from blue for calm to red
+    /// for intense, or in the colours Serato gives its pads. Your own cues
+    /// keep their pad colour either way.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t,
+        value_name = "COLOURS",
+        requires = "serato_markers"
+    )]
+    cue_colors: crate::export::CueColorsChoice,
     #[command(flatten)]
     analysis: AnalysisOptions,
 }
@@ -264,7 +276,11 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
             if arguments.serato_markers {
                 let report = add_serato_markers(
                     &mut plan,
-                    &SeratoMarkers::of_cues(&written, edits.cues.clone()),
+                    &SeratoMarkers::of_cues(
+                        &written,
+                        edits.cues.clone(),
+                        arguments.cue_colors.into(),
+                    ),
                 )?;
                 serato_reports.push((result.path.clone(), report));
             }

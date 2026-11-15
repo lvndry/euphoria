@@ -25,9 +25,9 @@ use euphoria_core::export::virtualdj::{
 };
 use euphoria_core::tags::{KeyNotation as TagKeyNotation, LabelPlacement};
 use euphoria_core::{
-    AssembledLibrary, CachedAnalyzer, CachedBatch, EntryLocation, EuphoriaError, ExportContents,
-    M3uTrack, PlaylistLayout, assemble_library_with, playlist_count, read_track_name,
-    write_m3u8_file,
+    AssembledLibrary, CachedAnalyzer, CachedBatch, CueColours, EntryLocation, EuphoriaError,
+    ExportContents, M3uTrack, PlaylistLayout, assemble_library_with, playlist_count,
+    read_track_name, write_m3u8_file,
 };
 
 use crate::batch::{self, AnalysisOptions};
@@ -114,6 +114,17 @@ pub struct RekordboxArguments {
     /// --beat-grid, and --collection so that no track loses its own cues.
     #[arg(long, requires_all = ["beat_grid", "collection"])]
     cues: bool,
+    /// How the cues are coloured: by the energy of the section each one
+    /// starts, from blue for calm to red for intense, or in the colours rekordbox
+    /// gives its pads. Your own cues keep their pad colour either way.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t,
+        value_name = "COLOURS",
+        requires = "cues"
+    )]
+    cue_colors: CueColorsChoice,
     /// Your rekordbox collection exported as XML (File > Export Collection
     /// in xml format). Tracks there with a constant beat grid are exported
     /// with that grid in place of the detected one, and their cues sit on
@@ -212,6 +223,17 @@ pub struct EngineArguments {
     /// Engine DJ keeps them and gets none.
     #[arg(long, requires = "beat_grid")]
     cues: bool,
+    /// How the cues are coloured: by the energy of the section each one
+    /// starts, from blue for calm to red for intense, or in the colours Engine DJ
+    /// gives its pads. Your own cues keep their pad colour either way.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t,
+        value_name = "COLOURS",
+        requires = "cues"
+    )]
+    cue_colors: CueColorsChoice,
     /// Check the library and show what would change, writing nothing.
     #[arg(long)]
     dry_run: bool,
@@ -320,6 +342,17 @@ pub struct VirtualDjArguments {
     /// own in VirtualDJ keeps them and gets none.
     #[arg(long, requires = "beat_grid")]
     cues: bool,
+    /// How the cues are coloured: by the energy of the section each one
+    /// starts, from blue for calm to red for intense, or in the colours VirtualDJ
+    /// gives its pads. Your own cues keep their pad colour either way.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t,
+        value_name = "COLOURS",
+        requires = "cues"
+    )]
+    cue_colors: CueColorsChoice,
     /// Show what would change and write nothing.
     #[arg(long)]
     dry_run: bool,
@@ -328,6 +361,24 @@ pub struct VirtualDjArguments {
     yes: bool,
     #[command(flatten)]
     analysis: AnalysisOptions,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum CueColorsChoice {
+    /// By the energy of each cue's section.
+    #[default]
+    Energy,
+    /// The colours each program gives its pads.
+    Fixed,
+}
+
+impl From<CueColorsChoice> for CueColours {
+    fn from(choice: CueColorsChoice) -> Self {
+        match choice {
+            CueColorsChoice::Energy => CueColours::Energy,
+            CueColorsChoice::Fixed => CueColours::Fixed,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -392,6 +443,7 @@ struct ExportRequest<'arguments> {
     no_playlists: bool,
     beat_grid: bool,
     cues: bool,
+    cue_colours: CueColours,
     collection: Option<&'arguments Path>,
     /// Whether the beat grids of `collection` replace the detected ones.
     import_grids: bool,
@@ -416,6 +468,7 @@ fn export_to_rekordbox(arguments: &RekordboxArguments) -> Result<ExitCode> {
             no_playlists: arguments.no_playlists,
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
+            cue_colours: arguments.cue_colors.into(),
             collection: arguments.collection.as_deref(),
             import_grids: true,
             protected_collections: Vec::new(),
@@ -447,6 +500,7 @@ fn export_to_traktor(arguments: &TraktorArguments) -> Result<ExitCode> {
             no_playlists: arguments.no_playlists,
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
+            cue_colours: CueColours::Fixed,
             collection: arguments.collection.as_deref(),
             import_grids: false,
             protected_collections: traktor_collection::installed_collections(),
@@ -577,6 +631,7 @@ fn export_library(
             beat_grid: request.beat_grid,
             cues: request.cues,
             edited_cues: batch::edited_cues(&user_edits),
+            cue_colours: request.cue_colours,
         },
     );
     // A track that has cues of its own is left out of the file, so that no
@@ -741,6 +796,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             edited_cues: batch::edited_cues(&user_edits),
+            cue_colours: arguments.cue_colors.into(),
         },
     );
     let virtualdj_tracks: Vec<VirtualDjTrack<'_>> = library
@@ -972,6 +1028,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             edited_cues: batch::edited_cues(&user_edits),
+            cue_colours: arguments.cue_colors.into(),
         },
     );
     let tracks: Vec<EngineTrack<'_>> = assembled

@@ -9,11 +9,20 @@ use gpui::{App, Entity};
 
 use crate::live_model::LiveModel;
 
+/// Where the menu bar item is, so the panel opens under it: the middle of the
+/// item and the bottom of the menu bar, in points from the top left of the
+/// main display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PanelAnchor {
+    pub(crate) center_x: i32,
+    pub(crate) top: i32,
+}
+
 /// What the menu bar item asks the app to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MenuBarCommand {
     /// A click on the item: show the Live panel, or hide it.
-    TogglePanel,
+    TogglePanel(Option<PanelAnchor>),
     OpenEuphoria,
     ToggleListening,
     ToggleKeepRunning,
@@ -39,7 +48,7 @@ impl MenuBarState {
             keeps_running: model.settings.keep_running_when_closed,
             matched_title: model
                 .matched_track()
-                .map(|(track, _)| track.title().to_string()),
+                .map(|(track, _)| crate::live_model::shown_title(track)),
         }
     }
 }
@@ -72,7 +81,7 @@ pub(crate) fn install(
         while let Ok(command) = commands.recv().await {
             let model = model.clone();
             cx.update(|cx| match command {
-                MenuBarCommand::TogglePanel => crate::live_app::toggle_panel(cx),
+                MenuBarCommand::TogglePanel(anchor) => crate::live_app::toggle_panel(anchor, cx),
                 MenuBarCommand::OpenEuphoria => crate::open_euphoria(cx),
                 MenuBarCommand::ToggleListening => {
                     model

@@ -668,6 +668,7 @@ mod tests {
             name: name.to_string(),
             time: Duration::from_secs(seconds),
             kind,
+            energy: None,
         };
         let cues = [
             at(1, CueKind::Memory, "Start"),

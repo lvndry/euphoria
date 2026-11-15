@@ -13,6 +13,7 @@ use super::playlists::playlists_from_folders;
 use super::rekordbox::{CueKind, CuePoint, Library, Playlist, PlaylistNode, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
 use crate::confidence::Confidence;
+use crate::cue_colours::CueColours;
 use crate::error::EuphoriaError;
 use crate::track_cues::{Cue, TrackCues};
 use crate::track_name::{TrackName, read_track_name};
@@ -92,6 +93,10 @@ pub struct ExportContents {
     ///
     /// [`Cache::edited_cues_for`]: crate::cache::Cache::edited_cues_for
     pub edited_cues: HashMap<PathBuf, Vec<Cue>>,
+    /// How the cues are coloured. By default each cue analysis placed is
+    /// coloured by the energy of its section, and the user's keep the
+    /// colour of their pad.
+    pub cue_colours: CueColours,
 }
 
 /// Builds the library to export from analysis results.
@@ -205,7 +210,13 @@ fn track_from_analysis(
         .filter(|grid| contents.beat_grid && grid.confidence() != Confidence::Low);
     let edited_cues = contents.edited_cues.get(path).cloned();
     let cue_points = if contents.cues && (edited_cues.is_some() || beat_grid.is_some()) {
-        cue_points(&TrackCues::of(analysis, edited_cues).cues)
+        let track_cues = TrackCues::of(analysis, edited_cues);
+        let cue_colours = if track_cues.is_edited() {
+            CueColours::Fixed
+        } else {
+            contents.cue_colours
+        };
+        cue_points(&track_cues.cues, cue_colours)
     } else {
         Vec::new()
     };
@@ -225,8 +236,9 @@ fn track_from_analysis(
     (track, unread_tags)
 }
 
-/// Each cue as a memory cue, and as a hot cue on its pad when it has one.
-fn cue_points(cues: &[Cue]) -> Vec<CuePoint> {
+/// Each cue as a memory cue, and as a hot cue on its pad when it has one,
+/// coloured as `cue_colours` asks.
+fn cue_points(cues: &[Cue], cue_colours: CueColours) -> Vec<CuePoint> {
     let mut points = Vec::with_capacity(cues.len() * 2);
     for cue in cues {
         let Ok(time) = Duration::try_from_secs_f64(cue.seconds) else {
@@ -238,6 +250,7 @@ fn cue_points(cues: &[Cue]) -> Vec<CuePoint> {
                 name: cue.name.clone(),
                 time,
                 kind,
+                energy: cue_colours.energy_to_show(cue.energy),
             });
         }
     }
@@ -271,10 +284,12 @@ mod tests {
                 SectionCue {
                     seconds: 0.5,
                     section: CueSection::Start,
+                    energy: None,
                 },
                 SectionCue {
                     seconds: 31.5,
                     section: CueSection::Drop,
+                    energy: None,
                 },
             ],
         }
@@ -314,6 +329,7 @@ mod tests {
             beat_grid: true,
             cues: true,
             edited_cues,
+            cue_colours: CueColours::Energy,
         }
     }
 
@@ -338,11 +354,13 @@ mod tests {
                 seconds: 64.0,
                 name: "Vocal".to_string(),
                 hot_cue: HotCue::from_letter('E'),
+                energy: None,
             },
             Cue {
                 seconds: 12.0,
                 name: "Warm up".to_string(),
                 hot_cue: None,
+                energy: None,
             },
         ];
         let contents = with_cues(HashMap::from([(track_path(), edited)]));
@@ -361,6 +379,47 @@ mod tests {
             ..contents
         };
         assert!(points(analysis(None), without_cues).is_empty());
+    }
+
+    #[test]
+    fn automatic_cues_carry_their_section_energy_unless_colours_are_fixed() {
+        let mut with_energy = analysis(Some(confident_grid()));
+        with_energy.cues[0].energy = Some(2);
+        with_energy.cues[1].energy = Some(9);
+        let energies = |contents: ExportContents| -> Vec<Option<u8>> {
+            let assembled = assemble_library_with(
+                vec![FileResult {
+                    path: track_path(),
+                    outcome: Ok(with_energy.clone()),
+                }],
+                PlaylistLayout::CollectionOnly,
+                contents,
+            );
+            assembled.library.tracks[0]
+                .cue_points
+                .iter()
+                .map(|point| point.energy)
+                .collect()
+        };
+        assert_eq!(
+            energies(with_cues(HashMap::new())),
+            vec![Some(2), Some(2), Some(9), Some(9)]
+        );
+        let fixed = ExportContents {
+            cue_colours: CueColours::Fixed,
+            ..with_cues(HashMap::new())
+        };
+        assert_eq!(energies(fixed), vec![None; 4]);
+        let edited = vec![Cue {
+            seconds: 12.0,
+            name: "Mine".to_string(),
+            hot_cue: HotCue::from_letter('A'),
+            energy: Some(9),
+        }];
+        assert_eq!(
+            energies(with_cues(HashMap::from([(track_path(), edited)]))),
+            vec![None, None]
+        );
     }
 
     #[test]
