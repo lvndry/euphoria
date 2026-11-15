@@ -818,9 +818,13 @@ The count above the table says how many tracks were filled in this way, for exam
 
 If the cache cannot be opened, the app says why in a notice along the bottom of the window and analyzes without it, so results are not remembered until the problem is fixed. `euphoria cache clear` resets a damaged cache. The [command reference](../reference/cli.md#the-analysis-cache) explains how files are recognised and when a track is analyzed again.
 
+## Live
+
+The **Live** button in the toolbar, **View, Live** and Command Shift L open a small panel that stays on top and shows the key and tempo of whatever the Mac is playing, with the tracks of your library that mix in. Live keeps running in the menu bar when you close the window. See [Euphoria Live](euphoria-live.md).
+
 ## Quitting
 
-You can quit while tracks are being analyzed. The app closes at once: tracks already finished are remembered, and the ones that were waiting or in progress are analyzed the next time the app starts.
+You can quit while tracks are being analyzed. With Live running and **Keep Live running when the window is closed** on, closing the window leaves Euphoria in the menu bar; **Quit Euphoria** there, or Command Q, quits it. The app closes at once: tracks already finished are remembered, and the ones that were waiting or in progress are analyzed the next time the app starts.
 
 ## Build Euphoria.app
 
