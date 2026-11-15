@@ -199,3 +199,182 @@ fn nothing_opens_without_a_selection(cx: &mut TestAppContext) {
     });
     assert!(!is_shown(window, "prepare-files-card", cx));
 }
+
+fn scratch_library(
+    name: &str,
+    cx: &mut TestAppContext,
+) -> (
+    ScratchFolder,
+    Vec<PathBuf>,
+    gpui::AnyWindowHandle,
+    Entity<EuphoriaApp>,
+) {
+    let scratch = ScratchFolder::new(name);
+    let copies: Vec<PathBuf> = fixture_paths()
+        .iter()
+        .map(|path| {
+            let copy = scratch.0.join(path.file_name().unwrap());
+            std::fs::copy(path, &copy).unwrap();
+            copy
+        })
+        .collect();
+    let tracks = copies
+        .iter()
+        .map(|path| crate::demo::DemoTrack {
+            path: path.clone(),
+            outcome: Ok(euphoria_core::TrackAnalysis {
+                duration_seconds: 1.0,
+                key: None,
+                bpm: None,
+                energy: None,
+                tuning_cents: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                key_source: None,
+                loudness_range_lu: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
+                beat_grid: None,
+                cues: Vec::new(),
+                key_timeline: Vec::new(),
+                quality: None,
+            }),
+        })
+        .collect();
+    let (window, view) = crate::ui_tests::open_window_on(
+        tracks,
+        Box::new(crate::playback::testing::SilentOutput),
+        cx,
+    );
+    (scratch, copies, window, view)
+}
+
+#[gpui::test]
+fn tag_only_writes_replaygain_into_the_originals_and_revert_puts_them_back(
+    cx: &mut TestAppContext,
+) {
+    let (_scratch, copies, window, view) = scratch_library("prepare-tag-only", cx);
+    let audio_before: Vec<_> = copies.iter().map(|path| decoded(path)).collect();
+    open_sheet(&view, cx);
+    click(window, "prepare-mode-tags", cx);
+    assert!(is_shown(window, "prepare-tag-only-note", cx));
+    assert!(!is_shown(window, "prepare-tune", cx));
+    assert!(!is_shown(window, "prepare-revert", cx));
+
+    click(window, "prepare-confirm", cx);
+
+    for (path, before) in copies.iter().zip(&audio_before) {
+        let fields = euphoria_core::prepare::read_replaygain(path).unwrap();
+        assert!(fields.gain.unwrap().ends_with(" dB"));
+        assert!(fields.peak.is_some());
+        assert_eq!(&decoded(path), before, "the audio is untouched");
+    }
+    assert!(
+        !copies[0]
+            .with_file_name("sine-440hz-mono (prepared).flac")
+            .exists()
+    );
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.toasts.current().unwrap().message, "Tagged 3 files");
+        assert!(!app.last_prepare_manifests.is_empty());
+    });
+
+    open_sheet(&view, cx);
+    assert!(is_shown(window, "prepare-revert", cx));
+    click(window, "prepare-revert", cx);
+    for path in &copies {
+        let fields = euphoria_core::prepare::read_replaygain(path).unwrap();
+        assert_eq!(fields, euphoria_core::prepare::ReplayGainFields::default());
+    }
+    cx.update(|cx| assert!(view.read(cx).last_prepare_manifests.is_empty()));
+}
+
+fn decoded(path: &std::path::Path) -> Vec<f32> {
+    let mut stream = euphoria_core::AudioStream::open(path).unwrap();
+    let mut all = Vec::new();
+    let mut chunk = Vec::new();
+    while stream.read_chunk(&mut chunk).unwrap() {
+        all.extend_from_slice(&chunk);
+    }
+    all
+}
+
+#[gpui::test]
+fn reverting_a_copy_run_removes_the_copies_and_nothing_else(cx: &mut TestAppContext) {
+    let (scratch, copies, window, view) = scratch_library("prepare-revert", cx);
+    open_sheet(&view, cx);
+    click(window, "prepare-confirm", cx);
+    let made: Vec<_> = std::fs::read_dir(&scratch.0)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("(prepared)"))
+        .collect();
+    assert_eq!(made.len(), 3, "{made:?}");
+    open_sheet(&view, cx);
+    click(window, "prepare-revert", cx);
+    let left: Vec<_> = std::fs::read_dir(&scratch.0)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        left.iter().all(|name| !name.contains("(prepared)")),
+        "{left:?}"
+    );
+    assert!(
+        left.iter()
+            .all(|name| !name.starts_with("euphoria-prepare-"))
+    );
+    for copy in &copies {
+        assert!(copy.exists());
+    }
+}
+
+#[gpui::test]
+fn the_comparison_plays_both_versions_in_place_and_writes_nothing(cx: &mut TestAppContext) {
+    let (scratch, _copies, window, view) = scratch_library("prepare-ab", cx);
+    open_sheet(&view, cx);
+    assert!(is_shown(window, "prepare-ab-hint", cx));
+    click(window, ("prepare-row", 2_usize), cx);
+    assert!(is_shown(window, "prepare-ab-listen", cx));
+    click(window, "prepare-ab-listen", cx);
+    assert!(is_shown(window, "prepare-ab-prepared", cx));
+    assert!(is_shown(window, "prepare-ab-original", cx));
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let comparison = app
+            .prepare_panel
+            .as_ref()
+            .unwrap()
+            .comparison
+            .as_ref()
+            .unwrap();
+        let clip = comparison.clip.as_ref().unwrap();
+        assert_eq!(clip.original.len(), clip.prepared.len());
+        assert!(
+            comparison
+                .prepared
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    });
+    click(window, "prepare-ab-original", cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let comparison = app
+            .prepare_panel
+            .as_ref()
+            .unwrap()
+            .comparison
+            .as_ref()
+            .unwrap();
+        assert!(
+            !comparison
+                .prepared
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    });
+    let files_now = std::fs::read_dir(&scratch.0).unwrap().count();
+    assert_eq!(files_now, 3, "nothing is written for the comparison");
+    click(window, "prepare-ab-stop", cx);
+    assert!(is_shown(window, "prepare-ab-listen", cx));
+}
