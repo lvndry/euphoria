@@ -357,6 +357,7 @@ fn analysis_with_grid() -> TrackAnalysis {
         key_score_margin: None,
         key_source: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
         tempo_estimate: Some(120.0),
         tempo_score_margin: Some(0.5),
         beat_grid: Some(BeatGrid {

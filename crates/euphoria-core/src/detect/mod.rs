@@ -43,9 +43,14 @@ pub fn read_key(audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
     let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
     #[cfg(feature = "drone")]
     {
+        let reading = DroneDetector.read_key_over_time(audio, tuning_cents)?;
+        let pitch_class_profile = reading
+            .key
+            .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents));
         Ok(KeyReading {
             tuning_cents,
-            ..DroneDetector.read_key_over_time(audio, tuning_cents)?
+            pitch_class_profile,
+            ..reading
         })
     }
     #[cfg(not(feature = "drone"))]
@@ -55,6 +60,8 @@ pub fn read_key(audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
             key,
             tuning_cents,
             source: key.map(|_| KeySource::Stratum),
+            pitch_class_profile: key
+                .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents)),
             ..KeyReading::default()
         })
     }
@@ -126,6 +133,10 @@ pub struct KeyReading {
     /// The detector that decided the key, which sets how its confidence is
     /// rated. `None` when there is no key.
     pub source: Option<KeySource>,
+    /// How strongly each of the 12 notes sounds in the track, C first, from
+    /// 0 to 1 with the strongest at 1, as Euphoria's note spectrum hears it
+    /// on the scale of the measured tuning. `None` when there is no key.
+    pub pitch_class_profile: Option<[f32; 12]>,
 }
 
 /// A tempo estimate before it is placed in a [`TempoRange`], with what its

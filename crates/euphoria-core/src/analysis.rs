@@ -108,6 +108,12 @@ pub struct TrackAnalysis {
     /// recorded. With the integrated loudness of `quality` and the tempo it
     /// gives the set stage, see [`TrackAnalysis::stage_features`].
     pub loudness_range_lu: Option<f32>,
+    /// How strongly each of the 12 notes sounds in the track, C first, from
+    /// 0 to 1 with the strongest note at 1, so a doubtful key can be checked
+    /// by eye. See [`KeyReading::pitch_class_profile`](crate::detect::KeyReading).
+    /// `None` when the track has no key, and in analyses stored before it
+    /// was recorded, until the track is analyzed again.
+    pub pitch_class_profile: Option<[f32; 12]>,
 }
 
 impl TrackAnalysis {
@@ -316,6 +322,7 @@ pub fn analyze_file_observed(
         tuning_cents,
         timeline,
         source: key_source,
+        pitch_class_profile,
     } = read_key(&audio)?;
 
     // The energy rating was set with tempos in the default range, so it uses
@@ -350,6 +357,7 @@ pub fn analyze_file_observed(
         beat_grid,
         cues,
         loudness_range_lu,
+        pitch_class_profile,
     })
 }
 

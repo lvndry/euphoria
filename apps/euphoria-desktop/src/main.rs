@@ -55,6 +55,8 @@ mod library_export_ui_tests;
 mod logging;
 mod logo_motion;
 mod mashup;
+#[cfg(test)]
+mod mashup_ui_tests;
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 mod media_keys;
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
@@ -76,6 +78,8 @@ mod motion_ui_tests;
 mod next_rail;
 #[cfg(test)]
 mod next_rail_ui_tests;
+#[cfg(test)]
+mod note_strip_ui_tests;
 mod output_stream;
 mod palette_flow;
 mod panels;

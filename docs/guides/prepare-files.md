@@ -51,6 +51,18 @@ The second half of the job is the peak. Raising a quiet track by 6 dB can push i
 - The same format as the source when it is WAV, AIFF or FLAC, at 24 bits and the same sample rate.
 - The tags and the embedded cover art of the original.
 
+## Only tag the loudness
+
+`--tag-only` measures each track and writes ReplayGain 2.0 track gain and peak into its tags, so players that apply ReplayGain level the tracks themselves. No copy is written and the audio is not touched; the tags are written through a copy that replaces the file in one step. The gain is relative to -18 LUFS, the ReplayGain reference, not to your target.
+
+## Listen before you run
+
+In the desktop app, select a file in the sheet's table and choose **Listen: original and prepared**. A 20 second stretch from the middle of the track plays in a loop, and the **Original** and **Prepared** buttons switch between the two at the same position. Both are turned to the same loudness, so the difference you hear is the limiter and the tuning correction, not the level. The stretch is computed in memory; nothing is written. This is not tested with a real audio device, only with a silent output.
+
+## Undo a run
+
+Each run leaves a small manifest, `euphoria-prepare-<time>.json`, next to its copies. `euphoria prepare --revert <manifest or folder>` removes the copies it made, and restores the tags a tag-only run changed. It checks each file's checksum first: a copy you changed since is kept, and no file the manifest does not name is ever touched.
+
 ## What it never does
 
 - It never overwrites a file, and never changes the original. The original is only read, and stays byte for byte what it was.

@@ -142,6 +142,10 @@ pub struct MashupOptions {
     /// or `None` for any energy. A candidate's energy must lie in the
     /// range; one without an energy is left out of a pool narrowed to one.
     pub energy_range: Option<EnergyRange>,
+    /// The part of the reference track the user chose to play, when they
+    /// chose its vocals or its instrumental. Candidates whose stems let the
+    /// other part go with it rank higher.
+    pub reference_part: Option<StemPart>,
 }
 
 impl Default for MashupOptions {
@@ -155,6 +159,7 @@ impl Default for MashupOptions {
             allow_half_and_double_tempo: true,
             bpm_range: None,
             energy_range: None,
+            reference_part: None,
         }
     }
 }
@@ -200,6 +205,139 @@ impl Side {
     }
 }
 
+/// The levels of the stems, in the order drums, bass, other, vocals, that
+/// leave only the vocals.
+pub const VOCALS_ONLY: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
+/// The levels of the stems, in the order drums, bass, other, vocals, that
+/// leave everything but the vocals.
+pub const INSTRUMENTAL_ONLY: [f32; 4] = [1.0, 1.0, 1.0, 0.0];
+
+/// What a track plays in a mashup: the whole track, its vocals alone or
+/// everything but its vocals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StemPart {
+    /// The whole track.
+    Full,
+    /// The vocals stem alone.
+    Vocals,
+    /// The drums, bass and other stems, without the vocals.
+    Instrumental,
+}
+
+impl StemPart {
+    /// The stem levels the part plays, in the order drums, bass, other,
+    /// vocals, or `None` for the whole track.
+    pub fn levels(self) -> Option<[f32; 4]> {
+        match self {
+            StemPart::Full => None,
+            StemPart::Vocals => Some(VOCALS_ONLY),
+            StemPart::Instrumental => Some(INSTRUMENTAL_ONLY),
+        }
+    }
+
+    /// The part stem levels play, when they are exactly one of the parts.
+    /// Levels set by hand to anything else are no part.
+    pub fn of_levels(levels: Option<[f32; 4]>) -> Option<StemPart> {
+        match levels {
+            None => Some(StemPart::Full),
+            Some(VOCALS_ONLY) => Some(StemPart::Vocals),
+            Some(INSTRUMENTAL_ONLY) => Some(StemPart::Instrumental),
+            Some(_) => None,
+        }
+    }
+
+    /// The part the other track plays to go with this one: the
+    /// instrumental under vocals, vocals over an instrumental. The whole
+    /// track asks nothing of the other.
+    pub fn partner(self) -> Option<StemPart> {
+        match self {
+            StemPart::Full => None,
+            StemPart::Vocals => Some(StemPart::Instrumental),
+            StemPart::Instrumental => Some(StemPart::Vocals),
+        }
+    }
+
+    /// The lowercase name, as the command line and JSON write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            StemPart::Full => "full",
+            StemPart::Vocals => "vocals",
+            StemPart::Instrumental => "instrumental",
+        }
+    }
+}
+
+/// The parts of the reference and the candidate when only some were
+/// chosen: a side left open takes the partner of the other side's part, so
+/// vocals on one track bring the instrumental of the other and the other
+/// way round. A side with no chosen part and no partner to take stays
+/// `None`.
+pub fn pair_parts(
+    reference: Option<StemPart>,
+    candidate: Option<StemPart>,
+) -> [Option<StemPart>; 2] {
+    match (reference, candidate) {
+        (Some(reference), None) => [Some(reference), reference.partner()],
+        (None, Some(candidate)) => [candidate.partner(), Some(candidate)],
+        (reference, candidate) => [reference, candidate],
+    }
+}
+
+/// Keeps the parts of two decks paired: when the user sets one deck to its
+/// vocals, the other deck plays its instrumental, and the other way round.
+///
+/// A deck the user set by hand, its part or one of its stem levels, is
+/// never switched automatically, until a new track is loaded on it. So a
+/// choice made on the other deck after an automatic switch stays.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StemPairing {
+    set_by_hand: [bool; 2],
+}
+
+impl StemPairing {
+    /// Notes that the user set `side` to `part`, and returns the part the
+    /// other deck switches to, if any.
+    pub fn choose(&mut self, side: Side, part: StemPart) -> Option<StemPart> {
+        self.set_by_hand[slot(side)] = true;
+        let partner = part.partner()?;
+        (!self.set_by_hand[slot(side.other())]).then_some(partner)
+    }
+
+    /// Notes that the user changed the sound of `side` by hand some other
+    /// way, such as one stem's level.
+    pub fn adjust(&mut self, side: Side) {
+        self.set_by_hand[slot(side)] = true;
+    }
+
+    /// Notes that a new track went on `side`: it may be switched again.
+    pub fn load(&mut self, side: Side) {
+        self.set_by_hand[slot(side)] = false;
+    }
+
+    /// True when the user set `side` by hand since its track was loaded.
+    pub fn is_set_by_hand(&self, side: Side) -> bool {
+        self.set_by_hand[slot(side)]
+    }
+}
+
+fn slot(side: Side) -> usize {
+    match side {
+        Side::Reference => 0,
+        Side::Candidate => 1,
+    }
+}
+
+/// True when `genre` contains `wanted`, ignoring case, or when nothing is
+/// wanted. A track without a genre is out of a pool narrowed to one.
+pub fn genre_fits(wanted: Option<&str>, genre: Option<&str>) -> bool {
+    let Some(wanted) = wanted.map(str::trim).filter(|wanted| !wanted.is_empty()) else {
+        return true;
+    };
+    let wanted = wanted.to_lowercase();
+    genre.is_some_and(|genre| genre.to_lowercase().contains(&wanted))
+}
+
 /// How two separated tracks layer, from their stems.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Layering {
@@ -223,6 +361,22 @@ pub enum Layering {
 }
 
 impl Layering {
+    /// The parts the reference and the candidate play, in that order: the
+    /// vocals of one over the instrumental of the other, or both whole.
+    pub fn parts(&self) -> [StemPart; 2] {
+        match self {
+            Layering::VocalsOver {
+                vocals_from: Side::Candidate,
+                ..
+            } => [StemPart::Instrumental, StemPart::Vocals],
+            Layering::VocalsOver {
+                vocals_from: Side::Reference,
+                ..
+            } => [StemPart::Vocals, StemPart::Instrumental],
+            Layering::Instrumentals { .. } => [StemPart::Full, StemPart::Full],
+        }
+    }
+
     /// How much the layered parts share their range, 0 to 1.
     pub fn collision(&self) -> f32 {
         match self {
@@ -408,6 +562,9 @@ const INSTRUMENTALS: f32 = 2.0;
 /// The cost of not knowing how the stems layer: between a good and a poor
 /// layering.
 const UNKNOWN_LAYERING: f32 = 3.0;
+/// The cost of a candidate whose stems cannot go with the part the user
+/// chose for the reference.
+const UNPAIRED_PART: f32 = 4.0;
 
 /// The candidates that layer over `reference`, best first, with the reasons
 /// each one was kept in [`MashupMatch::reasons`].
@@ -458,9 +615,9 @@ where
             let energy_difference = usable_energy(candidate.energy())
                 .zip(reference_energy)
                 .map(|(candidate_energy, reference_energy)| candidate_energy - reference_energy);
-            let layering = reference_profile.zip(candidate.stem_profile()).map(
+            let layered = reference_profile.zip(candidate.stem_profile()).map(
                 |(reference_profile, candidate_profile)| {
-                    layering(reference_profile, candidate_profile)
+                    layering_with(reference_profile, candidate_profile, options.reference_part)
                 },
             );
             let mut found = MashupMatch {
@@ -468,10 +625,11 @@ where
                 key,
                 tempo,
                 energy_difference,
-                layering,
+                layering: layered.map(|(layering, _)| layering),
                 cost: 0.0,
             };
-            found.cost = cost(&found);
+            let keeps_part = layered.is_none_or(|(_, keeps_part)| keeps_part);
+            found.cost = cost(&found) + if keeps_part { 0.0 } else { UNPAIRED_PART };
             Some(found)
         })
         .collect();
@@ -535,22 +693,50 @@ fn key_cost(fit: &KeyFit) -> f32 {
         + f32::from(fit.shift_semitones.unsigned_abs()) * SHIFT_SEMITONE
 }
 
+/// How the two separated tracks layer best with the reference playing
+/// `reference_part`, and whether that part could be kept: vocals on the
+/// reference ask for the candidate's instrumental, an instrumental for its
+/// vocals. When the part cannot be kept the best layering is given anyway.
+fn layering_with(
+    reference: &StemProfile,
+    candidate: &StemProfile,
+    reference_part: Option<StemPart>,
+) -> (Layering, bool) {
+    let best = layering(reference, candidate);
+    let vocals_from = match reference_part {
+        Some(StemPart::Vocals) => Side::Reference,
+        Some(StemPart::Instrumental) => Side::Candidate,
+        Some(StemPart::Full) | None => return (best, true),
+    };
+    match vocals_over(reference, candidate, vocals_from) {
+        Some(paired) => (paired, true),
+        None => (best, false),
+    }
+}
+
+/// The vocals of `vocals_from` over the instrumental of the other track,
+/// when the one has vocals and the other a full instrumental.
+fn vocals_over(
+    reference: &StemProfile,
+    candidate: &StemProfile,
+    vocals_from: Side,
+) -> Option<Layering> {
+    let (vocal, instrumental) = match vocals_from {
+        Side::Candidate => (candidate, reference),
+        Side::Reference => (reference, candidate),
+    };
+    (vocal.has_vocals() && instrumental.has_full_instrumental()).then(|| Layering::VocalsOver {
+        vocals_from,
+        collision: overlap(&vocal.vocals.bands, &instrumental.other.bands),
+        instrumental_has_vocals: instrumental.has_vocals(),
+    })
+}
+
 /// How the two separated tracks layer best.
 fn layering(reference: &StemProfile, candidate: &StemProfile) -> Layering {
-    let vocals_over = |vocals_from: Side| {
-        let (vocal, instrumental) = match vocals_from {
-            Side::Candidate => (candidate, reference),
-            Side::Reference => (reference, candidate),
-        };
-        (vocal.has_vocals() && instrumental.has_full_instrumental()).then(|| Layering::VocalsOver {
-            vocals_from,
-            collision: overlap(&vocal.vocals.bands, &instrumental.other.bands),
-            instrumental_has_vocals: instrumental.has_vocals(),
-        })
-    };
     [Side::Candidate, Side::Reference]
         .into_iter()
-        .filter_map(vocals_over)
+        .filter_map(|vocals_from| vocals_over(reference, candidate, vocals_from))
         .min_by(|first, second| layering_cost(first).total_cmp(&layering_cost(second)))
         .unwrap_or_else(|| Layering::Instrumentals {
             collision: overlap(&reference.other.bands, &candidate.other.bands),
@@ -853,6 +1039,167 @@ mod tests {
             ranked[1].layering,
             Some(Layering::Instrumentals { collision }) if collision == 0.0
         ));
+    }
+
+    #[test]
+    fn the_part_chosen_for_the_reference_ranks_the_candidates_that_go_with_it_first() {
+        let mut chosen = track("8A", 124.0);
+        chosen.profile = Some(profile(3, Some(6)));
+        let mut singer = track("8A", 124.0);
+        singer.profile = Some(profile(5, Some(4)));
+        let mut bed = track("8A", 124.0);
+        bed.profile = Some(profile(2, None));
+        let candidates = [singer, bed];
+        let order = |reference_part: Option<StemPart>| {
+            let options = MashupOptions {
+                reference_part,
+                ..MashupOptions::default()
+            };
+            mashups_for(&chosen, &candidates, &options)
+                .iter()
+                .map(|found| {
+                    (
+                        found.track.profile.unwrap().has_vocals(),
+                        found.layering.unwrap().parts(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let vocals_over_bed = (false, [StemPart::Vocals, StemPart::Instrumental]);
+        assert_eq!(
+            order(None),
+            [
+                vocals_over_bed,
+                (true, [StemPart::Instrumental, StemPart::Vocals])
+            ],
+            "the bed has no vocals of its own to mute"
+        );
+        assert_eq!(
+            order(Some(StemPart::Instrumental)),
+            [
+                (true, [StemPart::Instrumental, StemPart::Vocals]),
+                vocals_over_bed
+            ],
+            "A's instrumental wants B's vocals, which the bed does not have"
+        );
+        assert_eq!(
+            order(Some(StemPart::Vocals)),
+            [
+                vocals_over_bed,
+                (true, [StemPart::Vocals, StemPart::Instrumental])
+            ],
+            "A's vocals go over the singer's instrumental too"
+        );
+        assert_eq!(order(Some(StemPart::Full)), order(None));
+    }
+
+    #[test]
+    fn a_layering_names_the_part_each_track_plays() {
+        let vocals_of_b = Layering::VocalsOver {
+            vocals_from: Side::Candidate,
+            collision: 0.1,
+            instrumental_has_vocals: true,
+        };
+        assert_eq!(
+            vocals_of_b.parts(),
+            [StemPart::Instrumental, StemPart::Vocals]
+        );
+        let vocals_of_a = Layering::VocalsOver {
+            vocals_from: Side::Reference,
+            collision: 0.1,
+            instrumental_has_vocals: false,
+        };
+        assert_eq!(
+            vocals_of_a.parts(),
+            [StemPart::Vocals, StemPart::Instrumental]
+        );
+        assert_eq!(
+            Layering::Instrumentals { collision: 0.2 }.parts(),
+            [StemPart::Full, StemPart::Full]
+        );
+    }
+
+    #[test]
+    fn a_part_has_its_levels_and_its_partner() {
+        for part in [StemPart::Full, StemPart::Vocals, StemPart::Instrumental] {
+            assert_eq!(StemPart::of_levels(part.levels()), Some(part));
+        }
+        assert_eq!(StemPart::Vocals.levels(), Some([0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(StemPart::of_levels(Some([0.5, 1.0, 1.0, 0.0])), None);
+        assert_eq!(StemPart::Vocals.partner(), Some(StemPart::Instrumental));
+        assert_eq!(StemPart::Instrumental.partner(), Some(StemPart::Vocals));
+        assert_eq!(StemPart::Full.partner(), None);
+    }
+
+    #[test]
+    fn one_chosen_part_brings_its_partner_to_the_other_track() {
+        use StemPart::{Full, Instrumental, Vocals};
+        assert_eq!(
+            pair_parts(Some(Vocals), None),
+            [Some(Vocals), Some(Instrumental)]
+        );
+        assert_eq!(
+            pair_parts(Some(Instrumental), None),
+            [Some(Instrumental), Some(Vocals)]
+        );
+        assert_eq!(
+            pair_parts(None, Some(Vocals)),
+            [Some(Instrumental), Some(Vocals)]
+        );
+        assert_eq!(pair_parts(Some(Full), None), [Some(Full), None]);
+        assert_eq!(
+            pair_parts(Some(Vocals), Some(Full)),
+            [Some(Vocals), Some(Full)]
+        );
+        assert_eq!(pair_parts(None, None), [None, None]);
+    }
+
+    #[test]
+    fn the_automatic_switch_never_overrides_a_deck_set_by_hand() {
+        use StemPart::{Full, Instrumental, Vocals};
+        let mut pairing = StemPairing::default();
+        assert_eq!(pairing.choose(Side::Reference, Vocals), Some(Instrumental));
+        assert_eq!(
+            pairing.choose(Side::Reference, Instrumental),
+            Some(Vocals),
+            "the other way round, while B was never set by hand"
+        );
+        assert_eq!(pairing.choose(Side::Reference, Full), None);
+
+        assert_eq!(
+            pairing.choose(Side::Candidate, Full),
+            None,
+            "B set by hand after the switch"
+        );
+        assert_eq!(
+            pairing.choose(Side::Reference, Vocals),
+            None,
+            "B keeps the part chosen for it"
+        );
+        assert_eq!(
+            pairing.choose(Side::Candidate, Vocals),
+            None,
+            "A was set by hand too"
+        );
+
+        pairing.load(Side::Candidate);
+        assert!(!pairing.is_set_by_hand(Side::Candidate));
+        assert_eq!(pairing.choose(Side::Reference, Vocals), Some(Instrumental));
+        pairing.adjust(Side::Candidate);
+        assert_eq!(
+            pairing.choose(Side::Reference, Vocals),
+            None,
+            "moving one stem's fader counts as setting the deck by hand"
+        );
+    }
+
+    #[test]
+    fn a_genre_fits_when_it_contains_the_one_wanted() {
+        assert!(genre_fits(None, None));
+        assert!(genre_fits(Some("  "), None));
+        assert!(genre_fits(Some("house"), Some("Deep House")));
+        assert!(!genre_fits(Some("house"), Some("Techno")));
+        assert!(!genre_fits(Some("house"), None));
     }
 
     #[test]
