@@ -15,8 +15,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use cpu_time::ThreadTime;
-use euphoria_core::detect::{DroneDetector, KeyFinderDetector, KeySection, measure_tuning};
-use euphoria_core::{AudioBuffer, Key, Mode, decode_mono, pitch_class_profile};
+use euphoria_core::detect::{
+    DroneDetector, KeyFinderDetector, KeySection, measure_tuning, read_key,
+};
+use euphoria_core::{AudioBuffer, Key, KeyEngine, Mode, decode_mono, pitch_class_profile};
 use rayon::prelude::*;
 
 use crate::dataset::load_key_tracks;
@@ -88,6 +90,7 @@ struct Preview {
     reference: Key,
     expert_keys: Option<Vec<Option<Key>>>,
     drone_key: Option<Key>,
+    uncorrected_drone_key: Option<Key>,
     keyfinder_key: Option<Key>,
     old_timeline_keys: Vec<Key>,
     new_timeline_keys: Vec<Key>,
@@ -157,8 +160,7 @@ fn measure_preview(
     let old_profile = KeyFinderDetector.pitch_class_profile(audio)?;
 
     let started = ThreadTime::now();
-    let reading = DroneDetector.read_key_over_time(audio)?;
-    measure_tuning(audio);
+    let reading = read_key(KeyEngine::Auto, audio)?;
     let new_profile = pitch_class_profile(audio.samples(), audio.sample_rate().get())?;
     let new_seconds = started.elapsed().as_secs_f64();
 
@@ -168,7 +170,8 @@ fn measure_preview(
         group,
         reference,
         expert_keys,
-        drone_key: drone.key,
+        drone_key: reading.key,
+        uncorrected_drone_key: drone.key,
         keyfinder_key,
         old_timeline_keys: section_keys(&old_timeline),
         new_timeline_keys: section_keys(&reading.timeline),
@@ -178,7 +181,7 @@ fn measure_preview(
             .any(|level| *level > 0.0)
             .then_some(new_profile),
         short_keyfinder_key: KeyFinderDetector.read_key(&short)?.key,
-        short_drone_key: DroneDetector.read_key(&short)?.key,
+        short_drone_key: read_key(KeyEngine::Auto, &short)?.key,
         old_seconds,
         new_seconds,
     })
@@ -367,7 +370,8 @@ fn measure_synthesized() -> Result<Vec<(f32, OffsetResult)>> {
                     |found: Option<Key>| found.is_some_and(|found| accepted.contains(&found));
                 result.keyfinder_exact +=
                     usize::from(right_key(KeyFinderDetector.read_key(&audio)?.key));
-                result.drone_exact += usize::from(right_key(DroneDetector.read_key(&audio)?.key));
+                result.drone_exact +=
+                    usize::from(right_key(read_key(KeyEngine::Auto, &audio)?.key));
                 let right_profile = |profile: Option<[f32; 12]>| {
                     profile.is_some_and(|profile| {
                         accepted
@@ -600,7 +604,7 @@ fn report(previews: &[Preview], synthesized: &[(f32, OffsetResult)]) -> String {
         changing.iter().filter(|preview| shows_change(&preview.new_timeline_keys, preview)).count(),
     ));
 
-    text.push_str("\n## Key engine\n\nThe `keyfinder` key engine against drone-v2, against the annotated key.\n\n| Genre | Previews | Exact, libkeyfinder | Exact, drone-v2 | Exact or fifth, libkeyfinder | Exact or fifth, drone-v2 | Exact, fifth or relative, libkeyfinder | Exact, fifth or relative, drone-v2 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    text.push_str("\n## Key engine\n\nThe `keyfinder` key engine against drone-v2 as the `auto` engine runs it, with tuning correction, against the annotated key. The last column is drone-v2 without tuning correction, as it shipped before.\n\n| Genre | Previews | Exact, libkeyfinder | Exact, drone-v2 | Exact or fifth, libkeyfinder | Exact or fifth, drone-v2 | Exact, fifth or relative, libkeyfinder | Exact, fifth or relative, drone-v2 | Exact, drone-v2 without tuning correction |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     let exact = [KeyRelation::Exact];
     let fifth = [KeyRelation::Exact, KeyRelation::Fifth];
     let relative = [
@@ -625,6 +629,14 @@ fn report(previews: &[Preview], synthesized: &[(f32, OffsetResult)]) -> String {
                 ))),
             ));
         }
+        row.push_str(&format!(
+            " {} |",
+            share(members, |preview| Some(relation_within(
+                preview.uncorrected_drone_key,
+                preview.reference,
+                &exact
+            )))
+        ));
         text.push_str(&row);
         text.push('\n');
     }
@@ -659,7 +671,7 @@ fn report(previews: &[Preview], synthesized: &[(f32, OffsetResult)]) -> String {
         ));
     }
 
-    text.push_str("\n## Tuning\n\nChord progressions in all 24 keys, synthesized at each offset. The tuning is measured by the same code before and after. Key: the `keyfinder` engine, with its tuning correction, and drone-v2. Profile: the seven strongest notes are the notes played. At 50 cents either neighbouring scale counts.\n\n| Offset (cents) | Largest tuning error (cents) | Key, libkeyfinder | Key, drone-v2 | Profile, libkeyfinder | Profile, Euphoria |\n| --- | --- | --- | --- | --- | --- |\n");
+    text.push_str("\n## Tuning\n\nChord progressions in all 24 keys, synthesized at each offset. The tuning is measured by the same code before and after. Key: the `keyfinder` engine and drone-v2 as the `auto` engine runs it, both with tuning correction. Profile: the seven strongest notes are the notes played. At 50 cents either neighbouring scale counts.\n\n| Offset (cents) | Largest tuning error (cents) | Key, libkeyfinder | Key, drone-v2 | Profile, libkeyfinder | Profile, Euphoria |\n| --- | --- | --- | --- | --- | --- |\n");
     for (cents, result) in synthesized {
         let count = result.progressions as f64;
         text.push_str(&format!(

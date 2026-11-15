@@ -198,14 +198,14 @@ mod tests {
 
     fn timeline_of(samples: Vec<f32>) -> (Vec<KeySection>, f32) {
         let audio = buffer(samples);
-        let reading = DroneDetector.read_key_over_time(&audio).unwrap();
+        let reading = DroneDetector.read_key_over_time(&audio, None).unwrap();
         (reading.timeline, audio.duration_seconds())
     }
 
     #[test]
     fn a_progression_in_one_key_is_one_section_in_that_key() {
         let audio = buffer(progression("C major", 60.0));
-        let reading = DroneDetector.read_key_over_time(&audio).unwrap();
+        let reading = DroneDetector.read_key_over_time(&audio, None).unwrap();
         assert_eq!(reading.key, Some(key("C major")));
         assert_eq!(
             reading.timeline,
@@ -404,7 +404,7 @@ mod tests {
     fn silent_audio_has_no_timeline() {
         let audio = buffer(silence(4.0));
         assert_eq!(
-            DroneDetector.read_key_over_time(&audio).unwrap(),
+            DroneDetector.read_key_over_time(&audio, None).unwrap(),
             crate::detect::KeyReading::default()
         );
     }

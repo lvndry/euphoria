@@ -43,31 +43,25 @@ use crate::tempo_range::TempoRange;
 /// Reads the key of a track with `engine`, falling back to what the build
 /// has when it lacks the engine's detectors.
 ///
-/// - [`KeyEngine::Auto`]: drone-v2 decides the key and follows it over
-///   time, and the tuning is measured.
-/// - [`KeyEngine::Drone`]: drone-v2 alone. The tuning is measured, and
-///   there is no key over time.
+/// - [`KeyEngine::Auto`] and [`KeyEngine::Drone`]: drone-v2 decides the key
+///   and follows it over time, after a track measured at least 20 cents
+///   from concert pitch is brought back to it.
 /// - [`KeyEngine::KeyFinder`]: libkeyfinder with tuning correction.
 ///
 /// Without either detector, `stratum-dsp` finds the key, with no margin,
 /// and the tuning is measured without being corrected for.
 pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
-    let tuning_cents = || measure_tuning(audio).map(|tuning| tuning.cents);
     #[cfg(feature = "drone")]
     if engine != KeyEngine::KeyFinder || !cfg!(feature = "libkeyfinder") {
-        let reading = if engine == KeyEngine::Auto {
-            DroneDetector.read_key_over_time(audio)?
-        } else {
-            DroneDetector.read_key(audio)?
-        };
+        let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
         return Ok(KeyReading {
-            tuning_cents: tuning_cents(),
-            ..reading
+            tuning_cents,
+            ..DroneDetector.read_key_over_time(audio, tuning_cents)?
         });
     }
     #[cfg(feature = "libkeyfinder")]
     {
-        let _ = (engine, tuning_cents);
+        let _ = engine;
         KeyFinderDetector.read_key(audio)
     }
     #[cfg(not(feature = "libkeyfinder"))]
@@ -76,7 +70,7 @@ pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, Eu
         let key = StratumDetector.detect_key(audio)?;
         Ok(KeyReading {
             key,
-            tuning_cents: tuning_cents(),
+            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
             source: key.map(|_| KeySource::Stratum),
             ..KeyReading::default()
         })

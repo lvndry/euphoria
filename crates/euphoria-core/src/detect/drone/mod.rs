@@ -105,7 +105,8 @@ impl DroneDetector {
             return Ok(None);
         }
         let network = network()?;
-        let (values, frame_count) = features_of_audio(audio, SEGMENT_FRAMES);
+        let (values, frame_count) =
+            features_of_audio(audio, audio.sample_rate().get(), SEGMENT_FRAMES);
         Ok(network
             .logits(&values, frame_count)
             .map(|logits| KeyProbabilities::from_logits(&logits)))
@@ -131,7 +132,8 @@ impl DroneDetector {
         audio: &AudioBuffer,
     ) -> Result<(Vec<f32>, usize, Option<KeyProbabilities>), EuphoriaError> {
         let network = network()?;
-        let (values, frame_count) = features_of_audio(audio, SEGMENT_FRAMES);
+        let (values, frame_count) =
+            features_of_audio(audio, audio.sample_rate().get(), SEGMENT_FRAMES);
         let probabilities = network
             .logits(&values, frame_count)
             .map(|logits| KeyProbabilities::from_logits(&logits));
@@ -159,10 +161,16 @@ const CONTEXT_FRAMES: usize = 24;
 
 /// The features of a track, converted to the network's input a segment at
 /// a time, as 192 rows of frames stored row after row, and the frame count.
-/// Audio too short for the network is followed by silence up to the
-/// fewest frames it reads, about 1.5 seconds.
-fn features_of_audio(audio: &AudioBuffer, segment_frames: usize) -> (Vec<f32>, usize) {
-    let (values, frame_count) = unpadded_features_of_audio(audio, segment_frames);
+/// The audio is converted as if recorded at `heard_rate`, which moves every
+/// pitch by the ratio of that rate to its own. Audio too short for the
+/// network is followed by silence up to the fewest frames it reads, about
+/// 1.5 seconds.
+fn features_of_audio(
+    audio: &AudioBuffer,
+    heard_rate: u32,
+    segment_frames: usize,
+) -> (Vec<f32>, usize) {
+    let (values, frame_count) = unpadded_features_of_audio(audio, heard_rate, segment_frames);
     if frame_count == 0 || frame_count >= network::MINIMUM_FRAMES {
         return (values, frame_count);
     }
@@ -174,9 +182,13 @@ fn features_of_audio(audio: &AudioBuffer, segment_frames: usize) -> (Vec<f32>, u
     (padded, network::MINIMUM_FRAMES)
 }
 
-fn unpadded_features_of_audio(audio: &AudioBuffer, segment_frames: usize) -> (Vec<f32>, usize) {
+fn unpadded_features_of_audio(
+    audio: &AudioBuffer,
+    heard_rate: u32,
+    segment_frames: usize,
+) -> (Vec<f32>, usize) {
     let samples = audio.samples();
-    let converter = front_end::Converter::new(audio.sample_rate().get());
+    let converter = front_end::Converter::new(heard_rate);
     let total_samples = converter.output_length(samples.len());
     let frame_count = cqt::frame_count(total_samples);
     let mut values = vec![0.0; cqt::CORE_BINS * frame_count];
@@ -231,14 +243,22 @@ impl DroneDetector {
     /// gives them, and the key over time measured against that key: the
     /// network scores every stretch of about 1.5 seconds on the way to the
     /// key of the whole track, so following the key costs nothing more.
-    /// The sections that stay in the key of the track carry it. No tuning
-    /// is measured.
-    pub fn read_key_over_time(&self, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
+    /// The sections that stay in the key of the track carry it.
+    ///
+    /// A track whose `tuning_cents` is at least 20 cents from concert pitch
+    /// is heard as if tuned to it, so the key is the nearest key at 440 Hz.
+    /// The reading does not record the tuning.
+    pub fn read_key_over_time(
+        &self,
+        audio: &AudioBuffer,
+        tuning_cents: Option<f32>,
+    ) -> Result<KeyReading, EuphoriaError> {
         if audio.is_silent() {
             return Ok(KeyReading::default());
         }
         let network = network()?;
-        let (values, frame_count) = features_of_audio(audio, SEGMENT_FRAMES);
+        let heard_rate = rate_heard_at_concert_pitch(audio.sample_rate().get(), tuning_cents);
+        let (values, frame_count) = features_of_audio(audio, heard_rate, SEGMENT_FRAMES);
         let Some(column_logits) = network.column_logits(&values, frame_count) else {
             return Ok(KeyReading::default());
         };
@@ -253,6 +273,24 @@ impl DroneDetector {
             timeline,
             ..reading
         })
+    }
+}
+
+/// The smallest tuning offset the tuning correction acts on, in cents.
+/// Smaller offsets leave each note well inside the bins of its own
+/// semitone.
+const SMALLEST_CORRECTED_OFFSET_CENTS: f32 = 20.0;
+
+/// The sample rate to tell the converter so that audio tuned `tuning_cents`
+/// away from concert pitch is heard at concert pitch: a sharp track is
+/// told a lower rate, which lowers every pitch by the same ratio.
+fn rate_heard_at_concert_pitch(sample_rate: u32, tuning_cents: Option<f32>) -> u32 {
+    match tuning_cents {
+        Some(cents) if cents.abs() >= SMALLEST_CORRECTED_OFFSET_CENTS => {
+            let pitch_ratio = 2.0_f64.powf(f64::from(cents) / 1_200.0);
+            (f64::from(sample_rate) / pitch_ratio).round() as u32
+        }
+        _ => sample_rate,
     }
 }
 
@@ -294,8 +332,10 @@ mod tests {
             })
             .collect();
         let audio = AudioBuffer::new(samples, std::num::NonZeroU32::new(rate as u32).unwrap());
-        let (whole, whole_frames) = features_of_audio(&audio, usize::MAX);
-        let (segmented, segmented_frames) = features_of_audio(&audio, 40);
+        let (whole, whole_frames) =
+            features_of_audio(&audio, audio.sample_rate().get(), usize::MAX);
+        let (segmented, segmented_frames) =
+            features_of_audio(&audio, audio.sample_rate().get(), 40);
         assert_eq!(whole_frames, segmented_frames);
         let largest_difference = whole
             .iter()
