@@ -40,8 +40,14 @@ pub(crate) fn load_id(track_index: usize) -> (&'static str, usize) {
 /// section follows the selected track.
 pub(crate) fn control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
     app.rail_anchor?;
+    Some(choice_control(app, cx))
+}
+
+/// Keep, Lift and Drop, the one chosen marked, wherever the list they order
+/// is anchored.
+pub(crate) fn choice_control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
-    Some(
+    {
         div()
             .flex()
             .flex_shrink_0()
@@ -76,11 +82,11 @@ pub(crate) fn control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> O
                     .child(choice.label())
                     .on_click(cx.listener(move |this, _, _, cx| this.set_next_energy(choice, cx)))
                     .test_support()
-            })),
-    )
+            }))
+    }
 }
 
-fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
+pub(crate) fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
     div()
         .flex()
         .flex_shrink_0()
