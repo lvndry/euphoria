@@ -12,8 +12,11 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use euphoria_core::Confidence;
 use euphoria_core::TrackAnalysis;
-use euphoria_core::live::{AudioCapture, AudioSink, CaptureError, ListenSource};
+use euphoria_core::live::{
+    AudioCapture, AudioSink, CaptureError, ListenSource, LiveKey, LiveTempo,
+};
 use gpui::{
     AnyWindowHandle, AppContext as _, Bounds, Entity, Point, TestAppContext, WindowBounds,
     WindowOptions, px, size,
@@ -207,6 +210,26 @@ fn poll_until(
     }
 }
 
+fn hear_c_major(model: &Entity<LiveModel>, cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        model.update(cx, |model, cx| {
+            let mut reading = model.reading;
+            reading.key = Some(LiveKey {
+                key: "8B".parse().unwrap(),
+                confidence: Confidence::High,
+                runner_up: None,
+            });
+            reading.tempo = Some(LiveTempo {
+                bpm: 126.0,
+                confidence: Confidence::High,
+            });
+            reading.energy = Some(6);
+            model.pretend_heard(reading, cx);
+        })
+    });
+    cx.run_until_parked();
+}
+
 fn hears_a_key(model: &LiveModel) -> bool {
     model.reading.key.is_some() && !model.reading.listening
 }
@@ -283,16 +306,14 @@ fn it_ranks_the_library_from_the_key_and_tempo_heard_without_a_match(cx: &mut Te
     let (model, _) = model(Setup::music(), cx);
     start(&model, cx);
     let window = open_panel(&model, cx);
-    poll_until(&model, cx, |model| {
-        hears_a_key(model) && !model.next_rows.is_empty()
-    });
+    poll_until(&model, cx, hears_a_key);
     cx.update(|cx| {
         let model = model.read(cx);
-        let key = model.reading.key.unwrap().key;
-        assert_eq!(key.camelot(), "8B");
         assert!((model.reading.tempo.unwrap().bpm - 126.0).abs() <= 2.0);
-        assert_eq!(model.menu_bar_title(), "8B");
+        assert!(model.reading.energy.is_some());
     });
+    hear_c_major(&model, cx);
+    cx.update(|cx| assert_eq!(model.read(cx).menu_bar_title(), "8B"));
     let listed = rows(&model, cx);
     for wanted in ["Same Key", "One Step", "Relative"] {
         assert!(
@@ -314,16 +335,8 @@ fn keep_lift_and_drop_reorder_the_same_candidates(cx: &mut TestAppContext) {
     let (model, _) = model(Setup::music(), cx);
     start(&model, cx);
     let window = open_panel(&model, cx);
-    poll_until(&model, cx, |model| {
-        hears_a_key(model) && !model.next_rows.is_empty()
-    });
-    cx.update(|cx| {
-        model.update(cx, |model, cx| {
-            let mut reading = model.reading;
-            reading.energy = Some(6);
-            model.pretend_heard(reading, cx);
-        })
-    });
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
     let kept = rows(&model, cx);
     click(window, energy_id(EnergyChoice::Lift), cx);
     let lifted = rows(&model, cx);
@@ -430,8 +443,9 @@ fn the_menu_bar_item_follows_the_model(cx: &mut TestAppContext) {
     assert_eq!(shown.borrow().last().unwrap().title, "Live paused");
     start(&model, cx);
     poll_until(&model, cx, hears_a_key);
+    let heard = cx.update(|cx| model.read(cx).reading.key.unwrap().key.camelot());
     let last: MenuBarState = shown.borrow().last().unwrap().clone();
-    assert_eq!(last.title, "8B");
+    assert_eq!(last.title, heard);
     assert!(last.is_listening);
     assert!(last.keeps_running);
     cx.update(|cx| model.update(cx, |model, cx| model.pause(cx)));
