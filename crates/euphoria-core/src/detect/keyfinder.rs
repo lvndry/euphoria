@@ -112,6 +112,31 @@ impl KeyFinderDetector {
     }
 }
 
+impl KeyFinderDetector {
+    /// How strongly each of the 12 notes sounds in a track, C first, from 0
+    /// to 1 with the strongest at 1, or `None` when no note sounds: the
+    /// chromagram averaged over time, after a track at least 20 cents from
+    /// concert pitch is brought back to it. For comparing with
+    /// [`crate::pitch_class_profile`] in the benchmark.
+    pub fn pitch_class_profile(
+        &self,
+        audio: &AudioBuffer,
+    ) -> Result<Option<[f32; 12]>, EuphoriaError> {
+        let correction = measure_tuning(audio).filter(is_worth_correcting);
+        let analysis = ChromaAnalysis::of_audio(audio, correction)?;
+        let whole_track = analysis
+            .chromagram
+            .mean_of_hops(0..analysis.chromagram.hop_count());
+        let mut totals = [0.0_f64; 12];
+        for (band, magnitude) in whole_track.iter().enumerate() {
+            totals[band % 12] += magnitude;
+        }
+        let largest = totals.iter().copied().fold(0.0_f64, f64::max);
+        Ok((largest > 0.0 && largest.is_finite())
+            .then(|| std::array::from_fn(|index| (totals[index] / largest) as f32)))
+    }
+}
+
 impl KeyDetector for KeyFinderDetector {
     fn name(&self) -> &'static str {
         DETECTOR_NAME

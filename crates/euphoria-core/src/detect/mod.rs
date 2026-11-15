@@ -11,10 +11,11 @@ mod cues;
 mod decimate;
 #[cfg(feature = "drone")]
 mod drone;
-#[cfg(feature = "libkeyfinder")]
+#[cfg(any(feature = "libkeyfinder", feature = "drone"))]
 mod key_sections;
 #[cfg(feature = "libkeyfinder")]
 mod keyfinder;
+mod note_spectrum;
 mod sections;
 mod stratum;
 #[cfg(test)]
@@ -28,6 +29,7 @@ pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, cues_on_grid, detect_beat_g
 pub use drone::{DroneDetector, KeyProbabilities};
 #[cfg(feature = "libkeyfinder")]
 pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant};
+pub(crate) use note_spectrum::pitch_class_profile as pitch_class_profile_at;
 pub use stratum::StratumDetector;
 pub use tuning::{Tuning, measure_tuning};
 
@@ -41,43 +43,31 @@ use crate::tempo_range::TempoRange;
 /// Reads the key of a track with `engine`, falling back to what the build
 /// has when it lacks the engine's detectors.
 ///
-/// - [`KeyEngine::Auto`]: drone-v2 decides the key, and libkeyfinder
-///   measures the tuning and follows the key over time against it. When
-///   drone-v2 finds no key, as for audio shorter than about 1.5 seconds,
-///   libkeyfinder decides it.
-/// - [`KeyEngine::Drone`]: drone-v2 alone. The tuning is measured but not
-///   used, and there is no key over time.
+/// - [`KeyEngine::Auto`]: drone-v2 decides the key and follows it over
+///   time, and the tuning is measured.
+/// - [`KeyEngine::Drone`]: drone-v2 alone. The tuning is measured, and
+///   there is no key over time.
 /// - [`KeyEngine::KeyFinder`]: libkeyfinder with tuning correction.
 ///
 /// Without either detector, `stratum-dsp` finds the key, with no margin,
 /// and the tuning is measured without being corrected for.
 pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
+    let tuning_cents = || measure_tuning(audio).map(|tuning| tuning.cents);
     #[cfg(feature = "drone")]
     if engine != KeyEngine::KeyFinder || !cfg!(feature = "libkeyfinder") {
-        let reading = DroneDetector.read_key(audio)?;
-        #[cfg(feature = "libkeyfinder")]
-        if engine == KeyEngine::Auto {
-            return match reading.key {
-                Some(key) => {
-                    let (tuning_cents, timeline) =
-                        KeyFinderDetector.tuning_and_timeline(audio, key)?;
-                    Ok(KeyReading {
-                        tuning_cents,
-                        timeline,
-                        ..reading
-                    })
-                }
-                None => KeyFinderDetector.read_key(audio),
-            };
-        }
+        let reading = if engine == KeyEngine::Auto {
+            DroneDetector.read_key_over_time(audio)?
+        } else {
+            DroneDetector.read_key(audio)?
+        };
         return Ok(KeyReading {
-            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            tuning_cents: tuning_cents(),
             ..reading
         });
     }
     #[cfg(feature = "libkeyfinder")]
     {
-        let _ = engine;
+        let _ = (engine, tuning_cents);
         KeyFinderDetector.read_key(audio)
     }
     #[cfg(not(feature = "libkeyfinder"))]
@@ -86,7 +76,7 @@ pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, Eu
         let key = StratumDetector.detect_key(audio)?;
         Ok(KeyReading {
             key,
-            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            tuning_cents: tuning_cents(),
             source: key.map(|_| KeySource::Stratum),
             ..KeyReading::default()
         })

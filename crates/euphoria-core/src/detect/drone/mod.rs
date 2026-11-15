@@ -8,6 +8,7 @@ mod cqt;
 mod front_end;
 mod halving;
 mod network;
+mod timeline;
 
 use std::sync::OnceLock;
 
@@ -17,7 +18,7 @@ use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
 use crate::key_engine::KeySource;
 
-use network::{KEY_COUNT, Network};
+use network::{KEY_COUNT, Network, mean_of_columns};
 
 /// Name of the drone-v2 detector in reports.
 pub(crate) const DETECTOR_NAME: &str = "drone-v2";
@@ -93,8 +94,9 @@ fn network() -> Result<&'static Network, EuphoriaError> {
 pub struct DroneDetector;
 
 impl DroneDetector {
-    /// How likely each key is, or `None` when the track is silent or
-    /// shorter than about 1.5 seconds, too short for the network.
+    /// How likely each key is, or `None` when the track is silent. Audio
+    /// shorter than about 1.5 seconds, the least the network reads, is
+    /// heard followed by silence.
     pub fn probabilities(
         &self,
         audio: &AudioBuffer,
@@ -157,7 +159,22 @@ const CONTEXT_FRAMES: usize = 24;
 
 /// The features of a track, converted to the network's input a segment at
 /// a time, as 192 rows of frames stored row after row, and the frame count.
+/// Audio too short for the network is followed by silence up to the
+/// fewest frames it reads, about 1.5 seconds.
 fn features_of_audio(audio: &AudioBuffer, segment_frames: usize) -> (Vec<f32>, usize) {
+    let (values, frame_count) = unpadded_features_of_audio(audio, segment_frames);
+    if frame_count == 0 || frame_count >= network::MINIMUM_FRAMES {
+        return (values, frame_count);
+    }
+    let mut padded = vec![0.0; cqt::CORE_BINS * network::MINIMUM_FRAMES];
+    for row in 0..cqt::CORE_BINS {
+        padded[row * network::MINIMUM_FRAMES..row * network::MINIMUM_FRAMES + frame_count]
+            .copy_from_slice(&values[row * frame_count..(row + 1) * frame_count]);
+    }
+    (padded, network::MINIMUM_FRAMES)
+}
+
+fn unpadded_features_of_audio(audio: &AudioBuffer, segment_frames: usize) -> (Vec<f32>, usize) {
     let samples = audio.samples();
     let converter = front_end::Converter::new(audio.sample_rate().get());
     let total_samples = converter.output_length(samples.len());
@@ -206,6 +223,36 @@ pub(crate) fn reading_of(probabilities: &KeyProbabilities) -> KeyReading {
         score_margin: Some(ranked[0].1 - ranked[1].1),
         source: Some(KeySource::Drone),
         ..KeyReading::default()
+    }
+}
+
+impl DroneDetector {
+    /// The most likely key and the runner up, as [`DroneDetector::read_key`]
+    /// gives them, and the key over time measured against that key: the
+    /// network scores every stretch of about 1.5 seconds on the way to the
+    /// key of the whole track, so following the key costs nothing more.
+    /// The sections that stay in the key of the track carry it. No tuning
+    /// is measured.
+    pub fn read_key_over_time(&self, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
+        if audio.is_silent() {
+            return Ok(KeyReading::default());
+        }
+        let network = network()?;
+        let (values, frame_count) = features_of_audio(audio, SEGMENT_FRAMES);
+        let Some(column_logits) = network.column_logits(&values, frame_count) else {
+            return Ok(KeyReading::default());
+        };
+        let reading = reading_of(&KeyProbabilities::from_logits(&mean_of_columns(
+            &column_logits,
+        )));
+        let timeline = match reading.key {
+            Some(key) => timeline::timeline(audio, &column_logits, key),
+            None => Vec::new(),
+        };
+        Ok(KeyReading {
+            timeline,
+            ..reading
+        })
     }
 }
 
@@ -259,11 +306,24 @@ mod tests {
     }
 
     #[test]
-    fn silence_and_short_audio_have_no_key() {
+    fn silence_has_no_key_and_short_audio_is_read_as_if_followed_by_silence() {
         let rate = std::num::NonZeroU32::new(44_100).unwrap();
         let silent = AudioBuffer::new(vec![0.0; 44_100 * 3], rate);
         assert_eq!(DroneDetector.detect_key(&silent).unwrap(), None);
-        let short = AudioBuffer::new(vec![0.1; 44_100], rate);
-        assert_eq!(DroneDetector.detect_key(&short).unwrap(), None);
+        let chord: Vec<f32> = (0..44_100)
+            .map(|index| {
+                let time = index as f32 / 44_100.0;
+                [220.0_f32, 261.63, 329.63]
+                    .iter()
+                    .map(|frequency| 0.2 * (std::f32::consts::TAU * frequency * time).sin())
+                    .sum()
+            })
+            .collect();
+        let short = AudioBuffer::new(chord, rate);
+        let key = DroneDetector.detect_key(&short).unwrap();
+        assert!(
+            [Key::new(9, Mode::Minor), Key::new(0, Mode::Major)].contains(&key.unwrap()),
+            "{key:?}"
+        );
     }
 }
