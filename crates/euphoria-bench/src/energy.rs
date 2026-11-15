@@ -23,9 +23,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use cpu_time::ThreadTime;
 use euphoria_core::detect::{StratumDetector, TempoDetector};
-use euphoria_core::{
-    ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, decode_mono, energy_features, rate_features,
-};
+use euphoria_core::{ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, decode_mono, rate_energy};
 use rayon::prelude::*;
 
 use crate::alternative::{ModelOutput, rate_with_fitted_model, shipped_average};
@@ -75,8 +73,9 @@ struct Measurement {
     /// The shipped rating, made with the detected tempo as `analyze` makes
     /// it.
     rating: EnergyRating,
-    /// The weighted average behind the shipped rating, before it is spread
-    /// over the scale.
+    /// The weighted average of the features of the whole track, before it
+    /// is spread over the scale. The shipped rating comes from the windows
+    /// of the energy curve instead.
     shipped_average: f32,
     /// What the fitted model, which is not shipped, makes of the track.
     fitted: ModelOutput,
@@ -195,11 +194,7 @@ fn measure(track: &LabelledTrack) -> Outcome {
         Err(error) => return Outcome::Failed(failure_kind(&error)),
     };
     let started = ThreadTime::now();
-    let rating = energy_features(&audio).and_then(|features| {
-        features
-            .map(|features| rate_features(&features, tempo))
-            .transpose()
-    });
+    let rating = rate_energy(&audio, tempo);
     let energy_cpu_time = started.elapsed();
     match rating {
         Ok(Some(rating)) => {
@@ -344,7 +339,7 @@ fn columns(measurements: &[&Measurement]) -> Vec<(&'static str, Vec<f64>)> {
             column(|measurement| f64::from(measurement.rating.score)),
         ),
         (
-            "Weighted average",
+            "Whole track weighted average",
             column(|measurement| f64::from(measurement.shipped_average)),
         ),
         (
@@ -548,7 +543,7 @@ fn significant(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use euphoria_core::EnergyFeatures;
+    use euphoria_core::{EnergyFeatures, rate_features};
 
     use super::*;
 
@@ -641,7 +636,7 @@ mod tests {
         assert!(report.contains("12 tracks listed, 12 rated, 0 with nothing to rate."));
         assert!(report.contains("| Rating | +0.9"), "{report}");
         assert!(
-            report.contains("| Weighted average | +1.000 | 100.0% |"),
+            report.contains("| Whole track weighted average | +1.000 | 100.0% |"),
             "{report}"
         );
         assert!(report.contains("| Fitted model rating | +0.9"), "{report}");
@@ -737,7 +732,7 @@ mod tests {
 
 #[cfg(test)]
 mod tempo_tests {
-    use euphoria_core::EnergyFeatures;
+    use euphoria_core::{EnergyFeatures, rate_features};
 
     use super::*;
 
