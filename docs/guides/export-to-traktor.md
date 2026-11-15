@@ -30,7 +30,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-t
 The options are those of [the rekordbox export](export-to-rekordbox.md#export-your-library), with the same playlists that mirror your folders:
 
 - `--force` replaces an output file that exists.
-- `--key-notation camelot` (the default), `musical` or `open-key` chooses how the key is spelled in Traktor's **Key Text** column.
+- `--key-notation camelot` (the default), `musical` or `open-key` chooses how the key is spelled in Traktor's **Key Text** column. In the app's export sheet it is the **Settings > Key notation** choice.
 - `--no-playlists` exports the tracks without playlists.
 - `--beat-grid` adds Euphoria's [beat grid](#beat-grids).
 - `--cues --collection <collection.nml>` adds [cue points](#cue-points).

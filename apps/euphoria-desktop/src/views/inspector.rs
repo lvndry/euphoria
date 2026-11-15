@@ -34,6 +34,7 @@ use crate::views::favorites::star_button;
 use crate::views::inspector_section;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
+use crate::views::next_rail;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::review;
 use crate::views::stems;
@@ -464,7 +465,7 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
 fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = &theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let not_known_yet = match track.status {
         TrackStatus::Queued => "queued",
         TrackStatus::Analyzing => "analyzing",
@@ -1022,7 +1023,7 @@ fn waveform_section(
                 analysis.duration_seconds,
                 progress,
                 &app.theme,
-                app.display.key_notation,
+                app.tag_settings.key_notation,
             )
         })
     });
@@ -1147,6 +1148,14 @@ const YOUR_TRANSITION: &str = "Your mix";
 /// The tracks in the library that mix with the selected one, the marked
 /// transitions out of it first.
 fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Option<Div> {
+    if app.rail_anchor.is_some() {
+        return Some(div().child(next_rail::section(
+            app,
+            room.mix_count(app.next_rows.len()),
+            matches!(room, Room::Strip { .. }),
+            cx,
+        )));
+    }
     let theme = &app.theme;
     let palette = theme.palette;
     if app.selected_track()?.key().is_none() && app.mixes.is_empty() {
@@ -1215,7 +1224,7 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                         div().flex().flex_shrink_0().w(px(38.0)).children(
                             track
                                 .key()
-                                .map(|key| key_chip(&key, theme, app.display.key_notation)),
+                                .map(|key| key_chip(&key, theme, app.tag_settings.key_notation)),
                         ),
                     )
                     .child(

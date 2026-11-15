@@ -942,7 +942,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                 div()
                     .w(px(40.0))
                     .children(planned_track.map(|planned_track| {
-                        key_chip(&planned_track.key, &app.theme, app.display.key_notation)
+                        key_chip(&planned_track.key, &app.theme, app.tag_settings.key_notation)
                     })),
             )
             .child(

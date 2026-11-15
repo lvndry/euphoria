@@ -43,8 +43,8 @@ use native::{Purpose, TagFile};
 pub use preset::DjSoftware;
 pub use serato::{
     GridOutcome, PlacedCue, SERATO_CUE_COLOURS, SERATO_HOT_CUES, SeratoCue, SeratoGrid,
-    SeratoMarkers, SeratoReport, SeratoSkip, add_serato_markers, describe_serato_value,
-    serato_field_name,
+    SeratoMarkers, SeratoReport, SeratoSkip, add_serato_markers, add_serato_markers_from,
+    describe_serato_value, serato_field_name,
 };
 
 const BPM_MATCH_TOLERANCE: f64 = 0.005;
@@ -454,16 +454,71 @@ pub fn plan_write_with_history(
     history: &WrittenValues,
 ) -> Result<WritePlan, EuphoriaError> {
     let values = values.into();
+    check_values(path, &values)?;
+    let file = TagFile::load(path, Purpose::Rewriting)?;
+    plan_from_file(path, &file, values, options, history)
+}
+
+/// The tags of one file, read once, so that writes can be planned for it
+/// again and again without reading the file again. They describe the file
+/// as it was when they were read: read them again after the file changed.
+pub struct LoadedTags {
+    path: PathBuf,
+    file: TagFile,
+}
+
+impl LoadedTags {
+    /// Reads the tags of the file at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of reading the file's tag.
+    pub fn load(path: &Path) -> Result<Self, EuphoriaError> {
+        Ok(Self {
+            path: path.to_path_buf(),
+            file: TagFile::load(path, Purpose::Rewriting)?,
+        })
+    }
+
+    /// The file these tags were read from.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Like [`plan_write_with_history`], from tags that were read earlier.
+pub fn plan_write_with_history_from(
+    loaded: &LoadedTags,
+    values: impl Into<TagValues>,
+    options: &TagWriteOptions,
+    history: &WrittenValues,
+) -> Result<WritePlan, EuphoriaError> {
+    let values = values.into();
+    check_values(&loaded.path, &values)?;
+    plan_from_file(&loaded.path, &loaded.file, values, options, history)
+}
+
+fn check_values(path: &Path, values: &TagValues) -> Result<(), EuphoriaError> {
+    if let Some(energy) = values.energy.filter(|energy| !(1..=10).contains(energy)) {
+        return Err(EuphoriaError::TagWrite {
+            path: path.to_path_buf(),
+            source: format!("an energy rating of {energy} cannot be written").into(),
+        });
+    }
+    Ok(())
+}
+
+fn plan_from_file(
+    path: &Path,
+    file: &TagFile,
+    values: TagValues,
+    options: &TagWriteOptions,
+    history: &WrittenValues,
+) -> Result<WritePlan, EuphoriaError> {
     let refuse = |reason: String| EuphoriaError::TagWrite {
         path: path.to_path_buf(),
         source: reason.into(),
     };
-    if let Some(energy) = values.energy.filter(|energy| !(1..=10).contains(energy)) {
-        return Err(refuse(format!(
-            "an energy rating of {energy} cannot be written"
-        )));
-    }
-    let file = TagFile::load(path, Purpose::Rewriting)?;
     let format = file.format();
     let preset = options.preset;
     // Each field to write, its value, and whether the value is a tempo.
@@ -477,7 +532,7 @@ pub fn plan_write_with_history(
             options,
             values.key_confidence,
             Existing {
-                file: &file,
+                file,
                 history,
                 path,
                 fields: format.key_fields(),
@@ -521,7 +576,7 @@ pub fn plan_write_with_history(
             options,
             values.bpm_confidence,
             Existing {
-                file: &file,
+                file,
                 history,
                 path,
                 fields: format.bpm_fields(),

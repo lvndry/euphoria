@@ -5,8 +5,9 @@
 //! written.
 
 use gpui::component::input::Input;
+use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, FontWeight, TestSupportExt, div, px};
+use gpui::{AnyElement, Context, FontWeight, ScrollHandle, SharedString, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::display_settings::TempoPreset;
@@ -41,20 +42,6 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             .on_click(cx.listener(move |this, _, _, cx| this.set_tag_program(program, cx)))
             .test_support()
         });
-    let notations = NotationChoice::ALL
-        .iter()
-        .enumerate()
-        .map(|(index, notation)| {
-            let notation = *notation;
-            choice_button(
-                ("notation", index),
-                notation.label(),
-                settings.key_notation == notation,
-                &palette,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.set_key_notation(notation, cx)))
-            .test_support()
-        });
     let places = LabelChoice::ALL.iter().enumerate().map(|(index, place)| {
         let place = *place;
         choice_button(
@@ -67,18 +54,18 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .test_support()
     });
     let display = app.display;
-    let shown_notations = NotationChoice::ALL
+    let notations = NotationChoice::ALL
         .iter()
         .enumerate()
         .map(|(index, notation)| {
             let notation = *notation;
             choice_button(
-                ("key-display", index),
+                ("notation", index),
                 notation.label(),
-                display.key_notation == notation,
+                settings.key_notation == notation,
                 &palette,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.set_key_display(notation, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.set_key_notation(notation, cx)))
             .test_support()
         });
     let current_preset = (!app.is_custom_tempo_range)
@@ -174,12 +161,253 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .test_support()
     });
 
-    let tempo_hint = if settings.program == ProgramChoice::Serato {
-        "Serato detects the tempo itself and builds its beat grid from it only when a file has \
-         none, so it is left alone unless you tick this."
+    let (tempo_hint, tempo_detail) = if settings.program == ProgramChoice::Serato {
+        (
+            "Serato finds the tempo itself, so it is left alone unless you tick this.",
+            "Serato builds its beat grid from the tempo only when a file has none.",
+        )
     } else {
-        "Rounded to a whole number, except for Mixxx, which reads decimals."
+        (
+            "Written as a whole number, except for Mixxx.",
+            "Mixxx reads decimals, so it gets the exact tempo.",
+        )
     };
+    let toggle = |id: &'static str, label: &'static str, is_on: bool| {
+        choice_button(
+            id,
+            if is_on {
+                format!("\u{2713} {label}")
+            } else {
+                label.to_string()
+            },
+            is_on,
+            &palette,
+        )
+        .test_support()
+    };
+
+    let mut parts: Vec<AnyElement> =
+        vec![part_heading("Showing keys and tempos", &palette).into_any_element()];
+    parts.push(
+        setting(
+            "Key notation",
+            "key-notation",
+            "In the table, the tags and the exports. The wheel always shows Camelot.",
+            None,
+            div().flex().flex_wrap().gap(px(6.0)).children(notations),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Tempo range",
+            "tempo-range",
+            "Tempos are shown from the first number up to the second.",
+            Some(
+                "At most an octave apart. A track counted at half or double speed moves \
+                 into the range; nothing is analyzed again.",
+            ),
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.0))
+                        .children(tempo_choices),
+                )
+                .children(custom_range),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(part_heading("Writing tags", &palette).into_any_element());
+    let writing_box_index = parts.len();
+    parts.push(label_preview_box(app, "label-preview", &palette).into_any_element());
+    parts.push(
+        setting(
+            "DJ program",
+            "dj-program",
+            "Tags go to the fields this program reads.",
+            None,
+            div().flex().flex_wrap().gap(px(6.0)).children(programs),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Energy label",
+            "energy-label",
+            "Where a label such as \u{201c}8A - Energy 7\u{201d} goes.",
+            Some("The text already there is kept."),
+            div().flex().flex_wrap().gap(px(6.0)).children(places),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Tempo",
+            "tempo",
+            tempo_hint,
+            Some(tempo_detail),
+            div().flex().child(
+                toggle("write-tempo", "Write the tempo", settings.write_tempo)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_write_tempo(cx))),
+            ),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Existing key and tempo",
+            "existing",
+            "A key or tempo a file already has is kept.",
+            Some(
+                "A correct tag is never replaced by a guess. One that Euphoria wrote \
+                 earlier is still updated.",
+            ),
+            div().flex().child(
+                toggle(
+                    "replace-existing",
+                    "Replace existing key and tempo",
+                    settings.replace_existing,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_replace_existing(cx))),
+            ),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Low confidence",
+            "low-confidence",
+            "A key or tempo rated low confidence is left out and listed.",
+            Some("A key or tempo you corrected counts as high confidence."),
+            div().flex().child(
+                toggle(
+                    "include-low-confidence",
+                    "Also write low confidence values",
+                    settings.include_low_confidence,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx))),
+            ),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Cue markers",
+            "cue-markers",
+            "Written as Serato cues; also read by Mixxx and VirtualDJ.",
+            Some(
+                "The track's cues and beat grid go in as Serato cue points. Memory cues, \
+                 on no pad, are left out. Formats that cannot hold them are skipped.",
+            ),
+            div().flex().child(
+                toggle(
+                    "write-cue-markers",
+                    "Write the cue markers",
+                    settings.write_cue_markers,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx))),
+            ),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "After analysis",
+            "after-analysis",
+            "Fills in each track's missing key and tempo once it is analyzed.",
+            Some(
+                "Uses the choices above; tags a file already has are kept. Undo tag write \
+                 puts them back.",
+            ),
+            div().flex().child(
+                toggle(
+                    "write-after-analysis",
+                    "Write key and tempo to files after analysis",
+                    settings.write_after_analysis,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_write_after_analysis(cx))),
+            ),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    let metronome_index = parts.len();
+    parts.push(part_heading("Metronome", &palette).into_any_element());
+    parts.push(
+        setting(
+            "Sound",
+            "metronome-sound",
+            "The click of the toolbar metronome; choosing one plays it.",
+            None,
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(6.0))
+                .children(metronome_sounds),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Volume",
+            "metronome-volume",
+            "How loud the clicks are next to the music.",
+            None,
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(6.0))
+                .children(metronome_volumes),
+            &palette,
+        )
+        .into_any_element(),
+    );
+    parts.push(
+        setting(
+            "Accent",
+            "metronome-accent",
+            "The first beat of every bar of four is higher and louder.",
+            None,
+            div().flex().child(
+                toggle(
+                    "metronome-accent",
+                    "Accent the first beat",
+                    metronome.accent,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx))),
+            ),
+            &palette,
+        )
+        .into_any_element(),
+    );
+
+    let pinned_box =
+        settings_box_is_pinned(&app.settings_scroll, writing_box_index, metronome_index).then(
+            || {
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .pb(px(8.0))
+                    .bg(palette.panel)
+                    .child(label_preview_box(app, "label-preview-pinned", &palette))
+            },
+        );
 
     backdrop
         .child(
@@ -192,205 +420,26 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                 )
                 .child(
                     div()
-                        .id("settings-body")
+                        .relative()
                         .flex()
                         .flex_col()
-                        .gap(px(14.0))
                         .flex_1()
                         .min_h_0()
-                        .overflow_y_scroll()
-                .child(part_heading("Showing keys and tempos", &palette))
-                .child(setting(
-                    "Keys",
-                    "How keys are written in the table and the track detail. The wheel always \
-                     uses Camelot codes.",
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.0))
-                        .children(shown_notations),
-                    &palette,
-                ))
-                .child(setting(
-                    "Tempo range",
-                    "Tempos are shown from the first number up to the second, at most an octave \
-                     apart. A track counted at half or double speed moves into the range; \
-                     nothing is analyzed again.",
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.0))
                         .child(
                             div()
+                                .id("settings-body")
                                 .flex()
-                                .flex_wrap()
-                                .gap(px(6.0))
-                                .children(tempo_choices),
+                                .flex_col()
+                                .gap(px(14.0))
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .track_scroll(&app.settings_scroll)
+                                .on_scroll(cx.listener(|_, _, _, cx| cx.notify()))
+                                .children(parts)
+                                .test_support(),
                         )
-                        .children(custom_range),
-                    &palette,
-                ))
-                .child(part_heading("Writing tags", &palette))
-                .child(setting(
-                    "DJ program",
-                    "Tags are written to the fields this program reads.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(programs),
-                    &palette,
-                ))
-                .child(setting(
-                    "Key notation",
-                    "How the key is spelled in the tags, in the key field and in the label.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(notations),
-                    &palette,
-                ))
-                .child(setting(
-                    "Energy label",
-                    "Where a label such as \u{201c}8A - Energy 7\u{201d} goes. The text already \
-                     there is kept.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(places),
-                    &palette,
-                ))
-                .child(label_preview_box(app, &palette))
-                .child(setting(
-                    "Tempo",
-                    tempo_hint,
-                    div().flex().child(
-                        choice_button(
-                            "write-tempo",
-                            if settings.write_tempo {
-                                "\u{2713} Write the tempo"
-                            } else {
-                                "Write the tempo"
-                            },
-                            settings.write_tempo,
-                            &palette,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_tempo(cx)))
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .child(setting(
-                    "Existing key and tempo",
-                    "A key or tempo a file already has is kept, so a correct tag is never \
-                     replaced by a guess. One that Euphoria wrote earlier is still updated.",
-                    div().flex().child(
-                        choice_button(
-                            "replace-existing",
-                            if settings.replace_existing {
-                                "\u{2713} Replace existing key and tempo"
-                            } else {
-                                "Replace existing key and tempo"
-                            },
-                            settings.replace_existing,
-                            &palette,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_replace_existing(cx)))
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .child(setting(
-                    "Low confidence",
-                    "A key or tempo rated low confidence is left out and listed in the \
-                     preview. A key or tempo you corrected counts as high.",
-                    div().flex().child(
-                        choice_button(
-                            "include-low-confidence",
-                            if settings.include_low_confidence {
-                                "\u{2713} Also write low confidence values"
-                            } else {
-                                "Also write low confidence values"
-                            },
-                            settings.include_low_confidence,
-                            &palette,
-                        )
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx)),
-                        )
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .child(setting(
-                    "Cue markers",
-                    "The track's cues and beat grid are written as Serato cue \
-                     points, which Serato DJ, Mixxx and VirtualDJ read too. \
-                     Memory cues, on no pad, are left out. Formats that cannot \
-                     hold them are skipped.",
-                    div().flex().child(
-                        choice_button(
-                            "write-cue-markers",
-                            if settings.write_cue_markers {
-                                "\u{2713} Write the cue markers"
-                            } else {
-                                "Write the cue markers"
-                            },
-                            settings.write_cue_markers,
-                            &palette,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx)))
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .child(setting(
-                    "After analysis",
-                    "Fills in each track's missing key and tempo once it is analyzed, using \
-                     the choices above. On by default; tags a file already has are kept. \
-                     Undo tag write puts them back.",
-                    div().flex().child(
-                        choice_button(
-                            "write-after-analysis",
-                            if settings.write_after_analysis {
-                                "\u{2713} Write key and tempo to files after analysis"
-                            } else {
-                                "Write key and tempo to files after analysis"
-                            },
-                            settings.write_after_analysis,
-                            &palette,
-                        )
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.toggle_write_after_analysis(cx)),
-                        )
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .child(part_heading("Metronome", &palette))
-                .child(setting(
-                    "Sound",
-                    "The click of the metronome button in the toolbar. Choosing a sound plays \
-                     one click of it.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_sounds),
-                    &palette,
-                ))
-                .child(setting(
-                    "Volume",
-                    "How loud the clicks are next to the music.",
-                    div().flex().flex_wrap().gap(px(6.0)).children(metronome_volumes),
-                    &palette,
-                ))
-                .child(setting(
-                    "Accent",
-                    "The first beat of every bar of four is higher and louder.",
-                    div().flex().child(
-                        choice_button(
-                            "metronome-accent",
-                            if metronome.accent {
-                                "\u{2713} Accent the first beat"
-                            } else {
-                                "Accent the first beat"
-                            },
-                            metronome.accent,
-                            &palette,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
-                        .test_support(),
-                    ),
-                    &palette,
-                ))
-                .test_support()
+                        .children(pinned_box),
                 )
                 .child(
                     div()
@@ -426,13 +475,20 @@ fn part_heading(text: &'static str, palette: &Palette) -> impl IntoElement {
         .child(text)
 }
 
-/// One setting: its name, a line on what it does, and its choices.
+/// One setting: its name, one short line on what it does with an info
+/// glyph that holds the longer explanation, and its choices. `key` names
+/// the line for tests.
 fn setting(
     name: &'static str,
+    key: &'static str,
     hint: &'static str,
+    detail: Option<&'static str>,
     choices: impl IntoElement,
     palette: &Palette,
 ) -> impl IntoElement {
+    let text_color = palette.text_secondary;
+    let glyph_color = palette.text_tertiary;
+    let glyph_line = palette.line;
     div()
         .flex()
         .flex_col()
@@ -440,50 +496,114 @@ fn setting(
         .child(section_label(name, palette))
         .child(
             div()
+                .id(SharedString::from(format!("hint-{key}")))
+                .flex()
+                .items_center()
+                .gap(px(6.0))
                 .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.text_secondary)
-                .child(hint),
+                .text_color(text_color)
+                .test_support()
+                .child(div().min_w_0().child(hint))
+                .children(detail.map(|detail| {
+                    div()
+                        .id(SharedString::from(format!("hint-info-{key}")))
+                        .flex()
+                        .flex_shrink_0()
+                        .items_center()
+                        .justify_center()
+                        .size(px(14.0))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(glyph_line)
+                        .text_size(px(9.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(glyph_color)
+                        .cursor_default()
+                        .child("i")
+                        .tooltip(move |window, cx| Tooltip::new(detail).build(window, cx))
+                        .test_support()
+                })),
         )
         .child(choices)
 }
 
-/// The box under the label choices: what the choices write to one track.
-fn label_preview_box(app: &EuphoriaApp, palette: &Palette) -> impl IntoElement {
+/// Whether the "In your files" box is out of view above the settings body
+/// while the writing options are still on show, so a copy is pinned over
+/// the top. The bounds of the body's parts are where they sit unscrolled. `box_index` and `next_part_index` are the places in the body
+/// of the in-flow box and of the part after the writing options.
+fn settings_box_is_pinned(scroll: &ScrollHandle, box_index: usize, next_part_index: usize) -> bool {
+    let body_top = scroll.bounds().origin.y;
+    let (Some(in_flow), Some(next_part)) = (
+        scroll.bounds_for_item(box_index),
+        scroll.bounds_for_item(next_part_index),
+    ) else {
+        return false;
+    };
+    let pinned_height = in_flow.size.height + px(8.0);
+    let scrolled_by = scroll.offset().y;
+    in_flow.origin.y + scrolled_by < body_top
+        && next_part.origin.y + scrolled_by > body_top + pinned_height
+}
+
+/// The box at the top of the writing options: what the choices write to
+/// one track, a row struck out when an option keeps it out, and how many
+/// files of the library the choices would change. `id` tells the in-flow
+/// box from its pinned copy.
+fn label_preview_box(app: &EuphoriaApp, id: &'static str, palette: &Palette) -> impl IntoElement {
     let preview = app.label_preview.as_ref();
     let rows = preview.into_iter().flat_map(|preview| {
         preview.fields.iter().enumerate().map(|(index, field)| {
+            let is_struck = field.struck.is_some();
+            let name_color = palette.text_secondary;
+            let value_color = if is_struck {
+                palette.text_tertiary
+            } else {
+                palette.text
+            };
             let value = div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_wrap()
+                .text_color(value_color)
+                .when(is_struck, |value| value.line_through())
                 .child(field.before.clone())
                 .child(
                     div()
-                        .id(("label-preview-label", index))
-                        .text_color(palette.accent)
+                        .text_color(if is_struck {
+                            palette.text_tertiary
+                        } else {
+                            palette.accent
+                        })
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(field.label.clone())
-                        .test_support(),
+                        .child(field.label.clone()),
                 )
                 .child(field.after.clone());
+            let name = match &field.struck {
+                Some(reason) => div()
+                    .flex_shrink_0()
+                    .text_color(palette.text_tertiary)
+                    .line_through()
+                    .child(format!("{} \u{b7} {reason}", field.name)),
+                None => div()
+                    .w(px(84.0))
+                    .flex_shrink_0()
+                    .text_color(name_color)
+                    .child(format!("{}:", field.name)),
+            };
+            let tag = field.tag.clone();
             div()
-                .id(("label-preview-field", index))
+                .id((id, index))
                 .flex()
                 .gap(px(8.0))
-                .child(
-                    div()
-                        .w(px(84.0))
-                        .flex_shrink_0()
-                        .text_color(palette.text_secondary)
-                        .child(format!("{}:", field.name)),
-                )
-                .child(value)
+                .child(name)
+                .when(!is_struck, |row| row.child(value))
+                .when(is_struck, |row| row.child(div().flex_1()))
                 .child(
                     div()
                         .flex_shrink_0()
                         .text_color(palette.text_tertiary)
-                        .child(field.tag.clone()),
+                        .child(tag),
                 )
                 .test_support()
         })
@@ -506,8 +626,12 @@ fn label_preview_box(app: &EuphoriaApp, palette: &Palette) -> impl IntoElement {
                 .test_support()
         })
     });
+    let library_line = app.library_change.map_or_else(
+        || "Working out your library\u{2026}".to_string(),
+        |change| change.sentence(),
+    );
     div()
-        .id("label-preview")
+        .id(id)
         .flex()
         .flex_col()
         .gap(px(4.0))
@@ -527,14 +651,20 @@ fn label_preview_box(app: &EuphoriaApp, palette: &Palette) -> impl IntoElement {
                 )
                 .children(preview.map(|preview| {
                     div()
-                        .id("label-preview-source")
                         .text_color(palette.text_tertiary)
                         .child(preview.source.caption())
-                        .test_support()
                 })),
         )
         .children(rows)
         .children(notes)
         .children(hints)
+        .child(
+            div()
+                .id(SharedString::from(format!("{id}-library")))
+                .pt(px(4.0))
+                .text_color(palette.text_secondary)
+                .child(library_line)
+                .test_support(),
+        )
         .test_support()
 }

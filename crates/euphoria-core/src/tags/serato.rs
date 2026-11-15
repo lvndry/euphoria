@@ -471,11 +471,27 @@ pub fn add_serato_markers(
     plan: &mut WritePlan,
     markers: &SeratoMarkers,
 ) -> Result<SeratoReport, EuphoriaError> {
-    let grid_asked = if markers.beat_grid.is_some() {
-        GridOutcome::Written
-    } else {
-        GridOutcome::NotAsked
-    };
+    check_grid(plan, markers)?;
+    let file = TagFile::load(&plan.path, Purpose::Rewriting)?;
+    add_markers_from_file(plan, markers, &file)
+}
+
+/// Like [`add_serato_markers`], from tags that were read earlier.
+///
+/// # Errors
+///
+/// Returns [`EuphoriaError::TagWrite`] when a grid's tempo is not a
+/// positive number.
+pub fn add_serato_markers_from(
+    plan: &mut WritePlan,
+    markers: &SeratoMarkers,
+    loaded: &super::LoadedTags,
+) -> Result<SeratoReport, EuphoriaError> {
+    check_grid(plan, markers)?;
+    add_markers_from_file(plan, markers, &loaded.file)
+}
+
+fn check_grid(plan: &WritePlan, markers: &SeratoMarkers) -> Result<(), EuphoriaError> {
     if let Some(grid) = markers.beat_grid
         && !(grid.bpm.is_finite() && grid.bpm > 0.0)
     {
@@ -484,7 +500,19 @@ pub fn add_serato_markers(
             source: format!("a beat grid at {} BPM cannot be written", grid.bpm).into(),
         });
     }
-    let file = TagFile::load(&plan.path, Purpose::Rewriting)?;
+    Ok(())
+}
+
+fn add_markers_from_file(
+    plan: &mut WritePlan,
+    markers: &SeratoMarkers,
+    file: &TagFile,
+) -> Result<SeratoReport, EuphoriaError> {
+    let grid_asked = if markers.beat_grid.is_some() {
+        GridOutcome::Written
+    } else {
+        GridOutcome::NotAsked
+    };
     let mut report = SeratoReport::new(grid_asked);
     let container = match file.format() {
         TagFormat::Id3v2 if file.has_info_list() => {

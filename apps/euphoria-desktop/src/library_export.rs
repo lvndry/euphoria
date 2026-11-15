@@ -937,7 +937,7 @@ impl EuphoriaApp {
     }
 
     /// The tracks the scope covers, as a job for the export.
-    fn library_export_job(&self, setup: &ExportSetup) -> LibraryExportJob {
+    pub(crate) fn library_export_job(&self, setup: &ExportSetup) -> LibraryExportJob {
         let library = self.session.library();
         let paths: Vec<PathBuf> = match setup.scope {
             ExportScope::Library => library
@@ -953,8 +953,10 @@ impl EuphoriaApp {
                 .collect(),
         };
         let export = self.export_job("Euphoria library", &paths, PlaylistFormat::M3u8, |_| None);
+        let mut setup = setup.clone();
+        setup.key_notation = self.tag_settings.key_notation;
         LibraryExportJob {
-            setup: setup.clone(),
+            setup,
             export,
             folders: library.folders().to_vec(),
             running: self.running_checks,

@@ -23,7 +23,7 @@ pub(crate) fn section(
 ) -> Option<Div> {
     let key = track.key()?;
     let palette = app.theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let semitones = app.key_shift;
     let shifted = key.transposed(semitones);
 

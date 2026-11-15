@@ -66,7 +66,7 @@ pub(crate) fn chips(
                 .text_size(LABEL_TEXT_SIZE)
                 .text_color(palette.danger)
                 .whitespace_nowrap()
-                .child(chip_label(reason, app.display.key_notation))
+                .child(chip_label(reason, app.tag_settings.key_notation))
                 .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
                 .test_support()
                 .into_any_element()
@@ -86,7 +86,7 @@ pub(crate) fn section(
         return None;
     }
     let palette = app.theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let detected_key = track.detected_key();
     let runner_up = crate::views::inspector::shown_runner_up(track);
     let shown_bpm = track.bpm();
@@ -275,7 +275,7 @@ fn key_button(
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
     let palette = app.theme.palette;
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     choice_button(id, verb, false, &palette)
         .gap(px(5.0))
         .font_weight(FontWeight::MEDIUM)

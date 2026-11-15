@@ -296,6 +296,7 @@ impl EuphoriaApp {
                 {
                     this.last_written = report.written.clone();
                 }
+                this.tags_changed(cx);
                 if !report.written.is_empty() {
                     this.show_toast(
                         crate::tag_flow::wrote_sentence(&settings, report.written.len()),

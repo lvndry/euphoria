@@ -146,7 +146,7 @@ pub(crate) fn deck_controls(
                 }))
                 .test_support(),
         )
-        .children(shifted_key.map(|key| key_chip(&key, &app.theme, app.display.key_notation)))
+        .children(shifted_key.map(|key| key_chip(&key, &app.theme, app.tag_settings.key_notation)))
         .child(div().flex_1())
         .children(preset_row);
 
@@ -200,7 +200,7 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
     let palette = app.theme.palette;
     let decks = &app.decks;
     let library = app.session.library();
-    let notation = app.display.key_notation;
+    let notation = app.tag_settings.key_notation;
     let count = decks.ideas.len();
     let position = decks
         .idea_index
