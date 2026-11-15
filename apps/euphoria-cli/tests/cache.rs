@@ -104,7 +104,7 @@ fn a_renamed_and_moved_file_comes_from_the_cache() {
     assert_success(&second_run);
     assert_eq!(
         standard_error(&second_run),
-        "Key and tempo: 1 of 1 track rated low confidence (●○○), worth checking by ear.\n\
+        "Key and tempo: 1 of 1 track worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.\n\
          Sound quality: 1 track lossless.\n\
          hint: --needs-review lists only the tracks to check by ear.\n\
          1 of 1 track came from the cache.\n"
@@ -202,7 +202,7 @@ fn a_damaged_cache_is_a_warning_and_the_files_are_still_analyzed() {
     assert_success(&after_clearing);
     assert_eq!(
         standard_error(&after_clearing),
-        "Key and tempo: 1 of 1 track rated low confidence (●○○), worth checking by ear.\n\
+        "Key and tempo: 1 of 1 track worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.\n\
          Sound quality: 1 track lossless.\n\
          hint: --needs-review lists only the tracks to check by ear.\n"
     );

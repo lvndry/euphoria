@@ -98,13 +98,13 @@ Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip h
 
 ### Where Euphoria is weak, and what to do
 
-- **Trance and progressive house keys.** Trance is exact for about half the previews, progressive house for under two thirds. More than half of their misses are the relative key or a fifth away, which mix, but check the key by ear before you rely on it. A key rated low confidence puts the track under **Needs review** in the desktop app, which offers the runner up key as one click; see [settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+- **Trance and progressive house keys.** Trance is exact for about half the previews, progressive house for under two thirds. More than half of their misses are the relative key or a fifth away, which mix, but check the key by ear before you rely on it. A key rated low confidence puts the track under **Needs review** in the desktop app, which says the key may be its relative or a fifth away and offers the runner up key as one click; see [settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
 - **Tech house, techno, drum and bass and electronica keys.** One key in five or more is a plain miss: not a fifth, not relative. A clash in the mix is the sign. [Check the key by ear](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it) and correct it.
 - **Drum and bass, dubstep and electronica tempos.** In drum and bass and electronica most misses are at half or double, in dubstep nearly half. Euphoria offers the other octave as the alternative tempo, and `--tempo-range 120-200` on the [command line](../reference/cli.md#options) reports drum and bass in its usual range; see [choosing the range](#choosing-the-range).
 - **Slow or loose music.** With the default range a tempo below 90 BPM comes out at double, and jazz or classical without a steady beat is often wrong. Set a lower range for slow music, such as `70-140` for hip hop, and treat the tempo of music without a steady beat as a guess.
 - **Melodic house.** GiantSteps has no melodic house genre, so its key and tempo are not measured; progressive house and deep house are the nearest genres scored. One measure that has been checked is weak there: telling warm up, build and peak tracks apart within the genre (see [set stage](set-stage.md)).
 
-In every genre, a low [confidence](#confidence) rating is the best single hint that a track needs checking.
+In every genre, a low [confidence](#confidence) rating, which puts the track under **Needs review**, is the best single hint that a track needs checking.
 
 ## Key detection with drone-v2
 
@@ -261,7 +261,7 @@ The benchmark measures only the default. Other ranges move tempos by whole octav
 
 Every key and every tempo is rated high, medium or low, for how far to trust it, and comes with a second answer: the runner up key, and for some tempos half or double the tempo. The point is to tell a DJ which tracks are worth checking by ear before a set, and what the likely alternative is.
 
-In the desktop app a low rating puts the track under Needs review, where each track says why and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a low rating puts the track under Needs review, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
 
 ### Key confidence
 

@@ -88,7 +88,7 @@ fn prints_a_table_with_a_header() {
     let table = String::from_utf8(output.stdout).expect("UTF-8 output");
     assert!(table.starts_with("Key"), "{table}");
     let header = table.lines().next().expect("a header line");
-    assert!(header.contains("BPM  Energy  Conf  Quality"), "{table}");
+    assert!(header.contains("BPM  Energy  Quality"), "{table}");
     assert!(table.contains("Lossless"), "{table}");
     assert!(table.contains("sine-440hz-mono.flac"), "{table}");
     let summary = String::from_utf8_lossy(&output.stderr);

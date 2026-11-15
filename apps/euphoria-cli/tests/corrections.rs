@@ -124,7 +124,6 @@ fn analyze_shows_and_marks_the_values_the_user_set() {
     assert_success(&table);
     let table = String::from_utf8_lossy(&table.stdout);
     assert!(table.contains("9A") && table.contains("87.0"), "{table}");
-    assert!(table.contains("U/U"), "{table}");
 }
 
 #[test]

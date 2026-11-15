@@ -453,10 +453,10 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
 }
 
 /// The key, the tempo and the energy in three boxes. The key and the tempo
-/// say quietly how far to trust them, and, when the core offers one, what
-/// else they could be: the runner up key when the key is not rated high,
-/// and half or double the tempo. A click on either takes it instead. A
-/// value the user set says so, with a way back to the detected one.
+/// say, when the core offers one, what else they could be: the runner up
+/// key when the key is not rated high, and half or double the tempo. A
+/// click on either takes it instead. A value the user set says so, with a
+/// way back to the detected one.
 fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = &theme.palette;
@@ -470,8 +470,6 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     };
     let analysis = track.analysis();
     let correction = track.correction;
-    let key_confidence = analysis.and_then(|analysis| analysis.key_confidence());
-    let tempo_confidence = analysis.and_then(|analysis| analysis.tempo_confidence());
     let runner_up = shown_runner_up(track);
     let tempo_alternative = analysis
         .and_then(|analysis| analysis.tempo_alternative_in(app.session.library().tempo_range()))
@@ -598,45 +596,33 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             quiet_note(not_known_yet, palette).into_any_element(),
         ),
     };
-    let energy_trust = correction
+    let energy_set_mark = correction
         .energy
         .map(|_| set_by_you("energy-set-by-you", "energy", palette));
 
-    let key_trust = match (correction.key, key_confidence) {
-        (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
-        // Checked with "Looks right": nothing is left to review.
-        (None, Some(Confidence::Low)) if correction.key_confirmed => None,
-        (None, Some(confidence)) => Some(confidence_word(
-            "Key",
-            "key-confidence",
-            confidence,
-            palette,
-        )),
-        (None, None) => None,
-    };
-    let tempo_trust = match (correction.bpm, tempo_confidence) {
-        (Some(_), _) => Some(set_by_you("tempo-set-by-you", "tempo", palette)),
-        (None, Some(Confidence::Low)) if correction.bpm_confirmed => None,
-        (None, Some(confidence)) => Some(confidence_word(
-            "BPM",
-            "tempo-confidence",
-            confidence,
-            palette,
-        )),
-        (None, None) => None,
-    };
+    let key_set_mark = correction
+        .key
+        .map(|_| set_by_you("key-set-by-you", "key", palette));
+    let tempo_set_mark = correction
+        .bpm
+        .map(|_| set_by_you("tempo-set-by-you", "tempo", palette));
 
     let is_column = theme.layout == Layout::InspectorRight;
     let boxes = if is_column {
         let compact =
-            |label, trust, value, note| statistic_compact(label, trust, value, note, palette);
-        let key_box = compact("Key", key_trust, key_value, key_note);
-        let tempo_box = compact("BPM", tempo_trust, statistic_value(tempo), tempo_note)
+            |label, set_mark, value, note| statistic_compact(label, set_mark, value, note, palette);
+        let key_box = compact("Key", key_set_mark, key_value, key_note);
+        let tempo_box = compact("BPM", tempo_set_mark, statistic_value(tempo), tempo_note)
             .border_t_1()
             .border_color(palette.line);
-        let energy_box = compact("Energy", energy_trust, statistic_value(energy), energy_note)
-            .border_t_1()
-            .border_color(palette.line);
+        let energy_box = compact(
+            "Energy",
+            energy_set_mark,
+            statistic_value(energy),
+            energy_note,
+        )
+        .border_t_1()
+        .border_color(palette.line);
         div()
             .flex()
             .items_center()
@@ -666,11 +652,11 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             .rounded(RADIUS_LARGE)
             .border_1()
             .border_color(palette.line)
-            .child(statistic("Key", key_trust, key_value, key_note, palette))
+            .child(statistic("Key", key_set_mark, key_value, key_note, palette))
             .child(
                 statistic(
                     "BPM",
-                    tempo_trust,
+                    tempo_set_mark,
                     statistic_value(tempo),
                     tempo_note,
                     palette,
@@ -681,7 +667,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             .child(
                 statistic(
                     "Energy",
-                    energy_trust,
+                    energy_set_mark,
                     statistic_value(energy),
                     energy_note,
                     palette,
@@ -804,50 +790,6 @@ fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
         .child(text.into())
 }
 
-/// The word under a detected value: a low one is something to review.
-pub(crate) fn confidence_text(confidence: Confidence) -> &'static str {
-    match confidence {
-        Confidence::Low => "to review",
-        other => other.as_str(),
-    }
-}
-
-/// How far to trust a detected value, in a word, explained on hover.
-fn confidence_word(
-    label: &'static str,
-    id: &'static str,
-    confidence: Confidence,
-    palette: &Palette,
-) -> AnyElement {
-    let (colour, explanation): (_, SharedString) = match confidence {
-        Confidence::High => (
-            palette.text_tertiary,
-            format!("{label} confidence: high. The detector clearly preferred this answer.").into(),
-        ),
-        Confidence::Medium => (
-            palette.text_tertiary,
-            format!("{label} confidence: medium. Usually right, worth a listen if it matters.")
-                .into(),
-        ),
-        Confidence::Low => (
-            palette.warning,
-            format!(
-                "{label} confidence: low. Check it by ear, then choose Looks right or correct it; the track is listed under Needs review until then."
-            )
-            .into(),
-        ),
-    };
-    let word = confidence_text(confidence);
-    div()
-        .id(id)
-        .whitespace_nowrap()
-        .text_color(colour)
-        .child(word)
-        .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
-        .test_support()
-        .into_any_element()
-}
-
 /// Says that the user set the value, which wins over the detected one.
 fn set_by_you(id: &'static str, what: &'static str, palette: &Palette) -> AnyElement {
     let explanation: SharedString = format!(
@@ -905,28 +847,28 @@ fn statistic_note(label: &'static str, note: AnyElement) -> impl IntoElement {
         .test_support()
 }
 
-/// How far to trust a statistic, in a word of its own under the value.
-fn statistic_trust(
+/// The mark under a value the user set, on a line of its own.
+fn statistic_set_mark(
     label: &'static str,
-    trust: Option<AnyElement>,
+    set_mark: Option<AnyElement>,
 ) -> impl Iterator<Item = impl IntoElement> {
-    trust.into_iter().map(move |trust| {
+    set_mark.into_iter().map(move |set_mark| {
         div()
-            .id(SharedString::from(format!("statistic-trust-{label}")))
+            .id(SharedString::from(format!("statistic-set-mark-{label}")))
             .flex()
             .flex_shrink_0()
             .whitespace_nowrap()
             .text_size(LABEL_TEXT_SIZE)
-            .child(trust)
+            .child(set_mark)
             .test_support()
     })
 }
 
 /// One box: its label, the value, a quiet note under it, and under that
-/// how far to trust the value.
+/// whether the user set the value.
 fn statistic(
     label: &'static str,
-    trust: Option<AnyElement>,
+    set_mark: Option<AnyElement>,
     value: Div,
     note: AnyElement,
     palette: &Palette,
@@ -942,7 +884,7 @@ fn statistic(
         .child(statistic_label(label, palette))
         .child(value)
         .child(statistic_note(label, note))
-        .children(statistic_trust(label, trust))
+        .children(statistic_set_mark(label, set_mark))
 }
 
 /// Width of the label column of the compact statistics, room for the
@@ -954,10 +896,10 @@ const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 const STATISTIC_CELL_WIDTH: f32 = 84.0;
 
 /// One line of the column: the label, and beside it the value with its
-/// note under it and under that how far to trust the value.
+/// note under it and under that whether the user set the value.
 fn statistic_compact(
     label: &'static str,
-    trust: Option<AnyElement>,
+    set_mark: Option<AnyElement>,
     value: Div,
     note: AnyElement,
     palette: &Palette,
@@ -982,7 +924,7 @@ fn statistic_compact(
                 .flex_shrink_0()
                 .child(value)
                 .child(statistic_note(label, note))
-                .children(statistic_trust(label, trust)),
+                .children(statistic_set_mark(label, set_mark)),
         )
 }
 
