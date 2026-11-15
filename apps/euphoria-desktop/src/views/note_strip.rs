@@ -31,7 +31,8 @@ pub(crate) const NOTES_EXPLANATION: &str = "How strongly each note sounds in the
      A minor key and its relative major share the same notes, so one is easily heard as the other.";
 
 /// What shows for a track analyzed before notes were measured.
-pub(crate) const NOT_MEASURED: &str = "Analyze this track again to see its notes.";
+pub(crate) const NOT_MEASURED: &str =
+    "Right-click the track and choose Analyze again to see its notes.";
 
 /// One note of the strip.
 #[derive(Debug, Clone, Copy, PartialEq)]

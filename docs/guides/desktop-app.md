@@ -120,13 +120,13 @@ Not tested: a real run over a large library on this build. The 2,000-track test 
 
 The inspector shows a **Stage** line under the key, tempo and energy, such as `Stage: Peak`: where the track tends to sit in a set, from its tempo and loudness compared with the rest of your library. It is not the same as Energy; [set stage](../concepts/set-stage.md) explains the difference, how it is computed and how well it matches a DJ's own warm-up, build and peak folders. A track with no tempo has no stage, and no track has one until the library holds 10 tracks with a tempo. Stages are recomputed as the library changes.
 
+To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
+
 ### Notes
 
-Under the Stage line, a strip of 12 bars shows how strongly each note sounds in the track, every octave together, from C to B. The notes of the key are lit in the key's colour and the others are grey, so a doubtful key can be checked by eye: the lit bars should be the tallest. The heading names the key in the notation you chose, and the note names follow its key signature, sharps for a key with sharps and flats for a key with flats. A key you set lights its own notes, which makes it easy to compare with the detected one. Pointing at the strip explains it. [Accuracy](../concepts/accuracy.md#reading-the-notes) shows how to read it, and why a minor key and its relative major are easily confused.
+Under the key, tempo and energy (in the Deck theme, in a column of its own next to them), a strip of 12 bars shows how strongly each note sounds in the track, every octave together, from C to B. The notes of the key are lit in the key's colour and the others are grey, so a doubtful key can be checked by eye: the lit bars should be the tallest. The heading names the key in the notation you chose, and the note names follow its key signature, sharps for a key with sharps and flats for a key with flats. A key you set lights its own notes, which makes it easy to compare with the detected one. Pointing at the strip explains it. [Accuracy](../concepts/accuracy.md#reading-the-notes) shows how to read it, and why a minor key and its relative major are easily confused.
 
-A track analyzed before Euphoria measured notes shows one line instead: *Analyze this track again to see its notes.* Its key and everything else are unchanged.
-
-To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
+A track analyzed before Euphoria measured notes shows one line instead: *Right-click the track and choose Analyze again to see its notes.* [Analyze tracks again](#analyze-tracks-again) measures them and keeps your corrections.
 
 ### Resize the columns
 
