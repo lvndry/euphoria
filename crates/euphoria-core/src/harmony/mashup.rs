@@ -396,6 +396,8 @@ pub struct MashupMatch<'candidates, Track> {
     pub key: KeyFit,
     /// How its tempo is stretched to the reference tempo.
     pub tempo: TempoFit,
+    /// The candidate's energy, when known.
+    pub energy: Option<f32>,
     /// The candidate's energy minus the reference's, when both are known.
     pub energy_difference: Option<f32>,
     /// How the two layer, when both have been separated into stems.
@@ -413,8 +415,8 @@ impl<Track> MashupMatch<'_, Track> {
             Some(layering) => MashupReason::Stems(layering),
             None => MashupReason::StemsUnknown,
         });
-        if let Some(difference) = self.energy_difference {
-            reasons.push(MashupReason::Energy(difference));
+        if let Some((energy, difference)) = self.energy.zip(self.energy_difference) {
+            reasons.push(MashupReason::Energy { energy, difference });
         }
         reasons
     }
@@ -432,8 +434,13 @@ pub enum MashupReason {
     /// At least one of the tracks has not been separated, so the stems
     /// were not compared.
     StemsUnknown,
-    /// The candidate's energy minus the reference's.
-    Energy(f32),
+    /// How the candidate's energy compares with the reference's.
+    Energy {
+        /// The candidate's energy.
+        energy: f32,
+        /// The candidate's energy minus the reference's.
+        difference: f32,
+    },
 }
 
 impl MashupReason {
@@ -507,12 +514,11 @@ impl MashupReason {
                 "Stems not compared: separate both tracks to check vocals against instruments"
                     .to_string()
             }
-            MashupReason::Energy(difference) => {
-                if difference.abs() < 0.5 {
-                    "Same energy".to_string()
-                } else {
-                    format!("Energy {difference:+.0} against A")
-                }
+            MashupReason::Energy { energy, difference } => {
+                format!(
+                    "Energy {} against A",
+                    super::energy_move(*energy, *difference)
+                )
             }
         }
     }
@@ -612,7 +618,8 @@ where
                 options.max_tempo_difference_percent,
                 options.allow_half_and_double_tempo,
             )?;
-            let energy_difference = usable_energy(candidate.energy())
+            let energy = usable_energy(candidate.energy());
+            let energy_difference = energy
                 .zip(reference_energy)
                 .map(|(candidate_energy, reference_energy)| candidate_energy - reference_energy);
             let layered = reference_profile.zip(candidate.stem_profile()).map(
@@ -624,6 +631,7 @@ where
                 track: candidate,
                 key,
                 tempo,
+                energy,
                 energy_difference,
                 layering: layered.map(|(layering, _)| layering),
                 cost: 0.0,

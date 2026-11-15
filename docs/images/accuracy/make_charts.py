@@ -84,23 +84,23 @@ SECTION_GENRES = [
     ("Electronic", 8, 23.6, 53.4, 45.8),
 ]
 
-# "Accuracy by genre", the key table: drone-v2 on the GiantSteps Key
-# previews by Beatport genre, as (genre, previews, exact, exact or a fifth
+# "Accuracy by genre", the key table: drone-v2 with tuning correction on the
+# GiantSteps Key previews by Beatport genre, as (genre, previews, exact, exact or a fifth
 # away). Genres with fewer than 20 previews are grouped.
 KEY_GENRES = [
     ("Deep house", 77, 85.7, 89.6),
+    ("Electronica", 20, 75.0, 75.0),
     ("Electro house", 51, 74.5, 82.4),
     ("House", 47, 72.3, 76.6),
     ("Techno", 34, 67.6, 73.5),
     ("Tech house", 81, 65.4, 72.8),
-    ("Electronica", 20, 65.0, 65.0),
     ("Progressive house", 88, 63.6, 68.2),
     ("Dubstep", 22, 63.6, 77.3),
     ("Drum and bass", 38, 63.2, 65.8),
     ("Trance", 58, 53.4, 67.2),
     ("13 other genres", 88, 79.5, 83.0),
 ]
-KEY_EXACT_ALL_GENRES = 69.9
+KEY_EXACT_ALL_GENRES = 70.2
 
 # "Accuracy by genre", the tempo table: GiantSteps Tempo previews by Beatport
 # genre, as (genre, previews, Accuracy 1, Accuracy 2).
