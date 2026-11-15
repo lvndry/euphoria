@@ -60,6 +60,9 @@ mod metronome_ui_tests;
 #[cfg(test)]
 mod missing_ui_tests;
 mod mixes;
+mod next_rail;
+#[cfg(test)]
+mod next_rail_ui_tests;
 mod output_stream;
 mod palette_flow;
 mod panels;
@@ -124,9 +127,10 @@ use gpui::{
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AddToSet, BuildSet, CloseFocusView, EditTags, ExportLibrary,
     FocusSearch, OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
-    PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems,
-    ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
-    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    PlayNextRow, PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks,
+    SeparateStems, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
+    WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -292,6 +296,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("m", ToggleMetronome, Some(SPACE_BAR_CONTEXT)),
         // F stars, so Enter opens the focus view.
         KeyBinding::new("enter", OpenFocusView, Some(SPACE_BAR_CONTEXT)),
+        // In the list of tracks to play next, Enter plays the one selected.
+        KeyBinding::new("enter", PlayNextRow, Some(views::NEXT_RAIL_KEY_CONTEXT)),
         KeyBinding::new("cmd-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
@@ -335,6 +341,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<PlayNextRow>(view, cx, |view, cx| view.play_next_row(cx));
     register_view_command::<ExportLibrary>(view, cx, |view, cx| view.open_library_export(cx));
     register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
     register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
