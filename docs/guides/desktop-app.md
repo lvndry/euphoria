@@ -192,6 +192,16 @@ The key and tempo boxes show the key name ("C# minor") and the unit ("per minute
 
 The waveform is read from the file when you select the track.
 
+### Cover art
+
+Euphoria shows the cover Finder shows. The inspector header has a 56 point square at its left with the cover of the selected track; the player bar shows it at 40 points before the title, the focus view at 72 points before the title, and each deck's header at 28 points before the track name. Corners are rounded like the other surfaces. A track with no cover keeps the music note.
+
+The cover is the picture inside the file (ID3 attached pictures in MP3, AIFF and WAV, `covr` in M4A, MP4 and AAC, the pictures of FLAC and Ogg), the front cover when there are several, and the first picture otherwise. Without one, Euphoria uses an image in the same folder named `cover`, `folder`, `front` or `albumart` (JPEG or PNG, any letter case). Euphoria only reads covers and never writes into your audio files.
+
+Covers are read only for the tracks on screen, never for the whole library, and always in the background: the window draws the note first and the cover when it is ready. The picture is cut to a square and reduced to 192 and 80 pixels, sharp at 2x. The last 64 covers stay in memory, and a cover is read again only when its audio file changed. Nothing is stored on disk, so a cover you change in a folder image shows after you restart or touch the audio file.
+
+Not there yet: covers in the table rows, the ⌘K palette and the "Next after" rows; the Deck theme's strip header shows no cover.
+
 ### How sure the key and the tempo are
 
 The Key and BPM boxes say quietly how far to trust the value: **high** or **medium** on a line under the value, and **to review**, in the warning colour (an amber, not the red of an error), when Euphoria is unsure and the track is under **Needs review**. Once you choose **Looks right** or correct the value, **to review** goes away. Point at the word for what it means.

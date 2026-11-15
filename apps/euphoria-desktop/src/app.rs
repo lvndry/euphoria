@@ -304,6 +304,7 @@ pub(crate) struct EuphoriaApp {
     /// The command palette, opened with Command K or Command P.
     pub(crate) palette: crate::command_palette::CommandPalette,
     settings_path: Option<PathBuf>,
+    artwork: crate::artwork::ArtworkStore,
     waveforms: WaveformCache,
     vocal_lanes: HashMap<PathBuf, VocalLane>,
     waveform_task: Option<Task<()>>,
@@ -637,6 +638,7 @@ impl EuphoriaApp {
                 scroll: gpui::ScrollHandle::new(),
             },
             settings_path,
+            artwork: crate::artwork::ArtworkStore::new(crate::artwork::ARTWORK_CAPACITY),
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
             vocal_lanes: HashMap::new(),
             waveform_task: None,
@@ -2592,6 +2594,11 @@ impl EuphoriaApp {
             })
             .ok();
         }));
+    }
+
+    /// The covers kept in memory.
+    pub(crate) fn artwork(&self) -> &crate::artwork::ArtworkStore {
+        &self.artwork
     }
 
     /// The waveform of the track at `path`, when it was read.

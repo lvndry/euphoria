@@ -10,6 +10,9 @@
 mod actions;
 mod analysis;
 mod app;
+mod artwork;
+#[cfg(test)]
+mod artwork_ui_tests;
 mod assets;
 mod auto_tags;
 #[cfg(test)]
