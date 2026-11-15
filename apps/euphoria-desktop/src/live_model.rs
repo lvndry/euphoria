@@ -10,12 +10,15 @@
 //! no waveforms, no analysis workers.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
+use euphoria_core::fingerprint::{FingerprintIndex, Match};
 use euphoria_core::harmony::TrackFeatures;
 use euphoria_core::live::{
     AudioCapture, CaptureError, ListenSource, LiveEngine, LiveReading,
-    LiveSettings as AnalysisSettings,
+    LiveSettings as AnalysisSettings, MatcherHandle,
 };
 use gpui::Context;
 
@@ -37,6 +40,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 pub(crate) type CaptureFactory = Box<dyn Fn() -> Box<dyn AudioCapture>>;
 pub(crate) type LibraryLoader = Box<dyn Fn() -> Library + Send + Sync>;
+/// Makes the fingerprint index of the files given, telling how many are done
+/// and stopping early when told to.
+pub(crate) type FingerprintLoader =
+    Box<dyn Fn(&[PathBuf], &AtomicUsize, &AtomicBool) -> FingerprintIndex + Send + Sync>;
+
+/// Where the pass that learns the library's fingerprints is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Learning {
+    NotStarted,
+    Working { total: usize },
+    Ready { tracks: usize },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ListenState {
@@ -55,6 +70,7 @@ struct RankedFor {
     tempo_tenths: Option<i32>,
     energy: Option<u8>,
     choice: EnergyChoice,
+    matched: Option<usize>,
 }
 
 pub(crate) struct LiveModel {
@@ -68,7 +84,13 @@ pub(crate) struct LiveModel {
     pub(crate) reading: LiveReading,
     pub(crate) library: Option<Library>,
     library_requested: bool,
-    library_loader: std::sync::Arc<LibraryLoader>,
+    library_loader: Arc<LibraryLoader>,
+    matcher: MatcherHandle,
+    fingerprint_loader: Arc<FingerprintLoader>,
+    fingerprint_paths: Arc<Vec<PathBuf>>,
+    pub(crate) learning: Learning,
+    learned: Arc<AtomicUsize>,
+    stop_learning: Arc<AtomicBool>,
     pub(crate) next_rows: Vec<NextRow>,
     ranked_for: Option<RankedFor>,
     pub(crate) energy: EnergyChoice,
@@ -86,6 +108,7 @@ impl LiveModel {
         Self::with_parts(
             capture_factory,
             Box::new(load_library_from_cache),
+            Box::new(learn_fingerprints_from_cache),
             Settings::load_or_default(),
             live_settings_path(),
             euphoria_core::live::ANALYSIS_INTERVAL,
@@ -96,6 +119,7 @@ impl LiveModel {
     pub(crate) fn with_parts(
         capture_factory: CaptureFactory,
         library_loader: LibraryLoader,
+        fingerprint_loader: FingerprintLoader,
         settings: Settings,
         settings_file: Option<PathBuf>,
         engine_interval: Duration,
@@ -116,7 +140,13 @@ impl LiveModel {
             reading: LiveReading::listening(),
             library: None,
             library_requested: false,
-            library_loader: std::sync::Arc::new(library_loader),
+            library_loader: Arc::new(library_loader),
+            matcher: MatcherHandle::default(),
+            fingerprint_loader: Arc::new(fingerprint_loader),
+            fingerprint_paths: Arc::new(Vec::new()),
+            learning: Learning::NotStarted,
+            learned: Arc::new(AtomicUsize::new(0)),
+            stop_learning: Arc::new(AtomicBool::new(false)),
             next_rows: Vec::new(),
             ranked_for: None,
             energy: live_settings.energy,
@@ -175,6 +205,7 @@ impl LiveModel {
             self.source.clone(),
             self.analysis,
             self.engine_interval,
+            Arc::clone(&self.matcher),
         ) {
             Ok(engine) => {
                 self.engine = Some(engine);
@@ -245,6 +276,12 @@ impl LiveModel {
         self.notation = settings.tags.key_notation;
         self.track_filters = settings.track_filters;
         self.suggestion_filter = settings.suggestion_filter;
+        self.stop_learning.store(true, Ordering::Relaxed);
+        self.stop_learning = Arc::new(AtomicBool::new(false));
+        if let Ok(mut handle) = self.matcher.write() {
+            *handle = None;
+        }
+        self.learning = Learning::NotStarted;
         self.library = None;
         self.library_requested = false;
         self.ranked_for = None;
@@ -257,7 +294,7 @@ impl LiveModel {
             return;
         }
         self.library_requested = true;
-        let loader = std::sync::Arc::clone(&self.library_loader);
+        let loader = Arc::clone(&self.library_loader);
         cx.spawn(async move |this, cx| {
             let library = cx
                 .background_executor()
@@ -266,12 +303,75 @@ impl LiveModel {
             this.update(cx, |model, cx| {
                 model.library = Some(library);
                 model.ranked_for = None;
+                model.start_learning(cx);
                 model.rank(cx);
                 cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Learns the fingerprints of the library's tracks in the background,
+    /// one at a time and at a third of a core, and then lets the engine
+    /// recognise what it hears. Tracks the cache holds no analysis for are
+    /// left out, as the list leaves them.
+    fn start_learning(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(library) = &self.library else {
+            return;
+        };
+        if self.learning != Learning::NotStarted {
+            return;
+        }
+        let paths: Vec<PathBuf> = library
+            .tracks()
+            .iter()
+            .filter(|track| track.analysis().is_some() && !track.is_missing())
+            .map(|track| track.path.clone())
+            .collect();
+        if paths.is_empty() {
+            return;
+        }
+        self.learning = Learning::Working { total: paths.len() };
+        self.learned.store(0, Ordering::Relaxed);
+        self.fingerprint_paths = Arc::new(paths);
+        let loader = Arc::clone(&self.fingerprint_loader);
+        let paths = Arc::clone(&self.fingerprint_paths);
+        let done = Arc::clone(&self.learned);
+        let stop = Arc::clone(&self.stop_learning);
+        cx.spawn(async move |this, cx| {
+            let loaded_paths = Arc::clone(&paths);
+            let index = cx
+                .background_executor()
+                .spawn(async move { loader(&loaded_paths, &done, &stop) })
+                .await;
+            this.update(cx, |model, cx| {
+                if !Arc::ptr_eq(&model.fingerprint_paths, &paths) {
+                    return;
+                }
+                if let Ok(mut handle) = model.matcher.write() {
+                    *handle = Some(Arc::new(index));
+                }
+                model.learning = Learning::Ready {
+                    tracks: paths.len(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// How many tracks have been learned so far.
+    pub(crate) fn learned_count(&self) -> usize {
+        self.learned.load(Ordering::Relaxed)
+    }
+
+    /// The library track the audio was recognised as, with how it matched.
+    pub(crate) fn matched_track(&self) -> Option<(&crate::library::Track, Match)> {
+        let found = self.reading.matched?;
+        let path = self.fingerprint_paths.get(found.track)?;
+        Some((self.library.as_ref()?.track_by_path(path)?, found))
     }
 
     pub(crate) fn poll(&mut self, cx: &mut Context<'_, Self>) {
@@ -296,6 +396,36 @@ impl LiveModel {
         cx.notify();
     }
 
+    /// Pretends the audio was recognised as the library track at `index`.
+    #[cfg(test)]
+    pub(crate) fn pretend_match(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        let paths: Vec<PathBuf> = self
+            .library
+            .as_ref()
+            .map(|library| {
+                library
+                    .tracks()
+                    .iter()
+                    .map(|track| track.path.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.fingerprint_paths = Arc::new(paths);
+        let mut reading = self.reading;
+        reading.matched = Some(Match {
+            track: index,
+            start_seconds: 20.0,
+            votes: 50,
+            runner_up_votes: 2,
+            share: 0.3,
+            playback: euphoria_core::fingerprint::Playback {
+                tempo_ratio: 1.0,
+                pitch_follows_tempo: false,
+            },
+        });
+        self.pretend_heard(reading, cx);
+    }
+
     /// The reference the list ranks from: the key and tempo heard.
     fn reference(&self) -> Option<TrackFeatures> {
         if self.reading.listening {
@@ -310,15 +440,23 @@ impl LiveModel {
     }
 
     fn rank(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(reference) = self.reference() else {
+        let matched_id = self
+            .matched_track()
+            .map(|(_, found)| found.track)
+            .filter(|_| !self.reading.listening);
+        let live = self.reference();
+        if matched_id.is_none() && live.is_none() {
             self.clear_rows();
             return;
-        };
+        }
         let ranked_for = RankedFor {
-            key: reference.key,
-            tempo_tenths: reference.bpm.map(|bpm| (bpm * 10.0).round() as i32),
+            key: live.and_then(|reference| reference.key),
+            tempo_tenths: live
+                .and_then(|reference| reference.bpm)
+                .map(|bpm| (bpm * 10.0).round() as i32),
             energy: self.reading.energy,
             choice: self.energy,
+            matched: matched_id,
         };
         if self.ranked_for == Some(ranked_for) {
             return;
@@ -330,22 +468,23 @@ impl LiveModel {
         self.ranked_for = Some(ranked_for);
         let pool: Vec<usize> = (0..library.tracks().len()).collect();
         let favorites = Favorites::default();
-        self.next_rows = rank_after(
-            &reference,
-            None,
-            |_| false,
-            &NextQuery {
-                library,
-                favorites: &favorites,
-                playing_index: 0,
-                energy: self.energy,
-                track_filters: &self.track_filters,
-                suggestion_filter: &self.suggestion_filter,
-                pool: &pool,
-                played: &[],
-                limit: NEXT_LIMIT,
-            },
-        );
+        let query = NextQuery {
+            library,
+            favorites: &favorites,
+            playing_index: 0,
+            energy: self.energy,
+            track_filters: &self.track_filters,
+            suggestion_filter: &self.suggestion_filter,
+            pool: &pool,
+            played: &[],
+            limit: NEXT_LIMIT,
+        };
+        let matched = self.matched_track().map(|(track, _)| track);
+        self.next_rows = match (matched, live) {
+            (Some(track), _) => rank_after(track, Some(&track.path), |_| false, &query),
+            (None, Some(reference)) => rank_after(&reference, None, |_| false, &query),
+            (None, None) => Vec::new(),
+        };
     }
 
     fn clear_rows(&mut self) {
@@ -412,4 +551,36 @@ pub(crate) fn load_library_from_cache() -> Library {
         }
     }
     library
+}
+
+/// Fingerprints the library's files from the analysis cache, one at a time
+/// and at about a third of a core, so learning a large library in the
+/// background does not slow the Mac.
+pub(crate) fn learn_fingerprints_from_cache(
+    paths: &[PathBuf],
+    done: &AtomicUsize,
+    stop: &AtomicBool,
+) -> FingerprintIndex {
+    let analyzer = euphoria_core::default_cache_path()
+        .ok()
+        .and_then(|path| euphoria_core::Cache::open(&path).ok())
+        .and_then(|cache| euphoria_core::CachedAnalyzer::new(cache).ok());
+    let Some(analyzer) = analyzer else {
+        let mut empty = FingerprintIndex::new();
+        empty.freeze();
+        return empty;
+    };
+    let last = std::cell::Cell::new(Instant::now());
+    analyzer
+        .fingerprint_library(
+            paths,
+            &|finished| {
+                done.store(finished, Ordering::Relaxed);
+                let worked = last.get().elapsed();
+                std::thread::sleep(worked.min(Duration::from_secs(2)) * 2);
+                last.set(Instant::now());
+            },
+            &|| stop.load(Ordering::Relaxed),
+        )
+        .index
 }

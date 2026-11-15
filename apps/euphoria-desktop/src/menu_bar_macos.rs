@@ -70,6 +70,11 @@ define_class!(
             self.send(MenuBarCommand::TogglePanel);
         }
 
+        #[unsafe(method(showMatchedTrack:))]
+        fn show_matched_track(&self, _sender: Option<&AnyObject>) {
+            self.send(MenuBarCommand::ShowMatchedTrack);
+        }
+
         #[unsafe(method(quit:))]
         fn quit(&self, _sender: Option<&AnyObject>) {
             self.send(MenuBarCommand::Quit);
@@ -129,6 +134,13 @@ impl MenuTarget {
                 menu.addItem(&item);
             }
         };
+        if let Some(title) = &state.matched_title {
+            add(
+                &format!("Show {title} in Euphoria"),
+                sel!(showMatchedTrack:),
+                false,
+            );
+        }
         add("Show Live", sel!(showPanel:), false);
         add(
             if state.is_listening {

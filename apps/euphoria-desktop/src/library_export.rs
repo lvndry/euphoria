@@ -1008,6 +1008,7 @@ impl EuphoriaApp {
         panel.stage = ExportStage::Working { writing: !dry_run };
         panel.problem = None;
         let job = self.library_export_job(&setup);
+        let notation = job.setup.key_notation;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let outcome = cx
@@ -1019,6 +1020,9 @@ impl EuphoriaApp {
                     return;
                 };
                 match outcome {
+                    Ok(_) if dry_run && this.tag_settings.key_notation != notation => {
+                        panel.stage = ExportStage::Setup;
+                    }
                     Ok(report) if dry_run => panel.stage = ExportStage::Review(report),
                     Ok(report) => {
                         let message = format!(

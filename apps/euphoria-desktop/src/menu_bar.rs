@@ -17,6 +17,7 @@ pub(crate) enum MenuBarCommand {
     OpenEuphoria,
     ToggleListening,
     ToggleKeepRunning,
+    ShowMatchedTrack,
     Quit,
 }
 
@@ -26,6 +27,8 @@ pub(crate) struct MenuBarState {
     pub(crate) title: String,
     pub(crate) is_listening: bool,
     pub(crate) keeps_running: bool,
+    /// The title of the library track recognised, for "Show it in Euphoria".
+    pub(crate) matched_title: Option<String>,
 }
 
 impl MenuBarState {
@@ -34,6 +37,9 @@ impl MenuBarState {
             title: model.menu_bar_title(),
             is_listening: model.is_listening(),
             keeps_running: model.settings.keep_running_when_closed,
+            matched_title: model
+                .matched_track()
+                .map(|(track, _)| track.title().to_string()),
         }
     }
 }
@@ -80,6 +86,17 @@ pub(crate) fn install(
                             model.set_keep_running(keep, cx);
                         })
                         .ok();
+                }
+                MenuBarCommand::ShowMatchedTrack => {
+                    let path = model
+                        .read_with(cx, |model, _| {
+                            model.matched_track().map(|(track, _)| track.path.clone())
+                        })
+                        .ok()
+                        .flatten();
+                    if let Some(path) = path {
+                        crate::live_app::show_in_euphoria(path, cx);
+                    }
                 }
                 MenuBarCommand::Quit => cx.quit(),
             });

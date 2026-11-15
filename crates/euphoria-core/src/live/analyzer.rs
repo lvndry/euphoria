@@ -8,6 +8,7 @@ use crate::confidence::Confidence;
 use crate::detect::{KeyReading, StratumDetector};
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
+use crate::fingerprint::Match;
 use crate::key::Key;
 use crate::tempo_range::TempoRange;
 
@@ -102,6 +103,9 @@ pub struct LiveReading {
     pub energy: Option<u8>,
     /// How much audio the readings come from, in seconds.
     pub heard_seconds: f32,
+    /// The track of the library the audio is from, when a matcher is
+    /// listening for one and found it.
+    pub matched: Option<Match>,
     /// How long the audio has been exactly zero, which is what a capture
     /// that macOS has not allowed delivers.
     pub no_signal_seconds: f32,
@@ -117,6 +121,7 @@ impl LiveReading {
             tempo: None,
             energy: None,
             heard_seconds: 0.0,
+            matched: None,
             no_signal_seconds: 0.0,
         }
     }
@@ -224,6 +229,11 @@ impl LiveAnalyzer {
     /// True while the latest audio is under the quiet level.
     pub fn is_quiet(&self) -> bool {
         self.quiet_samples as f32 >= QUIET_HOLD_SECONDS * self.buffer.sample_rate().get() as f32
+    }
+
+    /// The latest `seconds` of audio, for matching it against a library.
+    pub fn recent_audio(&self, seconds: f32) -> AudioBuffer {
+        self.buffer.latest(seconds)
     }
 
     /// A reading with only the level, for while nothing is read.

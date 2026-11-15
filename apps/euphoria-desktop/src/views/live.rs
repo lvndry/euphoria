@@ -7,13 +7,15 @@
 
 use euphoria_core::Confidence;
 use euphoria_core::live::ListenSource;
+use gpui::component::scroll::Scrollbar;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, Entity, FontWeight, TestSupportExt, Window, div, px, relative,
+    AnyElement, Context, Div, Entity, FocusHandle, FontWeight, ScrollHandle, TestSupportExt,
+    Window, div, px, relative,
 };
 
 use crate::format;
-use crate::live_model::{ListenState, LiveModel};
+use crate::live_model::{Learning, ListenState, LiveModel};
 use crate::next_rail::{EnergyChoice, NextRow};
 use crate::theme::Palette;
 use crate::views::controls::{pressed_button, segment, segmented};
@@ -40,6 +42,8 @@ pub(crate) const KEY_ID: &str = "live-key";
 pub(crate) const BPM_ID: &str = "live-bpm";
 pub(crate) const WAITING_ID: &str = "live-waiting";
 pub(crate) const OPEN_ID: &str = "live-open";
+pub(crate) const MATCH_ID: &str = "live-match";
+pub(crate) const LEARNING_ID: &str = "live-learning";
 
 pub(crate) fn energy_id(choice: EnergyChoice) -> (&'static str, usize) {
     ("live-energy", choice.index())
@@ -56,6 +60,10 @@ pub(crate) fn source_option_id(position: usize) -> (&'static str, usize) {
 pub(crate) struct LiveView {
     pub(crate) model: Entity<LiveModel>,
     pub(crate) picker_open: bool,
+    pub(crate) scroll: ScrollHandle,
+    pub(crate) focus: FocusHandle,
+    /// The row the arrow keys are on, among those the Next list shows.
+    pub(crate) selected_row: Option<usize>,
 }
 
 impl LiveView {
@@ -65,6 +73,43 @@ impl LiveView {
         Self {
             model,
             picker_open: false,
+            scroll: ScrollHandle::new(),
+            focus: cx.focus_handle(),
+            selected_row: None,
+        }
+    }
+
+    /// Moves the arrow keys' row by `step` and scrolls it into view.
+    pub(crate) fn move_row(&mut self, step: isize, cx: &mut Context<'_, Self>) {
+        let count = self.model.read(cx).next_rows.len();
+        if count == 0 {
+            return;
+        }
+        let next = match self.selected_row {
+            None if step > 0 => 0,
+            None => count - 1,
+            Some(current) => current.saturating_add_signed(step).min(count - 1),
+        };
+        self.selected_row = Some(next);
+        self.scroll.scroll_to_item(next);
+        cx.notify();
+    }
+
+    fn open_selected_row(&mut self, cx: &mut Context<'_, Self>) {
+        let path = self.selected_row.and_then(|row| {
+            let model = self.model.read(cx);
+            let next = model.next_rows.get(row)?;
+            Some(
+                model
+                    .library
+                    .as_ref()?
+                    .track(next.track_index)?
+                    .path
+                    .clone(),
+            )
+        });
+        if let Some(path) = path {
+            crate::live_app::show_in_euphoria(path, cx);
         }
     }
 }
@@ -373,7 +418,80 @@ fn source_picker(model: &LiveModel, picker_open: bool, cx: &Context<'_, LiveView
         })
 }
 
-fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
+fn position_text(seconds: f32) -> String {
+    let whole = seconds.max(0.0) as u32;
+    format!("{}:{:02}", whole / 60, whole % 60)
+}
+
+/// The words for how a matched track is played compared with the file.
+pub(crate) fn playback_words(playback: euphoria_core::fingerprint::Playback) -> Option<String> {
+    let change = (playback.tempo_ratio - 1.0) * 100.0;
+    if change.abs() < 2.5 {
+        return None;
+    }
+    let tempo = format::signed_percent(change);
+    Some(if playback.pitch_follows_tempo {
+        format!("{tempo}, pitch follows")
+    } else {
+        format!("{tempo}, key lock")
+    })
+}
+
+fn recognition(model: &LiveModel) -> Option<AnyElement> {
+    let palette = model.theme.palette;
+    if let Some((track, found)) = model.matched_track() {
+        let heard = model.reading.heard_seconds.min(15.0);
+        let position = found.start_seconds + heard * found.playback.tempo_ratio;
+        let words = playback_words(found.playback);
+        return Some(
+            div()
+                .id(MATCH_ID)
+                .flex()
+                .flex_col()
+                .gap(GAP_TIGHT)
+                .p(GAP_SMALL)
+                .rounded(RADIUS_LARGE)
+                .border_1()
+                .border_color(palette.accent.opacity(0.4))
+                .cursor_pointer()
+                .on_click({
+                    let path = track.path.clone();
+                    move |_, _, cx| crate::live_app::show_in_euphoria(path.clone(), cx)
+                })
+                .child(section_label("IN YOUR LIBRARY", &palette))
+                .child(div().truncate().child(track.title().to_string()))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(GAP_SMALL)
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(format!("at {}", position_text(position)))
+                        .children(words.map(|words| pill(words, false, &palette))),
+                )
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    if let Learning::Working { total } = model.learning {
+        return Some(
+            div()
+                .id(LEARNING_ID)
+                .text_size(LABEL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child(format!(
+                    "Learning your library to recognise tracks: {} of {total}",
+                    model.learned_count()
+                ))
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    None
+}
+
+fn next_row(model: &LiveModel, next: &NextRow, is_selected: bool) -> Option<AnyElement> {
     let palette = model.theme.palette;
     let track = model.library.as_ref()?.track(next.track_index)?;
     let hover_background = palette.raised;
@@ -387,7 +505,13 @@ fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
             .py(px(4.0))
             .px(px(2.0))
             .rounded(RADIUS_SMALL)
+            .cursor_pointer()
+            .when(is_selected, |row| row.bg(palette.selection))
             .hover(move |style| style.bg(hover_background))
+            .on_click({
+                let path = track.path.clone();
+                move |_, _, cx| crate::live_app::show_in_euphoria(path.clone(), cx)
+            })
             .child(
                 div().flex().flex_shrink_0().w(px(38.0)).children(
                     track
@@ -440,7 +564,12 @@ fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
     )
 }
 
-fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
+fn next_section(
+    model: &LiveModel,
+    model_entity: &Entity<LiveModel>,
+    scroll: &ScrollHandle,
+    selected_row: Option<usize>,
+) -> Div {
     let palette = model.theme.palette;
     let control = segmented(
         EnergyChoice::ALL
@@ -467,7 +596,8 @@ fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
     let rows: Vec<AnyElement> = model
         .next_rows
         .iter()
-        .filter_map(|next| next_row(model, next))
+        .enumerate()
+        .filter_map(|(position, next)| next_row(model, next, selected_row == Some(position)))
         .collect();
     let has_key = model.is_listening() && !model.reading.listening && model.reading.key.is_some();
     let empty_text = if !has_key {
@@ -493,21 +623,40 @@ fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
         )
         .child(
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_h_0()
-                .overflow_hidden()
-                .gap(GAP_TIGHT)
-                .when(rows.is_empty(), |list| {
-                    list.child(
-                        div()
-                            .text_size(SMALL_TEXT_SIZE)
-                            .text_color(palette.text_tertiary)
-                            .child(empty_text),
-                    )
-                })
-                .children(rows),
+                .child(
+                    div()
+                        .id("live-next-list")
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .track_scroll(scroll)
+                        .gap(GAP_TIGHT)
+                        .when(rows.is_empty(), |list| {
+                            list.child(
+                                div()
+                                    .text_size(SMALL_TEXT_SIZE)
+                                    .text_color(palette.text_tertiary)
+                                    .child(empty_text),
+                            )
+                        })
+                        .children(rows),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .w(Scrollbar::width())
+                        .child(Scrollbar::vertical(scroll).viewport_from_layout()),
+                ),
         )
 }
 
@@ -562,6 +711,15 @@ impl Render for LiveView {
         let source = source_picker(model, picker_open, cx);
         div()
             .id("live-panel")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                match event.keystroke.key.as_str() {
+                    "down" => this.move_row(1, cx),
+                    "up" => this.move_row(-1, cx),
+                    "enter" => this.open_selected_row(cx),
+                    _ => {}
+                }
+            }))
             .flex()
             .flex_col()
             .size_full()
@@ -587,7 +745,13 @@ impl Render for LiveView {
             .child(big_reading(model))
             .child(figures(model))
             .child(level_meter(model, &palette))
-            .child(next_section(model, &model_entity))
+            .children(recognition(model))
+            .child(next_section(
+                model,
+                &model_entity,
+                &self.scroll,
+                self.selected_row,
+            ))
             .child(
                 div()
                     .flex()
