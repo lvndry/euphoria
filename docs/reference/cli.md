@@ -54,7 +54,7 @@ The Review column says why a track is worth checking, in a word for each reason:
 
 The Tags column compares the key already written in each file's tags with the detected key. Euphoria reads the key field of every format it writes: `TKEY` in MP3, AIFF and WAV files, `initialkey` or `KEY` in M4A files, and `INITIALKEY` or `KEY` in FLAC and Ogg files, in Camelot (`8A`, `08A`), Open Key (`1m`) or musical notation (`Am`, `A min`, `A minor`, `Abm`), so a key written by Euphoria, rekordbox, Mixed In Key or Traktor is read alike. A tempo after the key, as in `8A 114`, and an energy label, as in `8A - Energy 7`, are ignored. `=` means the tags name the detected key, `?` that the field holds text that is not a key, and otherwise the column shows the key from the tags and how it differs: `fifth` (one step on the Camelot wheel), `relative` (the same number, the other letter), `parallel` (the same home note, the other mode) or `other`. A track whose tags name another key is listed by `--needs-review`, unless you set or confirmed its key yourself. The column is left out when no file has a key in its tags. Analyzing only reads the tags: it never changes them.
 
-Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
+The [detailed view](#the-detailed-view) also shows the track's [set stage](../concepts/set-stage.md) on a Stage line, when it has one. Energy is the [energy rating](../concepts/energy.md) from 1 to 10, with a bar of ten cells. It is Euphoria's own scale, so do not compare it with the energy numbers of other tools.
 
 Quality is the [audio quality](../concepts/audio-quality.md) verdict for DJ use in a word: `lossless`, `limited bw` (a lossless file whose content stops below 19 kHz with a gradual roll-off: information, not a defect), `good`, `acceptable`, `weak` (weak on a big system) or `re-encoded?` (likely made from a lower quality file). The detailed view gives the reason.
 
@@ -120,6 +120,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--bpm <RANGE>` | List only the tracks in a tempo range, in beats per minute: `120-126`, `120-` for 120 and faster, `-126` for 126 and slower, or one tempo. A comma works as a decimal point: `120,5-126`. Tempos from 30 to 300. The tempo is the one shown, so a tempo you set yourself is used and a detected one is in the `--tempo-range`. |
 | `--half-double` | With `--bpm`, also list the tracks at half or double a tempo in the range: `--bpm 120-126 --half-double` lists a track at 61 or at 244 too. |
 | `--energy <RANGE>` | List only the tracks in an energy range from 1 to 10: `6-8`, `6-` for 6 and more, `-8` for 8 and less, or one rating. An energy you set yourself is used. |
+| `--stage <STAGE>` | List only the tracks at these [set stages](../concepts/set-stage.md), separated by commas: `warm-up`, `build` or `peak`. The stage is placed among the tracks analyzed in the same run, so it needs at least 10 tracks with a tempo; with fewer, no track has a stage and none is listed. A tempo you set yourself is used. There is no `closing` stage. |
 | `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `limited`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with the other filters, a track must match all of them. |
 | `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table follows it in its first column; JSON is unchanged. |
 | `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
@@ -159,6 +160,7 @@ One object per file, in path order, including files that failed, then one for ea
     "bpm_confidence": "medium",
     "bpm_alternative": 85.0,
     "energy": 6,
+    "stage": "peak",
     "tuning_cents": -31.3,
     "key_timeline": [
       {
@@ -228,7 +230,7 @@ After the files come entries for what the scan left out. A folder that could not
 
 `review_reasons` lists why the track is worth checking by ear, as the app's **Needs review** does: `key_unsure` (the key is rated low), `tempo_unsure` (the tempo is rated low) and `key_conflict` (the tags name another key), in that order. It is empty for a track that is fine and for one whose doubts you settled, and for a file that failed, which has an `error` instead. `reviewed` is `true` when you set or confirmed the key or the tempo of the track in the app, and `null` for a file that failed.
 
-`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
+`key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `stage` is `"warm-up"`, `"build"` or `"peak"`, the [set stage](../concepts/set-stage.md) among the tracks analyzed in the same run, and `null` for a track without a tempo and when fewer than 10 tracks have one; it is not the energy. The field was added to version 1 this way. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
 A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
 

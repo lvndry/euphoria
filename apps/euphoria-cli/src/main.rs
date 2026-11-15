@@ -197,6 +197,13 @@ struct AnalyzeArguments {
     needs_review: bool,
     #[command(flatten)]
     filters: filters::FilterArguments,
+    /// List only the tracks at these set stages, separated by commas:
+    /// warm-up, build or peak. The stage comes from the tempo and loudness
+    /// of a track compared with the other tracks analyzed in the same run,
+    /// so it needs at least 10 tracks. A tempo you set yourself is the one
+    /// used. There is no closing stage.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "STAGE")]
+    stage: Vec<filters::StageChoice>,
     /// How keys are shown in the table and the detailed view.
     #[arg(long, value_enum, default_value_t, value_name = "NOTATION")]
     key_notation: KeyNotationChoice,
@@ -351,7 +358,12 @@ enum Layout {
 }
 
 fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
-    let track_filters = arguments.filters.track_filters()?;
+    let mut track_filters = arguments.filters.track_filters()?;
+    track_filters.stages = arguments
+        .stage
+        .iter()
+        .map(|choice| choice.stage())
+        .collect();
     let analysis = &arguments.analysis;
     let (missing_paths, present_paths): (Vec<PathBuf>, Vec<PathBuf>) = arguments
         .paths
@@ -410,10 +422,11 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         grid_import::ImportSummary::of(&files, &grid_infos)
     });
 
+    let stages = filters::LibraryStages::of(&results);
     let verdicts = arguments.filters.verdicts();
     let is_listed = |path: &Path, analysis: &TrackAnalysis| {
         (!arguments.needs_review || !tag_keys.review_reasons(path, analysis).is_empty())
-            && track_filters.matches(&filters::Filtered(analysis))
+            && track_filters.matches(&filters::Filtered(analysis, stages.get(path)))
     };
     let narrowing = Narrowing {
         needs_review: arguments.needs_review,
@@ -515,7 +528,10 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             analysis.tempo_range(),
             &user_edits,
             &tag_keys,
-            &grid_infos,
+            &output::JsonLookups {
+                grid_infos: &grid_infos,
+                stages: &stages,
+            },
             &scan,
         )?,
         Layout::PlainTable => output::write_plain_table(
@@ -554,6 +570,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                             grid_info: grid_infos.get(&result.path),
                             review: tag_keys.review_reasons(&result.path, track),
                             reviewed: tag_keys.reviewed(&result.path),
+                            stage: stages.get(&result.path),
                         },
                     )?;
                 }

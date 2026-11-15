@@ -8,7 +8,9 @@
 use anyhow::{Result, anyhow};
 use clap::{Args, ValueEnum};
 use euphoria_core::quality::{QualityReport, QualityVerdict};
-use euphoria_core::{FilterableTrack, TrackAnalysis, TrackFilters};
+use euphoria_core::{
+    FilterableTrack, LibraryDistribution, SetStage, TrackAnalysis, TrackFilters, stage_of,
+};
 
 #[derive(Debug, Clone, Default, Args)]
 pub struct FilterArguments {
@@ -80,8 +82,9 @@ impl FilterArguments {
     }
 }
 
-/// An analysis, with its corrected values, as a filter reads it.
-pub struct Filtered<'analysis>(pub &'analysis TrackAnalysis);
+/// An analysis, with its corrected values and its set stage, as a filter
+/// reads it. `next` has no stages and passes `None`.
+pub struct Filtered<'analysis>(pub &'analysis TrackAnalysis, pub Option<SetStage>);
 
 impl FilterableTrack for Filtered<'_> {
     fn is_analyzed(&self) -> bool {
@@ -98,6 +101,75 @@ impl FilterableTrack for Filtered<'_> {
 
     fn quality(&self) -> Option<&QualityReport> {
         self.0.quality.as_ref()
+    }
+
+    fn stage(&self) -> Option<SetStage> {
+        self.1
+    }
+}
+
+/// A set stage to list with `--stage`. Closing is not one: the tracks that
+/// close a set cannot be told from the rest by tempo and loudness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum StageChoice {
+    /// Slower and quieter than the rest of the library.
+    #[value(name = "warm-up", alias = "warmup")]
+    WarmUp,
+    /// Between the warm-up and the peak.
+    Build,
+    /// Among the fastest and loudest tracks of the library.
+    Peak,
+}
+
+impl StageChoice {
+    pub fn stage(self) -> SetStage {
+        match self {
+            StageChoice::WarmUp => SetStage::WarmUp,
+            StageChoice::Build => SetStage::Build,
+            StageChoice::Peak => SetStage::Peak,
+        }
+    }
+}
+
+/// The set stage of each analyzed track, placed among the tracks analyzed
+/// together.
+#[derive(Debug, Default)]
+pub struct LibraryStages {
+    by_path: std::collections::HashMap<std::path::PathBuf, SetStage>,
+}
+
+impl LibraryStages {
+    /// The stages of the analyzed files in `results`. Tempos are the ones
+    /// the user corrected to, and fewer than ten tracks with a tempo have
+    /// no stages.
+    pub fn of(results: &[euphoria_core::FileResult]) -> Self {
+        let analyses: Vec<(&std::path::Path, &TrackAnalysis)> = results
+            .iter()
+            .filter_map(|result| {
+                result
+                    .outcome
+                    .as_ref()
+                    .ok()
+                    .map(|analysis| (result.path.as_path(), analysis))
+            })
+            .collect();
+        let library = LibraryDistribution::from_features(
+            analyses
+                .iter()
+                .map(|(_, analysis)| analysis.stage_features()),
+        );
+        let by_path = analyses
+            .iter()
+            .filter_map(|(path, analysis)| {
+                stage_of(&analysis.stage_features(), &library)
+                    .map(|stage| (path.to_path_buf(), stage))
+            })
+            .collect();
+        Self { by_path }
+    }
+
+    pub fn get(&self, path: &std::path::Path) -> Option<SetStage> {
+        self.by_path.get(path).copied()
     }
 }
 

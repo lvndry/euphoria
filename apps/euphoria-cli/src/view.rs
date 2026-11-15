@@ -822,6 +822,9 @@ pub struct FileFacts<'facts> {
     pub review: Vec<ReviewReason>,
     /// True when the user set or confirmed the key or the tempo.
     pub reviewed: bool,
+    /// Where the track tends to sit in a set, among the tracks analyzed
+    /// together.
+    pub stage: Option<euphoria_core::SetStage>,
 }
 
 /// Writes everything known about one track, a label per line: the key with
@@ -842,6 +845,7 @@ pub fn write_detail(
         grid_info,
         review,
         reviewed,
+        stage,
     } = facts;
     let key_set = correction.is_some_and(|correction| correction.key.is_some());
     let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
@@ -1005,6 +1009,18 @@ pub fn write_detail(
             ),
         )?,
         None => write_line(writer, theme, "Energy", &theme.dim("nothing to rate"))?,
+    }
+    if let Some(stage) = stage {
+        write_line(
+            writer,
+            theme,
+            "Stage",
+            &format!(
+                "{}  {}",
+                theme.bold(stage.label()),
+                theme.dim("from tempo and loudness among these tracks; not the energy")
+            ),
+        )?;
     }
 
     if let Some(quality) = &analysis.quality {
@@ -1290,6 +1306,33 @@ Key                  BPM       Energy              Quality  Time  Review  File
         .unwrap();
         let shown = String::from_utf8(buffer).unwrap();
         assert!(shown.contains("evil\\r\\u{1b}[2K.mp3"), "{shown:?}");
+    }
+
+    #[test]
+    fn the_detail_shows_the_stage_apart_from_the_energy_and_only_when_there_is_one() {
+        let show = |stage| {
+            let mut buffer = Vec::new();
+            write_detail(
+                &mut buffer,
+                &Theme::PLAIN,
+                Path::new("music/low tide.flac"),
+                &analysis(0.001, 0.5),
+                &options(100),
+                None,
+                FileFacts {
+                    stage,
+                    ..FileFacts::default()
+                },
+            )
+            .unwrap();
+            String::from_utf8(buffer).unwrap()
+        };
+        let with_stage = show(Some(euphoria_core::SetStage::Peak));
+        assert!(
+            with_stage.contains("  Stage          Peak  from tempo and loudness among these tracks; not the energy\n"),
+            "{with_stage}"
+        );
+        assert!(!show(None).contains("Stage"));
     }
 
     #[test]
