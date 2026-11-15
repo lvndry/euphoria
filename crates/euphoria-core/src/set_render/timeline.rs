@@ -4,7 +4,7 @@
 //! Where each track of a mix sits on the time of the mix, how fast it plays
 //! at every moment, and how loud.
 
-use super::{Blend, MixMove, MixPlan};
+use super::{Blend, MixMove, MixPlan, VocalFix};
 use crate::harmony::transition::reachable_rate;
 
 /// After blending in at the tempo of the track before, a track glides back
@@ -26,6 +26,11 @@ pub struct Crossfade {
     pub swap_seconds: f64,
     /// How long the bass takes to move.
     pub swap_length_seconds: f64,
+    /// When the incoming track reaches its full level, and the outgoing
+    /// one starts to fade.
+    pub rise_end_seconds: f64,
+    /// When the outgoing track is silent.
+    pub fall_end_seconds: f64,
 }
 
 /// One track laid on the time of the mix.
@@ -46,6 +51,9 @@ pub struct Placement {
     pub entry: Option<Crossfade>,
     /// The blend out, when it has one.
     pub exit: Option<Crossfade>,
+    /// Where in the track, in seconds of its own audio, it switches to its
+    /// stems without vocals, when its blend out cuts them.
+    pub instrumental_from_seconds: Option<f64>,
     /// Seconds of the track played at the entry rate.
     entry_source_seconds: f64,
     /// Seconds of the mix over which the speed glides back to 1.
@@ -108,14 +116,14 @@ impl Placement {
         let mut volume = 1.0;
         let mut bass = 1.0;
         if let Some(entry) = &self.entry {
-            let progress = (seconds - entry.start_seconds) / (entry.length_seconds / 2.0);
+            let rise = (entry.rise_end_seconds - entry.start_seconds).max(1e-3);
+            let progress = (seconds - entry.start_seconds) / rise;
             volume *= (progress.clamp(0.0, 1.0) * std::f64::consts::FRAC_PI_2).sin();
             bass *= swap_progress(entry, seconds);
         }
         if let Some(exit) = &self.exit {
-            let fade_from = exit.start_seconds + exit.length_seconds / 2.0;
-            let fade_to = (exit.start_seconds + exit.length_seconds).min(self.end_seconds);
-            let fade_from = fade_from.min(fade_to - 1e-3);
+            let fade_to = exit.fall_end_seconds.min(self.end_seconds);
+            let fade_from = exit.rise_end_seconds.min(fade_to - 1e-3);
             let progress = (seconds - fade_from) / (fade_to - fade_from);
             volume *= (progress.clamp(0.0, 1.0) * std::f64::consts::FRAC_PI_2).cos();
             bass *= 1.0 - swap_progress(exit, seconds);
@@ -235,12 +243,24 @@ pub fn mix_timeline(plan: &MixPlan) -> Result<MixTimeline, String> {
             entry_rate,
             entry: None,
             exit: None,
+            instrumental_from_seconds: None,
             entry_source_seconds,
             ramp_seconds,
         };
         placement.end_seconds = start_seconds + placement.mix_offset_of(source_end - source_start);
         if let Some((blend, outgoing_bar_seconds)) = entry_blend {
-            placement.entry = Some(crossfade(&blend, start_seconds, outgoing_bar_seconds));
+            let fix = incoming.and_then(|transition| transition.vocal_fix.as_ref());
+            placement.entry = Some(crossfade(&blend, start_seconds, outgoing_bar_seconds, fix));
+        }
+        let cuts_vocals = outgoing
+            .is_some_and(|transition| transition.vocal_fix == Some(VocalFix::CutOutgoingVocals));
+        if cuts_vocals && let Some(exit_start) = exit_start_source {
+            if !track.has_instrumental() {
+                return Err(format!(
+                    "track {number} has no stems to cut its vocals with"
+                ));
+            }
+            placement.instrumental_from_seconds = Some(exit_start);
         }
         if let (Some(previous), Some(entry)) = (placements.last_mut(), placement.entry) {
             previous.exit = Some(entry);
@@ -264,11 +284,33 @@ pub fn mix_timeline(plan: &MixPlan) -> Result<MixTimeline, String> {
     })
 }
 
-fn crossfade(blend: &Blend, start_seconds: f64, bar_seconds: f64) -> Crossfade {
-    Crossfade {
-        start_seconds,
-        length_seconds: blend.bars as f64 * bar_seconds,
-        swap_seconds: start_seconds + (blend.swap_bar() - 1) as f64 * bar_seconds,
-        swap_length_seconds: BASS_SWAP_BARS * bar_seconds,
+fn crossfade(
+    blend: &Blend,
+    start_seconds: f64,
+    bar_seconds: f64,
+    fix: Option<&VocalFix>,
+) -> Crossfade {
+    let length_seconds = blend.bars as f64 * bar_seconds;
+    let swap_length_seconds = BASS_SWAP_BARS * bar_seconds;
+    match fix {
+        Some(VocalFix::FadeOutBefore { bar }) => {
+            let gone_bars = bar.saturating_sub(1).clamp(1, blend.bars);
+            Crossfade {
+                start_seconds,
+                length_seconds,
+                swap_seconds: start_seconds + (gone_bars / 2) as f64 * bar_seconds,
+                swap_length_seconds,
+                rise_end_seconds: start_seconds + gone_bars as f64 * bar_seconds / 2.0,
+                fall_end_seconds: start_seconds + gone_bars as f64 * bar_seconds,
+            }
+        }
+        _ => Crossfade {
+            start_seconds,
+            length_seconds,
+            swap_seconds: start_seconds + (blend.swap_bar() - 1) as f64 * bar_seconds,
+            swap_length_seconds,
+            rise_end_seconds: start_seconds + length_seconds / 2.0,
+            fall_end_seconds: start_seconds + length_seconds,
+        },
     }
 }

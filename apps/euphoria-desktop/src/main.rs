@@ -125,6 +125,7 @@ mod row_actions_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
+mod set_check;
 #[cfg(test)]
 mod set_stage_ui_tests;
 mod settings;

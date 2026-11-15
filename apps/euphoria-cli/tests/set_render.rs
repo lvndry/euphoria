@@ -168,3 +168,33 @@ fn a_transition_locked_in_the_app_is_kept() {
     assert!(plan.contains("↳ Locked, placed by hand. "), "{plan}");
     assert!(plan.contains("16 bars"), "{plan}");
 }
+
+#[test]
+fn fix_vocals_takes_a_fix_or_none_and_tracks_without_stems_get_no_warning() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let tracks = three_tracks(folder.path());
+    for fix in [None, Some("cut")] {
+        let mut arguments = vec![
+            "set",
+            "render",
+            tracks[0].to_str().unwrap(),
+            tracks[1].to_str().unwrap(),
+            "--dry-run",
+            "--fix-vocals",
+        ];
+        arguments.extend(fix);
+        let output = euphoria.run(&arguments);
+        assert!(output.status.success(), "{}", standard_error(&output));
+        let plan = String::from_utf8_lossy(&output.stdout);
+        assert!(!plan.contains("Both tracks sing"), "{plan}");
+    }
+    let wrong = euphoria.run(&[
+        "set",
+        "render",
+        tracks[0].to_str().unwrap(),
+        "--dry-run",
+        "--fix-vocals=mute",
+    ]);
+    assert!(!wrong.status.success());
+}

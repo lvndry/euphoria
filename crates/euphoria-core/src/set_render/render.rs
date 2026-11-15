@@ -330,8 +330,8 @@ impl<'plan> Mixer<'plan> {
     }
 }
 
-/// Reads a track as stereo frames, with silence once it ends.
-struct Reader {
+/// Reads one file as stereo frames, with silence once it ends.
+struct StreamReader {
     stream: AudioStream,
     channels: usize,
     chunk: Vec<f32>,
@@ -339,7 +339,7 @@ struct Reader {
     ended: bool,
 }
 
-impl Reader {
+impl StreamReader {
     fn open(path: &Path, start_seconds: f64) -> Result<Self, EuphoriaError> {
         let mut stream = AudioStream::open(path)?;
         if start_seconds > 0.0 {
@@ -378,6 +378,106 @@ impl Reader {
             self.used += self.channels;
             frame += 1;
         }
+        Ok(())
+    }
+}
+
+/// How long the switch from a track to its stems without vocals takes:
+/// one beat at 120 BPM.
+const VOCAL_CUT_SECONDS: f64 = 0.5;
+
+/// The stems of a track without its vocals, which take over from the
+/// track at a point of its own audio.
+struct Instrumental {
+    stems: Vec<StreamReader>,
+    /// The frame, counted from where reading started, at which the stems
+    /// have fully taken over.
+    switch_frame: f64,
+    fade_frames: f64,
+    scratch: Vec<f32>,
+}
+
+/// Reads a track as stereo frames, switching to its stems without vocals
+/// when its blend out cuts them.
+struct Reader {
+    track: StreamReader,
+    instrumental: Option<Instrumental>,
+    /// Frames read so far.
+    position: u64,
+}
+
+impl Reader {
+    fn open(track: &RenderTrack, placement: &Placement) -> Result<Self, EuphoriaError> {
+        let start_seconds = placement.source_start_seconds;
+        let reader = StreamReader::open(&track.path, start_seconds)?;
+        let instrumental = match placement.instrumental_from_seconds {
+            Some(from_seconds) => {
+                let sample_rate = f64::from(reader.stream.sample_rate().get());
+                let mut stems = Vec::with_capacity(track.instrumental_stems.len());
+                for stem in &track.instrumental_stems {
+                    let opened = StreamReader::open(stem, start_seconds)?;
+                    if opened.stream.sample_rate() != reader.stream.sample_rate() {
+                        return Err(render_error(
+                            stem,
+                            "the stems are at another sample rate than the track, so its vocals \
+                             cannot be cut"
+                                .to_string(),
+                        ));
+                    }
+                    stems.push(opened);
+                }
+                Some(Instrumental {
+                    stems,
+                    switch_frame: (from_seconds - start_seconds) * sample_rate,
+                    fade_frames: VOCAL_CUT_SECONDS * sample_rate,
+                    scratch: Vec::new(),
+                })
+            }
+            None => None,
+        };
+        Ok(Self {
+            track: reader,
+            instrumental,
+            position: 0,
+        })
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.track.stream.sample_rate().get()
+    }
+
+    /// Appends `frames` stereo frames to `output`, interleaved.
+    fn read(&mut self, output: &mut Vec<f32>, frames: usize) -> Result<(), EuphoriaError> {
+        let start = output.len();
+        self.track.read(output, frames)?;
+        if let Some(instrumental) = &mut self.instrumental {
+            instrumental.scratch.clear();
+            instrumental.scratch.resize(frames * CHANNELS, 0.0);
+            let mut stem_frames = Vec::with_capacity(frames * CHANNELS);
+            for stem in &mut instrumental.stems {
+                stem_frames.clear();
+                stem.read(&mut stem_frames, frames)?;
+                for (sum, sample) in instrumental.scratch.iter_mut().zip(&stem_frames) {
+                    *sum += sample;
+                }
+            }
+            for (index, (frame, stems)) in output[start..]
+                .as_chunks_mut::<CHANNELS>()
+                .0
+                .iter_mut()
+                .zip(instrumental.scratch.as_chunks::<CHANNELS>().0)
+                .enumerate()
+            {
+                let at = (self.position + index as u64) as f64;
+                let share = ((at - (instrumental.switch_frame - instrumental.fade_frames))
+                    / instrumental.fade_frames)
+                    .clamp(0.0, 1.0) as f32;
+                for (sample, stem) in frame.iter_mut().zip(stems) {
+                    *sample = *sample * (1.0 - share) + stem * share;
+                }
+            }
+        }
+        self.position += frames as u64;
         Ok(())
     }
 }
@@ -425,8 +525,8 @@ impl Voice {
         end_frame: u64,
     ) -> Result<Self, EuphoriaError> {
         let failure = |reason: String| render_error(&track.path, reason);
-        let mut reader = Reader::open(&track.path, placement.source_start_seconds)?;
-        let source_rate = reader.stream.sample_rate().get();
+        let mut reader = Reader::open(track, &placement)?;
+        let source_rate = reader.sample_rate();
         let stage = if placement.is_stretched() || source_rate != sample_rate {
             let rate_ratio = f64::from(source_rate) / f64::from(sample_rate);
             let mut stretch = Stretch::new(CHANNELS, sample_rate).map_err(failure)?;
