@@ -17,13 +17,19 @@ use std::time::{Duration, Instant, SystemTime};
 use euphoria_core::artwork::read_artwork;
 use gpui::RenderImage;
 use image::imageops::FilterType;
-use image::{DynamicImage, Frame, GenericImageView, ImageReader, Limits};
+use image::{DynamicImage, Frame, GenericImageView, ImageFormat, ImageReader, Limits};
+
+use crate::media_keys::NowPlayingArtwork;
 
 /// Pixels on a side of the large thumbnail: sharp at 2x up to 96 points.
 pub(crate) const LARGE_SIDE: u32 = 192;
 
 /// Pixels on a side of the small thumbnail: sharp at 2x up to 40 points.
 pub(crate) const SMALL_SIDE: u32 = 80;
+
+/// Pixels on a side of the cover given to the system's Now Playing at most:
+/// sharp at 2x in Control Center and on the lock screen, small to keep.
+pub(crate) const NOW_PLAYING_SIDE: u32 = 600;
 
 /// How many covers are kept. A pair of thumbnails is about 175 KB, so the
 /// limit holds the cache near 11 MB.
@@ -264,9 +270,9 @@ impl ArtworkStore {
     }
 }
 
-/// The two thumbnails of an encoded picture: its centre, as a square, at
-/// each size. `None` when it is not a picture that can be decoded.
-pub(crate) fn thumbnails(bytes: &[u8]) -> Option<Cover> {
+/// The centre of an encoded picture, as a square. `None` when it is not a
+/// picture that can be decoded.
+fn square_picture(bytes: &[u8]) -> Option<DynamicImage> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
@@ -279,13 +285,44 @@ pub(crate) fn thumbnails(bytes: &[u8]) -> Option<Cover> {
     if side == 0 {
         return None;
     }
-    let centre = picture.crop_imm((width - side) / 2, (height - side) / 2, side, side);
+    Some(picture.crop_imm((width - side) / 2, (height - side) / 2, side, side))
+}
+
+/// The two thumbnails of an encoded picture: its centre, as a square, at
+/// each size. `None` when it is not a picture that can be decoded.
+pub(crate) fn thumbnails(bytes: &[u8]) -> Option<Cover> {
+    let centre = square_picture(bytes)?;
     let large = centre.resize_exact(LARGE_SIDE, LARGE_SIDE, FilterType::Triangle);
     let small = large.resize_exact(SMALL_SIDE, SMALL_SIDE, FilterType::Triangle);
     Some(Cover {
         large: render_image(large),
         small: render_image(small),
     })
+}
+
+/// The cover of an encoded picture for the system's Now Playing: the same
+/// square the window draws, at most [`NOW_PLAYING_SIDE`] pixels on a side,
+/// as a PNG.
+pub(crate) fn now_playing_cover(bytes: &[u8]) -> Option<NowPlayingArtwork> {
+    let centre = square_picture(bytes)?;
+    let side = centre.width().min(NOW_PLAYING_SIDE);
+    let reduced = if side == centre.width() {
+        centre
+    } else {
+        centre.resize_exact(side, side, FilterType::Triangle)
+    };
+    let mut png = Cursor::new(Vec::new());
+    reduced
+        .into_rgba8()
+        .write_to(&mut png, ImageFormat::Png)
+        .ok()?;
+    Some(NowPlayingArtwork::new(png.into_inner(), side))
+}
+
+/// Reads the cover of the track at `path` for the system's Now Playing.
+/// It touches the disk and decodes an image, so call it off the UI thread.
+pub(crate) fn read_now_playing_cover(path: &Path) -> Option<NowPlayingArtwork> {
+    read_artwork(path).and_then(|artwork| now_playing_cover(&artwork.bytes))
 }
 
 fn render_image(picture: DynamicImage) -> Arc<RenderImage> {
@@ -299,7 +336,7 @@ fn render_image(picture: DynamicImage) -> Arc<RenderImage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{ImageFormat, Rgb, RgbImage};
+    use image::{Rgb, RgbImage};
     use std::fs;
 
     pub(crate) fn encoded_picture(width: u32, height: u32, format: ImageFormat) -> Vec<u8> {
@@ -358,6 +395,38 @@ mod tests {
     fn something_that_is_not_a_picture_has_no_thumbnails() {
         assert!(thumbnails(b"not an image").is_none());
         assert!(thumbnails(b"").is_none());
+        assert!(now_playing_cover(b"not an image").is_none());
+    }
+
+    fn decoded_side(artwork: &NowPlayingArtwork) -> (u32, u32) {
+        image::load_from_memory_with_format(artwork.png(), ImageFormat::Png)
+            .expect("the cover is a PNG")
+            .dimensions()
+    }
+
+    #[test]
+    fn the_now_playing_cover_is_a_square_png_reduced_to_its_limit() {
+        let large = now_playing_cover(&encoded_picture(1_600, 1_000, ImageFormat::Jpeg))
+            .expect("it decodes");
+        assert_eq!(large.side_pixels(), NOW_PLAYING_SIDE);
+        assert_eq!(decoded_side(&large), (NOW_PLAYING_SIDE, NOW_PLAYING_SIDE));
+
+        let small =
+            now_playing_cover(&encoded_picture(300, 200, ImageFormat::Png)).expect("it decodes");
+        assert_eq!(small.side_pixels(), 200, "a small cover is not enlarged");
+        assert_eq!(decoded_side(&small), (200, 200));
+    }
+
+    #[test]
+    fn the_now_playing_cover_is_read_from_the_track_folder() {
+        let folder = scratch("now-playing");
+        let track = track_with_cover(&folder);
+        let cover = read_now_playing_cover(&track).expect("the folder image is read");
+        assert_eq!(cover.side_pixels(), 200);
+        let bare = folder.join("other").join("bare.mp3");
+        fs::create_dir_all(bare.parent().expect("a folder")).expect("the folder is made");
+        fs::write(&bare, b"audio").expect("the track is written");
+        assert!(read_now_playing_cover(&bare).is_none());
     }
 
     #[test]
