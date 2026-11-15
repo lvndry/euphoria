@@ -688,3 +688,30 @@ fn the_surfaces_use_the_dj_words_and_the_old_words_are_gone() {
         assert!(plan.contains(word), "{word} is in the shared plan copy");
     }
 }
+
+#[gpui::test]
+fn escape_goes_up_one_level_from_the_planner_to_the_focus_view_to_the_library(
+    cx: &mut TestAppContext,
+) {
+    let setup = open_plans("plan-escape-chain", &[0, 1], cx);
+    open_focus_with_plans(&setup, cx);
+    pick(&setup, &setup.b.clone(), cx);
+    click(setup.window, "plan-open", cx);
+    settle(setup.window, cx);
+    assert!(is_shown(setup.window, "planner-view", cx));
+
+    press(setup.window, "escape", cx);
+    settle(setup.window, cx);
+    assert!(is_shown(setup.window, "focus-view", cx));
+    assert!(!is_shown(setup.window, "planner-view", cx));
+    cx.update(|cx| assert!(setup.view.read(cx).focus.is_open));
+
+    press(setup.window, "escape", cx);
+    settle(setup.window, cx);
+    assert!(!is_shown(setup.window, "focus-view", cx));
+    assert!(
+        is_shown(setup.window, "all-tracks", cx),
+        "the library is back"
+    );
+    cx.update(|cx| assert!(!setup.view.read(cx).focus.is_open));
+}

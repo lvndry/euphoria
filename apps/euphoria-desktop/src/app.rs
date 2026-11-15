@@ -34,6 +34,7 @@ use crate::playlists::PlaylistId;
 use crate::settings::{FolderTreeMemory, Settings};
 use crate::sidebar_slide::SidebarSlide;
 use crate::state::{Scan, Session, scan};
+use crate::surface_motion::{Closing, Modal, ModalFades, Presence, Strip, StripGrowth, ThemeFade};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::theme::{AppTheme, Layout, ThemeName};
@@ -201,6 +202,10 @@ pub(crate) struct EuphoriaApp {
     /// The sidebar sliding in or out.
     pub(crate) sidebar_slide: SidebarSlide,
     pub(crate) toasts: Toasts,
+    pub(crate) modal_fades: ModalFades,
+    pub(crate) strip_growth: StripGrowth,
+    pub(crate) focus_fade: Presence,
+    pub(crate) theme_fade: Option<ThemeFade>,
     #[cfg(test)]
     pub(crate) revealed: Vec<PathBuf>,
     #[cfg(test)]
@@ -559,6 +564,10 @@ impl EuphoriaApp {
             toolbar_drag_armed: false,
             sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
             toasts: Toasts::default(),
+            modal_fades: ModalFades::default(),
+            strip_growth: StripGrowth::default(),
+            focus_fade: Presence::at_rest(false),
+            theme_fade: None,
             #[cfg(test)]
             revealed: Vec::new(),
             #[cfg(test)]
@@ -1391,8 +1400,79 @@ impl EuphoriaApp {
 
     /// Closes the settings panel.
     pub(crate) fn close_settings(&mut self, cx: &mut Context<'_, Self>) {
-        self.settings_open = false;
-        cx.notify();
+        self.fade_out_then(Modal::Settings, cx, |this, cx| {
+            this.settings_open = false;
+            cx.notify();
+        });
+    }
+
+    /// Fades the dialog out over the short exit time and then runs `finish`,
+    /// which takes its state away. With motion reduced `finish` runs now.
+    pub(crate) fn fade_out_then(
+        &mut self,
+        modal: Modal,
+        cx: &mut Context<'_, Self>,
+        finish: impl FnOnce(&mut Self, &mut Context<'_, Self>) + 'static,
+    ) {
+        match self.modal_fades.start_closing(modal) {
+            Closing::Now => finish(self, cx),
+            Closing::Pending => {}
+            Closing::Started => {
+                cx.notify();
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(crate::motion::FAST).await;
+                    this.update(cx, |this, cx| {
+                        this.modal_fades.finish_closing(modal);
+                        finish(this, cx);
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+        }
+    }
+
+    /// Blends from the palette on show to the one the theme just set, or
+    /// leaves it be when motion is reduced.
+    fn start_theme_fade(&mut self, from: crate::theme::Palette) {
+        self.theme_fade = ThemeFade::between(from, self.theme.palette);
+    }
+
+    /// Draws the blend of the two palettes at this moment, and settles on
+    /// the new one when it ends.
+    fn advance_theme_fade(&mut self, window: &mut Window) {
+        let Some(fade) = &self.theme_fade else {
+            return;
+        };
+        let now = fade.now();
+        if fade.is_moving(now) {
+            self.theme.palette = fade.palette(now);
+            window.request_animation_frame();
+        } else {
+            self.theme.palette = fade.target();
+            self.theme_fade = None;
+        }
+    }
+
+    fn sync_surface_motion(&mut self, window: &mut Window) {
+        self.advance_theme_fade(window);
+        self.modal_fades.sync(Modal::Settings, self.settings_open);
+        self.modal_fades
+            .sync(Modal::Export, self.library_export.is_some());
+        self.modal_fades
+            .sync(Modal::TagPanel, self.tag_panel.is_some());
+        self.modal_fades.drive(window);
+        let holds_tags = !self.auto_tags.held_by().is_empty() && self.auto_tags.pending_count() > 0;
+        self.strip_growth.sync(Strip::Notice, self.notice.is_some());
+        self.strip_growth.sync(Strip::HeldTags, holds_tags);
+        self.strip_growth
+            .sync(Strip::LinkConfirmation, self.pending_link.is_some());
+        self.strip_growth
+            .sync(Strip::StemExport, self.pending_stem_export.is_some());
+        self.strip_growth.drive(window);
+        self.focus_fade
+            .follow(self.focus.is_open, crate::motion::PANEL);
+        self.focus_fade.drive(window);
     }
 
     /// Chooses the DJ program tags are written for.
@@ -2213,8 +2293,10 @@ impl EuphoriaApp {
         if self.theme.name == name {
             return;
         }
+        let from = self.theme.palette;
         self.theme = AppTheme::named(name);
         self.theme.apply_to_components(cx);
+        self.start_theme_fade(from);
         if let Some(problem) = self.save_settings() {
             self.notice = Some(problem);
         }
@@ -2597,6 +2679,7 @@ impl EuphoriaApp {
 impl Render for EuphoriaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         self.sync_metronome_tempo();
+        self.sync_surface_motion(window);
         let palette = self.theme.palette;
         let now = self.sidebar_slide.now();
         self.sidebar_slide.settle(now);
@@ -2662,21 +2745,38 @@ impl Render for EuphoriaApp {
                 )
                 .child(views::inspector::render(self, window, cx))
                 .child(views::panel_edge::render(self, window, cx));
+            let focus_value = self.focus_fade.value(self.focus_fade.now());
+            let focus_is_in_flow = self.focus.is_open && focus_value >= 1.0;
+            let focus_is_crossfading = !focus_is_in_flow && self.focus_fade.is_shown_or_moving();
             div()
+                .relative()
                 .flex()
                 .flex_1()
                 .min_h_0()
-                .when(shows_sidebar && !self.focus.is_open, |body| {
+                .when(shows_sidebar && !focus_is_in_flow, |body| {
                     body.child(views::sidebar::sliding(self, sidebar_width, cx))
                 })
                 .map(|body| {
-                    if self.focus.is_open {
+                    if focus_is_in_flow {
                         body.child(views::focus::render(self, window, cx))
                     } else if self.set_builder.is_open {
                         body.child(views::set_builder::render(self, cx))
                     } else {
                         body.child(library_and_detail)
                     }
+                })
+                .when(focus_is_crossfading, |body| {
+                    body.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                            .flex()
+                            .opacity(focus_value)
+                            .occlude()
+                            .child(views::focus::render(self, window, cx)),
+                    )
                 })
         };
 

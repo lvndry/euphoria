@@ -60,6 +60,9 @@ mod metronome_ui_tests;
 #[cfg(test)]
 mod missing_ui_tests;
 mod mixes;
+mod motion;
+#[cfg(test)]
+mod motion_ui_tests;
 mod next_rail;
 #[cfg(test)]
 mod next_rail_ui_tests;
@@ -94,6 +97,7 @@ mod stem_export_ui_tests;
 mod stems;
 #[cfg(test)]
 mod suggestion_filter_ui_tests;
+mod surface_motion;
 #[cfg(test)]
 mod tag_clarity_ui_tests;
 mod tag_editor;

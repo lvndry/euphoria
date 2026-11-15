@@ -565,9 +565,14 @@ impl EuphoriaApp {
         if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
             return;
         }
-        self.tag_task_generation += 1;
-        self.tag_panel = None;
-        cx.notify();
+        self.fade_out_then(crate::surface_motion::Modal::TagPanel, cx, |this, cx| {
+            if this.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
+                return;
+            }
+            this.tag_task_generation += 1;
+            this.tag_panel = None;
+            cx.notify();
+        });
     }
 
     /// From the preview, opens the settings instead, so the write can be

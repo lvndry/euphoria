@@ -857,20 +857,10 @@ pub(crate) fn open_progress(opened_at: Instant, now: Instant, reduces_motion: bo
     }
     let elapsed = now.saturating_duration_since(opened_at).as_secs_f32();
     let progress = (elapsed / OPEN_SECONDS).clamp(0.0, 1.0);
-    1.0 - (1.0 - progress).powi(3)
+    crate::motion::ease_out(progress)
 }
 
-/// True when the system is set to reduce motion.
-#[cfg(not(test))]
-pub(crate) fn motion_is_reduced() -> bool {
-    crate::logo_motion::system_reduces_motion()
-}
-
-/// Tests open the palette without waiting on the animation.
-#[cfg(test)]
-pub(crate) fn motion_is_reduced() -> bool {
-    true
-}
+pub(crate) use crate::motion::system_reduces_motion as motion_is_reduced;
 
 /// The palette on screen.
 pub(crate) struct OpenPalette {
