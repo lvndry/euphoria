@@ -7190,6 +7190,34 @@ fn looks_right_keeps_the_detected_values_and_settles_the_doubt(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn looks_right_stops_offering_the_runner_up_key_and_the_other_tempo(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 3, cx);
+    assert!(is_shown(window, "runner-up-key", cx));
+    assert!(is_shown(window, "tempo-alternative", cx));
+
+    click(window, "review-key-looks-right", cx);
+    assert!(
+        !is_shown(window, "runner-up-key", cx),
+        "a confirmed key offers no runner up"
+    );
+    cx.update(|cx| {
+        let track = view.read(cx).selected_track().unwrap();
+        let (_, runner_up) = crate::views::by_ear::heard_keys(track, 0).unwrap();
+        assert_eq!(runner_up, None, "Check by ear offers no runner up either");
+    });
+    assert!(is_shown(window, "tempo-alternative", cx));
+
+    click(window, "review-tempo-looks-right", cx);
+    assert!(
+        !is_shown(window, "tempo-alternative", cx),
+        "a confirmed tempo offers no half or double"
+    );
+    assert!(reasons_of(&view, 3, cx).is_empty());
+    assert!(!is_shown(window, "review-box", cx));
+}
+
+#[gpui::test]
 fn a_doubtful_value_is_explained_under_needs_review_without_a_confidence_word(
     cx: &mut TestAppContext,
 ) {

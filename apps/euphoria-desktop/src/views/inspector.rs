@@ -473,7 +473,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     let runner_up = shown_runner_up(track);
     let tempo_alternative = analysis
         .and_then(|analysis| analysis.tempo_alternative_in(app.session.library().tempo_range()))
-        .filter(|_| correction.bpm.is_none());
+        .filter(|_| correction.bpm.is_none() && !correction.bpm_confirmed);
 
     let (key_code, key_note) = match (track.key(), correction.key) {
         (Some(key), Some(_)) => {
@@ -760,15 +760,15 @@ fn tag_key_line(track: &Track, notation: NotationChoice, palette: &Palette) -> O
 }
 
 /// The runner up key, offered beside the key when the key is not rated
-/// high and the user has not set one.
+/// high and the user has neither set it nor confirmed it with Looks right.
 pub(crate) fn shown_runner_up(track: &Track) -> Option<euphoria_core::Key> {
     let analysis = track.analysis()?;
     let is_doubtful = analysis
         .key_confidence()
         .is_some_and(|confidence| confidence != Confidence::High);
-    analysis
-        .key_runner_up
-        .filter(|_| is_doubtful && track.correction.key.is_none())
+    analysis.key_runner_up.filter(|_| {
+        is_doubtful && track.correction.key.is_none() && !track.correction.key_confirmed
+    })
 }
 
 /// The value of a box, large.
