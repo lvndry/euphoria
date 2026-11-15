@@ -38,12 +38,17 @@ pub mod key;
 pub mod key_engine;
 /// Finding audio files in folders.
 pub mod library;
+/// Reading the key, tempo and energy of the audio the computer is playing.
+pub mod live;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
 /// The energy and stem levels the transition planner reads.
 pub mod plan_signals;
 /// Playlists the user builds, kept by the content of their files.
 pub mod playlists;
+/// Preparing tracks for a club system: loudness, true peak and tuning.
+#[cfg(feature = "pitch-shift")]
+pub mod prepare;
 /// How good a file sounds for DJ use: codec, bit rate, cutoff, clipping.
 pub mod quality;
 /// The beat grid a DJ fixed in rekordbox, read from the collection XML.

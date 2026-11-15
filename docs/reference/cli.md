@@ -595,6 +595,22 @@ The JSON object has `schema_version` (1), `a`, `b`, `elapsed_milliseconds`, `tem
 
 The exit status is 0 when a plan was made, even one with no window, and 1 when none could be, such as when a track has no beat grid or B cannot reach the tempo of A on a deck.
 
+## euphoria live
+
+Shows the key and tempo of the audio playing on this Mac, as it plays. The analysis is the one of the Live window of the [desktop app](../guides/euphoria-live.md); the audio stays in memory and nothing is recorded, written or sent anywhere.
+
+```
+euphoria live [OPTIONS]
+```
+
+Needs macOS 14.2 or later, and macOS asks once to allow listening. One line is printed per reading, `8A  A minor  124.0 BPM  high`, or `listening…` once while the audio is silent. Ctrl-C stops it.
+
+| Option | Meaning |
+| --- | --- |
+| `--source <PROCESS>` | Listen to one application, by the start of its name. Without it, everything playing is heard except Euphoria. |
+| `--interval <SECONDS>` | Seconds between readings, 0.5 or more. Default 2. |
+| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`. |
+
 ## euphoria next
 
 Ranks the best tracks to play after a track, the same ranking as the **Next after** list of the [desktop app](../guides/desktop-app.md).
@@ -873,6 +889,57 @@ Shifted up 2 semitones, from 8A A minor to 9A B minor, to /Users/you/Music/track
 The key of the original comes from the [cache](#the-analysis-cache) when the track was analyzed before, with the key you [corrected](#corrections) when there is one.
 
 On success, one line goes to standard error: how far the track moved, its key before and after, and where the copy is. The command exits with status 0 when the file is written. It exits with status 1 with a message on standard error when the shift is 0 semitones, the file is not audio Euphoria reads, the output does not end in `.wav` or `.flac`, the output exists without `--force`, or the analysis fails.
+
+## euphoria prepare
+
+Writes copies of tracks at one loudness, under a true-peak ceiling, so a set plays evenly on a club system. The [guide](../guides/prepare-files.md) says why and what each step does.
+
+```
+euphoria prepare [OPTIONS] <PATH>...
+```
+
+```
+$ euphoria prepare ~/Music/Friday --out ~/Music/Prepared
+/Users/you/Music/Friday/low tide.flac
+  loudness  -14.2 LUFS, gain +5.2 dB, to -9.0 LUFS
+  limiting  1.1 dB, true peak -5.3 dBTP, ceiling -1.0 dBTP
+  output    /Users/you/Music/Prepared/low tide (prepared).flac
+Prepared 1 of 1
+```
+
+Each path is a file or a folder, searched like [`euphoria analyze`](#options). The copies are 24 bit files in the format of the original (WAV, AIFF or FLAC) with its tags and cover art. A lossy original (MP3, AAC, Ogg) becomes FLAC or WAV and is never written as a lossy file. An original is never changed, and a file that exists is never replaced: a taken name gets a number.
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<PATH>...` | Tracks or folders to prepare. |
+| `--loudness <LUFS>` | The integrated loudness to bring every track to. The default is -9; -14, -11 and -7 are the other usual targets. |
+| `--true-peak <DBTP>` | The true-peak ceiling, -1 by default, from -6 to 0. |
+| `--max-limiting <DB>` | The most the limiter may turn peaks down, 3 by default. A track that would need more gets less gain instead, and the output says `gain capped`. |
+| `--tune` | Shift tracks measured off A = 440 Hz by 3 cents or more back to concert pitch, with the tempo unchanged. Analyzes each track, or reads its [cached](#the-analysis-cache) analysis. |
+| `-o`, `--out <DIR>` | Write the copies into this folder, created if needed, instead of next to the originals. |
+| `--suffix <TEXT>` | Added to each name before the extension, ` (prepared)` by default. |
+| `--lossy-as <FORMAT>` | What lossy tracks become: `flac` (the default) or `wav`. |
+| `--tag-only` | Write the loudness into the tags of the originals as ReplayGain 2.0 track gain and peak (`REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, in the standard field of each format) and write no copies. The audio is not touched. Cannot be combined with `--tune` or `--out`. |
+| `--revert <MANIFEST_OR_FOLDER>` | Undo a run, as [below](#reverting-a-run). Takes no paths. |
+| `--dry-run` | Measure and print what would be done, and write nothing. |
+| `--json` | Print a JSON document instead of text. |
+| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range`, `--key-engine` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
+
+### Output
+
+For each track the text output gives the measured loudness, the gain and the loudness it ends at, how many dB of limiting that needs and the true peak it starts from, the tuning change with `--tune`, any clipped passages, and the file written. A dry run prints the same numbers as the real run, because the real run applies the plan the dry run measured.
+
+With `--json` the document has `settings`, a `tracks` array and the counts `prepared`, `skipped` and `failed`. A track has `input`, `output`, `status` (`prepared`, `dry_run`, `skipped` or `failed`), `error`, and the plan: `measured_lufs`, `true_peak_dbtp`, `sample_peak_db`, `wanted_gain_db`, `gain_db`, `limiting_db`, `gain_capped`, `predicted_lufs`, `tuning_cents`, `tuning_correction_cents`, `clipping`, `output_format`, `sample_rate`, `channels` and `duration_seconds`. `limiter_reduction_db` is the reduction the limiter reached while writing. A silent track is skipped with `skipped` set to its reason.
+
+Every run that writes records a manifest, `euphoria-prepare-<time>.json`, in the folder of its copies (or, with `--tag-only`, of the originals): each source and output with BLAKE3 checksums, the settings, and for a tag-only run the ReplayGain fields the file had before.
+
+The command exits with status 0 when every track is written, and with status 1 when one failed or an argument is not valid.
+
+### Reverting a run
+
+`euphoria prepare --revert <MANIFEST_OR_FOLDER>` removes the files a run wrote and puts back the ReplayGain fields a `--tag-only` run changed. A folder reverts every manifest in it, newest first. A file is only touched when its checksum is still the one the run recorded; a copy you edited since, or any file the manifest does not name, is kept and listed. The manifest is deleted when everything in it is undone, and keeps the entries that were not. The command exits with status 1 when something was kept. There is no replace-in-place mode, so there are no originals to restore except tags.
 
 ## euphoria stems
 

@@ -176,6 +176,27 @@ pub fn shift_examples() -> StyledStr {
     )
 }
 
+pub fn prepare_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria prepare ~/Music/Friday --dry-run",
+                "Show what would change, write nothing",
+            ),
+            (
+                "euphoria prepare ~/Music/Friday --out ~/Music/Prepared",
+                "Bring every track to -9 LUFS",
+            ),
+            (
+                "euphoria prepare set/*.flac --loudness -11 --true-peak -1.5 --tune",
+                "A quieter target, with tuning correction",
+            ),
+        ],
+        "Copies are named like the originals plus \" (prepared)\"; originals are never changed.",
+    )
+}
+
 pub fn traktor_export_examples() -> StyledStr {
     examples(
         "Examples",
@@ -226,6 +247,24 @@ pub fn set_examples() -> StyledStr {
             ),
         ],
         "Curve presets: warm-up, peak-time and journey.",
+    )
+}
+
+pub fn live_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            ("euphoria live", "The key and tempo of everything playing"),
+            (
+                "euphoria live --source rekordbox",
+                "Only the audio of rekordbox",
+            ),
+            (
+                "euphoria live --json --interval 1",
+                "One JSON object per second, for an overlay",
+            ),
+        ],
+        "Ctrl-C stops it. The audio is heard in memory only.",
     )
 }
 
