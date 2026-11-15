@@ -24,11 +24,14 @@ log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+async-channel.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
+objc2-media-player.workspace = true
+block2.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true

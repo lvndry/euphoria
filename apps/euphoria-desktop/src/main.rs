@@ -52,6 +52,14 @@ mod library_export_ui_tests;
 mod logging;
 mod logo_motion;
 mod mashup;
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+mod media_keys;
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+mod media_keys_flow;
+#[cfg(target_os = "macos")]
+mod media_keys_macos;
+#[cfg(test)]
+mod media_keys_ui_tests;
 mod metronome;
 mod metronome_controls;
 #[cfg(test)]
@@ -251,6 +259,11 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
 
     register_commands(window, &view, cx);
     install_menus(theme, sidebar_folded, cx);
+    #[cfg(target_os = "macos")]
+    {
+        let (surface, commands) = media_keys_macos::connect();
+        media_keys::install(&view, Box::new(surface), commands, cx);
+    }
     cx.activate(true);
     Ok(())
 }
