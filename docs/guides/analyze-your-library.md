@@ -27,7 +27,7 @@ Below the table, a summary says what the numbers count, for example:
 Key and tempo: 3 of 124 tracks worth checking by ear, where the key may be its relative or a fifth away, or the BPM half or double.
 Sound quality: 86 tracks good, 31 weak on a big system, 7 likely re-encoded.
 hint: --needs-review lists only the tracks to check by ear.
-hint: --quality weak,reencoded lists the tracks worth replacing, and --detail says why.
+hint: euphoria quality lists the files worth replacing, worst first, with why.
 ```
 
 ## Look at one track closely
@@ -48,6 +48,8 @@ euphoria analyze --quality weak,reencoded ~/Music/DJ
 ```
 
 The first lists the tracks whose key or tempo is rated low, or whose tags name another key than the detected one, the second the files whose sound quality is weak on a big system or that were likely made from a lower quality file. The summary says how many of the tracks are shown.
+
+`euphoria quality ~/Music/DJ` lists the files worth replacing worst first, damaged ones included, each with why. See [find the files to replace](../concepts/audio-quality.md#find-the-files-to-replace).
 
 ## Analyze again after adding music
 
