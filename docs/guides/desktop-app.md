@@ -208,7 +208,7 @@ The inspector shows the selected track. Three things are always in view, from th
 
 A section you opened or closed yourself stays as you left it, for every track, and beats the opening by itself. The choice is kept in `settings.json`, per section, not per track. In the Deck theme the strip keeps the header, the boxes with the wheel and the waveform in view, with the title in a column at least 220 pixels wide on one line (an ellipsis and the full name on hover when it is longer). The sections become small tabs at the strip's right, **Mixes**, **By ear**, **Other key**, **Stems**, **Quality** and **Location**; click one to show it in the last area of the strip, one at a time. The strip opens on the section that would open by itself, else on **Mixes**.
 
-The key and tempo boxes show the key name ("C# minor") and the unit ("per minute") whole, with **by you** on a line of its own under a value you set.
+The key and tempo boxes show the key name ("C# minor") and the unit ("per minute") whole, with **by you** on a line of its own under a value you set. The energy box reads on one line, such as "7 out of 10".
 
 The waveform is read from the file when you select the track.
 

@@ -571,8 +571,8 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     };
     let (energy, energy_note) = match (track.energy(), correction.energy) {
         (Some(rating), Some(_)) => (
-            rating.to_string(),
-            reset_note(
+            energy_value(rating, palette),
+            Some(reset_note(
                 "energy-reset",
                 match track.detected_energy() {
                     Some(detected) => format!("reset to {detected}"),
@@ -581,19 +581,16 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 palette,
                 cx,
                 |this, cx| this.reset_energy(cx),
-            ),
+            )),
         ),
-        (Some(rating), None) => (
-            rating.to_string(),
-            quiet_note("of 10", palette).into_any_element(),
-        ),
+        (Some(rating), None) => (energy_value(rating, palette), None),
         (None, _) if track.analysis().is_some() => (
-            "\u{2013}".to_string(),
-            quiet_note("not rated", palette).into_any_element(),
+            statistic_value("\u{2013}"),
+            Some(quiet_note("not rated", palette).into_any_element()),
         ),
         (None, _) => (
-            "\u{2013}".to_string(),
-            quiet_note(not_known_yet, palette).into_any_element(),
+            statistic_value("\u{2013}"),
+            Some(quiet_note(not_known_yet, palette).into_any_element()),
         ),
     };
     let energy_set_mark = correction
@@ -611,18 +608,18 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     let boxes = if is_column {
         let compact =
             |label, set_mark, value, note| statistic_compact(label, set_mark, value, note, palette);
-        let key_box = compact("Key", key_set_mark, key_value, key_note);
-        let tempo_box = compact("BPM", tempo_set_mark, statistic_value(tempo), tempo_note)
-            .border_t_1()
-            .border_color(palette.line);
-        let energy_box = compact(
-            "Energy",
-            energy_set_mark,
-            statistic_value(energy),
-            energy_note,
+        let key_box = compact("Key", key_set_mark, key_value, Some(key_note));
+        let tempo_box = compact(
+            "BPM",
+            tempo_set_mark,
+            statistic_value(tempo),
+            Some(tempo_note),
         )
         .border_t_1()
         .border_color(palette.line);
+        let energy_box = compact("Energy", energy_set_mark, energy, energy_note)
+            .border_t_1()
+            .border_color(palette.line);
         div()
             .flex()
             .items_center()
@@ -652,28 +649,28 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             .rounded(RADIUS_LARGE)
             .border_1()
             .border_color(palette.line)
-            .child(statistic("Key", key_set_mark, key_value, key_note, palette))
+            .child(statistic(
+                "Key",
+                key_set_mark,
+                key_value,
+                Some(key_note),
+                palette,
+            ))
             .child(
                 statistic(
                     "BPM",
                     tempo_set_mark,
                     statistic_value(tempo),
-                    tempo_note,
+                    Some(tempo_note),
                     palette,
                 )
                 .border_l_1()
                 .border_color(palette.line),
             )
             .child(
-                statistic(
-                    "Energy",
-                    energy_set_mark,
-                    statistic_value(energy),
-                    energy_note,
-                    palette,
-                )
-                .border_l_1()
-                .border_color(palette.line),
+                statistic("Energy", energy_set_mark, energy, energy_note, palette)
+                    .border_l_1()
+                    .border_color(palette.line),
             )
     };
 
@@ -781,6 +778,22 @@ fn statistic_value(value: impl Into<SharedString>) -> Div {
         .child(value.into())
 }
 
+/// The energy rating, large, with "out of 10" after it on the same
+/// baseline in the style of a quiet note.
+fn energy_value(rating: u8, palette: &Palette) -> Div {
+    div()
+        .flex()
+        .items_baseline()
+        .gap(GAP_TIGHT)
+        .whitespace_nowrap()
+        .child(statistic_value(rating.to_string()))
+        .child(
+            quiet_note("out of 10", palette)
+                .id("energy-out-of-10")
+                .test_support(),
+        )
+}
+
 /// The quiet line under the value of a box.
 fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
     div()
@@ -864,13 +877,13 @@ fn statistic_set_mark(
     })
 }
 
-/// One box: its label, the value, a quiet note under it, and under that
-/// whether the user set the value.
+/// One box: its label, the value, a quiet note under it when it has one,
+/// and under that whether the user set the value.
 fn statistic(
     label: &'static str,
     set_mark: Option<AnyElement>,
     value: Div,
-    note: AnyElement,
+    note: Option<AnyElement>,
     palette: &Palette,
 ) -> Div {
     div()
@@ -883,7 +896,7 @@ fn statistic(
         .py(px(10.0))
         .child(statistic_label(label, palette))
         .child(value)
-        .child(statistic_note(label, note))
+        .children(note.map(|note| statistic_note(label, note)))
         .children(statistic_set_mark(label, set_mark))
 }
 
@@ -896,12 +909,13 @@ const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 const STATISTIC_CELL_WIDTH: f32 = 84.0;
 
 /// One line of the column: the label, and beside it the value with its
-/// note under it and under that whether the user set the value.
+/// note under it when it has one and under that whether the user set the
+/// value.
 fn statistic_compact(
     label: &'static str,
     set_mark: Option<AnyElement>,
     value: Div,
-    note: AnyElement,
+    note: Option<AnyElement>,
     palette: &Palette,
 ) -> Div {
     div()
@@ -923,7 +937,7 @@ fn statistic_compact(
                 .flex_col()
                 .flex_shrink_0()
                 .child(value)
-                .child(statistic_note(label, note))
+                .children(note.map(|note| statistic_note(label, note)))
                 .children(statistic_set_mark(label, set_mark)),
         )
 }

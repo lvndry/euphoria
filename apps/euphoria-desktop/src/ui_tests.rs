@@ -6703,9 +6703,69 @@ fn statistic_labels_and_notes_stay_whole_in_every_theme_at_the_narrowest_inspect
         "the statistics were not shown in every theme"
     );
     assert!(
-        measured_notes >= 12,
+        measured_notes >= 8,
         "the notes were not shown in every theme"
     );
+}
+
+#[gpui::test]
+fn the_energy_reads_out_of_10_on_one_line_beside_aligned_key_and_bpm_boxes(
+    cx: &mut TestAppContext,
+) {
+    for theme in ThemeName::ALL {
+        let panels = Panels {
+            inspector_width: 0,
+            ..Panels::default()
+        };
+        let (window, view) = open_folders(
+            &["/Demo/reasons"],
+            tracks_with_reasons(),
+            Settings {
+                theme,
+                panels,
+                ..Settings::default()
+            },
+            None,
+            cx,
+        );
+        select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let inspector = window.find("inspector").bounds();
+            let out_of_10 = window.find("energy-out-of-10").bounds();
+            assert!(
+                out_of_10.size.height < px(20.0),
+                "out of 10 wraps in {theme:?}: {:?}",
+                out_of_10.size.height
+            );
+            assert!(
+                out_of_10.right() <= inspector.right(),
+                "out of 10 runs past the inspector in {theme:?}"
+            );
+            let energy_label = window.find("statistic-label-Energy").bounds();
+            assert!(
+                out_of_10.top() > energy_label.top(),
+                "out of 10 sits in the Energy box in {theme:?}"
+            );
+            assert!(window.try_find("statistic-note-Energy").is_none());
+            let key_note = window.find("statistic-note-Key").bounds();
+            let tempo_note = window.find("statistic-note-BPM").bounds();
+            let key_label = window.find("statistic-label-Key").bounds();
+            let tempo_label = window.find("statistic-label-BPM").bounds();
+            if theme == ThemeName::Deck {
+                assert_eq!(key_label.top(), tempo_label.top(), "{theme:?}");
+                assert_eq!(key_label.top(), energy_label.top(), "{theme:?}");
+                assert_eq!(key_note.top(), tempo_note.top(), "{theme:?}");
+            } else {
+                assert_eq!(
+                    key_note.top() - key_label.top(),
+                    tempo_note.top() - tempo_label.top(),
+                    "the Key and BPM lines keep one shape in {theme:?}"
+                );
+            }
+        })
+        .unwrap();
+    }
 }
 
 #[gpui::test]
