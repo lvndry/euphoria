@@ -14,9 +14,10 @@ pub mod transition;
 pub mod words;
 
 pub use mashup::{
-    DEFAULT_MASHUP_TEMPO_PERCENT, DEFAULT_MAX_KEY_SHIFT, KeyFit, Layering, MashupMatch,
-    MashupOptions, MashupReason, MashupTrack, STEM_BAND_EDGES_HZ, STEM_BANDS, Side, StemPresence,
-    StemProfile, mashups_for,
+    DEFAULT_MASHUP_TEMPO_PERCENT, DEFAULT_MAX_KEY_SHIFT, INSTRUMENTAL_ONLY, KeyFit, Layering,
+    MashupMatch, MashupOptions, MashupReason, MashupTrack, STEM_BAND_EDGES_HZ, STEM_BANDS, Side,
+    StemPairing, StemPart, StemPresence, StemProfile, VOCALS_ONLY, genre_fits, mashups_for,
+    pair_parts,
 };
 pub use mix::{
     BpmRange, DEFAULT_MAX_TEMPO_DIFFERENCE_PERCENT, EnergyRange, MixMatch, MixOptions, MixTrack,

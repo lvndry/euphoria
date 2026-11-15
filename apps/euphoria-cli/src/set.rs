@@ -100,7 +100,7 @@ pub struct BuildArguments {
 
 /// A key move to allow with `--moves`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum MoveChoice {
+pub(crate) enum MoveChoice {
     /// The same key, such as 8A to 8A.
     Same,
     /// One step on the wheel, such as 8A to 9A.
@@ -118,7 +118,7 @@ enum MoveChoice {
 }
 
 impl MoveChoice {
-    fn relation(self) -> Relation {
+    pub(crate) fn relation(self) -> Relation {
         match self {
             MoveChoice::Same => Relation::Same,
             MoveChoice::Adjacent => Relation::Adjacent,

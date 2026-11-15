@@ -180,6 +180,27 @@ pub fn shift_examples() -> StyledStr {
     )
 }
 
+pub fn prepare_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria prepare ~/Music/Friday --dry-run",
+                "Show what would change, write nothing",
+            ),
+            (
+                "euphoria prepare ~/Music/Friday --out ~/Music/Prepared",
+                "Bring every track to -9 LUFS",
+            ),
+            (
+                "euphoria prepare set/*.flac --loudness -11 --true-peak -1.5 --tune",
+                "A quieter target, with tuning correction",
+            ),
+        ],
+        "Copies are named like the originals plus \" (prepared)\"; originals are never changed.",
+    )
+}
+
 pub fn traktor_export_examples() -> StyledStr {
     examples(
         "Examples",
@@ -233,6 +254,24 @@ pub fn set_examples() -> StyledStr {
     )
 }
 
+pub fn live_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            ("euphoria live", "The key and tempo of everything playing"),
+            (
+                "euphoria live --source rekordbox",
+                "Only the audio of rekordbox",
+            ),
+            (
+                "euphoria live --json --interval 1",
+                "One JSON object per second, for an overlay",
+            ),
+        ],
+        "Ctrl-C stops it. The audio is heard in memory only.",
+    )
+}
+
 pub fn next_examples() -> StyledStr {
     examples(
         "Examples",
@@ -251,6 +290,34 @@ pub fn next_examples() -> StyledStr {
             ),
         ],
         "Rows: key, tempo, how the tempo moves, how the key moves and the energy change.",
+    )
+}
+
+#[cfg(feature = "stems")]
+pub fn mashup_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria mashup a.flac",
+                "Tracks from its folder that layer over it",
+            ),
+            (
+                "euphoria mashup a.flac --library ~/Music/DJ --stems a=vocals",
+                "Tracks whose instrumental goes under the vocals of a.flac",
+            ),
+            (
+                "euphoria mashup a.flac b.flac --render pair.wav",
+                "The two layered into a WAV file, as an idea plays them",
+            ),
+            (
+                "euphoria mashup a.flac b.flac --render pair.wav --stems b=vocals --shift -2",
+                "B's vocals two semitones down over A's instrumental",
+            ),
+        ],
+        "Each idea says how B's key is shifted, how far its tempo is stretched and which \
+         stems layer. Stems come from euphoria stems; without them the vocals are not \
+         checked against the instruments.",
     )
 }
 

@@ -55,6 +55,8 @@ mod library_export_ui_tests;
 mod logging;
 mod logo_motion;
 mod mashup;
+#[cfg(test)]
+mod mashup_ui_tests;
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 mod media_keys;
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
@@ -93,6 +95,9 @@ mod player_wave;
 mod player_wave_ui_tests;
 mod playlist_flow;
 mod playlists;
+mod prepare_files;
+#[cfg(test)]
+mod prepare_files_ui_tests;
 mod progress;
 mod reanalyze;
 #[cfg(test)]

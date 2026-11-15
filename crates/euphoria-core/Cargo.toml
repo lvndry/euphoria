@@ -49,6 +49,21 @@ sha2 = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+libc.workspace = true
+objc2.workspace = true
+objc2-core-audio.workspace = true
+objc2-core-audio-types.workspace = true
+objc2-foundation = { workspace = true, features = [
+  "NSObject",
+  "NSUUID",
+  "NSString",
+  "NSArray",
+  "NSDictionary",
+  "NSValue",
+] }
+
 [dev-dependencies]
 roxmltree.workspace = true
 tempfile.workspace = true

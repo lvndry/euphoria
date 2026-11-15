@@ -155,7 +155,7 @@ A count of workers does not bound memory when the files are long, so analysis al
 
 ### JSON output
 
-Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. The `review_reasons` and `reviewed` fields, `tempo_move` of `set build` and `plan`, and `euphoria next` were added to version 1 this way. `needs_review` is now `true` exactly when `review_reasons` is not empty, so a track whose doubtful values you confirmed with **Looks right** reads `false`, as in the app. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
+Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. The `review_reasons` and `reviewed` fields, `tempo_move` of `set build` and `plan`, `euphoria next` and `euphoria mashup` were added to version 1 this way. `needs_review` is now `true` exactly when `review_reasons` is not empty, so a track whose doubtful values you confirmed with **Looks right** reads `false`, as in the app. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
 
 One object per file, in path order, including files that failed, then one for each unreadable folder and skipped file:
 
@@ -610,6 +610,22 @@ The JSON object has `schema_version` (1), `a`, `b`, `elapsed_milliseconds`, `tem
 
 The exit status is 0 when a plan was made, even one with no window, and 1 when none could be, such as when a track has no beat grid or B cannot reach the tempo of A on a deck.
 
+## euphoria live
+
+Shows the key and tempo of the audio playing on this Mac, as it plays. The analysis is the one of the Live window of the [desktop app](../guides/euphoria-live.md); the audio stays in memory and nothing is recorded, written or sent anywhere.
+
+```
+euphoria live [OPTIONS]
+```
+
+Needs macOS 14.2 or later, and macOS asks once to allow listening. One line is printed per reading, `8A  A minor  124.0 BPM  high`, or `listening…` once while the audio is silent. Ctrl-C stops it.
+
+| Option | Meaning |
+| --- | --- |
+| `--source <PROCESS>` | Listen to one application, by the start of its name. Without it, everything playing is heard except Euphoria. |
+| `--interval <SECONDS>` | Seconds between readings, 0.5 or more. Default 2. |
+| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`. |
+
 ## euphoria next
 
 Ranks the best tracks to play after a track, the same ranking as the **Next after** list of the [desktop app](../guides/desktop-app.md).
@@ -646,6 +662,66 @@ Each row has the key, the tempo, the tempo change as a percent with its move (`E
 The JSON object has `schema_version` (1), `track` (path, artist, title, key, key_name, bpm, energy), `energy` (`keep`, `lift` or `drop`) and `next`: one object per candidate with `rank` from 1, the same fields as `track`, `key_move` (`same`, `adjacent`, `relative`, `diagonal`, `energy_boost`, `mood_change` or `semitone_boost`, as in `set build`), `key_move_label` (the words), `tempo_percent`, `tempo_move` (`easy`, `pitch_move` or `big_jump`), `tempo_scaling` (`direct`, `half` or `double`) and `energy_change`. Tempo and energy fields are `null` when a track has none.
 
 The exit status is 0 when the ranking was made, even when no track mixes in, and 1 when the track could not be analyzed. A note on standard error says why a list is empty or short.
+
+## euphoria mashup
+
+Finds tracks that layer over a track, playing at the same time rather than one after the other: the same ideas, in the same order, as [mashup mode](../guides/mashups.md) of the desktop app's decks. With a second track and `--render`, it writes the pair to a WAV file the way the decks export it.
+
+```
+euphoria mashup [OPTIONS] <TRACK_A>
+euphoria mashup [OPTIONS] <TRACK_A> <TRACK_B> --render <OUT.wav>
+```
+
+Tracks are analyzed first or read from the [cache](#the-analysis-cache), with your corrections applied. A candidate layers when its key, shifted by up to two semitones, is the same, the relative or an adjacent key, and its tempo is within 8 percent; [Mashups](../guides/mashups.md#how-ideas-are-found) explains the ranking. Stems come from the stem cache, filled by [`euphoria stems`](#euphoria-stems) or the app; listing never separates a track.
+
+```
+$ euphoria mashup "Low Tide.flac" --limit 2
+Layer over Low Tide  8A  124.0 BPM  energy 6
+1  8A  Night Drive
+   8A is the same key as A
+   Same tempo, no stretch
+   Vocals of A over the instrumental of B, and B has no vocals of its own; they sit in different ranges (12% overlap)
+   Same energy
+2  10A  Glow
+   Shift B down 2 semitones: 10A becomes 8A, the same key as A
+   Stretched 1.6% down to A's tempo
+   Stems not compared: separate both tracks to check vocals against instruments
+   Energy +1 against A
+```
+
+| Option | Effect |
+| --- | --- |
+| `--library <DIR>` | Folders to choose from. May be given more than once. Defaults to the folder of `TRACK_A`. |
+| `--playlist <NAME>` | A playlist built in the app to choose from, in place of `--library`. |
+| `--key-moves <MOVE>` | The key moves that count, separated by commas: `same`, `relative`, `adjacent`, `diagonal`, `energy-boost`, `mood-change` and `semitone-boost`. Defaults to `same,relative,adjacent`. A shift aims for any move that counts. |
+| `--tempo-window <PERCENT>` | The largest tempo difference B is stretched across. Defaults to 8. |
+| `--bpm <RANGE>`, `--energy <RANGE>` | Choose only tracks in this tempo or energy range, written as for [`euphoria analyze`](#options). |
+| `--genre <TEXT>` | Choose only tracks whose genre tag contains the text, ignoring case. |
+| `--stems <TRACK=PART>` | What each track plays: `a=` or `b=` with `full`, `vocals` or `instrumental`, separated by commas. A side left out takes the other part, so `a=vocals` plays the instrumental of B. Listing, a part for A ranks first the tracks whose stems go with it. |
+| `--limit <COUNT>` | How many ideas to list. Defaults to 10. |
+| `--json` | Print JSON instead of text. |
+| `--key-notation <NOTATION>` | How keys are written. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
+
+Each idea has the key and name of the track, then one line per reason: the key, with the shift B needs; the stretch; how the stems layer, or that they were not compared; and the energy change. A note on standard error says why a list is empty or short, and when A has no stems.
+
+The JSON object has `schema_version` (1), `track` (path, artist, title, genre, key, key_name, bpm, energy and `has_stems`), `part` (the part chosen for A, or `null`) and `ideas`: one object per idea with `rank` from 1, the same fields as `track`, `shift_semitones`, `shifted_key`, `key_move` (as in `next`), `tempo_percent`, `tempo_scaling` (`direct`, `half` or `double`), `energy_change`, `stems` and `reasons` (the sentences). `stems` is `null` when either track has no stems, and otherwise has the part of each track in `a` and `b`, `overlap_percent` and `muted_vocals` (the track whose own vocals are muted, or `null`).
+
+### Render a pair
+
+| Option | Effect |
+| --- | --- |
+| `--render <OUT.wav>` | Render `TRACK_A` and `TRACK_B` together into this file. |
+| `--shift <N>` | Shift B by N semitones, from -6 to 6. Defaults to the shift the ideas suggest for the pair, or none when the keys do not layer. |
+| `--stems <TRACK=PART>` | As above. Without it, the pair plays as its idea does when both tracks have stems, and both whole otherwise. A part other than `full` for a track without cached stems separates it first. |
+| `--force` | Replace the output file if it exists. |
+
+Each track starts at its first downbeat, or at its start without a beat grid. B is stretched to A's tempo, at half or double when that is closer, and shifted; A plays as it is. The file is 24 bit stereo at 44.1 kHz and lasts until the longer layer ends; when the two would clip together the whole file is turned down to 1 dB below full scale, and a note says by how much. The tracks are only read, and an output that is one of them is refused.
+
+Standard output says where the file is and how long it lasts, then one line per track: the part it plays, its shift, its speed and where it starts. With `--json` it is an object with `schema_version` (1), `path`, `seconds`, `turned_down_db`, and `a` and `b`, each with the track fields above plus `part`, `shift_semitones`, `rate` and `start_seconds`.
+
+The exit status is 0 when the list or the file was made, even an empty list, and 1 when a track could not be analyzed, has no tempo for a render, the output exists without `--force`, does not end in `.wav` or is one of the tracks.
 
 ## euphoria tags write
 
@@ -828,6 +904,57 @@ Shifted up 2 semitones, from 8A A minor to 9A B minor, to /Users/you/Music/track
 The key of the original comes from the [cache](#the-analysis-cache) when the track was analyzed before, with the key you [corrected](#corrections) when there is one.
 
 On success, one line goes to standard error: how far the track moved, its key before and after, and where the copy is. The command exits with status 0 when the file is written. It exits with status 1 with a message on standard error when the shift is 0 semitones, the file is not audio Euphoria reads, the output does not end in `.wav` or `.flac`, the output exists without `--force`, or the analysis fails.
+
+## euphoria prepare
+
+Writes copies of tracks at one loudness, under a true-peak ceiling, so a set plays evenly on a club system. The [guide](../guides/prepare-files.md) says why and what each step does.
+
+```
+euphoria prepare [OPTIONS] <PATH>...
+```
+
+```
+$ euphoria prepare ~/Music/Friday --out ~/Music/Prepared
+/Users/you/Music/Friday/low tide.flac
+  loudness  -14.2 LUFS, gain +5.2 dB, to -9.0 LUFS
+  limiting  1.1 dB, true peak -5.3 dBTP, ceiling -1.0 dBTP
+  output    /Users/you/Music/Prepared/low tide (prepared).flac
+Prepared 1 of 1
+```
+
+Each path is a file or a folder, searched like [`euphoria analyze`](#options). The copies are 24 bit files in the format of the original (WAV, AIFF or FLAC) with its tags and cover art. A lossy original (MP3, AAC, Ogg) becomes FLAC or WAV and is never written as a lossy file. An original is never changed, and a file that exists is never replaced: a taken name gets a number.
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<PATH>...` | Tracks or folders to prepare. |
+| `--loudness <LUFS>` | The integrated loudness to bring every track to. The default is -9; -14, -11 and -7 are the other usual targets. |
+| `--true-peak <DBTP>` | The true-peak ceiling, -1 by default, from -6 to 0. |
+| `--max-limiting <DB>` | The most the limiter may turn peaks down, 3 by default. A track that would need more gets less gain instead, and the output says `gain capped`. |
+| `--tune` | Shift tracks measured off A = 440 Hz by 3 cents or more back to concert pitch, with the tempo unchanged. Analyzes each track, or reads its [cached](#the-analysis-cache) analysis. |
+| `-o`, `--out <DIR>` | Write the copies into this folder, created if needed, instead of next to the originals. |
+| `--suffix <TEXT>` | Added to each name before the extension, ` (prepared)` by default. |
+| `--lossy-as <FORMAT>` | What lossy tracks become: `flac` (the default) or `wav`. |
+| `--tag-only` | Write the loudness into the tags of the originals as ReplayGain 2.0 track gain and peak (`REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, in the standard field of each format) and write no copies. The audio is not touched. Cannot be combined with `--tune` or `--out`. |
+| `--revert <MANIFEST_OR_FOLDER>` | Undo a run, as [below](#reverting-a-run). Takes no paths. |
+| `--dry-run` | Measure and print what would be done, and write nothing. |
+| `--json` | Print a JSON document instead of text. |
+| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range`, `--key-engine` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
+
+### Output
+
+For each track the text output gives the measured loudness, the gain and the loudness it ends at, how many dB of limiting that needs and the true peak it starts from, the tuning change with `--tune`, any clipped passages, and the file written. A dry run prints the same numbers as the real run, because the real run applies the plan the dry run measured.
+
+With `--json` the document has `settings`, a `tracks` array and the counts `prepared`, `skipped` and `failed`. A track has `input`, `output`, `status` (`prepared`, `dry_run`, `skipped` or `failed`), `error`, and the plan: `measured_lufs`, `true_peak_dbtp`, `sample_peak_db`, `wanted_gain_db`, `gain_db`, `limiting_db`, `gain_capped`, `predicted_lufs`, `tuning_cents`, `tuning_correction_cents`, `clipping`, `output_format`, `sample_rate`, `channels` and `duration_seconds`. `limiter_reduction_db` is the reduction the limiter reached while writing. A silent track is skipped with `skipped` set to its reason.
+
+Every run that writes records a manifest, `euphoria-prepare-<time>.json`, in the folder of its copies (or, with `--tag-only`, of the originals): each source and output with BLAKE3 checksums, the settings, and for a tag-only run the ReplayGain fields the file had before.
+
+The command exits with status 0 when every track is written, and with status 1 when one failed or an argument is not valid.
+
+### Reverting a run
+
+`euphoria prepare --revert <MANIFEST_OR_FOLDER>` removes the files a run wrote and puts back the ReplayGain fields a `--tag-only` run changed. A folder reverts every manifest in it, newest first. A file is only touched when its checksum is still the one the run recorded; a copy you edited since, or any file the manifest does not name, is kept and listed. The manifest is deleted when everything in it is undone, and keeps the entries that were not. The command exits with status 1 when something was kept. There is no replace-in-place mode, so there are no originals to restore except tags.
 
 ## euphoria stems
 

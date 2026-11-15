@@ -28,6 +28,7 @@ pub(crate) mod panel_edge;
 pub(crate) mod planner;
 pub(crate) mod player;
 pub(crate) mod playlists;
+pub(crate) mod prepare_panel;
 pub(crate) mod review;
 pub(crate) mod row_actions;
 pub(crate) mod set_builder;

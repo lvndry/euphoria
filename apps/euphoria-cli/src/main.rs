@@ -9,10 +9,14 @@ mod export;
 mod filters;
 mod grid_import;
 mod help;
+mod live;
+#[cfg(feature = "stems")]
+mod mashup;
 mod next;
 mod output;
 mod plan;
 mod playlists;
+mod prepare;
 mod rewrites;
 mod scan;
 mod set;
@@ -116,6 +120,21 @@ enum Command {
         after_help = help::shift_examples(),
     )]
     Shift(shift::ShiftArguments),
+    /// Write copies of tracks at one loudness, under a true-peak ceiling, for a club system.
+    #[command(
+        long_about = "Write copies of tracks that play evenly on a club system.\n\n\
+                      Each track is brought to the same integrated loudness (EBU R128) and a \
+                      transparent look-ahead limiter keeps the true peak under a ceiling. A \
+                      track that would need more limiting than allowed gets less gain instead. \
+                      With --tune, tracks measured off A = 440 Hz are shifted back to concert \
+                      pitch with the tempo unchanged. Already clipped passages are reported, \
+                      not repaired.\n\n\
+                      Copies are new 24 bit files with the tags and cover art of the \
+                      original, in its format (WAV, AIFF or FLAC); lossy tracks become FLAC \
+                      or WAV and are never written as lossy. Nothing is ever overwritten.",
+        after_help = help::prepare_examples(),
+    )]
+    Prepare(prepare::PrepareArguments),
     /// Separate a track into vocals, drums, bass and the rest.
     #[cfg(feature = "stems")]
     #[command(
@@ -128,6 +147,17 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Show the key and tempo of the audio playing on this Mac, live.
+    #[command(
+        long_about = "Listen to the audio this Mac is playing, from rekordbox, Spotify, a \
+                      browser or any other application, and print its key and tempo as they \
+                      change: one line every two seconds once enough audio has played.\n\n\
+                      This is the analysis of the Live window in the desktop app. The audio \
+                      stays in memory: nothing is recorded, written or sent anywhere. \
+                      macOS 14.2 or later, and macOS asks once to allow listening.",
+        after_help = help::live_examples(),
+    )]
+    Live(live::LiveArguments),
     /// Rank the best tracks to play after a track: key, tempo and energy.
     #[command(
         long_about = "Rank the best tracks to play after a track, the same ranking as the \
@@ -143,6 +173,21 @@ enum Command {
         after_help = help::next_examples(),
     )]
     Next(next::NextArguments),
+    /// Find tracks that layer over a track, or render two tracks layered to a WAV file.
+    #[cfg(feature = "stems")]
+    #[command(
+        long_about = "Find tracks that layer over a track, playing at the same time, the same \
+                      ideas in the same order as the mashup mode of the desktop app's decks.\n\n\
+                      A track layers when its key, shifted by up to two semitones, is the same, \
+                      the relative or an adjacent key, and its tempo is within 8 percent. When \
+                      both tracks are in the stem cache (euphoria stems), the vocals of one are \
+                      checked against the instruments of the other.\n\n\
+                      With a second track and --render, the pair is written to a 24 bit WAV \
+                      file as the desktop exports it: both from their first downbeat, B \
+                      stretched to A's tempo and shifted. The tracks are only read.",
+        after_help = help::mashup_examples(),
+    )]
+    Mashup(mashup::MashupArguments),
     /// Plan how to mix one track into the next: tempo, clashes and the best windows.
     #[command(
         long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
@@ -315,9 +360,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Playlists => playlists::list(),
         Command::Corrections { command } => corrections::run(command),
         Command::Shift(arguments) => shift::run(&arguments),
+        Command::Prepare(arguments) => prepare::run(&arguments),
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
         Command::Next(arguments) => next::run(&arguments),
+        #[cfg(feature = "stems")]
+        Command::Mashup(arguments) => mashup::run(&arguments),
+        Command::Live(arguments) => live::run(&arguments),
         Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
