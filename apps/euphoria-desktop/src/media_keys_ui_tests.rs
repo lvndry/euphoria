@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{AppContext, Entity, TestAppContext};
+use gpui::{Entity, TestAppContext};
 
 use crate::app::EuphoriaApp;
 use crate::media_keys::{self, NowPlaying, NowPlayingSurface, RemoteCommand};
