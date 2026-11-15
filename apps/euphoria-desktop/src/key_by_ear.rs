@@ -165,6 +165,7 @@ impl ByEar {
     }
 
     /// The pitch classes of the piano keys lit by a chord, lowest first.
+    #[cfg(test)]
     pub(crate) fn lit_keys(&self) -> Vec<u8> {
         let mut keys: Vec<u8> = self.lit_keys.keys().copied().collect();
         keys.sort_unstable();
