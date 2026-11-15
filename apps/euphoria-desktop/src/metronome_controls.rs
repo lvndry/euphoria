@@ -14,7 +14,8 @@ use gpui::{Context, Window};
 use crate::app::EuphoriaApp;
 use crate::format;
 use crate::metronome::{
-    ClickSound, Metronome, MetronomeControl, MetronomeSettings, STARTING_BPM, clamp_bpm, parse_bpm,
+    ClickSound, Metronome, MetronomeControl, MetronomeSettings, STARTING_BPM, TrackLock, clamp_bpm,
+    parse_bpm,
 };
 use crate::playback::Voice;
 
@@ -84,16 +85,55 @@ impl MetronomeState {
 }
 
 impl EuphoriaApp {
-    /// The tempo the metronome clicks at now.
+    /// The tempo the metronome clicks at now: the tempo of the playing
+    /// track while the clicks follow it, else the one typed, else the
+    /// selected track's tempo at the speed it plays.
     pub(crate) fn metronome_bpm(&self) -> f32 {
-        self.metronome
-            .bpm(self.selected_track().and_then(|track| track.bpm()))
+        if let Some(locked) = self.metronome_locked_bpm() {
+            return clamp_bpm(locked);
+        }
+        let rate = self.tempo_rate() as f32;
+        self.metronome.bpm(
+            self.selected_track()
+                .and_then(|track| track.bpm())
+                .map(|bpm| bpm * rate),
+        )
     }
 
-    /// Keeps the audio thread on the tempo the field shows, so a new track
-    /// or a corrected tempo is heard from the next beat.
+    /// The tempo the clicks follow the playing track at, while they do:
+    /// the metronome is on and the track with a beat grid is sounding.
+    pub(crate) fn metronome_locked_bpm(&self) -> Option<f32> {
+        if !self.metronome.is_running() {
+            return None;
+        }
+        self.metronome.control.locked_bpm()
+    }
+
+    /// The beat grid of the track that plays, with the sound of its
+    /// playhead, for the clicks to follow. A track whose tempo was set by
+    /// hand has no grid to follow, as on the decks.
+    fn metronome_track_lock(&self) -> Option<TrackLock> {
+        let active = self.voice.as_ref()?;
+        let track = self.session.library().track_by_path(self.player.track()?)?;
+        if track.correction.bpm.is_some() {
+            return None;
+        }
+        let grid = track.beat_grid()?;
+        Some(TrackLock {
+            state: std::sync::Arc::clone(&active.state),
+            first_downbeat_seconds: grid.first_downbeat_seconds,
+            bpm: grid.bpm,
+        })
+    }
+
+    /// Keeps the audio thread on the tempo the field shows and on the
+    /// playing track, so a new track or a corrected tempo is heard from the
+    /// next beat.
     pub(crate) fn sync_metronome_tempo(&self) {
         self.metronome.control.set_bpm(self.metronome_bpm());
+        self.metronome
+            .control
+            .set_track_lock(self.metronome_track_lock());
     }
 
     /// Starts the clicks, or stops them.

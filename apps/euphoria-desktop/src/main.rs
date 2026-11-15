@@ -104,6 +104,9 @@ mod tag_flow;
 mod tag_reads;
 mod tag_settings;
 mod tag_writing;
+mod tempo_controls;
+#[cfg(test)]
+mod tempo_ui_tests;
 mod theme;
 mod toast;
 mod toast_flow;

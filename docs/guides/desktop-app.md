@@ -312,7 +312,9 @@ The tempo field beside it takes the tempo of the metronome, from 30 to 300 beats
 
 Under **Settings > Metronome** you choose the sound (Classic click, Woodblock, Hi-hat or Beep, with a click played when you choose one), the volume in five steps, and whether the first beat of every bar is accented. They are kept in `settings.json`.
 
-The clicks are made in the app, not played from files, and are placed by counting audio frames, so they keep their tempo however long they run. The metronome does not follow a playing track's beat grid; it clicks at the tempo you see, starting when you press the button. Hearing it line up with a track's beats is not there yet.
+The clicks are made in the app, not played from files, and are placed by counting audio frames, so they keep their tempo however long they run.
+
+**Locked to the playing track.** While the metronome is on and the player is playing a track that has a beat grid, the clicks land on the track's beats instead of free-running: they are placed from the grid's first downbeat and tempo and the player's position, counted in audio frames at the output, not from a timer in the window. The accent falls on the first beat of each bar of the grid. The field then shows the tempo it follows, with "locked to track" after it. The clicks follow the [playback tempo](#change-the-tempo-of-the-playing-track) too: at +4% they come 4% faster, with key lock on or off. A seek, a click on a waveform or a cue jump re-aligns them on the new place, with no stray click. With no beat grid (or a tempo you set by hand, as on the decks), nothing playing, or the player paused, the metronome clicks at the tempo in the field as before. While it is not locked, and you have not typed a tempo, the field follows the selected track's tempo at the playback tempo you chose.
 
 ## Stems
 
@@ -442,6 +444,21 @@ The header shows the title, artist, length, format and sound quality, with chips
 Every lane shares one playhead and one cursor. Point anywhere over the lanes and a single vertical line runs through all of them, with a line under them such as "2:51 · Breakdown · Energy 3 · no vocals · bass out", built from the lanes that have data. The **Layers** menu shows or hides each lane, and the choice is kept in `settings.json`.
 
 **Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row is 32 px high and has a star, the key, the title with the transition note or the artist after a dot, the tempo change with a **Tempo** chip, and the key relation in a column of its own, for example **One step on the wheel** or **Wheel diagonal** (point at it for "One step and a major/minor switch"), or **Your mix** for a transition you starred whose keys do not mix by the rules. The chip reads **Easy** for a change under 3 percent, **Pitch move** from 3 to 6 percent and **Big jump** over 6 percent, in a success, neutral and warning colour, never error red. The **Vocals and bass overlap** column plans the transition from the selected track into each row: a strip of up to 16 cells for the best window, coloured by what the two tracks do together (fine, both basslines, both vocals, not known), and a verdict, **Clean**, **Vocals overlap**, **Bass overlap**, or **Stems needed** when the stems of either track are missing. The plans are worked out off the main thread, two at a time, for the rows in view and the picked one, and kept in memory for the session, so scrolling stays smooth. A row reads **Checking** while its plan is made, and is left blank when the pair cannot be planned; point at the row for the reason. Euphoria never separates stems for this. Click a row to pick it for the plan, double-click to focus on it.
+
+### Change the tempo of the playing track
+
+Next to the BPM chip, the header has a tempo control for the track you hear:
+
+- **A field** with the target tempo, such as "124.0 BPM". Click it and type a tempo, with a point or a comma ("124,5"), then press Return; or use the up and down arrows at its edge (1 BPM, or 0.1 with Alt), the Up and Down keys while it is open, or scroll over it. It is the same field as the metronome's.
+- **A readout of the change**, such as "+3.3%".
+- **Reset**, which goes back to the track's own tempo.
+- **Key lock**, on by default: the pitch stays where it was. Turn it off and the pitch follows the speed, as on a turntable.
+
+The range is 16% either way of the track's tempo, the usual range of a pitch fader. A tempo outside it is clamped to the nearest end, and the tooltip says so. The rate changes while the track plays, with no restart; there is a brief gap of a fraction of a second as sound already prepared at the old tempo is replaced. With key lock on, the sound goes through the same Signalsmith Stretch time stretcher that the decks use; with it off, it is resampled. At exactly 100% the sound is not touched and nothing is delayed.
+
+While the tempo differs from the track's own, the BPM chip shows the target with the original beneath it, and the player bar shows "120.0 → 124.0 BPM" beside the title. The playhead, the time labels, cue flags and every lane stay in the track's own time, so a cue is still where it was. The metronome follows the target tempo, see [Metronome](#metronome).
+
+This changes playback only: the tooltips say "Changes playback only; the file is not changed." Nothing is written to the file, the tags or the cache, and the tempo goes back to the track's own as soon as another track is selected or played. Stems are meant to play at the same tempo, each stretched on its own; that path is built but not tested with real stems. The tempo of a track without a detected tempo cannot be set. The sound quality of a stretch is not measured here: the tests check the pitch of a steady tone and the position against the time heard, not how drums or voices sound at 16%, so listen and report anything off.
 
 **Plan**, bottom right, has three tabs. **Transition** plans the pick, see [Plan a transition](#plan-a-transition-in-the-focus-view). **Mashup** opens the decks in mashup mode. **Cues** is the cue list of the inspector.
 
@@ -770,6 +787,6 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
 - Rating favorites (more than one star), and exporting favorite transitions with their notes.
 - Loops, and cue colours.
-- Following a playing track's beat grid with the metronome, and hearing the metronome on a real output has not been checked by an automated test, which checks the click timing and the headless interface only: listen for yourself and report anything off.
+- The metronome's lock to a playing track and the playback tempo are tested for click and playhead timing, pitch and the headless interface, not heard on a real output: listen for yourself and report anything off. The metronome and the track are separate sounds in the output, so a few milliseconds of difference between them from the device's buffers is possible.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.
