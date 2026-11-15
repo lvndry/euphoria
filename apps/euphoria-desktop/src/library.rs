@@ -38,6 +38,9 @@ pub(crate) enum TrackStatus {
     Missing,
 }
 
+/// What a track says when its queued analysis was cancelled.
+pub(crate) const STOPPED_REASON: &str = "analysis was stopped before it reached this file";
+
 /// Why a file has no analysis.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TrackFailure {
@@ -610,6 +613,42 @@ impl Library {
         }
         track.status = TrackStatus::Queued;
         self.review_count -= 1;
+        self.revision += 1;
+        true
+    }
+
+    /// Readies the track at `path` for analysis again. A failed track waits
+    /// in the queue; an analyzed track keeps showing its analysis until the
+    /// new one replaces it. Returns false when the file is not in the
+    /// library or its track is queued, being analyzed or missing already.
+    pub(crate) fn requeue_for_analysis(&mut self, path: &Path) -> bool {
+        match self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get(*index))
+            .map(|track| &track.status)
+        {
+            Some(TrackStatus::Analyzed(_)) => true,
+            Some(TrackStatus::Failed(_)) => self.requeue_failed(path),
+            _ => false,
+        }
+    }
+
+    /// Gives a track whose queued analysis was cancelled a reason to show,
+    /// so it can be analyzed again. Returns false when it is not queued.
+    pub(crate) fn mark_stopped(&mut self, path: &Path) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        if track.status != TrackStatus::Queued {
+            return false;
+        }
+        track.status = TrackStatus::Failed(STOPPED_REASON.to_string());
+        self.review_count += 1;
         self.revision += 1;
         true
     }

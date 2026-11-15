@@ -103,6 +103,19 @@ While a filter is set the heading says, for example, `37 of 1,284 tracks`. **Cle
 
 ![The track list with a BPM range of 120 to 126, energy from 6 and two quality chips set, and the heading counting the tracks that match](../images/desktop-app/track-filters.png)
 
+### Analyze tracks again
+
+Tracks analyzed by an older version of Euphoria lack the fields added since, such as the loudness range the [set builder](#build-a-set) shows. Refresh them on demand instead of analyzing the whole library again:
+
+1. Select the tracks. **⌘A** selects every track the table shows (**Ctrl+A** on Linux). It does nothing while a text field has the keyboard, so it never takes ⌘A from the search box.
+2. Right-click one of the selected tracks and choose **Analyze again**. With several tracks selected the item says how many, for example **Analyze 575 tracks again**. Right-clicking a track outside the selection analyzes only that track. **Tracks > Analyze Selected Tracks Again** and the ⌘K command **Analyze selected tracks again** do the same for the selection.
+
+The tracks go through the normal analysis queue: the same workers and memory limit, the "12 of 575 done" count with the "about 4 min left" estimate, and the busy logo. The table stays usable while it runs, and each track keeps showing its old analysis until the new one replaces it. **Stop** in the toolbar (or **Tracks > Stop Analysis**) skips the tracks still waiting; the ones being analyzed finish. A skipped track that had never been analyzed shows "analysis was stopped" under Needs review, with **Analyze again**.
+
+Only the analysis is replaced. Your corrections, **Looks right** confirmations, stars, playlists, edited cues and set builder locks are kept in the cache and the app apart from the analysis. The **Analyze again** button of a failed track under [Needs review](#settle-a-track-under-needs-review) uses the same queue. With writing after analysis on, re-analyzed tracks follow the same rules as new ones, so new values go into tags only where those rules allow, which keeps your own tags and updates only Euphoria's earlier ones.
+
+Not tested: a real run over a large library on this build. The 2,000-track test uses a stubbed analysis.
+
 ### Set stage
 
 The inspector shows a **Stage** line under the key, tempo and energy, such as `Stage: Peak`: where the track tends to sit in a set, from its tempo and loudness compared with the rest of your library. It is not the same as Energy; [set stage](../concepts/set-stage.md) explains the difference, how it is computed and how well it matches a DJ's own warm-up, build and peak folders. A track with no tempo has no stage, and no track has one until the library holds 10 tracks with a tempo. Stages are recomputed as the library changes.
@@ -506,22 +519,22 @@ Three buttons act on the best window, with the same words in the planner, and th
 - **Save as favorite transition** marks the transition from A into B as a [favorite](#favorite-transitions) with the window's sentence as its note.
 - **Open planner →**, a link in the card header, covers the focus view with the planner. **Esc**, or the **Focus view** button, goes back.
 
-The planner shows, from top to bottom:
+The planner is one screen. On the left is **A**, the track you came from, and under it the tracks that fit after it, ranked by the same ranking as **Next after** in the library (same **Keep**, **Lift** and **Drop**, same pills for the key relation, the tempo move and the energy change, and the same filters, so the filter bar narrows it). **Click a track** and it becomes B: its best window is worked out and the transition plays at once, A from 8 bars before the mix point into B at the plan's tempo. **Up** and **Down** move to the next or previous track and play it the same way, so you can hear B after B; **Space** stops and starts. On the right is the timeline, from top to bottom:
 
 - A **transport**: **Play the transition**, **Play A**, **Play B** and **Stop**. The transition plays A from 8 bars before the mix start, then B comes in on the planned bar, on A's downbeat, with B time-stretched to the plan's tempo (key lock on, the same stretch as the decks), and an equal-power crossfade runs across the window. **Play A** and **Play B** play one track from the same place, B at the plan's tempo. The sound is the decks' own mix, so the decks open behind the planner and **Sync** is switched off while it plays, and given back when it stops. A line follows the sound across the timeline. Click the timeline and it plays from that bar, or, when stopped, the line waits there. **Space** plays and stops. The line moves under **Reduce motion** too: it is information, not decoration, and it is drawn from where the sound is, not animated.
 - A **bar ruler**. Bars are counted from where B comes in, as the hint on the ruler says: **Mix starts** at the start of the window, bars before it counted back (bar -16, bar -32) and after it forward, then **B's drop** where B's drop section starts, when it is in view, and **A ends**. At the left, **A at 5:09** is the time in A under the line, or where playing would start.
 - Both tracks on that grid, each with its section bands and its **Vocals**, **Bass** and **Drums** lanes, one cell per bar. B appears at the mix start and goes on after A ends. A lane whose stems are not known says **Not separated yet** in the lane, and is never drawn as present. A lane that is full from start to end on a track that has stems is real data: the stem was above the presence threshold in every bar. It can also be bleed from the model, which the thresholds do not tell apart.
 - A line, **Where both tracks have vocals or basslines at once. Pick a window with none.**, and the **Vocals and bass overlap** row under it, with a legend: **Fine**, **Both basslines**, **Both vocals**, **Unknown** and **Best place to mix**, the outline.
 - When a stem is missing, one line: **Vocals and bass overlap isn't checked yet.**, with a button **Separate stems of B** (and of A) next to it. It shows the progress of the separation in place, with **Cancel**, and the reason when it fails. The lanes and the row fill in when it finishes, without leaving the planner. A track asked for while another separates waits its turn. **Cancel** takes a waiting track out of line; the separation that runs cannot be interrupted, so it finishes in the background and keeps its stems in the cache, where asking again finds them at once.
-- Up to five **suggested windows**, ranked, each with its rank, a title such as "Outro (5:24) into Intro", the bars and the key relation, and, once both tracks have stems, a verdict. Click one and the outline and the steps follow it.
-- **Window N, step by step**, for example "At 6:14 in A (Main), start B from 2:43 on the downbeat." and "A ends at 6:45, 16 bars later."
-- The buttons **Set cues on A and B**, **Open on the decks** and **Save as favorite transition**, which marks the transition from A into B as a [favorite](#favorite-transitions) with the chosen window's sentence as its note.
+- Small numbered **markers** above the ruler for the suggested windows, at where their mix point lies. Press one to jump there; if the transition was playing, it plays again from 8 bars before. The tooltip names the window, for example "Main (6:14) into Drop", with its bars and key relation. The best one is chosen automatically when you pick B.
+- **Drag B**: press on B's rows and drag left or right. The mix point moves in whole bars of A (drag right to bring B in later) and the plan is worked out again for that place: the overlap row, the line below and the cues follow, and it snaps onto a suggested window when it reaches one. Sound stops while you drag and the transition plays again from 8 bars before the new mix point when you let go. Pressing B without moving does nothing.
+- One line: "At 6:14 in A (Main), B comes in from 2:43 · A ends at 6:45", and the buttons **Save as favorite transition**, **Set cues on A and B** and **Open on the decks**. **Save as favorite transition** marks the transition from A into B as a [favorite](#favorite-transitions) with the window's sentence as its note.
 
 When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
 
 The energy and the stem levels the plan reads are measured once off the main thread and kept in the `plan-signals` folder of Euphoria's data folder, so a second plan of the same track is quick. The look of the planner on a real display is not tested; the headless window tests what it shows and what its buttons do. The transport is tested by the commands it sends the decks and the bars it opens them at, not by listening to real audio output.
 
-Not tested outside the headless window: the look on a real display, and the lanes on tracks over an hour long.
+Not tested outside the headless window: the look on a real display, dragging B with a real mouse (the tests drive the same drag steps by calling them), and the lanes on tracks over an hour long.
 
 ## Favorites
 

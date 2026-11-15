@@ -144,7 +144,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .items_center()
                 .gap(GAP_MEDIUM)
                 .ml_auto()
-                .children(progress(app, &palette))
+                .children(progress(app, &palette, cx))
                 .child(metronome(app, &palette, cx))
                 .child(
                     secondary_button("Live", &palette)
@@ -512,7 +512,11 @@ fn search_field(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eupho
 
 /// "12 of 340 done" with a bar, or "Looking for audio files" while
 /// folders are being searched. Nothing when idle.
-fn progress(app: &EuphoriaApp, palette: &Palette) -> Option<Div> {
+fn progress(
+    app: &EuphoriaApp,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<Div> {
     let progress = app.session.progress();
     let label = match progress.label() {
         Some(label) => label,
@@ -539,6 +543,25 @@ fn progress(app: &EuphoriaApp, palette: &Palette) -> Option<Div> {
             })
             .when(progress.is_active(), |row| {
                 row.child(
+                    div()
+                        .id("analysis-stop")
+                        .px(px(5.0))
+                        .rounded(RADIUS_SMALL)
+                        .border_1()
+                        .border_color(palette.line)
+                        .text_color(palette.text_tertiary)
+                        .cursor_pointer()
+                        .child("Stop")
+                        .tooltip(|window, cx| {
+                            Tooltip::new(
+                                "Skip the tracks still waiting. Tracks being analyzed finish.",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.stop_analysis(cx)))
+                        .test_support(),
+                )
+                .child(
                     div()
                         .w(px(72.0))
                         .h(px(4.0))

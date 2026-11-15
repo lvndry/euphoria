@@ -242,7 +242,7 @@ fn section_at(sections: &[PlanSection], bar: usize) -> Option<SectionLabel> {
         .map(|section| section.label)
 }
 
-fn evaluate(
+pub(super) fn evaluate(
     input: &SearchInput<'_>,
     a_start: usize,
     b_start: usize,
