@@ -141,7 +141,7 @@ Chord progressions in all 24 keys, synthesized at each offset. The tuning is mea
 
 ### Speed
 
-CPU seconds per preview for the key analysis of the `auto` engine beyond decoding: before, drone-v2 then libkeyfinder for the tuning and the key over time (whose chromagram also gives the profile); after, drone-v2 with the key over time, the tuning and the note spectrum.
+CPU seconds per preview for the key analysis of the `auto` engine beyond decoding: before, drone-v2 then libkeyfinder for the tuning and the key over time (whose chromagram also gives the profile); after, drone-v2 with the key over time, the tuning and the note spectrum, with the tuning measured twice (about 0.03 s), so the after column is a little high.
 
 | Before | After |
 | --- | --- |

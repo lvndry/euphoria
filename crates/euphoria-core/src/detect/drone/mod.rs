@@ -269,7 +269,7 @@ impl DroneDetector {
             &column_logits,
         )));
         let timeline = match reading.key {
-            Some(key) => timeline::timeline(audio, &column_logits, key),
+            Some(key) => timeline::timeline(audio, heard_rate, &column_logits, key),
             None => Vec::new(),
         };
         Ok(KeyReading {
