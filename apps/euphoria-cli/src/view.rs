@@ -12,7 +12,7 @@ use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::{
     Confidence, Correction, FileResult, Key, ReviewReason, TagKey, TagKeyAgreement, TempoRange,
-    TrackAnalysis,
+    TrackAnalysis, note_names, notes_in_key,
 };
 
 use crate::batch::Corrections;
@@ -105,6 +105,8 @@ impl KeyNotationChoice {
 pub struct ViewOptions {
     pub notation: KeyNotationChoice,
     pub tempo_range: TempoRange,
+    /// Whether the detailed view shows the notes the key analysis heard.
+    pub notes: bool,
     /// Columns of text the view may use.
     pub width: usize,
 }
@@ -811,6 +813,73 @@ fn write_tag_key(
     }
 }
 
+const NOTE_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+/// Columns per note in the row of notes: room for a two letter name and a
+/// space.
+const NOTE_COLUMN_WIDTH: usize = 3;
+
+/// The bar of one note: eight heights, the lowest for a note not heard.
+fn note_bar(level: f32) -> char {
+    let steps = (NOTE_LEVELS.len() - 1) as f32;
+    let index = (level.clamp(0.0, 1.0) * steps).round() as usize;
+    NOTE_LEVELS[index]
+}
+
+/// Writes the 12 notes the key analysis heard as a row of bars over their
+/// names, C first, with a dot under each note of the key.
+fn write_notes(
+    writer: &mut impl Write,
+    theme: &Theme,
+    analysis: &TrackAnalysis,
+    options: &ViewOptions,
+) -> io::Result<()> {
+    let Some(profile) = analysis.pitch_class_profile else {
+        let reason = if analysis.key.is_some() {
+            "not measured for this track yet, analyze it again with --reanalyze"
+        } else {
+            "none, no key was found"
+        };
+        return write_line(writer, theme, "Notes", &theme.dim(reason));
+    };
+    let key = analysis.key;
+    let in_key = key.map(notes_in_key).unwrap_or([false; 12]);
+    let names = note_names(key);
+    let mut bars = Vec::new();
+    let mut labels = Vec::new();
+    let mut marks = Vec::new();
+    for (pitch_class, level) in profile.iter().enumerate() {
+        let bar = note_bar(*level).to_string();
+        let name = names[pitch_class];
+        let padding = " ".repeat(NOTE_COLUMN_WIDTH - name.len());
+        match (in_key[pitch_class], key) {
+            (true, Some(key)) => {
+                bars.push(theme.key(key, bar));
+                labels.push(format!("{}{padding}", theme.bold(name)));
+                marks.push(theme.key(key, "•"));
+            }
+            _ => {
+                bars.push(theme.dim(bar));
+                labels.push(format!("{}{padding}", theme.dim(name)));
+                marks.push(" ".to_string());
+            }
+        }
+    }
+    let gap = " ".repeat(NOTE_COLUMN_WIDTH - 1);
+    write_line(writer, theme, "Notes", &bars.join(&gap))?;
+    write_line(writer, theme, "", labels.concat().trim_end())?;
+    if let Some(key) = key {
+        let caption = theme.dim(format!("• in the key, {}", options.notation.short(key)));
+        let marked = marks.join(&gap);
+        write_line(
+            writer,
+            theme,
+            "",
+            &format!("{}   {caption}", marked.trim_end()),
+        )?;
+    }
+    Ok(())
+}
+
 /// What was read about a file besides its analysis, for the detailed view.
 #[derive(Debug, Clone, Default)]
 pub struct FileFacts<'facts> {
@@ -896,6 +965,9 @@ pub fn write_detail(
             }
         }
         None => write_line(writer, theme, "Key", &theme.dim("none found"))?,
+    }
+    if options.notes {
+        write_notes(writer, theme, analysis, options)?;
     }
     if let Some(tag_key) = tag_key {
         write_tag_key(writer, theme, tag_key, analysis.key, options, key_set)?;
@@ -1156,6 +1228,7 @@ mod tests {
         ViewOptions {
             notation: KeyNotationChoice::Camelot,
             tempo_range: TempoRange::DEFAULT,
+            notes: false,
             width,
         }
     }
@@ -1334,6 +1407,50 @@ Key                  BPM       Energy              Quality  Time  Review  File
             "{with_stage}"
         );
         assert!(!show(None).contains("Stage"));
+    }
+
+    fn detail_with_notes(analysis: &TrackAnalysis, notes: bool) -> String {
+        let mut buffer = Vec::new();
+        write_detail(
+            &mut buffer,
+            &Theme::PLAIN,
+            Path::new("music/low tide.flac"),
+            analysis,
+            &ViewOptions {
+                notes,
+                ..options(100)
+            },
+            None,
+            FileFacts::default(),
+        )
+        .unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn the_notes_are_bars_over_their_names_with_the_key_marked() {
+        let mut track = analysis(0.001, 0.5);
+        track.pitch_class_profile =
+            Some([0.9, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3]);
+
+        let shown = detail_with_notes(&track, true);
+
+        let expected = "  Notes          ▇  ▁  ▅  ▂  ▇  ▄  ▁  ▅  ▂  █  ▂  ▃\n\
+                        \x20                C  C# D  Eb E  F  F# G  Ab A  Bb B\n\
+                        \x20                •     •     •  •     •     •     •   • in the key, 8A\n";
+        assert!(shown.contains(expected), "{shown}");
+        assert!(!detail_with_notes(&track, false).contains("Notes"));
+    }
+
+    #[test]
+    fn notes_not_yet_measured_ask_for_a_new_analysis() {
+        let shown = detail_with_notes(&analysis(0.001, 0.5), true);
+        assert!(
+            shown.contains(
+                "  Notes          not measured for this track yet, analyze it again with --reanalyze\n"
+            ),
+            "{shown}"
+        );
     }
 
     #[test]

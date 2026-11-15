@@ -1651,7 +1651,9 @@ mod tests {
                     key_score_margin: Some(0.02),
                     key_source: None,
                     loudness_range_lu: None,
-                    pitch_class_profile: None,
+                    pitch_class_profile: Some([
+                        0.81234, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3,
+                    ]),
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
                     beat_grid: None,
@@ -2070,6 +2072,13 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert_eq!(parsed[0]["duration_seconds"], 408.4);
         assert_eq!(parsed[0]["energy"], 7);
         assert_eq!(parsed[0]["tuning_cents"], -31.3);
+        assert_eq!(
+            parsed[0]["pitch_class_profile"],
+            serde_json::json!([
+                0.812, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3
+            ])
+        );
+        assert!(parsed[1]["pitch_class_profile"].is_null());
         assert_eq!(
             parsed[0]["key_timeline"],
             serde_json::json!([
