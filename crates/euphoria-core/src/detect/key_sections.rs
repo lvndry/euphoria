@@ -146,6 +146,7 @@ fn drop_short_sections(path: &mut [usize], track_key: usize, minimum_windows: us
 
 /// The key whose scores add up to the most over every window, or `None`
 /// when no key scores above zero.
+#[cfg(feature = "libkeyfinder")]
 pub(crate) fn highest_total<const KEY_COUNT: usize>(
     window_scores: &[[f64; KEY_COUNT]],
 ) -> Option<usize> {
@@ -378,6 +379,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "libkeyfinder")]
     #[test]
     fn the_highest_total_wins_the_vote_and_silence_has_no_winner() {
         let scores = [[0.8, 0.5, 0.5], [0.5, 0.7, 0.5], [0.5, 0.7, 0.5]];

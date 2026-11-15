@@ -11,6 +11,7 @@ mod confidence;
 mod dataset;
 mod energy;
 mod evaluate;
+mod key_parts;
 mod key_readings;
 mod quality;
 mod rekordbox;
@@ -29,7 +30,7 @@ use euphoria_core::detect::{
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench beats [DATA_DIRECTORY] [--tracks all|development|held-out]\n       euphoria-bench shift [AUDIO_DIRECTORY] [--every N]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench beats [DATA_DIRECTORY] [--tracks all|development|held-out]\n       euphoria-bench shift [AUDIO_DIRECTORY] [--every N]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench key-parts [DATA_DIRECTORY] [--tracks all|development|held-out] [--segments DIRECTORY]\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
@@ -42,6 +43,9 @@ const QUALITY_MODE: &str = "quality";
 
 /// The first argument that writes both key detectors' readings per track.
 const KEY_READINGS_MODE: &str = "key-readings";
+
+/// The first argument that compares libkeyfinder with what replaces it.
+const KEY_PARTS_MODE: &str = "key-parts";
 
 /// The first argument that scores a rekordbox collection export.
 const REKORDBOX_MODE: &str = "rekordbox";
@@ -164,6 +168,10 @@ fn main() -> Result<()> {
     if command_line.peek().map(String::as_str) == Some(QUALITY_MODE) {
         let arguments = quality::parse_arguments(command_line.skip(1))?;
         return quality::run(&arguments);
+    }
+    if command_line.peek().map(String::as_str) == Some(KEY_PARTS_MODE) {
+        let arguments = key_parts::parse_arguments(command_line.skip(1))?;
+        return key_parts::run(&arguments);
     }
     if command_line.peek().map(String::as_str) == Some(KEY_READINGS_MODE) {
         let data_directory = key_readings::parse_arguments(command_line.skip(1))?;

@@ -11,10 +11,11 @@ mod cues;
 mod decimate;
 #[cfg(feature = "drone")]
 mod drone;
-#[cfg(feature = "libkeyfinder")]
+#[cfg(any(feature = "libkeyfinder", feature = "drone"))]
 mod key_sections;
 #[cfg(feature = "libkeyfinder")]
 mod keyfinder;
+mod note_spectrum;
 mod sections;
 mod stratum;
 #[cfg(test)]
@@ -28,6 +29,7 @@ pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, cues_on_grid, detect_beat_g
 pub use drone::{DroneDetector, KeyProbabilities};
 #[cfg(feature = "libkeyfinder")]
 pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant, KeyFollowing};
+pub(crate) use note_spectrum::pitch_class_profile as pitch_class_profile_at;
 pub use stratum::StratumDetector;
 pub use tuning::{Tuning, measure_tuning};
 
@@ -41,12 +43,9 @@ use crate::tempo_range::TempoRange;
 /// Reads the key of a track with `engine`, falling back to what the build
 /// has when it lacks the engine's detectors.
 ///
-/// - [`KeyEngine::Auto`]: drone-v2 decides the key, and libkeyfinder
-///   measures the tuning and follows the key over time against it. When
-///   drone-v2 finds no key, as for audio shorter than about 1.5 seconds,
-///   libkeyfinder decides it.
-/// - [`KeyEngine::Drone`]: drone-v2 alone. The tuning is measured but not
-///   used, and there is no key over time.
+/// - [`KeyEngine::Auto`] and [`KeyEngine::Drone`]: drone-v2 decides the key
+///   and follows it over time, after a track measured at least 20 cents
+///   from concert pitch is brought back to it.
 /// - [`KeyEngine::KeyFinder`]: libkeyfinder with tuning correction.
 ///
 /// Without either detector, `stratum-dsp` finds the key, with no margin,
@@ -54,24 +53,14 @@ use crate::tempo_range::TempoRange;
 pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
     #[cfg(feature = "drone")]
     if engine != KeyEngine::KeyFinder || !cfg!(feature = "libkeyfinder") {
-        let reading = DroneDetector.read_key(audio)?;
-        #[cfg(feature = "libkeyfinder")]
-        if engine == KeyEngine::Auto {
-            return match reading.key {
-                Some(key) => {
-                    let following = KeyFinderDetector.follow_key(audio, key)?;
-                    Ok(KeyReading {
-                        tuning_cents: following.tuning_cents,
-                        timeline: following.timeline,
-                        pitch_class_profile: following.pitch_class_profile,
-                        ..reading
-                    })
-                }
-                None => KeyFinderDetector.read_key(audio),
-            };
-        }
+        let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
+        let reading = DroneDetector.read_key_over_time(audio, tuning_cents)?;
+        let pitch_class_profile = reading
+            .key
+            .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents));
         return Ok(KeyReading {
-            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            tuning_cents,
+            pitch_class_profile,
             ..reading
         });
     }
@@ -84,10 +73,13 @@ pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, Eu
     {
         let _ = engine;
         let key = StratumDetector.detect_key(audio)?;
+        let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
         Ok(KeyReading {
             key,
-            tuning_cents: measure_tuning(audio).map(|tuning| tuning.cents),
+            tuning_cents,
             source: key.map(|_| KeySource::Stratum),
+            pitch_class_profile: key
+                .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents)),
             ..KeyReading::default()
         })
     }
@@ -160,10 +152,8 @@ pub struct KeyReading {
     /// rated. `None` when there is no key.
     pub source: Option<KeySource>,
     /// How strongly each of the 12 notes sounds in the track, C first, from
-    /// 0 to 1 with the strongest at 1, as libkeyfinder's chromagram hears
-    /// it after tuning correction. `None` when there is no key, and when
-    /// libkeyfinder does not run: with the drone engine alone and in builds
-    /// without it.
+    /// 0 to 1 with the strongest at 1, as Euphoria's note spectrum hears it
+    /// on the scale of the measured tuning. `None` when there is no key.
     pub pitch_class_profile: Option<[f32; 12]>,
 }
 
