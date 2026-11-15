@@ -219,6 +219,30 @@ fn the_rate_reaches_the_playing_voice_live_and_key_lock_follows(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn now_playing_counts_at_the_playback_tempo_in_seconds_of_the_recording(cx: &mut TestAppContext) {
+    let (window, view) = open_focus_on_track(cx);
+    start_playing(&view, cx);
+    let shown = cx.update(|cx| view.read(cx).now_playing()).unwrap();
+    assert_eq!(shown.rate, 1.0);
+
+    type_target(window, "132", cx);
+    let shown = cx.update(|cx| view.read(cx).now_playing()).unwrap();
+    assert!((shown.rate - 1.1).abs() < 1e-6, "{}", shown.rate);
+    assert_eq!(shown.duration_seconds, Some(1.0));
+    assert!(shown.playing);
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let request = app.player.toggle();
+            app.carry_out(request, cx);
+        })
+    });
+    let paused = cx.update(|cx| view.read(cx).now_playing()).unwrap();
+    assert!(!paused.playing);
+    assert_eq!(paused.rate, 0.0);
+}
+
+#[gpui::test]
 fn a_track_started_after_the_change_of_selection_plays_at_its_own_tempo(cx: &mut TestAppContext) {
     let (window, view) = open_focus_on_track(cx);
     start_playing(&view, cx);
