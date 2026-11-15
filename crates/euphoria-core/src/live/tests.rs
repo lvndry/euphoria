@@ -261,6 +261,7 @@ fn the_engine_reads_audio_from_a_capture_and_stops_it() {
         source.clone(),
         LiveSettings::default(),
         Duration::from_millis(100),
+        MatcherHandle::default(),
     )
     .unwrap();
     let reading = wait_for(&engine, |reading| reading.tempo.is_some());
@@ -280,9 +281,62 @@ fn the_engine_reports_why_capture_could_not_start() {
         ListenSource::AllAudio,
         LiveSettings::default(),
         Duration::from_millis(100),
+        MatcherHandle::default(),
     );
     assert_eq!(
         result.err(),
         Some(CaptureError::PermissionDenied("not allowed".into()))
     );
+}
+
+fn melody(seed: u32, seconds: f32) -> Vec<f32> {
+    let total = (seconds * SAMPLE_RATE as f32) as usize;
+    let mut samples = vec![0.0; total];
+    let mut state = seed.wrapping_mul(2_654_435_761) | 1;
+    let step = SAMPLE_RATE as usize / 4;
+    let mut start = 0;
+    while start < total {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let frequency = 220.0 * 2.0_f32.powf(((state >> 24) % 24) as f32 / 12.0);
+        for offset in 0..(step * 2).min(total - start) {
+            let time = offset as f32 / SAMPLE_RATE as f32;
+            let envelope = (-time * 5.0).exp();
+            samples[start + offset] += 0.3
+                * envelope
+                * ((TAU * frequency * time).sin() + 0.4 * (TAU * 2.0 * frequency * time).sin());
+        }
+        start += step;
+    }
+    samples
+}
+
+#[test]
+fn the_engine_matches_what_it_hears_to_a_library_once_a_matcher_is_set() {
+    use crate::audio::AudioBuffer;
+    use crate::fingerprint::{FingerprintIndex, fingerprint};
+
+    let tracks: Vec<Vec<f32>> = (1..=3).map(|seed| melody(seed, 60.0)).collect();
+    let mut index = FingerprintIndex::new();
+    for (id, track) in tracks.iter().enumerate() {
+        index.add(id, &fingerprint(&AudioBuffer::new(track.clone(), rate())));
+    }
+    index.freeze();
+    let matcher = MatcherHandle::default();
+    let played = tracks[1][SAMPLE_RATE as usize * 20..SAMPLE_RATE as usize * 34].to_vec();
+    let mut engine = LiveEngine::start(
+        Box::new(FakeCapture::playing(played)),
+        ListenSource::AllAudio,
+        LiveSettings::default(),
+        Duration::from_millis(100),
+        matcher.clone(),
+    )
+    .unwrap();
+    let before = wait_for(&engine, |reading| reading.tempo.is_some());
+    assert!(before.matched.is_none(), "no matcher yet");
+    *matcher.write().unwrap() = Some(Arc::new(index));
+    let reading = wait_for(&engine, |reading| reading.matched.is_some());
+    let found = reading.matched.expect("a match");
+    assert_eq!(found.track, 1);
+    assert!((found.start_seconds - 20.0).abs() < 1.5, "{found:?}");
+    engine.stop();
 }
