@@ -44,6 +44,7 @@ fn analysed() -> TrackAnalysis {
         key_timeline: Vec::new(),
         quality: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
     }
 }
 

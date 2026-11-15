@@ -90,6 +90,10 @@ pub fn analyze_examples() -> StyledStr {
                 "Every track in detail",
             ),
             (
+                "euphoria analyze --notes track.flac",
+                "The notes the key was heard from",
+            ),
+            (
                 "euphoria analyze --quality weak,reencoded ~/Music/DJ",
                 "The files worth replacing",
             ),

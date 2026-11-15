@@ -207,6 +207,7 @@ mod tests {
             key_score_margin: Some(0.001),
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: Some(87.0),
             tempo_score_margin: Some(0.01),
             beat_grid: None,

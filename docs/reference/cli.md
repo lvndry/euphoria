@@ -93,6 +93,16 @@ Intro.m4a
   Length         2:00
 ```
 
+With `--notes`, a Notes row under the key shows how strongly each note sounds in the track, every octave together, from C to B: one bar each, over the note names, with a dot under the notes of the key.
+
+```
+  Notes          ▇  ▁  ▅  ▂  ▇  ▄  ▁  ▅  ▂  █  ▂  ▃
+                 C  C# D  Eb E  F  F# G  Ab A  Bb B
+                 •     •     •  •     •     •     •   • in the key, 8A
+```
+
+The marked bars should be the tallest. [Reading the notes](../concepts/accuracy.md#reading-the-notes) explains what to look for. A track analyzed before Euphoria measured notes says so; `--reanalyze` measures them.
+
 One file analyzed on a terminal is always shown this way. `--detail` shows every track this way, whatever the output. The view names the confidence of the key and of the tempo, the runner up key, the key in the file's tags with how it differs and which reading to trust, the half or double tempo when a DJ could count the track that way, why the track is worth checking by ear (or that you already checked it), the reason for the sound quality and the format behind it, the loudness, the beat grid with its confidence, the tuning, and the key changes when the key changes during the track.
 
 ### The plain table
@@ -116,6 +126,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | --- | --- |
 | `--json` | Print a JSON array instead of a table. |
 | `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
+| `--notes` | Add to the [detailed view](#the-detailed-view) the 12 notes the key analysis heard, as a row of bars with the notes of the key marked. Shows every track in detail. Cannot be combined with `--json`, which always has them. |
 | `--needs-review` | List only the tracks whose key or tempo is rated low confidence or whose tags name another key, and the files that could not be analyzed. A key or tempo you set or confirmed with **Looks right** in the desktop app is no longer in doubt, so such a track is not listed for it. |
 | `--bpm <RANGE>` | List only the tracks in a tempo range, in beats per minute: `120-126`, `120-` for 120 and faster, `-126` for 126 and slower, or one tempo. A comma works as a decimal point: `120,5-126`. Tempos from 30 to 300. The tempo is the one shown, so a tempo you set yourself is used and a detected one is in the `--tempo-range`. |
 | `--half-double` | With `--bpm`, also list the tracks at half or double a tempo in the range: `--bpm 120-126 --half-double` lists a track at 61 or at 244 too. |
@@ -162,6 +173,7 @@ One object per file, in path order, including files that failed, then one for ea
     "energy": 6,
     "stage": "peak",
     "tuning_cents": -31.3,
+    "pitch_class_profile": [0.812, 0.03, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3],
     "key_timeline": [
       {
         "start_seconds": 0.0,
@@ -213,6 +225,7 @@ One object per file, in path order, including files that failed, then one for ea
     "bpm_alternative": null,
     "energy": null,
     "tuning_cents": null,
+    "pitch_class_profile": null,
     "key_timeline": [],
     "beat_grid": null,
     "cues": [],
@@ -243,6 +256,8 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 `set_by_user` lists the values you [corrected](#corrections) or [edited](#edited-cues) in the desktop app, any of `"key"`, `"bpm"`, `"energy"` and `"cues"`, and is empty otherwise. A corrected key has no `confidence` and no `runner_up_key`, and a corrected tempo no `bpm_confidence` and no `bpm_alternative`: they rate what was detected, which is no longer shown. A corrected tempo also has no `beat_grid`, and none of the cues analysis placed, since both were fitted to the detected tempo; cues you edited stay.
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
+
+`pitch_class_profile` is how strongly each of the 12 notes sounds in the track, every octave together, from C to B, C first: 12 numbers from 0 to 1 with the loudest note at 1. It is measured on libkeyfinder's chromagram, after the tuning correction above. It is `null` for a track with no key, with `--key-engine drone`, and for a track analyzed before Euphoria measured notes, until it is analyzed again.
 
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only for a stretch of at least about 30 seconds, with no silence in it, where that key is clearly stronger, so on dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
 
