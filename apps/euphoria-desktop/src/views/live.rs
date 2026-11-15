@@ -449,7 +449,7 @@ fn recognition(model: &LiveModel) -> Option<AnyElement> {
                         .text_size(SMALL_TEXT_SIZE)
                         .text_color(palette.text_secondary)
                         .child(format!("at {}", position_text(position)))
-                        .children(words.map(|words| pill(words, false, &palette))),
+                        .children(words.map(|words| next_rail::pill(words, false, &palette))),
                 )
                 .test_support()
                 .into_any_element(),
