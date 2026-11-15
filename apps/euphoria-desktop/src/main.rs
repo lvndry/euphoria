@@ -177,6 +177,8 @@ mod transition_plan;
 mod ui_tests;
 mod views;
 mod waveforms;
+#[cfg(test)]
+mod wheel_ui_tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -242,6 +242,7 @@ mod tests {
             display: DisplaySettings {
                 tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
                 show_stage_column: true,
+                show_matching_keys: false,
             },
             suggestion_filter: SuggestionFilter::default(),
             focus_lanes: FocusLanes::default(),

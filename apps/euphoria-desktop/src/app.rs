@@ -158,6 +158,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) first_run: crate::first_run::FirstRun,
     /// True while the settings panel is open.
     pub(crate) settings_open: bool,
+    /// Where the menu of key moves opened from the Camelot wheel stands, in
+    /// window coordinates, while it is open.
+    pub(crate) wheel_menu_at: Option<gpui::Point<Pixels>>,
     /// Where the backups of tag writes are kept, shared with the command
     /// line so that either can undo the other's write.
     pub(crate) write_log_directory: Option<PathBuf>,
@@ -569,6 +572,7 @@ impl EuphoriaApp {
                 !settings.folders.is_empty(),
             ),
             settings_open: false,
+            wheel_menu_at: None,
             write_log_directory: if cfg!(test) {
                 None
             } else {
@@ -1473,6 +1477,46 @@ impl EuphoriaApp {
     pub(crate) fn toggle_stage_column(&mut self, cx: &mut Context<'_, Self>) {
         self.display.show_stage_column = !self.display.show_stage_column;
         self.remember_tag_settings(cx);
+    }
+
+    /// Shows or hides the keys that mix with the selected one on the wheel.
+    pub(crate) fn toggle_matching_keys(&mut self, cx: &mut Context<'_, Self>) {
+        self.display.show_matching_keys = !self.display.show_matching_keys;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Opens the menu of key moves at `position`, where the wheel was
+    /// clicked.
+    pub(crate) fn open_wheel_menu(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.wheel_menu_at = Some(position);
+        cx.notify();
+    }
+
+    /// Closes the menu of key moves. Returns true when it was open.
+    pub(crate) fn close_wheel_menu(&mut self, cx: &mut Context<'_, Self>) -> bool {
+        let was_open = self.wheel_menu_at.take().is_some();
+        if was_open {
+            cx.notify();
+        }
+        was_open
+    }
+
+    /// Counts `relation` as a key move of the Next list, "Mixes well with"
+    /// and the wheel when it is not counted, and stops counting it when it
+    /// is. The wheel shows the moves of the Next list, so a move toggled
+    /// from it starts from that list's defaults.
+    pub(crate) fn toggle_wheel_relation(
+        &mut self,
+        relation: euphoria_core::harmony::Relation,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let defaults = euphoria_core::harmony::MixOptions::default().relations;
+        self.decks.filter.toggle_relation(relation, &defaults);
+        self.suggestion_filter_changed(cx);
     }
 
     /// Opens the settings panel.
@@ -3117,6 +3161,9 @@ impl Render for EuphoriaApp {
             )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
+                    if this.close_wheel_menu(cx) {
+                        return;
+                    }
                     if this.close_panels(cx) {
                         return;
                     }

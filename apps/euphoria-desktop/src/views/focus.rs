@@ -21,13 +21,11 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::artwork::ThumbnailSize;
-use crate::camelot::CamelotPosition;
 use crate::focus::{
     CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
 };
 use crate::format;
 use crate::library::Track;
-use crate::mixes::keys_related_by;
 use crate::peaks::BandPeaks;
 use crate::stems::{StemFocus, StemStatus};
 use crate::theme::Palette;
@@ -40,7 +38,6 @@ use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
 use crate::views::track_overview::{LaneFrame, LaneInputs, VOCALS_HEIGHT, overview_lanes};
 use crate::views::waveform::{WaveformColours, waveform};
-use crate::views::wheel::{emphasis_for, wheel};
 use crate::views::{
     GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
     TITLE_TEXT_SIZE,
@@ -404,7 +401,12 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                 })),
         )
         .children(crate::views::tempo::tempo_control(app, &palette, cx))
-        .children(header_wheel(track, app))
+        .children(crate::views::inspector::key_wheel_of(
+            track,
+            app,
+            HEADER_WHEEL_SIZE,
+            cx,
+        ))
 }
 
 /// The tempo in the BPM chip: the track's own, or while the playback tempo
@@ -442,24 +444,6 @@ fn bpm_stat(track: &Track, app: &EuphoriaApp) -> Div {
 
 /// The side of the Camelot wheel in the header.
 const HEADER_WHEEL_SIZE: f32 = 76.0;
-
-/// The Camelot wheel of the track's key, with the keys the suggestion filter
-/// moves to tinted.
-fn header_wheel(track: &Track, app: &EuphoriaApp) -> Option<AnyElement> {
-    let key = track.key()?;
-    let relations = app.decks.filter.mix_options().relations;
-    Some(wheel(
-        key.camelot(),
-        emphasis_for(
-            CamelotPosition::of(&key),
-            keys_related_by(&key, &relations)
-                .iter()
-                .map(CamelotPosition::of),
-        ),
-        &app.theme.palette,
-        HEADER_WHEEL_SIZE,
-    ))
-}
 
 /// A lane: its name in the gutter and its content on the shared axis.
 fn lane_row(label: impl IntoElement, height: f32, content: impl IntoElement) -> Div {
