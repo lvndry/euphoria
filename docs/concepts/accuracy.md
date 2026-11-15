@@ -31,7 +31,7 @@ Euphoria's detectors are measured on public datasets, and the numbers are publis
 | stratum-dsp, tempo | | | 85.8% | 94.3% | 0.38 |
 | Essentia, best profile (reference) | 61.3% | 69.5% | 59.8% | 82.5% | |
 
-Euphoria decides the key with [drone-v2](#key-detection-with-drone-v2), a small neural network, and uses libkeyfinder, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, to measure the tuning and follow the key over time. Tempo comes from stratum-dsp. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+Euphoria decides the key with [drone-v2](#key-detection-with-drone-v2), a small neural network, after [correcting for the tuning](#tuning-and-key-over-time) of a detuned track, and follows the key over time with the same network. Tempo comes from stratum-dsp. The full tables, including every Essentia profile, are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
 
 ![How the key drone-v2 detects compares with the annotated key on the 604 previews, against libkeyfinder: exact for 69.9% against 60.6%, a fifth away for 6.0% against 11.3%, the relative key for 6.1% against 6.8%, the parallel key for 3.8% against 5.5% and another key for 14.2% against 15.9%.](../images/accuracy/key-outcomes.svg)
 
@@ -49,26 +49,28 @@ Genres with fewer than 20 previews are grouped, since a percentage of 5 or 10 tr
 
 ### Key
 
-drone-v2, as Euphoria ships it. A fifth away is the neighbouring Camelot number with the same letter, and still mixes. The relative key is the same number with the other letter.
+drone-v2, as Euphoria ships it, with [tuning correction](#tuning-and-key-over-time). A fifth away is the neighbouring Camelot number with the same letter, and still mixes. The relative key is the same number with the other letter.
 
 | Genre | Previews | Exact | Exact or a fifth away | Exact, a fifth or relative |
 | --- | --- | --- | --- | --- |
 | Deep house | 77 | 85.7% | 89.6% | 89.6% |
+| Electronica | 20 | 75.0% | 75.0% | 80.0% |
 | Electro house | 51 | 74.5% | 82.4% | 90.2% |
 | House | 47 | 72.3% | 76.6% | 85.1% |
 | Techno | 34 | 67.6% | 73.5% | 73.5% |
 | Tech house | 81 | 65.4% | 72.8% | 74.1% |
-| Electronica | 20 | 65.0% | 65.0% | 70.0% |
 | Progressive house | 88 | 63.6% | 68.2% | 83.0% |
 | Dubstep | 22 | 63.6% | 77.3% | 81.8% |
 | Drum and bass | 38 | 63.2% | 65.8% | 71.1% |
 | Trance | 58 | 53.4% | 67.2% | 82.8% |
 | 13 other genres | 88 | 79.5% | 83.0% | 85.2% |
-| All | 604 | 69.9% | 75.8% | 82.0% |
+| All | 604 | 70.2% | 76.2% | 82.3% |
 
 The 13 other genres are breaks, indie dance and nu disco (14 previews each), chill out and minimal (11 each), pop and rock (7), glitch hop (6), psy-trance (5), hip hop and hard dance (4 each), and reggae and dub, hardcore and hard techno, funk and R&B, and DJ tools (3 each).
 
-![Key accuracy of drone-v2 by genre on the GiantSteps Key previews. Exact: deep house 85.7%, electro house 74.5%, house 72.3%, techno 67.6%, tech house 65.4%, electronica 65.0%, progressive house 63.6%, dubstep 63.6%, drum and bass 63.2%, trance 53.4%, other genres 79.5%, against 69.9% for all.](../images/accuracy/key-genres.svg)
+![Key accuracy of drone-v2 by genre on the GiantSteps Key previews. Exact: deep house 85.7%, electronica 75.0%, electro house 74.5%, house 72.3%, techno 67.6%, tech house 65.4%, progressive house 63.6%, dubstep 63.6%, drum and bass 63.2%, trance 53.4%, other genres 79.5%, against 70.2% for all.](../images/accuracy/key-genres.svg)
+
+Tuning correction changes the key of two electronica previews, both to the annotated key; every other genre is as without it.
 
 With 20 to 90 previews per genre, the 95% interval on each exact score is 15 to 40 points wide, so only the ends of the table are clearly apart: deep house (76% to 92%) is better than average and trance (41% to 66%) worse. The genres in between cannot be ranked against each other.
 
@@ -150,7 +152,7 @@ Using libkeyfinder's key when the network is unsure was tried, with the threshol
 
 The network and the spectrogram run inside Euphoria in plain Rust, with no inference library, GPU or download: the weights, 441 KB, are compiled into the program. The Rust spectrogram reproduces drone's own Python code, which uses librosa: given the same audio, the features differ by at most 0.002 (one step of the 16 bit floats drone stores them in) and the key probabilities by at most 0.00001, and all 604 keys are identical. Through Euphoria's own decoder all 604 keys also agree with drone's, which decodes with ffmpeg, though the probabilities move by up to 0.07, since the two decoders do not give exactly the same samples. The scores above are Euphoria's, and they equal those of drone's Python package on the same files.
 
-`--key-engine` on the [command line](../reference/cli.md#options) chooses the detector: `auto`, the default, as described here; `drone`, the network alone, which saves libkeyfinder's time and gives no key over time; or `keyfinder`, libkeyfinder alone, as before. When the network finds no key, as in audio shorter than about 1.5 seconds, `auto` falls back to libkeyfinder.
+`--key-engine` on the [command line](../reference/cli.md#options) chooses the detector: `auto`, the default, as described here; `drone`, the same; or `keyfinder`, libkeyfinder alone, as before. Audio shorter than the 1.5 seconds the network reads at least is read followed by silence. On one second excerpts of the previews that gives the exact key for 43.9%, against 26.8% for libkeyfinder, which `auto` used for such audio before; the [per genre table](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md#without-libkeyfinder) has every genre.
 
 ### What the benchmark does and does not show
 
@@ -158,11 +160,11 @@ GiantSteps Key is two minute previews of electronic dance music from Beatport. T
 
 - On other genres the benchmark says nothing. The drone project measured drone-v2 on 500 songs of many genres from the Free Music Archive at 75.0% exact, against 65.4% for drone-v1, but those songs come from the same collection as part of the training data, and libkeyfinder was not measured on them.
 - On full length tracks it is not measured. The network averages over the whole track, so long intros and breakdowns count, which the previews do not have.
-- Tracks tuned away from 440 Hz are rare in the training data and the benchmark. The network sees absolute pitch and is not corrected for tuning, unlike libkeyfinder.
+- Tracks tuned away from 440 Hz are rare in the training data and the benchmark. The network sees absolute pitch, so a track measured 20 cents or more off is converted as if recorded at the sample rate that brings it back to 440 Hz. On synthesized chord progressions in all 24 keys that keeps every key right from 50 cents flat to 50 cents sharp, where without it the network lost a third of the keys at 40 cents sharp.
 
 ### Cost
 
-On the machine the benchmark ran on, an Apple M5 Mac, the network and its spectrogram take 0.31 CPU seconds per two minute preview on one thread, against 0.27 for libkeyfinder. `auto` runs both. A whole analysis of a ten minute track (key, tempo, energy, sections and cues) took 5.6 seconds with libkeyfinder alone, 5.6 seconds with the network alone and 6.7 seconds with `auto`, and its peak memory was 1.49 GB, 1.10 GB and 1.49 GB: running the network alongside libkeyfinder adds about a second and no memory. These are single runs.
+On the machine the benchmark ran on, an Apple M5 Mac, the network and its spectrogram take 0.31 CPU seconds per two minute preview on one thread, against 0.27 for libkeyfinder. Until libkeyfinder stopped following the key over time, `auto` ran both, and the numbers that follow are from then. A whole analysis of a ten minute track (key, tempo, energy, sections and cues) took 5.6 seconds with libkeyfinder alone, 5.6 seconds with the network alone and 6.7 seconds with `auto`, and its peak memory was 1.49 GB, 1.10 GB and 1.49 GB: running the network alongside libkeyfinder adds about a second and no memory. These are single runs.
 
 ## How the tempo is chosen
 
@@ -371,7 +373,7 @@ The vote cuts the track into windows of about 7 seconds, lets every window score
 
 ### What the benchmark does and does not show
 
-The previews are two minutes from the middle of electronic dance music. That music is produced on instruments tuned to 440 Hz and seldom changes key, and a two minute excerpt has no long intro or outro. So the benchmark shows that neither tuning correction nor the vote does harm on dance music excerpts, and that neither helps there by more than chance. It cannot show what they would do on full length tracks with long intros and breakdowns, on music that modulates, or on a library of vinyl transfers, because it holds almost none of those. No dataset with labelled tuning or labelled key changes was used, so the tuning offsets and the key changes Euphoria reports are checked against synthesized audio only.
+The previews are two minutes from the middle of electronic dance music. That music is produced on instruments tuned to 440 Hz and seldom changes key, and a two minute excerpt has no long intro or outro. So the benchmark shows that neither tuning correction nor the vote does harm on dance music excerpts, and that neither helps there by more than chance. It cannot show what they would do on full length tracks with long intros and breakdowns, on music that modulates, or on a library of vinyl transfers, because it holds almost none of those. No dataset with labelled tuning was used, so the tuning offsets are checked against synthesized audio only. The key changes are checked against synthesized audio and against the 13 changes in the GiantSteps+ expert annotation of the previews, too few to measure how often a real change is found.
 
 ### How the tuning is measured
 
@@ -383,33 +385,29 @@ The offset runs from 50 cents flat to 50 cents sharp. A track tuned a quarter to
 
 ### How the key over time is found
 
-The track is cut into windows of about 7 seconds and libkeyfinder scores every key in every window. The timeline stays in the key of the whole track, and moves to another key only for a section where that key beats the key of the track clearly and for long enough: by more than 0.03 per window on average, and by more than 0.03 in total beyond that, over at least four windows in a row, about 30 seconds. Every section in another key needs that much, whether it is at the start, in the middle or at the end of the track, and silence ends a section, so windows on either side of a silence do not add up to one. A change in the middle of a track shares a window with the music on each side of it, so it has to last a little longer to fill four windows: on synthesized progressions a move a fifth away shows from 30 seconds at the end of a track and from 34 seconds in the middle. Scores run from 0 to 1.
+drone-v2 averages its view of the track over time before it scores the 24 keys, and that view comes in columns of about 1.5 seconds. Scoring each column on its own costs nothing more, so the key over time comes from the same pass that gives the key. The track is cut into windows of five columns, about 7.4 seconds, and each window gets the probability of every key. The timeline stays in the key of the whole track, and moves to another key only for a section where that key is clearly more likely and for long enough: on average about 26 times as likely as the key of the track in every window (a margin of 3.25 in log probability), over at least four windows in a row, about 30 seconds. Silence ends a section, so windows on either side of a silence do not add up to one.
 
-Those numbers come from how real music differs from a real change of key. In the best key of a seven second window, real music jumps around: on a two minute preview whose key does not change, other keys beat the key of the track by up to 0.02 per window for half a minute. A synthesized move to a key a fifth away wins by 0.04 to 0.05 per window, and a move to a distant key by 0.2. The setting was chosen among those with which a move a fifth away, about 0.045 per window, still shows over the minimum length: the one with the fewest previews split into sections on the first half, and among those, the one that leaves such a move the most to spare. A move to the parallel key, such as D minor to D major, wins by about 0.015 per window and does not show.
+The margin comes from how real music differs from a real change of key. On synthesized chord progressions that move to a key a fifth away, the new key is ahead by 3.3 to 4.8 per window, while the windows that stay in the key have the other key 5 behind. The margin was chosen on every other preview in name order, among the margins with which those moves still show: the one with the fewest previews split into more than one key. On all 604 previews, 0.7% have more than one key in their timeline, against 1.7% with libkeyfinder, which followed the key before. Of the previews whose expert annotation in [GiantSteps+](https://zenodo.org/records/4153506) has one key, 0.5% are split, against 1.2%. Of the 13 previews that expert annotation gives a change between two plain keys, the timeline shows both keys for 1, as it did with libkeyfinder: most of those changes are short, modal or between relative keys, which neither detector separates. By genre, progressive house has 3 previews split against 2 before; every other genre has as many or fewer. The [per genre tables](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md#without-libkeyfinder) have the numbers.
 
-An earlier rule followed the best key from window to window with a price of 0.1 for each change, and nothing tied the sections to the key of the track. On a preview whose key detection was a near tie between Eb minor and B minor, it showed B minor for the first 77 seconds and Bb minor after, while the key of the track was Eb minor: three keys for a track that does not change key. The new rule was chosen on every other preview in name order and checked on the others:
+When no change is found the timeline is one section in the key of the track. When changes are found, the key of the track covers every stretch where no other key is clearly stronger, and each other section carries the key that beat it there. A section starts and ends where the first column of its window starts, so a change is placed within a window, about 7 seconds, of where it happens.
 
-| On the GiantSteps previews | More than one section, earlier rule | More than one section, now | Key of the track missing from the sections, earlier rule | Now |
-| --- | --- | --- | --- | --- |
-| Half the rule was chosen on | 4.3% | 0.7% | 1.0% | 0% |
-| The other half | 5.3% | 1.0% | 1.0% | 0% |
-| All 604 | 4.8% | 0.8% | 1.0% | 0% |
+Silence has no key, so the timeline leaves a gap where a track is silent instead of stretching a key over it. A window counts as silent when its level is 60 dB or more below the loudest window of the track, which a DJ would not hear in a mix. A passage with sound but no harmony, such as a drum break or a noise riser, is not left out: it keeps the key of the music around it, and a change of key across it is placed somewhere within it.
 
-Of the 5 previews that still have more than one section, one is two sections in the same key around a silence, and the other four show another key for 28 to 38 seconds. A change is placed within a few seconds of where it happens, since each window is 7 seconds long.
+Before drone-v2 followed the key, libkeyfinder did, with the same rule on its own key scores: a section had to beat the key of the track by more than 0.03 per window and by 0.03 in total beyond that, over four windows.
 
-When no change is found the timeline is one section in the key of the track. When changes are found, the key of the track covers every stretch where no other key is clearly stronger, and each other section carries the key that beat it there. A section starts and ends halfway between the middles of two of libkeyfinder's frames, which is where the frames of one window give way to those of the next; on a synthesized change that falls on a window edge, that puts the start of the new section within a quarter of a frame step, about a quarter of a second, of the change.
+### The pitch-class profile
 
-Silence has no key, so the timeline leaves a gap where a track is silent instead of stretching a key over it. A window counts as silent when its note strengths are 60 dB or more below the loudest window of the track, which a DJ would not hear in a mix. Without the gap, a change from one key to another across 30 seconds of silence was placed 5 seconds into the silence, labelling most of it with the key that follows. On the previews, 2 of 9,632 windows are that quiet.
+The note view shows how strongly each of the 12 notes sounds in a track. Euphoria measures it with a note spectrum of its own: the audio is brought down to about 5.5 kHz, cut into frames of about three seconds and transformed, and each of the 72 notes from C1 to B6 gathers the spectrum within 35 cents of its frequency on the scale of the track's measured tuning. Steady sounds without pitch, such as noise, cymbals and the body of a drum, spread over every note alike, so each note first loses the median level of the notes within half an octave of it. What stays is the peaks pitched sounds make, and the 72 notes are added up into 12.
 
-A passage with sound but no harmony, such as a drum break or a noise riser, is not left out: it keeps the key of the music around it, and a change of key across it is placed somewhere within it. Such a passage cannot be told apart from music by how clearly it matches its best key. On a synthesized kick drum the best key scores 0.017 above the mean of the 24, and on pink noise 0.011, while one window in ten of the previews scores below 0.026 and one in a hundred below 0.016. Leaving out windows below 0.02 would cut gaps into 111 of the 604 previews with no way to check that they are drum breaks.
+Against libkeyfinder's chromagram, which gave the profile before, the notes of the key stand out more in every genre. Taking the scale of the detected key, the mean level of its seven notes is 32.7 points above that of the other five, with the strongest note at 100, against 20.4 for libkeyfinder, and the seven strongest notes are exactly the scale for 23.5% of the previews against 17.4%. Neither is near 100%: much dance music leaves out a note or two of its scale, and drums and effects add notes outside it.
 
 ### How the settings were chosen
 
-Every threshold above was chosen on synthesized audio or on a property of the previews that does not involve their key labels. The one choice that could have been fitted to the labels, the size of the windows for the vote, was made on half of the previews (every other one in name order) and checked on the other half: on the half it was chosen on, the vote scores 5 previews higher and 3 lower than the shipped detector, and on the other half 3 higher and 4 lower. Tuning correction acts from 20 cents, a value that comes from libkeyfinder's filter and not from the previews. All 4 previews it improves are in the first half.
+Every threshold above was chosen on synthesized audio or on a property of the previews that does not involve their key labels, except the margin of the key over time, which was chosen on the expert annotations of half of the previews and checked on the other half: 1.0% of the first half and none of the other are split. The other choice that could have been fitted to the labels, the size of the windows for the vote, was made on half of the previews (every other one in name order) and checked on the other half: on the half it was chosen on, the vote scores 5 previews higher and 3 lower than the shipped detector, and on the other half 3 higher and 4 lower. Tuning correction acts from 20 cents, a value that comes from libkeyfinder's filter and not from the previews. All 4 previews it improves are in the first half.
 
 ### Cost
 
-Measuring the tuning adds 0.02 to 0.03 CPU seconds to the analysis of a track, 2 to 4% of a two minute preview and less of a longer track. Correcting for it and following the key over time add nothing measurable, because both use what libkeyfinder computes for the key. Peak memory is unchanged for one track at a time, and was about 0.05 GB higher with 4 at once. The measurements are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md).
+Measuring the tuning adds 0.02 to 0.03 CPU seconds to the analysis of a track, 2 to 4% of a two minute preview and less of a longer track. The key over time costs nothing beyond the key. The note spectrum for the pitch-class profile takes about 0.14 CPU seconds per two minute preview. With drone-v2 following the key instead of libkeyfinder, the key analysis of the `auto` engine takes 0.38 CPU seconds per preview against 0.43 before, and 1.09 against 1.33 on full length tracks of 6.4 minutes on average. The measurements are in [bench/results/giantsteps.md](https://github.com/lvndry/euphoria/blob/main/bench/results/giantsteps.md#without-libkeyfinder).
 
 ## Beat grid
 
