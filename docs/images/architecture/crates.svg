@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="646" viewBox="0 0 800 646" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">The crates of the workspace</title>
-<desc id="chart-desc">Three crates, euphoria-cli in apps/euphoria-cli, euphoria-desktop in apps/euphoria-desktop, euphoria-bench in crates/euphoria-bench, each point down to euphoria-core, and none to another. euphoria-core, in crates/euphoria-core, holds all product logic in its modules. Find and decode: library, audio, audio_stream, track_name; Analyze: analysis, detect, key, confidence, tempo_range, energy, quality; Keep and share: cache, correction, playlists, harmony, tags, export. Its main libraries are libkeyfinder, stratum-dsp, Symphonia, blake3, rusqlite, ebur128, rustfft; libkeyfinder, a C++ library, is drawn dashed because it is behind the optional libkeyfinder feature, on by default.</desc>
+<desc id="chart-desc">Three crates, euphoria-cli in apps/euphoria-cli, euphoria-desktop in apps/euphoria-desktop, euphoria-bench in crates/euphoria-bench, each point down to euphoria-core, and none to another. euphoria-core, in crates/euphoria-core, holds all product logic in its modules. Find and decode: library, audio, audio_stream, track_name; Analyze: analysis, detect, key, confidence, tempo_range, energy, quality; Keep and share: cache, correction, playlists, harmony, tags, export. Its main libraries are matrixmultiply, stratum-dsp, Symphonia, blake3, rusqlite, ebur128, rustfft.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -77,9 +77,9 @@
 <text x="40" y="492" class="label" text-anchor="start">The main libraries euphoria-core builds on</text>
 <line x1="400" y1="430" x2="400" y2="461" class="arrow"/>
 <path d="M395,461 L405,461 L400,468 Z" class="arrow-head"/>
-<rect x="36" y="498" width="237.33" height="52" rx="8" class="box box-optional"/>
-<text x="48" y="520" class="group" text-anchor="start">libkeyfinder</text>
-<text x="48" y="538" class="small" text-anchor="start">key, C++, optional</text>
+<rect x="36" y="498" width="237.33" height="52" rx="8" class="box"/>
+<text x="48" y="520" class="group" text-anchor="start">matrixmultiply</text>
+<text x="48" y="538" class="small" text-anchor="start">the drone-v2 key network</text>
 <rect x="281.33" y="498" width="237.33" height="52" rx="8" class="box"/>
 <text x="293.33" y="520" class="group" text-anchor="start">stratum-dsp</text>
 <text x="293.33" y="538" class="small" text-anchor="start">tempo</text>

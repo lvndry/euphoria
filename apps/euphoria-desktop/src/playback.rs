@@ -803,16 +803,17 @@ pub(crate) struct TrackSource {
 }
 
 impl TrackSource {
-    /// Opens the file at `path` positioned `from_seconds` in, decodes its
-    /// first chunk and starts the decoder thread. This reads the start of
-    /// the file, so call it off the main thread.
+    /// Opens the file at `path` positioned `from_seconds` in, unshifted.
+    #[cfg(test)]
     pub(crate) fn open(path: &Path, from_seconds: f32) -> Result<Self, PlaybackProblem> {
         Self::open_shifted(path, from_seconds, 0)
     }
 
     /// Opens the file at `path` positioned `from_seconds` in, with its key
-    /// shifted by `semitones`. [`VoiceState::set_shift`] changes the shift
-    /// while it plays. Call this off the main thread.
+    /// shifted by `semitones`, decodes its first chunk and starts the
+    /// decoder thread. [`VoiceState::set_shift`] changes the shift while it
+    /// plays. This reads the start of the file, so call it off the main
+    /// thread.
     pub(crate) fn open_shifted(
         path: &Path,
         from_seconds: f32,
@@ -822,8 +823,8 @@ impl TrackSource {
         Self::start(Reader::File(stream), None, semitones, from_seconds)
     }
 
-    /// Opens the four stems of a track, to be mixed as `mix` says while
-    /// they play. Like [`TrackSource::open`], call it off the main thread.
+    /// Opens the four stems of a track, unshifted.
+    #[cfg(test)]
     pub(crate) fn open_stems(
         files: &StemFiles,
         mix: Arc<StemMix>,
@@ -832,8 +833,9 @@ impl TrackSource {
         Self::open_stems_shifted(files, mix, from_seconds, 0)
     }
 
-    /// Opens the four stems of a track like [`TrackSource::open_stems`],
-    /// with their key shifted by `semitones`.
+    /// Opens the four stems of a track, to be mixed as `mix` says while
+    /// they play, with their key shifted by `semitones`. Like
+    /// [`TrackSource::open_shifted`], call it off the main thread.
     pub(crate) fn open_stems_shifted(
         files: &StemFiles,
         mix: Arc<StemMix>,
@@ -1131,8 +1133,8 @@ impl rodio::Source for TrackSource {
     }
 }
 
-/// What the player asks the output to open: a track's file or its stems,
-/// where to start, and the key shift.
+/// What the player or a deck asks the output to open: a track's file or
+/// its stems, where to start, and the key shift.
 pub(crate) struct OpenRequest {
     pub(crate) path: PathBuf,
     pub(crate) from_seconds: f32,

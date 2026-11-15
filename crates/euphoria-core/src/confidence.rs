@@ -3,7 +3,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::key_engine::KeySource;
+use crate::key_source::KeySource;
 
 /// How far to trust a detected key or tempo.
 ///

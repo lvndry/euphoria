@@ -5,16 +5,12 @@
 //! product can swap implementations.
 
 mod beat_grid;
-#[cfg(feature = "libkeyfinder")]
-mod chromagram;
 mod cues;
 mod decimate;
 #[cfg(feature = "drone")]
 mod drone;
-#[cfg(any(feature = "libkeyfinder", feature = "drone"))]
+#[cfg(feature = "drone")]
 mod key_sections;
-#[cfg(feature = "libkeyfinder")]
-mod keyfinder;
 mod note_spectrum;
 mod sections;
 mod stratum;
@@ -27,8 +23,6 @@ pub use beat_grid::{BeatGrid, detect_beat_grid};
 pub use cues::{CueSection, MAXIMUM_CUES, SectionCue, cues_on_grid, detect_beat_grid_and_cues};
 #[cfg(feature = "drone")]
 pub use drone::{DroneDetector, KeyProbabilities};
-#[cfg(feature = "libkeyfinder")]
-pub use keyfinder::{KeyDecision, KeyFinderDetector, KeyFinderVariant, KeyFollowing};
 pub(crate) use note_spectrum::pitch_class_profile as pitch_class_profile_at;
 pub use stratum::StratumDetector;
 pub use tuning::{Tuning, measure_tuning};
@@ -37,43 +31,31 @@ use crate::audio::AudioBuffer;
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::error::EuphoriaError;
 use crate::key::Key;
-use crate::key_engine::{KeyEngine, KeySource};
+use crate::key_source::KeySource;
 use crate::tempo_range::TempoRange;
 
-/// Reads the key of a track with `engine`, falling back to what the build
-/// has when it lacks the engine's detectors.
-///
-/// - [`KeyEngine::Auto`] and [`KeyEngine::Drone`]: drone-v2 decides the key
-///   and follows it over time, after a track measured at least 20 cents
-///   from concert pitch is brought back to it.
-/// - [`KeyEngine::KeyFinder`]: libkeyfinder with tuning correction.
-///
-/// Without either detector, `stratum-dsp` finds the key, with no margin,
-/// and the tuning is measured without being corrected for.
-pub fn read_key(engine: KeyEngine, audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
+/// Reads the key of a track: drone-v2 decides the key and follows it over
+/// time, after a track measured at least 20 cents from concert pitch is
+/// brought back to it. In builds without the `drone` feature, `stratum-dsp`
+/// finds the key, with no margin and no key over time, and the tuning is
+/// measured without being corrected for.
+pub fn read_key(audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
+    let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
     #[cfg(feature = "drone")]
-    if engine != KeyEngine::KeyFinder || !cfg!(feature = "libkeyfinder") {
-        let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
+    {
         let reading = DroneDetector.read_key_over_time(audio, tuning_cents)?;
         let pitch_class_profile = reading
             .key
             .and_then(|_| crate::pitch_classes::profile_of_audio(audio, tuning_cents));
-        return Ok(KeyReading {
+        Ok(KeyReading {
             tuning_cents,
             pitch_class_profile,
             ..reading
-        });
+        })
     }
-    #[cfg(feature = "libkeyfinder")]
+    #[cfg(not(feature = "drone"))]
     {
-        let _ = engine;
-        KeyFinderDetector.read_key(audio)
-    }
-    #[cfg(not(feature = "libkeyfinder"))]
-    {
-        let _ = engine;
         let key = StratumDetector.detect_key(audio)?;
-        let tuning_cents = measure_tuning(audio).map(|tuning| tuning.cents);
         Ok(KeyReading {
             key,
             tuning_cents,

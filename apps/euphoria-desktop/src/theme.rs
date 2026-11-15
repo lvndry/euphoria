@@ -412,7 +412,7 @@ impl AppTheme {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use gpui::Rgba;
 
     use super::*;
@@ -441,7 +441,7 @@ mod tests {
         0.2126 * linear(rgba.r) + 0.7152 * linear(rgba.g) + 0.0722 * linear(rgba.b)
     }
 
-    fn contrast(first: Hsla, second: Hsla) -> f32 {
+    pub(crate) fn contrast(first: Hsla, second: Hsla) -> f32 {
         let lighter = luminance(first).max(luminance(second));
         let darker = luminance(first).min(luminance(second));
         (lighter + 0.05) / (darker + 0.05)

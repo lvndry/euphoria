@@ -119,6 +119,11 @@ fn bar(fixture: &Fixture, cx: &mut TestAppContext) -> BarContent {
     cx.update(|cx| content(fixture.view.read(cx)))
 }
 
+fn now_playing(fixture: &Fixture, cx: &mut TestAppContext) -> crate::media_keys::NowPlaying {
+    cx.update(|cx| fixture.view.read(cx).now_playing())
+        .expect("the player holds a track")
+}
+
 fn held(fixture: &Fixture, cx: &mut TestAppContext) -> Option<PathBuf> {
     cx.update(|cx| fixture.view.read(cx).player.track().map(Path::to_path_buf))
 }
@@ -218,6 +223,13 @@ fn a_slow_track_leaves_the_bar_on_the_one_heard_until_both_switch_together(
     assert_eq!(fixture.output.sounding(), std::slice::from_ref(&flac));
     bar_is_all_of(&fixture, fixture.flac, "7:01", cx);
     assert_eq!(bar(&fixture, cx).position, "3:42");
+    let flac_title = title_of(&fixture, fixture.flac, cx);
+    let shown = now_playing(&fixture, cx);
+    assert_eq!(shown.path.as_deref(), Some(flac.as_path()));
+    assert_eq!(shown.title, flac_title);
+    assert_eq!(shown.duration_seconds, Some(421.0));
+    assert!((shown.elapsed_seconds - 222.0).abs() < 0.01);
+    assert!(shown.playing);
     let mp3_title = title_of(&fixture, fixture.mp3, cx);
     assert_eq!(
         bar(&fixture, cx).detail,
@@ -228,10 +240,14 @@ fn a_slow_track_leaves_the_bar_on_the_one_heard_until_both_switch_together(
     settle(&fixture, cx);
 
     assert_eq!(fixture.output.sounding(), std::slice::from_ref(&mp3));
-    assert_eq!(held(&fixture, cx), Some(mp3));
+    assert_eq!(held(&fixture, cx), Some(mp3.clone()));
     assert_eq!(status(&fixture, cx), PlayerStatus::Playing);
     bar_is_all_of(&fixture, fixture.mp3, "5:00", cx);
     assert_eq!(bar(&fixture, cx).position, "0:00");
+    let shown = now_playing(&fixture, cx);
+    assert_eq!(shown.path.as_deref(), Some(mp3.as_path()));
+    assert_eq!(shown.title, mp3_title);
+    assert_eq!(shown.duration_seconds, Some(300.0));
     assert!(matches!(
         bar(&fixture, cx).detail,
         Some(BarDetail::Artist(_))

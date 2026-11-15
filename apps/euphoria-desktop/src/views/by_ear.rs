@@ -12,15 +12,14 @@ use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    ClickEvent, Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, hsla, px,
-    relative,
+    ClickEvent, Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
 use crate::key_by_ear::{ARPEGGIO_STEP, LEVEL_STEPS, scale_of};
 use crate::library::Track;
 use crate::tag_settings::NotationChoice;
-use crate::theme::Palette;
+use crate::theme::{Palette, blend};
 use crate::views::controls::choice_button;
 use crate::views::inspector::shown_runner_up;
 use crate::views::key_chip::key_chip;
@@ -326,14 +325,116 @@ pub(crate) fn section(
             .child(piano(key, app, &palette, cx))
             .child(
                 div()
+                    .id("piano-legend")
                     .text_size(SMALL_TEXT_SIZE)
                     .text_color(palette.text_tertiary)
                     .child(format!(
-                        "The notes of {} are marked. Play along to hear which fit.",
+                        "Marked: notes of {}. Lit: playing.",
                         notation.spell(&key)
-                    )),
+                    ))
+                    .test_support(),
             ),
     )
+}
+
+/// The ivory of the white keys, the same in every theme.
+const IVORY: Hsla = Hsla {
+    h: 0.0,
+    s: 0.0,
+    l: 0.95,
+    a: 1.0,
+};
+
+/// The ebony of the black keys, the same in every theme.
+const EBONY: Hsla = Hsla {
+    h: 0.0,
+    s: 0.0,
+    l: 0.14,
+    a: 1.0,
+};
+
+/// The note names on the white keys.
+const INK: Hsla = Hsla {
+    h: 0.0,
+    s: 0.0,
+    l: 0.2,
+    a: 1.0,
+};
+
+/// How much accent tints a white key of the scale.
+const WHITE_SCALE_TINT: f32 = 0.25;
+
+/// How much accent tints a black key of the scale, which stays dark so it
+/// never reads as sounding.
+const BLACK_SCALE_TINT: f32 = 0.3;
+
+/// The least lightness of the bar on a black key of the scale, so a dark
+/// accent still shows on ebony.
+const MARK_LIGHTNESS: f32 = 0.7;
+
+/// How a piano key is painted.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct KeyLook {
+    /// The key itself.
+    pub(crate) fill: Hsla,
+    /// The bar near the bottom of a black key of the scale.
+    pub(crate) mark: Option<Hsla>,
+    /// The note name on a white key.
+    pub(crate) ink: Hsla,
+}
+
+/// True for the pitch classes of the black keys.
+fn is_black(pitch_class: u8) -> bool {
+    BLACK_KEYS
+        .iter()
+        .any(|&(black_pitch_class, _)| black_pitch_class == pitch_class)
+}
+
+/// The colour of a key whose note is sounding, white or black.
+pub(crate) fn sounding_fill(palette: &Palette) -> Hsla {
+    palette.accent
+}
+
+/// How the key `pitch_class` is painted on the piano of `key`, `glow` of
+/// the way from resting (0) to sounding (1). A key at rest is ivory or
+/// ebony, a key of the scale keeps its ivory or ebony with a touch of
+/// accent (a tint on white, a tint and a bar on black), and a sounding key
+/// is filled with the full accent.
+pub(crate) fn key_look(pitch_class: u8, key: Key, glow: f32, palette: &Palette) -> KeyLook {
+    let in_scale = scale_of(key).contains(&pitch_class);
+    let sounding = sounding_fill(palette);
+    let glow = glow.clamp(0.0, 1.0);
+    let (resting, mark) = match (is_black(pitch_class), in_scale) {
+        (false, false) => (IVORY, None),
+        (false, true) => (blend(palette.accent, IVORY, WHITE_SCALE_TINT), None),
+        (true, false) => (EBONY, None),
+        (true, true) => (
+            blend(palette.accent, EBONY, BLACK_SCALE_TINT),
+            Some(Hsla {
+                l: palette.accent.l.max(MARK_LIGHTNESS),
+                ..palette.accent
+            }),
+        ),
+    };
+    KeyLook {
+        fill: if glow >= 1.0 {
+            sounding
+        } else {
+            blend(sounding, resting, glow)
+        },
+        mark: mark.map(|mark| blend(sounding, mark, glow)),
+        ink: if glow < 0.5 { INK } else { palette.accent_ink },
+    }
+}
+
+/// How each of the twelve keys of the piano of `key` is painted now, by
+/// pitch class from C.
+pub(crate) fn piano_looks(key: Key, app: &EuphoriaApp) -> [KeyLook; 12] {
+    let palette = app.theme.palette;
+    std::array::from_fn(|pitch_class| {
+        let pitch_class = pitch_class as u8;
+        key_look(pitch_class, key, app.by_ear.glow(pitch_class), &palette)
+    })
 }
 
 /// One octave of piano from middle C, with the notes of `key`'s scale
@@ -342,30 +443,11 @@ fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eu
     let scale = scale_of(key);
     let in_scale = |pitch_class: u8| scale.contains(&pitch_class);
     let is_root = |pitch_class: u8| pitch_class == key.tonic();
-    // A piano has ivory and ebony keys in every theme; the scale is marked
-    // in the theme's accent, light on the white keys and deep on the black.
-    let ivory = hsla(0.0, 0.0, 0.95, 1.0);
-    let ebony = hsla(0.0, 0.0, 0.14, 1.0);
-    let ink = hsla(0.0, 0.0, 0.2, 1.0);
-    let light_accent = Hsla {
-        l: 0.8,
-        ..palette.accent
-    };
-    let deep_accent = Hsla {
-        l: 0.4,
-        ..palette.accent
-    };
-    let pressed = palette.accent;
-    let by_ear = &app.by_ear;
+    let pressed = sounding_fill(palette);
+    let looks = piano_looks(key, app);
 
     let white_keys = WHITE_KEYS.iter().map(|&pitch_class| {
-        let background = if by_ear.is_lit(pitch_class) {
-            pressed
-        } else if in_scale(pitch_class) {
-            light_accent
-        } else {
-            ivory
-        };
+        let look = looks[usize::from(pitch_class)];
         div()
             .id(("piano-key", usize::from(pitch_class)))
             .flex()
@@ -378,11 +460,11 @@ fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eu
             .border_1()
             .border_color(palette.line)
             .rounded_b(RADIUS_SMALL)
-            .bg(background)
+            .bg(look.fill)
             .cursor_pointer()
             .active(move |style| style.bg(pressed))
             .text_size(LABEL_TEXT_SIZE)
-            .text_color(ink)
+            .text_color(look.ink)
             .when(is_root(pitch_class), |key| {
                 key.font_weight(FontWeight::BOLD).underline()
             })
@@ -398,13 +480,7 @@ fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eu
 
     let black_keys = BLACK_KEYS.iter().map(|&(pitch_class, after_white)| {
         let left = (after_white + 1) as f32 / WHITE_KEYS.len() as f32 - BLACK_KEY_WIDTH / 2.0;
-        let background = if by_ear.is_lit(pitch_class) {
-            pressed
-        } else if in_scale(pitch_class) {
-            deep_accent
-        } else {
-            ebony
-        };
+        let look = looks[usize::from(pitch_class)];
         div()
             .id(("piano-key", usize::from(pitch_class)))
             .absolute()
@@ -413,9 +489,21 @@ fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eu
             .w(relative(BLACK_KEY_WIDTH))
             .h(relative(0.6))
             .rounded_b(RADIUS_SMALL)
-            .bg(background)
+            .bg(look.fill)
             .when(is_root(pitch_class), |key| {
-                key.border_2().border_color(ivory)
+                key.border_2().border_color(IVORY)
+            })
+            .when_some(look.mark, |key, mark| {
+                key.child(
+                    div()
+                        .absolute()
+                        .bottom(px(5.0))
+                        .left(relative(0.2))
+                        .w(relative(0.6))
+                        .h(px(3.0))
+                        .rounded_full()
+                        .bg(mark),
+                )
             })
             .cursor_pointer()
             .active(move |style| style.bg(pressed))
@@ -444,6 +532,56 @@ fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::tests::contrast;
+    use crate::theme::{AppTheme, ThemeName};
+
+    #[test]
+    fn the_three_states_of_a_key_stand_apart_in_every_theme() {
+        let d_minor = Key::new(2, Mode::Minor);
+        let b_flat = 10;
+        let c_sharp = 1;
+        let d_natural = 2;
+        let e_flat = 3;
+        for theme in ThemeName::ALL {
+            let palette = AppTheme::named(theme).palette;
+            let sounding = sounding_fill(&palette);
+            let marked_black = key_look(b_flat, d_minor, 0.0, &palette);
+            let plain_black = key_look(c_sharp, d_minor, 0.0, &palette);
+            let marked_white = key_look(d_natural, d_minor, 0.0, &palette);
+            assert_eq!(key_look(e_flat, d_minor, 0.0, &palette).fill, EBONY);
+            assert!(
+                contrast(marked_black.fill, sounding) >= 1.5,
+                "{theme:?}: a marked black key is far darker than a sounding one"
+            );
+            assert!(
+                contrast(marked_white.fill, sounding) >= 1.5,
+                "{theme:?}: a marked white key is far lighter than a sounding one"
+            );
+            assert_ne!(marked_black.fill, plain_black.fill, "{theme:?}");
+            let mark = marked_black.mark.unwrap();
+            assert!(
+                contrast(mark, marked_black.fill) >= 3.0,
+                "{theme:?}: the bar shows on the black key"
+            );
+            assert!(plain_black.mark.is_none(), "{theme:?}");
+            assert!(
+                contrast(INK, marked_white.fill) >= 4.5,
+                "{theme:?}: the note name reads on a marked key"
+            );
+
+            let lit_black = key_look(b_flat, d_minor, 1.0, &palette);
+            let lit_white = key_look(d_natural, d_minor, 1.0, &palette);
+            assert_eq!(lit_black.fill, sounding, "{theme:?}");
+            assert_eq!(lit_white.fill, sounding, "{theme:?}");
+            assert!(
+                contrast(lit_white.ink, sounding) >= 4.5,
+                "{theme:?}: the note name reads on a sounding key"
+            );
+            let halfway = key_look(b_flat, d_minor, 0.5, &palette);
+            assert_ne!(halfway.fill, marked_black.fill, "{theme:?}: it fades");
+            assert_ne!(halfway.fill, sounding, "{theme:?}: it fades");
+        }
+    }
 
     #[test]
     fn the_picker_follows_the_camelot_wheel() {
