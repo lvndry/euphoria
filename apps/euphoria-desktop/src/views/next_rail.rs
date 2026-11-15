@@ -165,7 +165,7 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
                 div().flex().flex_shrink_0().w(px(38.0)).children(
                     track
                         .key()
-                        .map(|key| key_chip(&key, &app.theme, app.display.key_notation)),
+                        .map(|key| key_chip(&key, &app.theme, app.tag_settings.key_notation)),
                 ),
             )
             .child(
