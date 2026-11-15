@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Builds the desktop app in release mode and packages it for Linux as an
-# AppImage, one file that runs on a desktop without libkeyfinder or FFTW:
+# AppImage, one file that runs on a desktop without the ONNX Runtime:
 #
 #   ./scripts/bundle-linux.sh
 #   ./target/release/bundle/Euphoria-<version>-<architecture>.AppImage
@@ -12,7 +12,8 @@
 # target/release/bundle/Euphoria-<version>-<architecture>.AppImage. Pass
 # --skip-build to package the binary already in target/release.
 #
-# libkeyfinder and FFTW are copied into usr/lib by scripts/linux_libraries.py,
+# The libraries the app links that are not part of the base system, such as
+# the ONNX Runtime, are copied into usr/lib by scripts/linux_libraries.py,
 # which gives the app the run path $ORIGIN/../lib, and the script then checks
 # that every library of every binary in the AppDir is part of the base system
 # or of the AppDir. The AppImage is made with appimagetool and the AppImage

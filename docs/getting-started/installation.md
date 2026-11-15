@@ -41,7 +41,7 @@ The app:
 
 The app needs a Mac with Apple Silicon, and at least the macOS version the release notes give, which is the newest minimum of any binary in the app: macOS 15 for the current release.
 
-The command line tool is in `euphoria-<version>-aarch64-apple-darwin.tar.gz` on the same page. It carries its own copy of libkeyfinder, so it needs nothing else:
+The command line tool is in `euphoria-<version>-aarch64-apple-darwin.tar.gz` on the same page. It needs nothing else:
 
 ```
 tar -xzf euphoria-*-aarch64-apple-darwin.tar.gz
@@ -63,7 +63,7 @@ The last command must print `OK` for the tarball before you unpack it: it proves
 
 ## Download for Linux
 
-The Linux files are built for x86_64 and need glibc 2.35 or later, which Ubuntu 22.04, Debian 12, Fedora 36 and newer have; the release notes give the exact minimum of each release, read from the files themselves. `ldd --version` shows the glibc you have. They carry their own copy of libkeyfinder and FFTW, so nothing has to be installed first.
+The Linux files are built for x86_64 and need glibc 2.35 or later, which Ubuntu 22.04, Debian 12, Fedora 36 and newer have; the release notes give the exact minimum of each release, read from the files themselves. `ldd --version` shows the glibc you have. They carry their own copy of the libraries they need beyond the base system, so nothing has to be installed first.
 
 The app is an AppImage, one file that runs without installing:
 
@@ -113,10 +113,10 @@ The first line reads the newest version from the releases page; set `version` yo
 
 ## Build from source on macOS
 
-Install the build tools and libkeyfinder, the key detection library Euphoria uses, with [Homebrew](https://brew.sh):
+Install Rust with [Homebrew](https://brew.sh), and the Xcode Command Line Tools (`xcode-select --install`, already there if Homebrew is) for the C++ compiler:
 
 ```
-brew install rust cmake libkeyfinder
+brew install rust
 ```
 
 Then build Euphoria:
@@ -144,7 +144,7 @@ It writes `target/release/bundle/Euphoria.app` and `target/release/bundle/Euphor
 cp -R target/release/bundle/Euphoria.app /Applications/
 ```
 
-The app carries its own copy of libkeyfinder and FFTW, so it keeps working if you uninstall them from Homebrew, and you can copy it to another Mac. It needs the macOS version the script prints when it finishes: the newest minimum macOS of any binary in the bundle, which is also written into the app as `LSMinimumSystemVersion`. The libraries copied from Homebrew usually set it, because Homebrew builds them for the macOS it is installed on, so a bundle built on a newer Mac can need a newer macOS.
+The app needs no library from Homebrew, so you can copy it to another Mac. It needs the macOS version the script prints when it finishes: the newest minimum macOS of any binary in the bundle, which is also written into the app as `LSMinimumSystemVersion`.
 
 ## Opening the app for the first time
 
@@ -157,13 +157,12 @@ If the dialog has no **Open** button, as on recent macOS versions, choose **Done
 
 ## Build from source on Debian and Ubuntu
 
-These distributions do not package libkeyfinder, so a script in the repository builds it first. Install Rust with [rustup](https://rustup.rs), because the distribution's `cargo` is often older than Euphoria needs, then:
+Install Rust with [rustup](https://rustup.rs), because the distribution's `cargo` is often older than Euphoria needs, then:
 
 ```
-sudo apt-get install build-essential cmake pkg-config libfftw3-dev
+sudo apt-get install build-essential
 git clone https://github.com/lvndry/euphoria.git
 cd euphoria
-./.github/scripts/install-libkeyfinder.sh
 cargo install --path apps/euphoria-cli
 ```
 
@@ -187,7 +186,7 @@ sudo apt-get install patchelf librsvg2-bin
 
 It writes `target/release/bundle/Euphoria-<version>-<architecture>.AppImage`. A build made on a newer distribution needs that distribution's glibc or newer; the script prints the minimum when it finishes.
 
-On other distributions, install the same libraries under their names there (Fedora: `fftw-devel alsa-lib-devel fontconfig-devel freetype-devel wayland-devel libxcb-devel libxkbcommon-x11-devel clang-devel`).
+On other distributions, install the same libraries under their names there (Fedora: `alsa-lib-devel fontconfig-devel freetype-devel wayland-devel libxcb-devel libxkbcommon-x11-devel clang-devel`).
 
 ## Check the installation
 

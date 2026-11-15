@@ -3,7 +3,7 @@
 """Tests of scripts/linux_libraries.py, on libraries and programs built here
 with cc. Needs Linux, cc, patchelf and readelf. The real build is the one
 named by EUPHORIA_LINKED_BINARY, such as CI's debug build of the euphoria
-command, which links libkeyfinder and FFTW.
+command, which links the ONNX Runtime from /usr/local/lib.
 
     EUPHORIA_LINKED_BINARY=target/debug/euphoria \\
         python3 -m unittest scripts/test_linux_libraries.py
@@ -322,7 +322,7 @@ class SyntheticLibraryTests(unittest.TestCase):
     "needs Linux tools and EUPHORIA_LINKED_BINARY",
 )
 class RealBuildTests(unittest.TestCase):
-    def test_the_real_build_carries_libkeyfinder_and_fftw_and_runs(self):
+    def test_the_real_build_carries_the_onnx_runtime_and_runs(self):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder) / "euphoria"
             (root / "bin").mkdir(parents=True)
@@ -330,9 +330,7 @@ class RealBuildTests(unittest.TestCase):
             shutil.copy(os.environ["EUPHORIA_LINKED_BINARY"], executable)
             linux_libraries.bundle(root, executable, root / "lib", "$ORIGIN/../lib")
             bundled = sorted(path.name for path in (root / "lib").iterdir())
-            self.assertTrue(any(name.startswith("libkeyfinder") for name in bundled), bundled)
-            self.assertIn("libfftw3.so.3", bundled)
-            self.assertIn("libfftw3_threads.so.3", bundled)
+            self.assertTrue(any(name.startswith("libonnxruntime") for name in bundled), bundled)
             self.assertEqual(linux_libraries.verify(root, executable), [])
             self.assertRegex(linux_libraries.minimum_glibc([root]), r"^2\.[0-9]+$")
             result = subprocess.run(
