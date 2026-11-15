@@ -51,6 +51,7 @@ pub fn cue_sheet(
 ) -> String {
     let file_type = match format {
         MixFormat::Wav | MixFormat::Flac => "WAVE",
+        MixFormat::Mp3 { .. } => "MP3",
     };
     let mut sheet = String::new();
     let _ = writeln!(sheet, "TITLE \"{}\"", cue_text(title));

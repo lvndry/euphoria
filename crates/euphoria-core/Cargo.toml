@@ -44,6 +44,9 @@ roxmltree.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
 ort = { workspace = true, optional = true }
+# Writes rendered mixes as MP3 with LAME, compiled from the source vendored
+# in mp3lame-sys. LGPL: see deny.toml and licenses/.
+mp3lame-encoder = { workspace = true, optional = true }
 rubato = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
@@ -69,7 +72,7 @@ roxmltree.workspace = true
 tempfile.workspace = true
 
 [features]
-default = ["libkeyfinder", "pitch-shift", "drone"]
+default = ["libkeyfinder", "pitch-shift", "drone", "mp3"]
 # Key detection with drone-v2, a small neural network that ships inside the
 # library and runs on the CPU in plain Rust.
 drone = ["dep:matrixmultiply"]
@@ -79,6 +82,10 @@ libkeyfinder = ["dep:cc", "dep:pkg-config"]
 # in vendor/ and compiled with the crate: it needs a C++ compiler but not
 # libclang.
 pitch-shift = ["dep:cc"]
+# Writing rendered mixes as MP3 with LAME, a C library vendored in the
+# mp3lame-sys crate and compiled with the crate: it needs a C compiler, no
+# system library.
+mp3 = ["pitch-shift", "dep:mp3lame-encoder"]
 # Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
 # which is linked statically and adds tens of megabytes to the binary.
 stems = ["pitch-shift", "dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
