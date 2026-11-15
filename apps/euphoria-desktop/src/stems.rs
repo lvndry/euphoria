@@ -11,7 +11,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::EuphoriaError;
-use euphoria_core::stems::{CachedSeparator, SeparationObserver, SeparationStage, StemFiles};
+use euphoria_core::stems::{CachedSeparator, SeparationObserver, SeparationStage, Stem, StemFiles};
 
 use crate::playback::StemMix;
 
@@ -119,6 +119,46 @@ impl StemMode {
     }
 }
 
+/// A stem picked out from the lanes: heard alone, or left out of the full
+/// track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StemFocus {
+    Solo(Stem),
+    Mute(Stem),
+}
+
+impl StemFocus {
+    pub(crate) fn is_audible(self, stem: Stem) -> bool {
+        match self {
+            StemFocus::Solo(only) => stem == only,
+            StemFocus::Mute(left_out) => stem != left_out,
+        }
+    }
+
+    /// What the control near the lanes says.
+    pub(crate) fn summary(self) -> String {
+        match self {
+            StemFocus::Solo(stem) => format!("Solo: {}", stem.label()),
+            StemFocus::Mute(stem) => format!("Muted: {}", stem.label()),
+        }
+    }
+
+    /// The focus a click on the label of `stem` leads to from `current`: a
+    /// second click of the same kind returns to the full track.
+    pub(crate) fn after_click(
+        current: Option<StemFocus>,
+        stem: Stem,
+        mutes: bool,
+    ) -> Option<StemFocus> {
+        let wanted = if mutes {
+            StemFocus::Mute(stem)
+        } else {
+            StemFocus::Solo(stem)
+        };
+        (current != Some(wanted)).then_some(wanted)
+    }
+}
+
 /// The stems of one track, or where getting them stands.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum StemStatus {
@@ -216,6 +256,7 @@ pub(crate) struct StemSession {
     separation: Arc<Mutex<Option<Box<dyn StemSeparation>>>>,
     factory: SeparationFactory,
     mode: StemMode,
+    focus: Option<StemFocus>,
     mix: Arc<StemMix>,
 }
 
@@ -227,6 +268,7 @@ impl StemSession {
             separation: Arc::new(Mutex::new(None)),
             factory,
             mode: StemMode::default(),
+            focus: None,
             mix: Arc::new(StemMix::default()),
         }
     }
@@ -247,7 +289,8 @@ impl StemSession {
     /// The stem files to play in place of the track at `path`: its stems
     /// once they are separated, unless the full track is to be heard.
     pub(crate) fn files_to_play(&self, path: &Path) -> Option<StemFiles> {
-        self.ready_files(path).filter(|_| self.mode.plays_stems())
+        self.ready_files(path)
+            .filter(|_| self.mode.plays_stems() || self.focus.is_some())
     }
 
     /// Deletes the separated stems of the track at `path`, so that it can
@@ -344,10 +387,28 @@ impl StemSession {
     /// What the user hears of the separated tracks, with the sound told to
     /// follow. Returns true when the mix changed.
     pub(crate) fn set_mode(&mut self, mode: StemMode) -> bool {
-        if self.mode == mode {
+        if self.mode == mode && self.focus.is_none() {
             return false;
         }
         self.mode = mode;
+        self.focus = None;
+        self.update_mix();
+        true
+    }
+
+    /// The stem picked out from the lanes, if one is.
+    pub(crate) fn focus(&self) -> Option<StemFocus> {
+        self.focus
+    }
+
+    /// Picks a stem out from the lanes, or returns to the full track with
+    /// `None`. Returns true when the mix changed.
+    pub(crate) fn set_focus(&mut self, focus: Option<StemFocus>) -> bool {
+        if self.focus == focus {
+            return false;
+        }
+        self.focus = focus;
+        self.mode = StemMode::Full;
         self.update_mix();
         true
     }
@@ -358,8 +419,10 @@ impl StemSession {
     }
 
     fn update_mix(&self) {
-        self.mix
-            .set_audible(|stem| self.mode.audible_stems()[stem as usize]);
+        self.mix.set_audible(|stem| match self.focus {
+            Some(focus) => focus.is_audible(stem),
+            None => self.mode.audible_stems()[stem as usize],
+        });
     }
 }
 
@@ -426,6 +489,67 @@ mod tests {
                 .enumerate()
                 .all(|(index, _)| mix.gain(index) > 0.99)
         );
+    }
+
+    #[test]
+    fn soloing_a_stem_lets_only_it_through_and_a_second_click_restores_the_full_track() {
+        let mut session = StemSession::new(failing);
+        let mix = session.mix();
+        let gains = |mix: &StemMix| Stem::ALL.map(|stem| mix.gain(stem as usize));
+
+        let solo = StemFocus::after_click(session.focus(), Stem::Bass, false);
+        assert_eq!(solo, Some(StemFocus::Solo(Stem::Bass)));
+        assert!(session.set_focus(solo));
+        for stem in Stem::ALL {
+            assert_eq!(
+                mix.gain(stem as usize) > 0.99,
+                stem == Stem::Bass,
+                "{stem:?}"
+            );
+        }
+        assert_eq!(
+            StemFocus::after_click(session.focus(), Stem::Drums, false),
+            Some(StemFocus::Solo(Stem::Drums))
+        );
+
+        let restored = StemFocus::after_click(session.focus(), Stem::Bass, false);
+        assert_eq!(restored, None);
+        assert!(session.set_focus(restored));
+        assert!(gains(&mix).iter().all(|gain| *gain > 0.99));
+        assert!(!session.set_focus(None));
+    }
+
+    #[test]
+    fn muting_a_stem_keeps_the_others_and_choosing_a_mode_clears_it() {
+        let mut session = StemSession::new(failing);
+        let mix = session.mix();
+        let track = Path::new("/music/track.mp3");
+        session.mark_ready(
+            track,
+            StemFiles::in_directory(PathBuf::from("/stems/track")),
+        );
+        assert_eq!(session.files_to_play(track), None);
+
+        let muted = StemFocus::after_click(session.focus(), Stem::Drums, true);
+        assert_eq!(muted, Some(StemFocus::Mute(Stem::Drums)));
+        assert!(session.set_focus(muted));
+        assert!(session.files_to_play(track).is_some());
+        for stem in Stem::ALL {
+            assert_eq!(
+                mix.gain(stem as usize) > 0.99,
+                stem != Stem::Drums,
+                "{stem:?}"
+            );
+        }
+        assert_eq!(
+            StemFocus::after_click(session.focus(), Stem::Drums, true),
+            None
+        );
+
+        assert!(session.set_mode(StemMode::Full));
+        assert_eq!(session.focus(), None);
+        assert_eq!(session.files_to_play(track), None);
+        assert!(Stem::ALL.iter().all(|stem| mix.gain(*stem as usize) > 0.99));
     }
 
     #[test]

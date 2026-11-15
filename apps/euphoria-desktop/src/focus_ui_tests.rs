@@ -489,3 +489,195 @@ fn without_stems_one_card_replaces_the_vocals_and_stems_lanes(cx: &mut TestAppCo
         "no label column or prompt"
     );
 }
+
+fn open_focus_with_stems(
+    name: &str,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>, ScratchFolder) {
+    let scratch = ScratchFolder::new(name);
+    let (window, view) = open_cued_library(cx);
+    let files = write_stems_with_vocals_for(&scratch, 16, 6);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let path = app.selected_track().unwrap().path.clone();
+            app.stems.mark_ready(&path, files.clone());
+            app.load_focus_stems(cx);
+        })
+    });
+    cx.run_until_parked();
+    open_focus(window, cx);
+    (window, view, scratch)
+}
+
+fn gains(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> [f32; 4] {
+    cx.update(|cx| {
+        let mix = view.read(cx).stems.mix();
+        euphoria_core::stems::Stem::ALL.map(|stem| mix.gain(stem as usize))
+    })
+}
+
+const DRUMS: usize = euphoria_core::stems::Stem::Drums as usize;
+const BASS: usize = euphoria_core::stems::Stem::Bass as usize;
+const VOCALS: usize = euphoria_core::stems::Stem::Vocals as usize;
+
+#[gpui::test]
+fn every_stem_lane_is_labelled_and_the_vocals_lane_is_the_vocals_stem(cx: &mut TestAppContext) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-labels", cx);
+    for stem in euphoria_core::stems::Stem::ALL {
+        assert!(
+            is_shown(window, ("focus-stem-label", stem as usize), cx),
+            "{stem:?}"
+        );
+    }
+    assert!(!is_shown(window, "vocals-lane", cx), "one Vocals lane");
+    assert!(!is_shown(window, "vocals-label", cx));
+
+    let runs = cx.update(|cx| {
+        let app = view.read(cx);
+        let path = app.selected_track().unwrap().path.clone();
+        match app.focus.stems_of(&path) {
+            Some(crate::focus::StemsLane::Ready(activity)) => euphoria_core::stems::Stem::ALL
+                .map(|stem| crate::views::focus::runs_of(activity.windows_of(stem)).len()),
+            other => panic!("{other:?}"),
+        }
+    });
+    assert_eq!(runs[VOCALS], 1);
+    assert_eq!(&runs[..VOCALS], &[0, 0, 0]);
+    assert!(is_shown(window, ("focus-stem-run", VOCALS * 1000), cx));
+    assert!(!is_shown(window, ("focus-stem-run", DRUMS * 1000), cx));
+    cx.update_window(window, |_, window, _| {
+        let row = window.find(("focus-stem-row", VOCALS)).bounds();
+        let run = window.find(("focus-stem-run", VOCALS * 1000)).bounds();
+        assert_eq!(run.left(), row.left());
+        assert!(run.size.width < row.size.width);
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn the_energy_lane_sits_on_the_axis_its_tooltip_reads_the_pointer_against(cx: &mut TestAppContext) {
+    let (window, view) = open_cued_library(cx);
+    let steps: std::sync::Arc<[crate::track_overview::EnergyStep]> =
+        std::sync::Arc::from(vec![crate::track_overview::EnergyStep {
+            start: 0.0,
+            end: 1.0,
+            rating: Some(5),
+        }]);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.show_waveform(crate::waveforms::Waveform::Ready(
+                Vec::new().into(),
+                Some(crate::track_overview::EnergyCurve::Steps(steps)),
+            ));
+            cx.notify();
+        })
+    });
+    open_focus(window, cx);
+    assert!(is_shown(window, "energy-curve", cx));
+    let axis = cx
+        .update(|cx| view.read(cx).focus.axis_bounds.get())
+        .expect("the axis was drawn");
+    cx.update_window(window, |_, window, _| {
+        let energy = window.find("energy-curve").bounds();
+        assert_eq!(energy.left(), axis.left());
+        assert_eq!(energy.size.width, axis.size.width);
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn clicking_a_stem_label_solos_it_and_a_second_click_restores_the_full_track(
+    cx: &mut TestAppContext,
+) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-solo", cx);
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+    assert!(is_shown(window, "focus-stem-control", cx));
+
+    click(window, ("focus-stem-label", BASS), cx);
+    let soloed = gains(&view, cx);
+    assert!(
+        soloed
+            .iter()
+            .enumerate()
+            .all(|(index, gain)| (*gain > 0.99) == (index == BASS))
+    );
+    cx.update(|cx| {
+        assert!(view.read(cx).player.offers_stems() || view.read(cx).stems.focus().is_some())
+    });
+
+    click(window, ("focus-stem-label", DRUMS), cx);
+    let moved = gains(&view, cx);
+    assert!(
+        moved
+            .iter()
+            .enumerate()
+            .all(|(index, gain)| (*gain > 0.99) == (index == DRUMS))
+    );
+
+    click(window, ("focus-stem-label", DRUMS), cx);
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+    cx.update(|cx| assert_eq!(view.read(cx).stems.focus(), None));
+
+    click(window, ("focus-stem-label", VOCALS), cx);
+    click(window, "focus-stem-full-track", cx);
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+}
+
+#[gpui::test]
+fn option_clicking_a_stem_label_mutes_it_and_keeps_the_others(cx: &mut TestAppContext) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-mute", cx);
+    let option = gpui::Modifiers {
+        alt: true,
+        ..gpui::Modifiers::default()
+    };
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click_with_modifiers(("focus-stem-label", DRUMS), option, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    let muted = gains(&view, cx);
+    assert!(
+        muted
+            .iter()
+            .enumerate()
+            .all(|(index, gain)| (*gain < 0.01) == (index == DRUMS))
+    );
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).stems.focus(),
+            Some(crate::stems::StemFocus::Mute(
+                euphoria_core::stems::Stem::Drums
+            ))
+        )
+    });
+
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click_with_modifiers(("focus-stem-label", DRUMS), option, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+}
+
+#[gpui::test]
+fn changing_the_track_returns_to_the_full_track(cx: &mut TestAppContext) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-reset", cx);
+    click(window, ("focus-stem-label", VOCALS), cx);
+    assert!(gains(&view, cx).iter().any(|gain| *gain < 0.01));
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let other = if app.selected == Some(0) { 1 } else { 0 };
+            app.select(other, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.stems.focus(), None);
+        assert_eq!(app.stems.mode(), crate::stems::StemMode::Full);
+    });
+}
