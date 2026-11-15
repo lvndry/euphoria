@@ -43,6 +43,7 @@ fn analysed() -> TrackAnalysis {
         cues: Vec::new(),
         key_timeline: Vec::new(),
         quality: None,
+        loudness_range_lu: None,
     }
 }
 
