@@ -322,7 +322,7 @@ fn write_header(
 ) -> io::Result<()> {
     let key = playing.analysis.key.map_or_else(
         || theme.dim("no key"),
-        |key| theme.key(key, &notation.short(key)),
+        |key| theme.key(key, notation.short(key)),
     );
     let bpm = playing
         .analysis

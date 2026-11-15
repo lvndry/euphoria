@@ -6,7 +6,7 @@
 //! search box. The matching lives in the core, shared with the command line;
 //! this module adds what only the window needs.
 
-use euphoria_core::quality::{QualityReport, QualityVerdict};
+use euphoria_core::quality::QualityReport;
 pub(crate) use euphoria_core::track_filter::{MAXIMUM_ENERGY, MINIMUM_ENERGY};
 pub(crate) use euphoria_core::{FilterableTrack, QualityChoice, TrackFilters, TypedTrackFilters};
 
@@ -52,7 +52,7 @@ pub(crate) struct TrackFilterInputs {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use euphoria_core::quality::QualityReport;
+    use euphoria_core::quality::{QualityReport, QualityVerdict};
     use euphoria_core::{Correction, DecodeDamage, TrackAnalysis};
 
     use super::*;

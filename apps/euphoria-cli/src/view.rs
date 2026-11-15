@@ -313,16 +313,22 @@ fn tag_key_cell(
     }
 }
 
+/// The cells a row has besides the analysis: the tags and the review.
+struct Notes {
+    tag_key: String,
+    review: String,
+}
+
 fn row(
     theme: &Theme,
     analysis: &TrackAnalysis,
     correction: Option<&Correction>,
     options: &ViewOptions,
-    tag_key: String,
-    review: String,
+    notes: Notes,
     folder: String,
     name: String,
 ) -> Row {
+    let Notes { tag_key, review } = notes;
     let low_mark = |confidence: Option<Confidence>| {
         if confidence == Some(Confidence::Low) {
             theme.caution("?")
@@ -570,9 +576,8 @@ pub fn write_table(
                 &tag_keys.review_reasons(path, analysis),
                 tag_keys.reviewed(path),
             );
-            row(
-                theme, analysis, correction, options, tag_key, review, folder, name,
-            )
+            let notes = Notes { tag_key, review };
+            row(theme, analysis, correction, options, notes, folder, name)
         })
         .collect();
 
@@ -1166,7 +1171,7 @@ Key                  BPM       Energy              Quality  Time  Review  File
         let theme = Theme::PLAIN;
         assert_eq!(review_cell(&theme, &[], false), "");
         assert_eq!(review_cell(&theme, &[], true), "checked");
-        let key = Key::new(0, euphoria_core::Mode::Major);
+        let key = Key::new(0, Mode::Major);
         let reasons = [
             ReviewReason::KeyUnsure,
             ReviewReason::TempoUnsure,

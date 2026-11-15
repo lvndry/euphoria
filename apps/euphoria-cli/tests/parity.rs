@@ -117,20 +117,20 @@ fn next_ranks_for_keep_lift_and_drop() {
     assert_eq!(keep["energy"], "keep");
     assert_eq!(keep["track"]["key"], "8A");
     assert_eq!(
-        names(keep["next"].as_array().unwrap()),
+        names(keep["next"].as_array().expect("an array")),
         ["same_keep", "same_up", "relative_keep", "adjacent_down"],
         "the far key and the fast track do not mix, and the playing one is not offered"
     );
     let lift = next_json(&euphoria, &pool, &["--lift"]);
     assert_eq!(lift["energy"], "lift");
     assert_eq!(
-        names(lift["next"].as_array().unwrap()),
+        names(lift["next"].as_array().expect("an array")),
         ["same_up", "same_keep", "relative_keep", "adjacent_down"]
     );
     let drop = next_json(&euphoria, &pool, &["--drop"]);
     assert_eq!(drop["energy"], "drop");
     assert_eq!(
-        names(drop["next"].as_array().unwrap()),
+        names(drop["next"].as_array().expect("an array")),
         ["adjacent_down", "same_keep", "same_up", "relative_keep"]
     );
 }
@@ -140,7 +140,7 @@ fn next_rows_carry_key_move_tempo_move_and_energy_change() {
     let euphoria = Euphoria::new();
     let (_folder, pool) = mixing_pool(&euphoria);
     let keep = next_json(&euphoria, &pool, &[]);
-    let rows = keep["next"].as_array().unwrap();
+    let rows = keep["next"].as_array().expect("an array");
     let same_keep = &rows[0];
     assert_eq!(same_keep["rank"], 1);
     assert_eq!(same_keep["key"], "8A");
@@ -190,13 +190,21 @@ fn next_takes_the_pool_from_a_folder_and_the_same_filters_as_analyze() {
         "--from",
         text(&elsewhere),
     ]));
-    assert!(from_elsewhere["next"].as_array().unwrap().is_empty());
+    assert!(
+        from_elsewhere["next"]
+            .as_array()
+            .expect("an array")
+            .is_empty()
+    );
 
     let energetic = next_json(&euphoria, &pool, &["--energy", "6-"]);
-    assert_eq!(names(energetic["next"].as_array().unwrap()), ["same_up"]);
+    assert_eq!(
+        names(energetic["next"].as_array().expect("an array")),
+        ["same_up"]
+    );
     let fast_enough = next_json(&euphoria, &pool, &["--bpm", "125-"]);
     assert_eq!(
-        names(fast_enough["next"].as_array().unwrap()),
+        names(fast_enough["next"].as_array().expect("an array")),
         ["same_keep", "relative_keep"]
     );
     let none = euphoria.run(&["next", text(&playing), "--energy", "9-"]);
@@ -221,7 +229,11 @@ fn analyze_filters_by_tempo_range_with_open_ends_comma_decimals_and_half_double(
         let mut arguments = vec!["analyze", "--json"];
         arguments.extend_from_slice(extra);
         arguments.push(text(&pool));
-        let mut listed = names(success_json(&euphoria.run(&arguments)).as_array().unwrap());
+        let mut listed = names(
+            success_json(&euphoria.run(&arguments))
+                .as_array()
+                .expect("an array"),
+        );
         listed.sort();
         listed
     };
@@ -260,7 +272,7 @@ fn analyze_filters_use_the_corrected_values_not_the_detected_ones() {
         "3",
         text(&pool),
     ]));
-    assert_eq!(corrected.as_array().unwrap().len(), 1);
+    assert_eq!(corrected.as_array().expect("an array").len(), 1);
 }
 
 #[test]
@@ -305,7 +317,7 @@ fn review_of(euphoria: &Euphoria, path: &Path, extra: &[&str]) -> Vec<serde_json
     arguments.push(text(path));
     success_json(&euphoria.run(&arguments))
         .as_array()
-        .unwrap()
+        .expect("an array")
         .clone()
 }
 
@@ -432,10 +444,13 @@ fn set_build_and_plan_name_the_tempo_move() {
         "20",
     ]);
     let set = success_json(&output);
-    let transitions = set["transitions"].as_array().unwrap();
+    let transitions = set["transitions"].as_array().expect("an array");
     assert_eq!(transitions.len(), 2);
     for transition in transitions {
-        let percent = transition["bpm_change_percent"].as_f64().unwrap().abs();
+        let percent = transition["bpm_change_percent"]
+            .as_f64()
+            .expect("a number")
+            .abs();
         let expected = if percent < 3.0 {
             "easy"
         } else if percent <= 6.0 {
@@ -455,7 +470,7 @@ fn set_build_and_plan_name_the_tempo_move() {
         "20",
     ]);
     let table = String::from_utf8_lossy(&table.stdout).into_owned();
-    let heading = table.lines().next().unwrap();
+    let heading = table.lines().next().expect("a heading");
     assert!(
         heading.contains("Step") && heading.contains("Tempo"),
         "{table}"
@@ -480,7 +495,7 @@ fn plan_puts_the_tempo_label_next_to_the_percent() {
         success_json(&euphoria.run(&["plan", "--json", "--no-cache", text(&first), text(&second)]));
     let percent = json["plan"]["alignment"]["tempo_change_percent"]
         .as_f64()
-        .unwrap()
+        .expect("a number")
         .abs();
     let (code, label) = if percent < 3.0 {
         ("easy", "Easy")
