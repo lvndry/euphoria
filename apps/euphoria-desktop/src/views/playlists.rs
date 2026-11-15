@@ -390,6 +390,10 @@ pub(crate) fn track_menu(
     } else {
         menu
     };
+    let menu = menu.separator().item(
+        PopupMenuItem::new("Prepare files\u{2026}")
+            .on_click(on_app(app, |this, _, cx| this.open_prepare_files(cx))),
+    );
     let menu = if state.revealable {
         menu.separator().item(
             PopupMenuItem::new(crate::reveal::reveal_label())

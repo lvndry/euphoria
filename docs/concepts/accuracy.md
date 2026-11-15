@@ -164,6 +164,16 @@ GiantSteps Key is two minute previews of electronic dance music from Beatport. T
 
 On the machine the benchmark ran on, an Apple M5 Mac, the network and its spectrogram take 0.31 CPU seconds per two minute preview on one thread, against 0.27 for libkeyfinder. `auto` runs both. A whole analysis of a ten minute track (key, tempo, energy, sections and cues) took 5.6 seconds with libkeyfinder alone, 5.6 seconds with the network alone and 6.7 seconds with `auto`, and its peak memory was 1.49 GB, 1.10 GB and 1.49 GB: running the network alongside libkeyfinder adds about a second and no memory. These are single runs.
 
+## Reading the notes
+
+The desktop app's inspector and `euphoria analyze --notes` show how strongly each of the 12 notes sounds in a track, every octave folded together, with the notes of the key lit. In a track whose key is right, the lit notes are the tallest bars and the tonic, the note the key is named after, is usually among the tallest of all.
+
+A minor key and its relative major, such as A minor and C major (8A and 8B), use the same seven notes, so they light exactly the same bars. That is why they are so often confused, by people and detectors alike, and why the strip cannot settle them on its own: look at which note stands out. A tallest A points to A minor, a tallest C to C major. When it is still unclear, listen with **Check by ear**. Either way the two mix together, since they sit on the same number of the Camelot wheel.
+
+![Two copies of one note strip of a made up track whose loudest notes are A, E and C. A minor and C major light the same seven bars; only the tonic differs, and the tallest bar, A, points to A minor.](../images/notes/relative-keys.svg)
+
+The notes come from libkeyfinder's chromagram averaged over the whole track, after the [tuning correction](#tuning-and-key-over-time). With the default engine the key itself is decided by drone-v2, which reads a finer spectrogram than these 12 numbers, so the strip shows what the track holds, not the network's reasoning. Drums and noise raise every bar a little, so the quietest bars rarely reach zero.
+
 ## How the tempo is chosen
 
 Tempo detection runs the stratum-dsp tempogram estimate on its own, without the key analysis that stratum-dsp otherwise computes with it. That estimate finds the pulse of a track well, but it often lands on half the tempo a DJ counts: before any correction, 83 of the 661 previews came out below 70 BPM, where only 3 are labelled that slow, and a 125 BPM house track could be reported as 62.5.

@@ -89,7 +89,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 14] = [
+const MIGRATIONS: [&str; 15] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -157,6 +157,9 @@ const MIGRATIONS: [&str; 14] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN loudness_range_lu REAL;
+",
+    "
+    ALTER TABLE analyses ADD COLUMN pitch_class_profile TEXT;
 ",
     "
     CREATE TABLE fingerprints (
@@ -315,7 +318,7 @@ impl Cache {
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
                     tempo_estimate, tempo_score_margin, quality,
                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                    key_source, loudness_range_lu
+                    key_source, loudness_range_lu, pitch_class_profile
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -345,6 +348,7 @@ impl Cache {
                     beat_grid: beat_grid_in_columns(row, 15)?,
                     cues: cues_in_column(row, 19)?,
                     loudness_range_lu: row.get(21)?,
+                    pitch_class_profile: pitch_class_profile_in_column(row, 22)?,
                 },
             );
             if let Some(last_known_path) = row.get::<_, Option<String>>(4)? {
@@ -410,9 +414,9 @@ impl Cache {
                      energy, energy_model_version, tuning_cents, key_timeline,
                      key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality,
                      grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                     key_source, loudness_range_lu
+                     key_source, loudness_range_lu, pitch_class_profile
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -439,6 +443,7 @@ impl Cache {
                     cues_text(&analysis.cues),
                     analysis.key_source.map(KeySource::as_str),
                     analysis.loudness_range_lu,
+                    analysis.pitch_class_profile.map(pitch_class_profile_text),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -768,6 +773,43 @@ fn parse_cue(line: &str) -> Option<SectionCue> {
     (seconds.is_finite() && seconds >= 0.0).then_some(SectionCue { seconds, section })
 }
 
+/// The 12 values of a pitch-class profile, C first, separated by spaces.
+fn pitch_class_profile_text(profile: [f32; 12]) -> String {
+    profile
+        .iter()
+        .map(f32::to_string)
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
+fn pitch_class_profile_in_column(
+    row: &Row<'_>,
+    column: usize,
+) -> rusqlite::Result<Option<[f32; 12]>> {
+    let Some(stored) = row.get::<_, Option<String>>(column)? else {
+        return Ok(None);
+    };
+    parse_pitch_class_profile(&stored).map(Some).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            column,
+            Type::Text,
+            format!("{stored:?} is not a pitch-class profile").into(),
+        )
+    })
+}
+
+fn parse_pitch_class_profile(text: &str) -> Option<[f32; 12]> {
+    let values: Vec<f32> = text
+        .split(' ')
+        .map(|field| field.parse().ok())
+        .collect::<Option<Vec<f32>>>()?;
+    let profile: [f32; 12] = values.try_into().ok()?;
+    profile
+        .iter()
+        .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        .then_some(profile)
+}
+
 fn seconds_since_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -981,6 +1023,9 @@ mod tests {
             key_score_margin: Some(0.012_5),
             key_source: None,
             loudness_range_lu: Some(6.25),
+            pitch_class_profile: Some([
+                1.0, 0.0, 0.5, 0.125, 0.25, 0.75, 0.0625, 0.875, 0.0, 0.375, 0.5, 0.25,
+            ]),
             tempo_estimate: Some(63.99),
             tempo_score_margin: Some(0.47),
             beat_grid: Some(BeatGrid {
@@ -1081,7 +1126,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1100,7 +1145,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1305,7 +1350,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1328,7 +1373,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1354,7 +1399,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1386,7 +1431,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL,
-                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL)"
+                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1411,7 +1456,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1444,7 +1489,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 14);
+        assert_eq!(SCHEMA_VERSION, 15);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1456,6 +1501,48 @@ mod tests {
             .query_row("SELECT count(*) FROM corrections", [], |row| row.get(0))
             .unwrap();
         assert_eq!(corrections, 0);
+    }
+
+    #[test]
+    fn a_version_13_database_keeps_its_analyses_without_a_pitch_class_profile() {
+        let folder = TemporaryFolder::new();
+        let database = folder.path().join("cache.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        for migration in &MIGRATIONS[..13] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 13).unwrap();
+        connection
+            .execute(
+                "INSERT INTO analyses
+                 VALUES (?1, 300.0, 'A minor', 124.0, ?2, 0, NULL, 1, 1, 6, ?3, NULL, NULL,
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 7.5)",
+                params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
+            )
+            .unwrap();
+        drop(connection);
+
+        let cache = Cache::open(&database).unwrap();
+
+        assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
+        let snapshot = cache.snapshot().unwrap();
+        let analysis = snapshot
+            .of_content(&ContentHash::from_bytes([7u8; 32]))
+            .expect("the analysis is still served: the analyzer version is unchanged");
+        assert_eq!(analysis.pitch_class_profile, None);
+        assert_eq!(analysis.loudness_range_lu, Some(7.5));
+    }
+
+    #[test]
+    fn a_stored_pitch_class_profile_must_have_twelve_values_from_zero_to_one() {
+        let profile = [0.5_f32; 12];
+        assert_eq!(
+            parse_pitch_class_profile(&pitch_class_profile_text(profile)),
+            Some(profile)
+        );
+        assert_eq!(parse_pitch_class_profile("0.5 0.5"), None);
+        assert_eq!(parse_pitch_class_profile(&["2"; 12].join(" ")), None);
+        assert_eq!(parse_pitch_class_profile(&["x"; 12].join(" ")), None);
     }
 
     #[test]
@@ -1513,7 +1600,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 14);
+        assert_eq!(SCHEMA_VERSION, 15);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1567,7 +1654,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 14);
+        assert_eq!(SCHEMA_VERSION, 15);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1632,7 +1719,7 @@ mod tests {
                     &format!(
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL)"
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1655,7 +1742,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1777,6 +1864,7 @@ mod tests {
                     key_score_margin: None,
                     key_source: None,
                     loudness_range_lu: None,
+                    pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
