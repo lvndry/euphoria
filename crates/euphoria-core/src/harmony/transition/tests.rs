@@ -149,14 +149,17 @@ fn automatic_cues_become_sections_on_the_bars_of_the_grid() {
         SectionCue {
             seconds: 0.0,
             section: CueSection::Start,
+            energy: None,
         },
         SectionCue {
             seconds: 32.0,
             section: CueSection::Main,
+            energy: None,
         },
         SectionCue {
             seconds: 96.1,
             section: CueSection::Breakdown,
+            energy: None,
         },
     ];
     assert_eq!(

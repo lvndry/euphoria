@@ -37,6 +37,7 @@ The first command checks the database and says how many songs would change, writ
 | `--key-notation <NOTATION>` | How the key is spelled in the label: `camelot` (the default), `musical` or `open-key`. In the app's export sheet it is the **Settings > Key notation** choice. |
 | `--beat-grid` | Write each track's beat grid, except grids rated low confidence. |
 | `--cues` | Write cues where each track's sections start, as hot cues 1 to 8. Needs `--beat-grid`. |
+| `--cue-colors <COLOURS>` | `energy` (the default) colours each cue analysis placed by the energy of its section, from blue for calm to red for intense; `fixed` keeps VirtualDJ's own cue colours. Your own cues keep their pad colour either way. See [energy of each cue](../concepts/accuracy.md#energy-of-each-cue). |
 | `--dry-run` | Show what would change and write nothing. |
 
 ## Where the database is
@@ -57,7 +58,7 @@ Each song is found by its `FilePath`. In a song that matches one of your tracks:
 | Key | `Key` of `<Tags>` and `<Scan>`, as a musical name with sharps such as `Am` or `F#m`. VirtualDJ shows it in the notation of its `keyDisplay` option. |
 | Tempo | `Bpm` of `<Tags>` and `<Scan>`. VirtualDJ stores the time between two beats in seconds, so 128 BPM is `0.468750`. |
 | Beat grid | `Phase` of `<Scan>`, and one `<Poi Type="beatgrid">` at the first downbeat in place of the song's grid points. VirtualDJ 2026 reads the anchor from `Phase` ([beatgrid_fix](https://github.com/DeedjayNo1/beatgrid_fix)); older versions read the point. |
-| Cues | `<Poi Name="Drop" Pos="30.000000" Num="2" />`, one per hot cue, numbered from 1. |
+| Cues | `<Poi Name="Drop" Pos="30.000000" Num="2" Color="4293936418" />`, one per hot cue, numbered from 1. `Color` is the colour of the energy of the cue's section, as one number holding alpha, red, green and blue, the way vdj-data reads it; cues you edited, and every cue with `--cue-colors fixed`, have none and keep VirtualDJ's colours. Whether VirtualDJ shows it is **(not verified)**. |
 | Energy | The label, at the start or end of `<Comment>`, or at the start of `Grouping` in `<Tags>`. |
 
 Before and after, for a track in A minor at 128 BPM with energy 7 and a hot cue on pad 2:

@@ -219,12 +219,13 @@ fn detected_analysis() -> TrackAnalysis {
 fn cues_land_on_the_bars_of_the_imported_grid() {
     let audio = four_on_the_floor(0.5, 32);
     let grid = constant("constant.wav");
-    let placed = detected_analysis().on_imported_grid(grid, &audio);
+    let placed = detected_analysis().on_imported_grid(grid, &audio).unwrap();
 
     assert_eq!(placed.beat_grid, Some(grid));
     assert_eq!(placed.bpm, Some(120.0));
     assert_eq!(placed.tempo_estimate, None);
     assert!(!placed.cues.is_empty());
+    assert!(placed.cues.iter().all(|cue| cue.energy.is_some()));
     for cue in &placed.cues {
         let bars = (cue.seconds - grid.first_downbeat_seconds) / grid.bar_seconds();
         assert!(
@@ -239,7 +240,7 @@ fn cues_land_on_the_bars_of_the_imported_grid() {
 fn cues_follow_the_imported_grid_when_it_differs_from_the_audio() {
     let audio = four_on_the_floor(0.5, 32);
     let grid = BeatGrid::imported(0.75, 120.0);
-    let placed = detected_analysis().on_imported_grid(grid, &audio);
+    let placed = detected_analysis().on_imported_grid(grid, &audio).unwrap();
     assert!(!placed.cues.is_empty());
     for cue in &placed.cues {
         let bars = (cue.seconds - 0.75) / 2.0;

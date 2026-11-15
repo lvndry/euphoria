@@ -10,17 +10,16 @@ use gpui::prelude::*;
 use std::path::PathBuf;
 
 use gpui::{
-    AnyWindowHandle, App, Bounds, Entity, Global, TitlebarOptions, WeakEntity, WindowBounds,
-    WindowKind, WindowOptions, point, px, size,
+    AnyWindowHandle, App, Bounds, Entity, Global, WeakEntity, WindowBounds, WindowKind,
+    WindowOptions, point, px, size,
 };
 
 use crate::app::EuphoriaApp;
 use crate::live_model::{CaptureFactory, LiveModel};
+use crate::menu_bar::PanelAnchor;
 use crate::settings::Settings;
 use crate::views::live::{LiveView, PANEL_HEIGHT, PANEL_WIDTH};
 
-const PANEL_TITLE: &str = "Euphoria Live";
-const PANEL_MINIMUM_HEIGHT: f32 = 560.0;
 const PANEL_MARGIN: f32 = 12.0;
 const PANEL_TOP: f32 = 36.0;
 
@@ -28,6 +27,8 @@ struct LiveRuntime {
     model: Entity<LiveModel>,
     panel: Option<AnyWindowHandle>,
     menu_bar: bool,
+    anchor: Option<PanelAnchor>,
+    closed_at: Option<std::time::Instant>,
 }
 
 impl Global for LiveRuntime {}
@@ -79,6 +80,8 @@ fn runtime_model(cx: &mut App) -> Entity<LiveModel> {
         model: model.clone(),
         panel: None,
         menu_bar: false,
+        anchor: None,
+        closed_at: None,
     });
     install_menu_bar(&model, cx);
     model
@@ -94,40 +97,57 @@ fn install_menu_bar(model: &Entity<LiveModel>, cx: &mut App) {
     let _ = (model, cx);
 }
 
-fn panel_options(cx: &App) -> WindowOptions {
+fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> (WindowOptions, (f32, f32)) {
     let width = px(PANEL_WIDTH);
     let height = px(PANEL_HEIGHT);
-    let origin = cx
-        .primary_display()
-        .map_or(point(px(80.0), px(80.0)), |display| {
-            let bounds = display.bounds();
-            point(
-                bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN),
-                bounds.origin.y + px(PANEL_TOP),
-            )
-        });
-    WindowOptions {
+    let display = cx.primary_display().map(|display| display.bounds());
+    let fallback = display.map_or(point(px(80.0), px(80.0)), |bounds| {
+        point(
+            bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN),
+            bounds.origin.y + px(PANEL_TOP),
+        )
+    });
+    let origin = match (anchor, display) {
+        (Some(anchor), Some(bounds)) => {
+            let left = (px(anchor.center_x as f32) - width / 2.0)
+                .max(bounds.origin.x + px(PANEL_MARGIN))
+                .min(bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN));
+            point(left, px(anchor.top as f32 + 4.0))
+        }
+        _ => fallback,
+    };
+    let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
             origin,
             size: size(width, height),
         })),
-        titlebar: Some(TitlebarOptions {
-            title: Some(PANEL_TITLE.into()),
-            appears_transparent: false,
-            traffic_light_position: None,
-        }),
-        kind: WindowKind::Floating,
-        is_resizable: true,
+        titlebar: None,
+        kind: WindowKind::PopUp,
+        is_resizable: false,
         is_minimizable: false,
-        window_min_size: Some(size(width, px(PANEL_MINIMUM_HEIGHT))),
+        window_background: gpui::WindowBackgroundAppearance::Transparent,
         ..Default::default()
-    }
+    };
+    (options, (origin.x / px(1.0), origin.y / px(1.0)))
 }
 
+/// How soon after the panel closed itself a click on the menu bar item still
+/// counts as the click that closed it.
+const REOPEN_GUARD: std::time::Duration = std::time::Duration::from_millis(400);
+
 /// Opens the Live panel and starts listening, or brings the panel forward
-/// when it is open.
+/// when it is open. It opens under the menu bar item when its place is
+/// known.
 pub(crate) fn open_panel(cx: &mut App) {
+    open_panel_at(None, cx);
+}
+
+fn open_panel_at(anchor: Option<PanelAnchor>, cx: &mut App) {
     let model = runtime_model(cx);
+    if let Some(anchor) = anchor {
+        cx.global_mut::<LiveRuntime>().anchor = Some(anchor);
+    }
+    let anchor = cx.global::<LiveRuntime>().anchor;
     if let Some(panel) = cx.global::<LiveRuntime>().panel {
         if panel
             .update(cx, |_, window, _| window.activate_window())
@@ -144,21 +164,41 @@ pub(crate) fn open_panel(cx: &mut App) {
             model.start(cx);
         }
     });
-    let options = panel_options(cx);
+    let (options, top_left) = panel_options(anchor, cx);
     let view_model = model.clone();
-    match gpui::open_window(options, cx, |_, cx| {
-        cx.new(|cx| LiveView::new(view_model, cx))
+    match gpui::open_window(options, cx, |window, cx| {
+        let view = cx.new(|cx| LiveView::new(view_model, cx));
+        view.update(cx, |_, cx| {
+            let was_active = std::cell::Cell::new(false);
+            cx.observe_window_activation(window, move |_, window, cx| {
+                if window.is_window_active() {
+                    was_active.set(true);
+                } else if was_active.get() {
+                    cx.global_mut::<LiveRuntime>().closed_at = Some(std::time::Instant::now());
+                    window.remove_window();
+                }
+            })
+            .detach();
+        });
+        view
     }) {
-        Ok((window, _)) => {
+        Ok((window, view)) => {
+            view.update(cx, |view, _| view.top_left = Some(top_left));
             cx.global_mut::<LiveRuntime>().panel = Some(window);
             cx.activate(true);
+            window
+                .update(cx, |_, window, cx| {
+                    let focus = view.read(cx).focus.clone();
+                    focus.focus(window, cx);
+                })
+                .ok();
         }
         Err(error) => eprintln!("error: cannot open Live: {error:#}"),
     }
 }
 
 /// Hides the Live panel when it is open, and shows it otherwise.
-pub(crate) fn toggle_panel(cx: &mut App) {
+pub(crate) fn toggle_panel(anchor: Option<PanelAnchor>, cx: &mut App) {
     let open_panel_handle = cx
         .try_global::<LiveRuntime>()
         .and_then(|runtime| runtime.panel)
@@ -168,7 +208,15 @@ pub(crate) fn toggle_panel(cx: &mut App) {
             panel.update(cx, |_, window, _| window.remove_window()).ok();
             cx.global_mut::<LiveRuntime>().panel = None;
         }
-        None => open_panel(cx),
+        None => {
+            let just_closed = cx
+                .try_global::<LiveRuntime>()
+                .and_then(|runtime| runtime.closed_at)
+                .is_some_and(|at| at.elapsed() < REOPEN_GUARD);
+            if !just_closed {
+                open_panel_at(anchor, cx);
+            }
+        }
     }
 }
 
@@ -216,4 +264,19 @@ pub(crate) fn show_in_euphoria(path: PathBuf, cx: &mut App) {
     if let Some(view) = view {
         view.update(cx, |app, cx| app.show_track_at_path(path, cx));
     }
+}
+
+/// Turns "Keep Live running when the window is closed" on or off.
+pub(crate) fn toggle_keep_running(cx: &mut App) {
+    let model = runtime_model(cx);
+    model.update(cx, |model, cx| {
+        let keep = !model.settings.keep_running_when_closed;
+        model.set_keep_running(keep, cx);
+    });
+}
+
+/// Turns opening Euphoria at login, with Live in the menu bar, on or off.
+pub(crate) fn toggle_open_at_login(cx: &mut App) {
+    let model = runtime_model(cx);
+    model.update(cx, |model, cx| model.toggle_open_at_login(cx));
 }

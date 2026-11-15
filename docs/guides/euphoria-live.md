@@ -7,37 +7,42 @@ description: See the key and tempo of whatever is playing on your Mac, from reko
 
 Euphoria Live listens to the audio your Mac is playing and shows its key and tempo as it plays. It works with any source: rekordbox, Spotify, YouTube in a browser, a turntable through an audio interface that macOS plays out.
 
-![The Live panel hearing a C major pad over a kick at 126 BPM, with the tracks of a demo library that mix in](../images/live/live-panel.png)
+![The Live panel hearing a C major pad over a kick at 126 BPM, with the track it recognised and the tracks of a demo library that mix in](../images/live/live-panel.png)
+
+The same panel in the Paper theme:
+
+![The Live panel in the Paper theme](../images/live/live-panel-paper.png)
 
 ## Open it
 
-- **In the app:** the **Live** button in the toolbar, **View, Live** (Shift Command L), or Command K and "Open Euphoria Live".
-- **In the menu bar:** once Live has been started, Euphoria keeps an item in the macOS menu bar. Its title is the key heard, such as `8B`, or "Live" while it has nothing to show, and "Live paused" when paused. Click it to show or hide the Live panel. Right click it, or Control click, for a menu: Show Live, Pause listening, Keep Live running when the window is closed, Open Euphoria and Quit Euphoria.
+- **From the menu bar:** once Live has been started, Euphoria keeps an item in the macOS menu bar. Its title is the key heard, such as `8B`, "Live" while it has nothing to show, and "Live paused" when paused. Click it and the panel drops down under it. Right click it, or Control click, for a menu: Show Live, Pause listening, Keep Live running, Open Euphoria and Quit Euphoria.
+- **In the app:** the **Live** button in the toolbar, **View, Live** (Shift Command L), or Command K and "Open Euphoria Live". The same shortcut and button close it.
 - **Without the library window:** `open -a Euphoria --args --live` starts Euphoria with only the menu bar item and the panel, and no Dock icon.
 - **In a terminal:** `euphoria live`, below.
 
-Opening Live starts listening. The first time, macOS asks for permission, described below.
+Opening Live starts listening. The first time, macOS asks for permission, described below. The panel has no window frame: like the panels of other menu bar apps it closes when you click outside it or press Escape.
 
 ## The panel
 
-The panel is a small window that stays on top of other windows, so it can sit beside rekordbox.
+From the top:
 
-- **Listening** with a red dot, and "Nothing is recorded", whenever Euphoria is listening. When paused the dot is grey and the panel says "Not listening".
-- **Listen to** chooses what is heard: *All audio*, or one of the applications playing audio right now, such as rekordbox. The list is read when you open it. Euphoria's own playback is never heard.
-- **The key**, big, in the notation you chose in the settings, with its musical name and its confidence: high, medium or low. Below it the **BPM**, the **energy** from 1 to 10, and a level meter.
-- **Next** lists the tracks of your library that mix in after what is playing, with the same ranking, the same Keep, Lift and Drop choice, the same pills and the same filters of the suggestion pool as the "Next after" list of the main window. It ranks from the key and tempo heard, so it works for Spotify or YouTube too; no library track needs to match. Tracks the cache has no analysis for are left out.
-- **Scrolling.** The Next list scrolls with the trackpad, the mouse wheel and a scrollbar while the readout and the controls stay put, and the panel can be resized down to a minimum height. Up and Down move through the rows and keep the row in view; Enter opens it in Euphoria.
-- **Click a track** in the Next list, or the **In your library** card, to open it in Euphoria: the library window comes up, or is opened again if it was closed (and the Dock icon returns), the track is selected in the table and shown in the inspector, with any search, filter, folder or playlist that hid it taken off. Nothing is played in Euphoria, because the music is playing in another app. When a track is recognised, the menu bar menu also has **Show <title> in Euphoria**.
-- **Pause listening** stops the capture and forgets the audio; **Start listening** resumes.
-- **Keep Live running when the window is closed**, **Open Euphoria** and **Quit Euphoria** are at the bottom.
+- **The header.** A small dot in the accent colour while Euphoria listens, which swells and brightens with the level of the audio, so it shows that sound arrives; it turns grey when paused and muted while it waits for permission; hover it to read what is listened to and that nothing is recorded. Beside it the source, **All audio** or one of the applications playing audio right now, such as rekordbox, which you change by clicking it; the list is read when you open it, and Euphoria's own playback is never heard. On the right a pause or resume button, and a **…** menu with Pause or Resume listening, **Keep Live running when the window is closed** and **Open Live at login**, each with a tick when it is on, then Open Euphoria and Quit Euphoria.
+- **The readout.** The key, large, in the notation you chose in the settings, with its musical name under it. Beside it, in the style of the inspector, the tempo as "126.0 BPM" and, under it, the energy as "6 out of 10 energy", both right-aligned. For a recognised track the energy is the library's own rating. Under them one small line says whether the reading is **settling…** or **steady**, and for how long Live has been listening. A reading is steady once the key and the tempo have not changed for six seconds. No confidence word is shown.
+- **In your library.** When what plays is a track of your library, a card with its cover, title, artist and where it is, "2:41 / 6:57", with its tempo change when it is not played at its own tempo. Without a match there is no card, and nothing is claimed.
+- **Next.** A heading that says what the list follows, "Next after <title>" for a recognised track and "Next for 8B · 126 BPM" otherwise, with the Keep, Lift and Drop choice. Rows show the key, the title and artist from the tags, the tempo change, and the pills of the main app: how the keys relate and "energy 7 ↑1", "energy 3 ↓6" or "energy 7 =". The list ranks like the "Next after" list of the main window, with the same filters of the suggestion pool, and from the recognised track's own key, tempo and energy when there is one, so it works for Spotify or YouTube too. Tracks the cache has no analysis for are left out.
+- **Earlier.** A line that opens to the last few readings that held, such as "7A 124 · 8A 125 · 8B 126", with the title where a track was recognised, newest last. It lives in memory and is gone when Euphoria quits.
 
-When the audio is silent or too quiet, or just started, the panel says "Listening…" and shows no key, no tempo and no list: nothing is guessed or kept from before.
+The popover is as tall as its content, up to 70 percent of the screen's height, and keeps its top edge under the menu bar item as it grows and shrinks; past that height the Next list scrolls. It scrolls with the trackpad, the mouse wheel and a scrollbar while the header and readout stay put. Up and Down move through the rows and keep the row in view; Enter opens it.
+
+**Click a track** in the Next list, or the **In your library** card, to open it in Euphoria: the library window comes up, or is opened again if it was closed (and the Dock icon returns), the track is selected in the table and shown in the inspector, with any search, filter, folder or playlist that hid it taken off. Nothing is played in Euphoria, because the music is playing in another app. When a track is recognised, the menu bar menu also has **Show <title> in Euphoria**.
+
+When the audio is silent or too quiet, or just started, the panel says "Listening…" and shows no key, no tempo and no list: nothing is guessed or kept from before. After ten seconds of exact silence it says how to allow listening in System Settings.
 
 ## Part of the app, in the menu bar
 
 Live is part of Euphoria, not a second app. Close the library window and Live keeps running in the menu bar, with its panel if you left it open, so you can close the library and keep Live beside rekordbox. **Open Euphoria** in the panel or the menu bar menu opens the library window again.
 
-**Keep Live running when the window is closed** is on by default, and counts once Live has been started. Turn it off and closing the library window quits Euphoria, as before. It is kept in a file of its own, `live.json`, beside the settings. The panel on its own never keeps Euphoria open: only the menu bar item does.
+**Open Live at login** registers Euphoria as a login item with macOS 13 or later, which you can see and remove under System Settings, General, Login Items. When macOS starts Euphoria that way, it opens only the menu bar item and the panel, with no library window. It needs the app in a bundle, and starting at login is not tested. **Keep Live running when the window is closed** is on by default, and counts once Live has been started. Turn it off and closing the library window quits Euphoria, as before. It is kept in a file of its own, `live.json`, beside the settings. The panel on its own never keeps Euphoria open: only the menu bar item does.
 
 While only Live runs, no library table, waveform or analysis worker exists. The library is read from the analysis cache the first time the Next list is shown, once, and nothing is analyzed. Measured on an Apple silicon Mac, with a build of the `fast` profile, listening to a generated track with the library window closed: about 6 percent of one core while analyzing, near zero while the audio is silent, and about 140 MB of memory with the panel closed and about 170 MB with it open and the library of 40 tracks read. Most of that memory is the window system, not the analysis: `euphoria live` in a terminal needs 65 to 90 MB.
 
@@ -63,17 +68,18 @@ Linux is not supported yet. A PipeWire or PulseAudio monitor source would be the
 euphoria live
 ```
 
-`euphoria live` prints one line per update once enough audio has played:
+`euphoria live` prints one line per update once enough audio has played, with the same information as the panel: the key and its name, the tempo, the energy out of 10, whether the reading is settling or steady and, with `--from`, the track it recognised:
 
 ```
 $ euphoria live
 Listening to All audio. Nothing is recorded; press Ctrl-C to stop.
 listening…
-8A  A minor  124.0 BPM  high
-8A  A minor  124.0 BPM  high
+8A  A minor  124.0 BPM  energy 6/10  settling
+8A  A minor  124.0 BPM  energy 6/10  steady
+8A  A minor  124.0 BPM  energy 6/10  steady  matched: Out Out - Afro Mix
 ```
 
-The key appears after about 8 seconds of audio and the tempo after about 6. The confidence is that of the key (`low`, `medium` or `high`, as in [the analysis](../concepts/accuracy.md)). When the audio goes silent or too quiet, `listening…` is printed once, and values are never repeated from before. Ctrl-C stops it.
+The key appears after about 8 seconds of audio and the tempo after about 6. `steady` appears once the key and tempo have held for six seconds. When the audio goes silent or too quiet, `listening…` is printed once, and values are never repeated from before. Ctrl-C stops it.
 
 | Option | Meaning |
 | --- | --- |
@@ -96,7 +102,7 @@ Measured on an Apple silicon Mac with a build of the `fast` profile, which is op
 
 ## Recognising a track of your library
 
-When what plays is a file in your library, Live says which one and where in it, and the Next list ranks from that track's own key, tempo and energy instead of the ones heard. The panel shows an **In your library** card with the title, the position, and how the track is played: for example "+6.0%, key lock", or "-4.0%, pitch follows" for a turntable or a pitch fader without key lock. In a terminal, add `--from` and `euphoria live` prints `matched: <path>` when it recognises a track, and `--json` adds a `match` object with `path`, `position_seconds`, `tempo_ratio` and `pitch_follows_tempo`.
+When what plays is a file in your library, Live says which one and where in it, and the Next list ranks from that track's own key, tempo and energy instead of the ones heard. The panel shows an **In your library** card with the title, the position, and how the track is played: for example "+6.0%, key lock", or "-4.0%, pitch follows" for a turntable or a pitch fader without key lock. In a terminal, add `--from` and the reading line ends with `matched: <title>` when it recognises a track, and `--json` adds a `match` object with `path`, `title`, `artist`, `position_seconds`, `tempo_ratio` and `pitch_follows_tempo`, and `steady` on every reading.
 
 ```
 euphoria live --from ~/Music/DJ

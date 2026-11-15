@@ -7,6 +7,10 @@
 //! The document holds a `COLLECTION` of `TRACK` elements and a `PLAYLISTS`
 //! tree of `NODE` elements. Tracks are numbered from 1 in the order given, and
 //! playlists refer to them by that number.
+//!
+//! A hot cue coloured by energy gets `Red`, `Green` and `Blue` attributes
+//! from 0 to 255, as rekordbox writes them for a coloured hot cue. Memory
+//! cues get no colour.
 
 use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
@@ -18,6 +22,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::cue_colours::energy_cue_colour;
 use crate::error::{EuphoriaError, ExportProblem};
 use crate::key::{Key, Mode};
 
@@ -122,6 +127,10 @@ pub struct CuePoint {
     pub time: Duration,
     /// Memory cue or hot cue.
     pub kind: CueKind,
+    /// The energy rating, from 1 to 10, to colour the cue by, or `None` to
+    /// give it the colour each program gives its pad. See
+    /// [`CueColours`](crate::CueColours).
+    pub energy: Option<u8>,
 }
 
 /// Where rekordbox stores a cue point.
@@ -483,6 +492,12 @@ fn push_track(
         push_attribute(document, "Type", "0")?;
         push_attribute(document, "Start", &seconds(cue_point.time))?;
         push_attribute(document, "Num", &number)?;
+        if let (CueKind::Hot(_), Some(energy)) = (cue_point.kind, cue_point.energy) {
+            let [red, green, blue] = energy_cue_colour(energy);
+            push_attribute(document, "Red", &red.to_string())?;
+            push_attribute(document, "Green", &green.to_string())?;
+            push_attribute(document, "Blue", &blue.to_string())?;
+        }
         document.push_str("/>\n");
     }
     document.push_str("    </TRACK>\n");

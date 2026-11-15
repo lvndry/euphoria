@@ -967,6 +967,7 @@ mod tests {
             seconds: 0.5,
             name: name.to_string(),
             hot_cue: None,
+            energy: None,
         };
         for current in [Some(vec![cue("New edit")]), None] {
             let mut session = Session::start(None).unwrap();
@@ -1033,6 +1034,7 @@ mod tests {
             seconds: 0.5,
             name: "Mine".to_string(),
             hot_cue: None,
+            energy: None,
         }];
         {
             let cache = folder.open_cache();
@@ -1075,6 +1077,7 @@ mod tests {
             seconds: 0.75,
             name: "Current edit".to_string(),
             hot_cue: None,
+            energy: None,
         }];
         session.set_edited_cues(&track, Some(current.clone()));
         euphoria_core::clear_cache(&cache_path).unwrap();
@@ -1096,6 +1099,7 @@ mod tests {
             seconds: 0.5,
             name: "Mine".to_string(),
             hot_cue: euphoria_core::HotCue::from_letter('D'),
+            energy: None,
         }];
         {
             let cache = folder.open_cache();

@@ -345,6 +345,25 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
     );
     parts.push(
         toggle_row(
+            "colour-cues-by-energy",
+            "Colour cues by energy",
+            "Blue for calm sections up to red for intense ones.",
+            settings.colour_cues_by_energy,
+            &app.switches,
+            &palette,
+        )
+        .tooltip(|window, cx| {
+            Tooltip::new(
+                "Applies to the cues analysis placed, in cue markers and in exports to DJ programs. Your own cues keep their pad colour. Off keeps each program's pad colours.",
+            )
+            .build(window, cx)
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_colour_cues_by_energy(cx)))
+        .test_support()
+        .into_any_element(),
+    );
+    parts.push(
+        toggle_row(
             "write-after-analysis",
             "Write key and tempo after analysis",
             "Fills in each track's missing key and tempo once it is analyzed.",

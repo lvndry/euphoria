@@ -14,7 +14,7 @@ use euphoria_core::tags::{
     plan_write, undo,
 };
 use euphoria_core::track_cues::{Cue, HotCue};
-use euphoria_core::{Key, TrackAnalysis};
+use euphoria_core::{CueColours, Key, TrackAnalysis};
 
 const FORMATS: [&str; 4] = [
     "sine-440hz-mono.mp3",
@@ -370,10 +370,12 @@ fn analysis_with_grid() -> TrackAnalysis {
             SectionCue {
                 seconds: 0.146,
                 section: CueSection::Start,
+                energy: None,
             },
             SectionCue {
                 seconds: 63.5,
                 section: CueSection::Drop,
+                energy: None,
             },
         ],
     }
@@ -391,14 +393,16 @@ fn the_cues_a_user_set_win_over_the_analysis_and_keep_their_pads() {
                 seconds: 30.25,
                 name: "My break".to_string(),
                 hot_cue: Some(HotCue::from_pad(2).expect("pad C")),
+                energy: None,
             },
             Cue {
                 seconds: 5.0,
                 name: "memory only".to_string(),
                 hot_cue: None,
+                energy: None,
             },
         ];
-        let markers = SeratoMarkers::of_cues(&analysis, Some(edited));
+        let markers = SeratoMarkers::of_cues(&analysis, Some(edited), CueColours::Energy);
         assert_eq!(
             markers.cues,
             vec![SeratoCue::of(
@@ -441,7 +445,7 @@ fn the_cues_a_user_set_win_over_the_analysis_and_keep_their_pads() {
 #[test]
 fn the_analysis_cues_are_written_when_the_user_has_not_set_any() {
     let analysis = analysis_with_grid();
-    let markers = SeratoMarkers::of_cues(&analysis, None);
+    let markers = SeratoMarkers::of_cues(&analysis, None, CueColours::Energy);
     assert_eq!(
         markers.cues,
         vec![
@@ -456,7 +460,36 @@ fn the_analysis_cues_are_written_when_the_user_has_not_set_any() {
         salience: 5.0,
         ..low_analysis.beat_grid.expect("a grid")
     });
-    assert!(SeratoMarkers::of_cues(&low_analysis, None).cues.is_empty());
+    assert!(
+        SeratoMarkers::of_cues(&low_analysis, None, CueColours::Energy)
+            .cues
+            .is_empty()
+    );
+}
+
+#[test]
+fn the_analysis_cues_carry_the_energy_of_their_sections_unless_colours_are_fixed() {
+    let mut analysis = analysis_with_grid();
+    analysis.cues[0].energy = Some(3);
+    analysis.cues[1].energy = Some(9);
+    let energies = |cue_colours| -> Vec<Option<u8>> {
+        SeratoMarkers::of_cues(&analysis, None, cue_colours)
+            .cues
+            .iter()
+            .map(|cue| cue.energy)
+            .collect()
+    };
+    assert_eq!(energies(CueColours::Energy), vec![Some(3), Some(9)]);
+    assert_eq!(energies(CueColours::Fixed), vec![None, None]);
+
+    let edited = vec![Cue {
+        seconds: 12.0,
+        name: "Mine".to_string(),
+        hot_cue: HotCue::from_letter('A'),
+        energy: Some(9),
+    }];
+    let markers = SeratoMarkers::of_cues(&analysis, Some(edited), CueColours::Energy);
+    assert_eq!(markers.cues[0].energy, None);
 }
 
 #[test]
@@ -482,9 +515,10 @@ fn a_corrected_tempo_keeps_the_users_cues_without_a_grid_and_says_so() {
         seconds: 30.25,
         name: "My break".to_string(),
         hot_cue: HotCue::from_pad(1),
+        energy: None,
     }];
 
-    let markers = SeratoMarkers::of_cues(&corrected, Some(edited));
+    let markers = SeratoMarkers::of_cues(&corrected, Some(edited), CueColours::Energy);
     assert_eq!(markers.beat_grid, None);
     assert_eq!(
         markers.cues,
@@ -502,7 +536,7 @@ fn a_corrected_tempo_keeps_the_users_cues_without_a_grid_and_says_so() {
         ["no Serato beat grid: it has none rated medium or high, or you set its tempo"]
     );
 
-    let automatic = SeratoMarkers::of_cues(&corrected, None);
+    let automatic = SeratoMarkers::of_cues(&corrected, None, CueColours::Energy);
     assert!(automatic.cues.is_empty() && automatic.beat_grid.is_none());
     let (plan, report) = write(&path, &automatic);
     assert!(plan.is_empty());
@@ -518,14 +552,16 @@ fn a_cue_of_yours_past_the_end_of_the_track_is_not_written() {
             seconds: 299.0,
             name: "Last".to_string(),
             hot_cue: HotCue::from_pad(0),
+            energy: None,
         },
         Cue {
             seconds: 301.0,
             name: "Lost".to_string(),
             hot_cue: HotCue::from_pad(1),
+            energy: None,
         },
     ];
-    let markers = SeratoMarkers::of_cues(&analysis, Some(edited));
+    let markers = SeratoMarkers::of_cues(&analysis, Some(edited), CueColours::Energy);
     assert_eq!(
         markers.cues,
         vec![SeratoCue::of(

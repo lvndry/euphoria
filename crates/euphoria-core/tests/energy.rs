@@ -10,7 +10,7 @@ use std::num::NonZeroU32;
 use euphoria_core::{
     AudioBuffer, ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, energy_curve,
-    energy_features, rate_energy, rate_features,
+    energy_features, rate_energy, rate_features, rate_sections,
 };
 
 const SAMPLE_RATE: u32 = 44_100;
@@ -330,6 +330,81 @@ fn a_track_whose_curve_has_no_rated_window_is_rated_from_its_features() {
         rate_energy(&audio, None).unwrap(),
         Some(rate_features(&features, None).unwrap())
     );
+}
+
+#[test]
+fn each_section_is_the_mean_of_the_curve_windows_centred_in_it() {
+    let calm = sine(440.0, 0.02, 16.0);
+    let busy = mix(
+        &pulse_train(KICK_FREQUENCY, 8.0, 0.8, 16.0),
+        &noise(0.2, 16.0),
+    );
+    let mut samples = calm.clone();
+    samples.extend(&busy);
+    samples.extend(&calm);
+    let audio = buffer(samples);
+    let starts = [0.0, 16.0, 32.0];
+    let sections = rate_sections(&audio, &starts, Some(124.0)).unwrap();
+    let curve = energy_curve(&audio, Some(124.0)).unwrap();
+
+    assert_eq!(sections.len(), 3);
+    for (index, section) in sections.iter().enumerate() {
+        let start = starts[index] as f32;
+        let end = starts.get(index + 1).map_or(48.0, |next| *next as f32);
+        let scores: Vec<f32> = curve
+            .iter()
+            .filter(|point| {
+                let centre = point.start_seconds + point.duration_seconds / 2.0;
+                centre >= start && centre < end
+            })
+            .filter_map(|point| point.rating.map(|rating| rating.score))
+            .collect();
+        let mean = scores.iter().sum::<f32>() / scores.len() as f32;
+        let section = section.expect("every section has signal");
+        assert!((section.score - mean).abs() < 1.0e-6, "{index}");
+    }
+    let levels: Vec<u8> = sections
+        .iter()
+        .map(|section| section.expect("rated").rating)
+        .collect();
+    assert!(levels[1] > levels[0], "{levels:?}");
+    assert!(levels[1] > levels[2], "{levels:?}");
+}
+
+#[test]
+fn a_silent_section_or_one_past_the_end_has_no_rating_and_a_short_one_takes_the_nearest_window() {
+    let mut samples = silence(8.0);
+    samples.extend(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 8.0));
+    let audio = buffer(samples);
+    let sections = rate_sections(&audio, &[0.0, 8.0, 8.5, 9.0, 40.0], None).unwrap();
+    let curve = energy_curve(&audio, None).unwrap();
+    assert_eq!(sections[0], None);
+    let nearest = curve
+        .iter()
+        .find(|point| (point.start_seconds + point.duration_seconds / 2.0 - 8.0).abs() < 1.0e-3)
+        .and_then(|point| point.rating)
+        .expect("the window centred at 8 s is rated");
+    assert_eq!(
+        sections[1].map(|section| section.score),
+        Some(nearest.score)
+    );
+    assert!(sections[3].is_some());
+    assert_eq!(sections[4], None);
+    assert!(rate_sections(&audio, &[], None).unwrap().is_empty());
+}
+
+#[test]
+fn rating_sections_refuses_what_rating_a_track_refuses() {
+    let audio = buffer(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 4.0));
+    assert!(matches!(
+        rate_sections(&audio, &[0.0], Some(f32::NAN)),
+        Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
+    ));
+    let unsupported = buffer_at(vec![0.0; 10], ENERGY_MAXIMUM_SAMPLE_RATE + 1);
+    assert!(is_unsupported_rate(
+        &rate_sections(&unsupported, &[0.0], None),
+        ENERGY_MAXIMUM_SAMPLE_RATE + 1
+    ));
 }
 
 #[test]

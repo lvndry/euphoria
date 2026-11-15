@@ -31,11 +31,13 @@ fn golden_library() -> Library {
                 name: "Intro".to_string(),
                 time: Duration::from_millis(146),
                 kind: CueKind::Memory,
+                energy: None,
             },
             CuePoint {
                 name: "Drop".to_string(),
                 time: Duration::from_millis(63_500),
                 kind: CueKind::Hot(0),
+                energy: None,
             },
         ],
         ..Track::new(AROUND_THE_WORLD, Duration::from_millis(429_600))
@@ -313,11 +315,13 @@ fn cue_points_are_written_as_memory_cues_and_numbered_hot_cues() {
                 name: String::new(),
                 time: Duration::ZERO,
                 kind: CueKind::Memory,
+                energy: None,
             },
             CuePoint {
                 name: "Break & build".to_string(),
                 time: Duration::from_millis(95_250),
                 kind: CueKind::Hot(2),
+                energy: None,
             },
         ],
         ..untagged_track("/Music/cues.mp3")
@@ -339,6 +343,51 @@ fn cue_points_are_written_as_memory_cues_and_numbered_hot_cues() {
     assert_eq!(marks[1].attribute("Type"), Some("0"));
     assert_eq!(marks[1].attribute("Start"), Some("95.250"));
     assert_eq!(marks[1].attribute("Num"), Some("2"));
+    for mark in &marks {
+        assert_eq!(mark.attribute("Red"), None);
+    }
+}
+
+#[test]
+fn a_hot_cue_coloured_by_energy_gets_its_colour_and_a_memory_cue_none() {
+    let at = |kind, energy| CuePoint {
+        name: "Drop".to_string(),
+        time: Duration::from_secs(64),
+        kind,
+        energy,
+    };
+    let track = Track {
+        cue_points: vec![
+            at(CueKind::Memory, Some(9)),
+            at(CueKind::Hot(1), Some(9)),
+            at(CueKind::Hot(2), Some(2)),
+            at(CueKind::Hot(3), None),
+        ],
+        ..untagged_track("/Music/cues.mp3")
+    };
+    let xml = export(&single_track_library(track));
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+    let colours: Vec<(Option<&str>, Option<&str>, Option<&str>)> = collection_tracks(&document)[0]
+        .children()
+        .filter(|node| node.has_tag_name("POSITION_MARK"))
+        .map(|mark| {
+            (
+                mark.attribute("Red"),
+                mark.attribute("Green"),
+                mark.attribute("Blue"),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        colours,
+        vec![
+            (None, None, None),
+            (Some("240"), Some("69"), Some("34")),
+            (Some("58"), Some("111"), Some("247")),
+            (None, None, None),
+        ]
+    );
 }
 
 #[test]
@@ -687,11 +736,13 @@ fn track_with_hot_cue(pad: u8) -> Track {
                 name: "Intro".to_string(),
                 time: Duration::ZERO,
                 kind: CueKind::Memory,
+                energy: None,
             },
             CuePoint {
                 name: "Pad".to_string(),
                 time: Duration::from_secs(30),
                 kind: CueKind::Hot(pad),
+                energy: None,
             },
         ],
         ..untagged_track("/Music/pads.mp3")
@@ -766,6 +817,7 @@ fn a_text_field_xml_cannot_carry_is_refused_instead_of_changed() {
             name: FORBIDDEN_IN_XML.to_string(),
             time: Duration::ZERO,
             kind: CueKind::Hot(0),
+            energy: None,
         }],
         ..untagged_track("/Music/control.mp3")
     };

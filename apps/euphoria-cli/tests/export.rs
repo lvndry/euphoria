@@ -1215,6 +1215,108 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
 
 #[cfg(unix)]
 #[test]
+fn hot_cues_are_coloured_by_the_energy_of_their_section_unless_colours_are_fixed() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let output_folder = TemporaryFolder::new();
+    let output = resolved(output_folder.path());
+    let collection = output.join("collection.xml");
+    std::fs::write(
+        &collection,
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"0\"/></DJ_PLAYLISTS>",
+    )
+    .expect("the collection is written");
+    let export = |name: &str, extra: &[&str]| {
+        let file = output.join(name);
+        let mut arguments = vec![
+            "export",
+            "rekordbox",
+            text(&track),
+            "-o",
+            text(&file),
+            "--beat-grid",
+            "--cues",
+            "--collection",
+            text(&collection),
+        ];
+        arguments.extend_from_slice(extra);
+        let run = euphoria.run(&arguments);
+        assert_success(&run);
+        file
+    };
+    let colours = |file: &Path| -> Vec<(String, Option<[u8; 3]>)> {
+        let document = std::fs::read_to_string(file).expect("the export is read");
+        let xml = roxmltree::Document::parse(&document).expect("well formed XML");
+        xml.descendants()
+            .filter(|node| node.has_tag_name("POSITION_MARK"))
+            .map(|node| {
+                let channel = |name| {
+                    attribute(node, name).map(|value| value.parse::<u8>().expect("0 to 255"))
+                };
+                let colour = match (channel("Red"), channel("Green"), channel("Blue")) {
+                    (Some(red), Some(green), Some(blue)) => Some([red, green, blue]),
+                    _ => None,
+                };
+                (attribute(node, "Num").expect("a number"), colour)
+            })
+            .collect()
+    };
+
+    let analyzed = analyzed_as_json(&euphoria, music_folder.path());
+    let energies: Vec<u8> = analyzed[0]["cues"]
+        .as_array()
+        .expect("cues")
+        .iter()
+        .map(|cue| {
+            let energy = cue["energy"].as_u64().expect("each cue has an energy");
+            u8::try_from(energy).expect("a rating")
+        })
+        .collect();
+    assert!(!energies.is_empty());
+    assert!(energies.iter().all(|energy| (1..=10).contains(energy)));
+
+    let by_energy = colours(&export("energy.xml", &[]));
+    let hot: Vec<Option<[u8; 3]>> = by_energy
+        .iter()
+        .filter(|(number, _)| number != "-1")
+        .map(|(_, colour)| *colour)
+        .collect();
+    let expected: Vec<Option<[u8; 3]>> = energies
+        .iter()
+        .map(|energy| Some(euphoria_core::energy_cue_colour(*energy)))
+        .collect();
+    assert_eq!(hot, expected);
+    assert!(
+        by_energy
+            .iter()
+            .filter(|(number, _)| number == "-1")
+            .all(|(_, colour)| colour.is_none())
+    );
+    assert_eq!(
+        colours(&export("explicit.xml", &["--cue-colors", "energy"])),
+        by_energy
+    );
+
+    let fixed = colours(&export("fixed.xml", &["--cue-colors", "fixed"]));
+    assert_eq!(fixed.len(), by_energy.len());
+    assert!(fixed.iter().all(|(_, colour)| colour.is_none()));
+
+    let without_cues = euphoria.run(&[
+        "export",
+        "rekordbox",
+        text(&track),
+        "-o",
+        text(&output.join("refused.xml")),
+        "--cue-colors",
+        "fixed",
+    ]);
+    assert_eq!(without_cues.status.code(), Some(2));
+    assert!(standard_error(&without_cues).contains("--cues"));
+}
+
+#[test]
 fn a_symlinked_track_is_left_out_when_the_collection_lists_its_target() {
     let euphoria = Euphoria::new();
     let music_folder = TemporaryFolder::new();
@@ -1276,11 +1378,13 @@ fn the_cues_the_user_set_replace_the_automatic_ones_in_the_json_and_the_export()
             seconds: 2.25,
             name: "My drop".to_string(),
             hot_cue: euphoria_core::HotCue::from_letter('C'),
+            energy: None,
         },
         euphoria_core::Cue {
             seconds: 10.0,
             name: "Memory only".to_string(),
             hot_cue: None,
+            energy: None,
         },
     ];
     euphoria_core::Cache::open(&euphoria.cache_path())
@@ -1292,8 +1396,8 @@ fn the_cues_the_user_set_replace_the_automatic_ones_in_the_json_and_the_export()
     assert_eq!(
         analyzed[0]["cues"],
         serde_json::json!([
-            {"seconds": 2.25, "name": "My drop", "hot_cue": "C"},
-            {"seconds": 10.0, "name": "Memory only", "hot_cue": null},
+            {"seconds": 2.25, "name": "My drop", "hot_cue": "C", "energy": null},
+            {"seconds": 10.0, "name": "Memory only", "hot_cue": null, "energy": null},
         ])
     );
     assert_eq!(analyzed[0]["set_by_user"], serde_json::json!(["cues"]));
@@ -1903,11 +2007,13 @@ fn cues_saved_before_the_analysis_are_kept_within_the_track_on_every_surface() {
                     seconds: 0.5,
                     name: "In the track".to_string(),
                     hot_cue: None,
+                    energy: None,
                 },
                 euphoria_core::Cue {
                     seconds: 999.0,
                     name: "Past the end".to_string(),
                     hot_cue: None,
+                    energy: None,
                 },
             ]),
         )

@@ -32,7 +32,7 @@ use crate::theme::AppTheme;
 use crate::track_filters::TrackFilters;
 
 /// How many tracks the list shows.
-pub(crate) const NEXT_LIMIT: usize = 6;
+pub(crate) const NEXT_LIMIT: usize = 10;
 
 /// How often the model looks at what the engine heard, which sets how
 /// smoothly the level meter moves.
@@ -73,6 +73,28 @@ struct RankedFor {
     matched: Option<usize>,
 }
 
+/// How long a key and tempo must stay the same before the panel calls the
+/// reading steady.
+const STEADY_AFTER: Duration = Duration::from_secs(6);
+
+/// How many earlier readings the panel keeps.
+const HISTORY_LIMIT: usize = 8;
+
+/// Whether what is heard has stopped changing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Steadiness {
+    Settling,
+    Steady,
+}
+
+/// A reading that held, kept for the Earlier row. In memory only.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Earlier {
+    pub(crate) key: euphoria_core::Key,
+    pub(crate) bpm: Option<f32>,
+    pub(crate) title: Option<String>,
+}
+
 pub(crate) struct LiveModel {
     capture_factory: CaptureFactory,
     engine: Option<LiveEngine>,
@@ -95,6 +117,12 @@ pub(crate) struct LiveModel {
     ranked_for: Option<RankedFor>,
     pub(crate) energy: EnergyChoice,
     started_this_session: bool,
+    listening_since: Option<Instant>,
+    signature: Option<(euphoria_core::Key, i32)>,
+    signature_since: Instant,
+    pub(crate) earlier: Vec<Earlier>,
+    artwork: crate::artwork::ArtworkStore,
+    pub(crate) notice: Option<String>,
     pub(crate) theme: AppTheme,
     pub(crate) notation: NotationChoice,
     track_filters: TrackFilters,
@@ -151,6 +179,12 @@ impl LiveModel {
             ranked_for: None,
             energy: live_settings.energy,
             started_this_session: false,
+            listening_since: None,
+            signature: None,
+            signature_since: Instant::now(),
+            earlier: Vec::new(),
+            artwork: crate::artwork::ArtworkStore::new(8),
+            notice: None,
             theme: AppTheme::named(settings.theme),
             notation: settings.tags.key_notation,
             track_filters: settings.track_filters,
@@ -210,6 +244,8 @@ impl LiveModel {
             Ok(engine) => {
                 self.engine = Some(engine);
                 self.state = ListenState::Listening;
+                self.listening_since = Some(Instant::now());
+                self.signature = None;
                 if !self.settings.started_once {
                     self.settings.started_once = true;
                     self.save_settings();
@@ -224,6 +260,7 @@ impl LiveModel {
     /// Stops listening and forgets the audio.
     pub(crate) fn pause(&mut self, cx: &mut Context<'_, Self>) {
         self.stop_engine();
+        self.listening_since = None;
         self.state = ListenState::Paused;
         self.reading = LiveReading::listening();
         self.clear_rows();
@@ -261,6 +298,20 @@ impl LiveModel {
             self.rank(cx);
             cx.notify();
         }
+    }
+
+    /// Opens Euphoria at login with Live in the menu bar, or stops.
+    pub(crate) fn toggle_open_at_login(&mut self, cx: &mut Context<'_, Self>) {
+        let wanted = !crate::login_item::is_enabled();
+        match crate::login_item::set_enabled(wanted) {
+            Ok(()) => {
+                self.settings.open_at_login = wanted;
+                self.save_settings();
+                self.notice = None;
+            }
+            Err(problem) => self.notice = Some(problem),
+        }
+        cx.notify();
     }
 
     pub(crate) fn set_keep_running(&mut self, keep: bool, cx: &mut Context<'_, Self>) {
@@ -383,8 +434,118 @@ impl LiveModel {
             return;
         }
         self.reading = reading;
+        self.note_signature();
         self.rank(cx);
         cx.notify();
+    }
+
+    /// Tracks how long the key and the tempo have stayed the same, and keeps
+    /// a reading that held for the Earlier row.
+    fn note_signature(&mut self) {
+        let signature = self
+            .reading
+            .key
+            .filter(|_| !self.reading.listening)
+            .map(|key| {
+                let bpm = self
+                    .reading
+                    .tempo
+                    .map_or(0, |tempo| tempo.bpm.round() as i32);
+                (key.key, bpm)
+            });
+        if signature != self.signature {
+            self.signature = signature;
+            self.signature_since = Instant::now();
+        }
+        self.keep_earlier_if_steady();
+    }
+
+    fn keep_earlier_if_steady(&mut self) {
+        if self.steadiness() != Some(Steadiness::Steady) {
+            return;
+        }
+        let Some((key, _)) = self.signature else {
+            return;
+        };
+        let title = self.matched_track().map(|(track, _)| shown_title(track));
+        let entry = Earlier {
+            key,
+            bpm: self.reading.tempo.map(|tempo| tempo.bpm),
+            title,
+        };
+        let same_reading = |last: &Earlier| {
+            last.key == entry.key && last.bpm.map(f32::round) == entry.bpm.map(f32::round)
+        };
+        if let Some(last) = self.earlier.last_mut()
+            && same_reading(last)
+            && last.title.is_none()
+            && entry.title.is_some()
+        {
+            last.title = entry.title.clone();
+        }
+        let same_as_last = self
+            .earlier
+            .last()
+            .is_some_and(|last| same_reading(last) && last.title == entry.title);
+        if !same_as_last {
+            self.earlier.push(entry);
+            if self.earlier.len() > HISTORY_LIMIT + 1 {
+                self.earlier.remove(0);
+            }
+        }
+    }
+
+    /// Whether the reading has held for a few seconds, or `None` when
+    /// nothing is shown.
+    pub(crate) fn steadiness(&self) -> Option<Steadiness> {
+        self.signature?;
+        Some(if self.signature_since.elapsed() >= STEADY_AFTER {
+            Steadiness::Steady
+        } else {
+            Steadiness::Settling
+        })
+    }
+
+    /// How long Live has been listening since it was started or resumed.
+    pub(crate) fn listening_for(&self) -> Option<Duration> {
+        self.listening_since.map(|since| since.elapsed())
+    }
+
+    /// The readings before the current one, oldest first, at most
+    /// [`HISTORY_LIMIT`]. The current reading is left out.
+    pub(crate) fn earlier_readings(&self) -> &[Earlier] {
+        let held = self.earlier.len();
+        let current_is_last = self
+            .signature
+            .is_some_and(|(key, _)| self.earlier.last().is_some_and(|last| last.key == key));
+        let end = if current_is_last { held - 1 } else { held };
+        &self.earlier[end.saturating_sub(HISTORY_LIMIT)..end]
+    }
+
+    pub(crate) fn artwork(&self) -> &crate::artwork::ArtworkStore {
+        &self.artwork
+    }
+
+    /// The words above the Next list: what it follows.
+    pub(crate) fn next_heading(&self) -> String {
+        if let Some((track, _)) = self.matched_track() {
+            return format!("Next after {}", shown_title(track));
+        }
+        match (self.reading.key, self.reading.tempo) {
+            (Some(key), Some(tempo)) => format!(
+                "Next for {} \u{b7} {:.0} BPM",
+                self.notation.spell(&key.key),
+                tempo.bpm
+            ),
+            (Some(key), None) => format!("Next for {}", self.notation.spell(&key.key)),
+            _ => "Next".to_string(),
+        }
+    }
+
+    /// Makes the sound of a test steady without waiting.
+    #[cfg(test)]
+    pub(crate) fn backdate_signature(&mut self, by: Duration) {
+        self.signature_since = Instant::now() - by;
     }
 
     /// Replaces what was heard, for a test of the list that needs an energy
@@ -392,6 +553,7 @@ impl LiveModel {
     #[cfg(test)]
     pub(crate) fn pretend_heard(&mut self, reading: LiveReading, cx: &mut Context<'_, Self>) {
         self.reading = reading;
+        self.note_signature();
         self.rank(cx);
         cx.notify();
     }
@@ -485,6 +647,40 @@ impl LiveModel {
             (None, Some(reference)) => rank_after(&reference, None, |_| false, &query),
             (None, None) => Vec::new(),
         };
+        self.read_names_of_shown_tracks();
+    }
+
+    /// Reads the title and artist from the tags of the few tracks the panel
+    /// shows, once each, so it can name them as the library does.
+    fn read_names_of_shown_tracks(&mut self) {
+        let Some(library) = &mut self.library else {
+            return;
+        };
+        let mut paths: Vec<PathBuf> = self
+            .next_rows
+            .iter()
+            .filter_map(|row| {
+                library
+                    .track(row.track_index)
+                    .map(|track| track.path.clone())
+            })
+            .collect();
+        if let Some(found) = self.reading.matched
+            && let Some(path) = self.fingerprint_paths.get(found.track)
+        {
+            paths.push(path.clone());
+        }
+        for path in paths {
+            if library
+                .track_by_path(&path)
+                .is_some_and(|track| track.title() != track.file_name)
+            {
+                continue;
+            }
+            if let Ok(name) = euphoria_core::read_track_name(&path) {
+                library.set_names(&path, name);
+            }
+        }
     }
 
     fn clear_rows(&mut self) {
@@ -551,6 +747,20 @@ pub(crate) fn load_library_from_cache() -> Library {
         }
     }
     library
+}
+
+/// The title the panel shows: the one in the tags, or the file name without
+/// its extension.
+pub(crate) fn shown_title(track: &crate::library::Track) -> String {
+    if track.title() != track.file_name {
+        return track.title().to_string();
+    }
+    std::path::Path::new(&track.file_name)
+        .file_stem()
+        .map_or_else(
+            || track.file_name.clone(),
+            |stem| stem.to_string_lossy().into_owned(),
+        )
 }
 
 /// Fingerprints the library's files from the analysis cache, one at a time
