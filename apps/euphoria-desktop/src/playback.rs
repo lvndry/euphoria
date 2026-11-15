@@ -12,7 +12,7 @@
 
 use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroU32};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -1131,6 +1131,41 @@ impl rodio::Source for TrackSource {
     }
 }
 
+/// What the player asks the output to open: a track's file or its stems,
+/// where to start, and the key shift.
+pub(crate) struct OpenRequest {
+    pub(crate) path: PathBuf,
+    pub(crate) from_seconds: f32,
+    pub(crate) semitones: i8,
+    /// The stems to play in place of the file, and how they are mixed.
+    pub(crate) stems: Option<(StemFiles, Arc<StemMix>)>,
+}
+
+impl OpenRequest {
+    /// Opens the file or the stems and decodes their first chunk. This
+    /// reads the start of the file, so it runs off the main thread.
+    pub(crate) fn open(self) -> Result<TrackSource, PlaybackProblem> {
+        match self.stems {
+            Some((files, mix)) => {
+                TrackSource::open_stems_shifted(&files, mix, self.from_seconds, self.semitones)
+            }
+            None => TrackSource::open_shifted(&self.path, self.from_seconds, self.semitones),
+        }
+    }
+}
+
+/// The answer to an [`OpenRequest`], once the source is open or could not
+/// be opened.
+pub(crate) type Opening = async_channel::Receiver<Result<TrackSource, PlaybackProblem>>;
+
+/// Opens `request` on the calling thread and hands the answer over at
+/// once.
+pub(crate) fn open_here(request: OpenRequest) -> Opening {
+    let (sender, receiver) = async_channel::bounded(1);
+    let _ = sender.try_send(request.open());
+    receiver
+}
+
 /// A sound that is playing or paused. Dropping it stops the sound.
 pub(crate) trait Voice {
     /// Holds the sound where it is.
@@ -1155,6 +1190,12 @@ pub(crate) trait AudioOutput {
     /// Starts playing the metronome's clicks at once, mixed over whatever
     /// else is playing, until the voice is dropped or the clicks end.
     fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem>;
+
+    /// Opens what `request` asks for, off the main thread. Outputs made for
+    /// tests open it at once on the calling thread, so tests stay in step.
+    fn open(&self, request: OpenRequest) -> Opening {
+        open_here(request)
+    }
 }
 
 /// The computer's default audio output, opened the first time a track is
@@ -1205,6 +1246,19 @@ impl AudioOutput for SystemOutput {
         let player = self.new_player()?;
         player.append(clicks);
         Ok(Box::new(SystemVoice(player)))
+    }
+
+    /// Opens the track on a thread of its own rather than the app's shared
+    /// background pool, where a start would queue behind waveform decodes
+    /// and artwork for as long as they take.
+    fn open(&self, request: OpenRequest) -> Opening {
+        let (sender, receiver) = async_channel::bounded(1);
+        let _ = std::thread::Builder::new()
+            .name("euphoria-playback-open".to_string())
+            .spawn(move || {
+                let _ = sender.send_blocking(request.open());
+            });
+        receiver
     }
 }
 
@@ -1364,6 +1418,119 @@ pub(crate) mod testing {
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(sounding.clone());
             Ok(Box::new(ListenedVoice(sounding)))
+        }
+    }
+
+    /// A silent output whose tracks open only when the test says so, as a
+    /// slow disk or a long decode would, and that notes which tracks it
+    /// plays and which of them still sound.
+    #[derive(Default, Clone)]
+    pub(crate) struct SlowOpeningOutput {
+        held: Arc<Mutex<SlowOpenings>>,
+    }
+
+    #[derive(Default)]
+    struct SlowOpenings {
+        waiting: VecDeque<(
+            OpenRequest,
+            async_channel::Sender<Result<TrackSource, PlaybackProblem>>,
+        )>,
+        opened: Vec<(Arc<VoiceState>, PathBuf)>,
+        voices: Vec<(PathBuf, Arc<AtomicBool>)>,
+    }
+
+    impl SlowOpeningOutput {
+        fn lock(&self) -> MutexGuard<'_, SlowOpenings> {
+            self.held.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+
+        /// The tracks asked for that have not opened yet, oldest first.
+        pub(crate) fn waiting(&self) -> Vec<PathBuf> {
+            self.lock()
+                .waiting
+                .iter()
+                .map(|(request, _)| request.path.clone())
+                .collect()
+        }
+
+        /// Opens the oldest track asked for and hands it over.
+        pub(crate) fn finish_opening(&self) {
+            let Some((request, answer)) = self.lock().waiting.pop_front() else {
+                panic!("no track is opening");
+            };
+            let path = request.path.clone();
+            let opened = request.open();
+            if let Ok(source) = &opened {
+                self.lock().opened.push((source.state(), path));
+            }
+            let _ = answer.try_send(opened);
+        }
+
+        /// The tracks whose sound is still playing, oldest first.
+        pub(crate) fn sounding(&self) -> Vec<PathBuf> {
+            self.lock()
+                .voices
+                .iter()
+                .filter(|(_, sounding)| sounding.load(Ordering::Relaxed))
+                .map(|(path, _)| path.clone())
+                .collect()
+        }
+    }
+
+    impl AudioOutput for SlowOpeningOutput {
+        fn play(&mut self, source: TrackSource) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            let state = source.state();
+            let mut held = self.lock();
+            let path = held
+                .opened
+                .iter()
+                .find(|(opened, _)| Arc::ptr_eq(opened, &state))
+                .map(|(_, path)| path.clone())
+                .unwrap_or_default();
+            let sounding = Arc::new(AtomicBool::new(true));
+            held.voices.push((path, sounding.clone()));
+            Ok(Box::new(SoundingVoice {
+                sounding,
+                _source: source,
+            }))
+        }
+
+        fn play_reference(
+            &mut self,
+            sound: ReferenceSound,
+        ) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(sound)))
+        }
+
+        fn play_decks(&mut self, mix: DeckMix) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(mix)))
+        }
+
+        fn play_metronome(&mut self, clicks: Metronome) -> Result<Box<dyn Voice>, PlaybackProblem> {
+            Ok(Box::new(SilentVoice(clicks)))
+        }
+
+        fn open(&self, request: OpenRequest) -> Opening {
+            let (sender, receiver) = async_channel::bounded(1);
+            self.lock().waiting.push_back((request, sender));
+            receiver
+        }
+    }
+
+    struct SoundingVoice {
+        sounding: Arc<AtomicBool>,
+        _source: TrackSource,
+    }
+
+    impl Voice for SoundingVoice {
+        fn pause(&self) {}
+
+        fn resume(&self) {}
+    }
+
+    impl Drop for SoundingVoice {
+        fn drop(&mut self) {
+            self.sounding.store(false, Ordering::Relaxed);
         }
     }
 

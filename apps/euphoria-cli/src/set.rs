@@ -43,6 +43,22 @@ pub enum SetCommand {
         after_help = crate::help::set_examples(),
     )]
     Build(BuildArguments),
+    /// Render a set as one continuous mix: beatmatched, blended at section
+    /// starts, written as WAV or FLAC.
+    #[command(
+        long_about = "Render a set as one continuous mix: beatmatched, blended at section \
+                      starts, written as WAV or FLAC.\n\n\
+                      The set is a playlist built in the desktop app, an M3U or M3U8 file, or \
+                      audio files in play order. Each track blends into the next over the \
+                      window the transition planner ranks best (as euphoria plan shows), \
+                      starting on a phrase of the track playing and a section start of the \
+                      next. The next track is time-stretched to the tempo of the one \
+                      playing with its key kept, the bass is swapped at the planned bar, \
+                      and once the blend is over it glides back to its own tempo. A pair \
+                      that cannot blend plays one after the other, and the plan says why.",
+        after_help = crate::help::set_render_examples(),
+    )]
+    Render(crate::set_render::RenderArguments),
 }
 
 #[derive(Debug, Args)]
@@ -100,7 +116,7 @@ pub struct BuildArguments {
 
 /// A key move to allow with `--moves`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum MoveChoice {
+pub(crate) enum MoveChoice {
     /// The same key, such as 8A to 8A.
     Same,
     /// One step on the wheel, such as 8A to 9A.
@@ -118,7 +134,7 @@ enum MoveChoice {
 }
 
 impl MoveChoice {
-    fn relation(self) -> Relation {
+    pub(crate) fn relation(self) -> Relation {
         match self {
             MoveChoice::Same => Relation::Same,
             MoveChoice::Adjacent => Relation::Adjacent,
@@ -179,6 +195,7 @@ impl PoolTrack {
 pub fn run(command: SetCommand) -> Result<ExitCode> {
     match command {
         SetCommand::Build(arguments) => build(&arguments),
+        SetCommand::Render(arguments) => crate::set_render::run(&arguments),
     }
 }
 
@@ -468,6 +485,7 @@ mod tests {
                 key_score_margin: None,
                 key_source: None,
                 loudness_range_lu: None,
+                pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,

@@ -115,6 +115,7 @@ fn rated(key_score_margin: f32, tempo_estimate: f32, tempo_score_margin: f32) ->
         key_score_margin: Some(key_score_margin),
         key_source: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_score_margin),
         beat_grid: None,

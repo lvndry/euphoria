@@ -29,6 +29,7 @@ pub use windows::{
     WINDOW_LENGTHS,
 };
 
+use crate::detect::{BeatGrid, CueSection};
 use crate::track_cues::Cue;
 
 /// The slowest rate a deck plays a track at.
@@ -43,6 +44,34 @@ pub fn reachable_rate(rate: f64) -> f64 {
     } else {
         1.0
     }
+}
+
+/// The playback speed that brings a track at `own_bpm` closest to the
+/// tempo `target_bpm`, reading the target at half or double when that is
+/// closer, as a DJ beatmatches a track counted at half time. The speed is
+/// one a deck can play, from [`MINIMUM_DECK_RATE`] to
+/// [`MAXIMUM_DECK_RATE`], so a target out of reach gives the nearest speed
+/// that is not; compare `own_bpm` times the speed with the target to tell.
+pub fn matching_rate(own_bpm: f64, target_bpm: f64) -> f64 {
+    if own_bpm <= 0.0 || target_bpm <= 0.0 || !own_bpm.is_finite() || !target_bpm.is_finite() {
+        return 1.0;
+    }
+    [1.0, 2.0, 0.5]
+        .into_iter()
+        .map(|scale| {
+            let wanted = target_bpm * scale / own_bpm;
+            let reached = reachable_rate(wanted);
+            // How far the tempo reached is from the one wanted, then how
+            // far the speed is from the track's own.
+            ((reached / wanted).ln().abs(), reached.ln().abs(), reached)
+        })
+        .min_by(|first, second| {
+            first
+                .0
+                .total_cmp(&second.0)
+                .then_with(|| first.1.total_cmp(&second.1))
+        })
+        .map_or(1.0, |(_, _, rate)| rate)
 }
 
 /// Windows returned by default.
@@ -259,4 +288,24 @@ pub fn cues_for_window(
         a: a_cues,
         b: b_cues,
     })
+}
+
+/// The sections of a track from the cues it shows, as bars of `grid`: each
+/// cue named after a section starts one. The planner reads the cues the
+/// user edited this way, so a section moved by hand moves the plan.
+pub fn sections_from_cues(cues: &[Cue], grid: &BeatGrid) -> Vec<PlanSection> {
+    let bar_seconds = grid.bar_seconds();
+    if bar_seconds <= 0.0 {
+        return Vec::new();
+    }
+    cues.iter()
+        .filter_map(|cue| {
+            let section = CueSection::from_name(&cue.name)?;
+            let bars = (cue.seconds - grid.first_downbeat_seconds) / bar_seconds;
+            (bars.is_finite() && bars > -0.5).then(|| PlanSection {
+                start_bar: bars.round().max(0.0) as usize,
+                label: section.into(),
+            })
+        })
+        .collect()
 }

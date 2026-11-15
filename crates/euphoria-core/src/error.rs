@@ -231,6 +231,15 @@ pub enum EuphoriaError {
         /// What went wrong.
         reason: String,
     },
+    /// A track could not be prepared for a club system, or its prepared
+    /// copy could not be written.
+    #[error("cannot prepare {path}: {reason}")]
+    Prepare {
+        /// The original track.
+        path: PathBuf,
+        /// What went wrong.
+        reason: String,
+    },
     /// A mashup could not be rendered or written.
     #[error("cannot render the mashup at {path}: {reason}")]
     Mashup {
@@ -240,6 +249,19 @@ pub enum EuphoriaError {
         /// What went wrong.
         reason: String,
     },
+    /// The mix of a set could not be rendered or written.
+    #[error("cannot render the mix at {path}: {reason}")]
+    MixRender {
+        /// The file the problem is about: a track of the set or the file
+        /// being written.
+        path: PathBuf,
+        /// What went wrong.
+        reason: String,
+    },
+    /// Rendering a mix was stopped before it was finished. Nothing was
+    /// written.
+    #[error("the mix was cancelled")]
+    MixCancelled,
     /// Text could not be read as a key: a name such as "A minor", a Camelot
     /// code such as "8A" or an Open Key code such as "1m".
     #[error("unrecognised key text: {0:?}")]

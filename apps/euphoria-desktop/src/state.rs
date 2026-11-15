@@ -11,8 +11,8 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::{
-    CachedAnalyzer, EntryCheck, EuphoriaError, PlaylistStore, StoredFavorites, StoredPlaylist,
-    TrackAnalysis, locate_moved_files,
+    CachedAnalyzer, EntryCheck, EuphoriaError, LockedTransition, PlaylistStore, StoredFavorites,
+    StoredPlaylist, TrackAnalysis, locate_moved_files,
 };
 
 use crate::analysis::{AnalysisEvent, AnalysisWorkers, StopSignal};
@@ -127,6 +127,8 @@ pub(crate) struct Session {
     reanalyzing: HashSet<PathBuf>,
     playlists: Playlists,
     favorites: Favorites,
+    /// The transitions the user placed by hand in the planner.
+    locked_transitions: Vec<LockedTransition>,
     playlist_saver: Option<PlaylistSaver>,
 }
 
@@ -186,6 +188,23 @@ impl PlaylistSaver {
         self.saved_favorites_revision
             .store(revision, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Keeps `lock`, replacing the lock of the same pair.
+    pub(crate) fn lock_transition(&self, lock: &LockedTransition) -> Result<(), EuphoriaError> {
+        self.store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .lock_transition(lock)
+    }
+
+    /// Forgets the lock of `from` into `to`.
+    pub(crate) fn unlock_transition(&self, from: &Path, to: &Path) -> Result<(), EuphoriaError> {
+        self.store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unlock_transition((from, None), (to, None))
+            .map(|_| ())
     }
 
     pub(crate) fn rewrites(&self) -> Vec<PlaylistRewrite> {
@@ -295,6 +314,7 @@ impl Session {
             reanalyzing: HashSet::new(),
             playlists: Playlists::default(),
             favorites: Favorites::default(),
+            locked_transitions: Vec::new(),
             playlist_saver: None,
         })
     }
@@ -333,6 +353,7 @@ impl Session {
             store.save_favorites(&favorites)?;
         }
         self.favorites = Favorites::from_stored(favorites);
+        self.locked_transitions = store.load_locked_transitions()?;
         self.show_missing_entries();
         let saver = PlaylistSaver {
             store: Arc::new(Mutex::new(store)),
@@ -442,6 +463,16 @@ impl Session {
     /// The favorites, to change. The caller saves them afterwards.
     pub(crate) fn favorites_mut(&mut self) -> &mut Favorites {
         &mut self.favorites
+    }
+
+    /// The transitions the user placed by hand in the planner.
+    pub(crate) fn locked_transitions(&self) -> &[LockedTransition] {
+        &self.locked_transitions
+    }
+
+    /// The locked transitions, to change. The caller saves the change.
+    pub(crate) fn locked_transitions_mut(&mut self) -> &mut Vec<LockedTransition> {
+        &mut self.locked_transitions
     }
 
     /// Where playlists are kept, when they are.

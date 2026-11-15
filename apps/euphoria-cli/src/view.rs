@@ -12,10 +12,9 @@ use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::{
     Confidence, Correction, FileResult, Key, ReviewReason, TagKey, TagKeyAgreement, TempoRange,
-    TrackAnalysis, TrackCues,
+    TrackAnalysis, TrackCues, note_names, notes_in_key,
 };
 
-use crate::batch::Corrections;
 use crate::grid_import::GridInfo;
 use crate::style::Theme;
 use crate::tag_key::TagKeys;
@@ -105,6 +104,8 @@ impl KeyNotationChoice {
 pub struct ViewOptions {
     pub notation: KeyNotationChoice,
     pub tempo_range: TempoRange,
+    /// Whether the detailed view shows the notes the key analysis heard.
+    pub notes: bool,
     /// Columns of text the view may use.
     pub width: usize,
 }
@@ -244,10 +245,8 @@ enum Align {
 enum Column {
     Key,
     KeyCompanion,
-    KeyConfidence,
     TagKey,
     Bpm,
-    BpmConfidence,
     Energy,
     EnergyBar,
     Quality,
@@ -256,13 +255,11 @@ enum Column {
 }
 
 impl Column {
-    const ALL: [Column; 11] = [
+    const ALL: [Column; 9] = [
         Column::Key,
         Column::KeyCompanion,
-        Column::KeyConfidence,
         Column::TagKey,
         Column::Bpm,
-        Column::BpmConfidence,
         Column::Energy,
         Column::EnergyBar,
         Column::Quality,
@@ -272,13 +269,12 @@ impl Column {
 
     /// The order columns are left out in when the window is narrow, the
     /// most decorative first. The key, the tempo and the file always stay.
-    const DROP_ORDER: [&'static [Column]; 8] = [
+    const DROP_ORDER: [&'static [Column]; 7] = [
         &[Column::EnergyBar],
         &[Column::KeyCompanion],
         &[Column::Time],
         &[Column::TagKey],
         &[Column::Review],
-        &[Column::KeyConfidence, Column::BpmConfidence],
         &[Column::Quality],
         &[Column::Energy],
     ];
@@ -292,10 +288,7 @@ impl Column {
             Column::Time => "Time",
             Column::TagKey => "Tags",
             Column::Review => "Review",
-            Column::KeyCompanion
-            | Column::KeyConfidence
-            | Column::BpmConfidence
-            | Column::EnergyBar => "",
+            Column::KeyCompanion | Column::EnergyBar => "",
         }
     }
 
@@ -315,10 +308,6 @@ const SHORTEST_FILE_COLUMN: usize = 24;
 /// Everything shown for one track, in every column.
 struct Row {
     cells: Vec<(Column, Cell)>,
-    /// The key and the tempo marked when rated low, for when the dots are
-    /// left out.
-    key_marked: Cell,
-    bpm_marked: Cell,
     folder: String,
     name: String,
 }
@@ -360,20 +349,12 @@ struct Notes {
 fn row(
     theme: &Theme,
     analysis: &TrackAnalysis,
-    correction: Option<&Correction>,
     options: &ViewOptions,
     notes: Notes,
     folder: String,
     name: String,
 ) -> Row {
     let Notes { tag_key, review } = notes;
-    let low_mark = |confidence: Option<Confidence>| {
-        if confidence == Some(Confidence::Low) {
-            theme.caution("?")
-        } else {
-            String::new()
-        }
-    };
     let key_text = analysis.key.map(|key| options.notation.short(key));
     let key = match (analysis.key, &key_text) {
         (Some(key), Some(text)) => theme.key(key, text),
@@ -386,8 +367,6 @@ fn row(
         || theme.dim("-"),
         |quality| quality_coloured(theme, quality.verdict, quality_word(quality.verdict)),
     );
-    let key_set = correction.is_some_and(|correction| correction.key.is_some());
-    let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
     let cells = Column::ALL
         .iter()
         .map(|column| {
@@ -397,13 +376,9 @@ fn row(
                     .key
                     .map(|key| theme.dim(options.notation.companion(key)))
                     .unwrap_or_default(),
-                Column::KeyConfidence if key_set => theme.user("you"),
-                Column::KeyConfidence => confidence_meter(theme, analysis.key_confidence()),
                 Column::TagKey => tag_key.clone(),
                 Column::Review => review.clone(),
                 Column::Bpm => bpm.clone(),
-                Column::BpmConfidence if bpm_set => theme.user("you"),
-                Column::BpmConfidence => confidence_meter(theme, analysis.tempo_confidence()),
                 Column::Energy => analysis
                     .energy
                     .map_or_else(|| theme.dim("-"), |energy| energy.to_string()),
@@ -419,8 +394,6 @@ fn row(
         .collect();
     Row {
         cells,
-        key_marked: Cell::new(format!("{key}{}", low_mark(analysis.key_confidence()))),
-        bpm_marked: Cell::new(format!("{bpm}{}", low_mark(analysis.tempo_confidence()))),
         folder,
         name,
     }
@@ -446,13 +419,13 @@ fn review_sentence(
         ReviewReason::Failed(message) => format!("could not be analyzed: {message}"),
         ReviewReason::KeyUnsure => match analysis.key_runner_up {
             Some(runner_up) => format!(
-                "key unsure (runner up {}  {})",
+                "key may be its relative or a fifth away (runner up {}  {})",
                 options.notation.short(runner_up),
                 options.notation.companion(runner_up)
             ),
-            None => "key unsure".to_string(),
+            None => "key may be its relative or a fifth away".to_string(),
         },
-        ReviewReason::TempoUnsure => "tempo unsure".to_string(),
+        ReviewReason::TempoUnsure => "BPM may be half or double".to_string(),
         ReviewReason::KeyConflict { tag_key } => {
             format!("the tags say {}", options.notation.short(*tag_key))
         }
@@ -589,7 +562,6 @@ pub fn write_table(
     theme: &Theme,
     results: &[FileResult],
     options: &ViewOptions,
-    corrections: &Corrections,
     tag_keys: &TagKeys,
 ) -> io::Result<()> {
     let analyzed: Vec<(&Path, &TrackAnalysis)> = results
@@ -605,9 +577,6 @@ pub fn write_table(
         .iter()
         .map(|(path, analysis)| {
             let (folder, name) = folder_and_name(path, &common);
-            let correction = corrections
-                .get(*path)
-                .and_then(|looked_up| looked_up.as_ref().ok());
             let tag_key = tag_key_cell(theme, tag_keys, path, analysis, options);
             let review = review_cell(
                 theme,
@@ -615,7 +584,7 @@ pub fn write_table(
                 tag_keys.reviewed(path),
             );
             let notes = Notes { tag_key, review };
-            row(theme, analysis, correction, options, notes, folder, name)
+            row(theme, analysis, options, notes, folder, name)
         })
         .collect();
 
@@ -661,23 +630,9 @@ pub fn write_table(
         shown.retain(|column| !step.contains(column));
         dropped_steps += 1;
     }
-    let marks_low = !shown.contains(&Column::KeyConfidence);
     let widths: Vec<(Column, usize)> = shown
         .iter()
-        .map(|column| {
-            let width = if marks_low {
-                match column {
-                    Column::Key => rows.iter().map(|row| row.key_marked.width).max(),
-                    Column::Bpm => rows.iter().map(|row| row.bpm_marked.width).max(),
-                    _ => None,
-                }
-                .unwrap_or(0)
-                .max(column_width(*column, &rows))
-            } else {
-                column_width(*column, &rows)
-            };
-            (*column, width)
-        })
+        .map(|column| (*column, column_width(*column, &rows)))
         .collect();
     let file_width = options
         .width
@@ -699,16 +654,12 @@ pub fn write_table(
     for row in &rows {
         let mut line = String::new();
         for (column, width) in &widths {
-            let cell = match column {
-                Column::Key if marks_low => row.key_marked.clone(),
-                Column::Bpm if marks_low => row.bpm_marked.clone(),
-                _ => row
-                    .cells
-                    .iter()
-                    .find(|(kept, _)| kept == column)
-                    .map(|(_, cell)| cell.clone())
-                    .unwrap_or_else(Cell::empty),
-            };
+            let cell = row
+                .cells
+                .iter()
+                .find(|(kept, _)| kept == column)
+                .map(|(_, cell)| cell.clone())
+                .unwrap_or_else(Cell::empty);
             line.push_str(&pad(&cell, *width, column.align()));
             line.push_str(GAP);
         }
@@ -849,6 +800,73 @@ fn write_tag_key(
     }
 }
 
+const NOTE_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+/// Columns per note in the row of notes: room for a two letter name and a
+/// space.
+const NOTE_COLUMN_WIDTH: usize = 3;
+
+/// The bar of one note: eight heights, the lowest for a note not heard.
+fn note_bar(level: f32) -> char {
+    let steps = (NOTE_LEVELS.len() - 1) as f32;
+    let index = (level.clamp(0.0, 1.0) * steps).round() as usize;
+    NOTE_LEVELS[index]
+}
+
+/// Writes the 12 notes the key analysis heard as a row of bars over their
+/// names, C first, with a dot under each note of the key.
+fn write_notes(
+    writer: &mut impl Write,
+    theme: &Theme,
+    analysis: &TrackAnalysis,
+    options: &ViewOptions,
+) -> io::Result<()> {
+    let Some(profile) = analysis.pitch_class_profile else {
+        let reason = if analysis.key.is_some() {
+            "not measured for this track yet, analyze it again with --reanalyze"
+        } else {
+            "none, no key was found"
+        };
+        return write_line(writer, theme, "Notes", &theme.dim(reason));
+    };
+    let key = analysis.key;
+    let in_key = key.map(notes_in_key).unwrap_or([false; 12]);
+    let names = note_names(key);
+    let mut bars = Vec::new();
+    let mut labels = Vec::new();
+    let mut marks = Vec::new();
+    for (pitch_class, level) in profile.iter().enumerate() {
+        let bar = note_bar(*level).to_string();
+        let name = names[pitch_class];
+        let padding = " ".repeat(NOTE_COLUMN_WIDTH - name.len());
+        match (in_key[pitch_class], key) {
+            (true, Some(key)) => {
+                bars.push(theme.key(key, bar));
+                labels.push(format!("{}{padding}", theme.bold(name)));
+                marks.push(theme.key(key, "•"));
+            }
+            _ => {
+                bars.push(theme.dim(bar));
+                labels.push(format!("{}{padding}", theme.dim(name)));
+                marks.push(" ".to_string());
+            }
+        }
+    }
+    let gap = " ".repeat(NOTE_COLUMN_WIDTH - 1);
+    write_line(writer, theme, "Notes", &bars.join(&gap))?;
+    write_line(writer, theme, "", labels.concat().trim_end())?;
+    if let Some(key) = key {
+        let caption = theme.dim(format!("• in the key, {}", options.notation.short(key)));
+        let marked = marks.join(&gap);
+        write_line(
+            writer,
+            theme,
+            "",
+            &format!("{}   {caption}", marked.trim_end()),
+        )?;
+    }
+    Ok(())
+}
+
 /// What was read about a file besides its analysis, for the detailed view.
 #[derive(Debug, Clone, Default)]
 pub struct FileFacts<'facts> {
@@ -921,9 +939,6 @@ pub fn write_detail(
             if key_set {
                 write_line(writer, theme, "", &theme.user("set by you"))?;
             }
-            if let Some(confidence) = analysis.key_confidence() {
-                write_line(writer, theme, "", &confidence_words(theme, confidence))?;
-            }
             if let Some(runner_up) = analysis.key_runner_up {
                 write_line(
                     writer,
@@ -939,6 +954,9 @@ pub fn write_detail(
         }
         None => write_line(writer, theme, "Key", &theme.dim("none found"))?,
     }
+    if options.notes {
+        write_notes(writer, theme, analysis, options)?;
+    }
     if let Some(tag_key) = tag_key {
         write_tag_key(writer, theme, tag_key, analysis.key, options, key_set)?;
     }
@@ -953,9 +971,6 @@ pub fn write_detail(
             )?;
             if bpm_set {
                 write_line(writer, theme, "", &theme.user("set by you"))?;
-            }
-            if let Some(confidence) = analysis.tempo_confidence() {
-                write_line(writer, theme, "", &confidence_words(theme, confidence))?;
             }
             if let Some(alternative) = options.tempo_range.alternative(bpm) {
                 let counted = if alternative < bpm { "half" } else { "double" };
@@ -1158,6 +1173,7 @@ mod tests {
             key_score_margin: Some(key_margin),
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: Some(124.9),
             tempo_score_margin: Some(tempo_margin),
             beat_grid: None,
@@ -1201,6 +1217,7 @@ mod tests {
         ViewOptions {
             notation: KeyNotationChoice::Camelot,
             tempo_range: TempoRange::DEFAULT,
+            notes: false,
             width,
         }
     }
@@ -1212,7 +1229,6 @@ mod tests {
             &Theme::PLAIN,
             &results(),
             &options(width),
-            &Corrections::new(),
             &TagKeys::default(),
         )
         .unwrap();
@@ -1222,9 +1238,9 @@ mod tests {
     #[test]
     fn a_wide_table_shows_every_column_without_the_common_folder() {
         let expected = "\
-Key                  BPM       Energy              Quality  Time  Review  File
- 8A  A minor  ●●●  124.9  ●●●       7  ━━━━━━━───  weak     6:48          house/low tide.flac
- 8A  A minor  ●○○  124.9  ●●○       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
+Key             BPM  Energy              Quality  Time  Review  File
+ 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48          house/low tide.flac
+ 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
 ";
         assert_eq!(table(200), expected);
     }
@@ -1248,13 +1264,11 @@ Key                  BPM       Energy              Quality  Time  Review  File
     }
 
     #[test]
-    fn a_narrow_table_drops_the_decoration_first_and_marks_low_ratings() {
+    fn a_narrow_table_drops_the_decoration_first() {
         let narrow = table(60);
         let heading = narrow.lines().next().unwrap();
         assert!(!heading.contains("Time"), "{narrow}");
         assert!(!narrow.contains('━'), "{narrow}");
-        assert!(!narrow.contains('●'), "{narrow}");
-        assert!(narrow.contains("8A?"), "{narrow}");
         for line in narrow.lines() {
             assert!(width_of(line) <= 60, "{line:?} is wider than 60");
         }
@@ -1282,7 +1296,6 @@ Key                  BPM       Energy              Quality  Time  Review  File
             &Theme::PLAIN,
             &results(),
             &musical,
-            &Corrections::new(),
             &TagKeys::default(),
         )
         .unwrap();
@@ -1298,7 +1311,6 @@ Key                  BPM       Energy              Quality  Time  Review  File
             &Theme::COLOURED,
             &results(),
             &options(200),
-            &Corrections::new(),
             &TagKeys::default(),
         )
         .unwrap();
@@ -1346,7 +1358,6 @@ Key                  BPM       Energy              Quality  Time  Review  File
             &Theme::PLAIN,
             &results,
             &options(200),
-            &Corrections::new(),
             &TagKeys::default(),
         )
         .unwrap();
@@ -1439,6 +1450,50 @@ Key                  BPM       Energy              Quality  Time  Review  File
         assert!(!show(None).contains("Stage"));
     }
 
+    fn detail_with_notes(analysis: &TrackAnalysis, notes: bool) -> String {
+        let mut buffer = Vec::new();
+        write_detail(
+            &mut buffer,
+            &Theme::PLAIN,
+            Path::new("music/low tide.flac"),
+            analysis,
+            &ViewOptions {
+                notes,
+                ..options(100)
+            },
+            None,
+            FileFacts::default(),
+        )
+        .unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn the_notes_are_bars_over_their_names_with_the_key_marked() {
+        let mut track = analysis(0.001, 0.5);
+        track.pitch_class_profile =
+            Some([0.9, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3]);
+
+        let shown = detail_with_notes(&track, true);
+
+        let expected = "  Notes          ▇  ▁  ▅  ▂  ▇  ▄  ▁  ▅  ▂  █  ▂  ▃\n\
+                        \x20                C  C# D  Eb E  F  F# G  Ab A  Bb B\n\
+                        \x20                •     •     •  •     •     •     •   • in the key, 8A\n";
+        assert!(shown.contains(expected), "{shown}");
+        assert!(!detail_with_notes(&track, false).contains("Notes"));
+    }
+
+    #[test]
+    fn notes_not_yet_measured_ask_for_a_new_analysis() {
+        let shown = detail_with_notes(&analysis(0.001, 0.5), true);
+        assert!(
+            shown.contains(
+                "  Notes          not measured for this track yet, analyze it again with --reanalyze\n"
+            ),
+            "{shown}"
+        );
+    }
+
     #[test]
     fn the_detail_names_everything_known_about_the_track() {
         let mut buffer = Vec::new();
@@ -1459,10 +1514,8 @@ low tide.flac
 music
 
   Key            8A  A minor
-                 ●○○ low confidence, worth checking by ear
                  runner up 8B  C major
   Tempo          124.9 BPM
-                 ●●● high confidence
   Energy         7 of 10  ━━━━━━━───
   Sound quality  Weak on a big system
                  96 kbit/s. Fine for practice and small rooms; on a club system the top end and
@@ -1489,25 +1542,6 @@ music
             }),
             ..analysis(0.02, 0.5)
         });
-        let mut corrections = Corrections::new();
-        corrections.insert(path.clone(), Ok(correction));
-        let results = vec![FileResult {
-            path: path.clone(),
-            outcome: Ok(track.clone()),
-        }];
-        let mut buffer = Vec::new();
-        write_table(
-            &mut buffer,
-            &Theme::PLAIN,
-            &results,
-            &options(200),
-            &corrections,
-            &TagKeys::default(),
-        )
-        .unwrap();
-        let table = String::from_utf8(buffer).unwrap();
-        assert!(table.contains("126.0  you"), "{table}");
-
         let mut buffer = Vec::new();
         write_detail(
             &mut buffer,
@@ -1603,7 +1637,6 @@ music
             &Theme::PLAIN,
             &results,
             &options(140),
-            &Corrections::new(),
             &tag_keys,
         )
         .unwrap();
@@ -1630,7 +1663,6 @@ music
             &Theme::PLAIN,
             &tag_key_results(),
             &options(140),
-            &Corrections::new(),
             &TagKeys::default(),
         )
         .unwrap();

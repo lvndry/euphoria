@@ -207,6 +207,7 @@ fn detected_analysis() -> TrackAnalysis {
         key_score_margin: None,
         key_source: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
         tempo_estimate: Some(119.0),
         tempo_score_margin: Some(0.001),
         beat_grid: None,

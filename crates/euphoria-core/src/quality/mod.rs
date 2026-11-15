@@ -7,7 +7,7 @@
 //! `bench/results/quality.md` the measurements the thresholds come from.
 
 mod cutoff;
-mod peak;
+pub(crate) mod peak;
 
 use std::path::Path;
 

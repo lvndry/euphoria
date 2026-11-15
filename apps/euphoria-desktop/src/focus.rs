@@ -656,6 +656,9 @@ impl EuphoriaApp {
 
     /// A click on the detail plays from that time.
     pub(crate) fn seek_in_detail(&mut self, pointer_x: gpui::Pixels, cx: &mut Context<'_, Self>) {
+        if !self.selection_is_in_player() {
+            return;
+        }
         let duration = self.selected_duration();
         let Some(seconds) = self.focus.seconds_under(pointer_x) else {
             return;
@@ -672,7 +675,7 @@ impl EuphoriaApp {
 
     /// Keeps the playhead in the detail while the view is open.
     pub(crate) fn follow_playhead_in_focus(&mut self) {
-        if !self.focus.is_open || !self.player.is_playing() {
+        if !self.focus.is_open || !self.player.is_playing() || !self.selection_is_in_player() {
             return;
         }
         let duration = self.selected_duration();

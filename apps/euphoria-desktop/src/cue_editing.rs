@@ -503,22 +503,26 @@ impl EuphoriaApp {
 
     /// Plays the selected track from cue `index`.
     pub(crate) fn play_from_cue(&mut self, index: usize, cx: &mut Context<'_, Self>) {
-        let Some(cue) = self
-            .selected_track()
-            .and_then(|track| track.cues().cues.get(index).cloned())
-        else {
+        let Some((selected, cue)) = self.selected.and_then(|selected| {
+            let cue = self
+                .session
+                .library()
+                .track(selected)?
+                .cues()
+                .cues
+                .get(index)
+                .cloned()?;
+            Some((selected, cue))
+        }) else {
             return;
         };
-        for request in self.player.play_from(cue.seconds as f32) {
-            self.carry_out(Some(request), cx);
-        }
-        cx.notify();
+        self.play_library_track(selected, cue.seconds as f32, cx);
     }
 
-    /// Moves playing to cue `index` of the selected track without changing
+    /// Moves playing to cue `index` of the player's track without changing
     /// whether it plays.
     pub(crate) fn jump_to_cue(&mut self, index: usize, cx: &mut Context<'_, Self>) {
-        let Some((seconds, duration)) = self.selected_track().and_then(|track| {
+        let Some((seconds, duration)) = self.player_track().and_then(|track| {
             let cue = track.cues().cues.get(index).cloned()?;
             Some((cue.seconds as f32, track.duration_seconds()?))
         }) else {
