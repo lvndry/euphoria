@@ -29,4 +29,4 @@ pub use set::{
     CurvePreset, Deviation, EnergyCurve, LeftOut, MissingFeature, Pin, PinPosition, PlannedTrack,
     SetError, SetOptions, SetPlan, SetTrack, Transition, build_set, evaluate_set,
 };
-pub use words::{TempoMove, Tone};
+pub use words::{TempoMove, Tone, energy_move, energy_move_hint};

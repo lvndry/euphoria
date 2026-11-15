@@ -156,7 +156,8 @@ pub(crate) fn render(
             .w(app.inspector_width(window))
             .gap(GAP_LARGE)
             .border_l_1()
-            .overflow_y_scroll(),
+            .overflow_y_scroll()
+            .track_scroll(&app.inspector_scroll),
         Layout::DeckBelow => div()
             .id("inspector")
             .flex()

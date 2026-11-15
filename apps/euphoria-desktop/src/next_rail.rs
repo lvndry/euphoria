@@ -8,7 +8,9 @@
 
 use std::path::PathBuf;
 
-use euphoria_core::harmony::{EnergyDirection, MixTrack, Relation, next_tracks_favoring};
+use euphoria_core::harmony::{
+    EnergyDirection, MixTrack, Relation, energy_move, energy_move_hint, next_tracks_favoring,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::decks::SuggestionFilter;
@@ -70,18 +72,31 @@ pub(crate) struct NextRow {
     pub(crate) relation: Relation,
     /// How much faster it is than the playing track, in percent.
     pub(crate) tempo_difference_percent: Option<f32>,
+    /// Its own energy rating.
+    pub(crate) energy: Option<u8>,
     /// Its energy minus the playing track's, in whole points.
     pub(crate) energy_change: Option<i32>,
     pub(crate) is_favorite: bool,
 }
 
+/// A small label of a row, with what it means in words when it needs them.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RowPill {
+    pub(crate) text: String,
+    pub(crate) hint: Option<String>,
+}
+
 impl NextRow {
-    /// The pills the row shows: how the keys relate, then the change of
-    /// energy when there is one.
-    pub(crate) fn pills(&self) -> Vec<String> {
-        let mut pills = vec![relation_pill(self.relation).to_string()];
-        if let Some(pill) = self.energy_change.and_then(energy_pill) {
-            pills.push(pill);
+    /// The pills the row shows: how the keys relate, then its energy and
+    /// how far that is from the energy of `other`, such as "the track
+    /// playing", when both are known.
+    pub(crate) fn pills(&self, other: &str) -> Vec<RowPill> {
+        let mut pills = vec![RowPill {
+            text: relation_pill(self.relation).to_string(),
+            hint: None,
+        }];
+        if let Some((energy, change)) = self.energy.zip(self.energy_change) {
+            pills.push(energy_pill(energy, change, other));
         }
         pills
     }
@@ -100,12 +115,12 @@ pub(crate) fn relation_pill(relation: Relation) -> &'static str {
     }
 }
 
-/// The change of energy as a pill, or nothing when it does not change.
-pub(crate) fn energy_pill(change: i32) -> Option<String> {
-    match change {
-        0 => None,
-        change if change > 0 => Some(format!("energy +{change}")),
-        change => Some(format!("energy \u{2212}{}", -change)),
+/// A track's energy and its change from `other`'s as a pill: "energy 3 ↓6".
+pub(crate) fn energy_pill(energy: u8, change: i32, other: &str) -> RowPill {
+    let (energy, change) = (f32::from(energy), change as f32);
+    RowPill {
+        text: format!("energy {}", energy_move(energy, change)),
+        hint: Some(energy_move_hint(energy, change, other)),
     }
 }
 
@@ -114,11 +129,10 @@ pub(crate) fn energy_pill(change: i32) -> Option<String> {
 /// This is the wording the main list uses once energy shows its rating.
 pub(crate) fn energy_text(energy: Option<u8>, change: Option<i32>) -> Option<String> {
     let energy = energy?;
-    Some(match change {
-        Some(change) if change > 0 => format!("energy {energy} \u{2191}{change}"),
-        Some(change) if change < 0 => format!("energy {energy} \u{2193}{}", -change),
-        _ => format!("energy {energy} ="),
-    })
+    Some(format!(
+        "energy {}",
+        energy_move(f32::from(energy), change.unwrap_or(0) as f32)
+    ))
 }
 
 /// What the ranking works from.
@@ -191,6 +205,7 @@ pub(crate) fn rank_after<Reference: MixTrack + ?Sized>(
             track_index: query.library.index_of(&mix.track.path)?,
             relation: mix.relation,
             tempo_difference_percent: mix.tempo.map(|tempo| tempo.difference_percent),
+            energy: mix.track.energy(),
             energy_change: mix.energy_difference.map(|change| change.round() as i32),
             is_favorite: is_favorite(mix.track),
         })
@@ -322,28 +337,43 @@ mod tests {
     }
 
     #[test]
-    fn pills_use_plain_words_and_signed_energy() {
+    fn pills_use_plain_words_and_the_energy_with_an_arrow() {
         assert_eq!(relation_pill(Relation::Same), "same key");
         assert_eq!(relation_pill(Relation::Adjacent), "one step");
         assert_eq!(relation_pill(Relation::Relative), "relative");
         assert_eq!(relation_pill(Relation::Diagonal), "wheel diagonal");
-        assert_eq!(energy_pill(1).as_deref(), Some("energy +1"));
-        assert_eq!(energy_pill(-2).as_deref(), Some("energy \u{2212}2"));
-        assert_eq!(energy_pill(0), None);
+        let calmer = energy_pill(3, -6, "the track playing");
+        assert_eq!(calmer.text, "energy 3 \u{2193}6");
+        assert_eq!(
+            calmer.hint.as_deref(),
+            Some("Energy 3, 6 calmer than the track playing")
+        );
+        assert_eq!(energy_pill(8, 1, "A").text, "energy 8 \u{2191}1");
+        assert_eq!(energy_pill(7, 0, "A").text, "energy 7 =");
         let row = NextRow {
             track_index: 0,
             relation: Relation::Adjacent,
             tempo_difference_percent: None,
+            energy: Some(8),
             energy_change: Some(2),
             is_favorite: false,
         };
-        assert_eq!(row.pills(), ["one step", "energy +2"]);
+        let texts = |row: &NextRow| -> Vec<String> {
+            row.pills("A").into_iter().map(|pill| pill.text).collect()
+        };
+        assert_eq!(texts(&row), ["one step", "energy 8 \u{2191}2"]);
         let level = NextRow {
+            energy: Some(6),
             energy_change: Some(0),
             relation: Relation::Same,
             ..row
         };
-        assert_eq!(level.pills(), ["same key"]);
+        assert_eq!(texts(&level), ["same key", "energy 6 ="]);
+        let unknown = NextRow {
+            energy: None,
+            ..row
+        };
+        assert_eq!(texts(&unknown), ["one step"]);
     }
 
     #[test]

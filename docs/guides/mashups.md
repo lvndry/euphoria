@@ -62,12 +62,12 @@ Layer over Low Tide  8A  124.0 BPM  energy 6
    8A is the same key as A
    Same tempo, no stretch
    Vocals of A over the instrumental of B, and B has no vocals of its own; they sit in different ranges (12% overlap)
-   Same energy
+   Energy 6 = against A
 2  10A  Glow
    Shift B down 2 semitones: 10A becomes 8A, the same key as A
    Stretched 1.6% down to A's tempo
    Stems not compared: separate both tracks to check vocals against instruments
-   Energy +1 against A
+   Energy 7 ↑1 against A
 ```
 
 Ideas come from the folder of the track, the folders given with `--library`, or a playlist with `--playlist`. `--key-moves`, `--tempo-window`, `--bpm`, `--energy` and `--genre` narrow them as the filter above the desktop list does. `--stems a=vocals` ranks the ideas as when you set deck A to **Vocals** yourself. Stems come from the stem cache, so separate tracks first with `euphoria stems` or in the app.
