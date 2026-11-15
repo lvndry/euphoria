@@ -446,7 +446,7 @@ Favorites are kept with the playlists in `playlists.sqlite3`, so clearing the an
 
 The app can write the key, tempo and energy it found into the files themselves, with the same safety as [`euphoria tags write`](write-tags.md): you see every change before anything is written, and one step puts the old tags back.
 
-![The Write tags preview over the window, for rekordbox. Buttons choose between the 11 selected tracks and all 11 shown. A list gives each file with its changes, such as the key from none to 8A, the BPM from none to 125, and the comment from "Purchased at Beatport.com" to "8A - Energy 5 - Purchased at Beatport.com". A Rules in use box lists the settings that apply. Cancel and Write tags to 11 files buttons close it. The picture predates the Rules in use box.](../images/desktop-app/write-tags-preview.png)
+![The Write tags preview over the window, for rekordbox. Buttons choose between the selected track and all 18 shown. A list gives each file with its changes by name: Key from none to 11B, BPM from none to 101, and Comment from none to "11B - Energy 1". A Rules in use box lists four rules and has a Change settings link. Cancel and Write tags to 18 files buttons close it.](../images/desktop-app/write-tags-preview.png)
 
 1. Select the tracks to write, or choose a folder in the sidebar.
 2. Click **Write tags** in the toolbar, or choose **Tags > Write Tags…** (Command Shift T). The preview is titled with the DJ program the tags are written for, such as "Write tags for rekordbox"; choose it in the [settings](#settings).
