@@ -19,10 +19,10 @@ use gpui::{Action, Entity, ScrollHandle};
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, EditTags, ExportLibrary, FocusSearch, OpenCommandPalette,
-    OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition, ResetColumnWidths, RevealTrack,
-    SelectAllTracks, SeparateStems, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback,
-    ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme,
-    UseSlateTheme, WriteTags,
+    OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition, ResetColumnWidths,
+    RevealTrack, SelectAllTracks, SeparateStems, ToggleDecks, ToggleFavorite, ToggleMetronome,
+    TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
+    UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::library::Track;
 use crate::metronome::parse_bpm;
@@ -149,6 +149,23 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
             "deck", "decks", "mix", "mixer", "two", "close", "hide", "show"
         ],
         ToggleDecks
+    ),
+    command!(
+        "open-live",
+        "Open Euphoria Live",
+        [
+            "live",
+            "listen",
+            "key",
+            "bpm",
+            "tempo",
+            "playing",
+            "rekordbox",
+            "spotify",
+            "menu",
+            "bar"
+        ],
+        OpenLive
     ),
     command!(
         "open-set-builder",

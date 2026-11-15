@@ -1,0 +1,406 @@
+// Copyright 2026 The Euphoria contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! What Live knows: whether it listens, what it heard last, and the tracks
+//! of the library to play after it. The window and the menu bar item both
+//! show this and neither owns it.
+//!
+//! The library is read from the analysis cache the first time the list is
+//! shown, and never analyzes anything, so Live alone stays light: no views,
+//! no waveforms, no analysis workers.
+
+use std::path::PathBuf;
+use std::time::Duration;
+
+use euphoria_core::harmony::TrackFeatures;
+use euphoria_core::live::{
+    AudioCapture, CaptureError, ListenSource, LiveEngine, LiveReading,
+    LiveSettings as AnalysisSettings,
+};
+use gpui::Context;
+
+use crate::favorites::Favorites;
+use crate::library::Library;
+use crate::live_settings::{LiveSettings, live_settings_path};
+use crate::next_rail::{EnergyChoice, NextQuery, NextRow, rank_after};
+use crate::settings::Settings;
+use crate::tag_settings::NotationChoice;
+use crate::theme::AppTheme;
+use crate::track_filters::TrackFilters;
+
+/// How many tracks the list shows.
+pub(crate) const NEXT_LIMIT: usize = 6;
+
+/// How often the model looks at what the engine heard, which sets how
+/// smoothly the level meter moves.
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+pub(crate) type CaptureFactory = Box<dyn Fn() -> Box<dyn AudioCapture>>;
+pub(crate) type LibraryLoader = Box<dyn Fn() -> Library + Send + Sync>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ListenState {
+    /// Not started yet, or paused by the user.
+    Paused,
+    Listening,
+    /// Listening could not start, with the reason to show.
+    Unavailable(String),
+}
+
+/// What the ranking of the list was last made from, so it is made again only
+/// when the sound changed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RankedFor {
+    key: Option<euphoria_core::Key>,
+    tempo_tenths: Option<i32>,
+    energy: Option<u8>,
+    choice: EnergyChoice,
+}
+
+pub(crate) struct LiveModel {
+    capture_factory: CaptureFactory,
+    engine: Option<LiveEngine>,
+    analysis: AnalysisSettings,
+    engine_interval: Duration,
+    pub(crate) source: ListenSource,
+    pub(crate) sources: Vec<ListenSource>,
+    pub(crate) state: ListenState,
+    pub(crate) reading: LiveReading,
+    pub(crate) library: Option<Library>,
+    library_requested: bool,
+    library_loader: std::sync::Arc<LibraryLoader>,
+    pub(crate) next_rows: Vec<NextRow>,
+    ranked_for: Option<RankedFor>,
+    pub(crate) energy: EnergyChoice,
+    started_this_session: bool,
+    pub(crate) theme: AppTheme,
+    pub(crate) notation: NotationChoice,
+    track_filters: TrackFilters,
+    suggestion_filter: crate::decks::SuggestionFilter,
+    pub(crate) settings: LiveSettings,
+    settings_file: Option<PathBuf>,
+}
+
+impl LiveModel {
+    pub(crate) fn new(capture_factory: CaptureFactory, cx: &mut Context<'_, Self>) -> Self {
+        Self::with_parts(
+            capture_factory,
+            Box::new(load_library_from_cache),
+            Settings::load_or_default(),
+            live_settings_path(),
+            euphoria_core::live::ANALYSIS_INTERVAL,
+            cx,
+        )
+    }
+
+    pub(crate) fn with_parts(
+        capture_factory: CaptureFactory,
+        library_loader: LibraryLoader,
+        settings: Settings,
+        settings_file: Option<PathBuf>,
+        engine_interval: Duration,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
+        let live_settings = settings_file
+            .as_deref()
+            .map(LiveSettings::load)
+            .unwrap_or_default();
+        let model = Self {
+            capture_factory,
+            engine: None,
+            analysis: AnalysisSettings::default(),
+            engine_interval,
+            source: ListenSource::AllAudio,
+            sources: Vec::new(),
+            state: ListenState::Paused,
+            reading: LiveReading::listening(),
+            library: None,
+            library_requested: false,
+            library_loader: std::sync::Arc::new(library_loader),
+            next_rows: Vec::new(),
+            ranked_for: None,
+            energy: live_settings.energy,
+            started_this_session: false,
+            theme: AppTheme::named(settings.theme),
+            notation: settings.tags.key_notation,
+            track_filters: settings.track_filters,
+            suggestion_filter: settings.suggestion_filter,
+            settings: live_settings,
+            settings_file,
+        };
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(POLL_INTERVAL).await;
+                if this.update(cx, |model, cx| model.poll(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        model
+    }
+
+    /// True until listening was started once in this run of the app, so
+    /// that opening the panel starts it and reopening it after a pause does not.
+    pub(crate) fn needs_first_start(&self) -> bool {
+        !self.started_this_session
+    }
+
+    pub(crate) fn is_listening(&self) -> bool {
+        self.state == ListenState::Listening
+    }
+
+    /// The title of the menu bar item: the key heard, or what Live is doing.
+    pub(crate) fn menu_bar_title(&self) -> String {
+        match &self.state {
+            ListenState::Listening => self
+                .reading
+                .key
+                .filter(|_| !self.reading.listening)
+                .map_or_else(|| "Live".to_string(), |live| self.notation.spell(&live.key)),
+            ListenState::Paused => "Live paused".to_string(),
+            ListenState::Unavailable(_) => "Live off".to_string(),
+        }
+    }
+
+    /// Starts listening to the chosen source, which is what opening Live
+    /// does. The first start also marks Live as used.
+    pub(crate) fn start(&mut self, cx: &mut Context<'_, Self>) {
+        self.started_this_session = true;
+        self.stop_engine();
+        self.reading = LiveReading::listening();
+        let capture = (self.capture_factory)();
+        match LiveEngine::start(
+            capture,
+            self.source.clone(),
+            self.analysis,
+            self.engine_interval,
+        ) {
+            Ok(engine) => {
+                self.engine = Some(engine);
+                self.state = ListenState::Listening;
+                if !self.settings.started_once {
+                    self.settings.started_once = true;
+                    self.save_settings();
+                }
+            }
+            Err(error) => self.state = ListenState::Unavailable(describe(&error)),
+        }
+        self.clear_rows();
+        cx.notify();
+    }
+
+    /// Stops listening and forgets the audio.
+    pub(crate) fn pause(&mut self, cx: &mut Context<'_, Self>) {
+        self.stop_engine();
+        self.state = ListenState::Paused;
+        self.reading = LiveReading::listening();
+        self.clear_rows();
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_listening(&mut self, cx: &mut Context<'_, Self>) {
+        if self.is_listening() {
+            self.pause(cx);
+        } else {
+            self.start(cx);
+        }
+    }
+
+    pub(crate) fn choose_source(&mut self, source: ListenSource, cx: &mut Context<'_, Self>) {
+        self.source = source;
+        if self.is_listening() {
+            self.start(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    /// Looks again for the applications that can be listened to alone.
+    pub(crate) fn refresh_sources(&mut self, cx: &mut Context<'_, Self>) {
+        self.sources = (self.capture_factory)().sources();
+        cx.notify();
+    }
+
+    pub(crate) fn set_energy(&mut self, choice: EnergyChoice, cx: &mut Context<'_, Self>) {
+        if self.energy != choice {
+            self.energy = choice;
+            self.settings.energy = choice;
+            self.save_settings();
+            self.rank(cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_keep_running(&mut self, keep: bool, cx: &mut Context<'_, Self>) {
+        self.settings.keep_running_when_closed = keep;
+        self.save_settings();
+        cx.notify();
+    }
+
+    /// Reads the app's settings again, for the filters and the theme, and
+    /// forgets the library so it is read again when the list is shown.
+    pub(crate) fn reload_inputs(&mut self, settings: Settings, cx: &mut Context<'_, Self>) {
+        self.theme = AppTheme::named(settings.theme);
+        self.notation = settings.tags.key_notation;
+        self.track_filters = settings.track_filters;
+        self.suggestion_filter = settings.suggestion_filter;
+        self.library = None;
+        self.library_requested = false;
+        self.ranked_for = None;
+        cx.notify();
+    }
+
+    /// Reads the library from the cache in the background, once.
+    pub(crate) fn ensure_library(&mut self, cx: &mut Context<'_, Self>) {
+        if self.library.is_some() || self.library_requested {
+            return;
+        }
+        self.library_requested = true;
+        let loader = std::sync::Arc::clone(&self.library_loader);
+        cx.spawn(async move |this, cx| {
+            let library = cx
+                .background_executor()
+                .spawn(async move { loader() })
+                .await;
+            this.update(cx, |model, cx| {
+                model.library = Some(library);
+                model.ranked_for = None;
+                model.rank(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn poll(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        let reading = engine.latest();
+        if reading == self.reading {
+            return;
+        }
+        self.reading = reading;
+        self.rank(cx);
+        cx.notify();
+    }
+
+    /// The reference the list ranks from: the key and tempo heard.
+    fn reference(&self) -> Option<TrackFeatures> {
+        if self.reading.listening {
+            return None;
+        }
+        let key = self.reading.key?.key;
+        Some(TrackFeatures {
+            key: Some(key),
+            bpm: self.reading.tempo.map(|tempo| tempo.bpm),
+            energy: self.reading.energy.map(f32::from),
+        })
+    }
+
+    fn rank(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(reference) = self.reference() else {
+            self.clear_rows();
+            return;
+        };
+        let ranked_for = RankedFor {
+            key: reference.key,
+            tempo_tenths: reference.bpm.map(|bpm| (bpm * 10.0).round() as i32),
+            energy: self.reading.energy,
+            choice: self.energy,
+        };
+        if self.ranked_for == Some(ranked_for) {
+            return;
+        }
+        let Some(library) = &self.library else {
+            self.ensure_library(cx);
+            return;
+        };
+        self.ranked_for = Some(ranked_for);
+        let pool: Vec<usize> = (0..library.tracks().len()).collect();
+        let favorites = Favorites::default();
+        self.next_rows = rank_after(
+            &reference,
+            None,
+            |_| false,
+            &NextQuery {
+                library,
+                favorites: &favorites,
+                playing_index: 0,
+                energy: self.energy,
+                track_filters: &self.track_filters,
+                suggestion_filter: &self.suggestion_filter,
+                pool: &pool,
+                played: &[],
+                limit: NEXT_LIMIT,
+            },
+        );
+    }
+
+    fn clear_rows(&mut self) {
+        self.next_rows.clear();
+        self.ranked_for = None;
+    }
+
+    fn stop_engine(&mut self) {
+        if let Some(mut engine) = self.engine.take() {
+            engine.stop();
+        }
+    }
+
+    fn save_settings(&self) {
+        if let Some(path) = &self.settings_file {
+            let _ = self.settings.save(path);
+        }
+    }
+}
+
+impl Drop for LiveModel {
+    fn drop(&mut self) {
+        self.stop_engine();
+    }
+}
+
+fn describe(error: &CaptureError) -> String {
+    error.to_string()
+}
+
+/// The library as the analysis cache holds it, for the folders the app
+/// knows. Nothing is analyzed: a track the cache has no analysis for is
+/// left out.
+pub(crate) fn load_library_from_cache() -> Library {
+    if let Some(count) = crate::demo::requested_track_count() {
+        let mut library = Library::default();
+        let tracks = crate::demo::tracks(count);
+        library.add_files(tracks.iter().map(|track| track.path.clone()).collect());
+        for track in tracks {
+            library.record_outcome(
+                &track.path,
+                track.outcome.map_err(crate::library::TrackFailure::Failed),
+            );
+        }
+        return library;
+    }
+    let settings = Settings::load_or_default();
+    let cache = euphoria_core::default_cache_path()
+        .ok()
+        .and_then(|path| euphoria_core::Cache::open(&path).ok())
+        .and_then(|cache| euphoria_core::CachedAnalyzer::new(cache).ok());
+    let mut scan = crate::state::scan(&settings.folders, cache.as_ref());
+    let mut library = Library::default();
+    for folder in std::mem::take(&mut scan.folders) {
+        library.add_folder(folder);
+    }
+    let files = std::mem::take(&mut scan.files);
+    for file in library.add_files(files) {
+        if let Some(analysis) = scan.cached.remove(&file) {
+            library.record_outcome(&file, Ok(analysis));
+            if let Some(correction) = scan.corrections.remove(&file) {
+                library.set_correction(&file, correction);
+            }
+        }
+    }
+    library
+}

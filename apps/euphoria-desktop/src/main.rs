@@ -52,6 +52,9 @@ mod library;
 mod library_export;
 #[cfg(test)]
 mod library_export_ui_tests;
+mod live_app;
+mod live_model;
+mod live_settings;
 mod logging;
 mod logo_motion;
 mod mashup;
@@ -63,6 +66,9 @@ mod media_keys_flow;
 mod media_keys_macos;
 #[cfg(test)]
 mod media_keys_ui_tests;
+mod menu_bar;
+#[cfg(target_os = "macos")]
+mod menu_bar_macos;
 mod metronome;
 mod metronome_controls;
 #[cfg(test)]
@@ -149,11 +155,11 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AddToSet, BuildSet, CloseFocusView, EditTags, ExportLibrary,
-    FocusSearch, OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
-    PlayNextRow, PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks,
-    SeparateStems, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
-    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
-    WriteTags,
+    FocusSearch, OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings,
+    PlanTransition, PlayNextRow, PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack,
+    SelectAllTracks, SeparateStems, ToggleDecks, ToggleFavorite, ToggleLiveListening,
+    ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
+    UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -183,13 +189,21 @@ fn open_cache() -> Result<CachedAnalyzer, EuphoriaError> {
 
 fn main() {
     logging::init();
+    let live_only = std::env::args().any(|argument| argument == "--live");
     gpui::application()
         .with_assets(assets::AppAssets)
-        .with_quit_mode(QuitMode::LastWindowClosed)
-        .run(|cx| {
+        .with_quit_mode(QuitMode::Explicit)
+        .run(move |cx| {
             gpui::init(cx);
             dock_icon::show();
-            if let Err(problem) = open_main_window(cx) {
+            cx.on_window_closed(|cx, _| quit_unless_live_stays(cx))
+                .detach();
+            register_global_commands(cx);
+            if live_only {
+                install_menus(ThemeName::default(), false, cx);
+                cx.set_activation_policy(gpui::ActivationPolicy::Accessory);
+                live_app::open_panel(cx);
+            } else if let Err(problem) = open_main_window(cx) {
                 eprintln!("error: {problem}");
                 cx.quit();
             }
@@ -266,6 +280,8 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
     })
     .map_err(|error| format!("cannot open the window: {error:#}"))?;
 
+    cx.set_global(MainWindow(Some(window)));
+    cx.set_activation_policy(gpui::ActivationPolicy::Regular);
     register_commands(window, &view, cx);
     install_menus(theme, sidebar_folded, cx);
     #[cfg(target_os = "macos")]
@@ -275,6 +291,56 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
     }
     cx.activate(true);
     Ok(())
+}
+
+/// The commands that do not need the window of the library, registered once
+/// so they work while only Live runs.
+fn register_global_commands(cx: &mut App) {
+    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &OpenLive, cx| live_app::open_panel(cx));
+    cx.on_action(|_: &ToggleLiveListening, cx| live_app::toggle_listening(cx));
+}
+
+/// The window of the library, while it is open.
+struct MainWindow(Option<AnyWindowHandle>);
+
+impl gpui::Global for MainWindow {}
+
+fn main_window_is_open(cx: &App) -> bool {
+    cx.try_global::<MainWindow>()
+        .and_then(|main| main.0)
+        .is_some_and(|window| cx.windows().contains(&window))
+}
+
+/// Quits when the window of the library is closed, unless Live runs on in the
+/// menu bar. The Live panel alone never keeps the app open.
+fn quit_unless_live_stays(cx: &mut App) {
+    if main_window_is_open(cx) {
+        return;
+    }
+    if live_app::keeps_running(cx) {
+        cx.set_activation_policy(gpui::ActivationPolicy::Accessory);
+    } else {
+        cx.quit();
+    }
+}
+
+/// Shows the window of the library: the one open, or a new one, as the menu
+/// bar item of Live asks. Nothing of the library is kept while only Live runs,
+/// so a new window reads it again.
+pub(crate) fn open_euphoria(cx: &mut App) {
+    if main_window_is_open(cx) {
+        if let Some(window) = cx.global::<MainWindow>().0 {
+            window
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
+        }
+        cx.activate(true);
+        return;
+    }
+    if let Err(problem) = open_main_window(cx) {
+        eprintln!("error: {problem}");
+    }
 }
 
 /// Connects menu items and keyboard shortcuts to the root view. The commands
@@ -301,6 +367,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-d", ToggleDecks, None),
+        KeyBinding::new("cmd-shift-l", OpenLive, None),
         KeyBinding::new("cmd-shift-b", OpenSetBuilder, None),
         // Command Enter plays a track in the palette, which has its own binding.
         KeyBinding::new("cmd-enter", BuildSet, Some(NOT_IN_PALETTE_CONTEXT)),
@@ -352,8 +419,6 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("ctrl-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("ctrl-f", FocusSearch, None),
     ]);
-
-    cx.on_action(|_: &Quit, cx| cx.quit());
 
     let weak_view = view.downgrade();
     cx.on_action(move |_: &TogglePlayback, cx| {
@@ -496,6 +561,7 @@ pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec
         Menu::new("View").items([
             MenuItem::action(sidebar_item, ToggleSidebar),
             MenuItem::action("Decks", ToggleDecks),
+            MenuItem::action("Live", OpenLive),
             MenuItem::action("Set Builder", OpenSetBuilder),
             MenuItem::action("Focus View", OpenFocusView),
             MenuItem::separator(),

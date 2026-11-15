@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use euphoria_core::harmony::{EnergyDirection, Relation, next_tracks_favoring};
+use euphoria_core::harmony::{EnergyDirection, MixTrack, Relation, next_tracks_favoring};
 use serde::{Deserialize, Serialize};
 
 use crate::decks::SuggestionFilter;
@@ -131,25 +131,42 @@ pub(crate) fn next_after(query: &NextQuery<'_>) -> Vec<NextRow> {
     let Some(playing) = query.library.track(query.playing_index) else {
         return Vec::new();
     };
+    rank_after(
+        playing,
+        Some(&playing.path),
+        |candidate| {
+            query
+                .favorites
+                .transition(&playing.path, &candidate.path)
+                .is_some()
+        },
+        query,
+    )
+}
+
+/// The ranking of [`next_after`] for any `reference` that mixes: a library
+/// track, or the key and tempo heard live. `playing_path` is left out of the
+/// candidates, and `is_favorite` marks the candidates the user starred after
+/// it. The playing track and favorites of `query` are not read.
+pub(crate) fn rank_after<Reference: MixTrack + ?Sized>(
+    reference: &Reference,
+    playing_path: Option<&PathBuf>,
+    is_favorite: impl Fn(&Track) -> bool,
+    query: &NextQuery<'_>,
+) -> Vec<NextRow> {
     let candidates: Vec<&Track> = query
         .pool
         .iter()
         .filter_map(|index| query.library.track(*index))
         .filter(|candidate| {
-            candidate.path != playing.path
+            Some(&candidate.path) != playing_path
                 && !query.played.contains(&candidate.path)
                 && query.track_filters.matches(candidate)
                 && query.suggestion_filter.genre_fits(candidate.genre())
         })
         .collect();
-    let is_favorite = |candidate: &Track| {
-        query
-            .favorites
-            .transition(&playing.path, &candidate.path)
-            .is_some()
-    };
     next_tracks_favoring(
-        playing,
+        reference,
         candidates.iter().copied(),
         &query.suggestion_filter.mix_options(),
         query.energy.direction(),
