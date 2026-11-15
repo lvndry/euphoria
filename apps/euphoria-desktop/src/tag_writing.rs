@@ -22,7 +22,8 @@ use crate::state::PlaylistSaver;
 use crate::tag_settings::TagSettings;
 use euphoria_core::tags::{
     FieldChange, LoggedWrite, RewriteStage, SeratoMarkers, WriteLog, WritePlan, WrittenValues,
-    add_serato_markers, plan_write_with_history, undo_last_write_with_observer,
+    add_serato_markers, add_serato_markers_from, plan_write_with_history,
+    plan_write_with_history_from, undo_last_write_with_observer,
 };
 use euphoria_core::{CachedAnalyzer, Correction, Cue, TrackAnalysis};
 
@@ -174,6 +175,17 @@ pub(crate) fn plan_writes_with_history(
     settings: &TagSettings,
     history: &WrittenValues,
 ) -> PlannedWrite {
+    plan_writes_reading(targets, settings, history, None)
+}
+
+/// Like [`plan_writes_with_history`], taking each file's tags from `reads`
+/// when there is one, which reads a file only the first time.
+pub(crate) fn plan_writes_reading(
+    targets: &[WriteTarget],
+    settings: &TagSettings,
+    history: &WrittenValues,
+    reads: Option<&crate::tag_reads::TagReads>,
+) -> PlannedWrite {
     let options = settings.write_options();
     let mut planned = PlannedWrite::default();
     for target in targets {
@@ -186,15 +198,24 @@ pub(crate) fn plan_writes_with_history(
         };
         let written = target.correction.apply(analysis.clone());
         let mut notes = Vec::new();
-        let plan = plan_write_with_history(&target.path, &written, &options, history).and_then(
-            |mut plan| {
-                if settings.write_cue_markers {
-                    let markers = SeratoMarkers::of_cues(&written, target.edited_cues.clone());
-                    notes = add_serato_markers(&mut plan, &markers)?.notes();
-                }
-                Ok(plan)
-            },
-        );
+        let loaded = reads.map(|reads| reads.tags_of(&target.path));
+        let plan = match &loaded {
+            Some(Ok(tags)) => plan_write_with_history_from(tags, &written, &options, history),
+            Some(Err(_)) | None => {
+                plan_write_with_history(&target.path, &written, &options, history)
+            }
+        }
+        .and_then(|mut plan| {
+            if settings.write_cue_markers {
+                let markers = SeratoMarkers::of_cues(&written, target.edited_cues.clone());
+                let report = match &loaded {
+                    Some(Ok(tags)) => add_serato_markers_from(&mut plan, &markers, tags)?,
+                    _ => add_serato_markers(&mut plan, &markers)?,
+                };
+                notes = report.notes();
+            }
+            Ok(plan)
+        });
         if plan.is_ok() {
             planned
                 .serato_notes

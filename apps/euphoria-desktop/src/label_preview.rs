@@ -487,39 +487,69 @@ pub(crate) fn plan_library_change(
     cache: Option<&euphoria_core::CachedAnalyzer>,
     writer: &CorrectionWriter,
     log_directory: Option<&std::path::Path>,
+    reads: &crate::tag_reads::TagReads,
 ) -> LibraryChange {
     let total = targets.len();
-    let planned = plan_verified_writes(targets, settings, cache, writer, log_directory);
+    let planned = crate::tag_flow::plan_verified_writes_reading(
+        targets,
+        settings,
+        cache,
+        writer,
+        log_directory,
+        Some(reads),
+    );
     LibraryChange {
         would_change: planned.plans.len(),
         total,
     }
 }
 
+/// How long the settings must stay unchanged before the library is counted
+/// again.
+pub(crate) const LIBRARY_COUNT_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+
 impl crate::app::EuphoriaApp {
     /// Counts, off the main thread, the library files the current tag
     /// settings would change, and keeps the count for the settings panel.
+    /// Waits for the settings to rest first, and a count that a later
+    /// change overtook is dropped. Files are read once and planned again
+    /// from memory.
     pub(crate) fn refresh_library_change(&mut self, cx: &mut gpui::Context<'_, Self>) {
         self.library_change_generation += 1;
         self.library_change = None;
         let generation = self.library_change_generation;
-        let targets: Vec<WriteTarget> = self
-            .session
-            .library()
-            .tracks()
-            .iter()
-            .map(|track| WriteTarget {
-                path: track.path.clone(),
-                analysis: track.analysis().cloned(),
-                correction: track.correction,
-                edited_cues: track.edited_cues.clone(),
-            })
-            .collect();
-        let settings = self.tag_settings;
-        let cache = self.session.cache();
-        let writer = self.by_ear.correction_writer.clone();
-        let log_directory = self.write_log_directory.clone();
         cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(LIBRARY_COUNT_DELAY).await;
+            let job = this
+                .update(cx, |this, _| {
+                    (this.library_change_generation == generation).then(|| {
+                        let targets: Vec<WriteTarget> = this
+                            .session
+                            .library()
+                            .tracks()
+                            .iter()
+                            .map(|track| WriteTarget {
+                                path: track.path.clone(),
+                                analysis: track.analysis().cloned(),
+                                correction: track.correction,
+                                edited_cues: track.edited_cues.clone(),
+                            })
+                            .collect();
+                        (
+                            targets,
+                            this.tag_settings,
+                            this.session.cache(),
+                            this.by_ear.correction_writer.clone(),
+                            this.write_log_directory.clone(),
+                            this.tag_reads.clone(),
+                        )
+                    })
+                })
+                .ok()
+                .flatten();
+            let Some((targets, settings, cache, writer, log_directory, reads)) = job else {
+                return;
+            };
             let change = cx
                 .background_executor()
                 .spawn(async move {
@@ -529,6 +559,7 @@ impl crate::app::EuphoriaApp {
                         cache.as_deref(),
                         &writer,
                         log_directory.as_deref(),
+                        &reads,
                     )
                 })
                 .await;
@@ -541,6 +572,16 @@ impl crate::app::EuphoriaApp {
             .ok();
         })
         .detach();
+    }
+
+    /// Tags were written or put back: what was read from the files is out
+    /// of date, and the count in the settings, when they are open, is
+    /// worked out again.
+    pub(crate) fn tags_changed(&mut self, cx: &mut gpui::Context<'_, Self>) {
+        self.tag_reads.invalidate();
+        if self.settings_open {
+            self.refresh_library_change(cx);
+        }
     }
 
     /// Works out the preview for the selected track and the current tag

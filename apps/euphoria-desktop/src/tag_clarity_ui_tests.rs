@@ -61,9 +61,15 @@ fn open_files_in_a_tall_window(
     (scratch, files, window, view)
 }
 
+fn settle(cx: &mut TestAppContext) {
+    cx.executor()
+        .advance_clock(crate::label_preview::LIBRARY_COUNT_DELAY * 2);
+    cx.run_until_parked();
+}
+
 fn open_settings(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) {
     cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
-    cx.run_until_parked();
+    settle(cx);
 }
 
 fn height_of(window: AnyWindowHandle, id: &str, cx: &mut TestAppContext) -> gpui::Pixels {
@@ -433,6 +439,7 @@ fn library_change(
         None,
         &CorrectionWriter::default(),
         None,
+        &crate::tag_reads::TagReads::default(),
     )
 }
 
@@ -591,4 +598,66 @@ fn every_helper_is_one_line_at_the_default_settings_width(cx: &mut TestAppContex
         );
     }
     assert!(!is_shown(window, "hint-info-dj-program", cx));
+}
+
+#[gpui::test]
+fn a_second_settings_change_counts_the_library_without_reading_the_files_again(
+    cx: &mut TestAppContext,
+) {
+    let (_scratch, files, window, view) = open_files_in_a_tall_window("clarity-reads", cx);
+    open_settings(&view, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.tag_reads.read_count(), files.len());
+        assert_eq!(app.library_change.unwrap().would_change, files.len());
+    });
+    click(window, ("program", 0_usize), cx);
+    click(window, "replace-existing", cx);
+    settle(cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(
+            app.tag_reads.read_count(),
+            files.len(),
+            "planned again from memory"
+        );
+        assert!(app.library_change.is_some(), "and counted again");
+    });
+}
+
+#[gpui::test]
+fn a_change_made_while_the_settings_rest_drops_the_older_count(cx: &mut TestAppContext) {
+    let (_scratch, _files, window, view) = open_files_in_a_tall_window("clarity-stale", cx);
+    open_settings(&view, cx);
+    click(window, ("program", 0_usize), cx);
+    click(window, "replace-existing", cx);
+    cx.update(|cx| {
+        assert!(
+            view.read(cx).library_change.is_none(),
+            "nothing is counted until the settings rest"
+        );
+    });
+    settle(cx);
+    cx.update(|cx| assert!(view.read(cx).library_change.is_some()));
+}
+
+#[gpui::test]
+fn a_tag_write_makes_the_next_count_read_the_files_again(cx: &mut TestAppContext) {
+    let (_scratch, files, window, view) = open_files("clarity-write-invalidates", cx);
+    open_settings(&view, cx);
+    click(window, "close-settings", cx);
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    click(window, "confirm-tag-write", cx);
+    cx.update(|cx| assert_eq!(view.read(cx).written_files(), Some(files.clone())));
+    open_settings(&view, cx);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(
+            app.tag_reads.read_count(),
+            files.len() * 2,
+            "the written files were read again"
+        );
+        assert_eq!(app.library_change.unwrap().would_change, 0);
+    });
 }
