@@ -37,7 +37,6 @@ else
 fi
 """,
                 "sleep": "#!/usr/bin/env bash\necho \"$1\" >> \"$TEST_STATE/pauses\"\n",
-                "install-libkeyfinder.sh": "#!/usr/bin/env bash\necho keyfinder >> \"$TEST_STATE/installed\"\n",
                 "curl": "#!/usr/bin/env bash\necho onnxruntime >> \"$TEST_STATE/installed\"\n",
                 "sha256sum": "#!/usr/bin/env bash\nexit 0\n",
                 "tar": "#!/usr/bin/env bash\nexit 0\n",
@@ -75,7 +74,7 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 2)
         self.assertEqual(installed.splitlines(),
-                     ["install", "keyfinder", "onnxruntime"])
+                     ["install", "onnxruntime"])
         self.assertEqual(pauses, ["15"])
 
     def test_cached_packages_skip_apt_but_not_the_other_installs(self):
@@ -83,7 +82,7 @@ fi
             "failure", {"EUPHORIA_APT_PACKAGES_INSTALLED": "1"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 0)
-        self.assertEqual(installed.splitlines(), ["keyfinder", "onnxruntime"])
+        self.assertEqual(installed.splitlines(), ["onnxruntime"])
 
     def test_package_list_is_printed_without_installing_anything(self):
         result, count, installed, _ = self.run_install(
@@ -91,4 +90,4 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 0)
         self.assertEqual(installed, "")
-        self.assertIn("libfftw3-dev", result.stdout.split())
+        self.assertIn("pkg-config", result.stdout.split())

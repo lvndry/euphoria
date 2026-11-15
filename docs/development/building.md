@@ -8,23 +8,22 @@ description: Build, test and benchmark Euphoria from a source checkout.
 ## Requirements
 
 - Rust 1.89 or newer
-- CMake and pkg-config
-- libkeyfinder
-- FFTW, with its threads library, which the commands below install
+- A C++ compiler, which builds the vendored [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) time stretcher
 - For the desktop app only, libclang, which generates the bindings of the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) time stretcher the decks use. On macOS it comes with the Xcode Command Line Tools (`xcode-select --install`), which Homebrew and Rust need anyway. The `euphoria` command line tool does not use it.
 
-macOS:
+macOS, with the Xcode Command Line Tools (`xcode-select --install`) for the compiler:
 
 ```
-brew install rust cmake libkeyfinder
+brew install rust
 ```
 
-Debian and Ubuntu do not package libkeyfinder, so a script builds it from source:
+Debian and Ubuntu:
 
 ```
-sudo apt-get install build-essential cmake pkg-config libfftw3-dev
-./.github/scripts/install-libkeyfinder.sh
+sudo apt-get install build-essential
 ```
+
+and Rust from [rustup](https://rustup.rs).
 
 The desktop app needs more packages on Linux; [Installation](../getting-started/installation.md#the-desktop-app-on-linux) lists them.
 
@@ -50,9 +49,9 @@ cargo build --release
 What it does, in order:
 
 1. Copies the `euphoria-desktop` binary to `Euphoria.app/Contents/MacOS/Euphoria`.
-2. Copies every library the binary needs from outside macOS, libkeyfinder and FFTW from Homebrew, into `Contents/Frameworks`, and the libraries those need in turn, with `scripts/macos_libraries.py`. It finds each library the way dyld does: `@executable_path` from the app's executable, `@loader_path` from the binary that refers to it, and `@rpath` through the run paths of that binary and of every binary that loaded it. Each copy gets the install name `@rpath/<file>`, each reference to it is changed to match, run paths that lead outside the bundle are removed, and the binary gets the run path `@executable_path/../Frameworks`. A reference that does not resolve to a file stops the script.
+2. Copies every library the binary needs from outside macOS into `Contents/Frameworks`, and the libraries those need in turn, with `scripts/macos_libraries.py`. It finds each library the way dyld does: `@executable_path` from the app's executable, `@loader_path` from the binary that refers to it, and `@rpath` through the run paths of that binary and of every binary that loaded it. Each copy gets the install name `@rpath/<file>`, each reference to it is changed to match, run paths that lead outside the bundle are removed, and the binary gets the run path `@executable_path/../Frameworks`. A reference that does not resolve to a file stops the script.
 3. Proves the result with the same script, without trusting how it was made: every Mach-O file in the bundle is followed the way dyld would load it, and each of its libraries must be part of macOS (`/usr/lib`, `/System`) or a file in the bundle, and each of its run paths must lead into the bundle. `python3 -m unittest scripts/test_macos_libraries.py` tests this on the release build, with bundles broken on purpose.
-4. Sets `LSMinimumSystemVersion` to the newest minimum macOS of any architecture of any Mach-O file in the bundle, read from `LC_BUILD_VERSION` and the older `LC_VERSION_MIN_MACOSX`, and at least 11.0, Rust's own minimum. Homebrew builds its libraries for the macOS it runs on, so a bundle built on macOS 27 needs macOS 27. Building libkeyfinder and FFTW from source with `MACOSX_DEPLOYMENT_TARGET` set lowers it.
+4. Sets `LSMinimumSystemVersion` to the newest minimum macOS of any architecture of any Mach-O file in the bundle, read from `LC_BUILD_VERSION` and the older `LC_VERSION_MIN_MACOSX`, and at least 11.0, Rust's own minimum. Homebrew builds its libraries for the macOS it runs on, so a library copied from Homebrew would raise it to the macOS that built the bundle. The app links none today.
 5. Makes `AppIcon.icns` with `sips` and `iconutil` from `assets/logo/app-icon.svg`, and from `favicon.svg` for the 16 and 32 pixel sizes, where the thin line of the full icon disappears.
 6. Writes `Info.plist`: the bundle identifier `io.github.lvndry.euphoria`, the version from `apps/euphoria-desktop/Cargo.toml`, the music app category and high resolution support.
 7. Signs and verifies the bundle with `scripts/macos_sign.py`: every Mach-O file inside from the inside out, then the app. By default the signature is ad hoc (`codesign --sign -`), enough to run the app on the Mac that built it. Set `EUPHORIA_SIGN_IDENTITY` to a Developer ID Application identity, for instance `EUPHORIA_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" ./scripts/bundle-macos.sh`, to sign with that, the hardened runtime and a timestamp, and to sign the disk image. Adding `EUPHORIA_NOTARY_KEY_PATH` (the App Store Connect `.p8`), `EUPHORIA_NOTARY_KEY_ID` and `EUPHORIA_NOTARY_ISSUER_ID` also notarizes and staples the app and the disk image and checks them with `spctl`. The Release workflow does this with repository secrets; [Releasing](releasing.md#signing-and-notarization) lists them. The ad hoc default is not tested against Gatekeeper on another Mac.
@@ -75,7 +74,7 @@ It needs, besides the build requirements, the desktop development packages liste
 
 1. Downloads appimagetool and the AppImage runtime from their pinned releases into `target/appimage-tools` and checks them against their SHA-256 checksums.
 2. Copies the `euphoria-desktop` binary to `Euphoria.AppDir/usr/bin`.
-3. Copies every library the binary needs from outside the base system, libkeyfinder and FFTW, into `usr/lib`, and the libraries those need in turn, with `scripts/linux_libraries.py`. It reads each ELF file's needed libraries and run paths itself and finds each library the way the glibc loader does: through the `DT_RUNPATH` of the binary that needs it, or the `DT_RPATH` of that binary and of the binaries that loaded it, then through the loader's cache and default folders. Each copy gets the run path `$ORIGIN`, and the binary gets `$ORIGIN/../lib`. A library that cannot be found stops the script. Libraries every desktop has and that must come from the system are left out: glibc, the C++ runtime, and the X11, Wayland, keyboard map, font, OpenGL and ALSA libraries. The list is `BASE_SYSTEM_LIBRARIES` in the script, which follows the AppImage project's list of libraries never to bundle.
+3. Copies every library the binary needs from outside the base system, such as ONNX Runtime when it is linked dynamically, into `usr/lib`, and the libraries those need in turn, with `scripts/linux_libraries.py`. It reads each ELF file's needed libraries and run paths itself and finds each library the way the glibc loader does: through the `DT_RUNPATH` of the binary that needs it, or the `DT_RPATH` of that binary and of the binaries that loaded it, then through the loader's cache and default folders. Each copy gets the run path `$ORIGIN`, and the binary gets `$ORIGIN/../lib`. A library that cannot be found stops the script. Libraries every desktop has and that must come from the system are left out: glibc, the C++ runtime, and the X11, Wayland, keyboard map, font, OpenGL and ALSA libraries. The list is `BASE_SYSTEM_LIBRARIES` in the script, which follows the AppImage project's list of libraries never to bundle.
 4. Proves the result with the same script, without trusting how it was made: every ELF file in the AppDir is followed the way the loader would load it, without the cache or the default folders, and each of its libraries must be a base system library or a file in the AppDir, and each of its run paths must lead into it. `python3 -m unittest scripts/test_linux_libraries.py` tests this on programs and libraries built for the test, and on the build named by `EUPHORIA_LINKED_BINARY`.
 5. Renders the icon from `assets/logo/app-icon.svg` and writes the launcher entry `euphoria.desktop`, whose name matches the `app_id` the app gives its window.
 6. Makes the AppImage with appimagetool and prints the oldest glibc the files run on, the newest `GLIBC_` symbol version any of them asks for.
@@ -88,9 +87,9 @@ It needs, besides the build requirements, the desktop development packages liste
 cargo test --workspace
 ```
 
-## Without libkeyfinder
+## Without the default features
 
-libkeyfinder is a default Cargo feature of `euphoria-core`. Without it the core builds with no native libraries and uses stratum-dsp for key detection too, which is less accurate:
+The drone-v2 key detector and the time stretcher are default Cargo features of `euphoria-core`. Without them the core builds with no C++ and uses stratum-dsp for key detection, which is less accurate:
 
 ```
 cargo test -p euphoria-core --no-default-features

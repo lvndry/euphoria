@@ -139,7 +139,6 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--audio-budget <MINUTES>` | Hold at most MINUTES of audio in memory at once, over all files being analyzed. The default is 60. See [memory](#memory-and-long-files). |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
-| `--key-engine <ENGINE>` | Which detector decides the key. `auto`, the default, uses the drone-v2 network for the key and the key over time, after a track 20 cents or more off concert pitch is brought back to it. `drone` does the same. `keyfinder` uses libkeyfinder alone, as Euphoria did before drone-v2. Each engine's results are cached apart. See [key detection](../concepts/accuracy.md#key-detection-with-drone-v2). |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
@@ -243,7 +242,7 @@ After the files come entries for what the scan left out. A folder that could not
 
 `key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `stage` is `"warm-up"`, `"build"` or `"peak"`, the [set stage](../concepts/set-stage.md) among the tracks analyzed in the same run, and `null` for a track without a tempo and when fewer than 10 tracks have one; it is not the energy. The field was added to version 1 this way. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
-A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
+A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without the `drone` feature.
 
 `bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
 
@@ -362,7 +361,6 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
-| `--key-engine <ENGINE>` | The key engine, `auto` by default, as for [`euphoria analyze`](#options). |
 | `-h`, `--help` | Show help. |
 
 ### What is written
@@ -1024,7 +1022,7 @@ Each path is a file or a folder, searched like [`euphoria analyze`](#options). T
 | `--revert <MANIFEST_OR_FOLDER>` | Undo a run, as [below](#reverting-a-run). Takes no paths. |
 | `--dry-run` | Measure and print what would be done, and write nothing. |
 | `--json` | Print a JSON document instead of text. |
-| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range`, `--key-engine` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
+| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
 
 ### Output
 
