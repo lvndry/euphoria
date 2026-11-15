@@ -7,7 +7,6 @@
 
 use std::rc::Rc;
 
-use euphoria_core::harmony::Relation;
 use euphoria_core::{Confidence, TagKeyAgreement};
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
@@ -19,14 +18,12 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::artwork::ThumbnailSize;
-use crate::camelot::CamelotPosition;
 use crate::decks::SuggestionScope;
 use crate::format;
 use crate::inspector_sections::SectionKind;
 use crate::library::{Track, TrackStatus};
-use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
-use crate::theme::{AppTheme, Layout, Palette};
+use crate::theme::{Layout, Palette};
 use crate::track_overview::{key_stretches, shows_key_timeline};
 use crate::views::artwork::cover_tile;
 use crate::views::by_ear;
@@ -45,6 +42,7 @@ use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{
     COLUMN_WHEEL_SIZE, LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE, emphasis_for, wheel,
 };
+use crate::views::wheel_menu::wheel_menu;
 use crate::views::{
     GAP_HUGE, GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM,
     RADIUS_SMALL, STAT_TEXT_SIZE, TEXT_SIZE,
@@ -198,14 +196,7 @@ pub(crate) fn render(
     };
 
     let strip_wheel = (!is_column)
-        .then(|| {
-            key_wheel(
-                track,
-                theme,
-                room,
-                &app.decks.filter.mix_options().relations,
-            )
-        })
+        .then(|| key_wheel(track, app, room, cx))
         .flatten()
         .map(|section| sized(divided(section), Some(room.wheel_size())));
 
@@ -645,12 +636,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                     .child(tempo_box)
                     .child(energy_box),
             )
-            .children(key_wheel_of(
-                track,
-                theme,
-                &app.decks.filter.mix_options().relations,
-                COLUMN_WHEEL_SIZE,
-            ))
+            .children(key_wheel_of(track, app, COLUMN_WHEEL_SIZE, cx))
     } else {
         div()
             .flex()
@@ -1303,30 +1289,46 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
 }
 
 /// The Camelot wheel of the track's key, `size` pixels square, with the
-/// keys the suggestion filter's moves reach tinted.
-fn key_wheel_of(
+/// keys the suggestion filter's moves reach marked unless that is turned
+/// off. Clicking it opens the menu of key moves.
+pub(crate) fn key_wheel_of(
     track: &Track,
-    theme: &AppTheme,
-    relations: &[Relation],
+    app: &EuphoriaApp,
     size: f32,
+    cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<AnyElement> {
     let key = track.key()?;
-    Some(wheel(
-        key.camelot(),
-        emphasis_for(
-            CamelotPosition::of(&key),
-            keys_related_by(&key, relations)
-                .iter()
-                .map(CamelotPosition::of),
-        ),
-        &theme.palette,
-        size,
-    ))
+    let emphasized = emphasis_for(
+        &key,
+        &app.decks.filter.mix_options().relations,
+        app.display.show_matching_keys,
+    );
+    Some(
+        div()
+            .id("camelot-wheel-button")
+            .flex_shrink_0()
+            .cursor_pointer()
+            .tooltip(|window, cx| Tooltip::new(WHEEL_HINT).build(window, cx))
+            .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+                this.open_wheel_menu(event.position(), cx);
+            }))
+            .child(wheel(key.camelot(), emphasized, &app.theme.palette, size))
+            .children(wheel_menu(app, cx))
+            .into_any_element(),
+    )
 }
 
+/// What hovering the wheel outside its cells says.
+const WHEEL_HINT: &str = "Click for the key moves the wheel marks";
+
 /// The wheel alone, as tall as the strip allows, for the Deck strip.
-fn key_wheel(track: &Track, theme: &AppTheme, room: Room, relations: &[Relation]) -> Option<Div> {
-    key_wheel_of(track, theme, relations, room.wheel_size())
+fn key_wheel(
+    track: &Track,
+    app: &EuphoriaApp,
+    room: Room,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<Div> {
+    key_wheel_of(track, app, room.wheel_size(), cx)
         .map(|key_wheel| div().flex().items_center().child(key_wheel))
 }
 

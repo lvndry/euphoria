@@ -2158,6 +2158,19 @@ fn opening_settings_discards_a_tag_preview_still_being_planned(cx: &mut TestAppC
     assert!(!scratch.log_directory().exists());
 }
 
+/// Scrolls the settings down by `pixels`.
+fn scroll_settings(window: AnyWindowHandle, pixels: f32, cx: &mut TestAppContext) {
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.scroll(
+            "settings-body",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-pixels))),
+            cx,
+        );
+    })
+    .unwrap();
+}
+
 #[gpui::test]
 fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
     cx: &mut TestAppContext,
@@ -2171,6 +2184,7 @@ fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
     cx.update(|cx| assert!(view.read(cx).settings_open));
     click(window, ("program", 1_usize), cx);
     click(window, ("notation", 2_usize), cx);
+    scroll_settings(window, 80.0, cx);
     click(window, ("label-place", 2_usize), cx);
     cx.update(|cx| {
         let settings = view.read(cx).tag_settings;
@@ -2234,6 +2248,7 @@ fn the_settings_preview_follows_the_label_place_as_it_is_chosen(cx: &mut TestApp
     cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     cx.run_until_parked();
     click(window, ("program", 0_usize), cx);
+    scroll_settings(window, 80.0, cx);
     click(window, ("label-place", 0_usize), cx);
     cx.run_until_parked();
     let comment_of = |cx: &mut TestAppContext| {

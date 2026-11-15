@@ -46,6 +46,7 @@ pub(crate) mod track_overview;
 pub(crate) mod track_table;
 pub(crate) mod waveform;
 pub(crate) mod wheel;
+pub(crate) mod wheel_menu;
 
 use gpui::prelude::*;
 use gpui::{Div, FontWeight, Pixels, SharedString, Stateful, div, px};
