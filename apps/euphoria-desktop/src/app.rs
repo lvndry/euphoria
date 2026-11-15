@@ -201,6 +201,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) logo_clock: crate::logo_motion::LogoClock,
     /// The sidebar sliding in or out.
     pub(crate) sidebar_slide: SidebarSlide,
+    /// The sliding of the switches on show.
+    pub(crate) switches: views::controls::SwitchSlides,
     pub(crate) toasts: Toasts,
     pub(crate) modal_fades: ModalFades,
     pub(crate) strip_growth: StripGrowth,
@@ -563,6 +565,7 @@ impl EuphoriaApp {
             pending_stem_export: None,
             toolbar_drag_armed: false,
             sidebar_slide: SidebarSlide::at_rest(settings.panels.sidebar_folded),
+            switches: views::controls::SwitchSlides::default(),
             toasts: Toasts::default(),
             modal_fades: ModalFades::default(),
             strip_growth: StripGrowth::default(),
@@ -2833,6 +2836,14 @@ impl Render for EuphoriaApp {
                 window.child(views::settings_panel::render(self, cx))
             })
             .children(views::command_palette::render(self, window, cx))
+            .when(
+                cfg!(target_os = "macos") && !window.is_window_active(),
+                |root| root.child(views::toolbar::inactive_window_controls(&palette)),
+            )
+            .when(self.switches.wants_frame(), |window_element| {
+                window.request_animation_frame();
+                window_element
+            })
     }
 }
 

@@ -16,9 +16,12 @@ use crate::app::EuphoriaApp;
 use crate::key_by_ear::{LEVEL_STEPS, scale_of};
 use crate::library::Track;
 use crate::theme::Palette;
+use crate::views::controls::choice_button;
 use crate::views::inspector::shown_runner_up;
 use crate::views::key_chip::key_chip;
-use crate::views::tag_panel::choice_button;
+use crate::views::{
+    GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
+};
 use crate::views::{SMALL_TEXT_SIZE, section_label};
 
 /// The pitch classes of the white keys, from C.
@@ -75,7 +78,7 @@ pub(crate) fn corrector(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) ->
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(div().flex().child(link))
         .children(editor)
 }
@@ -90,7 +93,7 @@ fn editor(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         div()
             .id(("pick-key", index))
             .flex()
-            .rounded(px(5.0))
+            .rounded(RADIUS_MEDIUM)
             .p(px(1.0))
             .border_1()
             .border_color(if is_current {
@@ -106,19 +109,19 @@ fn editor(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .p(px(10.0))
-        .rounded(px(8.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .child(section_label("Key", &palette))
-        .child(div().flex().flex_wrap().gap(px(2.0)).children(keys))
+        .child(div().flex().flex_wrap().gap(GAP_TIGHT).children(keys))
         .child(section_label("BPM", &palette))
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .child(
                     div()
                         .w(px(80.0))
@@ -164,7 +167,7 @@ fn energy_picker(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .children(ratings)
         .when(is_set, |row| {
             row.child(
@@ -232,7 +235,7 @@ pub(crate) fn section(
                 div()
                     .w(px(4.0))
                     .h(px(4.0 + 2.5 * f32::from(step)))
-                    .rounded(px(1.0))
+                    .rounded(RADIUS_SMALL)
                     .bg(if is_filled {
                         palette.text_secondary
                     } else {
@@ -246,7 +249,7 @@ pub(crate) fn section(
         .id("reference-volume")
         .flex()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
         .child("Volume")
@@ -259,13 +262,13 @@ pub(crate) fn section(
         div()
             .flex()
             .flex_col()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(
                 div()
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(6.0))
+                    .gap(GAP_SMALL)
                     .children(tones)
                     .child(div().flex_1())
                     .child(volume),
@@ -321,11 +324,11 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
             .h_full()
             .border_1()
             .border_color(palette.line)
-            .rounded_b(px(4.0))
+            .rounded_b(RADIUS_SMALL)
             .bg(background)
             .cursor_pointer()
             .active(move |style| style.bg(pressed))
-            .text_size(px(10.0))
+            .text_size(LABEL_TEXT_SIZE)
             .text_color(ink)
             .when(is_root(pitch_class), |key| {
                 key.font_weight(FontWeight::BOLD).underline()
@@ -354,7 +357,7 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
             .left(relative(left))
             .w(relative(BLACK_KEY_WIDTH))
             .h(relative(0.6))
-            .rounded_b(px(3.0))
+            .rounded_b(RADIUS_SMALL)
             .bg(background)
             .when(is_root(pitch_class), |key| {
                 key.border_2().border_color(ivory)

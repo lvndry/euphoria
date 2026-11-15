@@ -145,8 +145,8 @@ It is on by default, because a key or tempo in the file is what DJ programs read
 
 When it is on, each newly analyzed track goes through the same planning and writing as **Write tags**, so every safe default above applies:
 
-- A key or tempo the file already has is kept, unless **Replace existing key and tempo** is on. A value Euphoria wrote earlier is still updated.
-- A key or tempo rated low confidence is left out, unless **Also write low confidence values** is on. A key or tempo you corrected counts as high confidence, and a correction you make is written the same way.
+- A key or tempo the file already has is kept, unless **Keep keys and tempos already in files** is off. A value Euphoria wrote earlier is still updated.
+- A key or tempo rated low confidence is left out, unless **Write low confidence values** is on. A key or tempo you corrected counts as high confidence, and a correction you make is written the same way.
 - Your DJ program and key notation, the energy label place and the tempo choice are respected.
 - Every write is logged with its backups, so the toast's **Undo**, **Tags > Undo Last Tag Write…** and `euphoria tags undo` put the old tags back. An automatic write is undone as one write per batch, and each batch ends with its own toast, which replaces the one before.
 

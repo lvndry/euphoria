@@ -321,7 +321,7 @@ impl EuphoriaApp {
                 }
                 None => "No window",
             },
-            Some(PlanState::Failed(_)) => "No plan",
+            Some(PlanState::Failed(_)) => "",
             Some(PlanState::Computing) => "Checking",
             None => "\u{2013}",
         }

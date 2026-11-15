@@ -553,25 +553,17 @@ const HINTS: [&str; 12] = [
     "tempo-range",
     "dj-program",
     "energy-label",
-    "tempo",
-    "existing",
-    "low-confidence",
-    "cue-markers",
-    "after-analysis",
+    "write-tempo",
+    "replace-existing",
+    "include-low-confidence",
+    "write-cue-markers",
+    "write-after-analysis",
     "metronome-sound",
     "metronome-volume",
     "metronome-accent",
 ];
 
-const WITH_INFO: [&str; 7] = [
-    "tempo-range",
-    "energy-label",
-    "tempo",
-    "existing",
-    "low-confidence",
-    "cue-markers",
-    "after-analysis",
-];
+const WITH_INFO: [&str; 2] = ["tempo-range", "energy-label"];
 
 #[gpui::test]
 fn every_helper_is_one_line_at_the_default_settings_width(cx: &mut TestAppContext) {
@@ -660,4 +652,35 @@ fn a_tag_write_makes_the_next_count_read_the_files_again(cx: &mut TestAppContext
         );
         assert_eq!(app.library_change.unwrap().would_change, 0);
     });
+}
+
+#[gpui::test]
+fn every_on_off_setting_is_a_row_with_a_32_by_18_switch_that_flips_with_a_click(
+    cx: &mut TestAppContext,
+) {
+    let (_scratch, _files, window, view) = open_files_in_a_tall_window("switch-rows", cx);
+    open_settings(&view, cx);
+    for id in [
+        "write-tempo",
+        "replace-existing",
+        "include-low-confidence",
+        "write-cue-markers",
+        "write-after-analysis",
+        "metronome-accent",
+    ] {
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            let switch = window.find(format!("{id}-switch")).bounds();
+            assert_eq!(switch.size.width, px(32.0), "{id}");
+            assert_eq!(switch.size.height, px(18.0), "{id}");
+        })
+        .unwrap();
+    }
+    let write_tempo =
+        |cx: &mut TestAppContext| cx.update(|cx| view.read(cx).tag_settings.write_tempo);
+    let before = write_tempo(cx);
+    click(window, "write-tempo", cx);
+    assert_ne!(write_tempo(cx), before);
+    click(window, "write-tempo", cx);
+    assert_eq!(write_tempo(cx), before);
 }

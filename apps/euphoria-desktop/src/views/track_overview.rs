@@ -22,6 +22,7 @@ use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Palette};
 use crate::track_overview::{self, EnergyCurve, EnergyStep, KeyStretch, TimeRange, VocalLane};
 use crate::views::waveform::SeenBounds;
+use crate::views::{GAP_SMALL, LABEL_TEXT_SIZE, RADIUS_SMALL};
 
 /// Height of the energy curve.
 pub(crate) const ENERGY_HEIGHT: f32 = 20.0;
@@ -130,9 +131,9 @@ fn lane_label(
         .id(id)
         .flex_shrink_0()
         .px(px(4.0))
-        .rounded(px(2.0))
+        .rounded(RADIUS_SMALL)
         .bg(palette.panel.opacity(0.7))
-        .text_size(px(LANE_LABEL_SIZE))
+        .text_size(LABEL_TEXT_SIZE)
         .line_height(px(LANE_LABEL_SIZE + 2.0))
         .text_color(palette.text_tertiary)
         .child(text)
@@ -175,7 +176,7 @@ pub(crate) fn energy_curve(
         .h(px(ENERGY_HEIGHT))
         .flex_shrink_0()
         .overflow_hidden()
-        .rounded(px(2.0))
+        .rounded(RADIUS_SMALL)
         .bg(palette.raised.opacity(0.5))
         .children(bars)
         .child(div().absolute().top_0().left_0().child(lane_label(
@@ -220,7 +221,7 @@ pub(crate) fn energy_unavailable(reason: &str, palette: &Palette) -> AnyElement 
         .w_full()
         .h(px(ENERGY_HEIGHT))
         .flex_shrink_0()
-        .text_size(px(11.0))
+        .text_size(LABEL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child("Energy over time not available")
         .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
@@ -246,11 +247,11 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
         .relative()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .h(px(VOCALS_HEIGHT))
         .flex_shrink_0()
         .overflow_hidden()
-        .rounded(px(2.0))
+        .rounded(RADIUS_SMALL)
         .bg(palette.raised.opacity(0.5));
     let label = div().absolute().top_0().left_0().child(label);
     match inputs.vocals {
@@ -317,7 +318,7 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
                         .bottom_0()
                         .flex()
                         .items_center()
-                        .text_size(px(LANE_LABEL_SIZE + 1.0))
+                        .text_size(LABEL_TEXT_SIZE)
                         .text_color(palette.text_secondary)
                         .child(prompt),
                 )
@@ -335,7 +336,7 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
                         .bottom_0()
                         .flex()
                         .items_center()
-                        .text_size(px(LANE_LABEL_SIZE + 1.0))
+                        .text_size(LABEL_TEXT_SIZE)
                         .text_color(palette.text_secondary)
                         .child("Vocals not available"),
                 )
@@ -383,12 +384,12 @@ pub(crate) fn key_timeline(
             .items_center()
             .justify_center()
             .overflow_hidden()
-            .rounded(px(2.0))
+            .rounded(RADIUS_SMALL)
             .border_l_1()
             .border_color(palette.panel)
             .bg(background)
             .text_color(foreground)
-            .text_size(px(10.0))
+            .text_size(LABEL_TEXT_SIZE)
             .font_weight(FontWeight::SEMIBOLD)
             .child(notation.spell(&stretch.key))
             .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))

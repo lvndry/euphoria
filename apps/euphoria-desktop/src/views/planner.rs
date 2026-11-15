@@ -28,7 +28,10 @@ use crate::transition_plan::{
     failure_text, ruler_marks, step_line, window_detail, window_title,
 };
 use crate::views::focus::section_colour;
-use crate::views::tag_panel::choice_button;
+use crate::views::{
+    GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
+    TITLE_TEXT_SIZE,
+};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, primary_button, secondary_button};
 
 type LanePick = fn(&BarLane) -> Presence;
@@ -150,7 +153,7 @@ fn sections_row(
             .w(relative(width))
             .flex_shrink_0()
             .overflow_hidden()
-            .rounded(px(3.0));
+            .rounded(RADIUS_SMALL);
         let piece = match (label, is_playing) {
             (Some(label), _) => {
                 let (fill, ink) = section_colour(kind_of(label), palette);
@@ -171,7 +174,7 @@ fn sections_row(
         };
         pieces.push(piece.into_any_element());
     }
-    div().flex().gap(px(0.0)).w_full().children(pieces)
+    div().flex().gap(GAP_TIGHT).w_full().children(pieces)
 }
 
 fn lane_row(
@@ -194,7 +197,7 @@ fn lane_row(
                 .h_full()
                 .w(relative(length as f32 / total))
                 .flex_shrink_0()
-                .rounded(px(2.0));
+                .rounded(RADIUS_SMALL);
             match presence {
                 Some(Presence::Present) => piece.bg(colour),
                 Some(Presence::Unknown) => piece
@@ -210,7 +213,7 @@ fn lane_row(
         .flex()
         .w_full()
         .h(px(height))
-        .rounded(px(2.0))
+        .rounded(RADIUS_SMALL)
         .bg(palette.background.opacity(0.6))
         .children(pieces)
 }
@@ -231,7 +234,7 @@ fn clash_row(window: &CandidateWindow, palette: &Palette, height: f32) -> Div {
             div()
                 .h_full()
                 .flex_1()
-                .rounded(px(1.0))
+                .rounded(RADIUS_SMALL)
                 .bg(clash_colour(*clash, palette))
                 .into_any_element()
         })
@@ -241,7 +244,7 @@ fn clash_row(window: &CandidateWindow, palette: &Palette, height: f32) -> Div {
         .w_full()
         .h(px(height))
         .flex()
-        .gap(px(1.0))
+        .gap(GAP_TIGHT)
         .children(pieces)
         .child(
             div()
@@ -252,7 +255,7 @@ fn clash_row(window: &CandidateWindow, palette: &Palette, height: f32) -> Div {
                 .w(relative(window.bars as f32 / total))
                 .border_2()
                 .border_color(palette.accent)
-                .rounded(px(5.0)),
+                .rounded(RADIUS_MEDIUM),
         )
 }
 
@@ -260,10 +263,10 @@ fn legend_item(swatch: Div, text: &'static str, palette: &Palette) -> Div {
     div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
-        .child(swatch.size(px(12.0)).rounded(px(2.0)))
+        .child(swatch.size(px(12.0)).rounded(RADIUS_SMALL))
         .child(text)
 }
 
@@ -273,8 +276,8 @@ fn legend(palette: &Palette) -> impl IntoElement {
         .id("planner-legend")
         .flex()
         .flex_wrap()
-        .gap_x(px(16.0))
-        .gap_y(px(4.0))
+        .gap_x(GAP_LARGE)
+        .gap_y(GAP_TIGHT)
         .pl(px(GUTTER_WIDTH + 12.0))
         .child(legend_item(solid(Clash::Clear), "Fine", palette))
         .child(legend_item(solid(Clash::Bass), "Both basslines", palette))
@@ -333,7 +336,7 @@ fn ruler(
         .id("planner-ruler")
         .flex()
         .items_center()
-        .gap(px(12.0))
+        .gap(GAP_MEDIUM)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
         .child(
@@ -377,7 +380,7 @@ fn track_block(
         .id(id)
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .py(px(8.0))
         .border_t_1()
         .border_color(palette.line)
@@ -385,7 +388,7 @@ fn track_block(
             div()
                 .flex()
                 .items_center()
-                .gap(px(12.0))
+                .gap(GAP_MEDIUM)
                 .child(
                     div()
                         .w(px(GUTTER_WIDTH))
@@ -406,7 +409,7 @@ fn track_block(
             div()
                 .flex()
                 .items_center()
-                .gap(px(12.0))
+                .gap(GAP_MEDIUM)
                 .child(
                     div()
                         .w(px(GUTTER_WIDTH))
@@ -445,7 +448,7 @@ pub(crate) fn compact_strip(
         div()
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(
                 div()
                     .w(px(14.0))
@@ -460,7 +463,7 @@ pub(crate) fn compact_strip(
         .id("plan-strip")
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .child(named(
             "A",
             sections_row(
@@ -496,7 +499,7 @@ pub(crate) fn row_strip(window: &CandidateWindow, palette: &Palette) -> Div {
     let cells = compressed_strip(&window.clash_strip, STRIP_CELLS);
     div()
         .flex()
-        .gap(px(1.0))
+        .gap(GAP_TIGHT)
         .w(px(64.0))
         .h(px(10.0))
         .flex_shrink_0()
@@ -504,7 +507,7 @@ pub(crate) fn row_strip(window: &CandidateWindow, palette: &Palette) -> Div {
             div()
                 .h_full()
                 .flex_1()
-                .rounded(px(1.0))
+                .rounded(RADIUS_SMALL)
                 .bg(clash_colour(Some(clash), palette))
         }))
 }
@@ -556,7 +559,7 @@ fn stems_line(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
         .child("Separate the stems of");
@@ -579,9 +582,9 @@ fn card(palette: &Palette) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .p(px(16.0))
-        .rounded(px(10.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
@@ -590,7 +593,7 @@ fn card(palette: &Palette) -> Div {
 fn heading(text: impl Into<SharedString>) -> Div {
     div()
         .font_weight(FontWeight::SEMIBOLD)
-        .text_size(px(15.0))
+        .text_size(TITLE_TEXT_SIZE)
         .child(text.into())
 }
 
@@ -616,10 +619,10 @@ fn window_rows(
                 .id(("planner-window", index))
                 .flex()
                 .items_center()
-                .gap(px(12.0))
+                .gap(GAP_MEDIUM)
                 .px(px(12.0))
                 .py(px(10.0))
-                .rounded(px(8.0))
+                .rounded(RADIUS_LARGE)
                 .border_1()
                 .cursor_pointer()
                 .map(|row| {
@@ -639,7 +642,7 @@ fn window_rows(
                         .justify_center()
                         .size(px(28.0))
                         .flex_shrink_0()
-                        .rounded(px(14.0))
+                        .rounded(RADIUS_LARGE)
                         .bg(palette.raised)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(format!("{}", window.rank)),
@@ -691,7 +694,7 @@ fn steps_card(
         div()
             .id(("planner-step", position))
             .flex()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(
                 div()
                     .w(px(18.0))
@@ -730,7 +733,7 @@ fn steps_card(
                 .id("planner-steps-list")
                 .flex()
                 .flex_col()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .children(steps)
                 .test_support(),
         )
@@ -738,7 +741,7 @@ fn steps_card(
             div()
                 .flex()
                 .flex_wrap()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .mt(px(6.0))
                 .child(
                     primary_button(SET_CUES_ACTION, &palette)
@@ -836,10 +839,10 @@ pub(crate) fn render(
         .id("planner-back")
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .h(px(28.0))
         .px(px(10.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .border_1()
         .border_color(palette.line)
         .bg(palette.raised)
@@ -866,12 +869,12 @@ pub(crate) fn render(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .child(back)
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_size(px(20.0))
+                .text_size(TITLE_TEXT_SIZE)
                 .child("Plan a transition"),
         )
         .child(
@@ -888,7 +891,7 @@ pub(crate) fn render(
         .flex_1()
         .min_w_0()
         .min_h_0()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .p(px(18.0))
         .bg(palette.background)
         .overflow_y_scroll()
@@ -896,7 +899,7 @@ pub(crate) fn render(
     let body: AnyElement = match state {
         Some(PlanState::Failed(error)) => card(&palette)
             .id("planner-failure")
-            .text_color(palette.danger)
+            .text_color(palette.warning)
             .child(failure_message(app, *error))
             .test_support()
             .into_any_element(),
@@ -960,7 +963,7 @@ fn planned_body(
                 .id("planner-clash")
                 .flex()
                 .items_center()
-                .gap(px(12.0))
+                .gap(GAP_MEDIUM)
                 .pt(px(10.0))
                 .border_t_1()
                 .border_color(palette.line)
@@ -984,13 +987,13 @@ fn planned_body(
     div()
         .flex()
         .flex_col()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .child(timelines)
         .child(
             div()
                 .flex()
                 .flex_wrap()
-                .gap(px(14.0))
+                .gap(GAP_MEDIUM)
                 .child(window_rows(app, planned, cx))
                 .child(steps_card(app, planned, window, cx)),
         )
@@ -1045,7 +1048,7 @@ fn overlap_line(
         .id("focus-transition-overlap")
         .flex()
         .flex_wrap()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .text_size(LABEL_TEXT_SIZE)
         .font_weight(FontWeight::MEDIUM)
         .child(
@@ -1066,7 +1069,7 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             .id("focus-transition-card")
             .flex()
             .flex_col()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .size_full()
             .overflow_y_scroll()
     };
@@ -1097,7 +1100,7 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         Some(PlanState::Failed(error)) => note(
             "focus-transition-failure",
             failure_message(app, *error),
-            palette.danger,
+            palette.warning,
         ),
         Some(PlanState::Ready(planned)) => match planned.window(0) {
             None => note(
@@ -1139,32 +1142,33 @@ pub(crate) fn transition_tab(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                         div()
                             .flex()
                             .flex_wrap()
-                            .gap(px(6.0))
+                            .gap(GAP_SMALL)
                             .child(
-                                choice_button("plan-set-cues", SET_CUES_ACTION, true, &palette)
+                                primary_button(SET_CUES_ACTION, &palette)
+                                    .id("plan-set-cues")
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.set_plan_cues(0, cx)),
                                     )
                                     .test_support(),
                             )
                             .child(
-                                choice_button("plan-preview", PLAY_ACTION, false, &palette)
+                                secondary_button(PLAY_ACTION, &palette)
+                                    .id("plan-preview")
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.preview_on_decks(0, cx)),
                                     )
                                     .test_support(),
                             )
                             .child(
-                                choice_button(
-                                    "plan-save-favorite",
+                                secondary_button(
                                     if is_favorite {
                                         UPDATE_FAVORITE_ACTION
                                     } else {
                                         SAVE_FAVORITE_ACTION
                                     },
-                                    false,
                                     &palette,
                                 )
+                                .id("plan-save-favorite")
                                 .on_click(
                                     cx.listener(|this, _, _, cx| this.save_plan_as_favorite(0, cx)),
                                 )

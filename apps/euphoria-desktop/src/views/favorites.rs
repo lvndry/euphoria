@@ -18,6 +18,7 @@ use crate::deck_audio::DeckId;
 use crate::playlist_flow::PlaylistFormat;
 use crate::theme::Palette;
 use crate::views::SMALL_TEXT_SIZE;
+use crate::views::{GAP_MEDIUM, GAP_SMALL, RADIUS_MEDIUM, RADIUS_SMALL};
 
 /// Size of a star's icon.
 const STAR_SIZE: f32 = 13.0;
@@ -54,7 +55,7 @@ pub(crate) fn star_button(
         .items_center()
         .justify_center()
         .size(px(20.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
         .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
@@ -108,10 +109,10 @@ pub(crate) fn deck_transition(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaAp
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .px(px(8.0))
         .py(px(2.0))
-        .rounded(px(5.0))
+        .rounded(RADIUS_MEDIUM)
         .border_1()
         .border_color(if is_marked {
             palette.accent
@@ -162,7 +163,7 @@ pub(crate) fn deck_transition(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaAp
         div()
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(GAP_MEDIUM)
             .child(toggle)
             .when(is_editing, |line| {
                 line.child(
@@ -193,7 +194,7 @@ pub(crate) fn favorites_summary(
             .flex_shrink_0()
             .px(px(8.0))
             .py(px(2.0))
-            .rounded(px(5.0))
+            .rounded(RADIUS_MEDIUM)
             .border_1()
             .border_color(palette.line)
             .text_size(SMALL_TEXT_SIZE)
@@ -208,7 +209,7 @@ pub(crate) fn favorites_summary(
         div()
             .flex()
             .items_center()
-            .gap(px(12.0))
+            .gap(GAP_MEDIUM)
             .child(
                 div()
                     .text_size(SMALL_TEXT_SIZE)

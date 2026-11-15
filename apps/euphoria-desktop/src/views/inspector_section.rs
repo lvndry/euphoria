@@ -11,6 +11,7 @@ use gpui::{Bounds, Context, Div, Pixels, TestSupportExt, canvas, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::inspector_sections::SectionKind;
+use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, next_rail, section_label};
 
 /// Width of the box the chevron sits in, as in the sidebar's tree.
@@ -59,9 +60,9 @@ pub(crate) fn collapsible(
         .flex_1()
         .min_w_0()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .h(px(24.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_section(kind, cx)))
@@ -87,7 +88,7 @@ pub(crate) fn collapsible(
     let heading = div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(toggle)
         .when(kind == SectionKind::Mixes, |heading| {
             heading.children(next_rail::control(app, cx))
@@ -142,7 +143,7 @@ pub(crate) fn tabs(
         .flex()
         .flex_shrink_0()
         .flex_wrap()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .w_full()
         .children(SectionKind::ALL.into_iter().map(|kind| {
             let is_shown = kind == shown;
@@ -153,7 +154,7 @@ pub(crate) fn tabs(
                 .items_center()
                 .h(px(22.0))
                 .px(px(8.0))
-                .rounded(px(11.0))
+                .rounded(RADIUS_LARGE)
                 .border_1()
                 .whitespace_nowrap()
                 .text_size(LABEL_TEXT_SIZE)

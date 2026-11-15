@@ -19,9 +19,10 @@ use crate::actions;
 use crate::app::EuphoriaApp;
 use crate::metronome_controls::TEMPO_RULE;
 use crate::theme::{Palette, ThemeName};
+use crate::views::controls::pressed_button;
 use crate::views::logo::busy_logo;
-use crate::views::tag_panel::choice_button;
 use crate::views::{CONTROL_HEIGHT, CONTROL_RADIUS, SMALL_TEXT_SIZE, secondary_button};
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_MEDIUM, RADIUS_SMALL};
 
 /// Room left for the window's close, minimize and zoom buttons on macOS.
 const WINDOW_BUTTONS_WIDTH: f32 = if cfg!(target_os = "macos") { 72.0 } else { 0.0 };
@@ -52,7 +53,7 @@ fn sidebar_toggle(
         .items_center()
         .justify_center()
         .size(px(24.0))
-        .rounded(px(5.0))
+        .rounded(RADIUS_MEDIUM)
         .text_color(colour)
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background).text_color(hover_colour))
@@ -98,7 +99,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(12.0))
+        .gap(GAP_MEDIUM)
         .pl(px(14.0 + WINDOW_BUTTONS_WIDTH))
         .pr(px(14.0))
         .py(px(8.0))
@@ -125,7 +126,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
             div()
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .w(px(APP_NAME_WIDTH))
                 .flex_shrink_0()
                 .font_weight(FontWeight::SEMIBOLD)
@@ -141,13 +142,13 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .flex()
                 .flex_shrink_0()
                 .items_center()
-                .gap(px(10.0))
+                .gap(GAP_MEDIUM)
                 .ml_auto()
                 .children(progress(app, &palette))
                 .child(metronome(app, &palette, cx))
                 .when(has_tracks, |commands| {
                     commands.child(
-                        choice_button("toggle-decks", "Decks", app.decks.is_open, &palette)
+                        pressed_button("toggle-decks", "Decks", app.decks.is_open, &palette)
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_decks(cx)))
                             .test_support(),
@@ -195,7 +196,7 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
         .items_center()
         .justify_center()
         .size(px(24.0))
-        .rounded(px(5.0))
+        .rounded(RADIUS_MEDIUM)
         .bg(background)
         .cursor_pointer()
         .when(!is_running, |button| {
@@ -259,7 +260,7 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             .flex_shrink_0()
             .items_center()
             .justify_center()
-            .gap(px(4.0))
+            .gap(GAP_TIGHT)
             .relative()
             .pr(px(METRONOME_STEPPER_WIDTH))
             .w(px(METRONOME_FIELD_WIDTH))
@@ -293,7 +294,7 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .child(button)
         .child(field)
 }
@@ -405,7 +406,7 @@ fn write_tags(palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
             secondary_button("Edit tags", palette)
@@ -427,7 +428,7 @@ fn search_field(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eupho
         .flex()
         .flex_1()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .max_w(px(420.0))
         .h(CONTROL_HEIGHT)
         .px(px(10.0))
@@ -456,7 +457,7 @@ fn search_field(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eupho
                 .flex_shrink_0()
                 .items_center()
                 .px(px(5.0))
-                .rounded(px(4.0))
+                .rounded(RADIUS_SMALL)
                 .border_1()
                 .border_color(palette.line)
                 .text_size(SMALL_TEXT_SIZE)
@@ -491,7 +492,7 @@ fn progress(app: &EuphoriaApp, palette: &Palette) -> Option<Div> {
             .flex()
             .flex_shrink_0()
             .items_center()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .text_size(SMALL_TEXT_SIZE)
             .text_color(palette.text_secondary)
             .child(label)
@@ -509,13 +510,13 @@ fn progress(app: &EuphoriaApp, palette: &Palette) -> Option<Div> {
                     div()
                         .w(px(72.0))
                         .h(px(4.0))
-                        .rounded(px(2.0))
+                        .rounded(RADIUS_SMALL)
                         .bg(palette.raised)
                         .child(
                             div()
                                 .h_full()
                                 .w(relative(progress.fraction()))
-                                .rounded(px(2.0))
+                                .rounded(RADIUS_SMALL)
                                 .bg(palette.accent),
                         ),
                 )
@@ -543,4 +544,31 @@ fn theme_menu(current: ThemeName) -> impl IntoElement {
                     })
                 }),
         )
+}
+
+/// Where the window's own controls sit, the top left of the first of the
+/// three: the traffic light position the window is opened with in main.rs.
+pub(crate) const WINDOW_CONTROLS_ORIGIN: (f32, f32) = (14.0, 15.0);
+/// How far apart the three window controls are, centre to centre.
+const WINDOW_CONTROL_SPACING: f32 = 20.0;
+/// How wide each window control is.
+const WINDOW_CONTROL_SIZE: f32 = 12.0;
+
+/// A line and a fill under the window's three controls while the window is
+/// not the active one: the system draws them as faint grey discs, which a
+/// light toolbar swallows.
+pub(crate) fn inactive_window_controls(palette: &Palette) -> Div {
+    div().children((0..3).map(|index| {
+        div()
+            .absolute()
+            .top(px(WINDOW_CONTROLS_ORIGIN.1))
+            .left(px(
+                WINDOW_CONTROLS_ORIGIN.0 + index as f32 * WINDOW_CONTROL_SPACING
+            ))
+            .size(px(WINDOW_CONTROL_SIZE))
+            .rounded_full()
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.raised)
+    }))
 }

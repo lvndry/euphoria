@@ -43,6 +43,10 @@ use crate::views::waveform::{WAVEFORM_HEIGHT, WaveformColours, waveform};
 use crate::views::wheel::{
     COLUMN_WHEEL_SIZE, LARGEST_WHEEL_SIZE, SMALLEST_WHEEL_SIZE, emphasis_for, wheel,
 };
+use crate::views::{
+    GAP_HUGE, GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM,
+    RADIUS_SMALL, STAT_TEXT_SIZE, TEXT_SIZE,
+};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 use crate::waveforms::Waveform;
 
@@ -148,7 +152,7 @@ pub(crate) fn render(
             .flex_col()
             .flex_shrink_0()
             .w(app.inspector_width(window))
-            .gap(px(16.0))
+            .gap(GAP_LARGE)
             .border_l_1()
             .overflow_y_scroll(),
         Layout::DeckBelow => div()
@@ -157,7 +161,7 @@ pub(crate) fn render(
             .flex_shrink_0()
             .h(strip_height)
             .items_start()
-            .gap(px(24.0))
+            .gap(GAP_HUGE)
             .border_t_1(),
     }
     .p(px(PADDING))
@@ -218,7 +222,7 @@ pub(crate) fn render(
                 .min_w_0()
                 .h_full()
                 .items_start()
-                .gap(px(24.0))
+                .gap(GAP_HUGE)
                 .overflow_x_scroll(),
             Some(container),
         )
@@ -249,7 +253,7 @@ pub(crate) fn render(
                     .flex_shrink_0()
                     .w(px(STRIP_SECTION_WIDTH))
                     .h_full()
-                    .gap(px(8.0))
+                    .gap(GAP_SMALL)
                     .child(inspector_section::tabs(app, shown, cx))
                     .child(
                         div()
@@ -302,10 +306,10 @@ fn focus_button(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl In
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(5.0))
+        .gap(GAP_TIGHT)
         .h(px(24.0))
         .px(px(8.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .border_1()
         .border_color(palette.line)
         .bg(palette.raised)
@@ -364,7 +368,7 @@ fn title_line(track: &Track, fit: impl FnOnce(Stateful<Div>) -> Stateful<Div>) -
     let tooltip_title = full_title.clone();
     fit(div()
         .id("inspector-title")
-        .text_size(px(15.0))
+        .text_size(TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .tooltip(move |window, cx| Tooltip::new(tooltip_title.clone()).build(window, cx))
         .child(full_title))
@@ -378,7 +382,7 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
     div()
         .flex()
         .items_center()
-        .gap(px(12.0))
+        .gap(GAP_MEDIUM)
         .child(
             div()
                 .flex()
@@ -386,7 +390,7 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
                 .items_center()
                 .justify_center()
                 .size(px(56.0))
-                .rounded(px(6.0))
+                .rounded(RADIUS_MEDIUM)
                 .border_1()
                 .border_color(palette.line)
                 .bg(palette.raised)
@@ -402,7 +406,7 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
                 .flex()
                 .flex_col()
                 .min_w_0()
-                .gap(px(2.0))
+                .gap(GAP_TIGHT)
                 .child(title_line(track, |title| title.line_clamp(2)))
                 .child(
                     div()
@@ -429,7 +433,7 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
     div()
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .min_w(px(STRIP_TITLE_COLUMN))
         .child(title_line(track, |title| title.w_full().truncate()))
         .child(
@@ -442,7 +446,7 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
             div()
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .child(
                     div()
                         .flex_1()
@@ -508,7 +512,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(statistic_value(key_code))
         .children(runner_up.map(|runner_up| {
             let description: SharedString = format!(
@@ -520,9 +524,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 .id("runner-up-key")
                 .flex()
                 .items_center()
-                .gap(px(4.0))
+                .gap(GAP_TIGHT)
                 .px(px(2.0))
-                .rounded(px(4.0))
+                .rounded(RADIUS_SMALL)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover_background))
                 .text_size(LABEL_TEXT_SIZE)
@@ -642,14 +646,14 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         div()
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(GAP_MEDIUM)
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .rounded(px(8.0))
+                    .rounded(RADIUS_LARGE)
                     .border_1()
                     .border_color(palette.line)
                     .child(key_box)
@@ -665,7 +669,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     } else {
         div()
             .flex()
-            .rounded(px(8.0))
+            .rounded(RADIUS_LARGE)
             .border_1()
             .border_color(palette.line)
             .child(statistic("Key", key_trust, key_value, key_note, palette))
@@ -696,7 +700,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(boxes)
         .children(tag_key_line(track, notation, palette))
         .when(analysis.is_some(), |section| {
@@ -737,10 +741,10 @@ fn tag_key_line(track: &Track, notation: NotationChoice, palette: &Palette) -> O
             .id("tag-key")
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(GAP_TIGHT)
             .text_size(LABEL_TEXT_SIZE)
             .text_color(if is_conflict {
-                palette.danger
+                palette.warning
             } else {
                 palette.text_tertiary
             })
@@ -767,8 +771,9 @@ pub(crate) fn shown_runner_up(track: &Track) -> Option<euphoria_core::Key> {
 fn statistic_value(value: impl Into<SharedString>) -> Div {
     div()
         .whitespace_nowrap()
-        .text_size(px(20.0))
+        .text_size(STAT_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
+        .font_features(crate::views::tabular_digits())
         .child(value.into())
 }
 
@@ -799,7 +804,7 @@ fn confidence_word(
                 .into(),
         ),
         Confidence::Low => (
-            palette.danger,
+            palette.warning,
             format!(
                 "{label} confidence: low. Check it by ear; the track is listed under Needs review."
             )
@@ -904,7 +909,7 @@ fn statistic(
         .flex_col()
         .flex_1()
         .min_w(px(STATISTIC_CELL_WIDTH))
-        .gap(px(2.0))
+        .gap(GAP_TIGHT)
         .px(px(12.0))
         .py(px(10.0))
         .child(statistic_label(label, palette))
@@ -933,7 +938,7 @@ fn statistic_compact(
     div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .min_w_0()
         .px(px(8.0))
         .py(px(4.0))
@@ -1110,7 +1115,7 @@ fn waveform_section(
         div()
             .flex()
             .items_center()
-            .gap(px(14.0))
+            .gap(GAP_MEDIUM)
             .child(player::play_button(app, cx))
             .child(section.flex_1().min_w_0())
     } else {
@@ -1208,9 +1213,9 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
                     .flex()
                     .flex_shrink_0()
                     .items_center()
-                    .gap(px(10.0))
+                    .gap(GAP_MEDIUM)
                     .h(px(28.0))
-                    .rounded(px(4.0))
+                    .rounded(RADIUS_SMALL)
                     .cursor_pointer()
                     .hover(move |style| style.bg(palette.raised))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -1264,7 +1269,7 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
         div()
             .flex()
             .flex_col()
-            .gap(px(4.0))
+            .gap(GAP_TIGHT)
             .when(is_narrowed, |section| {
                 section.child(reset_note(
                     "mixes-filter",
@@ -1327,7 +1332,7 @@ fn key_wheel(track: &Track, theme: &AppTheme, room: Room, relations: &[Relation]
 /// Why a failed track failed, or that an unfinished one is queued or
 /// being analyzed.
 fn status(track: &Track, palette: &Palette) -> Option<Div> {
-    let section = div().flex().flex_col().gap(px(8.0));
+    let section = div().flex().flex_col().gap(GAP_SMALL);
     match &track.status {
         TrackStatus::Analyzed(_) => None,
         TrackStatus::Queued => Some(
@@ -1387,7 +1392,7 @@ fn quality(track: &Track, palette: &Palette) -> Option<Div> {
         div()
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(GAP_SMALL)
             .child(
                 div()
                     .font_weight(FontWeight::MEDIUM)
@@ -1415,7 +1420,7 @@ fn quality(track: &Track, palette: &Palette) -> Option<Div> {
 
 /// Where the file is on disk.
 fn location(track: &Track, palette: &Palette) -> Div {
-    div().flex().flex_col().gap(px(8.0)).child(
+    div().flex().flex_col().gap(GAP_SMALL).child(
         div()
             .text_size(SMALL_TEXT_SIZE)
             .text_color(palette.text_secondary)

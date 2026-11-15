@@ -41,11 +41,21 @@ pub(crate) struct Palette {
     pub(crate) danger: Hsla,
     /// Tracks and rows that need a look but are not failures.
     pub(crate) warning: Hsla,
+    /// Things that went well or fit well.
+    pub(crate) success: Hsla,
     /// True for palettes with a dark background.
     pub(crate) is_dark: bool,
 }
 
+/// How much of a colour a tinted surface keeps over the surface behind it.
+pub(crate) const TINT_STRENGTH: f32 = 0.15;
+
 impl Palette {
+    /// `colour` as a soft background: about a seventh of it over what is behind.
+    pub(crate) fn tint(colour: Hsla) -> Hsla {
+        colour.opacity(TINT_STRENGTH)
+    }
+
     /// The palette `amount` of the way from `from` to `to`, each colour mixed
     /// channel by channel. 0 gives `from` and 1 gives `to` exactly.
     pub(crate) fn mix(from: Palette, to: Palette, amount: f32) -> Palette {
@@ -81,6 +91,7 @@ impl Palette {
             waveform: colour(from.waveform, to.waveform),
             danger: colour(from.danger, to.danger),
             warning: colour(from.warning, to.warning),
+            success: colour(from.success, to.success),
             is_dark: if amount < 0.5 {
                 from.is_dark
             } else {
@@ -106,6 +117,7 @@ impl Palette {
             waveform: hex(0x4A4E57),
             danger: oklch(0.74, 0.14, 25.0),
             warning: oklch(0.8, 0.13, 65.0),
+            success: oklch(0.78, 0.14, 155.0),
             is_dark: true,
         }
     }
@@ -121,12 +133,13 @@ impl Palette {
             text: hex(0x1B1C1F),
             text_secondary: hex(0x55585F),
             text_tertiary: hex(0x6A6D74),
-            accent: hex(0x2563EB),
+            accent: hex(0x1D4ED8),
             accent_ink: hex(0xFFFFFF),
             selection: hex(0xE6EEFD),
             waveform: hex(0xB9BCC4),
             danger: oklch(0.5, 0.17, 25.0),
-            warning: oklch(0.5, 0.12, 60.0),
+            warning: oklch(0.46, 0.11, 60.0),
+            success: oklch(0.44, 0.11, 155.0),
             is_dark: false,
         }
     }
@@ -147,7 +160,8 @@ impl Palette {
             selection: hex(0x33291A),
             waveform: hex(0x57534B),
             danger: oklch(0.74, 0.14, 25.0),
-            warning: oklch(0.76, 0.14, 48.0),
+            warning: oklch(0.78, 0.14, 64.0),
+            success: oklch(0.78, 0.13, 150.0),
             is_dark: true,
         }
     }
@@ -448,7 +462,7 @@ mod tests {
     fn each_theme_is_a_preset_of_palette_layout_density_and_key_display() {
         let paper = AppTheme::named(ThemeName::Paper);
         assert_eq!(hex_text(paper.palette.background), "#FFFFFF");
-        assert_eq!(hex_text(paper.palette.accent), "#2563EB");
+        assert_eq!(hex_text(paper.palette.accent), "#1D4ED8");
         assert!(!paper.palette.is_dark);
 
         let deck = AppTheme::named(ThemeName::Deck);
@@ -566,8 +580,51 @@ mod tests {
                     contrast(palette.warning, surface) >= 4.5,
                     "{name:?} warning"
                 );
+                assert!(
+                    contrast(palette.success, surface) >= 4.5,
+                    "{name:?} success"
+                );
             }
             assert!(contrast(palette.accent_ink, palette.accent) >= 4.5);
+        }
+    }
+
+    #[test]
+    fn tinted_chips_keep_their_text_readable_in_every_theme() {
+        for name in ThemeName::ALL {
+            let palette = AppTheme::named(name).palette;
+            for surface in [palette.background, palette.panel, palette.raised] {
+                for (role, colour) in [
+                    ("accent", palette.accent),
+                    ("success", palette.success),
+                    ("warning", palette.warning),
+                    ("danger", palette.danger),
+                ] {
+                    let behind = blend(colour, surface, TINT_STRENGTH);
+                    let ratio = contrast(colour, behind);
+                    assert!(ratio >= 4.5, "{name:?} {role} tint: contrast {ratio:.2}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn success_and_warning_are_told_apart_from_each_other_and_from_danger() {
+        for name in ThemeName::ALL {
+            let palette = AppTheme::named(name).palette;
+            let hue = |colour: Hsla| colour.h * 360.0;
+            let apart = |first: f32, second: f32| {
+                let gap = (first - second).abs();
+                gap.min(360.0 - gap)
+            };
+            assert!(
+                apart(hue(palette.success), hue(palette.warning)) > 40.0,
+                "{name:?} success and warning"
+            );
+            assert!(
+                apart(hue(palette.warning), hue(palette.danger)) > 20.0,
+                "{name:?} warning and danger"
+            );
         }
     }
 }

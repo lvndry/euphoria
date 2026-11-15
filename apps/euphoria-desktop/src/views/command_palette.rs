@@ -23,6 +23,7 @@ use crate::library::Track;
 use crate::palette_flow::shortcut_label;
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
+use crate::views::{GAP_LARGE, GAP_MEDIUM, GAP_SMALL, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 
 /// Width of the panel.
@@ -58,7 +59,7 @@ pub(crate) fn render(
         .mt(px(10.0))
         .px(px(12.0))
         .py(px(3.0))
-        .rounded(px(8.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.raised)
@@ -97,7 +98,7 @@ pub(crate) fn render(
         .max_h(relative(0.86))
         .mt(px(TOP_OFFSET + RISE_PIXELS * (1.0 - progress)))
         .opacity(progress)
-        .rounded(px(12.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
@@ -226,10 +227,10 @@ fn row_frame(is_selected: bool, palette: &Palette) -> gpui::Stateful<Div> {
         .id("palette-row-frame")
         .flex()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .px(px(8.0))
         .py(px(6.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .cursor_pointer()
         .when(is_selected, |row| row.bg(palette.accent.opacity(0.16)))
         .when(!is_selected, |row| {
@@ -261,7 +262,7 @@ fn track_row(
         .flex_1()
         .min_w_0()
         .items_baseline()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(
             div()
                 .flex_shrink_0()
@@ -288,7 +289,7 @@ fn track_row(
         div()
             .flex_shrink_0()
             .px(px(7.0))
-            .rounded(px(999.0))
+            .rounded(RADIUS_LARGE)
             .bg(palette.raised)
             .text_size(LABEL_TEXT_SIZE)
             .text_color(palette.text_secondary)
@@ -298,7 +299,7 @@ fn track_row(
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child(
@@ -357,7 +358,7 @@ fn kbd(label: impl Into<gpui::SharedString>, palette: &Palette) -> Div {
         .flex_shrink_0()
         .items_center()
         .px(px(5.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .border_1()
         .border_color(palette.line)
         .text_size(LABEL_TEXT_SIZE)
@@ -370,7 +371,7 @@ fn footer(palette: &Palette) -> Div {
         div()
             .flex()
             .items_center()
-            .gap(px(6.0))
+            .gap(GAP_SMALL)
             .child(kbd(keys, palette))
             .child(what)
     };
@@ -378,7 +379,7 @@ fn footer(palette: &Palette) -> Div {
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(16.0))
+        .gap(GAP_LARGE)
         .px(px(14.0))
         .py(px(8.0))
         .border_t_1()

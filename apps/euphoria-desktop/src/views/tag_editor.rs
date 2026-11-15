@@ -15,7 +15,8 @@ use crate::app::EuphoriaApp;
 use crate::format;
 use crate::tag_editor::{FieldValue, TagEditor, TextTool};
 use crate::theme::Palette;
-use crate::views::tag_panel::choice_button;
+use crate::views::controls::{choice_button, pressed_button};
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, TITLE_TEXT_SIZE};
 use crate::views::{SMALL_TEXT_SIZE, primary_button, secondary_button, section_label};
 
 /// The element id of the text field of `field`.
@@ -48,7 +49,7 @@ pub(crate) fn contents(
 ) -> Vec<AnyElement> {
     let track_count = editor.tracks.len();
     let heading = div()
-        .text_size(px(16.0))
+        .text_size(TITLE_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .child(match track_count {
             1 => "Edit tags of 1 track".to_string(),
@@ -101,7 +102,7 @@ pub(crate) fn contents(
         div()
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(GAP_MEDIUM)
             .child(
                 div()
                     .w(px(96.0))
@@ -112,7 +113,7 @@ pub(crate) fn contents(
                     .when(*value == FieldValue::Mixed, |label| {
                         label.child(
                             div()
-                                .text_size(px(10.0))
+                                .text_size(LABEL_TEXT_SIZE)
                                 .text_color(palette.text_tertiary)
                                 .child("differs"),
                         )
@@ -181,16 +182,22 @@ pub(crate) fn contents(
     let text_tool = div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .pt(px(6.0))
         .child(section_label("Change text in one field", palette))
-        .child(div().flex().flex_wrap().gap(px(6.0)).children(tools))
-        .child(div().flex().flex_wrap().gap(px(4.0)).children(tool_fields))
+        .child(div().flex().flex_wrap().gap(GAP_SMALL).children(tools))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(GAP_TIGHT)
+                .children(tool_fields),
+        )
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .child(
                     div()
                         .flex_1()
@@ -203,7 +210,7 @@ pub(crate) fn contents(
                             .child(Input::new(&editor.tool_with).id("tool-with")),
                     )
                     .child(
-                        choice_button("match-case", "Match case", editor.match_case, palette)
+                        pressed_button("match-case", "Match case", editor.match_case, palette)
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_match_case(cx)))
                             .test_support(),
                     )
@@ -219,7 +226,7 @@ pub(crate) fn contents(
         div()
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(GAP_MEDIUM)
             .child(
                 secondary_button("Fill from analysis", palette)
                     .id("fill-from-analysis")
@@ -245,7 +252,7 @@ pub(crate) fn contents(
             .flex_col()
             .flex_1()
             .min_h_0()
-            .gap(px(6.0))
+            .gap(GAP_SMALL)
             .overflow_y_scroll()
             .children(rows)
             .child(text_tool)
@@ -277,7 +284,7 @@ fn footer(editor: &TagEditor, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
     div()
         .flex()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .children(editor.problem.clone().map(|problem| {
             div()
                 .id("edit-problem")

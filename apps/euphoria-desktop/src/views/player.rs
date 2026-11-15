@@ -23,6 +23,7 @@ use crate::player_wave::{BarPeaksCache, played_bars, section_ticks};
 use crate::views::SMALL_TEXT_SIZE;
 use crate::views::cues;
 use crate::views::waveform::SeenBounds;
+use crate::views::{GAP_MEDIUM, LABEL_TEXT_SIZE, RADIUS_SMALL};
 use crate::waveforms::Waveform;
 
 const BUTTON_SIZE: f32 = 30.0;
@@ -43,7 +44,7 @@ pub(crate) fn play_button(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
         .items_center()
         .justify_center()
         .size(px(BUTTON_SIZE))
-        .rounded(px(BUTTON_SIZE / 2.0))
+        .rounded_full()
         .bg(palette.text)
         .map(|button| {
             if has_track {
@@ -155,7 +156,7 @@ fn thin_line(
                 .relative()
                 .w_full()
                 .h(px(4.0))
-                .rounded(px(2.0))
+                .rounded(RADIUS_SMALL)
                 .bg(palette.raised)
                 .child(
                     canvas(
@@ -169,7 +170,7 @@ fn thin_line(
                     div()
                         .h_full()
                         .w(relative(progress))
-                        .rounded(px(2.0))
+                        .rounded(RADIUS_SMALL)
                         .bg(palette.text_secondary),
                 ),
         )
@@ -251,7 +252,7 @@ fn wave_strip(
                     .h(px(LETTER_ROW_HEIGHT))
                     .left(relative(fraction))
                     .ml(px(-3.0))
-                    .text_size(px(9.0))
+                    .text_size(LABEL_TEXT_SIZE)
                     .font_weight(FontWeight::SEMIBOLD)
                     .font_family("Menlo")
                     .text_color(palette.accent)
@@ -332,7 +333,7 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .px(px(14.0))
         .py(px(8.0))
         .border_t_1()

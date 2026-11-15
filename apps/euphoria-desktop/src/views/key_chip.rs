@@ -10,6 +10,7 @@ use gpui::{Div, FontWeight, div, px};
 use crate::camelot::CamelotPosition;
 use crate::tag_settings::NotationChoice;
 use crate::theme::AppTheme;
+use crate::views::RADIUS_SMALL;
 use crate::views::SMALL_TEXT_SIZE;
 
 /// The chip for `key`: its code in `notation`, in the colours of its
@@ -21,7 +22,7 @@ pub(crate) fn key_chip(key: &Key, theme: &AppTheme, notation: NotationChoice) ->
         .flex_shrink_0()
         .justify_center()
         .py(px(1.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(colours.foreground)

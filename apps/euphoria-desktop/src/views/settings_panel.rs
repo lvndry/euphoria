@@ -14,8 +14,13 @@ use crate::display_settings::TempoPreset;
 use crate::surface_motion::Modal;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 use crate::theme::Palette;
-use crate::views::tag_panel::choice_button;
-use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, section_label};
+use crate::views::controls::{segment, segmented, toggle_row};
+use crate::views::{
+    GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_MEDIUM, TITLE_TEXT_SIZE,
+};
+use crate::views::{
+    SMALL_TEXT_SIZE, dialog_primary_button, modal, secondary_button, section_label,
+};
 
 /// The settings panel.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
@@ -33,41 +38,53 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .enumerate()
         .map(|(index, program)| {
             let program = *program;
-            choice_button(
+            segment(
                 ("program", index),
                 program.label(),
                 settings.program == program,
+                index == 0,
                 &palette,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.set_tag_program(program, cx)))
             .test_support()
-        });
-    let places = LabelChoice::ALL.iter().enumerate().map(|(index, place)| {
-        let place = *place;
-        choice_button(
-            ("label-place", index),
-            place.label(),
-            settings.effective_label() == place,
-            &palette,
-        )
-        .on_click(cx.listener(move |this, _, _, cx| this.set_label_place(place, cx)))
-        .test_support()
-    });
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let places = LabelChoice::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, place)| {
+            let place = *place;
+            segment(
+                ("label-place", index),
+                place.label(),
+                settings.effective_label() == place,
+                index == 0,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_label_place(place, cx)))
+            .test_support()
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
     let display = app.display;
     let notations = NotationChoice::ALL
         .iter()
         .enumerate()
         .map(|(index, notation)| {
             let notation = *notation;
-            choice_button(
+            segment(
                 ("notation", index),
                 notation.label(),
                 settings.key_notation == notation,
+                index == 0,
                 &palette,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.set_key_notation(notation, cx)))
             .test_support()
-        });
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
     let current_preset = (!app.is_custom_tempo_range)
         .then(|| display.tempo_range.preset())
         .flatten();
@@ -76,10 +93,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .enumerate()
         .map(|(index, preset)| {
             let preset = *preset;
-            choice_button(
+            segment(
                 ("tempo-preset", index),
                 preset.label(),
                 current_preset == Some(preset),
+                index == 0,
                 &palette,
             )
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -90,21 +108,27 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         })
         .collect();
     tempo_choices.push(
-        choice_button("tempo-custom", "Custom", current_preset.is_none(), &palette)
-            .on_click(cx.listener(|this, _, window, cx| this.choose_custom_tempo_range(window, cx)))
-            .test_support()
-            .into_any_element(),
+        segment(
+            "tempo-custom",
+            "Custom",
+            current_preset.is_none(),
+            false,
+            &palette,
+        )
+        .on_click(cx.listener(|this, _, window, cx| this.choose_custom_tempo_range(window, cx)))
+        .test_support()
+        .into_any_element(),
     );
     let custom_range = current_preset.is_none().then(|| {
         div()
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(GAP_SMALL)
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
+                    .gap(GAP_SMALL)
                     .text_size(SMALL_TEXT_SIZE)
                     .text_color(palette.text_secondary)
                     .child("From")
@@ -132,34 +156,40 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
     });
 
     let metronome = app.metronome.settings;
-    let metronome_sounds =
-        crate::metronome::ClickSound::ALL
-            .iter()
-            .enumerate()
-            .map(|(index, sound)| {
-                let sound = *sound;
-                choice_button(
-                    ("metronome-sound", index),
-                    sound.label(),
-                    metronome.sound == sound,
-                    &palette,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_sound(sound, cx)))
-                .test_support()
-            });
-    let metronome_volumes = (1..=crate::metronome_controls::VOLUME_STEPS).map(|step| {
-        choice_button(
-            ("metronome-volume", usize::from(step)),
-            format!(
-                "{}%",
-                u32::from(step) * 100 / u32::from(crate::metronome_controls::VOLUME_STEPS)
-            ),
-            app.metronome.volume_step() == step,
-            &palette,
-        )
-        .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_volume(step, cx)))
-        .test_support()
-    });
+    let metronome_sounds = crate::metronome::ClickSound::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, sound)| {
+            let sound = *sound;
+            segment(
+                ("metronome-sound", index),
+                sound.label(),
+                metronome.sound == sound,
+                index == 0,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_sound(sound, cx)))
+            .test_support()
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let metronome_volumes = (1..=crate::metronome_controls::VOLUME_STEPS)
+        .map(|step| {
+            segment(
+                ("metronome-volume", usize::from(step)),
+                format!(
+                    "{}%",
+                    u32::from(step) * 100 / u32::from(crate::metronome_controls::VOLUME_STEPS)
+                ),
+                app.metronome.volume_step() == step,
+                step == 1,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_metronome_volume(step, cx)))
+            .test_support()
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
 
     let (tempo_hint, tempo_detail) = if settings.program == ProgramChoice::Serato {
         (
@@ -172,20 +202,6 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             "Mixxx reads decimals, so it gets the exact tempo.",
         )
     };
-    let toggle = |id: &'static str, label: &'static str, is_on: bool| {
-        choice_button(
-            id,
-            if is_on {
-                format!("\u{2713} {label}")
-            } else {
-                label.to_string()
-            },
-            is_on,
-            &palette,
-        )
-        .test_support()
-    };
-
     let mut parts: Vec<AnyElement> =
         vec![part_heading("Showing keys and tempos", &palette).into_any_element()];
     parts.push(
@@ -194,7 +210,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             "key-notation",
             "In the table, the tags and the exports. The wheel always shows Camelot.",
             None,
-            div().flex().flex_wrap().gap(px(6.0)).children(notations),
+            segmented(notations, &palette),
             &palette,
         )
         .into_any_element(),
@@ -211,14 +227,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             div()
                 .flex()
                 .flex_col()
-                .gap(px(8.0))
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.0))
-                        .children(tempo_choices),
-                )
+                .gap(GAP_SMALL)
+                .child(segmented(tempo_choices, &palette))
                 .children(custom_range),
             &palette,
         )
@@ -233,7 +243,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             "dj-program",
             "Tags go to the fields this program reads.",
             None,
-            div().flex().flex_wrap().gap(px(6.0)).children(programs),
+            segmented(programs, &palette),
             &palette,
         )
         .into_any_element(),
@@ -244,104 +254,97 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             "energy-label",
             "Where a label such as \u{201c}8A - Energy 7\u{201d} goes.",
             Some("The text already there is kept."),
-            div().flex().flex_wrap().gap(px(6.0)).children(places),
+            segmented(places, &palette),
             &palette,
         )
         .into_any_element(),
     );
     parts.push(
-        setting(
-            "Tempo",
-            "tempo",
+        toggle_row(
+            "write-tempo",
+            "Write the tempo",
             tempo_hint,
-            Some(tempo_detail),
-            div().flex().child(
-                toggle("write-tempo", "Write the tempo", settings.write_tempo)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_write_tempo(cx))),
-            ),
+            settings.write_tempo,
+            &app.switches,
             &palette,
         )
+        .tooltip(move |window, cx| Tooltip::new(tempo_detail).build(window, cx))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_tempo(cx)))
+        .test_support()
         .into_any_element(),
     );
     parts.push(
-        setting(
-            "Existing key and tempo",
-            "existing",
-            "A key or tempo a file already has is kept.",
-            Some(
-                "A correct tag is never replaced by a guess. One that Euphoria wrote \
-                 earlier is still updated.",
-            ),
-            div().flex().child(
-                toggle(
-                    "replace-existing",
-                    "Replace existing key and tempo",
-                    settings.replace_existing,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_replace_existing(cx))),
-            ),
+        toggle_row(
+            "replace-existing",
+            "Keep keys and tempos already in files",
+            "Turn off to replace them with Euphoria's.",
+            !settings.replace_existing,
+            &app.switches,
             &palette,
         )
+        .tooltip(|window, cx| {
+            Tooltip::new(
+                "A correct tag is never replaced by a guess. One that Euphoria wrote earlier is still updated.",
+            )
+            .build(window, cx)
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_replace_existing(cx)))
+        .test_support()
         .into_any_element(),
     );
     parts.push(
-        setting(
-            "Low confidence",
-            "low-confidence",
-            "A key or tempo rated low confidence is left out and listed.",
-            Some("A key or tempo you corrected counts as high confidence."),
-            div().flex().child(
-                toggle(
-                    "include-low-confidence",
-                    "Also write low confidence values",
-                    settings.include_low_confidence,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx))),
-            ),
+        toggle_row(
+            "include-low-confidence",
+            "Write low confidence values",
+            "Usually worth checking by ear first; they are listed when left out.",
+            settings.include_low_confidence,
+            &app.switches,
             &palette,
         )
+        .tooltip(|window, cx| {
+            Tooltip::new("A key or tempo you corrected counts as high confidence.")
+                .build(window, cx)
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_include_low_confidence(cx)))
+        .test_support()
         .into_any_element(),
     );
     parts.push(
-        setting(
-            "Cue markers",
-            "cue-markers",
-            "Written as Serato cues; also read by Mixxx and VirtualDJ.",
-            Some(
-                "The track's cues and beat grid go in as Serato cue points. Memory cues, \
-                 on no pad, are left out. Formats that cannot hold them are skipped.",
-            ),
-            div().flex().child(
-                toggle(
-                    "write-cue-markers",
-                    "Write the cue markers",
-                    settings.write_cue_markers,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx))),
-            ),
+        toggle_row(
+            "write-cue-markers",
+            "Write cue markers",
+            "Read by Serato DJ, Mixxx and VirtualDJ.",
+            settings.write_cue_markers,
+            &app.switches,
             &palette,
         )
+        .tooltip(|window, cx| {
+            Tooltip::new(
+                "The track's cues and beat grid go in as Serato cue points. Memory cues, on no pad, are left out. Formats that cannot hold them are skipped.",
+            )
+            .build(window, cx)
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_cue_markers(cx)))
+        .test_support()
         .into_any_element(),
     );
     parts.push(
-        setting(
-            "After analysis",
-            "after-analysis",
+        toggle_row(
+            "write-after-analysis",
+            "Write key and tempo after analysis",
             "Fills in each track's missing key and tempo once it is analyzed.",
-            Some(
-                "Uses the choices above; tags a file already has are kept. Undo tag write \
-                 puts them back.",
-            ),
-            div().flex().child(
-                toggle(
-                    "write-after-analysis",
-                    "Write key and tempo to files after analysis",
-                    settings.write_after_analysis,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_write_after_analysis(cx))),
-            ),
+            settings.write_after_analysis,
+            &app.switches,
             &palette,
         )
+        .tooltip(|window, cx| {
+            Tooltip::new(
+                "Uses the choices above; tags a file already has are kept. Undo tag write puts them back.",
+            )
+            .build(window, cx)
+        })
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_write_after_analysis(cx)))
+        .test_support()
         .into_any_element(),
     );
     let metronome_index = parts.len();
@@ -352,11 +355,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             "metronome-sound",
             "The click of the toolbar metronome; choosing one plays it.",
             None,
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(6.0))
-                .children(metronome_sounds),
+            segmented(metronome_sounds, &palette),
             &palette,
         )
         .into_any_element(),
@@ -367,31 +366,22 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             "metronome-volume",
             "How loud the clicks are next to the music.",
             None,
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(6.0))
-                .children(metronome_volumes),
+            segmented(metronome_volumes, &palette),
             &palette,
         )
         .into_any_element(),
     );
     parts.push(
-        setting(
-            "Accent",
+        toggle_row(
             "metronome-accent",
+            "Accent the first beat",
             "The first beat of every bar of four is higher and louder.",
-            None,
-            div().flex().child(
-                toggle(
-                    "metronome-accent",
-                    "Accent the first beat",
-                    metronome.accent,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx))),
-            ),
+            metronome.accent,
+            &app.switches,
             &palette,
         )
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
+        .test_support()
         .into_any_element(),
     );
 
@@ -414,7 +404,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
             card.id("settings-card")
                 .child(
                     div()
-                        .text_size(px(15.0))
+                        .text_size(TITLE_TEXT_SIZE)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Settings"),
                 )
@@ -430,7 +420,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                                 .id("settings-body")
                                 .flex()
                                 .flex_col()
-                                .gap(px(14.0))
+                                .gap(GAP_MEDIUM)
                                 .flex_1()
                                 .min_h_0()
                                 .overflow_y_scroll()
@@ -454,7 +444,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                                 .test_support(),
                         )
                         .child(
-                            primary_button("Done", &palette)
+                            dialog_primary_button("Done", &palette)
                                 .id("close-settings")
                                 .on_click(cx.listener(|this, _, _, cx| this.close_settings(cx)))
                                 .test_support(),
@@ -492,14 +482,14 @@ fn setting(
     div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(section_label(name, palette))
         .child(
             div()
                 .id(SharedString::from(format!("hint-{key}")))
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .text_size(SMALL_TEXT_SIZE)
                 .text_color(text_color)
                 .test_support()
@@ -515,7 +505,7 @@ fn setting(
                         .rounded_full()
                         .border_1()
                         .border_color(glyph_line)
-                        .text_size(px(9.0))
+                        .text_size(LABEL_TEXT_SIZE)
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(glyph_color)
                         .cursor_default()
@@ -595,7 +585,7 @@ fn label_preview_box(app: &EuphoriaApp, id: &'static str, palette: &Palette) -> 
             div()
                 .id((id, index))
                 .flex()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .child(name)
                 .when(!is_struck, |row| row.child(value))
                 .when(is_struck, |row| row.child(div().flex_1()))
@@ -634,9 +624,9 @@ fn label_preview_box(app: &EuphoriaApp, id: &'static str, palette: &Palette) -> 
         .id(id)
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .p(px(10.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .bg(palette.raised)
         .text_size(SMALL_TEXT_SIZE)
         .child(
