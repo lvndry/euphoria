@@ -1797,8 +1797,6 @@ impl EuphoriaApp {
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
         if self.decks.is_open {
-            self.notice = Some(crate::decks::PLAYER_HELD_BY_DECKS.to_string());
-            cx.notify();
             return;
         }
         if let Some(position) = self.set_row_to_play() {
@@ -2784,7 +2782,10 @@ impl Render for EuphoriaApp {
                 })
         };
 
-        let has_player_bar = !self.is_empty() && self.theme.layout == Layout::InspectorRight;
+        // The decks take the sound while they are open, so the track player
+        // would only offer buttons that cannot work: it is hidden instead.
+        let has_player_bar =
+            !self.is_empty() && self.theme.layout == Layout::InspectorRight && !self.decks.is_open;
 
         div()
             .id("euphoria")

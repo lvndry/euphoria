@@ -45,17 +45,21 @@ impl LoadReadout {
     }
 
     pub(crate) fn details(&self) -> String {
-        format!(
+        let load = format!(
             "A {:.1}%, B {:.1}% of a core",
             self.a_percent, self.b_percent
-        )
+        );
+        match self.dropped_frames {
+            0 => load,
+            1 => format!("{load}; 1 sample of sound was not ready in time"),
+            frames => format!("{load}; {frames} samples of sound were not ready in time"),
+        }
     }
 
+    /// The warning shown when the sound could not keep up, in words a DJ
+    /// reads at a glance; the sample count is in `details`.
     pub(crate) fn dropped_text(&self) -> String {
-        match self.dropped_frames {
-            1 => "1 dropped frame".to_string(),
-            frames => format!("{frames} dropped frames"),
-        }
+        "Sound skipped: the computer was busy".to_string()
     }
 }
 
@@ -628,9 +632,6 @@ fn grid_of(track: &Track, analysis: &TrackAnalysis) -> Option<GridTiming> {
     })
 }
 
-/// Shown when the track player is used while the decks hold the sound.
-pub(crate) const PLAYER_HELD_BY_DECKS: &str = "Close the decks to use the track player.";
-
 impl EuphoriaApp {
     /// Shows the decks, or hides them and stops their sound.
     pub(crate) fn toggle_decks(&mut self, cx: &mut Context<'_, Self>) {
@@ -644,9 +645,6 @@ impl EuphoriaApp {
                 let view = self.decks.view_mut(deck);
                 view.playing = false;
                 view.loading = false;
-            }
-            if self.notice.as_deref() == Some(PLAYER_HELD_BY_DECKS) {
-                self.notice = None;
             }
             cx.notify();
             return;
@@ -1155,14 +1153,13 @@ mod tests {
             ..calm
         };
         assert!(starved.has_dropped_frames());
-        assert_eq!(starved.dropped_text(), "2 dropped frames");
         assert_eq!(
-            LoadReadout {
-                dropped_frames: 1,
-                ..calm
-            }
-            .dropped_text(),
-            "1 dropped frame"
+            starved.dropped_text(),
+            "Sound skipped: the computer was busy"
+        );
+        assert_eq!(
+            starved.details(),
+            "A 3.0%, B 4.0% of a core; 2 samples of sound were not ready in time"
         );
     }
 
