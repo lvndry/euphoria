@@ -102,6 +102,19 @@ While a filter is set the heading says, for example, `37 of 1,284 tracks`. **Cle
 
 ![The track list with a BPM range of 120 to 126, energy from 6 and two quality chips set, and the heading counting the tracks that match](../images/desktop-app/track-filters.png)
 
+### Analyze tracks again
+
+Tracks analyzed by an older version of Euphoria lack the fields added since, such as the loudness range the [set builder](#build-a-set) shows. Refresh them on demand instead of analyzing the whole library again:
+
+1. Select the tracks. **⌘A** selects every track the table shows (**Ctrl+A** on Linux). It does nothing while a text field has the keyboard, so it never takes ⌘A from the search box.
+2. Right-click one of the selected tracks and choose **Analyze again**. With several tracks selected the item says how many, for example **Analyze 575 tracks again**. Right-clicking a track outside the selection analyzes only that track. **Tracks > Analyze Selected Tracks Again** and the ⌘K command **Analyze selected tracks again** do the same for the selection.
+
+The tracks go through the normal analysis queue: the same workers and memory limit, the "12 of 575 done" count with the "about 4 min left" estimate, and the busy logo. The table stays usable while it runs, and each track keeps showing its old analysis until the new one replaces it. **Stop** in the toolbar (or **Tracks > Stop Analysis**) skips the tracks still waiting; the ones being analyzed finish. A skipped track that had never been analyzed shows "analysis was stopped" under Needs review, with **Analyze again**.
+
+Only the analysis is replaced. Your corrections, **Looks right** confirmations, stars, playlists, edited cues and set builder locks are kept in the cache and the app apart from the analysis. The **Analyze again** button of a failed track under [Needs review](#settle-a-track-under-needs-review) uses the same queue. With writing after analysis on, re-analyzed tracks follow the same rules as new ones, so new values go into tags only where those rules allow, which keeps your own tags and updates only Euphoria's earlier ones.
+
+Not tested: a real run over a large library on this build. The 2,000-track test uses a stubbed analysis.
+
 ### Resize the columns
 
 Drag the line between two column headers to make the column on its left wider or narrower; the pointer turns into a resize arrow over it. Double click the line to fit the column to its longest text among the tracks on show. Each column has a narrowest width, so a key, a tempo and an energy bar always stay readable. **View > Reset Column Widths** returns every column to its usual width.

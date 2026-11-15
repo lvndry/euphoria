@@ -205,12 +205,36 @@ impl CachedAnalyzer {
             .flatten()
     }
 
+    /// Analyzes the file again whatever the cache holds, and stores the
+    /// result in place of the stored analysis. The corrections and edited
+    /// cues the user made are kept apart from analyses, so they stay.
+    pub fn analyze_file_fresh(&self, path: &Path) -> Result<CachedAnalysis, EuphoriaError> {
+        self.analyze_file_fresh_with(path, analyze_file)
+    }
+
+    fn analyze_file_fresh_with(
+        &self,
+        path: &Path,
+        analyze: impl Fn(&Path) -> Result<TrackAnalysis, EuphoriaError>,
+    ) -> Result<CachedAnalysis, EuphoriaError> {
+        self.analyze_against(&Snapshot::default(), path, analyze)
+    }
+
     fn analyze_file_with(
         &self,
         path: &Path,
         analyze: impl Fn(&Path) -> Result<TrackAnalysis, EuphoriaError>,
     ) -> Result<CachedAnalysis, EuphoriaError> {
-        let (analysis, origin, write) = cached_or_analyzed(path, &self.snapshot, analyze)?;
+        self.analyze_against(&self.snapshot, path, analyze)
+    }
+
+    fn analyze_against(
+        &self,
+        snapshot: &Snapshot,
+        path: &Path,
+        analyze: impl Fn(&Path) -> Result<TrackAnalysis, EuphoriaError>,
+    ) -> Result<CachedAnalysis, EuphoriaError> {
+        let (analysis, origin, write) = cached_or_analyzed(path, snapshot, analyze)?;
         let store_error = write.and_then(|write| {
             let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             let database_path = cache.path().to_path_buf();
@@ -318,6 +342,44 @@ mod tests {
         assert!(served.from_cache);
         assert_eq!(served.analysis, analyzed.analysis);
         assert_eq!(counter.runs(), 1);
+    }
+
+    #[test]
+    fn analyzing_fresh_runs_the_analyzer_again_and_keeps_corrections_and_edited_cues() {
+        let folder = TemporaryFolder::new();
+        let track = write_track(&folder, "track.mp3", "some audio");
+        let counter = CountingAnalyzer::new();
+        let analyzer = open_analyzer(&folder);
+        let first = analyzer
+            .analyze_file_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        let correction = Correction::default().confirming_key();
+        analyzer.set_correction(&track, &correction).unwrap();
+        let cues = vec![Cue {
+            seconds: 5.0,
+            name: "Drop".to_string(),
+            hot_cue: None,
+        }];
+        analyzer.set_edited_cues(&track, Some(&cues)).unwrap();
+
+        let served = open_analyzer(&folder)
+            .analyze_file_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        assert!(served.from_cache);
+        assert_eq!(counter.runs(), 1);
+
+        let fresh = analyzer
+            .analyze_file_fresh_with(&track, |path| counter.analyze(path))
+            .unwrap();
+        assert!(!fresh.from_cache);
+        assert!(fresh.store_error.is_none(), "{:?}", fresh.store_error);
+        assert_eq!(fresh.analysis, first.analysis);
+        assert_eq!(counter.runs(), 2);
+
+        let reopened = open_analyzer(&folder);
+        assert!(reopened.stored_analysis(&track).is_some());
+        assert_eq!(reopened.correction_for(&track).unwrap(), Some(correction));
+        assert_eq!(reopened.edited_cues_for(&track).unwrap(), Some(cues));
     }
 
     #[test]

@@ -66,6 +66,10 @@ actions!(
         /// Opens the focus view on the playing track and plans a transition
         /// into its best match.
         PlanTransition,
+        /// Analyzes the selected tracks again, replacing their analysis.
+        AnalyzeAgain,
+        /// Stops the analysis of the tracks still waiting.
+        StopAnalysis,
         /// Separates the stems of the selected track.
         SeparateStems,
         /// Switches to the Slate theme.
