@@ -75,4 +75,4 @@ Which detector ships is decided by measurement. `euphoria-bench` scores every de
 
 ## Licensing
 
-libkeyfinder is GPL-3.0-or-later, so Euphoria is too. `deny.toml` lists the dependency licenses that are compatible, and CI rejects anything else.
+libkeyfinder is GPL-3.0-or-later, so Euphoria is too. `deny.toml` lists the dependency licenses that are compatible, and CI rejects anything else. One narrow exception allows the LGPL for LAME, the MP3 encoder of `euphoria set render`, and its bindings (`mp3lame-sys`, `mp3lame-encoder`); LAME is compiled from the source those crates vendor, and its licence ships in `licenses/` with both distributions.
