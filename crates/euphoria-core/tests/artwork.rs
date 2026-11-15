@@ -5,6 +5,8 @@
 //! embedded in each format, the front cover when there are several, and the
 //! image beside the file when there is no picture inside it.
 
+#![allow(clippy::unwrap_used)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

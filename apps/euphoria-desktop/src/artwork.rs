@@ -290,7 +290,7 @@ pub(crate) fn thumbnails(bytes: &[u8]) -> Option<Cover> {
 
 fn render_image(picture: DynamicImage) -> Arc<RenderImage> {
     let mut pixels = picture.into_rgba8();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     Arc::new(RenderImage::new(vec![Frame::new(pixels)]))
