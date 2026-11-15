@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::quality::{QualityReport, QualityVerdict};
+use crate::set_stage::SetStage;
 
 /// The lowest energy rating.
 pub const MINIMUM_ENERGY: u8 = 1;
@@ -71,6 +72,11 @@ pub trait FilterableTrack {
     fn energy(&self) -> Option<u8>;
     /// How the file sounds, once analyzed.
     fn quality(&self) -> Option<&QualityReport>;
+    /// The set stage of the track in its library. A list that has no stages
+    /// computed leaves it `None`, and a stage filter then shows nothing.
+    fn stage(&self) -> Option<SetStage> {
+        None
+    }
 }
 
 impl<Track: FilterableTrack + ?Sized> FilterableTrack for &Track {
@@ -88,6 +94,10 @@ impl<Track: FilterableTrack + ?Sized> FilterableTrack for &Track {
 
     fn quality(&self) -> Option<&QualityReport> {
         (**self).quality()
+    }
+
+    fn stage(&self) -> Option<SetStage> {
+        (**self).stage()
     }
 }
 
@@ -120,13 +130,19 @@ pub struct TrackFilters {
     pub energy_min: Option<u8>,
     /// The highest energy shown.
     pub energy_max: Option<u8>,
+    /// The set stages shown. Empty shows every stage, and a track without a
+    /// stage is shown only then.
+    pub stages: Vec<SetStage>,
 }
 
 impl TrackFilters {
     /// True when the filters narrow the list. The half and double toggle
     /// alone does not.
     pub fn is_active(&self) -> bool {
-        self.has_tempo() || self.has_energy() || !self.qualities.is_empty()
+        self.has_tempo()
+            || self.has_energy()
+            || !self.qualities.is_empty()
+            || !self.stages.is_empty()
     }
 
     fn has_tempo(&self) -> bool {
@@ -156,6 +172,13 @@ impl TrackFilters {
         {
             return false;
         }
+        if !self.stages.is_empty()
+            && !track
+                .stage()
+                .is_some_and(|stage| self.stages.contains(&stage))
+        {
+            return false;
+        }
         self.qualities.is_empty()
             || track
                 .quality()
@@ -173,6 +196,16 @@ impl TrackFilters {
     fn energy_fits(&self, energy: u8) -> bool {
         self.energy_min.is_none_or(|minimum| energy >= minimum)
             && self.energy_max.is_none_or(|maximum| energy <= maximum)
+    }
+
+    /// Adds `stage` to the stages shown, or takes it out when it is there.
+    pub fn toggle_stage(&mut self, stage: SetStage) {
+        match self.stages.iter().position(|chosen| *chosen == stage) {
+            Some(position) => {
+                self.stages.remove(position);
+            }
+            None => self.stages.push(stage),
+        }
     }
 
     /// Adds `choice` to the verdicts shown, or takes it out when it is there.
@@ -321,6 +354,43 @@ mod tests {
             bpm: Some(bpm),
             energy: Some(energy),
         }
+    }
+
+    struct StagedTrack(Option<SetStage>);
+
+    impl FilterableTrack for StagedTrack {
+        fn is_analyzed(&self) -> bool {
+            true
+        }
+        fn bpm(&self) -> Option<f32> {
+            None
+        }
+        fn energy(&self) -> Option<u8> {
+            None
+        }
+        fn quality(&self) -> Option<&QualityReport> {
+            None
+        }
+        fn stage(&self) -> Option<SetStage> {
+            self.0
+        }
+    }
+
+    #[test]
+    fn a_stage_filter_shows_the_chosen_stages_and_never_a_track_without_one() {
+        let mut filters = TrackFilters::default();
+        assert!(!filters.is_active());
+        filters.toggle_stage(SetStage::Peak);
+        filters.toggle_stage(SetStage::Build);
+        assert!(filters.is_active());
+        assert!(filters.matches(&StagedTrack(Some(SetStage::Peak))));
+        assert!(filters.matches(&StagedTrack(Some(SetStage::Build))));
+        assert!(!filters.matches(&StagedTrack(Some(SetStage::WarmUp))));
+        assert!(!filters.matches(&StagedTrack(None)));
+        filters.toggle_stage(SetStage::Peak);
+        filters.toggle_stage(SetStage::Build);
+        assert!(!filters.is_active());
+        assert!(filters.matches(&StagedTrack(None)));
     }
 
     #[test]

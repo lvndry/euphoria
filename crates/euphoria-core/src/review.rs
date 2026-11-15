@@ -104,6 +104,7 @@ mod tests {
             key_runner_up: Some("3A".parse().unwrap()),
             key_score_margin: Some(key_margin),
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: Some(bpm),
             tempo_score_margin: Some(tempo_margin),
             beat_grid: None,
