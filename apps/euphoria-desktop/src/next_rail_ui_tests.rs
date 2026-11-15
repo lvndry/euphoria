@@ -19,7 +19,9 @@ use crate::track_filters::TrackFilters;
 use crate::ui_tests::{
     click, deck_tracks, index_of_track, is_shown, open_window_on, open_window_with,
 };
-use crate::views::next_rail::{energy_id, row_id};
+use crate::views::next_rail::{
+    details_id, energy_id, preview_add_id, preview_plan_id, preview_play_id, row_id,
+};
 
 struct Fixture {
     window: AnyWindowHandle,
@@ -143,7 +145,14 @@ fn the_rows_carry_the_pills_and_the_tempo(cx: &mut TestAppContext) {
             .read(cx)
             .next_rows
             .iter()
-            .map(|row| (row.track_index, row.pills()))
+            .map(|row| {
+                let texts = row
+                    .pills(crate::views::next_rail::PLAYING)
+                    .into_iter()
+                    .map(|pill| pill.text)
+                    .collect();
+                (row.track_index, texts)
+            })
             .collect()
     });
     assert_eq!(
@@ -151,11 +160,11 @@ fn the_rows_carry_the_pills_and_the_tempo(cx: &mut TestAppContext) {
         [
             (
                 fixture.mp3,
-                vec!["one step".to_string(), "energy +1".to_string()]
+                vec!["one step".to_string(), "energy 7 \u{2191}1".to_string()]
             ),
             (
                 fixture.wav,
-                vec!["relative".to_string(), "energy \u{2212}1".to_string()]
+                vec!["relative".to_string(), "energy 5 \u{2193}1".to_string()]
             ),
         ]
     );
@@ -201,28 +210,208 @@ fn tracks_played_this_session_are_not_suggested_again(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn enter_plays_the_selected_row_in_the_player(cx: &mut TestAppContext) {
+fn enter_plays_the_open_row_in_the_player(cx: &mut TestAppContext) {
     let fixture = open(cx);
     play_selected(&fixture, fixture.flac, cx);
     click(fixture.window, row_id(fixture.wav), cx);
     cx.update(|cx| {
         let app = fixture.view.read(cx);
-        assert_eq!(app.selected, Some(fixture.wav), "a click selects");
-        assert_eq!(
-            app.rail_anchor,
-            Some(fixture.flac),
-            "and the playing track stays"
-        );
+        assert_eq!(app.next_preview.expanded(), Some(fixture.wav));
+        assert_eq!(app.rail_anchor, Some(fixture.flac));
         assert!(app.player.is_playing());
     });
-    cx.update_window(fixture.window, |_, window, cx| window.press("enter", cx))
-        .unwrap();
-    settle(&fixture, cx);
+    press(&fixture, "enter", cx);
     cx.update(|cx| {
         let app = fixture.view.read(cx);
         assert_eq!(app.rail_anchor, Some(fixture.wav));
         assert!(app.player.is_playing());
         assert!(!app.focus.is_open, "Enter in the list does not open focus");
+    });
+}
+
+fn press(fixture: &Fixture, key: &str, cx: &mut TestAppContext) {
+    cx.update_window(fixture.window, |_, window, cx| window.press(key, cx))
+        .unwrap();
+    settle(fixture, cx);
+}
+
+fn expanded(fixture: &Fixture, cx: &mut TestAppContext) -> Option<usize> {
+    cx.update(|cx| fixture.view.read(cx).next_preview.expanded())
+}
+
+#[gpui::test]
+fn a_click_opens_the_row_in_place_and_the_inspector_stays_on_the_playing_track(
+    cx: &mut TestAppContext,
+) {
+    let fixture = open(cx);
+    play_selected(&fixture, fixture.flac, cx);
+    assert!(!is_shown(fixture.window, details_id(fixture.mp3), cx));
+
+    click(fixture.window, row_id(fixture.mp3), cx);
+    settle(&fixture, cx);
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.selected, Some(fixture.flac), "the selection stays");
+        assert_eq!(app.rail_anchor, Some(fixture.flac));
+        assert!(app.player.is_playing());
+    });
+    assert_eq!(expanded(&fixture, cx), Some(fixture.mp3));
+    assert!(is_shown(fixture.window, details_id(fixture.mp3), cx));
+    assert!(is_shown(fixture.window, preview_play_id(fixture.mp3), cx));
+    assert!(is_shown(fixture.window, preview_plan_id(fixture.mp3), cx));
+    assert!(
+        !is_shown(fixture.window, preview_add_id(fixture.mp3), cx),
+        "no set to add to"
+    );
+
+    click(fixture.window, row_id(fixture.wav), cx);
+    settle(&fixture, cx);
+    assert_eq!(
+        expanded(&fixture, cx),
+        Some(fixture.wav),
+        "one row at a time"
+    );
+    assert!(!is_shown(fixture.window, details_id(fixture.mp3), cx));
+
+    click(fixture.window, row_id(fixture.wav), cx);
+    settle(&fixture, cx);
+    assert_eq!(expanded(&fixture, cx), None, "a second click closes it");
+    assert!(!is_shown(fixture.window, details_id(fixture.wav), cx));
+    cx.update(|cx| assert_eq!(fixture.view.read(cx).selected, Some(fixture.flac)));
+}
+
+#[gpui::test]
+fn escape_closes_the_open_row_and_the_arrows_move_it(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_selected(&fixture, fixture.flac, cx);
+    click(fixture.window, energy_id(EnergyChoice::Lift), cx);
+    click(fixture.window, row_id(fixture.mp3), cx);
+    press(&fixture, "down", cx);
+    assert_eq!(expanded(&fixture, cx), Some(fixture.wav));
+    press(&fixture, "up", cx);
+    assert_eq!(expanded(&fixture, cx), Some(fixture.mp3));
+    press(&fixture, "escape", cx);
+    assert_eq!(expanded(&fixture, cx), None);
+    assert!(!is_shown(fixture.window, details_id(fixture.mp3), cx));
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.selected, Some(fixture.flac));
+        assert!(app.player.is_playing(), "Escape only closed the row");
+    });
+}
+
+#[gpui::test]
+fn play_in_the_open_row_switches_playback_and_the_inspector_follows(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_selected(&fixture, fixture.flac, cx);
+    click(fixture.window, row_id(fixture.wav), cx);
+    click(fixture.window, preview_play_id(fixture.wav), cx);
+    settle(&fixture, cx);
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.rail_anchor, Some(fixture.wav));
+        assert_eq!(app.selected, Some(fixture.wav), "the inspector follows");
+        assert!(app.player.is_playing());
+        assert_eq!(app.next_preview.expanded(), None);
+    });
+    assert!(title(&fixture, cx).starts_with("Next after "));
+}
+
+#[gpui::test]
+fn a_double_click_plays_the_row(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_selected(&fixture, fixture.flac, cx);
+    cx.update_window(fixture.window, |_, window, cx| {
+        window.render_frame(cx);
+        window.double_click(row_id(fixture.mp3), cx);
+    })
+    .unwrap();
+    settle(&fixture, cx);
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.rail_anchor, Some(fixture.mp3));
+        assert_eq!(app.selected, Some(fixture.mp3));
+    });
+}
+
+#[gpui::test]
+fn plan_transition_opens_the_planner_from_the_playing_track_to_the_row(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_selected(&fixture, fixture.flac, cx);
+    click(fixture.window, row_id(fixture.wav), cx);
+    click(fixture.window, preview_plan_id(fixture.wav), cx);
+    for _ in 0..10 {
+        settle(&fixture, cx);
+    }
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert!(app.focus.is_open);
+        assert_eq!(app.selected, Some(fixture.flac), "A is the playing track");
+        assert_eq!(app.focus.selected_match, Some(fixture.wav), "B is the row");
+        assert!(app.planner.is_open, "{:?}", app.notice);
+    });
+}
+
+#[gpui::test]
+fn add_to_set_shows_when_there_is_a_set(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_selected(&fixture, fixture.flac, cx);
+    cx.update(|cx| {
+        fixture.view.update(cx, |app, _| {
+            app.set_builder.planned = Some(crate::set_builder::PlannedSet {
+                paths: Vec::new(),
+                locked: Vec::new(),
+                plan: euphoria_core::SetPlan {
+                    tracks: Vec::new(),
+                    transitions: Vec::new(),
+                    deviations: Vec::new(),
+                    left_out: Vec::new(),
+                    cost: 0.0,
+                    lower_bound: 0.0,
+                },
+                curve: Vec::new(),
+            });
+        })
+    });
+    click(fixture.window, row_id(fixture.wav), cx);
+    click(fixture.window, preview_add_id(fixture.wav), cx);
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        let wav_path = app
+            .session
+            .library()
+            .track(fixture.wav)
+            .unwrap()
+            .path
+            .clone();
+        assert!(
+            app.set_builder
+                .planned
+                .as_ref()
+                .unwrap()
+                .paths
+                .contains(&wav_path)
+        );
+        assert_eq!(app.selected, Some(fixture.flac));
+    });
+}
+
+#[gpui::test]
+fn with_nothing_playing_the_inspector_follows_the_selection(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |app, cx| app.select(fixture.flac, cx))
+    });
+    settle(&fixture, cx);
+    assert!(!is_shown(fixture.window, row_id(fixture.mp3), cx));
+    click(fixture.window, crate::ui_tests::track(fixture.mp3), cx);
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.selected, Some(fixture.mp3));
+        assert_eq!(app.rail_anchor, None);
+        assert_eq!(app.next_preview.expanded(), None);
     });
 }
 
@@ -254,4 +443,32 @@ fn enter_loads_deck_b_when_the_decks_are_open(cx: &mut TestAppContext) {
         assert_eq!(app.decks.view(DeckId::B).track_index, Some(fixture.mp3));
         assert!(!app.player.offers_pause(), "the player stays out of it");
     });
+}
+
+#[gpui::test]
+fn the_energy_pill_stays_on_one_line_in_the_narrowest_inspector(cx: &mut TestAppContext) {
+    let fixture = open_with(
+        Settings {
+            panels: crate::panels::Panels {
+                inspector_width: crate::panels::NARROWEST_INSPECTOR as u32,
+                ..crate::panels::Panels::default()
+            },
+            ..Settings::default()
+        },
+        cx,
+    );
+    play_selected(&fixture, fixture.flac, cx);
+    cx.update_window(fixture.window, |_, window, cx| {
+        window.render_frame(cx);
+        for track_index in [fixture.mp3, fixture.wav] {
+            let row = window.try_find(row_id(track_index)).unwrap().bounds();
+            let energy = window
+                .try_find(("next-energy-pill", track_index))
+                .unwrap()
+                .bounds();
+            assert!(energy.size.height < px(20.0), "one line: {energy:?}");
+            assert!(energy.right() <= row.right(), "{energy:?} inside {row:?}");
+        }
+    })
+    .unwrap();
 }
