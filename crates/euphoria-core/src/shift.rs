@@ -32,7 +32,7 @@ pub const MAXIMUM_SHIFT_SEMITONES: i8 = 6;
 pub(crate) const BITS_PER_SAMPLE: u16 = 24;
 // Hound's 24-bit WAVEFORMATEXTENSIBLE header uses 60 bytes of RIFF's
 // u32 length, plus at most one byte of data-chunk padding.
-const MAXIMUM_WAV_SAMPLES: u64 = (u32::MAX as u64 - 61) / (BITS_PER_SAMPLE as u64 / 8);
+pub(crate) const MAXIMUM_WAV_SAMPLES: u64 = (u32::MAX as u64 - 61) / (BITS_PER_SAMPLE as u64 / 8);
 
 /// Shifts the pitch of interleaved audio by a whole number of semitones
 /// while keeping its timing, chunk by chunk, so that a long track never
@@ -71,13 +71,29 @@ impl PitchShifter {
                 "a shift of {semitones} semitones is more than {MAXIMUM_SHIFT_SEMITONES} either way"
             ));
         }
+        Self::with_semitones(channels, sample_rate, f32::from(semitones))
+    }
+
+    /// A shifter that moves every pitch by `cents`, hundredths of a
+    /// semitone, up to one semitone either way: the tool for bringing a
+    /// track that is tuned off A = 440 Hz back to concert pitch.
+    pub fn with_cents(channels: usize, sample_rate: u32, cents: f32) -> Result<Self, String> {
+        if !cents.is_finite() || cents.abs() > 100.0 {
+            return Err(format!(
+                "a shift of {cents} cents is more than 100 either way"
+            ));
+        }
+        Self::with_semitones(channels, sample_rate, cents / 100.0)
+    }
+
+    fn with_semitones(channels: usize, sample_rate: u32, semitones: f32) -> Result<Self, String> {
         if !(MINIMUM_SAMPLE_RATE..=MAXIMUM_SAMPLE_RATE).contains(&sample_rate) {
             return Err(format!(
                 "cannot shift audio at {sample_rate} Hz; supported rates are {MINIMUM_SAMPLE_RATE} to {MAXIMUM_SAMPLE_RATE} Hz"
             ));
         }
         let mut stretch = Stretch::new(channels, sample_rate)?;
-        stretch.set_transpose_semitones(f32::from(semitones))?;
+        stretch.set_transpose_semitones(semitones)?;
         let input_latency = stretch.input_latency();
         let output_latency = stretch.output_latency();
         Ok(Self {
@@ -398,13 +414,13 @@ pub(crate) fn install(
 }
 
 /// Writes interleaved samples as 24 bit integers.
-enum ShiftedWriter {
+pub(crate) enum ShiftedWriter {
     Wav(hound::WavWriter<BufWriter<File>>, PathBuf, u64),
     Flac(Box<flac::FlacWriter>),
 }
 
 impl ShiftedWriter {
-    fn create(
+    pub(crate) fn create(
         file: File,
         path: &Path,
         format: ShiftedFormat,
@@ -433,7 +449,7 @@ impl ShiftedWriter {
         })
     }
 
-    fn write(&mut self, interleaved: &[f32]) -> Result<(), EuphoriaError> {
+    pub(crate) fn write(&mut self, interleaved: &[f32]) -> Result<(), EuphoriaError> {
         match self {
             Self::Wav(writer, path, count) => {
                 let total = count.checked_add(interleaved.len() as u64)
@@ -453,7 +469,7 @@ impl ShiftedWriter {
 
     /// Completes the file and returns how many samples it holds, counting
     /// every channel.
-    fn finish(self) -> Result<u64, EuphoriaError> {
+    pub(crate) fn finish(self) -> Result<u64, EuphoriaError> {
         match self {
             Self::Wav(writer, path, count) => {
                 writer
@@ -466,7 +482,7 @@ impl ShiftedWriter {
     }
 }
 
-fn write_error(path: &Path, reason: String) -> EuphoriaError {
+pub(crate) fn write_error(path: &Path, reason: String) -> EuphoriaError {
     EuphoriaError::Shift {
         path: path.to_path_buf(),
         reason: format!("cannot write the shifted copy: {reason}"),

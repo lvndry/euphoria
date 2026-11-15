@@ -840,6 +840,49 @@ The key of the original comes from the [cache](#the-analysis-cache) when the tra
 
 On success, one line goes to standard error: how far the track moved, its key before and after, and where the copy is. The command exits with status 0 when the file is written. It exits with status 1 with a message on standard error when the shift is 0 semitones, the file is not audio Euphoria reads, the output does not end in `.wav` or `.flac`, the output exists without `--force`, or the analysis fails.
 
+## euphoria prepare
+
+Writes copies of tracks at one loudness, under a true-peak ceiling, so a set plays evenly on a club system. The [guide](../guides/prepare-files.md) says why and what each step does.
+
+```
+euphoria prepare [OPTIONS] <PATH>...
+```
+
+```
+$ euphoria prepare ~/Music/Friday --out ~/Music/Prepared
+/Users/you/Music/Friday/low tide.flac
+  loudness  -14.2 LUFS, gain +5.2 dB, to -9.0 LUFS
+  limiting  1.1 dB, true peak -5.3 dBTP, ceiling -1.0 dBTP
+  output    /Users/you/Music/Prepared/low tide (prepared).flac
+Prepared 1 of 1
+```
+
+Each path is a file or a folder, searched like [`euphoria analyze`](#options). The copies are 24 bit files in the format of the original (WAV, AIFF or FLAC) with its tags and cover art. A lossy original (MP3, AAC, Ogg) becomes FLAC or WAV and is never written as a lossy file. An original is never changed, and a file that exists is never replaced: a taken name gets a number.
+
+### Options
+
+| Option | What it does |
+| --- | --- |
+| `<PATH>...` | Tracks or folders to prepare. |
+| `--loudness <LUFS>` | The integrated loudness to bring every track to. The default is -9; -14, -11 and -7 are the other usual targets. |
+| `--true-peak <DBTP>` | The true-peak ceiling, -1 by default, from -6 to 0. |
+| `--max-limiting <DB>` | The most the limiter may turn peaks down, 3 by default. A track that would need more gets less gain instead, and the output says `gain capped`. |
+| `--tune` | Shift tracks measured off A = 440 Hz by 3 cents or more back to concert pitch, with the tempo unchanged. Analyzes each track, or reads its [cached](#the-analysis-cache) analysis. |
+| `-o`, `--out <DIR>` | Write the copies into this folder, created if needed, instead of next to the originals. |
+| `--suffix <TEXT>` | Added to each name before the extension, ` (prepared)` by default. |
+| `--lossy-as <FORMAT>` | What lossy tracks become: `flac` (the default) or `wav`. |
+| `--dry-run` | Measure and print what would be done, and write nothing. |
+| `--json` | Print a JSON document instead of text. |
+| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range`, `--key-engine` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
+
+### Output
+
+For each track the text output gives the measured loudness, the gain and the loudness it ends at, how many dB of limiting that needs and the true peak it starts from, the tuning change with `--tune`, any clipped passages, and the file written. A dry run prints the same numbers as the real run, because the real run applies the plan the dry run measured.
+
+With `--json` the document has `settings`, a `tracks` array and the counts `prepared`, `skipped` and `failed`. A track has `input`, `output`, `status` (`prepared`, `dry_run`, `skipped` or `failed`), `error`, and the plan: `measured_lufs`, `true_peak_dbtp`, `sample_peak_db`, `wanted_gain_db`, `gain_db`, `limiting_db`, `gain_capped`, `predicted_lufs`, `tuning_cents`, `tuning_correction_cents`, `clipping`, `output_format`, `sample_rate`, `channels` and `duration_seconds`. `limiter_reduction_db` is the reduction the limiter reached while writing. A silent track is skipped with `skipped` set to its reason.
+
+The command exits with status 0 when every track is written, and with status 1 when one failed or an argument is not valid.
+
 ## euphoria stems
 
 Separates a track into vocals, drums, bass and the rest, with the Demucs htdemucs model, and writes one WAV file per stem. The model, 84 MB, is downloaded the first time. Separation runs on this computer.
