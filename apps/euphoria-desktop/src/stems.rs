@@ -4,7 +4,7 @@
 //! Separating tracks into stems in the background, one track at a time,
 //! and what the player hears of the separated ones.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -253,6 +253,7 @@ impl Running {
 pub(crate) struct StemSession {
     statuses: HashMap<PathBuf, StemStatus>,
     running: Option<Running>,
+    queued: VecDeque<PathBuf>,
     separation: Arc<Mutex<Option<Box<dyn StemSeparation>>>>,
     factory: SeparationFactory,
     mode: StemMode,
@@ -265,6 +266,7 @@ impl StemSession {
         Self {
             statuses: HashMap::new(),
             running: None,
+            queued: VecDeque::new(),
             separation: Arc::new(Mutex::new(None)),
             factory,
             mode: StemMode::default(),
@@ -335,7 +337,66 @@ impl StemSession {
                 }
             },
         );
+        self.start_next_queued();
         Some(path)
+    }
+
+    /// True while a separation runs or waits its turn.
+    pub(crate) fn is_busy(&self) -> bool {
+        self.running.is_some() || !self.queued.is_empty()
+    }
+
+    /// Where the separation of the track at `path` has got to: the phase it
+    /// is in, or waiting for the one running, or `None` when it is neither.
+    pub(crate) fn phase_of(&self, path: &Path) -> Option<SeparationPhase> {
+        match &self.running {
+            Some(running) if running.path == path => Some(running.phase()),
+            _ if self.queued.iter().any(|queued| queued == path) => Some(SeparationPhase::Waiting),
+            _ => None,
+        }
+    }
+
+    /// Puts the track at `path` in line behind the separation that runs,
+    /// which it takes over from when that finishes. Returns false when it
+    /// is already running or in line.
+    pub(crate) fn enqueue(&mut self, path: &Path) -> bool {
+        if self.phase_of(path).is_some() {
+            return false;
+        }
+        self.queued.push_back(path.to_path_buf());
+        self.statuses
+            .insert(path.to_path_buf(), StemStatus::Separating);
+        true
+    }
+
+    /// Stops waiting for the separation of the track at `path`. A track in
+    /// line is simply taken out. One that runs is let go of: the model
+    /// cannot be interrupted, so it finishes in the background and keeps
+    /// the stems in the cache, where asking again finds them at once.
+    pub(crate) fn cancel(&mut self, path: &Path) -> bool {
+        let was_queued = self.queued.iter().any(|queued| queued == path);
+        self.queued.retain(|queued| queued != path);
+        let was_running = self.running.as_ref().is_some_and(|run| run.path == path);
+        if was_running {
+            self.running = None;
+        }
+        if !(was_queued || was_running) {
+            return false;
+        }
+        self.statuses.remove(path);
+        if was_running {
+            self.start_next_queued();
+        }
+        true
+    }
+
+    fn start_next_queued(&mut self) {
+        while self.running.is_none() {
+            let Some(next) = self.queued.pop_front() else {
+                break;
+            };
+            self.start(&next);
+        }
     }
 
     /// Starts separating the track at `path` on a thread of its own.
@@ -600,5 +661,55 @@ mod tests {
         }
         assert!(session.running.is_none());
         assert_eq!(session.ready_files(track), None);
+    }
+
+    #[test]
+    fn a_track_asked_for_while_another_runs_waits_its_turn_and_can_be_cancelled() {
+        let mut session = StemSession::new(failing);
+        let first = Path::new("/music/first.mp3");
+        let second = Path::new("/music/second.mp3");
+        let third = Path::new("/music/third.mp3");
+        assert!(session.start(first));
+        assert!(session.enqueue(second));
+        assert!(session.enqueue(third));
+        assert!(!session.enqueue(second));
+        assert_eq!(session.phase_of(second), Some(SeparationPhase::Waiting));
+        assert!(session.is_busy());
+
+        assert!(session.cancel(third));
+        assert_eq!(session.phase_of(third), None);
+        assert_eq!(session.status(third), None);
+
+        assert_eq!(wait_for_finish(&mut session), first);
+        assert!(
+            session.phase_of(second).is_some(),
+            "the next in line started"
+        );
+        assert!(
+            session
+                .running
+                .as_ref()
+                .is_some_and(|run| run.path == second)
+        );
+        assert_eq!(wait_for_finish(&mut session), second);
+        assert!(!session.is_busy());
+    }
+
+    #[test]
+    fn cancelling_the_running_separation_frees_the_session_for_the_next() {
+        let mut session = StemSession::new(failing);
+        let first = Path::new("/music/first.mp3");
+        let second = Path::new("/music/second.mp3");
+        assert!(session.start(first));
+        assert!(session.enqueue(second));
+        assert!(session.cancel(first));
+        assert_eq!(session.status(first), None);
+        assert!(
+            session
+                .running
+                .as_ref()
+                .is_some_and(|run| run.path == second)
+        );
+        assert!(!session.cancel(Path::new("/music/unknown.mp3")));
     }
 }

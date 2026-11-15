@@ -170,6 +170,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .border_t_1()
         .border_color(palette.line)
         .bg(palette.panel)
+        .children(back_to_plan(app, cx))
         .child(
             div()
                 .flex()
@@ -183,6 +184,23 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             DeckMode::Mashup => mashup::ideas(app, cx),
         })
         .children(favorites::deck_transition(app, cx))
+}
+
+/// The button that goes back to the plan the decks were opened from.
+fn back_to_plan(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
+    app.planner.return_to.as_ref()?;
+    let palette = app.theme.palette;
+    Some(
+        div()
+            .flex()
+            .child(
+                secondary_button("\u{2190} Back to plan", &palette)
+                    .id("decks-back-to-plan")
+                    .on_click(cx.listener(|this, _, window, cx| this.back_to_plan(window, cx)))
+                    .test_support(),
+            )
+            .into_any_element(),
+    )
 }
 
 fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {

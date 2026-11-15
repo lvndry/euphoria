@@ -442,6 +442,24 @@ pub(crate) struct Decks {
     /// Where each deck's fader and the crossfader were last drawn.
     pub(crate) fader_bounds: [SeenBounds; 2],
     pub(crate) crossfader_bounds: SeenBounds,
+    #[cfg(test)]
+    pub(crate) sent: std::cell::RefCell<Vec<SentCommand>>,
+    #[cfg(test)]
+    pub(crate) opened: std::cell::RefCell<Vec<(DeckId, f64)>>,
+    #[cfg(test)]
+    pub(crate) gains_set: std::cell::Cell<[f32; 2]>,
+}
+
+/// What a test sees of a command sent to the decks.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SentCommand {
+    Load(DeckId),
+    Play { deck: DeckId, quantized: bool },
+    Pause(DeckId),
+    Seek { deck: DeckId, seconds: f64 },
+    SetRate { deck: DeckId, rate: f64 },
+    Other,
 }
 
 impl Decks {
@@ -494,6 +512,12 @@ impl Default for Decks {
             waveform_bounds: Default::default(),
             fader_bounds: Default::default(),
             crossfader_bounds: Default::default(),
+            #[cfg(test)]
+            sent: Default::default(),
+            #[cfg(test)]
+            opened: Default::default(),
+            #[cfg(test)]
+            gains_set: Default::default(),
         }
     }
 }
@@ -515,7 +539,7 @@ impl Decks {
             .map_or(0.0, |link| link.meter(deck).position_seconds())
     }
 
-    fn is_finished(&self, deck: DeckId) -> bool {
+    pub(crate) fn is_finished(&self, deck: DeckId) -> bool {
         self.link
             .as_ref()
             .is_some_and(|link| link.meter(deck).is_finished())
@@ -553,7 +577,37 @@ impl Decks {
         })
     }
 
+    /// Sets what each deck is heard at, over the faders and the
+    /// crossfader, until they are applied again.
+    pub(crate) fn set_gains(&self, gains: [f32; 2]) {
+        #[cfg(test)]
+        self.gains_set.set(gains);
+        if let Some(link) = &self.link {
+            for deck in DeckId::BOTH {
+                link.meter(deck).set_gain(gains[index(deck)]);
+            }
+        }
+    }
+
     pub(crate) fn send(&self, command: DeckCommand) {
+        #[cfg(test)]
+        self.sent.borrow_mut().push(match &command {
+            DeckCommand::Load { deck, .. } => SentCommand::Load(*deck),
+            DeckCommand::Play { deck, quantize_to } => SentCommand::Play {
+                deck: *deck,
+                quantized: quantize_to.is_some(),
+            },
+            DeckCommand::Pause(deck) => SentCommand::Pause(*deck),
+            DeckCommand::Seek { deck, seconds } => SentCommand::Seek {
+                deck: *deck,
+                seconds: *seconds,
+            },
+            DeckCommand::SetRate { deck, rate } => SentCommand::SetRate {
+                deck: *deck,
+                rate: *rate,
+            },
+            _ => SentCommand::Other,
+        });
         if let Some(link) = &self.link {
             link.send(command);
         }
@@ -571,7 +625,7 @@ impl Decks {
         ]
     }
 
-    fn apply_gains(&self) {
+    pub(crate) fn apply_gains(&self) {
         if let Some(link) = &self.link {
             let gains = self.gains();
             for deck in DeckId::BOTH {
@@ -636,6 +690,8 @@ impl EuphoriaApp {
     /// Shows the decks, or hides them and stops their sound.
     pub(crate) fn toggle_decks(&mut self, cx: &mut Context<'_, Self>) {
         if self.decks.is_open {
+            self.planner.playback = None;
+            self.planner.return_to = None;
             self.decks.is_open = false;
             self.decks.voice = None;
             self.decks.link = None;
@@ -739,6 +795,8 @@ impl EuphoriaApp {
         let Some(path) = self.decks.view(deck).path.clone() else {
             return;
         };
+        #[cfg(test)]
+        self.decks.opened.borrow_mut().push((deck, seconds));
         self.decks.view_mut(deck).loading = true;
         self.decks.view_mut(deck).playing = false;
         self.decks.view_mut(deck).loop_bars = None;

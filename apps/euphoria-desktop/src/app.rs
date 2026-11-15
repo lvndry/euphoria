@@ -1812,6 +1812,10 @@ impl EuphoriaApp {
     /// sounds when it is the selected one, and plays the selected one when
     /// it is not.
     pub(crate) fn play_or_pause_selection(&mut self, cx: &mut Context<'_, Self>) {
+        if self.planner.is_open {
+            self.toggle_plan_playback(cx);
+            return;
+        }
         if self.decks.is_open
             || self.set_row_to_play().is_some()
             || self.selection_is_in_player()
@@ -2097,15 +2101,26 @@ impl EuphoriaApp {
         self.request_stems_of(path, cx);
     }
 
-    /// Asks the stems of the track at `path` to be separated.
+    /// Asks the stems of the track at `path` to be separated, now, or in
+    /// line behind the separation that runs.
     pub(crate) fn request_stems_of(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
-        if self.stems.start(&path) {
+        let started = self.stems.start(&path);
+        if !started && !self.stems.enqueue(&path) {
+            return;
+        }
+        if started {
             cx.spawn(async move |this, cx| {
                 loop {
-                    let finished = this
-                        .update(cx, |this, _cx| this.stems.poll())
-                        .ok()
-                        .flatten();
+                    let polled = this
+                        .update(cx, |this, cx| {
+                            let finished = this.stems.poll();
+                            cx.notify();
+                            (finished, this.stems.is_busy())
+                        })
+                        .ok();
+                    let Some((finished, is_busy)) = polled else {
+                        break;
+                    };
                     if let Some(path) = finished {
                         this.update(cx, |this, cx| {
                             if this.player.track() == Some(path.as_path()) {
@@ -2121,12 +2136,21 @@ impl EuphoriaApp {
                             }
                         })
                         .ok();
+                    }
+                    if !is_busy {
                         break;
                     }
                     cx.background_executor().timer(STEM_POLL_INTERVAL).await;
                 }
             })
             .detach();
+        }
+        cx.notify();
+    }
+
+    /// Stops waiting for the stems of the track at `path`.
+    pub(crate) fn cancel_stems_of(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
+        if self.stems.cancel(path) {
             cx.notify();
         }
     }
@@ -2883,6 +2907,11 @@ impl Render for EuphoriaApp {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     if this.close_panels(cx) {
+                        return;
+                    }
+                    if this.planner.return_to.is_some() && this.decks.is_open && !this.focus.is_open
+                    {
+                        this.back_to_plan(window, cx);
                         return;
                     }
                     if this.focus.lanes_menu_open {
