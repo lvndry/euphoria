@@ -9,6 +9,7 @@ mod export;
 mod filters;
 mod grid_import;
 mod help;
+mod next;
 mod output;
 mod plan;
 mod playlists;
@@ -127,6 +128,21 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Rank the best tracks to play after a track: key, tempo and energy.
+    #[command(
+        long_about = "Rank the best tracks to play after a track, the same ranking as the \
+                      Next after list of the desktop app.\n\n\
+                      Candidates come from the folder of the track, or from --from: a folder, \
+                      audio files or a playlist built in the desktop app. A candidate mixes \
+                      in when its key is the same, one step on the wheel or the relative key, \
+                      and its tempo is within 6 percent. Among those, the order follows the \
+                      energy you ask for: kept, lifted with --lift or dropped with --drop. \
+                      Each row says how the key moves, how far the tempo moves (Easy, Pitch \
+                      move or Big jump) and how the energy changes. A key or tempo you set in \
+                      the desktop app is the one used.",
+        after_help = help::next_examples(),
+    )]
+    Next(next::NextArguments),
     /// Plan how to mix one track into the next: tempo, clashes and the best windows.
     #[command(
         long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
@@ -289,6 +305,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Shift(arguments) => shift::run(&arguments),
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
+        Command::Next(arguments) => next::run(&arguments),
         Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]

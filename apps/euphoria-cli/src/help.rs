@@ -229,6 +229,27 @@ pub fn set_examples() -> StyledStr {
     )
 }
 
+pub fn next_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria next playing.flac",
+                "The best tracks to play after it, from its folder",
+            ),
+            (
+                "euphoria next playing.flac --from ~/Music/DJ --lift --limit 5",
+                "Five tracks that lift the energy",
+            ),
+            (
+                "euphoria next playing.flac --bpm 122-128 --energy 6- --json",
+                "Only tracks from 122 to 128 BPM with energy 6 or more, as JSON",
+            ),
+        ],
+        "Rows: key, tempo, how the tempo moves, how the key moves and the energy change.",
+    )
+}
+
 pub fn plan_examples() -> StyledStr {
     examples(
         "Examples",

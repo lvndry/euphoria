@@ -1154,11 +1154,29 @@ mod tests {
     #[test]
     fn a_wide_table_shows_every_column_without_the_common_folder() {
         let expected = "\
-Key                  BPM       Energy              Quality  Time  File
- 8A  A minor  ●●●  124.9  ●●●       7  ━━━━━━━───  weak     6:48  house/low tide.flac
- 8A  A minor  ●○○  124.9  ●●○       7  ━━━━━━━───  weak     6:48  techno/a rather long name of a track (extended mix).mp3
+Key                  BPM       Energy              Quality  Time  Review  File
+ 8A  A minor  ●●●  124.9  ●●●       7  ━━━━━━━───  weak     6:48          house/low tide.flac
+ 8A  A minor  ●○○  124.9  ●●○       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
 ";
         assert_eq!(table(200), expected);
+    }
+
+    #[test]
+    fn the_review_column_gives_each_reason_a_word_and_marks_checked_tracks() {
+        let theme = Theme::PLAIN;
+        assert_eq!(review_cell(&theme, &[], false), "");
+        assert_eq!(review_cell(&theme, &[], true), "checked");
+        let key = Key::new(0, euphoria_core::Mode::Major);
+        let reasons = [
+            ReviewReason::KeyUnsure,
+            ReviewReason::TempoUnsure,
+            ReviewReason::KeyConflict { tag_key: key },
+        ];
+        assert_eq!(review_cell(&theme, &reasons, true), "key+tempo+tags");
+        assert_eq!(
+            review_cell(&theme, &[ReviewReason::Failed("x".into())], false),
+            "failed"
+        );
     }
 
     #[test]

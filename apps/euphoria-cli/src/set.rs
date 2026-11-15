@@ -340,7 +340,10 @@ fn existing_file(force: bool) -> ExistingFile {
 /// The name of the pool, for the playlist file, and its audio files: those
 /// found in the paths, or those of the playlist named by the one source
 /// that is not a path.
-fn pool_files(sources: &[PathBuf], analysis: &AnalysisOptions) -> Result<(String, Vec<PathBuf>)> {
+pub(crate) fn pool_files(
+    sources: &[PathBuf],
+    analysis: &AnalysisOptions,
+) -> Result<(String, Vec<PathBuf>)> {
     if let [source] = sources
         && !source.exists()
     {
@@ -379,7 +382,7 @@ fn resolve_file(path: &Path) -> Result<PathBuf> {
 }
 
 /// Whether two paths name one file, whatever their spelling.
-fn same_file(first: &Path, second: &Path) -> bool {
+pub(crate) fn same_file(first: &Path, second: &Path) -> bool {
     first == second
         || matches!(
             (first.canonicalize(), second.canonicalize()),

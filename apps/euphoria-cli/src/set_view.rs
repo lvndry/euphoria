@@ -517,7 +517,7 @@ fn round_to_hundredths(value: f32) -> f32 {
 }
 
 /// The name JSON gives a key move, such as `energy_boost`.
-fn move_name(relation: euphoria_core::Relation) -> &'static str {
+pub fn move_name(relation: euphoria_core::Relation) -> &'static str {
     use euphoria_core::Relation;
     match relation {
         Relation::Same => "same",
