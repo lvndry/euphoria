@@ -75,6 +75,7 @@ mod mixes;
 mod motion;
 #[cfg(test)]
 mod motion_ui_tests;
+mod next_preview;
 mod next_rail;
 #[cfg(test)]
 mod next_rail_ui_tests;
