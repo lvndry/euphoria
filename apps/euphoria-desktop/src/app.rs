@@ -1300,7 +1300,7 @@ impl EuphoriaApp {
                 ColumnId::Number => (row + 1 == self.visible.len())
                     .then(|| Cow::Owned(crate::format::count(row + 1))),
                 ColumnId::Title => Some(Cow::Borrowed(track.title())),
-                ColumnId::Artist => track.artist.as_deref().map(Cow::Borrowed),
+                ColumnId::Artist => track.shown_artist(),
                 ColumnId::Key => track
                     .key()
                     .map(|key| Cow::Owned(self.tag_settings.key_notation.spell(&key))),
