@@ -15,7 +15,8 @@ use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext, px};
 
 use crate::app::EuphoriaApp;
 use crate::demo::DemoTrack;
-use crate::playback::testing::SilentOutput;
+use crate::playback::AudioOutput;
+use crate::playback::testing::{SilentOutput, SlowOpeningOutput};
 use crate::settings::Settings;
 use crate::stems::StemSession;
 use crate::tag_writing::testing::ScratchFolder;
@@ -97,10 +98,19 @@ fn index_of(view: &Entity<EuphoriaApp>, path: &Path, cx: &mut TestAppContext) ->
 }
 
 fn open_plans(name: &str, stems_for: &[usize], cx: &mut TestAppContext) -> Setup {
+    open_plans_on(name, stems_for, Box::new(SilentOutput), cx)
+}
+
+fn open_plans_on(
+    name: &str,
+    stems_for: &[usize],
+    output: Box<dyn AudioOutput>,
+    cx: &mut TestAppContext,
+) -> Setup {
     let scratch = ScratchFolder::new(name);
     let (window, view) = open_window_with(
         plan_tracks(),
-        Box::new(SilentOutput),
+        output,
         Settings::default(),
         None,
         gpui::size(px(1440.0), px(900.0)),
@@ -1296,6 +1306,68 @@ fn clicking_a_candidate_makes_it_b_and_plays_the_transition_at_once(cx: &mut Tes
         .find(|(deck, _)| *deck == DeckId::A)
         .unwrap();
     assert!((a_open.1 - timing.a_seconds_at(-8.0)).abs() < 1e-9);
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert_eq!(
+        sent(&setup, cx)[before..].to_vec(),
+        vec![SentCommand::Play {
+            deck: DeckId::A,
+            quantized: false
+        }]
+    );
+}
+
+#[gpui::test]
+fn a_candidate_audition_asks_the_output_for_both_tracks_and_starts_once_they_open(
+    cx: &mut TestAppContext,
+) {
+    use crate::deck_audio::DeckId;
+    use crate::decks::SentCommand;
+    let output = SlowOpeningOutput::default();
+    let setup = open_plans_on(
+        "plan-audition-open",
+        &[0, 1, 2],
+        Box::new(output.clone()),
+        cx,
+    );
+    open_planner_view(&setup, cx);
+    let c_index = index_of(&setup.view, &setup.c.clone(), cx);
+    click(setup.window, ("planner-candidate", c_index), cx);
+
+    let waiting = output.waiting();
+    assert!(
+        waiting.contains(&setup.a) && waiting.contains(&setup.c),
+        "both tracks went to the output at once: {waiting:?}"
+    );
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.plan_is_playing());
+        assert!(app.decks.view(DeckId::A).loading);
+        assert!(app.decks.view(DeckId::B).loading);
+    });
+    let before = sent(&setup, cx).len();
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert!(
+        !sent(&setup, cx)[before..]
+            .iter()
+            .any(|sent| matches!(sent, SentCommand::Play { .. })),
+        "nothing plays while a deck is loading"
+    );
+
+    while !output.waiting().is_empty() {
+        output.finish_opening();
+    }
+    cx.run_until_parked();
+
+    cx.update(|cx| {
+        let decks = &setup.view.read(cx).decks;
+        assert!(!decks.view(DeckId::A).loading);
+        assert!(!decks.view(DeckId::B).loading);
+        assert_eq!(
+            decks.view(DeckId::B).path.as_deref(),
+            Some(setup.c.as_path())
+        );
+    });
     let before = sent(&setup, cx).len();
     assert!(tick(&setup, 0.0, 0.0, cx));
     assert_eq!(
