@@ -495,6 +495,15 @@ fn progress(app: &EuphoriaApp, palette: &Palette) -> Option<Div> {
             .text_size(SMALL_TEXT_SIZE)
             .text_color(palette.text_secondary)
             .child(label)
+            .when_some(progress.time_left_label(), |row, time_left| {
+                row.child(
+                    div()
+                        .id("analysis-time-left")
+                        .text_color(palette.text_tertiary)
+                        .child(time_left)
+                        .test_support(),
+                )
+            })
             .when(progress.is_active(), |row| {
                 row.child(
                     div()

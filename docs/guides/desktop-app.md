@@ -694,6 +694,22 @@ Choose a theme from the menu at the right of the toolbar, or from **View > Theme
 
 ![The Paper theme: the same window on a light background, with pastel key chips, the house folder chosen in the sidebar and a track selected in the inspector.](../images/desktop-app/main-window-paper.png)
 
+## Motion
+
+Changes to what is on screen ease instead of cutting, and each one has a set time:
+
+| Change | Time |
+| --- | --- |
+| Settings, Export, tag editor and Write tags preview: backdrop fades in, card fades in and rises 8 px | 180 ms in, 120 ms out |
+| Notice, held tags and confirmation strips grow to their height | 220 ms |
+| Focus view and the library crossfade, both ways | 180 ms |
+| Switching theme blends the colours | 160 ms |
+| Sidebar, sections, toast, palette | as described where they are introduced |
+
+All of it is instant with macOS **Reduce motion** on, and nothing asks for frames while it is still, so the app uses no CPU when idle. **Esc** goes up one level: the transition planner to the focus view, the focus view to the library. Hover and selection backgrounds still change in a single frame; they are not animated.
+
+While analysis runs, the toolbar says "about N min left" next to the progress bar once ten seconds of the run have been seen, and the sidebar counts that still move (Needs review and Favorites) end in an ellipsis, such as "11…", until analysis finishes.
+
 ## What the app remembers
 
 The palette's recent tracks and most used commands are kept in memory only. Playlists and favorites are kept in `playlists.sqlite3`, as [Where playlists are kept](#where-playlists-are-kept) and [Where favorites are kept](#where-favorites-are-kept) explain. The folders you added, the theme, whether the sidebar is folded, the sizes you gave the inspector and the Deck strip, which sections of the inspector you opened or closed, the lanes of the focus view you hid, the metronome's sound, volume and accent, the folders you opened in the tree, the folder on show, the column widths you chose, the track filters, how keys and tempos are shown and the tag writing settings are kept in `settings.json`. The backups of tag writes are kept in the `tag-writes` folder beside it:

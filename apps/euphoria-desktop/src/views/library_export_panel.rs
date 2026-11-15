@@ -13,6 +13,7 @@ use crate::format;
 use crate::library_export::{
     ExportProgram, ExportReport, ExportScope, ExportSetup, ExportStage, LibraryExportPanel,
 };
+use crate::surface_motion::Modal;
 use crate::theme::Palette;
 use crate::views::tag_panel::choice_button;
 use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, section_label};
@@ -20,7 +21,12 @@ use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, sec
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
     let panel = app.library_export.as_ref()?;
     let palette = app.theme.palette;
-    let (backdrop, card) = modal("library-export", px(640.0), &palette);
+    let (backdrop, card) = modal(
+        "library-export",
+        px(640.0),
+        &palette,
+        app.modal_fades.value(Modal::Export),
+    );
     let card = card.id("library-export-card");
     let contents = match &panel.stage {
         ExportStage::Setup => setup_contents(app, panel, &palette, cx),

@@ -140,18 +140,7 @@ impl LogoClock {
     }
 }
 
-/// True when the system is set to reduce motion.
-#[cfg(target_os = "macos")]
-pub(crate) fn system_reduces_motion() -> bool {
-    use objc2_app_kit::NSWorkspace;
-    NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
-}
-
-/// True when the system is set to reduce motion. Only macOS is asked.
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn system_reduces_motion() -> bool {
-    false
-}
+pub(crate) use crate::motion::system_reduces_motion;
 
 #[cfg(test)]
 mod tests {

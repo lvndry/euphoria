@@ -896,8 +896,17 @@ impl EuphoriaApp {
         {
             return;
         }
-        self.library_export = None;
-        cx.notify();
+        self.fade_out_then(crate::surface_motion::Modal::Export, cx, |this, cx| {
+            if this
+                .library_export
+                .as_ref()
+                .is_some_and(LibraryExportPanel::is_busy)
+            {
+                return;
+            }
+            this.library_export = None;
+            cx.notify();
+        });
     }
 
     /// Changes the choices, going back to the setup when a review was on

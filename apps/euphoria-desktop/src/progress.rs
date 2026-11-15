@@ -31,6 +31,13 @@ impl AnalysisProgress {
         self.queued += file_count;
     }
 
+    #[cfg(test)]
+    pub(crate) fn backdate(&mut self, seconds: u64) {
+        self.started = self
+            .started
+            .and_then(|started| started.checked_sub(Duration::from_secs(seconds)));
+    }
+
     /// Records one finished file. When the last queued file finishes the run
     /// is over and the counts start again from zero.
     pub(crate) fn finish_one(&mut self) {

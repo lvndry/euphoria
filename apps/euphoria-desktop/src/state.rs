@@ -454,6 +454,11 @@ impl Session {
         self.progress.enqueue(file_count);
     }
 
+    #[cfg(test)]
+    pub(crate) fn pretend_started_seconds_ago(&mut self, seconds: u64) {
+        self.progress.backdate(seconds);
+    }
+
     /// How far the current run of analysis has got.
     pub(crate) fn progress(&self) -> AnalysisProgress {
         self.progress
