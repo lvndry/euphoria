@@ -103,11 +103,18 @@ pub(crate) fn open_window_on(
 pub(crate) fn open_window_with(
     tracks: Vec<DemoTrack>,
     output: Box<dyn AudioOutput>,
-    settings: Settings,
+    mut settings: Settings,
     settings_path: Option<PathBuf>,
     window_size: gpui::Size<gpui::Pixels>,
     cx: &mut TestAppContext,
 ) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    // The first run card has tests of its own; the others are about
+    // someone who is past it.
+    if settings.folders.is_empty() {
+        settings
+            .first_run
+            .get_or_insert(crate::first_run::FirstRun::already_done());
+    }
     cx.update(|cx| {
         gpui::init(cx);
         let options = WindowOptions {
@@ -5154,7 +5161,11 @@ fn the_transport_cues_and_mixer_drive_the_decks(cx: &mut TestAppContext) {
         assert_eq!(decks.gains(), [0.5, 0.0]);
         assert!(decks.load_readout().is_some());
     });
-    assert!(is_shown(window, "deck-load-readout", cx));
+    assert!(
+        !is_shown(window, "deck-load-readout", cx),
+        "the readout stays hidden while no frames drop"
+    );
+    assert!(is_shown(window, "deck-load-hint", cx));
     click(window, "toggle-decks", cx);
     cx.update(|cx| {
         let decks = &view.read(cx).decks;

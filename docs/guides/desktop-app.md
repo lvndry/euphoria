@@ -23,7 +23,17 @@ Use `--release`: analysis is many times slower in a debug build.
 
 ## Add music
 
-On first launch the window shows a drop zone. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder**. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
+On first launch the window shows a card of three steps. Drop a folder, or several folders and files, from Finder onto the window, or click **Choose folder** in step 1. Later, use **Add folder** in the toolbar, **File > Add Folder** or Command O.
+
+### The first run card
+
+The three steps fill in as they happen. A finished step dims, and the step you are on has an accent border.
+
+1. **Add music.** Choose a folder or drop one. Once tracks are in, the step says how many were added.
+2. **Analyze.** While analysis runs it counts the tracks, for example "312 of 575 · about 4 min left". The time left is worked out from the rate so far, and appears once about 10 seconds of the run have been seen; before that the step shows only the count.
+3. **Fill in tags.** "Missing keys and tempos only. Tags you already have are kept, and every write can be undone." When a DJ program is chosen under Settings > Tags, the step names it, for example "Writing for rekordbox". With writing after analysis on, tags are written for you; otherwise **Write tags** on the step opens the preview. Euphoria does not scan for installed DJ programs for this line: it names the program you chose.
+
+With no music the card fills the window. Once there is a library it stays above the table until the first analysis has ended and the first write of tags has finished, then goes away for good: the settings file remembers it. Someone who already has folders in an older settings file never sees the card.
 
 Folders are searched all the way down for MP3, M4A, MP4, FLAC, Ogg Vorbis, WAV and AIFF files. A track Euphoria has analyzed before is filled in at once. Every other track appears as a row marked "Queued", changes to "Analyzing" when its turn comes, and fills in when its analysis finishes. The toolbar shows how many are done, for example "12 of 340 done". A file that could not be analyzed counts as done.
 
@@ -56,6 +66,20 @@ The Euphoria mark at the top left of the toolbar is also the activity indicator.
 | Folder | Where the file is, from the folder on show |
 
 The Folder column shows the path from the folder chosen in the sidebar to the file's own folder. With `DJ tracks` chosen, a file in `DJ tracks/afro_house/warmup` shows `afro_house/warmup`; with `afro_house` chosen, it shows `warmup`; a file directly in the chosen folder shows a dash. Under **All tracks** the path starts inside the folder you added, with that folder's name in front when you added more than one. The column grows to fit the longest path on show, as long as the title keeps room; a path still too long keeps its last folder names in view, and pointing at it shows the whole path. Sorting by Folder groups the files folder by folder, in the order of the sidebar.
+
+### Row actions
+
+A row shows only what was scanned. The buttons for acting on it appear at the end of the Title cell when the pointer is on the row, and stay on the selected row. They are laid over the end of the title, so showing them moves nothing.
+
+| Button | Does | Key on the selected row |
+| --- | --- | --- |
+| Play | Plays the track from where the player has it. On the sounding row it is a pause button. | Space |
+| Star | Stars the track, or takes the star off. A starred track keeps a small filled star before its title even when the pointer is elsewhere. | S (F also works) |
+| Add to set | Adds the track to the end of the set on the [set builder](#build-a-set) page, leaving out one that is already there. With a set of several tracks selected, it adds them all. | A |
+
+Each button's tooltip names the action and its key. Add to set needs a set to add to: build one in the set builder first, or the button says so. Planning a transition from the playing track has no button in the table: the planner works on the track open in the [focus view](#focus-view), so it stays there.
+
+The keys type a letter when a text field has the keyboard, so S, A and Space do nothing else in the search box. Needs review rows have the same buttons.
 
 Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
 
@@ -307,17 +331,17 @@ Two decks under the table let you try a transition before the set: **Decks** in 
 - **The mixer** has a volume fader for each deck and a crossfader between them. The crossfader moves equal power from one deck to the other: at the middle both play at about 71 percent, and a deck at the near end of the fader plays at full. Use the deck faders to balance the combined level. Under the mixer, the share of one core each deck takes and any frames the decoders could not fill in time are shown, for checking that playback keeps up.
 - **Loop bars** 1, 2, 4, 8 and 16 loop that many bars of a deck from its next downbeat. The loop is marked on the waveform, and the lit button shows the length. The deck keeps the samples of the loop's first pass and plays them again, so every repeat is the same sound and joins the next on the beat, with no gap. Press the lit button again to leave: the loop plays to its end once more and the track carries on from there, still on the beat. Another length starts a new loop at the next downbeat. Moving the deck, playing a cue or loading a track ends the loop. Looping needs the track's beat grid, so a track whose tempo you corrected by hand does not loop.
 
-Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
+Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. The decks keep a quiet **Load** note under the faders; point at it for the share of a core each deck uses. It turns into an amber "N dropped frames" only while the decoders fall behind. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
 
 ### Next on deck B
 
-With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown**, **Favorites** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, the tracks you starred, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate. Click a row to load it on deck B.
+With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown**, **Favorites** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, the tracks you starred, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate, in the same words as **Mixes into**. Click a row to load it on deck B.
 
 ### Narrow the suggestions
 
 Above the list, a row of controls narrows the tracks the suggestions are chosen from. They apply to **Next on deck B** and to the [mashup ideas](mashups.md) alike, take effect as you type, and are kept for the next launch.
 
-- **Key moves.** A button per move chooses which ones count: **Same key**, **Adjacent**, **Relative**, **Diagonal**, **Energy boost**, **Mood change** and **Semitone boost**. A lit button counts. Same key, Adjacent and Relative are lit until you change them, and the last lit button stays lit, so there is always a move to suggest. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) shows where each move goes on the wheel.
+- **Key moves.** A button per move chooses which ones count: **Same key**, **One step on the wheel**, **Relative**, **Wheel diagonal** (one step and a major/minor switch), **Energy boost**, **Mood change** and **Semitone boost**. A lit button counts. Same key, One step on the wheel and Relative are lit until you change them, and the last lit button stays lit, so there is always a move to suggest. [Keys and the Camelot wheel](../concepts/keys-and-camelot.md) shows where each move goes on the wheel.
 - **Tempo window.** How far a track's tempo may be from deck A's, in percent. Empty keeps 6 percent for mixing and 8 percent for mashups.
 - **Tempo from ... to ... BPM.** Only tracks whose own tempo lies in the range, both ends included. While a range is set, a track without a detected tempo is left out, since it cannot be checked.
 - **Energy from ... to ... of 10.** The same for the energy rating. It decides which tracks are in the pool; **Energy down**, **Same energy** and **Energy up** still order what is left.
@@ -401,7 +425,7 @@ The focus view gives the selected track the whole window: its lanes on one time 
 
 **Open it** with the **Focus** button at the top of the inspector, by double-clicking a row, or with **Enter** (the F key already stars a track, so it is not used). **Esc** or the **Library** button goes back to the library with the same track selected.
 
-The header shows the title, artist, length, format and sound quality, with chips for the key (code and name), the tempo, the energy and the source of the beat grid: **detected**, **rekordbox** or **you** when you set the tempo yourself. The app does not read a rekordbox collection yet, so it shows **rekordbox** only once it does; a track without a grid shows **none**.
+The header shows the title, artist, length, format and sound quality, with chips for the key (code and name), the tempo and the energy. A **Grid** chip appears only when the grid needs a look: **none** for a track without a beat grid, or **edited** when you set the tempo yourself. A detected grid is fine, so it shows nothing.
 
 **The timeline** stacks these lanes, top to bottom:
 
@@ -411,32 +435,33 @@ The header shows the title, artist, length, format and sound quality, with chips
 - **Energy** and **Vocals**, the lanes described under [The lanes under the waveform](#the-lanes-under-the-waveform), over the same window.
 - **Stems**, four thin rows (vocals, drums, bass, other) showing where each stem sounds, measured second by second from the track's separated stems. A track without stems has the quiet link **Separate the stems**.
 
-Every lane shares one playhead and one cursor. Point anywhere over the lanes and a single vertical line runs through all of them, with a line under them such as "2:51 · Breakdown · Energy 3 · no vocals · bass out", built from the lanes that have data. The **Lanes** menu shows or hides each lane, and the choice is kept in `settings.json`.
+Every lane shares one playhead and one cursor. Point anywhere over the lanes and a single vertical line runs through all of them, with a line under them such as "2:51 · Breakdown · Energy 3 · no vocals · bass out", built from the lanes that have data. The **Layers** menu shows or hides each lane, and the choice is kept in `settings.json`.
 
-**Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row has a star, the title with the transition note or the artist, the key and how it relates, the tempo change and a verdict: **Smooth**, **Workable** or **Stretch** from the key and the tempo alone, or **Your mix** for a transition you starred whose keys do not mix by the rules. The **Clash** column plans the transition from the selected track into each row: a strip of up to 16 cells for the best window, coloured by what the two tracks do together (fine, both basslines, both vocals, not known), and a verdict, **Clean**, **Vocal clash**, **Bass clash**, or **Not checked** when the stems of either track are missing. The plans are worked out off the main thread, two at a time, for the rows in view and the picked one, and kept in memory for the session, so scrolling stays smooth. A row reads **Checking** while its plan is made, and **No plan** when the pair cannot be planned, with the reason when you point at it. Euphoria never separates stems for this. Click a row to pick it for the plan, double-click to focus on it.
+**Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row is 32 px high and has a star, the key, the title with the transition note or the artist after a dot, the tempo change with a **Tempo** chip, and the key relation in a column of its own, for example **One step on the wheel** or **Wheel diagonal** (point at it for "One step and a major/minor switch"), or **Your mix** for a transition you starred whose keys do not mix by the rules. The chip reads **Easy** for a change under 3 percent, **Pitch move** from 3 to 6 percent and **Big jump** over 6 percent, in a success, neutral and warning colour, never error red. The **Vocals and bass overlap** column plans the transition from the selected track into each row: a strip of up to 16 cells for the best window, coloured by what the two tracks do together (fine, both basslines, both vocals, not known), and a verdict, **Clean**, **Vocals overlap**, **Bass overlap**, or **Stems needed** when the stems of either track are missing. The plans are worked out off the main thread, two at a time, for the rows in view and the picked one, and kept in memory for the session, so scrolling stays smooth. A row reads **Checking** while its plan is made, and **No plan** when the pair cannot be planned, with the reason when you point at it. Euphoria never separates stems for this. Click a row to pick it for the plan, double-click to focus on it.
 
 **Plan**, bottom right, has three tabs. **Transition** plans the pick, see [Plan a transition](#plan-a-transition-in-the-focus-view). **Mashup** opens the decks in mashup mode. **Cues** is the cue list of the inspector.
 
 ### Plan a transition in the focus view
 
-Pick a track in **Mixes into** and the **Transition** tab gives the best window of the plan in a sentence, for example: "Mix out of this track's Outro (5:24) into Night Orbit's Intro. 32 bars, no vocals on either side, bass swap at bar 17. Night Orbit plays at 124.0 BPM (+1.6%), key 9A, one step up the wheel." Under it, a small strip shows A and B as bands of sections on one grid of bars, with the clash row under them and the window outlined, then the verdict. The plan is the one `euphoria plan` makes, see [Planning a transition](../concepts/plan-a-transition.md); the sections are read from the cues the track shows, so cues you edited count.
+Pick a track in **Mixes into** and the **Transition** tab gives the best window of the plan in a sentence, for example: "Mix out of this track's Outro (5:24) into Night Orbit's Intro. 32 bars, no vocals on either side, bass swap at bar 17. Night Orbit plays at 124.0 BPM (+1.6%), key 9A, one step up the wheel." Under it, a small strip shows A and B as bands of sections on one grid of bars, with the overlap row under them and the window outlined, then **Vocals and bass overlap:** and its verdict, or the link **Separate stems to check**, which starts separating the first track without stems, A before B; separations run one at a time, so the link stays until both are done. The plan is the one `euphoria plan` makes, see [Planning a transition](../concepts/plan-a-transition.md); the sections are read from the cues the track shows, so cues you edited count.
 
-Three buttons act on the best window:
+Three buttons act on the best window, with the same words in the planner, and the link **Open planner →** sits in the header of the Plan card:
 
-- **Set cues on both tracks** writes the plan's cues as your own cues: **Mix out** and **Mix out end** on A, **Mix in**, **Bass swap** and **Vocals in** on B, each on the first free hot cue pad. The cues a track already has stay, and a cue of the same name is replaced, so pressing it again does not pile up copies. One undo, the undo in the Cues tab, takes back the cues of both tracks together.
-- **Preview on the decks** opens the decks, loads A on deck A and B on deck B, each paused on its downbeat at the start of the window, with sync on so that B follows A's tempo, and leaves the focus view. Play deck A, then deck B: B starts on the next downbeat of A. The load is not tested with real audio output.
-- **Open the planner** covers the focus view with the planner. **Esc**, or the **Focus view** button, goes back.
+- **Set cues on A and B** writes the plan's cues as your own cues: **Mix out** and **Mix out end** on A, **Mix in**, **Bass swap** and **Vocals in** on B, each on the first free hot cue pad. The cues a track already has stay, and a cue of the same name is replaced, so pressing it again does not pile up copies. One undo, the undo in the Cues tab, takes back the cues of both tracks together.
+- **Play on the decks** opens the decks, loads A on deck A and B on deck B, each paused on its downbeat at the start of the window, with sync on so that B follows A's tempo, and leaves the focus view. Play deck A, then deck B: B starts on the next downbeat of A. The load is not tested with real audio output.
+- **Save as favorite transition** marks the transition from A into B as a [favorite](#favorite-transitions) with the window's sentence as its note.
+- **Open planner →**, a link in the card header, covers the focus view with the planner. **Esc**, or the **Focus view** button, goes back.
 
 The planner shows, from top to bottom:
 
 - A **bar ruler**: A's time at the left edge, then the bars from 32 before the window (bar -32) through bar 1, the start of the window, to the bar after its end, and **A ends**.
 - Both tracks on that grid, each with its section bands and its **Vocals**, **Bass** and **Drums** lanes, one cell per bar. B appears at bar 1 and goes on after A ends. A stem that is not known, because the track has no stems, is a quiet fill and not an empty lane.
-- The **Clash** row, with a legend: **Fine**, **Both basslines**, **Both vocals**, **Unknown** and **Suggested window**, the outline.
+- The **Vocals and bass overlap** row, with a legend: **Fine**, **Both basslines**, **Both vocals**, **Unknown** and **Suggested window**, the outline.
 - Up to five **suggested windows**, ranked, each with its rank, a title such as "Outro (5:24) into Intro", a line of detail and a verdict. Click one and the outline and the steps follow it.
 - **Window N, step by step**, the steps of the chosen window as an ordered list: start B, swap the bass, bring B's vocals in, and A ends.
-- The buttons **Set the cues on A and B**, **Play it on the decks** and **Save as a favorite transition**, which marks the transition from A into B as a [favorite](#favorite-transitions) with the chosen window's sentence as its note.
+- The buttons **Set cues on A and B**, **Play on the decks** and **Save as favorite transition**, which marks the transition from A into B as a [favorite](#favorite-transitions) with the chosen window's sentence as its note.
 
-When the stems of A or B are missing, a quiet line says "Separate the stems of A and B to check vocal and bass clashes", with a link for each track that starts its separation, and the clash row shows the bars as unknown. When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
+When the stems of A or B are missing, a quiet line says "Separate the stems of A and B to check whether vocals and bass overlap", with a link for each track that starts its separation, and the clash row shows the bars as unknown. When the tempos are too far apart for a deck, the planner says so in words: "Tempo out of reach: Night Orbit would have to play at 2.40 times its speed to match Low Tide, and a deck plays between 0.5 and 2 times." A track without a beat grid says so in the same way.
 
 The energy and the stem levels the plan reads are measured once off the main thread and kept in the `plan-signals` folder of Euphoria's data folder, so a second plan of the same track is quick. The look of the planner on a real display is not tested; the headless window tests what it shows and what its buttons do.
 
@@ -448,8 +473,8 @@ Star the tracks you reach for, and mark the transitions you know work: a track i
 
 ### Star a track
 
-- In the table, the star sits before the title. It shows on the row under the pointer, and stays on a starred track. Click it to star the track or take the star off; the click does not change the selection.
-- Press F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. F types a letter when a text field has the keyboard.
+- In the table, a starred track has a small filled star before its title. The star button with the other [row actions](#row-actions) shows on the row under the pointer and on the selected row. Click it to star the track or take the star off; the click does not change the selection.
+- Press S or F, or choose **View > Star or Unstar Selection**, to star the selected tracks. When all of them are starred already, F takes their stars off. S and F type a letter when a text field has the keyboard.
 - The right click menu of a row has **Star** or **Remove star**, for the selected tracks.
 - The star at the top of the inspector, beside the track's name, stars the selected track.
 - Each deck has a star beside its track's name.
@@ -547,10 +572,20 @@ Playlists are kept in `playlists.sqlite3`, beside the analysis cache in the [dat
 2. **Choose the pool.** All tracks, one of the folders you added, or a playlist. The pool starts as what the library showed when you opened the page.
 3. **Set the length** with **−** and **+**, from 2 to 60 tracks, then **Build set** or press Command Return (Control Return on Linux). The length starts at 20, or at the size of the pool when it is smaller.
 
-The chart then draws the energy of each track of the set over the curve, with tracks more than a point away in red. Under it, a summary gives the length of the set, how close it follows the curve and whether every mix keeps the rules, then one line for each place it falls short. Each row of the set shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
+Once the set is built, the chart is its energy journey. The curve you drew stays as a line, and each track of the set is a bar at its place with its energy as the height, so a bar that reaches the line is a track that fits there.
+
+- A bar more than a point from the curve (the tolerance the builder works to) is tinted warm. A locked track has a small lock on its bar, and the track playing is in the accent colour.
+- Point at a bar for its title, key, BPM, energy and what the curve wants there, such as "wants 4.9". Click a bar to select its row (double-click plays it). Click between two bars to play that transition: the last 20 seconds of the track before, then the next track from its start, as **Play transition** does.
+- Under the chart, **Warm-up**, **Peak** and **Close** mark the stretches of the curve, found from its shape: the peak is where it stays within a level of its highest point, and the other two are the rise before and the fall after. A curve that is flat, or has no rise or fall, gets no names. The times along the bottom are how far into the set each quarter starts.
+- Drag on the chart above the bars to draw the curve again.
+
+Under the chart one row of chips sums the set up: how far the furthest track is from the curve ("Energy within 1.9 of the curve"), how many rules it breaks ("2 rule breaks": a key clash, a tempo step over 5 BPM or an artist twice in a row), and its length ("1 h 32 · 14 tracks"). A chip is tinted warm when something falls short, and a fourth chip appears when the pool was too small for the length asked. **Show details** lists the average distance from the curve and every place the set falls short, each with the reason it counts.
+
+In the table, a row that is off the curve or reached by a mix that breaks a rule has a thin warm bar at its left. An energy off the curve is tinted and reads "6 (wants 4.9)", and the key move, the tempo step or the title of a row that breaks a rule shows the rule when you point at it. Each row shows the key move and tempo step from the track before, and the track's energy against the energy the curve asks for there.
 
 - **Lock** pins a track. A locked row cannot be removed (**Remove** is greyed, with "Unlock to remove", and Delete skips it with a notice), and the arrows are off for it and for the rows beside it, so nothing moves it. Click **Locked** to unlock it. **Build around locked tracks** fills the rest of the set again, for a new curve, length or pool, around the tracks you locked.
 - The arrows move a track one place, and **Remove** takes it out (or select a row and press Delete). The set is explained again at once: the moves, the steps and the curve follow your order.
+- **Add tracks.** In the library, point at a track and press its **+** button, or select tracks and press A: they join the end of the set, unlocked, and the set is explained again. A track already in the set is not added twice, and a set holds at most 60 tracks. The play buttons on set rows look like the row buttons of the library table.
 - **Play the set.** Point at a row and press its play button, double-click the row, or select it and press Space: the track plays from the start in the player at the bottom of the window, and the playing row is marked with the accent colour and a pause button. Press the button again, or the player's own button, to pause and resume. When a track ends, the set goes on with the next track in set order, not library order, and stops after the last one.
 - **Play transition** on a row plays the last 20 seconds of the track before it, then goes on into that track from its start. The 20 seconds is fixed: the set builder does not plan mix points, and this is a plain one-after-the-other preview with no crossfade. To hear a mix with both tracks at once, use the transition planner on the decks.
 - While the decks are open they hold the player, so the play buttons show "Close the decks to use the track player." and do nothing.

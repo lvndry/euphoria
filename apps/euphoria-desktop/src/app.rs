@@ -144,6 +144,12 @@ pub(crate) struct EuphoriaApp {
     pub(crate) program_checks: euphoria_core::export::program_files::DjProgramChecks,
     /// The tracks waiting to be tagged after analysis, when that is on.
     pub(crate) auto_tags: crate::auto_tags::AutoTags,
+    /// The table row under the pointer, whose title leaves room for the
+    /// row buttons. A title is laid out again when this changes, because a
+    /// style that only applies on hover does not shorten its ellipsis.
+    pub(crate) hovered_track: Option<usize>,
+    /// How far the first run got, which decides whether its card shows.
+    pub(crate) first_run: crate::first_run::FirstRun,
     /// True while the settings panel is open.
     pub(crate) settings_open: bool,
     /// Where the backups of tag writes are kept, shared with the command
@@ -506,6 +512,11 @@ impl EuphoriaApp {
             } else {
                 euphoria_core::export::program_files::DjProgramChecks::REAL
             },
+            hovered_track: None,
+            first_run: crate::first_run::FirstRun::from_stored(
+                settings.first_run,
+                !settings.folders.is_empty(),
+            ),
             settings_open: false,
             write_log_directory: if cfg!(test) {
                 None
@@ -804,6 +815,7 @@ impl EuphoriaApp {
         self.refresh_mixes();
         self.select_first_track_if_none(cx);
         self.start_collecting(cx);
+        self.note_first_run_progress();
         cx.notify();
     }
 
@@ -854,6 +866,7 @@ impl EuphoriaApp {
                         cx.notify();
                     }
                     let is_active = this.session.progress().is_active();
+                    this.note_first_run_progress();
                     this.is_collecting = is_active;
                     is_active
                 });
@@ -1648,6 +1661,38 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// The pointer entered or left the row of `index`.
+    pub(crate) fn row_hovered(
+        &mut self,
+        index: usize,
+        is_hovered: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let hovered = if is_hovered {
+            Some(index)
+        } else if self.hovered_track == Some(index) {
+            None
+        } else {
+            return;
+        };
+        if self.hovered_track != hovered {
+            self.hovered_track = hovered;
+            cx.notify();
+        }
+    }
+
+    /// The play button of a table row: plays the track from where the player
+    /// has it, or pauses it when it is the one sounding.
+    pub(crate) fn play_track_row(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        if self.selected != Some(index) || !self.marked.is_empty() {
+            self.select(index, cx);
+            if self.player.offers_pause() {
+                return;
+            }
+        }
+        self.toggle_playback(cx);
+    }
+
     /// A press or a drag at `pointer_x` on a strip that stands for the whole
     /// track, last drawn at `seen_bounds`: playing moves to that point.
     pub(crate) fn seek_to_pointer(
@@ -2252,6 +2297,38 @@ impl EuphoriaApp {
         px(self.panels.strip_height_in(available_height / px(1.0)))
     }
 
+    /// Notes that the first analysis has ended once the library has tracks
+    /// and nothing is queued or running, and remembers it.
+    pub(crate) fn note_first_run_progress(&mut self) {
+        if self.first_run.is_done() || self.first_run.analysis_done {
+            return;
+        }
+        let has_tracks = !self.session.library().tracks().is_empty();
+        if has_tracks && self.scans_in_progress == 0 && !self.session.progress().is_active() {
+            self.first_run.analysis_done = true;
+            self.save_first_run();
+        }
+    }
+
+    /// Notes that a write of tags finished, and remembers it.
+    pub(crate) fn note_first_write(&mut self) {
+        if !self.first_run.write_done {
+            self.first_run.write_done = true;
+            self.save_first_run();
+        }
+    }
+
+    fn save_first_run(&mut self) {
+        if let Some(problem) = self.save_settings() {
+            self.report(problem);
+        }
+    }
+
+    /// True while the card of the three first steps shows.
+    pub(crate) fn shows_first_run(&self) -> bool {
+        !self.first_run.is_done()
+    }
+
     /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user
     /// when that fails.
     pub(crate) fn save_settings(&self) -> Option<String> {
@@ -2277,6 +2354,7 @@ impl EuphoriaApp {
             inspector_sections: self.inspector_sections.choices,
             track_filters: self.track_filters.clone(),
             next_energy: self.next_energy,
+            first_run: Some(self.first_run),
         };
         settings
             .save(settings_path)
@@ -2516,6 +2594,9 @@ impl Render for EuphoriaApp {
                         .flex_1()
                         .min_w_0()
                         .min_h_0()
+                        .when(self.shows_first_run(), |column| {
+                            column.child(views::first_run::card(self, cx))
+                        })
                         .child(views::track_table::render(self, cx))
                         .when(self.decks.is_open, |column| {
                             column.child(views::decks::render(self, cx))
