@@ -4,7 +4,7 @@
 //! The `prepare` command: writes copies of tracks at one loudness, under a
 //! true-peak ceiling, so a set plays evenly on a club system.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -12,8 +12,9 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
 use euphoria_core::prepare::{
-    DEFAULT_SUFFIX, LossyOutput, PrepareSettings, TrackPlan, check_suffix, plan_track,
-    prepare_track, prepared_path,
+    DEFAULT_SUFFIX, LossyOutput, Manifest, PrepareSettings, ReplayGainFields, RevertReport,
+    RunMode, TrackPlan, check_suffix, manifests_in, plan_track, prepare_track, prepared_path,
+    revert, tag_track,
 };
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use serde::Serialize;
@@ -35,8 +36,23 @@ enum LossyChoice {
 pub struct PrepareArguments {
     /// Tracks, or folders of tracks, to prepare. They are only read, never
     /// changed.
-    #[arg(required = true, value_name = "PATH")]
+    #[arg(
+        required_unless_present = "revert",
+        conflicts_with = "revert",
+        value_name = "PATH"
+    )]
     paths: Vec<PathBuf>,
+    /// Measure the loudness and write it into the tags of the originals as
+    /// ReplayGain track gain and peak, without changing the audio and
+    /// without writing copies. Undo it with --revert.
+    #[arg(long, conflicts_with_all = ["tune", "out", "revert"])]
+    tag_only: bool,
+    /// Undo a run: remove the files it wrote, and put back the tags a
+    /// --tag-only run changed. Takes the manifest file the run left, or a
+    /// folder to revert every run recorded in it. A file that changed since
+    /// the run is kept.
+    #[arg(long, value_name = "MANIFEST_OR_FOLDER")]
+    revert: Option<PathBuf>,
     /// The integrated loudness to bring every track to, in LUFS: -14 for
     /// streaming, -11, -9 for the club, or -7 for the loudest.
     #[arg(
@@ -92,6 +108,8 @@ struct JsonTrack<'a> {
     #[serde(flatten)]
     plan: Option<&'a TrackPlan>,
     limiter_reduction_db: Option<f32>,
+    replaygain_track_gain: Option<&'a str>,
+    replaygain_track_peak: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -114,6 +132,8 @@ struct JsonDocument<'a> {
 
 struct Outcome {
     input: PathBuf,
+    replaygain: Option<ReplayGainFields>,
+    tagged: bool,
     plan: Option<TrackPlan>,
     output: Option<PathBuf>,
     written: bool,
@@ -122,6 +142,9 @@ struct Outcome {
 }
 
 pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
+    if let Some(target) = &arguments.revert {
+        return run_revert(target, arguments.json);
+    }
     let settings = PrepareSettings {
         target_lufs: arguments.loudness,
         true_peak_ceiling_db: arguments.true_peak,
@@ -174,6 +197,7 @@ pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
 
     let bar = progress_bar(scan.files.len());
     let mut reserved = HashSet::new();
+    let mut manifests: BTreeMap<PathBuf, Manifest> = BTreeMap::new();
     let mut outcomes = Vec::new();
     for input in &scan.files {
         bar.set_message(file_label(input));
@@ -185,17 +209,44 @@ pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
             out_directory.as_deref(),
             tunings.get(input).copied().flatten(),
             &mut reserved,
+            &mut manifests,
         );
         outcomes.push(outcome);
         bar.inc(1);
     }
     bar.finish_and_clear();
 
+    if !arguments.dry_run && !arguments.tag_only {
+        for outcome in outcomes.iter().filter(|outcome| outcome.written) {
+            if let Some(output) = &outcome.output {
+                let folder = output.parent().map(Path::to_path_buf).unwrap_or_default();
+                let manifest = manifests
+                    .entry(folder)
+                    .or_insert_with(|| Manifest::new(RunMode::Copies, &settings));
+                manifest
+                    .record_copy(&outcome.input, output)
+                    .map_err(crate::with_causes)?;
+            }
+        }
+    }
+    let mut manifest_paths = Vec::new();
+    for (folder, manifest) in &manifests {
+        if !manifest.entries.is_empty() {
+            manifest_paths.push(manifest.save(folder).map_err(crate::with_causes)?);
+        }
+    }
     let failed = outcomes.iter().any(|outcome| outcome.error.is_some());
     if arguments.json {
         write_json(&settings, arguments.dry_run, &outcomes)?;
     } else {
         write_text(&outcomes, arguments.dry_run, &settings)?;
+        for path in &manifest_paths {
+            println!(
+                "Run recorded in {}; undo it with: euphoria prepare --revert {}",
+                Printable(path.display()),
+                Printable(path.display())
+            );
+        }
     }
     Ok(output::exit_status(failed, false))
 }
@@ -245,9 +296,12 @@ fn prepare_one(
     out_directory: Option<&Path>,
     tuning_cents: Option<f32>,
     reserved: &mut HashSet<PathBuf>,
+    manifests: &mut BTreeMap<PathBuf, Manifest>,
 ) -> Outcome {
     let mut outcome = Outcome {
         input: input.to_path_buf(),
+        replaygain: None,
+        tagged: false,
         plan: None,
         output: None,
         written: false,
@@ -261,6 +315,22 @@ fn prepare_one(
             return outcome;
         }
     };
+    if arguments.tag_only {
+        if plan.skipped.is_none() {
+            outcome.replaygain = ReplayGainFields::from_plan(&plan);
+            if let (false, Some(fields)) = (arguments.dry_run, &outcome.replaygain) {
+                let manifest = manifests
+                    .entry(input.parent().map(Path::to_path_buf).unwrap_or_default())
+                    .or_insert_with(|| Manifest::new(RunMode::TagOnly, settings));
+                match tag_track(manifest, input, fields) {
+                    Ok(()) => outcome.tagged = true,
+                    Err(error) => outcome.error = Some(crate::with_causes(error).to_string()),
+                }
+            }
+        }
+        outcome.plan = Some(plan);
+        return outcome;
+    }
     if plan.skipped.is_none() {
         let output = prepared_path(
             input,
@@ -297,6 +367,14 @@ fn write_json(settings: &PrepareSettings, dry_run: bool, outcomes: &[Outcome]) -
             error: outcome.error.clone(),
             plan: outcome.plan.as_ref(),
             limiter_reduction_db: outcome.limiter_reduction_db,
+            replaygain_track_gain: outcome
+                .replaygain
+                .as_ref()
+                .and_then(|fields| fields.gain.as_deref()),
+            replaygain_track_peak: outcome
+                .replaygain
+                .as_ref()
+                .and_then(|fields| fields.peak.as_deref()),
         })
         .collect();
     let count = |name: &str| tracks.iter().filter(|track| track.status == name).count();
@@ -308,7 +386,7 @@ fn write_json(settings: &PrepareSettings, dry_run: bool, outcomes: &[Outcome]) -
             correct_tuning: settings.correct_tuning,
             dry_run,
         },
-        prepared: count("prepared") + count("dry_run"),
+        prepared: count("prepared") + count("tagged") + count("dry_run"),
         skipped: count("skipped"),
         failed: count("failed"),
         tracks,
@@ -330,6 +408,8 @@ fn status(outcome: &Outcome, dry_run: bool) -> &'static str {
         "skipped"
     } else if dry_run {
         "dry_run"
+    } else if outcome.tagged {
+        "tagged"
     } else {
         "prepared"
     }
@@ -419,6 +499,15 @@ fn write_text(outcomes: &[Outcome], dry_run: bool, settings: &PrepareSettings) -
                 ))
             )?;
         }
+        if let Some(fields) = &outcome.replaygain {
+            writeln!(
+                standard_output,
+                "  replaygain  {} track gain, {} peak{}",
+                fields.gain.as_deref().unwrap_or("none"),
+                fields.peak.as_deref().unwrap_or("none"),
+                if outcome.tagged { ", written" } else { "" }
+            )?;
+        }
         if let Some(path) = &outcome.output {
             let verb = if dry_run { "would write" } else { "wrote" };
             writeln!(
@@ -445,4 +534,62 @@ fn write_text(outcomes: &[Outcome], dry_run: bool, settings: &PrepareSettings) -
         writeln!(standard_output, "Nothing was written.")?;
     }
     Ok(())
+}
+
+fn run_revert(target: &Path, json: bool) -> Result<ExitCode> {
+    let manifests = if target.is_dir() {
+        let mut found = manifests_in(target);
+        found.reverse();
+        found
+    } else {
+        vec![target.to_path_buf()]
+    };
+    if manifests.is_empty() {
+        bail!("no prepare manifest in {}", target.display());
+    }
+    let mut report = RevertReport::default();
+    for manifest in &manifests {
+        let one = revert(manifest).map_err(crate::with_causes)?;
+        report.removed.extend(one.removed);
+        report.restored.extend(one.restored);
+        report.kept.extend(one.kept);
+    }
+    let mut standard_output = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer_pretty(&mut standard_output, &report)?;
+        writeln!(standard_output)?;
+    } else {
+        for path in &report.removed {
+            writeln!(standard_output, "removed   {}", Printable(path.display()))?;
+        }
+        for path in &report.restored {
+            writeln!(standard_output, "restored  {}", Printable(path.display()))?;
+        }
+        for (path, reason) in &report.kept {
+            writeln!(
+                standard_output,
+                "kept      {}: {}",
+                Printable(path.display()),
+                Printable(reason)
+            )?;
+        }
+        writeln!(
+            standard_output,
+            "Removed {}, restored the tags of {}, kept {}",
+            report.removed.len(),
+            report.restored.len(),
+            report.kept.len()
+        )?;
+    }
+    Ok(
+        if report
+            .kept
+            .iter()
+            .any(|(_, reason)| reason != "it is already gone")
+        {
+            ExitCode::FAILURE
+        } else {
+            ExitCode::SUCCESS
+        },
+    )
 }

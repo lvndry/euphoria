@@ -845,6 +845,8 @@ Each path is a file or a folder, searched like [`euphoria analyze`](#options). T
 | `-o`, `--out <DIR>` | Write the copies into this folder, created if needed, instead of next to the originals. |
 | `--suffix <TEXT>` | Added to each name before the extension, ` (prepared)` by default. |
 | `--lossy-as <FORMAT>` | What lossy tracks become: `flac` (the default) or `wav`. |
+| `--tag-only` | Write the loudness into the tags of the originals as ReplayGain 2.0 track gain and peak (`REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, in the standard field of each format) and write no copies. The audio is not touched. Cannot be combined with `--tune` or `--out`. |
+| `--revert <MANIFEST_OR_FOLDER>` | Undo a run, as [below](#reverting-a-run). Takes no paths. |
 | `--dry-run` | Measure and print what would be done, and write nothing. |
 | `--json` | Print a JSON document instead of text. |
 | `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range`, `--key-engine` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
@@ -855,7 +857,13 @@ For each track the text output gives the measured loudness, the gain and the lou
 
 With `--json` the document has `settings`, a `tracks` array and the counts `prepared`, `skipped` and `failed`. A track has `input`, `output`, `status` (`prepared`, `dry_run`, `skipped` or `failed`), `error`, and the plan: `measured_lufs`, `true_peak_dbtp`, `sample_peak_db`, `wanted_gain_db`, `gain_db`, `limiting_db`, `gain_capped`, `predicted_lufs`, `tuning_cents`, `tuning_correction_cents`, `clipping`, `output_format`, `sample_rate`, `channels` and `duration_seconds`. `limiter_reduction_db` is the reduction the limiter reached while writing. A silent track is skipped with `skipped` set to its reason.
 
+Every run that writes records a manifest, `euphoria-prepare-<time>.json`, in the folder of its copies (or, with `--tag-only`, of the originals): each source and output with BLAKE3 checksums, the settings, and for a tag-only run the ReplayGain fields the file had before.
+
 The command exits with status 0 when every track is written, and with status 1 when one failed or an argument is not valid.
+
+### Reverting a run
+
+`euphoria prepare --revert <MANIFEST_OR_FOLDER>` removes the files a run wrote and puts back the ReplayGain fields a `--tag-only` run changed. A folder reverts every manifest in it, newest first. A file is only touched when its checksum is still the one the run recorded; a copy you edited since, or any file the manifest does not name, is kept and listed. The manifest is deleted when everything in it is undone, and keeps the entries that were not. The command exits with status 1 when something was kept. There is no replace-in-place mode, so there are no originals to restore except tags.
 
 ## euphoria stems
 

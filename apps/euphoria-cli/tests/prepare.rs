@@ -182,3 +182,115 @@ fn tune_reads_the_tuning_of_each_track_from_its_analysis() {
     }
     assert!(track["tuning_correction_cents"].is_null());
 }
+
+fn manifests_in(folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("euphoria-prepare-")
+        })
+        .collect()
+}
+
+#[test]
+fn tag_only_writes_replaygain_leaves_the_audio_and_reverts() {
+    let app = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let input = folder.path().join("quiet.wav");
+    write_tone(&input, 0.02);
+    let audio_chunk = |path: &std::path::Path| {
+        let bytes = std::fs::read(path).unwrap();
+        let position = bytes
+            .windows(4)
+            .position(|window| window == b"data")
+            .unwrap();
+        bytes[position + 8..position + 8 + 40_000].to_vec()
+    };
+    let audio_before = audio_chunk(&input);
+
+    let dry = app.run(&[
+        "prepare",
+        input.to_str().unwrap(),
+        "--tag-only",
+        "--dry-run",
+        "--json",
+        "--no-cache",
+    ]);
+    assert!(dry.status.success(), "{}", standard_error(&dry));
+    assert!(manifests_in(folder.path()).is_empty());
+    let planned = json(&dry);
+    let gain = planned["tracks"][0]["replaygain_track_gain"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(gain.ends_with(" dB"), "{gain}");
+
+    let applied = app.run(&[
+        "prepare",
+        input.to_str().unwrap(),
+        "--tag-only",
+        "--json",
+        "--no-cache",
+    ]);
+    assert!(applied.status.success(), "{}", standard_error(&applied));
+    let applied = json(&applied);
+    assert_eq!(applied["tracks"][0]["status"], "tagged");
+    assert_eq!(applied["tracks"][0]["replaygain_track_gain"], gain.as_str());
+    assert_eq!(audio_chunk(&input), audio_before, "the audio is untouched");
+    assert!(!folder.path().join("quiet (prepared).wav").exists());
+    let manifests = manifests_in(folder.path());
+    assert_eq!(manifests.len(), 1);
+
+    let reverted = app.run(&["prepare", "--revert", folder.path().to_str().unwrap()]);
+    assert!(reverted.status.success(), "{}", standard_error(&reverted));
+    assert!(String::from_utf8_lossy(&reverted.stdout).contains("restored"));
+    assert!(manifests_in(folder.path()).is_empty());
+}
+
+#[test]
+fn a_run_records_a_manifest_and_revert_removes_only_its_outputs() {
+    let app = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let input = folder.path().join("track.wav");
+    write_tone(&input, 0.05);
+    let out = folder.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+    let bystander = out.join("mine.txt");
+    std::fs::write(&bystander, b"keep").unwrap();
+    let run = app.run(&[
+        "prepare",
+        input.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--no-cache",
+    ]);
+    assert!(run.status.success(), "{}", standard_error(&run));
+    let output = out.join("track (prepared).wav");
+    assert!(output.is_file());
+    let manifests = manifests_in(&out);
+    assert_eq!(manifests.len(), 1);
+
+    let reverted = app.run(&["prepare", "--revert", manifests[0].to_str().unwrap()]);
+    assert!(reverted.status.success(), "{}", standard_error(&reverted));
+    assert!(!output.exists());
+    assert!(bystander.exists());
+    assert!(input.exists());
+    assert!(manifests_in(&out).is_empty());
+
+    let again = app.run(&[
+        "prepare",
+        input.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--no-cache",
+    ]);
+    assert!(again.status.success());
+    std::fs::write(&output, b"edited").unwrap();
+    let refused = app.run(&["prepare", "--revert", out.to_str().unwrap()]);
+    assert!(!refused.status.success());
+    assert_eq!(std::fs::read(&output).unwrap(), b"edited");
+}
