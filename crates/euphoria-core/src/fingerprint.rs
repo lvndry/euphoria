@@ -71,6 +71,12 @@ const RATIO_STEP: f32 = 0.02;
 const OFFSET_TOLERANCE_FRAMES: i64 = 1;
 const SCALED_OFFSET_TOLERANCE_FRAMES: i64 = 5;
 
+/// Bumped when hashes change meaning, so stored ones are made again.
+pub const FINGERPRINT_VERSION: u32 = 1;
+/// A track is stored with one hash in this many, picked by value. A query
+/// that keeps all of its hashes still matches.
+pub const STORED_THINNING: u32 = 4;
+
 /// How long one frame of the fingerprint is, in seconds.
 pub const FRAME_SECONDS: f32 = HOP as f32 / FINGERPRINT_SAMPLE_RATE as f32;
 
@@ -105,6 +111,49 @@ impl Fingerprint {
             hashes,
             peaks: Vec::new(),
         }
+    }
+
+    /// Like [`Fingerprint::thinned`], by another function of the hash, so
+    /// thinning what was already thinned keeps a fair share.
+    pub fn thinned_again(&self, every: u32) -> Self {
+        Self {
+            hashes: self
+                .hashes
+                .iter()
+                .copied()
+                .filter(|(hash, _)| (hash.wrapping_mul(2_246_822_519) >> 11) % every == 0)
+                .collect(),
+            peaks: Vec::new(),
+        }
+    }
+
+    /// The hashes as bytes, eight to a hash, for storing.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.hashes.len() * 8);
+        for (hash, frame) in &self.hashes {
+            bytes.extend_from_slice(&hash.to_le_bytes());
+            bytes.extend_from_slice(&frame.to_le_bytes());
+        }
+        bytes
+    }
+
+    /// Hashes stored by [`Fingerprint::to_bytes`], or `None` when the bytes
+    /// are not a whole number of hashes.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if !bytes.len().is_multiple_of(8) {
+            return None;
+        }
+        Some(Self::from_hashes(
+            bytes
+                .chunks_exact(8)
+                .map(|chunk| {
+                    (
+                        u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+                        u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]),
+                    )
+                })
+                .collect(),
+        ))
     }
 
     /// Keeps one hash in `every` by its value, for an index that stores
@@ -309,33 +358,53 @@ struct Candidate {
     playback: Playback,
 }
 
-/// The fingerprints of a library, searched by hash.
+/// The fingerprints of a library, searched by hash. Hashes are kept in one
+/// list sorted by hash, which costs 12 bytes a hash and nothing else.
 #[derive(Debug, Clone, Default)]
 pub struct FingerprintIndex {
-    entries: HashMap<u32, Vec<(u32, u32)>>,
-    hash_count: usize,
+    entries: Vec<(u32, u32, u32)>,
+    is_sorted: bool,
 }
 
 impl FingerprintIndex {
     /// An index without tracks.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            entries: Vec::new(),
+            is_sorted: true,
+        }
     }
 
-    /// Adds a track under `track`, an id the caller chooses.
+    /// Adds a track under `track`, an id the caller chooses. Call
+    /// [`FingerprintIndex::freeze`] after the last one and before searching.
     pub fn add(&mut self, track: usize, fingerprint: &Fingerprint) {
-        for (hash, frame) in fingerprint.hashes() {
-            self.entries
-                .entry(*hash)
-                .or_default()
-                .push((track as u32, *frame));
-            self.hash_count += 1;
+        self.entries.extend(
+            fingerprint
+                .hashes()
+                .iter()
+                .map(|(hash, frame)| (*hash, track as u32, *frame)),
+        );
+        self.is_sorted = false;
+    }
+
+    /// Sorts the hashes for searching.
+    pub fn freeze(&mut self) {
+        if !self.is_sorted {
+            self.entries.sort_unstable();
+            self.entries.shrink_to_fit();
+            self.is_sorted = true;
         }
     }
 
     /// How many hashes the index holds.
     pub fn hash_count(&self) -> usize {
-        self.hash_count
+        self.entries.len()
+    }
+
+    fn hits(&self, hash: u32) -> &[(u32, u32, u32)] {
+        let start = self.entries.partition_point(|entry| entry.0 < hash);
+        let end = start + self.entries[start..].partition_point(|entry| entry.0 == hash);
+        &self.entries[start..end]
     }
 
     /// The track and position that most of `query`'s hashes agree on, or
@@ -344,6 +413,7 @@ impl FingerprintIndex {
     /// grid, with the pitch following it and without; one rebuilt from
     /// hashes only at the track's own speed.
     pub fn find(&self, query: &Fingerprint) -> Option<Match> {
+        debug_assert!(self.is_sorted, "freeze the index before searching it");
         let mut passes: Vec<(Vec<(u32, u32)>, Playback)> = vec![(
             query.hashes.clone(),
             Playback {
@@ -434,10 +504,7 @@ impl FingerprintIndex {
     fn tally(&self, hashes: &[(u32, u32)], tolerance: i64) -> Vec<(u32, i64, u32)> {
         let mut votes: HashMap<(u32, i64), u32> = HashMap::new();
         for (hash, query_frame) in hashes {
-            let Some(hits) = self.entries.get(hash) else {
-                continue;
-            };
-            for (track, track_frame) in hits {
+            for (_, track, track_frame) in self.hits(*hash) {
                 let offset = i64::from(*track_frame) - i64::from(*query_frame);
                 *votes.entry((*track, offset)).or_default() += 1;
             }
@@ -590,6 +657,7 @@ mod tests {
         for (id, track) in tracks.iter().enumerate() {
             index.add(id, &fingerprint(&audio(track.clone(), TRACK_RATE)));
         }
+        index.freeze();
         Library { tracks, index }
     }
 
@@ -773,6 +841,8 @@ mod tests {
             full.add(id, &print);
             thin.add(id, &print.thinned(4));
         }
+        full.freeze();
+        thin.freeze();
         assert!(thin.hash_count() * 3 < full.hash_count());
         let query = fingerprint(&audio(
             excerpt(&tracks[2], 20.0, EXCERPT_SECONDS),

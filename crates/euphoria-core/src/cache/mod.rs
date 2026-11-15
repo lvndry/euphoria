@@ -55,6 +55,7 @@
 mod batch;
 mod corrections;
 mod edited_cues;
+mod fingerprints;
 mod identity;
 pub(crate) mod location;
 mod rewritten;
@@ -70,6 +71,7 @@ use rusqlite::{Connection, ErrorCode, Row, TransactionBehavior, params};
 
 pub use batch::{CachePolicy, CachedBatch, analyze_files_cached, analyze_files_cached_observed};
 pub use corrections::{DetectedValues, StoredCorrection};
+pub use fingerprints::{LibraryFingerprints, MAXIMUM_INDEX_HASHES};
 pub use identity::ContentHash;
 pub(crate) use location::default_data_directory;
 pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
@@ -87,7 +89,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 13] = [
+const MIGRATIONS: [&str; 14] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -155,6 +157,14 @@ const MIGRATIONS: [&str; 13] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN loudness_range_lu REAL;
+",
+    "
+    CREATE TABLE fingerprints (
+        content_hash     BLOB    NOT NULL PRIMARY KEY,
+        version          INTEGER NOT NULL,
+        hashes           BLOB    NOT NULL,
+        fingerprinted_at INTEGER NOT NULL
+    ) WITHOUT ROWID;
 ",
 ];
 
@@ -1434,7 +1444,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 13);
+        assert_eq!(SCHEMA_VERSION, 14);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1503,7 +1513,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 13);
+        assert_eq!(SCHEMA_VERSION, 14);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1557,7 +1567,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 13);
+        assert_eq!(SCHEMA_VERSION, 14);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
