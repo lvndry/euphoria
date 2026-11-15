@@ -58,7 +58,7 @@ impl EuphoriaApp {
             let track = library.track(view.track_index?)?;
             return Some(NowPlaying {
                 title: track.title().to_string(),
-                artist: track.artist.clone(),
+                artist: track.shown_artist().map(std::borrow::Cow::into_owned),
                 duration_seconds: view.duration_seconds,
                 elapsed_seconds: self.decks.position_seconds(deck),
                 rate: if view.playing { view.rate } else { 0.0 },
@@ -83,7 +83,7 @@ impl EuphoriaApp {
                 },
                 |track| track.title().to_string(),
             ),
-            artist: track.and_then(|track| track.artist.clone()),
+            artist: track.and_then(|track| track.shown_artist().map(std::borrow::Cow::into_owned)),
             duration_seconds: self.player.duration_seconds().map(f64::from),
             elapsed_seconds: f64::from(self.player.position_seconds()),
             rate: if playing { 1.0 } else { 0.0 },

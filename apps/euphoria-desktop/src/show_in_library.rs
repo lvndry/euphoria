@@ -1,8 +1,9 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Showing a track in the library window when Live asks: selected in the
-//! table, scrolled into view and open in the inspector, without playing it.
+//! Showing a track in the library window, when Live asks or the playing
+//! track's title is clicked: selected in the table, scrolled into view and
+//! open in the inspector, without changing what plays.
 
 use std::path::PathBuf;
 
@@ -12,13 +13,20 @@ use crate::app::EuphoriaApp;
 
 impl EuphoriaApp {
     /// Selects the track at `path` and shows it in the table, taking off a
-    /// search, filter, folder or playlist that hides it. The music plays in
-    /// another app, so nothing is played. A track the library does not have
-    /// yet, as in a window just opened, is shown once its folders are read.
+    /// search, filter, folder or playlist that hides it. Nothing starts or
+    /// stops playing. A track the library does not have yet, as in a window
+    /// just opened, is shown once its folders are read.
     pub(crate) fn show_track_at_path(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
         match self.session.library().index_of(&path) {
             Some(index) => self.reveal_in_window(index, cx),
             None => self.pending_reveal = Some(path),
+        }
+    }
+
+    /// Shows the player's track in the table and the inspector.
+    pub(crate) fn show_playing_track(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(path) = self.player.track().map(std::path::Path::to_path_buf) {
+            self.show_track_at_path(path, cx);
         }
     }
 
