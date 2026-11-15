@@ -34,10 +34,10 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = match (cfg!(feature = "libkeyfinder"), cfg!(feature = "drone")) {
-    (true, true) => "17+libkeyfinder+drone",
-    (true, false) => "17+libkeyfinder",
-    (false, true) => "17+stratum+drone",
-    (false, false) => "17+stratum",
+    (true, true) => "18+libkeyfinder+drone",
+    (true, false) => "18+libkeyfinder",
+    (false, true) => "18+stratum+drone",
+    (false, false) => "18+stratum",
 };
 
 /// The version the analysis cache records for analyses made now: the
@@ -73,9 +73,10 @@ pub struct TrackAnalysis {
     /// The key over time: sections in order that together cover the track,
     /// except where it is silent. A track in which no change of key was
     /// found has one section in the key of the track, or one on either side
-    /// of each silence. Empty when the track has no detectable key, and in
-    /// builds without the `libkeyfinder` feature. It is reported only: `key`
-    /// is decided from the whole track at once.
+    /// of each silence. Empty when the track has no detectable key, with the
+    /// drone key engine alone, and in builds without the `drone` feature
+    /// that use no libkeyfinder. It is reported only: `key` is decided from
+    /// the whole track at once.
     pub key_timeline: Vec<KeySection>,
     /// How the file is encoded and how good it sounds for DJ use, measured
     /// while it was decoded for the other analyses. `None` only for an
@@ -116,9 +117,8 @@ pub struct TrackAnalysis {
     /// How strongly each of the 12 notes sounds in the track, C first, from
     /// 0 to 1 with the strongest note at 1, so a doubtful key can be checked
     /// by eye. See [`KeyReading::pitch_class_profile`](crate::detect::KeyReading).
-    /// `None` when the track has no key, with the drone key engine alone,
-    /// in builds without the `libkeyfinder` feature, and in analyses stored
-    /// before it was recorded, until the track is analyzed again.
+    /// `None` when the track has no key, and in analyses stored before it
+    /// was recorded, until the track is analyzed again.
     pub pitch_class_profile: Option<[f32; 12]>,
 }
 
@@ -286,9 +286,8 @@ impl AnalysisObserver for Unobserved {}
 /// audio quality.
 ///
 /// The key comes from the [`KeyEngine`](crate::KeyEngine) chosen with
-/// [`set_key_engine`](crate::set_key_engine), by default drone-v2 with
-/// libkeyfinder measuring the tuning and the key over time (see
-/// [`read_key`]). Tempo comes from the tempo only path of `stratum-dsp`, so
+/// [`set_key_engine`](crate::set_key_engine), by default drone-v2, which
+/// also follows the key over time (see [`read_key`]). Tempo comes from the tempo only path of `stratum-dsp`, so
 /// its costly key analysis does not run. The energy rating takes the
 /// detected tempo into account when there is one.
 ///
@@ -317,9 +316,9 @@ pub fn analyze_file_observed(
 
     let heavily_damaged = pending_quality.damage().is_severe();
 
-    // Tempo runs first because it has the larger peak. libkeyfinder then
-    // reuses the memory tempo released, where the other order keeps
-    // libkeyfinder's released memory resident under the tempo peak.
+    // Tempo runs first because it has the larger peak. The key detector then
+    // reuses the memory tempo released, where the other order keeps the key
+    // detector's released memory resident under the tempo peak.
     observer.stage(path, AnalysisStage::Tempo);
     let tempo_reading = StratumDetector.read_tempo(&audio)?;
     observer.stage(path, AnalysisStage::Key);

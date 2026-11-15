@@ -5,7 +5,8 @@
 //! sounds in it, every octave folded together, C first. A doubtful key can
 //! be checked by eye: the notes of the key should stand out.
 
-#[cfg(feature = "libkeyfinder")]
+use crate::audio::AudioBuffer;
+use crate::detect::measure_tuning;
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
 
@@ -16,11 +17,10 @@ pub const PITCH_CLASS_COUNT: usize = 12;
 /// `sample_rate`, C first, from 0 to 1 with the strongest note at 1. All
 /// zero when no note sounds, as in silence or when there are no samples.
 ///
-/// It is libkeyfinder's chromagram of the samples averaged over time, after
-/// audio at least 20 cents from concert pitch is brought back to it: the
-/// same profile an analysis stores. Fails when libkeyfinder fails, as for
-/// audio longer than it can count, or for a sample rate of zero.
-#[cfg(feature = "libkeyfinder")]
+/// Each note is heard on the scale of the track's own tuning, when it can
+/// be measured, and the steady level that sounds without pitch, such as
+/// noise and the body of a drum, is taken off first: the same profile an
+/// analysis stores. Fails for a sample rate of zero.
 pub fn pitch_class_profile(
     samples: &[f32],
     sample_rate: u32,
@@ -32,13 +32,19 @@ pub fn pitch_class_profile(
             source: None,
         });
     };
-    if samples.is_empty() {
-        return Ok([0.0; PITCH_CLASS_COUNT]);
-    }
-    let audio = crate::audio::AudioBuffer::new(samples.to_vec(), sample_rate);
-    Ok(crate::detect::KeyFinderDetector
-        .pitch_class_profile(&audio)?
-        .unwrap_or([0.0; PITCH_CLASS_COUNT]))
+    let audio = AudioBuffer::new(samples.to_vec(), sample_rate);
+    let tuning_cents = measure_tuning(&audio).map(|tuning| tuning.cents);
+    Ok(profile_of_audio(&audio, tuning_cents).unwrap_or([0.0; PITCH_CLASS_COUNT]))
+}
+
+/// The profile of `audio` on the scale of `tuning_cents`, or of concert
+/// pitch when the tuning could not be measured, or `None` when no note
+/// sounds.
+pub(crate) fn profile_of_audio(
+    audio: &AudioBuffer,
+    tuning_cents: Option<f32>,
+) -> Option<[f32; PITCH_CLASS_COUNT]> {
+    crate::detect::pitch_class_profile_at(audio, tuning_cents.unwrap_or(0.0))
 }
 
 /// Totals scaled so the largest is 1, or `None` when no note sounds at all
@@ -152,7 +158,6 @@ mod tests {
         assert_eq!(note_names(None)[1], "C#");
     }
 
-    #[cfg(feature = "libkeyfinder")]
     #[test]
     fn an_a_minor_chord_lights_a_c_and_e() {
         let sample_rate = 44_100;
@@ -177,7 +182,6 @@ mod tests {
         assert_eq!(profile.iter().copied().fold(0.0, f32::max), 1.0);
     }
 
-    #[cfg(feature = "libkeyfinder")]
     #[test]
     fn silence_and_no_samples_give_zeros_and_no_rate_fails() {
         assert_eq!(
