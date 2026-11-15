@@ -862,7 +862,7 @@ mod tests {
         for frame in range {
             state.set_playhead_frames(start_frames + (frame as f64 * rate).round() as u64);
             metronome.next();
-            if metronome.position == 1 {
+            if metronome.position == 1 && !metronome.playing.is_empty() {
                 clicks.push((frame, metronome.playing.as_ptr() == accented));
             }
         }
