@@ -812,19 +812,19 @@ fn key_notation_chooses_how_keys_are_written() {
             .clone()
     };
 
-    assert_eq!(tonality(&[]).as_deref(), Some("11B"));
+    assert_eq!(tonality(&[]).as_deref(), Some("7A"));
     assert_eq!(
         tonality(&["--key-notation", "camelot"]).as_deref(),
-        Some("11B")
+        Some("7A")
     );
     assert_eq!(
         tonality(&["--key-notation", "musical"]).as_deref(),
-        Some("A")
+        Some("Dm")
     );
 
     assert_eq!(
         tonality(&["--key-notation", "open-key"]).as_deref(),
-        Some("4d")
+        Some("12m")
     );
 
     let unknown = euphoria.run(&[

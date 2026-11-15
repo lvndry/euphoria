@@ -219,13 +219,29 @@ impl Network {
     /// [`CORE_BINS`] rows stored row after row, or `None` when there are
     /// fewer than [`MINIMUM_FRAMES`] frames.
     pub(super) fn logits(&self, features: &[f32], frame_count: usize) -> Option<[f32; KEY_COUNT]> {
+        let columns = self.column_logits(features, frame_count)?;
+        Some(mean_of_columns(&columns))
+    }
+
+    /// The scores of the 24 keys in each column of the last feature map,
+    /// eight frames each, about 1.5 seconds. The network averages its
+    /// features over time before one linear layer, so the scores of the
+    /// whole track are the mean of these, and those of a stretch the mean
+    /// of its columns. `None` when there are fewer than [`MINIMUM_FRAMES`]
+    /// frames.
+    pub(super) fn column_logits(
+        &self,
+        features: &[f32],
+        frame_count: usize,
+    ) -> Option<Vec<[f32; KEY_COUNT]>> {
         if frame_count < MINIMUM_FRAMES || features.len() != CORE_BINS * frame_count {
             return None;
         }
         let final_columns = frame_count / 8;
         let final_rows = CORE_BINS / 8;
-        let channels = 64;
-        let mut sums = vec![0.0_f32; channels * final_rows];
+        let channel_rows = 64 * final_rows;
+        let mut column_logits = Vec::with_capacity(final_columns);
+        let mut column_features = vec![0.0_f32; channel_rows];
         let mut stretch_start = 0;
         while stretch_start < frame_count {
             let stretch_end = (stretch_start + STRETCH_FRAMES).min(frame_count);
@@ -234,22 +250,27 @@ impl Network {
             let pooled = self.blocks(features, frame_count, read_start..read_end);
             let first_column = stretch_start / 8 - read_start / 8;
             let last_column = stretch_end.min(final_columns * 8) / 8 - read_start / 8;
-            for (channel_row, sum) in sums.iter_mut().enumerate() {
-                let row = pooled.row(channel_row / final_rows, channel_row % final_rows);
-                *sum += row[first_column..last_column].iter().sum::<f32>();
+            for column in first_column..last_column {
+                for (channel_row, value) in column_features.iter_mut().enumerate() {
+                    *value = pooled.row(channel_row / final_rows, channel_row % final_rows)[column];
+                }
+                column_logits.push(self.head(&column_features));
             }
             stretch_start = stretch_end;
         }
-        let means: Vec<f32> = sums.iter().map(|sum| sum / final_columns as f32).collect();
-        Some(std::array::from_fn(|key| {
-            let weights = &self.head_weights[key * means.len()..(key + 1) * means.len()];
+        Some(column_logits)
+    }
+
+    fn head(&self, features: &[f32]) -> [f32; KEY_COUNT] {
+        std::array::from_fn(|key| {
+            let weights = &self.head_weights[key * features.len()..(key + 1) * features.len()];
             self.head_bias[key]
                 + weights
                     .iter()
-                    .zip(&means)
-                    .map(|(weight, mean)| weight * mean)
+                    .zip(features)
+                    .map(|(weight, value)| weight * value)
                     .sum::<f32>()
-        }))
+        })
     }
 
     /// The three blocks run on the frames in `columns`, as if those were
@@ -273,6 +294,12 @@ impl Network {
         }
         activations
     }
+}
+
+/// The mean of the scores of a run of columns, each key on its own.
+pub(super) fn mean_of_columns(columns: &[[f32; KEY_COUNT]]) -> [f32; KEY_COUNT] {
+    let count = columns.len().max(1) as f32;
+    std::array::from_fn(|key| columns.iter().map(|column| column[key]).sum::<f32>() / count)
 }
 
 /// Feature maps by channel, each with a border of one zero all around.

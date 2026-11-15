@@ -5,6 +5,150 @@ Measured on 10 November 2026 on an Apple M5 (10 cores), macOS 27.2, with 4 worke
 - Key: [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset), 604 two minute previews of electronic dance music. All 604 decoded.
 - Tempo: [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset), 664 previews, scored against the version 2 annotations. 3 previews are annotated with a tempo of zero, meaning no tempo, and are left out, so 661 are scored. All 661 decoded.
 
+## Without libkeyfinder
+
+Measured on 15 November 2026 on an Apple M5, macOS 27.2, with three worker threads, in one run of `euphoria-bench key-parts bench/data --segments <GiantSteps+ new_annotations>`. It compares each part libkeyfinder had in Euphoria with what replaces it: the pitch-class profile (now Euphoria's note spectrum), the key over time (now drone-v2's scores of 7 second windows), the `keyfinder` key engine and the key of audio shorter than drone-v2 reads (now drone-v2), and the tuning correction (now applied to drone-v2). The expert segment annotations are those of [GiantSteps+](https://zenodo.org/records/4153506). Genres with fewer than 20 previews are grouped.
+
+### Pitch-class profile
+
+Against the scale of drone-v2's key. Top 7 exact: the seven strongest notes are the scale. Top 7 share: how many of the seven strongest are in the scale. Contrast: the mean level of the scale's notes less that of the other five, with the strongest note at 100%.
+
+| Genre | Previews | Top 7 exact, libkeyfinder | Top 7 exact, Euphoria | Top 7 share, libkeyfinder | Top 7 share, Euphoria | Contrast, libkeyfinder | Contrast, Euphoria |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| progressive-house | 88 | 25.0% | 35.2% | 83.8% | 87.0% | 26.6% | 39.7% |
+| tech-house | 81 | 4.9% | 6.2% | 70.7% | 71.3% | 13.3% | 22.6% |
+| deep-house | 77 | 19.5% | 23.4% | 82.9% | 84.0% | 21.5% | 35.1% |
+| trance | 58 | 34.5% | 44.8% | 88.9% | 90.1% | 31.0% | 46.3% |
+| electro-house | 51 | 13.7% | 19.6% | 78.2% | 81.2% | 18.4% | 32.9% |
+| house | 47 | 17.0% | 19.1% | 81.5% | 83.0% | 21.7% | 37.7% |
+| drum-and-bass | 38 | 15.8% | 18.4% | 74.1% | 75.6% | 13.5% | 24.3% |
+| techno | 34 | 2.9% | 8.8% | 70.6% | 73.5% | 12.9% | 21.5% |
+| dubstep | 22 | 9.1% | 22.7% | 74.7% | 78.6% | 18.0% | 29.9% |
+| electronica | 20 | 20.0% | 20.0% | 77.9% | 78.6% | 19.9% | 30.2% |
+| other genres | 88 | 18.2% | 27.3% | 78.6% | 80.4% | 19.7% | 30.4% |
+| all | 604 | 17.4% | 23.5% | 79.1% | 81.0% | 20.4% | 32.7% |
+
+The same against the annotated key:
+
+| Genre | Previews | Top 7 share, libkeyfinder | Top 7 share, Euphoria | Contrast, libkeyfinder | Contrast, Euphoria |
+| --- | --- | --- | --- | --- | --- |
+| progressive-house | 88 | 79.7% | 82.5% | 23.7% | 35.3% |
+| tech-house | 81 | 69.8% | 70.9% | 12.2% | 20.8% |
+| deep-house | 77 | 81.3% | 81.8% | 19.1% | 31.5% |
+| trance | 58 | 86.9% | 87.2% | 28.7% | 42.6% |
+| electro-house | 51 | 77.0% | 79.0% | 17.1% | 31.2% |
+| house | 47 | 78.7% | 80.2% | 19.3% | 33.2% |
+| drum-and-bass | 38 | 71.1% | 71.8% | 11.8% | 19.9% |
+| techno | 34 | 68.9% | 71.0% | 11.7% | 19.0% |
+| dubstep | 22 | 74.0% | 77.9% | 16.6% | 27.2% |
+| electronica | 20 | 76.4% | 77.1% | 19.1% | 29.1% |
+| other genres | 88 | 77.3% | 79.4% | 18.4% | 28.6% |
+| all | 604 | 77.2% | 78.7% | 18.5% | 29.7% |
+
+### Key over time
+
+Share of previews whose timeline holds more than one key, against drone-v2's key. With expert segment annotations, also the previews annotated with one key that are split, and the previews annotated with a change between two plain keys whose timeline shows both.
+
+| Genre | Previews | Split, libkeyfinder | Split, drone-v2 | One expert key, split, libkeyfinder | One expert key, split, drone-v2 |
+| --- | --- | --- | --- | --- | --- |
+| progressive-house | 88 | 2.3% | 3.4% | 1.2% | 3.7% |
+| tech-house | 81 | 2.5% | 0.0% | 2.6% | 0.0% |
+| deep-house | 77 | 0.0% | 0.0% | 0.0% | 0.0% |
+| trance | 58 | 3.4% | 0.0% | 3.4% | 0.0% |
+| electro-house | 51 | 2.0% | 2.0% | 0.0% | 0.0% |
+| house | 47 | 0.0% | 0.0% | 0.0% | 0.0% |
+| drum-and-bass | 38 | 5.3% | 0.0% | 5.4% | 0.0% |
+| techno | 34 | 0.0% | 0.0% | 0.0% | 0.0% |
+| dubstep | 22 | 0.0% | 0.0% | 0.0% | 0.0% |
+| electronica | 20 | 0.0% | 0.0% | 0.0% | 0.0% |
+| other genres | 88 | 1.1% | 0.0% | 0.0% | 0.0% |
+| all | 604 | 1.7% | 0.7% | 1.2% | 0.5% |
+
+Previews annotated with a change of key: 13. Timeline shows two of the annotated keys: libkeyfinder 1, drone-v2 1.
+
+### Key engine
+
+The `keyfinder` key engine against drone-v2 as the `auto` engine runs it, with tuning correction, against the annotated key. The last column is drone-v2 without tuning correction, as it shipped before.
+
+| Genre | Previews | Exact, libkeyfinder | Exact, drone-v2 | Exact or fifth, libkeyfinder | Exact or fifth, drone-v2 | Exact, fifth or relative, libkeyfinder | Exact, fifth or relative, drone-v2 | Exact, drone-v2 without tuning correction |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| progressive-house | 88 | 56.8% | 63.6% | 67.0% | 68.2% | 81.8% | 83.0% | 63.6% |
+| tech-house | 81 | 56.8% | 65.4% | 70.4% | 72.8% | 72.8% | 74.1% | 65.4% |
+| deep-house | 77 | 70.1% | 85.7% | 81.8% | 89.6% | 84.4% | 89.6% | 85.7% |
+| trance | 58 | 46.6% | 53.4% | 63.8% | 67.2% | 77.6% | 82.8% | 53.4% |
+| electro-house | 51 | 72.5% | 74.5% | 78.4% | 82.4% | 86.3% | 90.2% | 74.5% |
+| house | 47 | 55.3% | 72.3% | 68.1% | 76.6% | 76.6% | 85.1% | 72.3% |
+| drum-and-bass | 38 | 50.0% | 63.2% | 57.9% | 65.8% | 65.8% | 71.1% | 63.2% |
+| techno | 34 | 52.9% | 67.6% | 67.6% | 73.5% | 70.6% | 73.5% | 67.6% |
+| dubstep | 22 | 50.0% | 63.6% | 63.6% | 77.3% | 72.7% | 81.8% | 63.6% |
+| electronica | 20 | 70.0% | 75.0% | 90.0% | 75.0% | 90.0% | 80.0% | 65.0% |
+| other genres | 88 | 72.7% | 79.5% | 78.4% | 83.0% | 80.7% | 85.2% | 79.5% |
+| all | 604 | 60.6% | 70.2% | 71.9% | 76.2% | 78.6% | 82.3% | 69.9% |
+
+Previews on which only one of the two is exact or a fifth away, and the two-sided sign test on them:
+
+| Genre | Only libkeyfinder | Only drone-v2 | Sign test p |
+| --- | --- | --- | --- |
+| progressive-house | 4 | 5 | 1.000 |
+| tech-house | 6 | 8 | 0.791 |
+| deep-house | 1 | 7 | 0.070 |
+| trance | 5 | 7 | 0.774 |
+| electro-house | 0 | 2 | 0.500 |
+| house | 1 | 5 | 0.219 |
+| drum-and-bass | 2 | 5 | 0.453 |
+| techno | 3 | 5 | 0.727 |
+| dubstep | 1 | 4 | 0.375 |
+| electronica | 3 | 0 | 0.250 |
+| other genres | 2 | 6 | 0.289 |
+| all | 28 | 54 | 0.005 |
+
+### Audio shorter than drone-v2 reads
+
+1 second from 30 seconds into each preview, which libkeyfinder decided before and drone-v2 now reads followed by silence.
+
+| Genre | Previews | Exact, libkeyfinder | Exact, drone-v2 | Exact, fifth or relative, libkeyfinder | Exact, fifth or relative, drone-v2 |
+| --- | --- | --- | --- | --- | --- |
+| progressive-house | 88 | 21.6% | 40.9% | 47.7% | 62.5% |
+| tech-house | 81 | 25.9% | 42.0% | 44.4% | 59.3% |
+| deep-house | 77 | 33.8% | 51.9% | 55.8% | 74.0% |
+| trance | 58 | 20.7% | 43.1% | 44.8% | 65.5% |
+| electro-house | 51 | 17.6% | 41.2% | 45.1% | 62.7% |
+| house | 47 | 29.8% | 61.7% | 61.7% | 78.7% |
+| drum-and-bass | 38 | 23.7% | 26.3% | 39.5% | 44.7% |
+| techno | 34 | 29.4% | 52.9% | 52.9% | 64.7% |
+| dubstep | 22 | 13.6% | 27.3% | 45.5% | 72.7% |
+| electronica | 20 | 45.0% | 45.0% | 65.0% | 60.0% |
+| other genres | 88 | 34.1% | 42.0% | 53.4% | 58.0% |
+| all | 604 | 26.8% | 43.9% | 50.0% | 63.7% |
+
+### Tuning
+
+Chord progressions in all 24 keys, synthesized at each offset. The tuning is measured by the same code before and after. Key: the `keyfinder` engine and drone-v2 as the `auto` engine runs it, both with tuning correction. Profile: the seven strongest notes are the notes played. At 50 cents either neighbouring scale counts.
+
+| Offset (cents) | Largest tuning error (cents) | Key, libkeyfinder | Key, drone-v2 | Profile, libkeyfinder | Profile, Euphoria |
+| --- | --- | --- | --- | --- | --- |
+| -50 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+| -40 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+| -30 | 0.3 | 100.0% | 100.0% | 100.0% | 100.0% |
+| -20 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+| -10 | 0.1 | 100.0% | 100.0% | 100.0% | 100.0% |
+| +0 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+| +10 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+| +20 | 0.3 | 100.0% | 100.0% | 100.0% | 100.0% |
+| +30 | 0.3 | 100.0% | 100.0% | 100.0% | 100.0% |
+| +40 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+| +50 | 0.2 | 100.0% | 100.0% | 100.0% | 100.0% |
+
+### Speed
+
+CPU seconds per preview for the key analysis of the `auto` engine beyond decoding: before, drone-v2 then libkeyfinder for the tuning and the key over time (whose chromagram also gives the profile); after, drone-v2 with the key over time, the tuning and the note spectrum, with the tuning measured twice (about 0.03 s), so the after column is a little high.
+
+| Before | After |
+| --- | --- |
+| 0.434 | 0.379 |
+
+On 20 full length tracks from a private library, 6.4 minutes long on average, the key analysis took 1.33 CPU seconds per track before and 1.09 after, and 1 track had more than one key in its timeline before and none after.
+
 ## Key detection with drone-v2
 
 Measured on 14 November 2026 on an Apple M5 (10 cores), macOS 27.2, with the benchmark's default worker threads, in one run of `euphoria-bench bench/data --only key`. Euphoria ships drone-v2: `--key-engine auto` takes its key and uses libkeyfinder for the tuning and the key over time.
