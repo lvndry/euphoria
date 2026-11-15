@@ -13,14 +13,19 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
 use euphoria_core::export::read_m3u_file;
 use euphoria_core::export::rekordbox::ExistingFile;
-use euphoria_core::harmony::transition::{AutomaticCues, PlanTrack, SectionSource};
+use euphoria_core::harmony::transition::{
+    AutomaticCues, PlanSection, PlanTrack, SectionSource, sections_from_cues,
+};
 use euphoria_core::plan_signals::{SignalsCache, TrackSignals};
 use euphoria_core::set_render::{
     MixFormat, MixInput, MixMove, MixPlan, MixTimeline, RenderOptions, RenderProgress, RenderTrack,
     chapters, cue_sheet, format_mix_time, mix_timeline, plan_mix, render_mix, tracklist,
 };
 use euphoria_core::shift::ExistingOutput;
-use euphoria_core::{FileResult, TrackAnalysis, is_supported_audio_file, read_track_name};
+use euphoria_core::{
+    ContentHash, FileResult, LockedTransition, PlaylistStore, TrackAnalysis,
+    default_playlists_path, is_supported_audio_file, locked_blend, read_track_name,
+};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use crate::batch::{self, AnalysisOptions};
@@ -148,7 +153,7 @@ pub fn run(arguments: &RenderArguments) -> Result<ExitCode> {
         );
     }
     let tracks = analyze(&files, &arguments.analysis)?;
-    let plan = plan(&tracks)?;
+    let plan = plan(&tracks, &locked_transitions()?);
     let timeline = mix_timeline(&plan).map_err(|reason| anyhow::anyhow!(reason))?;
 
     let mut standard_output = std::io::stdout().lock();
@@ -337,7 +342,9 @@ fn set_files(
 
 struct Loaded {
     path: PathBuf,
+    content: Option<ContentHash>,
     analysis: TrackAnalysis,
+    sections: Vec<PlanSection>,
     signals: TrackSignals,
     artist: Option<String>,
     title: Option<String>,
@@ -358,27 +365,44 @@ fn analyze(files: &[PathBuf], options: &AnalysisOptions) -> Result<Vec<Loaded>> 
             with_causes(error).context(format!("cannot analyze {}", Printable(path.display())))
         })?;
         let signals = crate::plan::signals_of(&cache, &path, &analysis)?;
+        let edited_cues = edits
+            .get(&path)
+            .and_then(|edits| edits.as_ref().ok())
+            .and_then(|edits| edits.cues.clone());
+        let sections = match (edited_cues, analysis.beat_grid) {
+            (Some(cues), Some(grid)) => sections_from_cues(&cues, &grid),
+            _ => AutomaticCues.sections(&analysis),
+        };
         let name = read_track_name(&path).ok();
         loaded.push(Loaded {
             artist: name.as_ref().and_then(|name| name.artist.clone()),
             title: name.and_then(|name| name.title),
+            content: ContentHash::of_file(&path).ok(),
             path,
             analysis,
+            sections,
             signals,
         });
     }
     Ok(loaded)
 }
 
-fn plan(tracks: &[Loaded]) -> Result<MixPlan> {
-    let sections: Vec<_> = tracks
-        .iter()
-        .map(|track| AutomaticCues.sections(&track.analysis))
-        .collect();
+/// The transitions the user locked in the desktop app, or none when no
+/// playlists database is kept yet.
+fn locked_transitions() -> Result<Vec<LockedTransition>> {
+    let path = default_playlists_path().map_err(with_causes)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let store = PlaylistStore::open(&path).map_err(with_causes)?;
+    store.load_locked_transitions().map_err(with_causes)
+}
+
+fn plan(tracks: &[Loaded], locks: &[LockedTransition]) -> MixPlan {
     let inputs: Vec<MixInput<'_>> = tracks
         .iter()
-        .zip(&sections)
-        .map(|(track, sections)| MixInput {
+        .enumerate()
+        .map(|(index, track)| MixInput {
             track: RenderTrack {
                 path: track.path.clone(),
                 artist: track.artist.clone(),
@@ -388,13 +412,20 @@ fn plan(tracks: &[Loaded]) -> Result<MixPlan> {
             },
             plan: PlanTrack {
                 analysis: &track.analysis,
-                sections,
+                sections: &track.sections,
                 energy: &track.signals.energy,
                 stems: track.signals.stems.as_ref(),
             },
+            locked_exit: tracks.get(index + 1).and_then(|next| {
+                locked_blend(
+                    locks,
+                    (&track.path, track.content.as_ref()),
+                    (&next.path, next.content.as_ref()),
+                )
+            }),
         })
         .collect();
-    Ok(plan_mix(&inputs))
+    plan_mix(&inputs)
 }
 
 fn write_plan(

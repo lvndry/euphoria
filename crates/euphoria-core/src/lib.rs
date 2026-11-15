@@ -43,6 +43,8 @@ pub mod key_engine;
 pub mod library;
 /// Reading the key, tempo and energy of the audio the computer is playing.
 pub mod live;
+/// Transitions the user placed by hand, which planning a mix keeps.
+pub mod locked_transitions;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
 /// How strongly each of the 12 notes sounds in a track.
@@ -136,6 +138,7 @@ pub use library::{
     AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
     find_audio_files, is_supported_audio_file, scan_audio_files,
 };
+pub use locked_transitions::{BlendBars, LockedTransition, locked_blend};
 #[cfg(feature = "libkeyfinder")]
 pub use pitch_classes::pitch_class_profile;
 pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key};

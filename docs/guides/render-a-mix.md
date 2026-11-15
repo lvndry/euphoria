@@ -43,6 +43,14 @@ The words after the colon are the planner's: whether the vocals or the basslines
 
 `--dry-run` prints the plan and stops, so you can check the transitions before a long render.
 
+### Transitions you placed by hand
+
+In the desktop app's [transition planner](desktop-app.md#plan-a-transition-in-the-focus-view), dragging B to a new mix point, or pressing the marker of another window, locks that transition. `set render`, in the app and on the command line, keeps a locked transition exactly where you put it and never plans it again; its line in the plan starts with "Locked, placed by hand.". The transitions around it are planned to fit: the one before ends before it starts. **Unlock** in the planner gives a transition back to the plan.
+
+### Sections you edited
+
+The sections are read from the cues each track shows, so cues you moved or named by hand in the app count, as they do in the planner.
+
 ### When two tracks cannot blend
 
 A pair plays one after the other, the next track from its start once the one before has ended, when:
@@ -77,13 +85,17 @@ The sample rate of the mix is the one most tracks have, and the first track's on
 
 The mix is written under a temporary name next to `--out` and moved into place once it is complete, so a failed render leaves no half file. An existing mix, CUE sheet, tracklist or chapters file is refused before anything is rendered, unless you pass `--force`.
 
+## In the desktop app
+
+**Render mix…** in the set builder renders the set on the page, with a progress bar and **Cancel**, and writes the CUE sheet, tracklist and chapters beside the mix every time. See [Build a set](desktop-app.md#build-a-set).
+
 ## How long it takes
 
 Rendering runs on one core. A track that needs no stretching is copied through; a stretched one goes through Signalsmith Stretch, faster than real time by a wide margin. A progress bar on the terminal shows how far it has got and the time left.
 
 ## Limits
 
-- The window is the planner's best that fits. There is no way yet to choose another window for one transition from the command line; the planner in the desktop app lets you hear and move them one pair at a time.
+- The command line has no way to move one transition; lock it in the desktop app's planner, and the command line keeps it.
 - When both tracks of a blend have vocals at once, the plan says so in its line ("4 bars of both vocals") but the render does not change anything about it.
 - Tracks whose tempos are an octave apart, such as 70 into 140, are played one after the other.
 - Not tested: listening to a whole rendered set from a real library, and RF64 files over 4 GB written end to end (the header is tested on its own).

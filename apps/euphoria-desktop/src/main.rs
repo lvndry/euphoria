@@ -80,6 +80,9 @@ mod metronome_controls;
 mod metronome_ui_tests;
 #[cfg(test)]
 mod missing_ui_tests;
+mod mix_render;
+#[cfg(test)]
+mod mix_render_ui_tests;
 mod mixes;
 mod motion;
 #[cfg(test)]
@@ -94,6 +97,7 @@ mod palette_flow;
 mod panels;
 mod peaks;
 mod planner_candidates;
+mod planner_locks;
 mod planner_playback;
 #[cfg(test)]
 mod planner_ui_tests;

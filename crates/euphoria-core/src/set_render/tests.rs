@@ -380,6 +380,7 @@ fn planning_keeps_each_blend_out_after_the_blend_in_and_says_why() {
                 energy: &[],
                 stems: None,
             },
+            locked_exit: None,
         })
         .collect();
     let plan = plan_mix(&inputs);
@@ -423,4 +424,51 @@ fn the_sheets_list_each_track_where_it_starts() {
     assert!(list.starts_with("My set\n\n01. 0:00 Someone - Say \"hi\"\n02. 1:04 two\n"));
     assert!(list.ends_with("Length 1:07:44\n"), "{list}");
     assert_eq!(format_mix_time(3_661.9), "1:01:01");
+}
+
+#[test]
+fn a_locked_blend_is_kept_and_the_blend_before_it_makes_room() {
+    let analyses = [
+        analysis(124.0, 96, true),
+        analysis(124.0, 96, true),
+        analysis(124.0, 96, true),
+    ];
+    let locked = Blend {
+        a_start_bar: 40,
+        b_start_bar: 8,
+        bars: 16,
+        bass_swap_bar: Some(5),
+    };
+    let inputs: Vec<MixInput<'_>> = analyses
+        .iter()
+        .enumerate()
+        .map(|(index, analysis)| MixInput {
+            track: track(
+                Path::new(&format!("/{index}.wav")),
+                f64::from(analysis.duration_seconds),
+                analysis.beat_grid,
+            ),
+            plan: PlanTrack {
+                analysis,
+                sections: &[],
+                energy: &[],
+                stems: None,
+            },
+            locked_exit: (index == 1).then_some(locked),
+        })
+        .collect();
+    let plan = plan_mix(&inputs);
+    assert_eq!(plan.transitions[1].mix, MixMove::Blend(locked));
+    assert!(
+        plan.transitions[1]
+            .reason
+            .starts_with("Locked, placed by hand. "),
+        "{}",
+        plan.transitions[1].reason
+    );
+    let MixMove::Blend(before) = plan.transitions[0].mix else {
+        panic!("{:?}", plan.transitions[0]);
+    };
+    assert!(before.b_start_bar + before.bars <= locked.a_start_bar);
+    mix_timeline(&plan).unwrap();
 }
