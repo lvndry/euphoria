@@ -9,6 +9,8 @@ mod export;
 mod filters;
 mod grid_import;
 mod help;
+#[cfg(feature = "stems")]
+mod mashup;
 mod next;
 mod output;
 mod plan;
@@ -143,6 +145,21 @@ enum Command {
         after_help = help::next_examples(),
     )]
     Next(next::NextArguments),
+    /// Find tracks that layer over a track, or render two tracks layered to a WAV file.
+    #[cfg(feature = "stems")]
+    #[command(
+        long_about = "Find tracks that layer over a track, playing at the same time, the same \
+                      ideas in the same order as the mashup mode of the desktop app's decks.\n\n\
+                      A track layers when its key, shifted by up to two semitones, is the same, \
+                      the relative or an adjacent key, and its tempo is within 8 percent. When \
+                      both tracks are in the stem cache (euphoria stems), the vocals of one are \
+                      checked against the instruments of the other.\n\n\
+                      With a second track and --render, the pair is written to a 24 bit WAV \
+                      file as the desktop exports it: both from their first downbeat, B \
+                      stretched to A's tempo and shifted. The tracks are only read.",
+        after_help = help::mashup_examples(),
+    )]
+    Mashup(mashup::MashupArguments),
     /// Plan how to mix one track into the next: tempo, clashes and the best windows.
     #[command(
         long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
@@ -313,6 +330,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
         Command::Next(arguments) => next::run(&arguments),
+        #[cfg(feature = "stems")]
+        Command::Mashup(arguments) => mashup::run(&arguments),
         Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
