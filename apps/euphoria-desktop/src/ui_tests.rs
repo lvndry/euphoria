@@ -6703,15 +6703,13 @@ fn statistic_labels_and_notes_stay_whole_in_every_theme_at_the_narrowest_inspect
         "the statistics were not shown in every theme"
     );
     assert!(
-        measured_notes >= 8,
+        measured_notes >= 4,
         "the notes were not shown in every theme"
     );
 }
 
 #[gpui::test]
-fn the_energy_reads_out_of_10_on_one_line_beside_aligned_key_and_bpm_boxes(
-    cx: &mut TestAppContext,
-) {
+fn the_bpm_and_the_energy_read_on_one_line_in_aligned_boxes(cx: &mut TestAppContext) {
     for theme in ThemeName::ALL {
         let panels = Panels {
             inspector_width: 0,
@@ -6728,43 +6726,55 @@ fn the_energy_reads_out_of_10_on_one_line_beside_aligned_key_and_bpm_boxes(
             None,
             cx,
         );
-        select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
-        cx.update_window(window, |_, window, cx| {
-            window.render_frame(cx);
-            let inspector = window.find("inspector").bounds();
-            let out_of_10 = window.find("energy-out-of-10").bounds();
-            assert!(
-                out_of_10.size.height < px(20.0),
-                "out of 10 wraps in {theme:?}: {:?}",
-                out_of_10.size.height
-            );
-            assert!(
-                out_of_10.right() <= inspector.right(),
-                "out of 10 runs past the inspector in {theme:?}"
-            );
-            let energy_label = window.find("statistic-label-Energy").bounds();
-            assert!(
-                out_of_10.top() > energy_label.top(),
-                "out of 10 sits in the Energy box in {theme:?}"
-            );
-            assert!(window.try_find("statistic-note-Energy").is_none());
-            let key_note = window.find("statistic-note-Key").bounds();
-            let tempo_note = window.find("statistic-note-BPM").bounds();
-            let key_label = window.find("statistic-label-Key").bounds();
-            let tempo_label = window.find("statistic-label-BPM").bounds();
-            if theme == ThemeName::Deck {
-                assert_eq!(key_label.top(), tempo_label.top(), "{theme:?}");
-                assert_eq!(key_label.top(), energy_label.top(), "{theme:?}");
-                assert_eq!(key_note.top(), tempo_note.top(), "{theme:?}");
-            } else {
+        for (name, has_alternative) in [("sure.mp3", false), ("unsure tempo.mp3", true)] {
+            select_track(&view, library_index_of(&view, name, cx), cx);
+            cx.update_window(window, |_, window, cx| {
+                window.render_frame(cx);
+                let inspector = window.find("inspector").bounds();
+                let tempo_unit = window.find("tempo-unit").bounds();
+                let energy_unit = window.find("energy-unit").bounds();
+                let key_label = window.find("statistic-label-Key").bounds();
+                let tempo_label = window.find("statistic-label-BPM").bounds();
+                let energy_label = window.find("statistic-label-Energy").bounds();
+                for (unit, bounds) in [("BPM", tempo_unit), ("out of 10", energy_unit)] {
+                    assert!(
+                        bounds.size.height < px(20.0),
+                        "{unit} wraps in {theme:?} for {name}: {:?}",
+                        bounds.size.height
+                    );
+                    assert!(
+                        bounds.right() <= inspector.right(),
+                        "{unit} runs past the inspector in {theme:?} for {name}"
+                    );
+                }
+                assert!(window.try_find("statistic-note-Energy").is_none());
                 assert_eq!(
-                    key_note.top() - key_label.top(),
-                    tempo_note.top() - tempo_label.top(),
-                    "the Key and BPM lines keep one shape in {theme:?}"
+                    window.try_find("statistic-note-BPM").is_some(),
+                    has_alternative,
+                    "the BPM box has a second line only for the other tempo, {theme:?} {name}"
                 );
-            }
-        })
-        .unwrap();
+                if has_alternative {
+                    let note = window.find("statistic-note-BPM").bounds();
+                    assert!(note.size.height < px(20.0), "{theme:?} {name}");
+                }
+                if theme == ThemeName::Deck {
+                    assert_eq!(key_label.top(), tempo_label.top(), "{theme:?} {name}");
+                    assert_eq!(key_label.top(), energy_label.top(), "{theme:?} {name}");
+                    assert_eq!(tempo_unit.top(), energy_unit.top(), "{theme:?} {name}");
+                    assert!(
+                        tempo_unit.right() <= energy_label.left(),
+                        "BPM stays in its box in {theme:?} for {name}"
+                    );
+                } else if !has_alternative {
+                    assert_eq!(
+                        tempo_unit.top() - tempo_label.top(),
+                        energy_unit.top() - energy_label.top(),
+                        "the BPM and Energy lines keep one shape in {theme:?} for {name}"
+                    );
+                }
+            })
+            .unwrap();
+        }
     }
 }
 

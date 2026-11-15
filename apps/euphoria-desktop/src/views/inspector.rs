@@ -56,8 +56,8 @@ use crate::waveforms::Waveform;
 pub(crate) const STRIP_TITLE_COLUMN: f32 = 220.0;
 
 /// The width of the key, tempo and energy boxes in the Deck strip, room for
-/// "per minute" and "C# minor" whole.
-const STRIP_STATISTICS_WIDTH: f32 = 264.0;
+/// "124.0 BPM" and "C# minor" whole.
+const STRIP_STATISTICS_WIDTH: f32 = 360.0;
 
 /// The width of the last area of the strip: the tabs over the section they show.
 const STRIP_SECTION_WIDTH: f32 = 272.0;
@@ -529,9 +529,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
 
     let (tempo, tempo_note) = match track.bpm() {
         Some(bpm) => (
-            format::bpm(bpm),
+            value_with_unit(format::bpm(bpm), "BPM", "tempo-unit", palette),
             match (correction.bpm, tempo_alternative, track.detected_bpm()) {
-                (Some(_), _, detected) => reset_note(
+                (Some(_), _, detected) => Some(reset_note(
                     "tempo-reset",
                     match detected {
                         Some(detected) => format!("reset to {}", format::bpm(detected)),
@@ -540,7 +540,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                     palette,
                     cx,
                     |this, cx| this.reset_bpm(cx),
-                ),
+                )),
                 (None, Some(alternative), _) => {
                     let hover_colour = palette.text;
                     let description: SharedString = format!(
@@ -548,30 +548,32 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                         format::bpm(alternative)
                     )
                     .into();
-                    quiet_note(format!("or {}", format::bpm(alternative)), palette)
-                        .id("tempo-alternative")
-                        .cursor_pointer()
-                        .hover(move |style| style.text_color(hover_colour))
-                        .tooltip(move |window, cx| {
-                            Tooltip::new(description.clone()).build(window, cx)
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.accept_bpm(alternative, cx);
-                        }))
-                        .test_support()
-                        .into_any_element()
+                    let alternative_note =
+                        quiet_note(format!("or {}", format::bpm(alternative)), palette)
+                            .id("tempo-alternative")
+                            .cursor_pointer()
+                            .hover(move |style| style.text_color(hover_colour))
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(description.clone()).build(window, cx)
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.accept_bpm(alternative, cx);
+                            }))
+                            .test_support()
+                            .into_any_element();
+                    Some(alternative_note)
                 }
-                _ => quiet_note("per minute", palette).into_any_element(),
+                _ => None,
             },
         ),
         None => (
-            "\u{2013}".to_string(),
-            quiet_note(not_known_yet, palette).into_any_element(),
+            statistic_value("\u{2013}"),
+            Some(quiet_note(not_known_yet, palette).into_any_element()),
         ),
     };
     let (energy, energy_note) = match (track.energy(), correction.energy) {
         (Some(rating), Some(_)) => (
-            energy_value(rating, palette),
+            value_with_unit(rating.to_string(), "out of 10", "energy-unit", palette),
             Some(reset_note(
                 "energy-reset",
                 match track.detected_energy() {
@@ -583,7 +585,10 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 |this, cx| this.reset_energy(cx),
             )),
         ),
-        (Some(rating), None) => (energy_value(rating, palette), None),
+        (Some(rating), None) => (
+            value_with_unit(rating.to_string(), "out of 10", "energy-unit", palette),
+            None,
+        ),
         (None, _) if track.analysis().is_some() => (
             statistic_value("\u{2013}"),
             Some(quiet_note("not rated", palette).into_any_element()),
@@ -609,14 +614,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         let compact =
             |label, set_mark, value, note| statistic_compact(label, set_mark, value, note, palette);
         let key_box = compact("Key", key_set_mark, key_value, Some(key_note));
-        let tempo_box = compact(
-            "BPM",
-            tempo_set_mark,
-            statistic_value(tempo),
-            Some(tempo_note),
-        )
-        .border_t_1()
-        .border_color(palette.line);
+        let tempo_box = compact("BPM", tempo_set_mark, tempo, tempo_note)
+            .border_t_1()
+            .border_color(palette.line);
         let energy_box = compact("Energy", energy_set_mark, energy, energy_note)
             .border_t_1()
             .border_color(palette.line);
@@ -657,15 +657,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 palette,
             ))
             .child(
-                statistic(
-                    "BPM",
-                    tempo_set_mark,
-                    statistic_value(tempo),
-                    Some(tempo_note),
-                    palette,
-                )
-                .border_l_1()
-                .border_color(palette.line),
+                statistic("BPM", tempo_set_mark, tempo, tempo_note, palette)
+                    .border_l_1()
+                    .border_color(palette.line),
             )
             .child(
                 statistic("Energy", energy_set_mark, energy, energy_note, palette)
@@ -778,20 +772,21 @@ fn statistic_value(value: impl Into<SharedString>) -> Div {
         .child(value.into())
 }
 
-/// The energy rating, large, with "out of 10" after it on the same
-/// baseline in the style of a quiet note.
-fn energy_value(rating: u8, palette: &Palette) -> Div {
+/// The value of a box, large, with its unit after it on the same baseline
+/// in the style of a quiet note, such as "124.0 BPM" or "7 out of 10".
+fn value_with_unit(
+    value: String,
+    unit: &'static str,
+    unit_id: &'static str,
+    palette: &Palette,
+) -> Div {
     div()
         .flex()
         .items_baseline()
         .gap(GAP_TIGHT)
         .whitespace_nowrap()
-        .child(statistic_value(rating.to_string()))
-        .child(
-            quiet_note("out of 10", palette)
-                .id("energy-out-of-10")
-                .test_support(),
-        )
+        .child(statistic_value(value))
+        .child(quiet_note(unit, palette).id(unit_id).test_support())
 }
 
 /// The quiet line under the value of a box.
@@ -904,7 +899,7 @@ fn statistic(
 /// longest label ("Energy") at its size.
 const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 
-/// The least width of a box of the strip, room for "per minute" and
+/// The least width of a box of the strip, room for "124.0 BPM" and
 /// "C# minor" at their size beside the padding.
 const STATISTIC_CELL_WIDTH: f32 = 84.0;
 
