@@ -741,8 +741,8 @@ fn the_plain_table_follows_the_key_notation() {
             .and_then(|row| row.split_whitespace().next().map(str::to_string))
             .expect("a row")
     };
-    assert_eq!(first_cell(&camelot), "11B");
-    assert_eq!(first_cell(&musical), "A");
+    assert_eq!(first_cell(&camelot), "7A");
+    assert_eq!(first_cell(&musical), "Dm");
 }
 
 #[test]

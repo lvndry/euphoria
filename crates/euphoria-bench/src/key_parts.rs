@@ -641,6 +641,28 @@ fn report(previews: &[Preview], synthesized: &[(f32, OffsetResult)]) -> String {
         text.push('\n');
     }
 
+    text.push_str("\nPreviews on which only one of the two is exact or a fifth away, and the two-sided sign test on them:\n\n| Genre | Only libkeyfinder | Only drone-v2 | Sign test p |\n| --- | --- | --- | --- |\n");
+    for (group, members) in &groups {
+        let within =
+            |key: Option<Key>, preview: &Preview| relation_within(key, preview.reference, &fifth);
+        let only_keyfinder = members
+            .iter()
+            .filter(|preview| {
+                within(preview.keyfinder_key, preview) && !within(preview.drone_key, preview)
+            })
+            .count();
+        let only_drone = members
+            .iter()
+            .filter(|preview| {
+                within(preview.drone_key, preview) && !within(preview.keyfinder_key, preview)
+            })
+            .count();
+        text.push_str(&format!(
+            "| {group} | {only_keyfinder} | {only_drone} | {:.3} |\n",
+            sign_test(only_keyfinder, only_drone)
+        ));
+    }
+
     text.push_str(&format!(
         "\n## Audio shorter than drone-v2 reads\n\n{SHORT_EXCERPT_SECONDS} second from {SHORT_EXCERPT_START_SECONDS} seconds into each preview, which libkeyfinder decided before and drone-v2 now reads followed by silence.\n\n| Genre | Previews | Exact, libkeyfinder | Exact, drone-v2 | Exact, fifth or relative, libkeyfinder | Exact, fifth or relative, drone-v2 |\n| --- | --- | --- | --- | --- | --- |\n"
     ));
@@ -693,4 +715,44 @@ fn report(previews: &[Preview], synthesized: &[(f32, OffsetResult)]) -> String {
         mean_seconds(|preview| preview.new_seconds),
     ));
     text
+}
+
+/// The two-sided sign test: how likely a split at least this uneven is when
+/// either side is as likely to win each disagreement.
+fn sign_test(first: usize, second: usize) -> f64 {
+    let total = first + second;
+    if total == 0 {
+        return 1.0;
+    }
+    let fewer = first.min(second);
+    let mut tail = 0.0;
+    let mut combinations = 1.0_f64;
+    for wins in 0..=fewer {
+        if wins > 0 {
+            combinations *= (total - wins + 1) as f64 / wins as f64;
+        }
+        tail += combinations;
+    }
+    (2.0 * tail / 2.0_f64.powi(total as i32)).min(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sign_test_matches_known_values() {
+        assert!((sign_test(0, 5) - 0.0625).abs() < 1e-9);
+        assert!((sign_test(1, 4) - 0.375).abs() < 1e-9);
+        assert_eq!(sign_test(3, 3), 1.0);
+        assert_eq!(sign_test(0, 0), 1.0);
+    }
+
+    #[test]
+    fn the_notes_of_a_minor_key_follow_the_natural_minor_scale() {
+        let notes = scale_notes("A minor".parse().unwrap());
+        let expected: Vec<usize> = vec![0, 2, 4, 5, 7, 9, 11];
+        let found: Vec<usize> = (0..12).filter(|pitch_class| notes[*pitch_class]).collect();
+        assert_eq!(found, expected);
+    }
 }
