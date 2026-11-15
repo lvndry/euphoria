@@ -32,7 +32,7 @@ use crate::theme::AppTheme;
 use crate::track_filters::TrackFilters;
 
 /// How many tracks the list shows.
-pub(crate) const NEXT_LIMIT: usize = 6;
+pub(crate) const NEXT_LIMIT: usize = 10;
 
 /// How often the model looks at what the engine heard, which sets how
 /// smoothly the level meter moves.

@@ -709,6 +709,7 @@ fn the_state_line_says_settling_and_then_steady_and_kept_readings_become_earlier
     let window = open_panel(&model, cx);
     poll_until(&model, cx, hears_a_key);
     hear_c_major(&model, cx);
+    cx.update(|cx| model.update(cx, |model, _| model.backdate_signature(Duration::ZERO)));
     cx.update(|cx| {
         assert_eq!(model.read(cx).steadiness(), Some(Steadiness::Settling));
         assert!(model.read(cx).earlier_readings().is_empty());
