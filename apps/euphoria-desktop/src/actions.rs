@@ -34,6 +34,11 @@ actions!(
         AddCueAtPlayhead,
         /// Undoes the latest edit of the selected track's cues.
         UndoCueEdit,
+        /// Opens the Live panel, which shows the key and tempo of what the
+        /// Mac is playing.
+        OpenLive,
+        /// Pauses Live listening, or resumes it.
+        ToggleLiveListening,
         /// Opens the settings.
         OpenSettings,
         /// Shows the two decks, or hides them.

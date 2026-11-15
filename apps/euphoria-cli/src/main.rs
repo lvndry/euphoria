@@ -9,6 +9,9 @@ mod export;
 mod filters;
 mod grid_import;
 mod help;
+mod live;
+#[cfg(feature = "stems")]
+mod mashup;
 mod next;
 mod output;
 mod plan;
@@ -145,6 +148,17 @@ enum Command {
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
+    /// Show the key and tempo of the audio playing on this Mac, live.
+    #[command(
+        long_about = "Listen to the audio this Mac is playing, from rekordbox, Spotify, a \
+                      browser or any other application, and print its key and tempo as they \
+                      change: one line every two seconds once enough audio has played.\n\n\
+                      This is the analysis of the Live window in the desktop app. The audio \
+                      stays in memory: nothing is recorded, written or sent anywhere. \
+                      macOS 14.2 or later, and macOS asks once to allow listening.",
+        after_help = help::live_examples(),
+    )]
+    Live(live::LiveArguments),
     /// Rank the best tracks to play after a track: key, tempo and energy.
     #[command(
         long_about = "Rank the best tracks to play after a track, the same ranking as the \
@@ -160,6 +174,21 @@ enum Command {
         after_help = help::next_examples(),
     )]
     Next(next::NextArguments),
+    /// Find tracks that layer over a track, or render two tracks layered to a WAV file.
+    #[cfg(feature = "stems")]
+    #[command(
+        long_about = "Find tracks that layer over a track, playing at the same time, the same \
+                      ideas in the same order as the mashup mode of the desktop app's decks.\n\n\
+                      A track layers when its key, shifted by up to two semitones, is the same, \
+                      the relative or an adjacent key, and its tempo is within 8 percent. When \
+                      both tracks are in the stem cache (euphoria stems), the vocals of one are \
+                      checked against the instruments of the other.\n\n\
+                      With a second track and --render, the pair is written to a 24 bit WAV \
+                      file as the desktop exports it: both from their first downbeat, B \
+                      stretched to A's tempo and shifted. The tracks are only read.",
+        after_help = help::mashup_examples(),
+    )]
+    Mashup(mashup::MashupArguments),
     /// Plan how to mix one track into the next: tempo, clashes and the best windows.
     #[command(
         long_about = "Plan how to mix track A, playing, into track B, next.\n\n\
@@ -206,6 +235,11 @@ struct AnalyzeArguments {
     /// terminal is always shown this way.
     #[arg(long)]
     detail: bool,
+    /// Show the 12 notes the key analysis heard as a row of bars, with
+    /// the notes of the key marked, to check a doubtful key by eye. Shows
+    /// every track in detail.
+    #[arg(long, conflicts_with = "json")]
+    notes: bool,
     /// List only the tracks whose key or tempo is rated low confidence or
     /// whose tags name another key, and the files that could not be
     /// analyzed. A key or tempo you set or confirmed with "Looks right" in
@@ -331,6 +365,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
         Command::Next(arguments) => next::run(&arguments),
+        #[cfg(feature = "stems")]
+        Command::Mashup(arguments) => mashup::run(&arguments),
+        Command::Live(arguments) => live::run(&arguments),
         Command::Completions { shell } => write_completions(shell),
         Command::Cache { command } => manage_cache(command),
         #[cfg(feature = "stems")]
@@ -472,7 +509,8 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let stdout_is_terminal = std::io::stdout().is_terminal();
     let layout = if arguments.json {
         Layout::Json
-    } else if arguments.detail || (stdout_is_terminal && audio_files.len() == 1) {
+    } else if arguments.detail || arguments.notes || (stdout_is_terminal && audio_files.len() == 1)
+    {
         Layout::Detail
     } else if stdout_is_terminal {
         Layout::Table
@@ -482,6 +520,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let view_options = ViewOptions {
         notation: arguments.key_notation,
         tempo_range: analysis.tempo_range(),
+        notes: arguments.notes,
         width: if stdout_is_terminal {
             view::terminal_width()
         } else {
@@ -555,7 +594,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         Layout::PlainTable => output::write_plain_table(
             &mut standard_output,
             &listed_results,
-            &user_edits,
             arguments.key_notation,
         )?,
         Layout::Table => view::write_table(
@@ -563,7 +601,6 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
             &standard_output_theme,
             &listed_results,
             &view_options,
-            &corrections,
             &tag_keys,
         )?,
         Layout::Detail => {
