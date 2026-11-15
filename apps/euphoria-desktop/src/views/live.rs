@@ -7,9 +7,11 @@
 
 use euphoria_core::Confidence;
 use euphoria_core::live::ListenSource;
+use gpui::component::scroll::Scrollbar;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, Entity, FontWeight, TestSupportExt, Window, div, px, relative,
+    AnyElement, Context, Div, Entity, FocusHandle, FontWeight, ScrollHandle, TestSupportExt,
+    Window, div, px, relative,
 };
 
 use crate::format;
@@ -58,6 +60,10 @@ pub(crate) fn source_option_id(position: usize) -> (&'static str, usize) {
 pub(crate) struct LiveView {
     pub(crate) model: Entity<LiveModel>,
     pub(crate) picker_open: bool,
+    pub(crate) scroll: ScrollHandle,
+    pub(crate) focus: FocusHandle,
+    /// The row the arrow keys are on, among those the Next list shows.
+    pub(crate) selected_row: Option<usize>,
 }
 
 impl LiveView {
@@ -67,6 +73,43 @@ impl LiveView {
         Self {
             model,
             picker_open: false,
+            scroll: ScrollHandle::new(),
+            focus: cx.focus_handle(),
+            selected_row: None,
+        }
+    }
+
+    /// Moves the arrow keys' row by `step` and scrolls it into view.
+    pub(crate) fn move_row(&mut self, step: isize, cx: &mut Context<'_, Self>) {
+        let count = self.model.read(cx).next_rows.len();
+        if count == 0 {
+            return;
+        }
+        let next = match self.selected_row {
+            None if step > 0 => 0,
+            None => count - 1,
+            Some(current) => current.saturating_add_signed(step).min(count - 1),
+        };
+        self.selected_row = Some(next);
+        self.scroll.scroll_to_item(next);
+        cx.notify();
+    }
+
+    fn open_selected_row(&mut self, cx: &mut Context<'_, Self>) {
+        let path = self.selected_row.and_then(|row| {
+            let model = self.model.read(cx);
+            let next = model.next_rows.get(row)?;
+            Some(
+                model
+                    .library
+                    .as_ref()?
+                    .track(next.track_index)?
+                    .path
+                    .clone(),
+            )
+        });
+        if let Some(path) = path {
+            crate::live_app::show_in_euphoria(path, cx);
         }
     }
 }
@@ -448,7 +491,7 @@ fn recognition(model: &LiveModel) -> Option<AnyElement> {
     None
 }
 
-fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
+fn next_row(model: &LiveModel, next: &NextRow, is_selected: bool) -> Option<AnyElement> {
     let palette = model.theme.palette;
     let track = model.library.as_ref()?.track(next.track_index)?;
     let hover_background = palette.raised;
@@ -463,6 +506,7 @@ fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
             .px(px(2.0))
             .rounded(RADIUS_SMALL)
             .cursor_pointer()
+            .when(is_selected, |row| row.bg(palette.selection))
             .hover(move |style| style.bg(hover_background))
             .on_click({
                 let path = track.path.clone();
@@ -520,7 +564,12 @@ fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
     )
 }
 
-fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
+fn next_section(
+    model: &LiveModel,
+    model_entity: &Entity<LiveModel>,
+    scroll: &ScrollHandle,
+    selected_row: Option<usize>,
+) -> Div {
     let palette = model.theme.palette;
     let control = segmented(
         EnergyChoice::ALL
@@ -547,7 +596,8 @@ fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
     let rows: Vec<AnyElement> = model
         .next_rows
         .iter()
-        .filter_map(|next| next_row(model, next))
+        .enumerate()
+        .filter_map(|(position, next)| next_row(model, next, selected_row == Some(position)))
         .collect();
     let has_key = model.is_listening() && !model.reading.listening && model.reading.key.is_some();
     let empty_text = if !has_key {
@@ -573,21 +623,40 @@ fn next_section(model: &LiveModel, model_entity: &Entity<LiveModel>) -> Div {
         )
         .child(
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_h_0()
-                .overflow_hidden()
-                .gap(GAP_TIGHT)
-                .when(rows.is_empty(), |list| {
-                    list.child(
-                        div()
-                            .text_size(SMALL_TEXT_SIZE)
-                            .text_color(palette.text_tertiary)
-                            .child(empty_text),
-                    )
-                })
-                .children(rows),
+                .child(
+                    div()
+                        .id("live-next-list")
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .track_scroll(scroll)
+                        .gap(GAP_TIGHT)
+                        .when(rows.is_empty(), |list| {
+                            list.child(
+                                div()
+                                    .text_size(SMALL_TEXT_SIZE)
+                                    .text_color(palette.text_tertiary)
+                                    .child(empty_text),
+                            )
+                        })
+                        .children(rows),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .w(Scrollbar::width())
+                        .child(Scrollbar::vertical(scroll).viewport_from_layout()),
+                ),
         )
 }
 
@@ -642,6 +711,15 @@ impl Render for LiveView {
         let source = source_picker(model, picker_open, cx);
         div()
             .id("live-panel")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                match event.keystroke.key.as_str() {
+                    "down" => this.move_row(1, cx),
+                    "up" => this.move_row(-1, cx),
+                    "enter" => this.open_selected_row(cx),
+                    _ => {}
+                }
+            }))
             .flex()
             .flex_col()
             .size_full()
@@ -668,7 +746,12 @@ impl Render for LiveView {
             .child(figures(model))
             .child(level_meter(model, &palette))
             .children(recognition(model))
-            .child(next_section(model, &model_entity))
+            .child(next_section(
+                model,
+                &model_entity,
+                &self.scroll,
+                self.selected_row,
+            ))
             .child(
                 div()
                     .flex()

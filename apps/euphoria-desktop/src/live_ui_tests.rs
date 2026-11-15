@@ -17,6 +17,7 @@ use euphoria_core::TrackAnalysis;
 use euphoria_core::live::{
     AudioCapture, AudioSink, CaptureError, ListenSource, LiveKey, LiveTempo,
 };
+use gpui::test::TestWindowExt;
 use gpui::{
     AnyWindowHandle, AppContext as _, Bounds, Entity, Point, TestAppContext, WindowBounds,
     WindowOptions, px, size,
@@ -102,6 +103,7 @@ impl AudioCapture for FakeCapture {
 }
 
 struct Setup {
+    many_tracks: bool,
     index: Option<euphoria_core::fingerprint::FingerprintIndex>,
     audio: Vec<f32>,
     refuse: Option<CaptureError>,
@@ -111,6 +113,7 @@ struct Setup {
 impl Setup {
     fn music() -> Self {
         Self {
+            many_tracks: false,
             index: None,
             audio: programme(14.0, true),
             refuse: None,
@@ -164,6 +167,36 @@ fn library() -> Library {
     library
 }
 
+fn crowded_library() -> Library {
+    let mut library = Library::default();
+    for number in 1..=10 {
+        let path = PathBuf::from(format!("/music/Crowd {number:02}.flac"));
+        library.add_files(vec![path.clone()]);
+        library.record_outcome(
+            &path,
+            Ok(TrackAnalysis {
+                duration_seconds: 300.0,
+                key: Some("8B".parse().unwrap()),
+                bpm: Some(126.0),
+                energy: Some(6),
+                tuning_cents: None,
+                key_runner_up: None,
+                key_score_margin: None,
+                key_source: None,
+                loudness_range_lu: None,
+                pitch_class_profile: None,
+                tempo_estimate: None,
+                tempo_score_margin: None,
+                beat_grid: None,
+                cues: Vec::new(),
+                key_timeline: Vec::new(),
+                quality: None,
+            }),
+        );
+    }
+    library
+}
+
 fn model(setup: Setup, cx: &mut TestAppContext) -> (Entity<LiveModel>, Arc<Mutex<Seen>>) {
     let seen = Arc::new(Mutex::new(Seen::default()));
     let model = {
@@ -171,6 +204,7 @@ fn model(setup: Setup, cx: &mut TestAppContext) -> (Entity<LiveModel>, Arc<Mutex
         let audio = setup.audio.clone();
         let refuse = setup.refuse.clone();
         let index = setup.index.clone();
+        let many_tracks = setup.many_tracks;
         cx.update(|cx| {
             cx.new(|cx| {
                 LiveModel::with_parts(
@@ -186,7 +220,13 @@ fn model(setup: Setup, cx: &mut TestAppContext) -> (Entity<LiveModel>, Arc<Mutex
                             }],
                         })
                     }),
-                    Box::new(library),
+                    Box::new(move || {
+                        if many_tracks {
+                            crowded_library()
+                        } else {
+                            library()
+                        }
+                    }),
                     Box::new(move |_, done, _| {
                         done.store(1, std::sync::atomic::Ordering::Relaxed);
                         index.clone().unwrap_or_else(|| {
@@ -550,4 +590,84 @@ fn playback_words_say_how_far_and_how_the_pitch_went() {
     assert_eq!(words(1.0, false), None);
     assert_eq!(words(1.04, false).as_deref(), Some("+4.0%, key lock"));
     assert_eq!(words(0.92, true).as_deref(), Some("-8.0%, pitch follows"));
+}
+
+fn open_small_panel(
+    model: &Entity<LiveModel>,
+    height: f32,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<LiveView>) {
+    cx.update(|cx| {
+        gpui::init(cx);
+        let view_model = model.clone();
+        gpui::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Point::default(),
+                    size: size(px(340.0), px(height)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| cx.new(|cx| LiveView::new(view_model, cx)),
+        )
+        .unwrap()
+    })
+}
+
+fn last_row_is_in_view(view: &Entity<LiveView>, last: usize, cx: &mut TestAppContext) -> bool {
+    cx.update(|cx| {
+        let scroll = &view.read(cx).scroll;
+        let row = scroll
+            .bounds_for_item(last)
+            .expect("the last row was laid out");
+        let viewport = scroll.bounds();
+        row.bottom() + scroll.offset().y <= viewport.bottom() + px(1.0)
+    })
+}
+
+#[gpui::test]
+fn a_next_list_taller_than_the_panel_scrolls_to_its_last_row_with_the_arrow_keys(
+    cx: &mut TestAppContext,
+) {
+    let mut setup = Setup::music();
+    setup.many_tracks = true;
+    let (model, _) = model(setup, cx);
+    start(&model, cx);
+    let (window, view) = open_small_panel(&model, 640.0, cx);
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    cx.update(|cx| {
+        assert_eq!(
+            model.read(cx).next_rows.len(),
+            crate::live_model::NEXT_LIMIT
+        )
+    });
+    let last = crate::live_model::NEXT_LIMIT - 1;
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    assert!(
+        !last_row_is_in_view(&view, last, cx),
+        "the list is taller than the room it has"
+    );
+    cx.update_window(window, |_, window, cx| {
+        let focus = view.read(cx).focus.clone();
+        focus.focus(window, cx);
+    })
+    .unwrap();
+    for _ in 0..=last {
+        cx.simulate_keystrokes(window, "down");
+    }
+    for _ in 0..3 {
+        cx.run_until_parked();
+        cx.update_window(window, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+    assert!(
+        last_row_is_in_view(&view, last, cx),
+        "the last row scrolled into view"
+    );
+    cx.update(|cx| assert_eq!(view.read(cx).selected_row, Some(last)));
 }

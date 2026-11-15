@@ -20,6 +20,7 @@ use crate::settings::Settings;
 use crate::views::live::{LiveView, PANEL_HEIGHT, PANEL_WIDTH};
 
 const PANEL_TITLE: &str = "Euphoria Live";
+const PANEL_MINIMUM_HEIGHT: f32 = 560.0;
 const PANEL_MARGIN: f32 = 12.0;
 const PANEL_TOP: f32 = 36.0;
 
@@ -116,9 +117,9 @@ fn panel_options(cx: &App) -> WindowOptions {
             traffic_light_position: None,
         }),
         kind: WindowKind::Floating,
-        is_resizable: false,
+        is_resizable: true,
         is_minimizable: false,
-        window_min_size: Some(size(width, height)),
+        window_min_size: Some(size(width, px(PANEL_MINIMUM_HEIGHT))),
         ..Default::default()
     }
 }
