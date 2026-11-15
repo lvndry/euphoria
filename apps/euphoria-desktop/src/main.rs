@@ -69,6 +69,7 @@ mod output_stream;
 mod palette_flow;
 mod panels;
 mod peaks;
+mod planner_playback;
 #[cfg(test)]
 mod planner_ui_tests;
 mod playback;
