@@ -18,11 +18,11 @@ use gpui::component::input::InputState;
 use gpui::{Action, Entity, ScrollHandle};
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, EditTags, ExportLibrary, FocusSearch, OpenCommandPalette,
-    OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition, ResetColumnWidths, RevealTrack,
-    SelectAllTracks, SeparateStems, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback,
-    ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme,
-    UseSlateTheme, WriteTags,
+    AddCueAtPlayhead, AddFolder, AnalyzeAgain, EditTags, ExportLibrary, FocusSearch,
+    OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
+    ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks,
+    ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
+    UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::library::Track;
 use crate::metronome::parse_bpm;
@@ -187,6 +187,27 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
             "stop"
         ],
         ToggleMetronome
+    ),
+    command!(
+        "analyze-again",
+        "Analyze selected tracks again",
+        [
+            "analyze",
+            "analyse",
+            "again",
+            "refresh",
+            "reanalyze",
+            "redo",
+            "update",
+            "rescan"
+        ],
+        AnalyzeAgain
+    ),
+    command!(
+        "stop-analysis",
+        "Stop analysis",
+        ["stop", "cancel", "analysis", "analyze", "abort", "halt"],
+        StopAnalysis
     ),
     command!(
         "separate-stems",
