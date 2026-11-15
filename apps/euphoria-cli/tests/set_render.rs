@@ -109,16 +109,16 @@ fn a_folder_or_an_unknown_format_is_refused_before_any_work() {
     assert!(!folder_output.status.success());
     assert!(standard_error(&folder_output).contains("has no play order"));
 
-    let mp3 = folder.path().join("mix.mp3");
-    let mp3_output = euphoria.run(&[
+    let ogg = folder.path().join("mix.ogg");
+    let ogg_output = euphoria.run(&[
         "set",
         "render",
         tracks[0].to_str().unwrap(),
         "--out",
-        mp3.to_str().unwrap(),
+        ogg.to_str().unwrap(),
     ]);
-    assert!(!mp3_output.status.success());
-    assert!(standard_error(&mp3_output).contains("must end in .wav or .flac"));
+    assert!(!ogg_output.status.success());
+    assert!(standard_error(&ogg_output).contains("must end in .wav, .flac or .mp3"));
 
     let clash = euphoria.run(&[
         "set",
@@ -131,4 +131,46 @@ fn a_folder_or_an_unknown_format_is_refused_before_any_work() {
     ]);
     assert!(!clash.status.success());
     assert!(standard_error(&clash).contains("but --format is flac"));
+}
+
+#[test]
+fn a_set_renders_to_mp3_with_a_chapter_per_track() {
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let tracks = three_tracks(folder.path());
+    let mix = folder.path().join("mix.mp3");
+    let output = euphoria.run(&[
+        "set",
+        "render",
+        tracks[0].to_str().unwrap(),
+        tracks[1].to_str().unwrap(),
+        "--out",
+        mix.to_str().unwrap(),
+        "--mp3-bitrate",
+        "192",
+        "--cue",
+        "--no-cache",
+    ]);
+    assert!(output.status.success(), "{}", standard_error(&output));
+    assert!(standard_error(&output).contains("MP3 at 192 kbps"));
+    let bytes = std::fs::read(&mix).expect("the mix is written");
+    assert_eq!(&bytes[..3], b"ID3");
+    assert_eq!(
+        bytes.windows(4).filter(|window| *window == b"CHAP").count(),
+        2
+    );
+    let cue = text(&folder.path().join("mix.cue"));
+    assert!(cue.contains("FILE \"mix.mp3\" MP3"), "{cue}");
+
+    let refused = euphoria.run(&[
+        "set",
+        "render",
+        tracks[0].to_str().unwrap(),
+        "--out",
+        mix.to_str().unwrap(),
+        "--mp3-bitrate",
+        "300",
+    ]);
+    assert!(!refused.status.success());
+    assert!(standard_error(&refused).contains("an MP3 bitrate is one of"));
 }

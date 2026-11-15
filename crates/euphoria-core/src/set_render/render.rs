@@ -43,7 +43,19 @@ pub enum MixFormat {
     Wav,
     /// 24 bit FLAC.
     Flac,
+    /// Constant bitrate MP3 from LAME, with the title and a chapter per
+    /// track in its ID3v2 tag.
+    Mp3 {
+        /// Kilobits per second, one of [`MP3_BITRATES`].
+        bitrate_kbps: u16,
+    },
 }
+
+/// The bitrates an MP3 mix can be written at, in kilobits per second.
+pub const MP3_BITRATES: [u16; 8] = [96, 112, 128, 160, 192, 224, 256, 320];
+
+/// The bitrate of an MP3 mix unless another is asked for.
+pub const DEFAULT_MP3_BITRATE_KBPS: u16 = 320;
 
 impl MixFormat {
     /// The format the extension of `path` names, if it is one a mix can be
@@ -53,6 +65,9 @@ impl MixFormat {
         match extension.as_str() {
             "wav" => Some(Self::Wav),
             "flac" => Some(Self::Flac),
+            "mp3" => Some(Self::Mp3 {
+                bitrate_kbps: DEFAULT_MP3_BITRATE_KBPS,
+            }),
             _ => None,
         }
     }
@@ -62,6 +77,7 @@ impl MixFormat {
         match self {
             Self::Wav => "wav",
             Self::Flac => "flac",
+            Self::Mp3 { .. } => "mp3",
         }
     }
 }
@@ -141,7 +157,13 @@ pub fn render_mix(
             source,
         })?;
     let written = (|| {
-        let mut writer = MixWriter::create(file, &temporary, options.format, sample_rate)?;
+        let mut writer = MixWriter::create(
+            file,
+            &temporary,
+            options.format,
+            sample_rate,
+            &MixTags::of(plan, &timeline, output),
+        )?;
         let mut mixer = Mixer::new(plan, &timeline, sample_rate);
         let mut limiter = Limiter::new(sample_rate);
         let mut block = Vec::with_capacity(BLOCK_FRAMES * CHANNELS);
@@ -215,6 +237,45 @@ fn mix_sample_rate(tracks: &[RenderTrack]) -> Result<u32, EuphoriaError> {
 enum MixWriter {
     Wav(WavWriter, PathBuf),
     Flac(Box<FlacWriter>),
+    #[cfg(feature = "mp3")]
+    Mp3(Box<super::mp3::Mp3Writer>, PathBuf),
+}
+
+/// What a file format that carries tags is told of the mix: its title,
+/// from the name of the file, and where each track starts and ends.
+struct MixTags {
+    title: String,
+    chapters: Vec<(String, f64, f64)>,
+}
+
+impl MixTags {
+    fn of(plan: &MixPlan, timeline: &MixTimeline, output: &Path) -> Self {
+        let starts: Vec<f64> = timeline
+            .placements
+            .iter()
+            .map(|placement| placement.start_seconds)
+            .collect();
+        let chapters = plan
+            .tracks
+            .iter()
+            .zip(&starts)
+            .enumerate()
+            .map(|(index, (track, start))| {
+                let end = starts
+                    .get(index + 1)
+                    .copied()
+                    .unwrap_or(timeline.length_seconds);
+                (track.display_name(), *start, end)
+            })
+            .collect();
+        Self {
+            title: output
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            chapters,
+        }
+    }
 }
 
 impl MixWriter {
@@ -223,6 +284,7 @@ impl MixWriter {
         path: &Path,
         format: MixFormat,
         sample_rate: u32,
+        tags: &MixTags,
     ) -> Result<Self, EuphoriaError> {
         Ok(match format {
             MixFormat::Wav => Self::Wav(
@@ -237,6 +299,35 @@ impl MixWriter {
                 sample_rate,
                 render_error,
             )?)),
+            #[cfg(feature = "mp3")]
+            MixFormat::Mp3 { bitrate_kbps } => {
+                let chapters: Vec<super::mp3::Chapter> = tags
+                    .chapters
+                    .iter()
+                    .map(|(title, start, end)| super::mp3::Chapter {
+                        title: title.clone(),
+                        start_milliseconds: (start * 1000.0).round() as u32,
+                        end_milliseconds: (end * 1000.0).round() as u32,
+                    })
+                    .collect();
+                let writer = super::mp3::Mp3Writer::new(
+                    file,
+                    sample_rate,
+                    bitrate_kbps,
+                    &tags.title,
+                    &chapters,
+                )
+                .map_err(|reason| render_error(path, reason))?;
+                Self::Mp3(Box::new(writer), path.to_path_buf())
+            }
+            #[cfg(not(feature = "mp3"))]
+            MixFormat::Mp3 { .. } => {
+                let _ = (file, &tags.title, &tags.chapters);
+                return Err(render_error(
+                    path,
+                    "this build of Euphoria has no MP3 encoder".to_string(),
+                ));
+            }
         })
     }
 
@@ -246,6 +337,10 @@ impl MixWriter {
                 .write(interleaved)
                 .map_err(|error| render_error(path, error.to_string())),
             Self::Flac(writer) => writer.write(interleaved),
+            #[cfg(feature = "mp3")]
+            Self::Mp3(writer, path) => writer
+                .write(interleaved)
+                .map_err(|reason| render_error(path, reason)),
         }
     }
 
@@ -255,6 +350,10 @@ impl MixWriter {
                 .finish()
                 .map_err(|error| render_error(&path, error.to_string())),
             Self::Flac(writer) => writer.finish(),
+            #[cfg(feature = "mp3")]
+            Self::Mp3(writer, path) => writer
+                .finish()
+                .map_err(|reason| render_error(&path, reason)),
         }
     }
 }

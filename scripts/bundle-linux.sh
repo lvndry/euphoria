@@ -110,6 +110,9 @@ executable="$appdir/usr/bin/euphoria-desktop"
 cp "$binary" "$executable"
 chmod u+w "$executable"
 cp "$repository/LICENSE" "$appdir/usr/share/licenses/euphoria/LICENSE"
+# LAME, the MP3 encoder compiled into the app, is under the LGPL.
+cp "$repository/licenses/lame-LGPL-2.0.txt" "$repository/licenses/mp3lame-LGPL-3.0.txt" \
+  "$appdir/usr/share/licenses/euphoria/"
 
 # Copies every library the executable needs from outside the base system
 # into usr/lib, following needed libraries the way the dynamic loader does,

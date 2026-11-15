@@ -16,8 +16,9 @@ use euphoria_core::export::rekordbox::ExistingFile;
 use euphoria_core::harmony::transition::{AutomaticCues, PlanTrack, SectionSource};
 use euphoria_core::plan_signals::{SignalsCache, TrackSignals};
 use euphoria_core::set_render::{
-    MixFormat, MixInput, MixMove, MixPlan, MixTimeline, RenderOptions, RenderProgress, RenderTrack,
-    chapters, cue_sheet, format_mix_time, mix_timeline, plan_mix, render_mix, tracklist,
+    DEFAULT_MP3_BITRATE_KBPS, MP3_BITRATES, MixFormat, MixInput, MixMove, MixPlan, MixTimeline,
+    RenderOptions, RenderProgress, RenderTrack, chapters, cue_sheet, format_mix_time, mix_timeline,
+    plan_mix, render_mix, tracklist,
 };
 use euphoria_core::shift::ExistingOutput;
 use euphoria_core::{FileResult, TrackAnalysis, is_supported_audio_file, read_track_name};
@@ -36,7 +37,7 @@ pub struct RenderArguments {
     /// app, an M3U or M3U8 playlist file, or audio files.
     #[arg(required = true, value_name = "SET")]
     sources: Vec<PathBuf>,
-    /// The file to write the mix to, ending in .wav or .flac.
+    /// The file to write the mix to, ending in .wav, .flac or .mp3.
     #[arg(
         long,
         short = 'o',
@@ -49,6 +50,10 @@ pub struct RenderArguments {
     /// one gets it added.
     #[arg(long, value_enum, value_name = "FORMAT")]
     format: Option<FormatChoice>,
+    /// The bitrate of an MP3 mix, in kilobits per second, constant through
+    /// the file: 96, 112, 128, 160, 192, 224, 256 or 320.
+    #[arg(long, value_name = "KBPS", default_value_t = DEFAULT_MP3_BITRATE_KBPS, value_parser = parse_bitrate)]
+    mp3_bitrate: u16,
     /// Also write a timestamped tracklist beside the mix, as
     /// NAME.tracklist.txt.
     #[arg(long)]
@@ -77,14 +82,32 @@ enum FormatChoice {
     Wav,
     /// 24 bit FLAC, lossless and about half the size.
     Flac,
+    /// Constant bitrate MP3, 320 kbps unless --mp3-bitrate says otherwise,
+    /// with a chapter per track in its ID3 tag.
+    Mp3,
 }
 
 impl FormatChoice {
-    fn format(self) -> MixFormat {
+    fn format(self, mp3_bitrate: u16) -> MixFormat {
         match self {
             FormatChoice::Wav => MixFormat::Wav,
             FormatChoice::Flac => MixFormat::Flac,
+            FormatChoice::Mp3 => MixFormat::Mp3 {
+                bitrate_kbps: mp3_bitrate,
+            },
         }
+    }
+}
+
+fn parse_bitrate(text: &str) -> Result<u16, String> {
+    let kbps: u16 = text
+        .parse()
+        .map_err(|_| format!("{text:?} is not a number of kilobits per second"))?;
+    if MP3_BITRATES.contains(&kbps) {
+        Ok(kbps)
+    } else {
+        let listed: Vec<String> = MP3_BITRATES.iter().map(u16::to_string).collect();
+        Err(format!("an MP3 bitrate is one of {}", listed.join(", ")))
     }
 }
 
@@ -114,7 +137,7 @@ struct SideFile {
 
 pub fn run(arguments: &RenderArguments) -> Result<ExitCode> {
     let output = match &arguments.out {
-        Some(out) => Some(output_path(out, arguments.format)?),
+        Some(out) => Some(output_path(out, arguments.format, arguments.mp3_bitrate)?),
         None => None,
     };
     let side_files = output
@@ -184,11 +207,14 @@ pub fn run(arguments: &RenderArguments) -> Result<ExitCode> {
     let mut report = std::io::stderr().lock();
     writeln!(
         report,
-        "Wrote the mix to {} ({}, {} kHz, 24 bit {})",
+        "Wrote the mix to {} ({}, {} kHz, {})",
         Printable(output.display()),
         format_mix_time(rendered.timeline.length_seconds),
         f64::from(rendered.sample_rate) / 1000.0,
-        format.extension().to_uppercase()
+        match format {
+            MixFormat::Mp3 { bitrate_kbps } => format!("MP3 at {bitrate_kbps} kbps"),
+            other => format!("24 bit {}", other.extension().to_uppercase()),
+        }
     )?;
     let audio_file_name = output
         .file_name()
@@ -220,12 +246,22 @@ pub fn run(arguments: &RenderArguments) -> Result<ExitCode> {
 
 /// The absolute path of the mix and its format, from `--out` and
 /// `--format`.
-fn output_path(out: &Path, chosen: Option<FormatChoice>) -> Result<(PathBuf, MixFormat)> {
+fn output_path(
+    out: &Path,
+    chosen: Option<FormatChoice>,
+    mp3_bitrate: u16,
+) -> Result<(PathBuf, MixFormat)> {
     let absolute = std::path::absolute(out)
         .with_context(|| format!("cannot use {} as the output", out.display()))?;
-    let named = MixFormat::of_path(&absolute);
-    match (named, chosen.map(FormatChoice::format)) {
-        (Some(named), Some(chosen)) if named != chosen => bail!(
+    let with_bitrate = |format: MixFormat| match format {
+        MixFormat::Mp3 { .. } => MixFormat::Mp3 {
+            bitrate_kbps: mp3_bitrate,
+        },
+        other => other,
+    };
+    let named = MixFormat::of_path(&absolute).map(with_bitrate);
+    match (named, chosen.map(|choice| choice.format(mp3_bitrate))) {
+        (Some(named), Some(chosen)) if named.extension() != chosen.extension() => bail!(
             "{} ends in .{} but --format is {}",
             absolute.display(),
             named.extension(),
@@ -236,7 +272,7 @@ fn output_path(out: &Path, chosen: Option<FormatChoice>) -> Result<(PathBuf, Mix
             Ok((absolute.with_extension(chosen.extension()), chosen))
         }
         (None, _) => bail!(
-            "{} must end in .wav or .flac: a mix is written as WAV or FLAC",
+            "{} must end in .wav, .flac or .mp3: a mix is written as WAV, FLAC or MP3",
             absolute.display()
         ),
     }

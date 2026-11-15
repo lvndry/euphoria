@@ -45,6 +45,20 @@ name = "webpki-root-certs"
 version = "=1.0.12"
 allow = ["CDLA-Permissive-2.0"]
 
+# LAME, the MP3 encoder of rendered mixes, and its Rust bindings. LAME is
+# under the LGPL, which a GPL-3.0-or-later program may link; it is compiled
+# from the source the mp3lame-sys crate vendors, so nothing is installed on
+# the system. Both distributions carry its licence in licenses/.
+[[licenses.exceptions]]
+name = "mp3lame-sys"
+version = "=0.2.0"
+allow = ["LGPL-3.0"]
+
+[[licenses.exceptions]]
+name = "mp3lame-encoder"
+version = "=0.3.0"
+allow = ["LGPL-3.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

@@ -5,7 +5,7 @@ description: Turn a playlist into one continuous mix file, beatmatched and blend
 
 # Render a set as one mix
 
-`euphoria set render` plays a set from its first track to its last into one audio file, as a DJ would mix it: each track comes in on the beat of the one playing, at the tempo of the one playing, and takes over at a section start. You get a WAV or FLAC file, and if you ask for them, a CUE sheet, a tracklist and chapter lines for a video description. Your tracks are only read, never changed.
+`euphoria set render` plays a set from its first track to its last into one audio file, as a DJ would mix it: each track comes in on the beat of the one playing, at the tempo of the one playing, and takes over at a section start. You get a WAV, FLAC or MP3 file, and if you ask for them, a CUE sheet, a tracklist and chapter lines for a video description. Your tracks are only read, never changed.
 
 ```
 euphoria set render "Friday" --out friday.wav --cue --tracklist --chapters
@@ -66,14 +66,14 @@ Its line in the plan says which, for example "Played one after the other: the in
 
 | Option | Writes |
 | --- | --- |
-| `--out FILE` | The mix: 24 bit stereo WAV for a name ending in `.wav`, 24 bit FLAC for `.flac`. A WAV over 4 GB is written as RF64, the extended WAV most editors read, so a set has no length limit. |
+| `--out FILE` | The mix: 24 bit stereo WAV for a name ending in `.wav`, 24 bit FLAC for `.flac`, MP3 for `.mp3`. A WAV over 4 GB is written as RF64, the extended WAV most editors read, so a set has no length limit. |
 | `--cue` | `NAME.cue` beside the mix: a CUE sheet with one track per track of the set, its title and artist and the time it starts. Players and burning programs use it to skip between tracks of one file. |
 | `--tracklist` | `NAME.tracklist.txt`: the name of the set, then one numbered line per track with the time it starts, such as `03. 9:40 Artist - Title`, and the length of the mix. |
 | `--chapters` | `NAME.chapters.txt`: one line per track, such as `9:40 Artist - Title`, starting at `0:00`, the form a video description turns into chapters. |
 
 A track starts, in all three, where it is first heard: the start of the blend into it.
 
-The sample rate of the mix is the one most tracks have, and the first track's on a tie. A track at another rate is converted as it is stretched. A mix is not written as MP3: no MP3 encoder under a licence Euphoria can ship is part of it, so make an MP3 from the WAV or FLAC with the program you already use.
+The sample rate of the mix is the one most tracks have, and the first track's on a tie. A track at another rate is converted as it is stretched. An MP3 mix is constant bitrate, 320 kbps unless `--mp3-bitrate` gives 96, 112, 128, 160, 192, 224 or 256, encoded by LAME, which is built into Euphoria, so nothing has to be installed. Its ID3 tag holds the name of the file as its title and a chapter per track, with the track's name and where it starts and ends, which podcast apps and some players show as chapters. MP3 is lossy: keep the WAV or FLAC if you will edit the mix further.
 
 The mix is written under a temporary name next to `--out` and moved into place once it is complete, so a failed render leaves no half file. An existing mix, CUE sheet, tracklist or chapters file is refused before anything is rendered, unless you pass `--force`.
 
