@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Proves that the Linux release files run on a clean system, one that never
-# had libkeyfinder, FFTW or a Rust toolchain:
+# had the ONNX Runtime or a Rust toolchain:
 #
 #   ./scripts/release/check-linux-packages.sh <folder with the release files>
 #

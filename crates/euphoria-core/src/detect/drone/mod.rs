@@ -16,7 +16,7 @@ use crate::audio::AudioBuffer;
 use crate::detect::{KeyDetector, KeyReading};
 use crate::error::EuphoriaError;
 use crate::key::{Key, Mode};
-use crate::key_engine::KeySource;
+use crate::key_source::KeySource;
 
 use network::{KEY_COUNT, Network, mean_of_columns};
 

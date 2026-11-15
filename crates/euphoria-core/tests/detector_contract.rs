@@ -22,10 +22,7 @@ const CLICK_DECAY_SECONDS: f32 = 0.02;
 
 /// What a key detector must report for the A minor chord.
 enum ChordExpectation {
-    #[cfg_attr(
-        not(any(feature = "libkeyfinder", feature = "drone")),
-        expect(dead_code)
-    )]
+    #[cfg_attr(not(feature = "drone"), expect(dead_code))]
     Exactly(&'static str),
     AnyKey,
 }
@@ -167,28 +164,6 @@ macro_rules! tempo_detector_contract {
     };
 }
 
-#[cfg(feature = "libkeyfinder")]
-key_detector_contract!(keyfinder_key, euphoria_core::detect::KeyFinderDetector, chord_seconds: 20.0, expect: ChordExpectation::Exactly("A minor"));
-#[cfg(feature = "libkeyfinder")]
-key_detector_contract!(
-    keyfinder_without_tuning_correction_key,
-    euphoria_core::detect::KeyFinderVariant {
-        tuning_correction: false,
-        decision: euphoria_core::detect::KeyDecision::WholeTrack,
-    },
-    chord_seconds: 20.0,
-    expect: ChordExpectation::Exactly("A minor")
-);
-#[cfg(feature = "libkeyfinder")]
-key_detector_contract!(
-    keyfinder_sections_vote_key,
-    euphoria_core::detect::KeyFinderVariant {
-        tuning_correction: true,
-        decision: euphoria_core::detect::KeyDecision::SectionVote,
-    },
-    chord_seconds: 20.0,
-    expect: ChordExpectation::Exactly("A minor")
-);
 #[cfg(feature = "drone")]
 key_detector_contract!(drone_key, euphoria_core::detect::DroneDetector, chord_seconds: 20.0, expect: ChordExpectation::Exactly("A minor"));
 // stratum-dsp is slow in debug builds and gives the same answer from half a second on.

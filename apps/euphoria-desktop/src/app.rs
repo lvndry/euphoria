@@ -188,6 +188,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) rail_anchor: Option<usize>,
     /// The tracks to play after the playing one, best first.
     pub(crate) next_rows: Vec<crate::next_rail::NextRow>,
+    /// The row of the list of tracks to play next open in place.
+    pub(crate) next_preview: crate::next_preview::NextPreview,
+    pub(crate) inspector_scroll: gpui::ScrollHandle,
     /// The tracks that played since the app opened, oldest first.
     pub(crate) played_this_session: Vec<PathBuf>,
     pub(crate) rail_focus: FocusHandle,
@@ -587,6 +590,8 @@ impl EuphoriaApp {
             next_energy: settings.next_energy,
             rail_anchor: None,
             next_rows: Vec::new(),
+            next_preview: crate::next_preview::NextPreview::default(),
+            inspector_scroll: gpui::ScrollHandle::new(),
             played_this_session: Vec::new(),
             rail_focus: cx.focus_handle(),
             key_shift: 0,
@@ -2365,6 +2370,7 @@ impl EuphoriaApp {
             return;
         }
         self.rail_anchor = playing;
+        self.next_preview.clear();
         if let Some(path) = playing
             .and_then(|index| self.session.library().track(index))
             .map(|track| track.path.clone())
@@ -2396,6 +2402,8 @@ impl EuphoriaApp {
             played: &self.played_this_session,
             limit: MIX_LIMIT,
         });
+        let listed: Vec<usize> = self.next_rows.iter().map(|row| row.track_index).collect();
+        self.next_preview.keep_only(&listed);
     }
 
     /// Chooses where the energy should go with the track to play next.
@@ -2427,20 +2435,102 @@ impl EuphoriaApp {
         cx.notify();
     }
 
-    /// Enter in the list of tracks to play next: plays the selected row, or
-    /// the first when the selection is not in the list.
+    /// Enter in the list of tracks to play next: plays the open row, else
+    /// the selected one, else the first.
     pub(crate) fn play_next_row(&mut self, cx: &mut Context<'_, Self>) {
+        let is_listed = |track_index: &usize| {
+            self.next_rows
+                .iter()
+                .any(|row| row.track_index == *track_index)
+        };
         let target = self
-            .selected
-            .filter(|selected| {
-                self.next_rows
-                    .iter()
-                    .any(|row| row.track_index == *selected)
-            })
+            .next_preview
+            .expanded()
+            .filter(is_listed)
+            .or_else(|| self.selected.filter(is_listed))
             .or_else(|| self.next_rows.first().map(|row| row.track_index));
         if let Some(track_index) = target {
             self.play_next_track(track_index, cx);
         }
+    }
+
+    /// A click on a row of the list of tracks to play next: opens it in
+    /// place, or closes it when it was open. The selection and the
+    /// inspector stay on the playing track.
+    pub(crate) fn toggle_next_preview(&mut self, track_index: usize, cx: &mut Context<'_, Self>) {
+        self.next_preview.toggle(track_index);
+        cx.notify();
+        if self.next_preview.expanded() != Some(track_index) {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(crate::next_preview::REVEAL_DELAY)
+                .await;
+            this.update(cx, |this, cx| {
+                if this.next_preview.expanded() == Some(track_index) {
+                    this.next_preview.reveal.set(true);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The keys of the list of tracks to play next: the arrows move the open
+    /// row, and Escape closes it.
+    pub(crate) fn next_rail_key_down(&mut self, event: &KeyDownEvent, cx: &mut Context<'_, Self>) {
+        match event.keystroke.key.as_str() {
+            "escape" if self.next_preview.collapse() => {}
+            "up" | "down" => {
+                let listed: Vec<usize> = self.next_rows.iter().map(|row| row.track_index).collect();
+                let step = if event.keystroke.key == "up" { -1 } else { 1 };
+                self.next_preview.step(&listed, step);
+                self.next_preview.reveal.set(true);
+            }
+            _ => return,
+        }
+        cx.notify();
+        cx.stop_propagation();
+    }
+
+    /// Opens the planner from the playing track to `track_index`.
+    pub(crate) fn plan_transition_to(
+        &mut self,
+        track_index: usize,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(playing) = self.rail_anchor else {
+            return;
+        };
+        if self.selected != Some(playing) {
+            self.close_focus_view(cx);
+            self.select_and_reveal(playing, cx);
+        }
+        if !self.focus.is_open {
+            self.open_focus_view(window, cx);
+        }
+        if !self.focus.is_open {
+            return;
+        }
+        self.pick_match(track_index, cx);
+        self.planner.open_when_ready = true;
+        self.open_planner_when_ready(cx);
+    }
+
+    /// Adds the track at `track_index` to the end of the set.
+    pub(crate) fn add_track_to_set(&mut self, track_index: usize, cx: &mut Context<'_, Self>) {
+        let Some(path) = self
+            .session
+            .library()
+            .track(track_index)
+            .map(|track| track.path.clone())
+        else {
+            return;
+        };
+        self.add_paths_to_set(&[path], cx);
     }
 
     /// The heading of the mixes section: what it follows.
@@ -2931,7 +3021,7 @@ impl Render for EuphoriaApp {
             .and_then(|index| self.session.library().track(index));
         self.inspector_sections.sync(selected_track);
         self.follow_playing();
-        if self.inspector_sections.advance() {
+        if self.inspector_sections.advance() | self.next_preview.advance() {
             window.request_animation_frame();
         }
         let sidebar_width = self.sidebar_width_on_show;
@@ -3131,10 +3221,13 @@ impl Render for EuphoriaApp {
                 cfg!(target_os = "macos") && !window.is_window_active(),
                 |root| root.child(views::toolbar::inactive_window_controls(&palette)),
             )
-            .when(self.switches.wants_frame(), |window_element| {
-                window.request_animation_frame();
-                window_element
-            })
+            .when(
+                self.switches.wants_frame() | self.by_ear.wants_frame(),
+                |window_element| {
+                    window.request_animation_frame();
+                    window_element
+                },
+            )
     }
 }
 

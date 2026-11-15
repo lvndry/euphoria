@@ -292,9 +292,10 @@ A value you set wins everywhere: in the table and search, in **Mixes well with**
 **Next after the playing track.** While the player or a deck plays a track, the section's heading becomes **Next after** and the title of the playing track, and the list ranks the tracks to play after it instead of the ones for the selected track. The same happens in the **Mixes** tab of the Deck strip. When nothing plays, the section is **Mixes well with** for the selected track, as above. With the decks open, the track heard more, by the crossfader, is the one followed.
 
 - **Keep, Lift, Drop.** The control in the heading chooses where the energy goes. Keep ranks tracks at the same energy first, Lift tracks one or two points higher, Drop tracks one or two points lower. The choice is remembered. The order is the core's, the one under the decks: how smooth the key move is, how close the tempo is, and how well the change of energy fits.
-- **Why a track fits.** Each row shows the key, the title, the tempo change, and one or two small labels: how the keys relate (**same key**, **one step**, **relative**, **wheel diagonal**, or **energy boost**, **mood change**, **semitone boost**) and the change of energy, such as **energy +1** or **energy − 2**, left out when the energy is the same.
+- **Why a track fits.** Each row shows the key, the title, the tempo change, and one or two small labels: how the keys relate (**same key**, **one step**, **relative**, **wheel diagonal**, or **energy boost**, **mood change**, **semitone boost**) and the track's energy with an arrow and the size of the change from the track playing, such as **energy 3 ↓6** (6 calmer), **energy 8 ↑1** (one higher) or **energy 7 =** (the same). Pointing at it says the same in words.
 - **Filters apply.** The filter bar's tempo, quality and energy filters, and the suggestion controls, narrow the list, so it never suggests a track you filtered out. The playing track and the tracks that played since you opened Euphoria are never listed. The list is ranked again when the playing track, the selection, the filters or the energy choice change, not while the track plays.
-- **Play a row.** Clicking a row selects it and leaves the sound alone, as everywhere in the library. Press Enter after clicking a row, or double-click it, to play it in the player, or to load it on deck B when the decks are open. The icon buttons that show when you point at a row do the same: play, and load on deck B.
+- **Look at a row in place.** Clicking a row opens it inside the list and leaves everything else alone: the selection and the inspector stay where they were, on the playing track if you started it from there, and the sound goes on. The open row shows the track's key, tempo and energy in one line, under its labels, and three buttons: **Play** (**Load on deck B** when the decks are open), **Plan transition**, which opens the [transition planner](#plan-a-transition-in-the-focus-view) from the playing track to this one, and **Add to set**, shown when there is a set in the set builder. One row is open at a time. Click it again, or press Escape, to close it; Up and Down open the row above or below. The row opens and closes with a short ease, and at once when Reduce motion is on.
+- **Play a row.** Press Enter, double-click a row, or click **Play** in the open row to play it in the player, or to load it on deck B when the decks are open. Enter plays the open row, or the first when none is open. The track that plays goes on until the new one starts, and then the inspector and the list follow the new track. The icon buttons that show when you point at a row do the same: play, and load on deck B.
 
 Dragging a row onto deck B is not supported: the decks accept no drops yet. Use Enter, double-click or the load button.
 
@@ -322,7 +323,7 @@ A size you chose in a large window is kept when the window gets smaller. It is o
 
 Select a track and press Space, or click the round play button, to hear it. Press Space again to pause. Playing starts at once, however long the track is, and carries on while other tracks are being analyzed. Space types a space as usual while you are in the search field.
 
-- **A click only selects.** Clicking a row, moving with Up and Down, picking a track in the command palette with Enter, and clicking a row of the set builder or of the Mixes and Next after lists change the selection and the inspector, never the sound. While a track plays you can browse the library and read other tracks' details without interrupting it, and the player bar goes on showing the track that plays. While paused or stopped, selecting a track gets it ready to play.
+- **A click only selects.** Clicking a row, moving with Up and Down, picking a track in the command palette with Enter, and clicking a row of the set builder or of the Mixes list change the selection and the inspector, never the sound. While a track plays you can browse the library and read other tracks' details without interrupting it, and the player bar goes on showing the track that plays. While paused or stopped, selecting a track gets it ready to play. A click in the Next after list opens the row in place instead, as described under [Next after the playing track](#the-inspector).
 - **Playing a track is explicit.** Double-click a row, press Space on it, or click the play button that shows when you point at it. This replaces the track that was playing and starts the new one from its beginning. Space pauses when the selected track is the one that plays. In the command palette, ⌘Enter plays; in the Next after list, Enter or a double-click plays. In the table, **Enter** still opens the [focus view](#focus-view), and a double-click plays instead of opening it.
 - The position and the length are shown as "2:23 / 6:48".
 - When a track reaches its end it stops there. Play starts it again from the beginning.
@@ -335,7 +336,7 @@ If the sound breaks up while the Mac is busy, for example during a large analysi
 
 ### Media keys and Now Playing
 
-On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, length and position there.
+On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, album, cover, length and position there.
 
 | Command | What it does |
 | --- | --- |
@@ -345,9 +346,13 @@ On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, 
 
 While the [decks](#decks) are open, the keys control one deck: the one that plays, the favoured side of the crossfader first, so deck A while it is centered, and when neither plays, the favoured deck that has a track. Next and Previous do nothing on the decks.
 
-Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
+Now Playing is told what plays when the track, the play state, the [playback tempo](#change-the-tempo-of-the-playing-track) or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. The length and the position are those of the track as recorded, and macOS counts them at the playback tempo, so at +5% the position moves 5% faster and reaches the end with the track, as the player bar does. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
 
-Not there yet: artwork in Now Playing, the playback rate of the tempo control, and Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
+Now Playing shows the track you hear. A track you ask for while another plays waits aside until its sound starts, as in the player bar, and Now Playing changes to it then.
+
+The cover is the one the player bar shows: the picture in the file's tags, else a `cover`, `folder`, `front` or `albumart` image in its folder, cut to a square and reduced to at most 600 pixels on a side. It is read in the background when the track changes, so the new track shows without a cover for a moment, never with the old one.
+
+Not there yet: Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
 
 ## Metronome
 
@@ -391,7 +396,7 @@ Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsm
 
 ### Next on deck B
 
-With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown**, **Favorites** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, the tracks you starred, or the tracks of one playlist. Each row gives the key, the tempo difference, the change of energy and how the keys relate, in the same words as **Mixes into**. Click a row to load it on deck B.
+With a track on deck A, **Next on deck B** lists the tracks that would mix well after it: keys that mix with it, tempos within 6 percent, at half or double tempo too, ranked by how smooth the key move is, how close the tempo is and how well the energy fits where you want the set to go. **Energy down**, **Same energy** and **Energy up** choose that direction: up prefers a track one or two points higher, down one or two lower. **Whole library**, **Tracks shown**, **Favorites** and a button for each playlist choose where the suggestions come from: every track, the tracks the table shows, such as a folder or a search, the tracks you starred, or the tracks of one playlist. Each row gives the key, the tempo difference, the energy with its change from deck A's (**energy 8 ↑1**, read the same way as in the Next after list) and how the keys relate, in the same words as **Mixes into**. Click a row to load it on deck B.
 
 ### Narrow the suggestions
 
@@ -838,7 +843,7 @@ To get an application you can keep in the Dock and put in Applications, build an
 open target/release/bundle/Euphoria.app
 ```
 
-The script builds the app in release mode, makes the icon from `assets/logo`, copies libkeyfinder and FFTW into the bundle so it runs without Homebrew, signs it (ad hoc by default, with a Developer ID when `EUPHORIA_SIGN_IDENTITY` is set), and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
+The script builds the app in release mode, makes the icon from `assets/logo`, signs it (ad hoc by default, with a Developer ID when `EUPHORIA_SIGN_IDENTITY` is set), and writes `target/release/bundle/Euphoria.app` and a disk image, `Euphoria-<version>.dmg`, next to it. [Installation](../getting-started/installation.md#the-desktop-app) covers installing it and [opening it for the first time](../getting-started/installation.md#opening-the-app-for-the-first-time). Releases on GitHub carry the same disk image, built by CI.
 
 ## Try it without music
 

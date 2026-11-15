@@ -1,15 +1,14 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Writes what libkeyfinder and drone-v2 each read in every GiantSteps
-//! track, one JSON line per track, to choose and check how the two are
-//! combined and how their confidence is rated.
+//! Writes what drone-v2 reads in every GiantSteps track, one JSON line per
+//! track, to check how its confidence is rated and to score it by genre.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use cpu_time::ThreadTime;
-use euphoria_core::detect::{DroneDetector, KeyFinderDetector};
+use euphoria_core::detect::{DroneDetector, measure_tuning};
 use euphoria_core::{Key, Mode, decode_mono};
 use rayon::prelude::*;
 
@@ -34,10 +33,6 @@ fn class_of(key: Key) -> usize {
     usize::from(key.tonic()) * 2 + usize::from(key.mode() == Mode::Minor)
 }
 
-fn optional_class(key: Option<Key>) -> String {
-    key.map_or("null".to_string(), |key| class_of(key).to_string())
-}
-
 /// Prints one JSON line per track of the key dataset in `data_directory`.
 pub fn run(data_directory: &Path) -> Result<()> {
     let dataset = load_key_tracks(&data_directory.join("key"))?;
@@ -51,22 +46,11 @@ pub fn run(data_directory: &Path) -> Result<()> {
                     return format!("{{\"name\":{:?},\"error\":{:?}}}", track.name, error.chain());
                 }
             };
-            let keyfinder_started = ThreadTime::now();
-            let keyfinder = KeyFinderDetector.read_key(&audio);
-            let keyfinder_seconds = keyfinder_started.elapsed().as_secs_f64();
+            let tuning_cents = measure_tuning(&audio)
+                .map_or("null".to_string(), |tuning| tuning.cents.to_string());
             let drone_started = ThreadTime::now();
             let drone = DroneDetector.probabilities(&audio);
             let drone_seconds = drone_started.elapsed().as_secs_f64();
-            let keyfinder_fields = match keyfinder {
-                Ok(reading) => format!(
-                    "\"keyfinder\":{},\"keyfinder_runner_up\":{},\"keyfinder_margin\":{},\"tuning_cents\":{}",
-                    optional_class(reading.key),
-                    optional_class(reading.runner_up),
-                    reading.score_margin.map_or("null".to_string(), |margin| margin.to_string()),
-                    reading.tuning_cents.map_or("null".to_string(), |cents| cents.to_string()),
-                ),
-                Err(error) => format!("\"keyfinder_error\":{:?}", error.chain()),
-            };
             let drone_fields = match drone {
                 Ok(Some(probabilities)) => {
                     format!("\"drone\":{:?}", probabilities.in_class_order())
@@ -75,7 +59,7 @@ pub fn run(data_directory: &Path) -> Result<()> {
                 Err(error) => format!("\"drone_error\":{:?}", error.chain()),
             };
             format!(
-                "{{\"name\":{:?},\"reference\":{},\"duration_seconds\":{},{keyfinder_fields},\"keyfinder_seconds\":{keyfinder_seconds},{drone_fields},\"drone_seconds\":{drone_seconds}}}",
+                "{{\"name\":{:?},\"reference\":{},\"duration_seconds\":{},\"tuning_cents\":{tuning_cents},{drone_fields},\"drone_seconds\":{drone_seconds}}}",
                 track.name,
                 class_of(track.annotation),
                 audio.duration_seconds(),

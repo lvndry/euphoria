@@ -10,6 +10,7 @@
 //! kept in the cache apart from analyses so that analyzing again never
 //! loses it, and can be reset to the detected value.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -21,6 +22,7 @@ use gpui::{Context, Window};
 use crate::app::EuphoriaApp;
 use crate::format;
 use crate::library::Track;
+use crate::motion::{self, Transition};
 use crate::playback::Voice;
 use crate::reference_sound::{PIANO_LOWEST_C, PIANO_NOTE_SECONDS, ReferenceLevel, ReferenceSound};
 
@@ -134,6 +136,9 @@ pub(crate) struct ByEar {
     lit_keys: HashMap<u8, u64>,
     /// Counts the chord notes struck, so a key is only unlit by its own note.
     notes_struck: u64,
+    /// How lit each piano key is, by pitch class, fading in and out as its
+    /// note starts and stops sounding.
+    key_glows: RefCell<HashMap<u8, Transition>>,
     /// True while the key picker and the tempo field are open.
     pub(crate) is_editing: bool,
     /// Why the tempo typed was not taken, when it was not.
@@ -151,6 +156,7 @@ impl Default for ByEar {
             level_step: STARTING_LEVEL_STEP,
             lit_keys: HashMap::new(),
             notes_struck: 0,
+            key_glows: RefCell::new(HashMap::new()),
             is_editing: false,
             bpm_problem: None,
             correction_writer: CorrectionWriter::default(),
@@ -175,6 +181,33 @@ impl ByEar {
     /// True while the piano key `pitch_class` is lit by a chord.
     pub(crate) fn is_lit(&self, pitch_class: u8) -> bool {
         self.lit_keys.contains_key(&pitch_class)
+    }
+
+    /// How lit the piano key `pitch_class` is now, from 0 (resting) to 1
+    /// (sounding). A key fades over [`motion::FAST`] as its note starts or
+    /// stops, or jumps when motion is reduced.
+    pub(crate) fn glow(&self, pitch_class: u8) -> f32 {
+        let is_lit = self.is_lit(pitch_class);
+        let mut glows = self.key_glows.borrow_mut();
+        let transition = glows
+            .entry(pitch_class)
+            .or_insert_with(|| Transition::at_rest(is_lit));
+        if transition.is_target_full() != is_lit {
+            transition.go_to(is_lit, motion::FAST);
+        }
+        transition.value(transition.now())
+    }
+
+    /// True while a piano key still fades, so another frame is due; the
+    /// keys that have arrived are settled.
+    pub(crate) fn wants_frame(&self) -> bool {
+        let mut is_moving = false;
+        for transition in self.key_glows.borrow_mut().values_mut() {
+            let now = transition.now();
+            transition.settle(now);
+            is_moving |= transition.is_moving(now);
+        }
+        is_moving
     }
 
     /// The step the volume is at, 1 to [`LEVEL_STEPS`].

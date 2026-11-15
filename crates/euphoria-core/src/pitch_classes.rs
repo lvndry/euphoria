@@ -47,20 +47,6 @@ pub(crate) fn profile_of_audio(
     crate::detect::pitch_class_profile_at(audio, tuning_cents.unwrap_or(0.0))
 }
 
-/// Totals scaled so the largest is 1, or `None` when no note sounds at all
-/// or a total is not a finite number.
-#[cfg(feature = "libkeyfinder")]
-pub(crate) fn normalised(totals: [f64; PITCH_CLASS_COUNT]) -> Option<[f32; PITCH_CLASS_COUNT]> {
-    if totals
-        .iter()
-        .any(|total| !total.is_finite() || *total < 0.0)
-    {
-        return None;
-    }
-    let largest = totals.iter().copied().fold(0.0_f64, f64::max);
-    (largest > 0.0).then(|| std::array::from_fn(|index| (totals[index] / largest) as f32))
-}
-
 /// Which of the 12 notes, C first, belong to the scale of `key`: the major
 /// scale, or the natural minor scale, which has the same notes as its
 /// relative major.
@@ -114,25 +100,6 @@ mod tests {
 
     fn key(text: &str) -> Key {
         text.parse().unwrap()
-    }
-
-    #[cfg(feature = "libkeyfinder")]
-    #[test]
-    fn the_strongest_note_scales_to_one() {
-        let mut totals = [1.0; PITCH_CLASS_COUNT];
-        totals[9] = 4.0;
-        let profile = normalised(totals).unwrap();
-        assert_eq!(profile[9], 1.0);
-        assert_eq!(profile[0], 0.25);
-    }
-
-    #[cfg(feature = "libkeyfinder")]
-    #[test]
-    fn nothing_heard_is_no_profile() {
-        assert_eq!(normalised([0.0; PITCH_CLASS_COUNT]), None);
-        let mut totals = [1.0; PITCH_CLASS_COUNT];
-        totals[3] = f64::NAN;
-        assert_eq!(normalised(totals), None);
     }
 
     #[test]

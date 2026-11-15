@@ -28,6 +28,8 @@ mod command_palette_ui_tests;
 mod cue_editing;
 mod deck_audio;
 mod decks;
+#[cfg(test)]
+mod decks_open_ui_tests;
 mod demo;
 mod display_settings;
 mod dock_icon;
@@ -89,6 +91,7 @@ mod mixes;
 mod motion;
 #[cfg(test)]
 mod motion_ui_tests;
+mod next_preview;
 mod next_rail;
 #[cfg(test)]
 mod next_rail_ui_tests;
@@ -98,6 +101,8 @@ mod output_stream;
 mod palette_flow;
 mod panels;
 mod peaks;
+#[cfg(test)]
+mod piano_ui_tests;
 mod planner_candidates;
 mod planner_locks;
 mod planner_playback;

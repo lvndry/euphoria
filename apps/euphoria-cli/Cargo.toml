@@ -36,6 +36,7 @@ stems = ["euphoria-core/stems"]
 [dev-dependencies]
 hound.workspace = true
 portable-pty.workspace = true
+rustfft.workspace = true
 rusqlite.workspace = true
 
 [lints]
