@@ -70,6 +70,12 @@ objc2-media-player = { version = "0.3.2", default-features = false, features = [
   "MPRemoteCommandEvent",
   "MPMediaItem",
   "block2",
+  "objc2-app-kit",
+  "objc2-core-foundation",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "CFCGTypes",
 ] }
 block2 = "0.6.2"
 objc2-core-audio = "0.3.2"
