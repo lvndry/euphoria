@@ -8,7 +8,13 @@
 
 use euphoria_core::quality::QualityReport;
 pub(crate) use euphoria_core::track_filter::{MAXIMUM_ENERGY, MINIMUM_ENERGY};
-pub(crate) use euphoria_core::{FilterableTrack, QualityChoice, TrackFilters, TypedTrackFilters};
+pub(crate) use euphoria_core::{
+    FilterableTrack, QualityChoice, SetStage, TrackFilters, TypedTrackFilters,
+};
+
+/// What pointing at a set stage says it is, in the filter bar, the table
+/// header and the inspector.
+pub(crate) const STAGE_EXPLANATION: &str = "Where this track tends to sit in a set, from its tempo and loudness compared with the rest of your library. Not the same as Energy.";
 
 use crate::format;
 use crate::library::Track;

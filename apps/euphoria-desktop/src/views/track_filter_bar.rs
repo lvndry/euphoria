@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The filter bar under the track list's heading: a tempo range, an energy
-//! range and the qualities to show. It is out of the way until the Filter
+//! range, the qualities and the set stages to show. It is out of the way until the Filter
 //! button opens it, and stays while a filter is set.
 
 use gpui::component::input::Input;
@@ -14,7 +14,7 @@ use crate::app::EuphoriaApp;
 use crate::columns::SIDE_PADDING;
 use crate::metronome_controls::TEMPO_RANGE_RULE;
 use crate::theme::Palette;
-use crate::track_filters::QualityChoice;
+use crate::track_filters::{QualityChoice, STAGE_EXPLANATION, SetStage};
 use crate::views::SMALL_TEXT_SIZE;
 use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM};
 
@@ -49,7 +49,9 @@ pub(crate) fn toggle(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> im
             }
         })
         .child("Filter")
-        .tooltip(|window, cx| Tooltip::new("Filter by tempo, energy and quality").build(window, cx))
+        .tooltip(|window, cx| {
+            Tooltip::new("Filter by tempo, energy, quality and set stage").build(window, cx)
+        })
         .on_click(cx.listener(|this, _, _, cx| this.toggle_filter_bar(cx)))
         .test_support()
 }
@@ -115,6 +117,17 @@ pub(crate) fn render(
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_track_quality(choice, cx)))
             .test_support()
         });
+    let stages = SetStage::ALL.into_iter().enumerate().map(|(index, stage)| {
+        chip(
+            ("filter-stage", index),
+            stage.label(),
+            filters.stages.contains(&stage),
+            &palette,
+        )
+        .tooltip(|window, cx| Tooltip::new(STAGE_EXPLANATION).build(window, cx))
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle_track_stage(stage, cx)))
+        .test_support()
+    });
     let clear = div()
         .id("filter-clear")
         .flex()
@@ -172,6 +185,16 @@ pub(crate) fn render(
                     .gap(GAP_TIGHT)
                     .child(label("Quality"))
                     .children(qualities),
+            )
+            .child(
+                div()
+                    .id("filter-stage")
+                    .flex()
+                    .items_center()
+                    .gap(GAP_TIGHT)
+                    .tooltip(|window, cx| Tooltip::new(STAGE_EXPLANATION).build(window, cx))
+                    .child(label("Stage"))
+                    .children(stages),
             )
             .when(filters.is_active(), |bar| bar.child(clear))
             .test_support(),

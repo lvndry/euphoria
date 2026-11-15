@@ -87,6 +87,8 @@ mod row_actions_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
+#[cfg(test)]
+mod set_stage_ui_tests;
 mod settings;
 mod sidebar_slide;
 mod state;

@@ -232,6 +232,7 @@ mod tests {
             },
             display: DisplaySettings {
                 tempo_range: crate::display_settings::TempoPreset::DrumAndBass.setting(),
+                show_stage_column: true,
             },
             suggestion_filter: SuggestionFilter::default(),
             focus_lanes: FocusLanes::default(),
@@ -255,6 +256,10 @@ mod tests {
                 ],
                 energy_min: Some(6),
                 energy_max: None,
+                stages: vec![
+                    crate::track_filters::SetStage::Peak,
+                    crate::track_filters::SetStage::Build,
+                ],
             },
             next_energy: crate::next_rail::EnergyChoice::Lift,
             first_run: Some(FirstRun {

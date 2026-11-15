@@ -132,6 +132,7 @@ pub struct TrackFilters {
     pub energy_max: Option<u8>,
     /// The set stages shown. Empty shows every stage, and a track without a
     /// stage is shown only then.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<SetStage>,
 }
 

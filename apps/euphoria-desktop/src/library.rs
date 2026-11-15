@@ -3,14 +3,15 @@
 
 //! The tracks the user has added and the order and subset shown in the table.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::{
-    BeatGrid, Correction, Cue, Key, KeyDifference, TagKey, TagKeyAgreement, TempoRange,
-    TrackAnalysis, TrackCues, TrackName,
+    BeatGrid, Correction, Cue, Key, KeyDifference, LibraryDistribution, SetStage, StageFeatures,
+    TagKey, TagKeyAgreement, TempoRange, TrackAnalysis, TrackCues, TrackName, stage_of,
 };
 
 use crate::camelot::CamelotPosition;
@@ -295,6 +296,20 @@ impl Track {
         self.analysis().and_then(|analysis| analysis.energy)
     }
 
+    /// What the set stage is read from: the tempo the user set or the
+    /// detected one in the default range, and the loudness of the analysis.
+    /// Nothing for a track without an analysis.
+    pub(crate) fn stage_features(&self) -> StageFeatures {
+        let Some(analysis) = self.analysis() else {
+            return StageFeatures::default();
+        };
+        let mut features = analysis.stage_features();
+        if let Some(bpm) = self.correction.bpm {
+            features.tempo = Some(bpm);
+        }
+        features
+    }
+
     /// How the file is encoded and how good it sounds, once it is analyzed.
     pub(crate) fn quality(&self) -> Option<&QualityReport> {
         self.analysis()
@@ -459,9 +474,36 @@ pub(crate) struct Library {
     tempo_range: TempoRange,
     revision: u64,
     structure_revision: u64,
+    stage_cache: RefCell<StageCache>,
+}
+
+/// The set stage of each track, worked out for one state of the library.
+#[derive(Debug, Default)]
+struct StageCache {
+    revision: Option<u64>,
+    stages: Vec<Option<SetStage>>,
 }
 
 impl Library {
+    /// The set stage of the track at `index` among all the tracks of the
+    /// library, or `None` when it has no tempo or the library is too small.
+    /// The stages are worked out again after the library changes, when one is
+    /// asked for.
+    pub(crate) fn stage_at(&self, index: usize) -> Option<SetStage> {
+        let mut cache = self.stage_cache.borrow_mut();
+        if cache.revision != Some(self.revision) || cache.stages.len() != self.tracks.len() {
+            let features: Vec<StageFeatures> =
+                self.tracks.iter().map(Track::stage_features).collect();
+            let distribution = LibraryDistribution::from_features(features.iter().copied());
+            cache.stages = features
+                .iter()
+                .map(|track| stage_of(track, &distribution))
+                .collect();
+            cache.revision = Some(self.revision);
+        }
+        cache.stages.get(index).copied().flatten()
+    }
+
     /// The tracks, in the order they were added. A track keeps its index
     /// until a track before it is removed, which bumps
     /// [`Library::structure_revision`].
@@ -809,7 +851,16 @@ impl Library {
             })
             .filter(|(_, track)| folder.is_none_or(|folder| track.path.starts_with(folder)))
             .filter(|(_, track)| track.matches(&query_lowercase))
-            .filter(|(_, track)| track_filters.matches(track))
+            .filter(|(index, track)| {
+                track_filters.matches(&StagedTrack {
+                    track,
+                    stage: if track_filters.stages.is_empty() {
+                        None
+                    } else {
+                        self.stage_at(*index)
+                    },
+                })
+            })
             .map(|(index, _)| index)
             .collect();
         if let Some(sort_order) = sort_order {
@@ -819,6 +870,34 @@ impl Library {
             });
         }
         visible
+    }
+}
+
+/// A track with its set stage, as a filter reads it.
+struct StagedTrack<'track> {
+    track: &'track Track,
+    stage: Option<SetStage>,
+}
+
+impl euphoria_core::FilterableTrack for StagedTrack<'_> {
+    fn is_analyzed(&self) -> bool {
+        self.track.analysis().is_some()
+    }
+
+    fn bpm(&self) -> Option<f32> {
+        self.track.bpm()
+    }
+
+    fn energy(&self) -> Option<u8> {
+        self.track.energy()
+    }
+
+    fn quality(&self) -> Option<&QualityReport> {
+        self.track.quality()
+    }
+
+    fn stage(&self) -> Option<SetStage> {
+        self.stage
     }
 }
 

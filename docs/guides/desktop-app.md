@@ -83,7 +83,7 @@ The keys type a letter when a text field has the keyboard, so S, A and Space do 
 
 Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
 
-### Filter by tempo, energy and quality
+### Filter by tempo, energy, quality and stage
 
 The **Filter** button at the right of the heading, beside the track count, opens a bar of filters under the heading. Nothing else shows until you use it. The bar stays open while any filter is set, and the button closes it again once none is.
 
@@ -92,15 +92,22 @@ The **Filter** button at the right of the heading, beside the track count, opens
 | BPM | A minimum and a maximum, from 30 to 300, typed with a point or a comma (`127.5` or `127,5`), the same field rules as the [metronome](#metronome). Leave one side empty for no limit. It uses the tempo you corrected when there is one. |
 | ½ / 2× | Off by default. When on, a track also matches if half or double its tempo falls in the range, so 70 to 75 also shows a 142 BPM track (and a 36 BPM one). It does nothing without a BPM range. |
 | Energy | A minimum and a maximum, from 1 to 10. It uses the energy you corrected when there is one. |
+| Stage | Chips for Warm-up, Build and Peak, the [set stage](../concepts/set-stage.md) of each track among all the tracks of your library. A track matches when it has any of the chosen ones; a track with no tempo has no stage and is hidden while a chip is on. Pointing at a chip says what the stage means. It is not the energy. |
 | Quality | Chips for Lossless, Good, Acceptable, Weak, Limited BW, Re-encoded? and Damaged, named as in the Quality column (pointing at a chip shows the full verdict name). A track matches when it has any of the chosen ones; Damaged matches files with [dropped or missing audio](../concepts/audio-quality.md) whatever their verdict. |
 
 The filters combine with each other (a track must pass every filter that is set), with the folder, playlist, **Needs review** or **Favorites** you chose in the sidebar, and with the search box. They apply as you type. A value that is not a number in range leaves that side open.
 
-Tracks that are still queued, being analyzed, failed or missing have no tempo, energy or quality yet, so they are hidden while a BPM, energy or quality filter is set. They come back when you clear it.
+Tracks that are still queued, being analyzed, failed or missing have no tempo, energy, quality or stage yet, so they are hidden while a BPM, energy, quality or stage filter is set. They come back when you clear it.
 
 While a filter is set the heading says, for example, `37 of 1,284 tracks`. **Clear** at the end of the bar removes every filter and empties the fields; it leaves the ½ / 2× choice as it was. The filters are remembered between launches in `settings.json`, so the list opens narrowed the way you left it; a settings file from an older version opens with no filters.
 
 ![The track list with a BPM range of 120 to 126, energy from 6 and two quality chips set, and the heading counting the tracks that match](../images/desktop-app/track-filters.png)
+
+### Set stage
+
+The inspector shows a **Stage** line under the key, tempo and energy, such as `Stage: Peak`: where the track tends to sit in a set, from its tempo and loudness compared with the rest of your library. It is not the same as Energy; [set stage](../concepts/set-stage.md) explains the difference, how it is computed and how well it matches a DJ's own warm-up, build and peak folders. A track with no tempo has no stage, and no track has one until the library holds 10 tracks with a tempo. Stages are recomputed as the library changes.
+
+To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
 
 ### Resize the columns
 

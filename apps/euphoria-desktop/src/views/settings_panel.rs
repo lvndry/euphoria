@@ -14,6 +14,7 @@ use crate::display_settings::TempoPreset;
 use crate::surface_motion::Modal;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 use crate::theme::Palette;
+use crate::track_filters::STAGE_EXPLANATION;
 use crate::views::controls::{segment, segmented, toggle_row};
 use crate::views::{
     GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_MEDIUM, TITLE_TEXT_SIZE,
@@ -232,6 +233,20 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
                 .children(custom_range),
             &palette,
         )
+        .into_any_element(),
+    );
+    parts.push(
+        toggle_row(
+            "show-stage-column",
+            "Stage column",
+            "Adds a Stage column to the track table: warm-up, build or peak.",
+            display.show_stage_column,
+            &app.switches,
+            &palette,
+        )
+        .tooltip(|window, cx| Tooltip::new(STAGE_EXPLANATION).build(window, cx))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_stage_column(cx)))
+        .test_support()
         .into_any_element(),
     );
     parts.push(part_heading("Writing tags", &palette).into_any_element());
