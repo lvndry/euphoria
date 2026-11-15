@@ -291,7 +291,7 @@ fn the_write_preview_shows_rules_a_settings_link_and_a_counted_button(cx: &mut T
     cx.update(|cx| {
         let app = view.read(cx);
         assert!(app.settings_open);
-        assert!(app.tag_panel.is_none());
+        assert!(matches!(app.tag_panel, Some(TagPanel::Preview(_))));
     });
 }
 
