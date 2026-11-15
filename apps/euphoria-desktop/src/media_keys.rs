@@ -361,8 +361,10 @@ impl NowPlayingSync {
 
 /// Connects the system's remote commands and Now Playing to the app: the
 /// commands from `commands` are carried out in the window's app on the main
-/// thread, and what plays is told to `surface` whenever the window changes,
-/// and is cleared on quitting. Covers are read on the background executor.
+/// thread. What plays is looked at each time the window changes, and told
+/// to `surface` only when what Now Playing shows changed (see
+/// [`NowPlayingPublisher`]), never for ordinary progress. It is cleared on
+/// quitting. Covers are read on the background executor.
 pub(crate) fn install(
     view: &Entity<EuphoriaApp>,
     surface: Box<dyn NowPlayingSurface>,
@@ -745,6 +747,64 @@ mod tests {
         assert!(shown.artwork.is_none(), "the old cover is not kept");
         assert!(!sync.artwork_read(&first_path, Some(cover())));
         assert!(sync.wants_artwork(&second_path));
+    }
+
+    /// What a redraw at `frame` of a 120 Hz window sees while the track
+    /// plays on steadily at `rate` from `start_seconds`.
+    fn redraw(start_seconds: f64, rate: f64, frame: u64) -> (NowPlaying, Duration) {
+        let since_start = Duration::from_micros(frame * 8_333);
+        let elapsed = start_seconds + rate * since_start.as_secs_f64();
+        (playing(elapsed, rate), since_start)
+    }
+
+    #[test]
+    fn redraws_during_steady_playback_tell_nothing_and_a_change_tells_once() {
+        let (mut sync, told) = sync();
+        let start = Instant::now();
+        let path = playing(0.0, 1.0).path.expect("a path");
+        sync.update(Some(playing(10.0, 1.0)), start);
+        sync.artwork_read(&path, Some(cover()));
+        sync.update(Some(playing(10.0, 1.0)), start);
+        let after_setup = told.borrow().len();
+
+        for frame in 1..=100 {
+            let (info, since_start) = redraw(10.0, 1.0, frame);
+            sync.update(Some(info), start + since_start);
+        }
+        assert_eq!(
+            told.borrow().len(),
+            after_setup,
+            "steady playback pushes nothing"
+        );
+
+        let (at_change, since_start) = redraw(10.0, 1.0, 101);
+        let changed_at = start + since_start;
+        let faster = NowPlaying {
+            rate: 1.08,
+            ..at_change.clone()
+        };
+        sync.update(Some(faster.clone()), changed_at);
+        for frame in 1..=100 {
+            let (info, since_change) = redraw(faster.elapsed_seconds, 1.08, frame);
+            sync.update(Some(info), changed_at + since_change);
+        }
+        assert_eq!(
+            told.borrow().len(),
+            after_setup + 1,
+            "a rate change pushes once"
+        );
+
+        let (before_seek, since_change) = redraw(faster.elapsed_seconds, 1.08, 101);
+        let seeked_at = changed_at + since_change;
+        let seeked = before_seek.elapsed_seconds + 30.0;
+        for frame in 0..=100 {
+            let (info, since_seek) = redraw(seeked, 1.08, frame);
+            sync.update(Some(info), seeked_at + since_seek);
+        }
+        assert_eq!(told.borrow().len(), after_setup + 2, "a seek pushes once");
+        let last = last_published(&told);
+        assert_eq!(last.rate, 1.08);
+        assert!(last.artwork.is_some());
     }
 
     #[test]
