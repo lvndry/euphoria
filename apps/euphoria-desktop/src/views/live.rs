@@ -32,7 +32,7 @@ use crate::views::inspector::{quiet_note, value_with_unit};
 use crate::views::key_chip::key_chip;
 use crate::views::{
     GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
-    SMALL_TEXT_SIZE, TEXT_SIZE, section_label, tabular_digits,
+    SMALL_TEXT_SIZE, TEXT_SIZE, TITLE_TEXT_SIZE, section_label, tabular_digits,
 };
 
 /// The width of the panel.
@@ -477,7 +477,7 @@ fn readout(model: &LiveModel) -> AnyElement {
             .child(
                 div()
                     .id(WAITING_ID)
-                    .text_size(px(20.0))
+                    .text_size(TITLE_TEXT_SIZE)
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(palette.text_secondary)
                     .child(title.to_string())

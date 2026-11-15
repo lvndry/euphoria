@@ -57,6 +57,7 @@ pub(crate) fn set_height_keeping_top(
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn set_height_keeping_top(
     _window: &mut gpui::Window,
+    _top_left: (f32, f32),
     _height: f32,
     _cx: &mut gpui::App,
 ) {
