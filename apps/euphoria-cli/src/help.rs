@@ -90,6 +90,10 @@ pub fn analyze_examples() -> StyledStr {
                 "Every track in detail",
             ),
             (
+                "euphoria analyze --notes track.flac",
+                "The notes the key was heard from",
+            ),
+            (
                 "euphoria analyze --quality weak,reencoded ~/Music/DJ",
                 "The files worth replacing",
             ),
@@ -98,7 +102,7 @@ pub fn analyze_examples() -> StyledStr {
                 "Everything, for a script",
             ),
         ],
-        "In the table, ●●● is high confidence, ●●○ medium and ●○○ low: worth checking by ear.",
+        "In the table, the Review column names the tracks worth checking by ear and why.",
     )
 }
 
@@ -247,6 +251,27 @@ pub fn set_examples() -> StyledStr {
             ),
         ],
         "Curve presets: warm-up, peak-time and journey.",
+    )
+}
+
+pub fn set_render_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria set render \"Friday\" --out friday.wav --cue --tracklist",
+                "A playlist as one mix, with a CUE sheet and a tracklist",
+            ),
+            (
+                "euphoria set render set.m3u8 --out set.flac --chapters",
+                "An M3U8 file as FLAC, with chapter lines",
+            ),
+            (
+                "euphoria set render a.flac b.flac c.flac --dry-run",
+                "Where each track comes in and why, without rendering",
+            ),
+        ],
+        "Mixes are 24 bit stereo. Tracks are only read.",
     )
 }
 

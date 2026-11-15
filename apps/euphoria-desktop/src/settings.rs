@@ -116,6 +116,14 @@ impl Settings {
         serde_json::from_value(stored).map_err(format_error)
     }
 
+    /// The settings file of this user, or the defaults when it is missing or
+    /// cannot be read, for what only reads them.
+    pub(crate) fn load_or_default() -> Self {
+        settings_path()
+            .and_then(|path| Self::load(&path).ok())
+            .unwrap_or_default()
+    }
+
     /// Writes the settings file, creating its folder when needed. The file is
     /// written beside the old one and then moved over it, so a crash never
     /// leaves half a file.

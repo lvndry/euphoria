@@ -48,6 +48,14 @@ impl StemFiles {
         Self { directory }
     }
 
+    /// The drums, bass and other stems: the track without its vocals.
+    pub fn instrumental(&self) -> Vec<PathBuf> {
+        [Stem::Drums, Stem::Bass, Stem::Other]
+            .into_iter()
+            .map(|stem| self.path(stem))
+            .collect()
+    }
+
     /// The 16 bit stereo WAV file of `stem`, at 44.1 kHz.
     pub fn path(&self, stem: Stem) -> PathBuf {
         self.directory.join(format!("{}.wav", stem.name()))

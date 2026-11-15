@@ -78,6 +78,16 @@ pub(crate) struct SetBuilder {
     pub(crate) playing: Option<usize>,
     /// Whether the list of where the set falls short is open.
     pub(crate) details_open: bool,
+    /// The render of the set as one mix, while it runs.
+    pub(crate) render: Option<crate::mix_render::MixRenderRun>,
+    /// The transitions of the set as last checked.
+    pub(crate) checked: Option<crate::set_check::CheckedSet>,
+    /// True while the transitions are being checked.
+    pub(crate) is_checking: bool,
+    /// The fix chosen for each blend where both tracks would sing, by the
+    /// pair of tracks.
+    pub(crate) vocal_fixes:
+        std::collections::HashMap<(PathBuf, PathBuf), euphoria_core::set_render::VocalFixChoice>,
     build_generation: u64,
     build_task: Option<Task<()>>,
 }
@@ -99,6 +109,10 @@ impl Default for SetBuilder {
             selected_row: None,
             playing: None,
             details_open: false,
+            render: None,
+            checked: None,
+            is_checking: false,
+            vocal_fixes: std::collections::HashMap::new(),
             build_generation: 0,
             build_task: None,
         }
@@ -646,11 +660,8 @@ impl EuphoriaApp {
         };
         self.set_builder.selected_row = Some(position);
         self.select(index, cx);
-        self.give_player_selection(true, cx);
         self.set_builder.playing = Some(position);
-        for request in self.player.play_from(from_seconds) {
-            self.carry_out(Some(request), cx);
-        }
+        self.play_library_track(index, from_seconds, cx);
         cx.notify();
     }
 
@@ -741,7 +752,7 @@ impl EuphoriaApp {
     }
 
     /// The name a saved set gets: its curve preset, or that it was drawn.
-    fn set_name(&self) -> String {
+    pub(crate) fn set_name(&self) -> String {
         let shape = match self.set_builder.preset {
             Some(preset) => preset.label(),
             None => "Drawn curve",

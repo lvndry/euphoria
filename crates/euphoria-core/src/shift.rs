@@ -10,7 +10,7 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
-mod flac;
+pub(crate) mod flac;
 
 use crate::audio::{MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE};
 use crate::audio_stream::AudioStream;
@@ -444,6 +444,7 @@ impl ShiftedWriter {
                 path,
                 channels,
                 sample_rate,
+                write_error,
             )?)),
         })
     }

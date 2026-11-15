@@ -61,9 +61,9 @@ Every release, with its notes and the command line tool for both systems, is on 
 
 ```
 $ euphoria analyze ~/Music/DJ
-Key                  BPM       Energy              Quality   Time  File
- 8A  A minor  ●●●  124.0  ●●○       6  ━━━━━━────  lossless  6:48  Low Tide.flac
- 9A  E minor  ●●○  122.0  ●●●       4  ━━━━──────  good      7:12  Saffron.m4a
+Key             BPM  Energy              Quality   Time  File
+ 8A  A minor  124.0       6  ━━━━━━────  lossless  6:48  Low Tide.flac
+ 9A  E minor  122.0       4  ━━━━──────  good      7:12  Saffron.m4a
 ```
 
 One file is shown in detail, with the runner up key, the half or double tempo and the reason for its sound quality: `euphoria analyze ~/Music/DJ/Saffron.m4a`.
@@ -82,6 +82,7 @@ The full documentation is in [docs](docs/index.md):
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [Analyze your library](docs/guides/analyze-your-library.md)
 - [Build a set along an energy curve](docs/guides/build-a-set.md)
+- [Render a set as one mix](docs/guides/render-a-mix.md)
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to Engine DJ](docs/guides/export-to-engine-dj.md)
 - [Export to rekordbox](docs/guides/export-to-rekordbox.md), [to Traktor](docs/guides/export-to-traktor.md) and [to VirtualDJ](docs/guides/export-to-virtualdj.md)
 - [Cue points and beat grids for Serato](docs/guides/serato-cues.md)
