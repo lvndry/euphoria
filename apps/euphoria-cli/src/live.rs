@@ -258,7 +258,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let mut output = Vec::new();
         let mut messages = Vec::new();
-        run_with(
+        let _ = run_with(
             Box::new(capture),
             &arguments(json),
             &mut output,

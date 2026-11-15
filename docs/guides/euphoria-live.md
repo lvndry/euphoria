@@ -39,7 +39,7 @@ listening…
 8A  A minor  124.0 BPM  high
 ```
 
-The key appears after about 8 seconds of audio and the tempo after about 6. The confidence is that of the key (`low`, `medium` or `high`, as in [the analysis](../concepts/confidence.md)). When the audio goes silent or too quiet, `listening…` is printed once, and values are never repeated from before. Ctrl-C stops it.
+The key appears after about 8 seconds of audio and the tempo after about 6. The confidence is that of the key (`low`, `medium` or `high`, as in [the analysis](../concepts/accuracy.md)). When the audio goes silent or too quiet, `listening…` is printed once, and values are never repeated from before. Ctrl-C stops it.
 
 | Option | Meaning |
 | --- | --- |

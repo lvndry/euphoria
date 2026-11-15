@@ -36,15 +36,14 @@ const NO_ERROR: i32 = 0;
 
 type CreateTap = unsafe extern "C-unwind" fn(*const AnyObject, *mut AudioObjectID) -> i32;
 type DestroyTap = unsafe extern "C-unwind" fn(AudioObjectID) -> i32;
-type IoBlock = block2::Block<
-    dyn Fn(
-        NonNull<AudioTimeStamp>,
-        NonNull<AudioBufferList>,
-        NonNull<AudioTimeStamp>,
-        NonNull<AudioBufferList>,
-        NonNull<AudioTimeStamp>,
-    ),
->;
+
+type IoBlockFunction = dyn Fn(
+    NonNull<AudioTimeStamp>,
+    NonNull<AudioBufferList>,
+    NonNull<AudioTimeStamp>,
+    NonNull<AudioBufferList>,
+    NonNull<AudioTimeStamp>,
+);
 
 struct TapFunctions {
     create: CreateTap,
@@ -192,15 +191,7 @@ struct Running {
     tap: AudioObjectID,
     aggregate: AudioObjectID,
     procedure: AudioDeviceIOProcID,
-    _block: RcBlock<
-        dyn Fn(
-            NonNull<AudioTimeStamp>,
-            NonNull<AudioBufferList>,
-            NonNull<AudioTimeStamp>,
-            NonNull<AudioBufferList>,
-            NonNull<AudioTimeStamp>,
-        ),
-    >,
+    _block: RcBlock<IoBlockFunction>,
     destroy_tap: DestroyTap,
 }
 
@@ -272,10 +263,8 @@ impl AudioCapture for ProcessTapCapture {
         let description = match source {
             ListenSource::AllAudio => {
                 let own = process_object_of(std::process::id() as i32);
-                let excluded: Vec<Retained<NSNumber>> = own
-                    .into_iter()
-                    .map(|object| NSNumber::new_u32(object))
-                    .collect();
+                let excluded: Vec<Retained<NSNumber>> =
+                    own.into_iter().map(NSNumber::new_u32).collect();
                 let excluded = NSArray::from_retained_slice(&excluded);
                 // SAFETY: the class exists, as checked above, and the argument is an array of numbers.
                 unsafe {
@@ -364,7 +353,7 @@ impl AudioCapture for ProcessTapCapture {
                 NonNull::from(&mut procedure),
                 aggregate,
                 None,
-                &*block as *const IoBlock as *mut _,
+                &*block as *const block2::Block<IoBlockFunction> as *mut _,
             )
         };
         if status != NO_ERROR || procedure.is_none() {
