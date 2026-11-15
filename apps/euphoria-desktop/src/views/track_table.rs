@@ -703,7 +703,7 @@ fn cell_contents(
             .min_w_0()
             .truncate()
             .text_color(palette.text_secondary)
-            .children(track.artist.clone())
+            .children(track.shown_artist().map(std::borrow::Cow::into_owned))
             .into_any_element(),
         ColumnId::Key => match (&track.status, track.key()) {
             (TrackStatus::Missing, _) => status_text("Missing", palette.danger, true),

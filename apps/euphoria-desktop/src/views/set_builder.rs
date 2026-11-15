@@ -786,7 +786,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             .unwrap_or_else(|| path.display().to_string())
             .into();
         let artist: SharedString = track
-            .and_then(|track| track.artist.clone())
+            .and_then(|track| track.shown_artist().map(std::borrow::Cow::into_owned))
             .unwrap_or_default()
             .into();
         let with_rule_tooltip = |cell: Div, id: &'static str| -> AnyElement {

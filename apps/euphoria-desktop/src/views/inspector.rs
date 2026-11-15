@@ -411,7 +411,7 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
                     div()
                         .truncate()
                         .text_color(palette.text_secondary)
-                        .child(track.artist.clone().unwrap_or_else(|| track.folder.clone())),
+                        .child(track.artist_or_folder()),
                 )
                 .child(
                     div()
@@ -439,7 +439,7 @@ fn strip_summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Euphoria
             div()
                 .truncate()
                 .text_color(palette.text_secondary)
-                .child(track.artist.clone().unwrap_or_else(|| track.folder.clone())),
+                .child(track.artist_or_folder()),
         )
         .child(
             div()
@@ -982,6 +982,10 @@ fn statistic_compact(
         .into_any_element()
 }
 
+/// The id of the playing track's title in the Deck strip, shown while
+/// another track is selected.
+pub(crate) const STRIP_PLAYING_TITLE_ID: &str = "strip-playing-title";
+
 /// The waveform, which is also where to seek: a press or a drag on it moves
 /// playing to that point. In the strip under the table the play button and
 /// the position sit beside it, since that layout has no player bar.
@@ -1019,11 +1023,18 @@ fn waveform_section(
         }
         _ if is_in_strip && is_in_player => div().child(app.player.time_label()),
         _ if is_in_strip && app.player.offers_pause() => match app.player_track() {
-            Some(playing) => div().child(format!(
-                "Playing {} \u{b7} {}",
-                playing.title(),
-                app.player.time_label()
-            )),
+            Some(playing) => div()
+                .flex()
+                .gap(GAP_TIGHT)
+                .child("Playing")
+                .child(player::shows_playing_track_on_click(
+                    div()
+                        .id(STRIP_PLAYING_TITLE_ID)
+                        .hover(move |style| style.text_color(palette.accent).underline())
+                        .child(playing.title().to_string()),
+                    cx,
+                ))
+                .child(format!("\u{b7} {}", app.player.time_label())),
             None => div().child(note),
         },
         _ => div().child(note),
