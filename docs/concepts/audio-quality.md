@@ -26,7 +26,7 @@ The verdict is about the file, not the music. A great track in a weak file is st
 euphoria quality ~/Music/DJ
 ```
 
-The first line counts them, such as `37 of 576 tracks to replace: 2 heavily damaged, 9 fake lossless, 21 low bit rate, 5 clipped.` Heavily damaged files come first, then lossless files made from a lossy one (fake lossless) and other re-encoded files, then files weak on a big system, then lightly damaged and clipped files. `--min acceptable` adds the medium bit rate files, and `--m3u` writes the list as a playlist to find the files in a DJ program. Tracks analyzed before are read from the cache. A Limited bandwidth file is never listed: nothing better exists. See [`euphoria quality`](../reference/cli.md#euphoria-quality) for the options.
+The first line counts them, such as `32 of 576 tracks to replace: 2 heavily damaged, 9 fake lossless, 21 low bit rate.` Heavily damaged files come first, then lossless files made from a lossy one (fake lossless) and other re-encoded files, then files weak on a big system, then lightly damaged files. Clipping is named in the reason of a listed file but does not list a file on its own, since a new copy of the same master is clipped too; `--all` shows it for every file. `--min acceptable` adds the medium bit rate files, and `--m3u` writes the list as a playlist to find the files in a DJ program. Tracks analyzed before are read from the cache. A Limited bandwidth file is never listed: nothing better exists. See [`euphoria quality`](../reference/cli.md#euphoria-quality) for the options.
 
 ## What is measured
 

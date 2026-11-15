@@ -293,7 +293,7 @@ pub fn quality_examples() -> StyledStr {
                 "Every track with its verdict, as a spreadsheet",
             ),
         ],
-        "Damaged and clipped files are listed whatever --min is.",
+        "Damaged files are listed whatever --min is. Clipping alone does not list a file.",
     )
 }
 

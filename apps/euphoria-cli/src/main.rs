@@ -98,7 +98,8 @@ enum Command {
                       each with a plain reason, so you can buy or download a better copy.\n\n\
                       A file is listed when it is heavily damaged, lossless but made from a \
                       lossy file (fake lossless), re-encoded from a lower bit rate, low bit \
-                      rate, damaged or clipped. The verdicts are those of euphoria analyze, \
+                      rate or damaged. Clipping is named among the reasons of a listed file, \
+                      but does not list a file on its own. The verdicts are those of euphoria analyze, \
                       read from the cache when the tracks were analyzed before; tracks not yet \
                       analyzed are analyzed and saved.",
         after_help = help::quality_examples(),

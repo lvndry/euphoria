@@ -671,7 +671,7 @@ euphoria quality [OPTIONS] <PATHS>...
 
 ```
 $ euphoria quality ~/Music/DJ
-4 of 212 tracks to replace: 1 heavily damaged, 1 fake lossless, 1 low bit rate, 1 clipped.
+3 of 212 tracks to replace: 1 heavily damaged, 1 fake lossless, 1 low bit rate.
 
 Heavily damaged  Saffron & Co - Low Tide
   Good: 41.2 s missing at the end
@@ -682,12 +682,8 @@ Fake lossless    Harbour Lights - Night Drive
   Club/Night Drive.flac
 
 Low bit rate     Glow - Afterglow
-  Weak on a big system: MP3, 128 kbit/s
+  Weak on a big system: MP3, 128 kbit/s; 0.42% of the samples clipped at full scale
   Afterglow.mp3
-
-Clipped          Pale Blue - Signal
-  Lossless: 0.42% of the samples clipped at full scale
-  Club/Signal.wav
 ```
 
 The first line counts the tracks and the files to replace by their worst problem. Each file then has a block: its worst problem and its artist and title from the tags (the file name when it has none), its verdict with a concrete reason for each problem, and its path relative to the folder given. A file is listed for these problems, in this order:
@@ -699,15 +695,16 @@ The first line counts the tracks and the files to replace by their worst problem
 | Re-encoded | A lossy file whose sound stops where a lower bit rate file's would: verdict Likely re-encoded. |
 | Low bit rate | Verdict Weak on a big system. |
 | Damaged | Some audio could not be decoded or is missing, less than 2%. |
-| Clipped | At least 0.1% of the samples are in runs at full scale. |
 | Medium bit rate | Verdict Acceptable, only with `--min acceptable`. |
 
-Among files with the same worst problem, the worse comes first: more audio lost, an earlier cutoff, a lower bit rate or more clipping. A file with several problems is counted once, by its worst, and its reasons are all listed.
+Among files with the same worst problem, the worse comes first: more audio lost, an earlier cutoff or a lower bit rate. A file with several problems is counted once, by its worst, and its reasons are all listed.
+
+Clipping, at least 0.1% of the samples in runs at full scale, is named among the reasons of a listed file but never lists a file on its own: a new copy of the same master is clipped too. With `--all`, a clipped file that is otherwise fine shows under `Keep` with its clipping in the reason.
 
 | Option | Effect |
 | --- | --- |
 | `--all` | List every track with its verdict, the files to replace first, then the rest under `Keep`. |
-| `--min <VERDICT>` | The verdict from which a file is worth replacing: `acceptable`, `weak` (the default, weak on a big system) or `reencoded`. Damaged and clipped files are listed whatever it is. |
+| `--min <VERDICT>` | The verdict from which a file is worth replacing: `acceptable`, `weak` (the default, weak on a big system) or `reencoded`. Damaged files are listed whatever it is. |
 | `--json` | Print JSON instead of the list. |
 | `--csv <FILE>` | Also write the list as a CSV file, with the same rows as the list. |
 | `--m3u <FILE>` | Also write the files to replace as an M3U8 playlist, to find them in rekordbox, Serato, Traktor or another DJ program. |

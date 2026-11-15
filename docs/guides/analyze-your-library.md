@@ -49,7 +49,7 @@ euphoria analyze --quality weak,reencoded ~/Music/DJ
 
 The first lists the tracks whose key or tempo is rated low, or whose tags name another key than the detected one, the second the files whose sound quality is weak on a big system or that were likely made from a lower quality file. The summary says how many of the tracks are shown.
 
-`euphoria quality ~/Music/DJ` lists the files worth replacing worst first, damaged and clipped ones included, each with why. See [find the files to replace](../concepts/audio-quality.md#find-the-files-to-replace).
+`euphoria quality ~/Music/DJ` lists the files worth replacing worst first, damaged ones included, each with why. See [find the files to replace](../concepts/audio-quality.md#find-the-files-to-replace).
 
 ## Analyze again after adding music
 

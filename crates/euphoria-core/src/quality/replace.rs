@@ -32,7 +32,9 @@ pub enum ReplaceProblem {
     LowBitrate,
     /// Some audio could not be decoded or is missing at the end.
     Damaged,
-    /// The waveform is flattened at full scale in places.
+    /// The waveform is flattened at full scale in places. It never lists a
+    /// file on its own, since a new copy of the same master is clipped too,
+    /// but it is named among the problems of a file listed for another.
     Clipped,
     /// A medium bit rate lossy file, listed only when the threshold asks.
     MediumBitrate,
@@ -82,8 +84,9 @@ impl QualityVerdict {
 
 impl QualityReport {
     /// What makes the file worth replacing, worst first, or nothing when it
-    /// is fine. A verdict counts from `threshold` down; damage and clipping
-    /// always count, since a better copy fixes them too.
+    /// is fine. A verdict counts from `threshold` down, and damage counts at
+    /// any threshold. Clipping is added to the problems of a file that has
+    /// another, and is not enough on its own.
     pub fn replace_problems(&self, threshold: QualityVerdict) -> Vec<ReplaceProblem> {
         let mut problems = Vec::new();
         if self.is_heavily_damaged() {
@@ -105,11 +108,34 @@ impl QualityReport {
         if self.is_damaged() && !self.is_heavily_damaged() {
             problems.push(ReplaceProblem::Damaged);
         }
-        if self.clipped_share >= NOTICEABLE_CLIPPED_SHARE {
+        if !problems.is_empty() && self.is_clipped() {
             problems.push(ReplaceProblem::Clipped);
         }
         problems.sort();
         problems
+    }
+
+    /// True when at least [`NOTICEABLE_CLIPPED_SHARE`] of the samples are
+    /// clipped.
+    pub fn is_clipped(&self) -> bool {
+        self.clipped_share >= NOTICEABLE_CLIPPED_SHARE
+    }
+
+    /// The short reasons for a row of a list of every file: the reason for
+    /// each of `problems`, or, for a file with none, its format and its
+    /// clipping when it is clipped.
+    pub fn row_reasons(&self, problems: &[ReplaceProblem], path: &Path) -> Vec<String> {
+        if !problems.is_empty() {
+            return problems
+                .iter()
+                .map(|problem| self.problem_reason(*problem, path))
+                .collect();
+        }
+        let mut reasons = vec![self.format_description(path)];
+        if self.is_clipped() {
+            reasons.push(self.problem_reason(ReplaceProblem::Clipped, path));
+        }
+        reasons
     }
 
     /// The format of the file at `path` in a word or two, with the bit rate
@@ -405,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn damage_and_clipping_count_at_any_threshold() {
+    fn damage_counts_at_any_threshold_and_clipping_only_beside_another_problem() {
         assert_eq!(
             truncated(2.0).replace_problems(QualityVerdict::LikelyReencoded),
             [ReplaceProblem::Damaged]
@@ -414,13 +440,9 @@ mod tests {
             truncated(30.0).replace_problems(QualityVerdict::LikelyReencoded),
             [ReplaceProblem::HeavilyDamaged]
         );
-        assert_eq!(
-            clipped(0.004).replace_problems(QualityVerdict::LikelyReencoded),
-            [ReplaceProblem::Clipped]
-        );
         assert!(
-            clipped(0.0005)
-                .replace_problems(DEFAULT_REPLACE_THRESHOLD)
+            clipped(0.03)
+                .replace_problems(QualityVerdict::Acceptable)
                 .is_empty()
         );
         let weak_and_clipped = QualityReport {
@@ -431,16 +453,48 @@ mod tests {
             weak_and_clipped.replace_problems(DEFAULT_REPLACE_THRESHOLD),
             [ReplaceProblem::LowBitrate, ReplaceProblem::Clipped]
         );
+        let barely_clipped = QualityReport {
+            clipped_share: 0.0005,
+            ..weak_mp3(128)
+        };
+        assert_eq!(
+            barely_clipped.replace_problems(DEFAULT_REPLACE_THRESHOLD),
+            [ReplaceProblem::LowBitrate]
+        );
+    }
+
+    #[test]
+    fn a_kept_file_names_its_format_and_its_clipping() {
+        let path = Path::new("a.wav");
+        let file = clipped(0.004);
+        assert_eq!(
+            file.row_reasons(&file.replace_problems(DEFAULT_REPLACE_THRESHOLD), path),
+            ["WAV", "0.40% of the samples clipped at full scale"]
+        );
+        let clean = clipped(0.0);
+        assert_eq!(clean.row_reasons(&[], path), ["WAV"]);
+        let weak = QualityReport {
+            clipped_share: 0.01,
+            ..weak_mp3(128)
+        };
+        assert_eq!(
+            weak.row_reasons(
+                &weak.replace_problems(DEFAULT_REPLACE_THRESHOLD),
+                Path::new("a.mp3")
+            ),
+            [
+                "MP3, 128 kbit/s",
+                "1.0% of the samples clipped at full scale"
+            ]
+        );
     }
 
     #[test]
     fn files_rank_worst_first() {
         let fine = report("flac", true, Some(900));
         let mut reports = [
-            fine.clone(),
-            clipped(0.002),
+            fine,
             weak_mp3(128),
-            clipped(0.03),
             fake_flac(16_000.0),
             truncated(2.0),
             weak_mp3(96),
@@ -473,8 +527,6 @@ mod tests {
                 "low bit rate 96",
                 "low bit rate 128",
                 "damaged 2",
-                "clipped 0.03",
-                "clipped 0.002",
                 "none good",
                 "none lossless",
             ]

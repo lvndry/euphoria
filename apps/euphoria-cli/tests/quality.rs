@@ -3,7 +3,8 @@
 
 //! `euphoria quality` on a small library of generated files, one per
 //! problem: a truncated file, a lossless file low-passed like a 128 kbit/s
-//! MP3, a 128 kbit/s MP3, a clipped file and a clean lossless file.
+//! MP3, a 128 kbit/s MP3, a clipped file and a clean lossless file. A
+//! file that is only clipped is kept: clipping alone does not list it.
 
 mod support;
 
@@ -134,7 +135,7 @@ fn json(euphoria: &Euphoria, arguments: &[&str]) -> serde_json::Value {
 }
 
 const SUMMARY: &str =
-    "4 of 5 tracks to replace: 1 heavily damaged, 1 fake lossless, 1 low bit rate, 1 clipped.";
+    "3 of 5 tracks to replace: 1 heavily damaged, 1 fake lossless, 1 low bit rate.";
 
 #[test]
 fn lists_the_files_to_replace_worst_first_with_why() {
@@ -145,7 +146,7 @@ fn lists_the_files_to_replace_worst_first_with_why() {
     let lines: Vec<&str> = listing.lines().collect();
     assert_eq!(lines[0], SUMMARY, "{listing}");
     let blocks: Vec<&[&str]> = lines[1..].split(|line| line.is_empty()).skip(1).collect();
-    assert_eq!(blocks.len(), 4, "{listing}");
+    assert_eq!(blocks.len(), 3, "{listing}");
     assert_eq!(
         blocks[0],
         [
@@ -172,13 +173,24 @@ fn lists_the_files_to_replace_worst_first_with_why() {
         "{listing}"
     );
     assert_eq!(blocks[2][2], "  Crate/128k.mp3");
-    assert_eq!(blocks[3][0], "Clipped          clipped");
-    assert!(
-        blocks[3][1].starts_with("  Lossless: ")
-            && blocks[3][1].ends_with("% of the samples clipped at full scale"),
-        "{listing}"
-    );
     assert!(!listing.contains("clean"), "{listing}");
+    assert!(!listing.contains("clipped"), "{listing}");
+
+    let everything = run(&euphoria, &["quality", "--all", folder]);
+    let lines: Vec<&str> = everything.lines().collect();
+    assert_eq!(lines[0], SUMMARY, "{everything}");
+    let blocks: Vec<&[&str]> = lines[1..].split(|line| line.is_empty()).skip(1).collect();
+    assert_eq!(blocks.len(), 5, "{everything}");
+    assert_eq!(
+        blocks[3],
+        ["Keep             clean", "  Lossless: WAV", "  clean.wav"]
+    );
+    assert_eq!(blocks[4][0], "Keep             clipped");
+    assert!(
+        blocks[4][1].starts_with("  Lossless: WAV; ")
+            && blocks[4][1].ends_with("% of the samples clipped at full scale"),
+        "{everything}"
+    );
 }
 
 #[test]
@@ -207,7 +219,7 @@ fn json_lists_every_track_with_all_and_the_counts() {
     assert_eq!(document["threshold"], "weak-on-a-big-system");
     let summary = &document["summary"];
     assert_eq!(summary["tracks"], 5);
-    assert_eq!(summary["to_replace"], 4);
+    assert_eq!(summary["to_replace"], 3);
     assert_eq!(summary["line"], SUMMARY);
     let counted: Vec<(&str, u64)> = summary["by_problem"]
         .as_array()
@@ -226,7 +238,6 @@ fn json_lists_every_track_with_all_and_the_counts() {
             ("heavily-damaged", 1),
             ("fake-lossless", 1),
             ("low-bitrate", 1),
-            ("clipped", 1),
         ]
     );
     let tracks = document["tracks"].as_array().expect("tracks");
@@ -246,9 +257,19 @@ fn json_lists_every_track_with_all_and_the_counts() {
             ("truncated.wav", "lossless", true),
             ("Crate/fake lossless.wav", "likely-reencoded", true),
             ("Crate/128k.mp3", "weak-on-a-big-system", true),
-            ("clipped.wav", "lossless", true),
             ("clean.wav", "lossless", false),
+            ("clipped.wav", "lossless", false),
         ]
+    );
+    let clipped = &tracks[4];
+    assert_eq!(clipped["problems"], serde_json::json!([]));
+    assert_eq!(clipped["reasons"][0], "WAV");
+    assert!(
+        clipped["reasons"][1]
+            .as_str()
+            .expect("a clipping reason")
+            .ends_with("% of the samples clipped at full scale"),
+        "{clipped}"
     );
     let mp3 = &tracks[2];
     assert_eq!(mp3["artist"], "Harbour Lights");
@@ -270,8 +291,8 @@ fn json_lists_every_track_with_all_and_the_counts() {
             .starts_with("Damaged file:"),
         "{truncated}"
     );
-    assert_eq!(tracks[4]["problems"], serde_json::json!([]));
-    assert_eq!(tracks[4]["reasons"], serde_json::json!(["WAV"]));
+    assert_eq!(tracks[3]["problems"], serde_json::json!([]));
+    assert_eq!(tracks[3]["reasons"], serde_json::json!(["WAV"]));
 }
 
 #[test]
@@ -290,10 +311,7 @@ fn the_threshold_moves_with_min() {
         .iter()
         .map(|track| track["relative_path"].as_str().expect("a path"))
         .collect();
-    assert_eq!(
-        listed,
-        ["truncated.wav", "Crate/fake lossless.wav", "clipped.wav"]
-    );
+    assert_eq!(listed, ["truncated.wav", "Crate/fake lossless.wav"]);
 }
 
 #[test]
@@ -317,7 +335,7 @@ fn writes_a_csv_file_and_a_playlist_of_the_files_to_replace() {
     let messages = standard_error(&output);
     assert!(messages.contains("Wrote 5 tracks to "), "{messages}");
     assert!(
-        messages.contains("Wrote 4 tracks to replace to "),
+        messages.contains("Wrote 3 tracks to replace to "),
         "{messages}"
     );
 
@@ -343,11 +361,11 @@ fn writes_a_csv_file_and_a_playlist_of_the_files_to_replace() {
         "{csv}"
     );
     assert!(
-        rows[4].starts_with("clipped.wav,,,Lossless,yes,clipped,"),
+        rows[4].starts_with("clean.wav,,,Lossless,no,,WAV,"),
         "{csv}"
     );
     assert!(
-        rows[5].starts_with("clean.wav,,,Lossless,no,,WAV,"),
+        rows[5].starts_with("clipped.wav,,,Lossless,no,,WAV; "),
         "{csv}"
     );
     assert_eq!(rows[6], "");
@@ -359,15 +377,14 @@ fn writes_a_csv_file_and_a_playlist_of_the_files_to_replace() {
         .chunks(2)
         .map(|entry| (entry[0], entry[1]))
         .collect();
-    assert_eq!(entries.len(), 4, "{playlist}");
+    assert_eq!(entries.len(), 3, "{playlist}");
     assert_eq!(entries[0].0, "#EXTINF:2,truncated");
     assert_eq!(entries[2].0, "#EXTINF:4,Harbour Lights - Low Tide Dub");
-    for ((_, path), name) in entries.iter().zip([
-        "truncated.wav",
-        "Crate/fake lossless.wav",
-        "Crate/128k.mp3",
-        "clipped.wav",
-    ]) {
+    for ((_, path), name) in
+        entries
+            .iter()
+            .zip(["truncated.wav", "Crate/fake lossless.wav", "Crate/128k.mp3"])
+    {
         assert!(Path::new(path).is_absolute(), "{path}");
         assert!(path.ends_with(name), "{path}");
     }

@@ -34,7 +34,7 @@ pub struct QualityArguments {
     #[arg(long)]
     all: bool,
     /// The verdict from which a file is worth replacing: acceptable, weak
-    /// or reencoded. Damaged and clipped files are listed whatever it is.
+    /// or reencoded. Damaged files are listed whatever it is.
     #[arg(long, value_enum, default_value_t = ThresholdChoice::Weak, value_name = "VERDICT")]
     min: ThresholdChoice,
     /// Print JSON instead of the list.
@@ -108,15 +108,9 @@ impl Row {
     }
 
     /// The concrete reasons, worst first, or the format of a file that is
-    /// fine.
+    /// fine, with its clipping.
     fn reasons(&self) -> Vec<String> {
-        if self.problems.is_empty() {
-            return vec![self.report.format_description(&self.path)];
-        }
-        self.problems
-            .iter()
-            .map(|problem| self.report.problem_reason(*problem, &self.path))
-            .collect()
+        self.report.row_reasons(&self.problems, &self.path)
     }
 
     /// The worst problem as a heading, or "Keep" for a file that is fine.
