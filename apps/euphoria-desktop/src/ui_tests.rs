@@ -25,7 +25,7 @@ use crate::player::{PlayerRequest, PlayerStatus};
 use crate::settings::{FolderTreeMemory, Settings};
 use crate::state::Session;
 use crate::tag_flow::TagPanel;
-use crate::tag_settings::{ProgramChoice, TagSettings};
+use crate::tag_settings::{NotationChoice, ProgramChoice, TagSettings};
 use crate::tag_writing;
 use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
 use crate::theme::{AppTheme, Layout, ThemeName};
@@ -2195,7 +2195,7 @@ fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
         saved,
         TagSettings {
             program: ProgramChoice::Serato,
-            key_notation: crate::tag_settings::NotationChoice::OpenKey,
+            key_notation: NotationChoice::OpenKey,
             label: Some(crate::tag_settings::LabelChoice::Grouping),
             write_tempo: true,
             write_cue_markers: false,
@@ -3715,7 +3715,7 @@ fn the_key_display_setting_spells_keys_in_the_table_and_is_remembered(cx: &mut T
     });
     assert_eq!(
         Settings::load(&settings_path).unwrap().tags.key_notation,
-        crate::tag_settings::NotationChoice::OpenKey
+        NotationChoice::OpenKey
     );
 }
 
@@ -6681,7 +6681,7 @@ fn statistic_labels_and_notes_stay_whole_in_every_theme_at_the_narrowest_inspect
             None,
             cx,
         );
-        select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
+        select_track(&view, library_index_of(&view, "unsure key.mp3", cx), cx);
         for label in ["Key", "BPM", "Energy"] {
             for prefix in ["statistic-label", "statistic-note"] {
                 let id = gpui::SharedString::from(format!("{prefix}-{label}"));
@@ -6815,6 +6815,148 @@ fn the_bpm_and_the_energy_read_on_one_line_in_aligned_boxes(cx: &mut TestAppCont
                         "the BPM and Energy lines keep one shape in {theme:?} for {name}"
                     );
                 }
+            })
+            .unwrap();
+        }
+    }
+}
+
+#[gpui::test]
+fn each_statistic_row_centres_its_label_and_its_value_on_one_line(cx: &mut TestAppContext) {
+    let mut rows_measured = 0;
+    for theme in ThemeName::ALL {
+        if theme == ThemeName::Deck {
+            continue;
+        }
+        let panels = Panels {
+            inspector_width: 0,
+            ..Panels::default()
+        };
+        let (window, view) = open_folders(
+            &["/Demo/reasons"],
+            tracks_with_reasons(),
+            Settings {
+                theme,
+                panels,
+                ..Settings::default()
+            },
+            None,
+            cx,
+        );
+        let mut assert_rows_centred = |situation: &str, cx: &mut TestAppContext| {
+            cx.update_window(window, |_, window, cx| {
+                window.render_frame(cx);
+                let inspector = window.find("inspector").bounds();
+                let mut paddings = Vec::new();
+                for label in ["Key", "BPM", "Energy"] {
+                    let row = window
+                        .find(gpui::SharedString::from(format!("statistic-row-{label}")))
+                        .bounds();
+                    let value = window
+                        .find(gpui::SharedString::from(format!("statistic-value-{label}")))
+                        .bounds();
+                    let label_bounds = window
+                        .find(gpui::SharedString::from(format!("statistic-label-{label}")))
+                        .bounds();
+                    let centre = row.center().y;
+                    assert!(
+                        (value.center().y - centre).abs() <= px(1.0),
+                        "the {label} value sits off the row's centre in {theme:?}, {situation}: {value:?} in {row:?}"
+                    );
+                    assert!(
+                        (label_bounds.center().y - centre).abs() <= px(1.0),
+                        "the {label} label sits off the row's centre in {theme:?}, {situation}: {label_bounds:?} in {row:?}"
+                    );
+                    let line_above = if label == "Key" { px(0.0) } else { px(1.0) };
+                    paddings.push((
+                        value.top() - row.top() - line_above,
+                        row.bottom() - value.bottom(),
+                    ));
+                    rows_measured += 1;
+                }
+                for (top, bottom) in &paddings {
+                    assert_eq!(top, bottom, "{theme:?}, {situation}");
+                    assert_eq!(*top, paddings[0].0, "one padding for every row in {theme:?}, {situation}");
+                }
+                let code = window.find("key-code").bounds();
+                let name = window.find("key-name").bounds();
+                assert!(
+                    name.size.height < px(20.0) && name.left() >= code.right(),
+                    "the key reads on one line in {theme:?}, {situation}"
+                );
+                assert!(
+                    name.right() <= inspector.right(),
+                    "the key name runs past the inspector in {theme:?}, {situation}"
+                );
+            })
+            .unwrap();
+        };
+
+        for name in ["sure.mp3", "unsure tempo.mp3", "unsure key.mp3"] {
+            select_track(&view, library_index_of(&view, name, cx), cx);
+            assert_rows_centred(name, cx);
+        }
+        assert!(is_shown(window, "runner-up-key", cx));
+        click(window, "runner-up-key", cx);
+        assert!(is_shown(window, "key-set-by-you", cx));
+        assert!(is_shown(window, "key-reset", cx));
+        assert_rows_centred("a key set by the user", cx);
+    }
+    assert!(
+        rows_measured >= 12,
+        "the rows were not measured in every theme"
+    );
+}
+
+#[gpui::test]
+fn the_key_reads_on_one_line_in_the_chosen_notation(cx: &mut TestAppContext) {
+    for theme in ThemeName::ALL {
+        let panels = Panels {
+            inspector_width: 0,
+            ..Panels::default()
+        };
+        let (window, view) = open_folders(
+            &["/Demo/reasons"],
+            tracks_with_reasons(),
+            Settings {
+                theme,
+                panels,
+                ..Settings::default()
+            },
+            None,
+            cx,
+        );
+        select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
+        let key = cx.update(|cx| view.read(cx).selected_track().unwrap().key().unwrap());
+        for notation in NotationChoice::ALL {
+            cx.update(|cx| view.update(cx, |app, cx| app.set_key_notation(notation, cx)));
+            let (expected_first, expected_second) = match notation {
+                NotationChoice::Musical => (key.to_string(), format!("/ {}", key.camelot())),
+                _ => (notation.spell(&key), format!("/ {key}")),
+            };
+            cx.update_window(window, |_, window, cx| {
+                window.render_frame(cx);
+                let inspector = window.find("inspector").bounds();
+                let code = window.find("key-code").bounds();
+                let name = window.find("key-name").bounds();
+                let (first, second) = match notation {
+                    NotationChoice::Musical => (name, code),
+                    _ => (code, name),
+                };
+                assert!(
+                    second.left() >= first.right(),
+                    "{expected_first} {expected_second} reads on one line in {theme:?}"
+                );
+                for (part, bounds) in [("code", code), ("name", name)] {
+                    assert!(
+                        bounds.size.height < px(32.0) && bounds.right() <= inspector.right(),
+                        "the key {part} wraps or runs past the inspector in {theme:?} with {notation:?}"
+                    );
+                }
+                assert!(
+                    code.size.width > px(0.0),
+                    "the key code is never cut away in {theme:?} with {notation:?}"
+                );
             })
             .unwrap();
         }
@@ -7178,7 +7320,7 @@ fn each_row_under_needs_review_carries_a_chip_for_each_of_its_reasons(cx: &mut T
     assert!(is_shown(window, chip(4, 0), cx));
     assert!(!is_shown(window, chip(5, 0), cx));
 
-    let notation = crate::tag_settings::NotationChoice::default();
+    let notation = NotationChoice::default();
     let words: Vec<String> = reasons_of(&view, 3, cx)
         .iter()
         .map(|reason| crate::views::review::chip_label(reason, notation))
