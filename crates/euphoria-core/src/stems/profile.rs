@@ -52,6 +52,13 @@ pub fn profile_stems(files: &StemFiles) -> Result<StemProfile, EuphoriaError> {
     Ok(measure.profile())
 }
 
+/// The profile of cached stems for the mashup finder, or `None` when one of
+/// the files has gone or cannot be read.
+pub fn layerable_profile(files: &StemFiles) -> Option<StemProfile> {
+    crate::plan_signals::stem_signature(files)?;
+    profile_stems(files).ok()
+}
+
 /// Where each stem sounds in a track, in windows of a second.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StemActivity {

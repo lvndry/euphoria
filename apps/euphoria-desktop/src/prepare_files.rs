@@ -5,19 +5,22 @@
 //! with the options and a preview of what each file gets, then the writing
 //! with a progress bar, then a toast that shows the new files.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use euphoria_core::prepare::{
-    DEFAULT_SUFFIX, LossyOutput, PrepareSettings, TrackMeasurement, TrackPlan, measure_track,
-    prepare_track, prepared_path,
+    ComparisonClip, DEFAULT_SUFFIX, LossyOutput, Manifest, PrepareSettings, ReplayGainFields,
+    RunMode, TrackMeasurement, TrackPlan, comparison_clip, measure_track, prepare_track,
+    prepared_path, revert, tag_track,
 };
 use gpui::{Context, PathPromptOptions};
 
 use crate::app::EuphoriaApp;
+use crate::playback::Voice;
+use crate::reference_sound::{ReferenceLevel, ReferenceSound};
 use crate::toast::ToastAction;
 
 /// The loudness targets the sheet offers, in LUFS.
@@ -58,6 +61,35 @@ impl PreviewRow {
     pub(crate) fn will_be_written(&self) -> bool {
         self.plan().is_some_and(|plan| plan.skipped.is_none()) && self.output.is_some()
     }
+
+    /// True when the row can be prepared or tagged.
+    pub(crate) fn can_run(&self) -> bool {
+        self.plan().is_some_and(|plan| plan.skipped.is_none())
+    }
+}
+
+/// What the run does to the files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrepareMode {
+    /// Writes new files.
+    Copies,
+    /// Writes ReplayGain tags into the originals and nothing else.
+    TagOnly,
+}
+
+/// How long the stretch of a track compared by ear is, in seconds.
+const COMPARISON_SECONDS: f32 = 20.0;
+/// How loud the comparison plays, 0 to 1.
+const COMPARISON_LEVEL: f32 = 0.8;
+
+/// The listening comparison of the selected row.
+pub(crate) struct Comparison {
+    /// True to hear the prepared version.
+    pub(crate) prepared: Arc<AtomicBool>,
+    /// The clip, once it is made.
+    pub(crate) clip: Option<Arc<ComparisonClip>>,
+    pub(crate) voice: Option<Box<dyn Voice>>,
+    pub(crate) problem: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +118,10 @@ impl PrepareProgress {
 }
 
 pub(crate) struct PreparePanel {
+    pub(crate) mode: PrepareMode,
+    /// The row whose original and prepared versions can be compared.
+    pub(crate) selected_row: Option<usize>,
+    pub(crate) comparison: Option<Comparison>,
     pub(crate) settings: PrepareSettings,
     pub(crate) lossy: LossyOutput,
     /// Where the copies go; `None` is next to each original.
@@ -100,6 +136,9 @@ pub(crate) struct PreparePanel {
 impl PreparePanel {
     fn new(tracks: Vec<PrepareTrack>) -> Self {
         let mut panel = Self {
+            mode: PrepareMode::Copies,
+            selected_row: None,
+            comparison: None,
             settings: PrepareSettings::default(),
             lossy: LossyOutput::default(),
             output_folder: None,
@@ -129,7 +168,10 @@ impl PreparePanel {
     }
 
     pub(crate) fn files_to_write(&self) -> usize {
-        self.rows.iter().filter(|row| row.will_be_written()).count()
+        match self.mode {
+            PrepareMode::Copies => self.rows.iter().filter(|row| row.will_be_written()).count(),
+            PrepareMode::TagOnly => self.rows.iter().filter(|row| row.can_run()).count(),
+        }
     }
 
     /// Works out every row again from the measurements and the choices. The
@@ -298,6 +340,7 @@ impl EuphoriaApp {
         }
         change(panel);
         panel.problem = None;
+        panel.comparison = None;
         panel.refresh_rows();
         cx.notify();
     }
@@ -323,8 +366,10 @@ impl EuphoriaApp {
         .detach();
     }
 
-    /// Writes the copies the preview lists, off the main thread, with a
-    /// progress bar, and ends with a toast that shows the first of them.
+    /// Writes the copies the preview lists, or the ReplayGain tags in tag
+    /// only mode, off the main thread, with a progress bar, and ends with a
+    /// toast that shows the first file. The run is recorded in a manifest
+    /// next to its files so it can be reverted.
     pub(crate) fn confirm_prepare_files(&mut self, cx: &mut Context<'_, Self>) {
         let Some(panel) = &mut self.prepare_panel else {
             return;
@@ -332,7 +377,9 @@ impl EuphoriaApp {
         if panel.is_busy() || panel.is_measuring() || panel.files_to_write() == 0 {
             return;
         }
-        if let Some(folder) = &panel.output_folder
+        let mode = panel.mode;
+        if mode == PrepareMode::Copies
+            && let Some(folder) = &panel.output_folder
             && let Err(error) = std::fs::create_dir_all(folder)
         {
             panel.problem = Some(format!("Could not create {}: {error}", folder.display()));
@@ -340,12 +387,16 @@ impl EuphoriaApp {
             return;
         }
         let settings = panel.settings;
-        let jobs: Vec<(PathBuf, TrackPlan, PathBuf)> = panel
+        let jobs: Vec<(PathBuf, TrackPlan, Option<PathBuf>)> = panel
             .rows
             .iter()
-            .filter(|row| row.will_be_written())
-            .filter_map(|row| Some((row.path.clone(), row.plan()?.clone(), row.output.clone()?)))
+            .filter(|row| match mode {
+                PrepareMode::Copies => row.will_be_written(),
+                PrepareMode::TagOnly => row.can_run(),
+            })
+            .filter_map(|row| Some((row.path.clone(), row.plan()?.clone(), row.output.clone())))
             .collect();
+        panel.comparison = None;
         let progress = PrepareProgress::default();
         panel.progress = progress.clone();
         panel.stage = PrepareStage::Writing;
@@ -355,11 +406,11 @@ impl EuphoriaApp {
         cx.spawn(async move |this, cx| {
             let outcome = cx
                 .background_executor()
-                .spawn(async move { write_copies(jobs, &settings, &writer_progress) })
+                .spawn(async move { write_run(jobs, mode, &settings, &writer_progress) })
                 .await;
             this.update(cx, |this, cx| {
                 this.background_jobs.finish(running);
-                this.finish_prepare_files(outcome, cx);
+                this.finish_prepare_files(outcome, mode, cx);
             })
             .ok();
         })
@@ -382,13 +433,29 @@ impl EuphoriaApp {
         cx.notify();
     }
 
-    fn finish_prepare_files(&mut self, outcome: WriteOutcome, cx: &mut Context<'_, Self>) {
-        let WriteOutcome { written, failed } = outcome;
+    fn finish_prepare_files(
+        &mut self,
+        outcome: WriteOutcome,
+        mode: PrepareMode,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let WriteOutcome {
+            written,
+            failed,
+            manifests,
+        } = outcome;
         if let Some(panel) = &mut self.prepare_panel {
             panel.stage = PrepareStage::Setup;
         }
+        if !manifests.is_empty() {
+            self.last_prepare_manifests = manifests;
+        }
         if let Some(first) = written.first().cloned() {
-            let message = format!("Prepared {}", files(written.len()));
+            let verb = match mode {
+                PrepareMode::Copies => "Prepared",
+                PrepareMode::TagOnly => "Tagged",
+            };
+            let message = format!("{verb} {}", files(written.len()));
             self.show_toast(message, Some(ToastAction::Reveal(first)), cx);
             if !failed.is_empty() {
                 self.notice = Some(format!(
@@ -415,36 +482,257 @@ impl EuphoriaApp {
         }
         cx.notify();
     }
+
+    /// Takes back the last run of this session: removes the copies it
+    /// wrote and puts back the tags it changed. A file that changed since
+    /// is kept.
+    pub(crate) fn revert_last_prepare(&mut self, cx: &mut Context<'_, Self>) {
+        if self.last_prepare_manifests.is_empty()
+            || self
+                .prepare_panel
+                .as_ref()
+                .is_some_and(PreparePanel::is_busy)
+        {
+            return;
+        }
+        let manifests = std::mem::take(&mut self.last_prepare_manifests);
+        let running = self.begin_background_job("Reverting a prepare run", cx);
+        cx.spawn(async move |this, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut removed = 0;
+                    let mut restored = 0;
+                    let mut kept = Vec::new();
+                    let mut problems = Vec::new();
+                    for manifest in manifests {
+                        match revert(&manifest) {
+                            Ok(report) => {
+                                removed += report.removed.len();
+                                restored += report.restored.len();
+                                kept.extend(report.kept);
+                            }
+                            Err(error) => problems.push((manifest, error.chain())),
+                        }
+                    }
+                    (removed, restored, kept, problems)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.background_jobs.finish(running);
+                let (removed, restored, kept, problems) = outcome;
+                let mut message = format!(
+                    "Reverted: removed {}, put back the tags of {}",
+                    files(removed),
+                    files(restored)
+                );
+                if !kept.is_empty() {
+                    message.push_str(&format!(", kept {} that changed", files(kept.len())));
+                }
+                this.show_toast(message, None, cx);
+                if let Some((_, reason)) = problems.first() {
+                    this.notice = Some(format!("A run could not be reverted: {reason}"));
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Chooses the row whose versions are compared by ear.
+    pub(crate) fn select_prepare_row(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        let Some(panel) = &mut self.prepare_panel else {
+            return;
+        };
+        if panel.is_busy() || index >= panel.rows.len() || panel.selected_row == Some(index) {
+            return;
+        }
+        panel.selected_row = Some(index);
+        panel.comparison = None;
+        cx.notify();
+    }
+
+    /// Makes the clip of the selected row in memory and plays the original
+    /// and the prepared version of it in a loop, at the same loudness.
+    /// Nothing is written.
+    pub(crate) fn start_prepare_comparison(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(panel) = &mut self.prepare_panel else {
+            return;
+        };
+        let Some(row) = panel
+            .selected_row
+            .and_then(|index| panel.rows.get(index))
+            .filter(|row| row.can_run())
+        else {
+            return;
+        };
+        let (Some(plan), path) = (row.plan().cloned(), row.path.clone()) else {
+            return;
+        };
+        let settings = panel.settings;
+        let prepared = Arc::new(AtomicBool::new(true));
+        let cursor = Arc::new(AtomicUsize::new(0));
+        panel.comparison = Some(Comparison {
+            prepared: prepared.clone(),
+            clip: None,
+            voice: None,
+            problem: None,
+        });
+        cx.notify();
+        let start = (plan.duration_seconds / 2.0 - COMPARISON_SECONDS / 2.0).max(0.0);
+        cx.spawn(async move |this, cx| {
+            let clip_path = path.clone();
+            let made = cx
+                .background_executor()
+                .spawn(async move {
+                    comparison_clip(&clip_path, &plan, &settings, start, COMPARISON_SECONDS)
+                        .map_err(|error| error.chain())
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                let still_wanted = this
+                    .prepare_panel
+                    .as_ref()
+                    .and_then(|panel| panel.comparison.as_ref())
+                    .is_some_and(|comparison| Arc::ptr_eq(&comparison.prepared, &prepared));
+                if !still_wanted {
+                    return;
+                }
+                let outcome = made.and_then(|clip| {
+                    let clip = Arc::new(clip);
+                    let sound = ReferenceSound::comparison(
+                        clip.clone(),
+                        prepared.clone(),
+                        cursor.clone(),
+                        ReferenceLevel::new(COMPARISON_LEVEL),
+                    );
+                    this.output
+                        .play_reference(sound)
+                        .map(|voice| (clip, voice))
+                        .map_err(|problem| problem.message().to_string())
+                });
+                if let Some(comparison) = this
+                    .prepare_panel
+                    .as_mut()
+                    .and_then(|panel| panel.comparison.as_mut())
+                {
+                    match outcome {
+                        Ok((clip, voice)) => {
+                            comparison.clip = Some(clip);
+                            comparison.voice = Some(voice);
+                        }
+                        Err(reason) => comparison.problem = Some(reason),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Switches the comparison between the original and the prepared
+    /// version, at the position it has reached.
+    pub(crate) fn set_prepare_comparison_side(
+        &mut self,
+        prepared: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let Some(comparison) = self
+            .prepare_panel
+            .as_ref()
+            .and_then(|panel| panel.comparison.as_ref())
+        {
+            comparison.prepared.store(prepared, Ordering::Relaxed);
+            cx.notify();
+        }
+    }
+
+    /// Stops the comparison.
+    pub(crate) fn stop_prepare_comparison(&mut self, cx: &mut Context<'_, Self>) {
+        if let Some(panel) = &mut self.prepare_panel {
+            panel.comparison = None;
+            cx.notify();
+        }
+    }
 }
 
 struct WriteOutcome {
     written: Vec<PathBuf>,
     failed: Vec<(PathBuf, String)>,
+    manifests: Vec<PathBuf>,
 }
 
-fn write_copies(
-    jobs: Vec<(PathBuf, TrackPlan, PathBuf)>,
+fn write_run(
+    jobs: Vec<(PathBuf, TrackPlan, Option<PathBuf>)>,
+    mode: PrepareMode,
     settings: &PrepareSettings,
     progress: &PrepareProgress,
 ) -> WriteOutcome {
     let mut outcome = WriteOutcome {
         written: Vec::new(),
         failed: Vec::new(),
+        manifests: Vec::new(),
     };
+    let run_mode = match mode {
+        PrepareMode::Copies => RunMode::Copies,
+        PrepareMode::TagOnly => RunMode::TagOnly,
+    };
+    let mut manifests: BTreeMap<PathBuf, Manifest> = BTreeMap::new();
     for (input, plan, output) in jobs {
         progress.current_thousandths.store(0, Ordering::Relaxed);
         let current = progress.current_thousandths.clone();
-        let result = prepare_track(&input, &plan, &output, settings, &mut |fraction| {
-            current.store(
-                (fraction * PROGRESS_STEPS as f32) as usize,
-                Ordering::Relaxed,
-            );
-        });
+        let result = match (mode, output) {
+            (PrepareMode::Copies, Some(output)) => {
+                prepare_track(&input, &plan, &output, settings, &mut |fraction| {
+                    current.store(
+                        (fraction * PROGRESS_STEPS as f32) as usize,
+                        Ordering::Relaxed,
+                    );
+                })
+                .and_then(|prepared| {
+                    let folder = prepared
+                        .output
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_default();
+                    manifests
+                        .entry(folder)
+                        .or_insert_with(|| Manifest::new(run_mode, settings))
+                        .record_copy(&input, &prepared.output)?;
+                    Ok(prepared.output)
+                })
+            }
+            (PrepareMode::TagOnly, _) => ReplayGainFields::from_plan(&plan)
+                .ok_or_else(|| euphoria_core::EuphoriaError::Prepare {
+                    path: input.clone(),
+                    reason: "it has no loudness".to_string(),
+                })
+                .and_then(|fields| {
+                    let folder = input.parent().map(Path::to_path_buf).unwrap_or_default();
+                    tag_track(
+                        manifests
+                            .entry(folder)
+                            .or_insert_with(|| Manifest::new(run_mode, settings)),
+                        &input,
+                        &fields,
+                    )
+                })
+                .map(|()| input.clone()),
+            (PrepareMode::Copies, None) => continue,
+        };
         match result {
-            Ok(prepared) => outcome.written.push(prepared.output),
-            Err(error) => outcome.failed.push((input, error.chain().to_string())),
+            Ok(path) => outcome.written.push(path),
+            Err(error) => outcome.failed.push((input, error.chain())),
         }
         progress.files_done.fetch_add(1, Ordering::Relaxed);
+    }
+    for (folder, manifest) in manifests {
+        if let Ok(path) = manifest.save(&folder) {
+            outcome.manifests.push(path);
+        }
     }
     outcome
 }

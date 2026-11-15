@@ -206,6 +206,11 @@ struct JsonTrack<'result> {
     /// have one. It is not the energy.
     stage: Option<&'static str>,
     tuning_cents: Option<f32>,
+    /// How strongly each of the 12 notes sounds in what the key detector
+    /// heard, C first, from 0 to 1 with the strongest at 1. `None` when
+    /// there is no key, and for analyses saved before it was measured until
+    /// the track is analyzed again.
+    pitch_class_profile: Option<[f32; 12]>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
     /// Whose beat grid the track has: "rekordbox", "detected" or "you", or
@@ -258,6 +263,7 @@ impl<'result> JsonTrack<'result> {
             energy: None,
             stage: None,
             tuning_cents: None,
+            pitch_class_profile: None,
             key_timeline: Vec::new(),
             beat_grid: None,
             beat_grid_source: None,
@@ -451,6 +457,9 @@ pub fn write_json(
                     energy: analysis.energy,
                     stage: stages.get(&result.path).map(euphoria_core::SetStage::slug),
                     tuning_cents: analysis.tuning_cents.map(round_to_tenths),
+                    pitch_class_profile: analysis
+                        .pitch_class_profile
+                        .map(|profile| profile.map(share_to_thousandths)),
                     key_timeline: analysis
                         .key_timeline
                         .iter()
@@ -1558,6 +1567,11 @@ fn round_to_tenths(value: f32) -> f32 {
     }
 }
 
+/// For values from 0 to 1, which cannot overflow when scaled.
+fn share_to_thousandths(value: f32) -> f32 {
+    (value * 1000.0).round() / 1000.0
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -1598,6 +1612,9 @@ mod tests {
                     key_score_margin: Some(0.02),
                     key_source: None,
                     loudness_range_lu: None,
+                    pitch_class_profile: Some([
+                        0.81234, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3,
+                    ]),
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
                     beat_grid: None,
@@ -1629,6 +1646,7 @@ mod tests {
                     key_score_margin: None,
                     key_source: None,
                     loudness_range_lu: None,
+                    pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
@@ -1991,6 +2009,13 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
         assert_eq!(parsed[0]["duration_seconds"], 408.4);
         assert_eq!(parsed[0]["energy"], 7);
         assert_eq!(parsed[0]["tuning_cents"], -31.3);
+        assert_eq!(
+            parsed[0]["pitch_class_profile"],
+            serde_json::json!([
+                0.812, 0.0, 0.5, 0.1, 0.8, 0.4, 0.05, 0.6, 0.1, 1.0, 0.15, 0.3
+            ])
+        );
+        assert!(parsed[1]["pitch_class_profile"].is_null());
         assert_eq!(
             parsed[0]["key_timeline"],
             serde_json::json!([

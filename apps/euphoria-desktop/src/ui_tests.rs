@@ -79,6 +79,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -1350,6 +1351,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_score_margin: None,
                 key_source: None,
                 loudness_range_lu: None,
+                pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -2868,6 +2870,7 @@ fn track_changing_key() -> DemoTrack {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -3492,6 +3495,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_score_margin: Some(key_margin),
         key_source: None,
         loudness_range_lu: None,
+        pitch_class_profile: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
         beat_grid: None,
@@ -3767,6 +3771,7 @@ fn set_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
@@ -5298,6 +5303,7 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: Some(euphoria_core::BeatGrid {
@@ -6020,6 +6026,7 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
             key_score_margin: None,
             key_source: None,
             loudness_range_lu: None,
+            pitch_class_profile: None,
             tempo_estimate: Some(120.0),
             tempo_score_margin: None,
             beat_grid: has_grid.then_some(euphoria_core::BeatGrid {
@@ -6715,9 +6722,18 @@ fn the_bpm_and_the_energy_read_on_one_line_in_aligned_boxes(cx: &mut TestAppCont
             inspector_width: 0,
             ..Panels::default()
         };
+        let mut tracks = tracks_with_reasons();
+        for demo in &mut tracks {
+            if demo.path.ends_with("sure.mp3")
+                && let Ok(analysis) = &mut demo.outcome
+            {
+                analysis.pitch_class_profile =
+                    Some([0.9, 0.1, 0.5, 0.2, 0.9, 0.4, 0.1, 0.5, 0.2, 1.0, 0.2, 0.3]);
+            }
+        }
         let (window, view) = open_folders(
             &["/Demo/reasons"],
-            tracks_with_reasons(),
+            tracks,
             Settings {
                 theme,
                 panels,
@@ -6756,6 +6772,33 @@ fn the_bpm_and_the_energy_read_on_one_line_in_aligned_boxes(cx: &mut TestAppCont
                 if has_alternative {
                     let note = window.find("statistic-note-BPM").bounds();
                     assert!(note.size.height < px(20.0), "{theme:?} {name}");
+                }
+                let notes_id = if has_alternative {
+                    "notes-not-measured"
+                } else {
+                    "note-strip"
+                };
+                let notes = window.try_find(notes_id).map(|found| found.bounds());
+                assert!(
+                    notes.is_some(),
+                    "{notes_id} is shown in {theme:?} for {name}"
+                );
+                if let Some(notes) = notes {
+                    if theme == ThemeName::Deck {
+                        assert!(
+                            notes.left() >= energy_unit.right(),
+                            "the notes column overlaps the boxes in {theme:?} for {name}"
+                        );
+                    } else {
+                        assert!(
+                            notes.top() >= energy_unit.bottom(),
+                            "the notes overlap the boxes in {theme:?} for {name}"
+                        );
+                        assert!(
+                            notes.right() <= inspector.right(),
+                            "the notes run past the inspector in {theme:?} for {name}"
+                        );
+                    }
                 }
                 if theme == ThemeName::Deck {
                     assert_eq!(key_label.top(), tempo_label.top(), "{theme:?} {name}");
@@ -6856,12 +6899,12 @@ fn toggling_a_section_opens_it_and_is_written_to_the_settings(cx: &mut TestAppCo
     select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Stems),
+        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
         cx,
     );
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
+        crate::views::inspector_section::toggle_id(SectionKind::Stems),
         cx,
     );
     assert!(is_shown(window, section_body_id(SectionKind::Stems), cx));

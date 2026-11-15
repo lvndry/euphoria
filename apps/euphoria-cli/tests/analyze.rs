@@ -65,6 +65,11 @@ fn analyzes_a_folder_as_json() {
         assert_eq!(timeline[0]["key"]["name"], track["key"]["name"], "{track}");
         assert_eq!(timeline[0]["start_seconds"], 0.0, "{track}");
         assert_eq!(timeline[0]["end_seconds"], track["duration_seconds"]);
+        let notes = track["pitch_class_profile"]
+            .as_array()
+            .expect("a track with a key has a pitch-class profile");
+        assert_eq!(notes.len(), 12, "{track}");
+        assert_eq!(notes[9], 1.0, "a 440 Hz tone is an A: {track}");
         let damaged = quality["damaged"].as_bool().expect("a damaged flag");
         assert!(!damaged, "{track}");
         assert_eq!(
