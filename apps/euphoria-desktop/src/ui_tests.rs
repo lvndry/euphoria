@@ -6800,12 +6800,12 @@ fn toggling_a_section_opens_it_and_is_written_to_the_settings(cx: &mut TestAppCo
     select_track(&view, library_index_of(&view, "sure.mp3", cx), cx);
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Stems),
+        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
         cx,
     );
     click(
         window,
-        crate::views::inspector_section::toggle_id(SectionKind::Mixes),
+        crate::views::inspector_section::toggle_id(SectionKind::Stems),
         cx,
     );
     assert!(is_shown(window, section_body_id(SectionKind::Stems), cx));
