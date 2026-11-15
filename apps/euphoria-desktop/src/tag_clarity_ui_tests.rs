@@ -187,6 +187,35 @@ fn the_write_preview_names_fields_in_words_with_the_frame_in_a_tooltip(cx: &mut 
     assert!(is_shown(window, ("tag-preview-field", first_change), cx));
 }
 
+#[gpui::test]
+fn the_write_preview_shows_each_named_value_once_per_file(cx: &mut TestAppContext) {
+    let (_scratch, _files, window, view) = open_files("clarity-once", cx);
+    click(window, "write-tags", cx);
+    click(window, "scope-shown", cx);
+    let rows = cx.update(|cx| match &view.read(cx).tag_panel {
+        Some(TagPanel::Preview(preview)) => preview.rows.clone(),
+        other => panic!("{other:?}"),
+    });
+    let mut seen: Vec<(Option<&'static str>, Option<String>, Option<String>)> = Vec::new();
+    for row in &rows {
+        match row {
+            PreviewRow::File { change_count, .. } => {
+                seen.clear();
+                assert!(*change_count > 0);
+            }
+            PreviewRow::Change(change, Some(name)) => {
+                let key = (Some(*name), change.current.clone(), change.new.clone());
+                assert!(
+                    !seen.contains(&key),
+                    "{name} shown twice for one file: {rows:?}"
+                );
+                seen.push(key);
+            }
+            _ => {}
+        }
+    }
+}
+
 #[test]
 fn the_rules_list_matches_the_settings() {
     let defaults = rules(&TagSettings::default());
