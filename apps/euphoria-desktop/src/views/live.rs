@@ -383,7 +383,7 @@ fn position_text(seconds: f32) -> String {
 /// The words for how a matched track is played compared with the file.
 pub(crate) fn playback_words(playback: euphoria_core::fingerprint::Playback) -> Option<String> {
     let change = (playback.tempo_ratio - 1.0) * 100.0;
-    if change.abs() < 1.0 {
+    if change.abs() < 2.5 {
         return None;
     }
     let tempo = format::signed_percent(change);

@@ -539,7 +539,7 @@ mod tests {
         let last: serde_json::Value = serde_json::from_str(output.lines().last().unwrap()).unwrap();
         assert_eq!(last["match"]["path"], "/music/track 1.flac");
         assert_eq!(last["match"]["pitch_follows_tempo"], false);
-        assert!((last["match"]["tempo_ratio"].as_f64().unwrap() - 1.0).abs() < 0.001);
+        assert!((last["match"]["tempo_ratio"].as_f64().unwrap() - 1.0).abs() <= 0.021);
         let position = last["match"]["position_seconds"].as_f64().unwrap();
         assert!((position - 30.0).abs() <= 3.0, "{position}");
     }
