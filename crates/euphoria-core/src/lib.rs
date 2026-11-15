@@ -107,8 +107,8 @@ pub use audio_budget::{
 pub use audio_stream::AudioStream;
 pub use cache::{
     Cache, CachePolicy, CachedAnalysis, CachedAnalyzer, CachedBatch, ContentHash,
-    DATA_DIRECTORY_VARIABLE, DetectedValues, StoredCorrection, analyze_files_cached,
-    analyze_files_cached_observed, clear_cache, default_cache_path,
+    DATA_DIRECTORY_VARIABLE, DetectedValues, LibraryFingerprints, StoredCorrection,
+    analyze_files_cached, analyze_files_cached_observed, clear_cache, default_cache_path,
 };
 pub use confidence::Confidence;
 pub use correction::Correction;
