@@ -174,6 +174,15 @@ const METRONOME_GLYPH_SIZE: f32 = 14.0;
 /// Width of the tempo field, room for "300.0 BPM".
 const METRONOME_FIELD_WIDTH: f32 = 94.0;
 
+/// Width of the tempo field while the clicks follow the playing track, room
+/// for "300.0 BPM locked to track".
+const METRONOME_LOCKED_FIELD_WIDTH: f32 = 188.0;
+
+/// The tempo field's tooltip while the clicks follow the playing track.
+const LOCKED_RULE: &str = "Locked to the playing track: clicks land on its beats, with the \
+     accent on the bar's first beat, and follow the track's playback tempo. With no beat grid, \
+     or nothing playing, it clicks freely at the tempo set.";
+
 /// Width of the column of arrows at the field's right edge.
 const METRONOME_STEPPER_WIDTH: f32 = 14.0;
 
@@ -224,6 +233,7 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
         .test_support();
 
     let bpm = app.metronome_bpm();
+    let is_locked = app.metronome_locked_bpm().is_some();
     let field = if app.metronome.is_editing {
         div()
             .relative()
@@ -263,7 +273,11 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
             .gap(GAP_TIGHT)
             .relative()
             .pr(px(METRONOME_STEPPER_WIDTH))
-            .w(px(METRONOME_FIELD_WIDTH))
+            .w(px(if is_locked {
+                METRONOME_LOCKED_FIELD_WIDTH
+            } else {
+                METRONOME_FIELD_WIDTH
+            }))
             .h(CONTROL_HEIGHT)
             .rounded(CONTROL_RADIUS)
             .border_1()
@@ -283,9 +297,20 @@ fn metronome(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Euphoria
                 let step = if event.modifiers.alt { 0.1 } else { 1.0 };
                 this.nudge_metronome_bpm(notches * step, cx);
             }))
-            .tooltip(|window, cx| Tooltip::new(TEMPO_RULE).build(window, cx))
+            .tooltip(move |window, cx| {
+                Tooltip::new(if is_locked { LOCKED_RULE } else { TEMPO_RULE }).build(window, cx)
+            })
             .child(crate::format::bpm(bpm))
             .child(div().text_color(palette.text_tertiary).child("BPM"))
+            .when(is_locked, |field| {
+                field.child(
+                    div()
+                        .id("metronome-locked")
+                        .text_color(palette.accent)
+                        .child("locked to track")
+                        .test_support(),
+                )
+            })
             .child(stepper(app, palette, cx))
             .test_support()
             .into_any_element()

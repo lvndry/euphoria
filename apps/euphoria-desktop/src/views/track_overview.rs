@@ -74,9 +74,16 @@ impl LaneFrame {
     }
 
     fn pointer_track_fraction(&self, window: &Window) -> f32 {
-        let lane_fraction = pointer_fraction_in(window, &self.bounds);
-        self.range
-            .track_fraction(lane_fraction, self.duration_seconds)
+        let Some(bounds) = self.bounds.get() else {
+            return 0.0;
+        };
+        track_overview::pointer_track_fraction(
+            self.range,
+            self.duration_seconds,
+            window.mouse_position().x / px(1.0),
+            bounds.left() / px(1.0),
+            bounds.size.width / px(1.0),
+        )
     }
 
     fn sized(&self, lane: Stateful<Div>) -> Stateful<Div> {
@@ -197,17 +204,6 @@ pub(crate) fn energy_curve(
         })
         .test_support()
         .into_any_element()
-}
-
-fn pointer_fraction_in(window: &Window, bounds: &SeenBounds) -> f32 {
-    let Some(bounds) = bounds.get() else {
-        return 0.0;
-    };
-    track_overview::pointer_fraction(
-        window.mouse_position().x / px(1.0),
-        bounds.left() / px(1.0),
-        bounds.size.width / px(1.0),
-    )
 }
 
 /// The curve's row when the core could not rate the audio: a quiet line

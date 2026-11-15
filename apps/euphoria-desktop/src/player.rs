@@ -89,7 +89,6 @@ impl Player {
     }
 
     /// What the player is doing.
-    #[cfg(test)]
     pub(crate) fn status(&self) -> &PlayerStatus {
         &self.status
     }

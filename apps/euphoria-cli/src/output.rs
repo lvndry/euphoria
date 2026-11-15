@@ -200,6 +200,11 @@ struct JsonTrack<'result> {
     bpm_confidence: Option<&'static str>,
     bpm_alternative: Option<f32>,
     energy: Option<u8>,
+    /// Where the track tends to sit in a set: "warm-up", "build" or "peak",
+    /// from its tempo and loudness among the tracks analyzed in the same
+    /// run. `None` for a track without a tempo and when fewer than 10 tracks
+    /// have one. It is not the energy.
+    stage: Option<&'static str>,
     tuning_cents: Option<f32>,
     key_timeline: Vec<JsonKeySection>,
     beat_grid: Option<JsonBeatGrid>,
@@ -251,6 +256,7 @@ impl<'result> JsonTrack<'result> {
             bpm_confidence: None,
             bpm_alternative: None,
             energy: None,
+            stage: None,
             tuning_cents: None,
             key_timeline: Vec::new(),
             beat_grid: None,
@@ -390,6 +396,13 @@ impl From<Key> for JsonKey {
     }
 }
 
+/// What `write_json` looks up by file besides the analysis.
+#[derive(Clone, Copy)]
+pub struct JsonLookups<'lookups> {
+    pub grid_infos: &'lookups GridInfos,
+    pub stages: &'lookups crate::filters::LibraryStages,
+}
+
 /// Writes one JSON array with an object per file, including failed files with
 /// their error, then an object for each folder the scan could not read and
 /// each audio file it left out for its format. Tempos are taken to be reported in `range`, which decides
@@ -400,9 +413,10 @@ pub fn write_json(
     range: TempoRange,
     user_edits: &UserEditsByFile,
     tag_keys: &TagKeys,
-    grid_infos: &GridInfos,
+    lookups: &JsonLookups<'_>,
     scan: &AudioScan,
 ) -> io::Result<()> {
+    let JsonLookups { grid_infos, stages } = *lookups;
     let no_edits = UserEdits::default();
     let tracks: Vec<JsonTrack<'_>> = results
         .iter()
@@ -435,6 +449,7 @@ pub fn write_json(
                         .and_then(|bpm| range.alternative(bpm))
                         .map(round_to_tenths),
                     energy: analysis.energy,
+                    stage: stages.get(&result.path).map(euphoria_core::SetStage::slug),
                     tuning_cents: analysis.tuning_cents.map(round_to_tenths),
                     key_timeline: analysis
                         .key_timeline
@@ -1621,6 +1636,7 @@ mod tests {
                     key_runner_up: Some(Key::new(0, Mode::Major)),
                     key_score_margin: Some(0.02),
                     key_source: None,
+                    loudness_range_lu: None,
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
                     beat_grid: None,
@@ -1651,6 +1667,7 @@ mod tests {
                     key_runner_up: None,
                     key_score_margin: None,
                     key_source: None,
+                    loudness_range_lu: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
                     beat_grid: None,
@@ -1679,7 +1696,10 @@ mod tests {
             TempoRange::DEFAULT,
             &UserEditsByFile::new(),
             &TagKeys::default(),
-            &GridInfos::new(),
+            &JsonLookups {
+                grid_infos: &GridInfos::new(),
+                stages: &crate::filters::LibraryStages::default(),
+            },
             &AudioScan::default(),
         )
     }
@@ -1872,7 +1892,10 @@ Key             BPM  Energy  Conf  Quality  Time  File
             TempoRange::DEFAULT,
             &user_edits,
             &TagKeys::default(),
-            &GridInfos::new(),
+            &JsonLookups {
+                grid_infos: &GridInfos::new(),
+                stages: &crate::filters::LibraryStages::default(),
+            },
             &AudioScan::default(),
         )
         .unwrap();
@@ -1898,7 +1921,10 @@ Key             BPM  Energy  Conf  Quality  Time  File
                 TempoRange::DEFAULT,
                 user_edits,
                 &TagKeys::default(),
-                &GridInfos::new(),
+                &JsonLookups {
+                    grid_infos: &GridInfos::new(),
+                    stages: &crate::filters::LibraryStages::default(),
+                },
                 &AudioScan::default(),
             )
             .unwrap();
@@ -2213,7 +2239,10 @@ hint: --quality weak lists the tracks worth replacing, and --detail says why.
             TempoRange::DEFAULT,
             &UserEditsByFile::new(),
             tag_keys,
-            &GridInfos::new(),
+            &JsonLookups {
+                grid_infos: &GridInfos::new(),
+                stages: &crate::filters::LibraryStages::default(),
+            },
             &AudioScan::default(),
         )
         .unwrap();

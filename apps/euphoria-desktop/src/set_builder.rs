@@ -629,8 +629,6 @@ impl EuphoriaApp {
         cx: &mut Context<'_, Self>,
     ) {
         if self.decks.is_open {
-            self.notice = Some(crate::decks::PLAYER_HELD_BY_DECKS.to_string());
-            cx.notify();
             return;
         }
         let Some(path) = self

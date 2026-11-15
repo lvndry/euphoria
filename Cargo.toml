@@ -53,12 +53,32 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
   "NSResponder",
   "NSWorkspace",
 ] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSData",
+  "NSDictionary",
+  "NSString",
+  "NSValue",
+] }
+objc2-media-player = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "MPNowPlayingInfoCenter",
+  "MPNowPlayingInfoLanguageOption",
+  "MPRemoteCommand",
+  "MPRemoteCommandCenter",
+  "MPRemoteCommandEvent",
+  "MPMediaItem",
+  "block2",
+] }
+block2 = "0.6.2"
+async-channel = "2.5.0"
 pkg-config = "0.3.34"
 portable-pty = "0.9.0"
 rodio = { version = "=0.23.0", default-features = false, features = ["playback"] }
 log = "0.4.35"
 png = "0.18.1"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 hound = "3.5.1"
 flacenc = { version = "0.5.1", default-features = false }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = [

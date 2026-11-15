@@ -17,6 +17,13 @@ anywhere:
 
     python3 docs/images/desktop-app/make_screenshots.py
 
+EUPHORIA_SHOT_LIBRARY names a folder of real music to show instead, such as
+the maintainer's own library: a few tracks from the first subfolders of its
+genre folders are copied into the scratch library with their comments
+emptied (needs ffmpeg), keeping their folder names, and the original files
+are only read. Their titles, artists and
+folder names then appear in the published images.
+
 EUPHORIA_APP names an app binary already built; otherwise the release build
 is made with cargo. EUPHORIA_PREVIEWS names the folder of previews when it is
 not bench/data/key/audio; the genre annotations are read from the dataset
@@ -94,9 +101,16 @@ def main():
     try:
         window_tool = compile_window_tool(work)
         app = app_binary()
-        library = build_library(work / "Music" / "DJ tracks")
-        house = library / "house"
-        expanded = [library, house, library / "techno"]
+        own = os.environ.get("EUPHORIA_SHOT_LIBRARY")
+        if own:
+            library, first = build_library_from(Path(own), work / "Music" / "DJ tracks")
+            # The whole copied library, so the table is full.
+            house = library
+            expanded = [library, first]
+        else:
+            library = build_library(work / "Music" / "DJ tracks")
+            house = library / "house"
+            expanded = [library, house, library / "techno"]
 
         cache_folder = work / "data" / "cache"
         warm_cache(app, window_tool, cache_folder, library, track_count(library))
@@ -168,8 +182,62 @@ def build_library(root):
     return root
 
 
+AUDIO_SUFFIXES = {".mp3", ".m4a", ".flac", ".wav", ".aiff", ".aif", ".ogg"}
+# Tracks copied from each folder, and folders used, from EUPHORIA_SHOT_LIBRARY.
+TRACKS_PER_FOLDER = 4
+FOLDERS_FROM_OWN_LIBRARY = 5
+
+
+def audio_files(folder):
+    return sorted(
+        path for path in folder.iterdir() if path.is_file() and path.suffix.lower() in AUDIO_SUFFIXES
+    )
+
+
+# Folders of samples rather than tracks.
+SKIPPED_FOLDERS = {"one-shots", "samples"}
+
+
+def copy_without_comment(track, destination):
+    """Copies `track` with its comment emptied, since a comment can hold a
+    link or a private note that the published images would show."""
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(track), "-map", "0", "-c", "copy",
+         "-map_metadata", "0", "-metadata", "comment=", "-metadata", "description=",
+         str(destination)],
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"could not copy {track.name} without its comment")
+
+
+def build_library_from(source, root):
+    """Copies a few tracks from the first subfolder of each genre folder of
+    `source`, keeping the folder names, and returns the library and the
+    genre folder to show. The originals are only read."""
+    picked = []
+    for genre in sorted(path for path in source.iterdir() if path.is_dir()):
+        if genre.name.lower() in SKIPPED_FOLDERS:
+            continue
+        folders = [genre, *sorted(path for path in genre.iterdir() if path.is_dir())]
+        folder = next((candidate for candidate in folders[1:] if audio_files(candidate)), None)
+        folder = folder or (genre if audio_files(genre) else None)
+        if folder is not None:
+            picked.append(folder)
+        if len(picked) == FOLDERS_FROM_OWN_LIBRARY:
+            break
+    if not picked:
+        raise RuntimeError(f"no folder of audio files in {source}")
+    for folder in picked:
+        destination = root / folder.relative_to(source)
+        destination.mkdir(parents=True)
+        for track in audio_files(folder)[:TRACKS_PER_FOLDER]:
+            copy_without_comment(track, destination / track.name)
+    first = root / picked[0].relative_to(source).parts[0]
+    return root, first
+
+
 def track_count(library):
-    return sum(1 for _ in library.rglob("*.mp3"))
+    return sum(1 for path in library.rglob("*") if path.suffix.lower() in AUDIO_SUFFIXES)
 
 
 def write_settings(data, library, expanded, theme, selected):

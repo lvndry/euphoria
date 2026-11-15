@@ -17,13 +17,15 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::artwork::ThumbnailSize;
 use crate::library::Track;
 use crate::peaks::BandPeaks;
 use crate::player_wave::{BarPeaksCache, played_bars, section_ticks};
 use crate::views::SMALL_TEXT_SIZE;
+use crate::views::artwork::cover_tile;
 use crate::views::cues;
 use crate::views::waveform::SeenBounds;
-use crate::views::{GAP_MEDIUM, LABEL_TEXT_SIZE, RADIUS_SMALL};
+use crate::views::{GAP_MEDIUM, GAP_SMALL, LABEL_TEXT_SIZE, RADIUS_SMALL};
 use crate::waveforms::Waveform;
 
 const BUTTON_SIZE: f32 = 30.0;
@@ -312,6 +314,7 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
         )),
         (None, None) => None,
     };
+    let tempo_text = app.playing_tempo_text();
     let progress = app.player.progress().unwrap_or(0.0);
     let position = crate::format::duration(app.player.position_seconds());
     let length = app
@@ -340,20 +343,46 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
         .border_color(palette.line)
         .bg(palette.sidebar)
         .child(play_button(app, cx))
+        .children(track.map(|track| {
+            cover_tile(
+                app,
+                &track.path,
+                px(40.0),
+                ThumbnailSize::Small,
+                "player-cover",
+                cx,
+            )
+        }))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .flex_shrink_0()
-                .w(px(220.0))
+                .w(px(if tempo_text.is_some() { 320.0 } else { 220.0 }))
                 .child(
                     div()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .when(name.is_none(), |title| {
-                            title.text_color(palette.text_tertiary)
-                        })
-                        .child(name.unwrap_or_else(|| "No track selected".to_string())),
+                        .flex()
+                        .items_baseline()
+                        .gap(GAP_SMALL)
+                        .child(
+                            div()
+                                .truncate()
+                                .min_w_0()
+                                .font_weight(FontWeight::MEDIUM)
+                                .when(name.is_none(), |title| {
+                                    title.text_color(palette.text_tertiary)
+                                })
+                                .child(name.unwrap_or_else(|| "No track selected".to_string())),
+                        )
+                        .children(tempo_text.map(|text| {
+                            div()
+                                .id("player-tempo")
+                                .flex_shrink_0()
+                                .text_size(SMALL_TEXT_SIZE)
+                                .text_color(palette.accent)
+                                .child(text)
+                                .test_support()
+                        })),
                 )
                 .children(detail.map(|(text, colour)| {
                     div()

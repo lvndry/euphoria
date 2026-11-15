@@ -45,6 +45,9 @@ pub(crate) enum ColumnId {
     Bpm,
     /// The energy rating, with a bar.
     Energy,
+    /// Where the track tends to sit in a set: warm-up, build or peak. Shown
+    /// only when the user turns it on in the settings.
+    Stage,
     /// How many cues the track has.
     Cues,
     /// The sound quality verdict in a word.
@@ -68,10 +71,11 @@ enum UsualWidth {
 }
 
 /// The columns left out when the table is too narrow, first to last.
-const LEFT_OUT_FIRST: [ColumnId; 8] = [
+const LEFT_OUT_FIRST: [ColumnId; 9] = [
     ColumnId::Cues,
     ColumnId::Format,
     ColumnId::Quality,
+    ColumnId::Stage,
     ColumnId::Folder,
     ColumnId::Artist,
     ColumnId::Time,
@@ -87,7 +91,7 @@ const LEFT_OUT_BEFORE_PATHS_ARE_CUT: [ColumnId; 3] =
 
 impl ColumnId {
     /// Every column, left to right.
-    pub(crate) const ALL: [ColumnId; 12] = [
+    pub(crate) const ALL: [ColumnId; 13] = [
         ColumnId::Number,
         ColumnId::Title,
         ColumnId::Artist,
@@ -95,6 +99,7 @@ impl ColumnId {
         ColumnId::MusicalKey,
         ColumnId::Bpm,
         ColumnId::Energy,
+        ColumnId::Stage,
         ColumnId::Cues,
         ColumnId::Quality,
         ColumnId::Time,
@@ -112,6 +117,7 @@ impl ColumnId {
             ColumnId::MusicalKey => "musical-key",
             ColumnId::Bpm => "bpm",
             ColumnId::Energy => "energy",
+            ColumnId::Stage => "stage",
             ColumnId::Cues => "cues",
             ColumnId::Quality => "quality",
             ColumnId::Time => "time",
@@ -130,6 +136,7 @@ impl ColumnId {
             ColumnId::MusicalKey => "Musical key",
             ColumnId::Bpm => "BPM",
             ColumnId::Energy => "Energy",
+            ColumnId::Stage => "Stage",
             ColumnId::Cues => "Cues",
             ColumnId::Quality => "Quality",
             ColumnId::Time => "Time",
@@ -147,6 +154,7 @@ impl ColumnId {
             ColumnId::MusicalKey => UsualWidth::Fixed(84.0),
             ColumnId::Bpm => UsualWidth::Fixed(60.0),
             ColumnId::Energy => UsualWidth::Fixed(86.0),
+            ColumnId::Stage => UsualWidth::Fixed(72.0),
             ColumnId::Cues => UsualWidth::Fixed(48.0),
             ColumnId::Quality => UsualWidth::Fixed(90.0),
             ColumnId::Time => UsualWidth::Fixed(48.0),
@@ -166,6 +174,7 @@ impl ColumnId {
             ColumnId::MusicalKey => 64.0,
             ColumnId::Bpm => 44.0,
             ColumnId::Energy => 70.0,
+            ColumnId::Stage => 60.0,
             ColumnId::Cues => 40.0,
             ColumnId::Quality => 56.0,
             ColumnId::Time => 40.0,
@@ -191,6 +200,7 @@ impl ColumnId {
             ColumnId::Key | ColumnId::MusicalKey => Some(SortColumn::Key),
             ColumnId::Bpm => Some(SortColumn::Bpm),
             ColumnId::Energy => Some(SortColumn::Energy),
+            ColumnId::Stage => None,
             ColumnId::Cues => Some(SortColumn::Cues),
             ColumnId::Quality => Some(SortColumn::Quality),
             ColumnId::Time => Some(SortColumn::Duration),
@@ -284,8 +294,24 @@ impl TableLayout {
     /// paths short; then
     /// columns are left out in the order of [`LEFT_OUT_FIRST`]. When even
     /// that does not fit, the sized columns go down to their narrowest.
+    #[cfg(test)]
     pub(crate) fn new(table_width: f32, chosen: &ColumnWidths, longest_path: f32) -> Self {
-        let mut shown: Vec<ColumnId> = ColumnId::ALL.to_vec();
+        Self::with_stage_column(table_width, chosen, longest_path, false)
+    }
+
+    /// [`TableLayout::new`], with the Stage column after Energy when
+    /// `shows_stage`. It is left out first of the columns the user turned on.
+    pub(crate) fn with_stage_column(
+        table_width: f32,
+        chosen: &ColumnWidths,
+        longest_path: f32,
+        shows_stage: bool,
+    ) -> Self {
+        let mut shown: Vec<ColumnId> = ColumnId::ALL
+            .iter()
+            .copied()
+            .filter(|column| shows_stage || *column != ColumnId::Stage)
+            .collect();
         let mut left_out_next = LEFT_OUT_FIRST.iter().peekable();
         let mut folder_cap = f32::INFINITY;
         let mut chosen_at_narrowest = false;
@@ -514,7 +540,11 @@ mod tests {
     #[test]
     fn a_wide_table_shows_every_column_and_gives_the_rest_to_title_and_artist() {
         let layout = TableLayout::new(1800.0, &ColumnWidths::default(), 133.0);
-        assert_eq!(shown(&layout), ColumnId::ALL);
+        let usual: Vec<ColumnId> = ColumnId::ALL
+            .into_iter()
+            .filter(|column| *column != ColumnId::Stage)
+            .collect();
+        assert_eq!(shown(&layout), usual);
         let title = layout.width_of(ColumnId::Title).unwrap();
         let artist = layout.width_of(ColumnId::Artist).unwrap();
         assert!(title > artist && artist > 90.0, "{title} {artist}");
@@ -648,5 +678,44 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), ColumnId::ALL.len());
+    }
+
+    #[test]
+    fn the_stage_column_is_off_until_asked_for_and_sits_after_energy() {
+        let off = TableLayout::new(1800.0, &ColumnWidths::default(), 133.0);
+        assert!(!off.shows(ColumnId::Stage));
+        let on = TableLayout::with_stage_column(1800.0, &ColumnWidths::default(), 133.0, true);
+        let order = shown(&on);
+        let energy = order.iter().position(|column| *column == ColumnId::Energy);
+        let stage = order.iter().position(|column| *column == ColumnId::Stage);
+        assert_eq!(stage, energy.map(|position| position + 1));
+        assert_eq!(ColumnId::Stage.sorts_by(), None);
+    }
+
+    #[test]
+    fn a_narrow_table_leaves_the_stage_column_out_before_the_folder_and_keeps_the_four() {
+        let narrow = TableLayout::with_stage_column(
+            960.0 - 220.0 - 320.0,
+            &ColumnWidths::default(),
+            133.0,
+            true,
+        );
+        assert!(!narrow.shows(ColumnId::Stage));
+        let width_without_cues_format_quality = 1180.0;
+        let medium = TableLayout::with_stage_column(
+            width_without_cues_format_quality,
+            &ColumnWidths::default(),
+            133.0,
+            true,
+        );
+        for column in [
+            ColumnId::Title,
+            ColumnId::Key,
+            ColumnId::Bpm,
+            ColumnId::Energy,
+        ] {
+            assert!(medium.shows(column), "{column:?}");
+        }
+        assert!(!medium.shows(ColumnId::Stage) || medium.shows(ColumnId::Folder));
     }
 }

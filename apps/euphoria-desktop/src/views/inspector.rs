@@ -18,7 +18,7 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
-use crate::assets::MUSIC_ICON_PATH;
+use crate::artwork::ThumbnailSize;
 use crate::camelot::CamelotPosition;
 use crate::decks::SuggestionScope;
 use crate::format;
@@ -28,6 +28,7 @@ use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Layout, Palette};
 use crate::track_overview::{key_stretches, shows_key_timeline};
+use crate::views::artwork::cover_tile;
 use crate::views::by_ear;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -383,24 +384,14 @@ fn summary(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
         .flex()
         .items_center()
         .gap(GAP_MEDIUM)
-        .child(
-            div()
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .size(px(56.0))
-                .rounded(RADIUS_MEDIUM)
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.raised)
-                .child(
-                    Icon::default()
-                        .path(MUSIC_ICON_PATH)
-                        .size(px(20.0))
-                        .text_color(palette.text_tertiary),
-                ),
-        )
+        .child(cover_tile(
+            app,
+            &track.path,
+            px(56.0),
+            ThumbnailSize::Large,
+            "inspector-cover",
+            cx,
+        ))
         .child(
             div()
                 .flex()
@@ -613,6 +604,8 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
 
     let key_trust = match (correction.key, key_confidence) {
         (Some(_), _) => Some(set_by_you("key-set-by-you", "key", palette)),
+        // Checked with "Looks right": nothing is left to review.
+        (None, Some(Confidence::Low)) if correction.key_confirmed => None,
         (None, Some(confidence)) => Some(confidence_word(
             "Key",
             "key-confidence",
@@ -623,6 +616,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     };
     let tempo_trust = match (correction.bpm, tempo_confidence) {
         (Some(_), _) => Some(set_by_you("tempo-set-by-you", "tempo", palette)),
+        (None, Some(Confidence::Low)) if correction.bpm_confirmed => None,
         (None, Some(confidence)) => Some(confidence_word(
             "BPM",
             "tempo-confidence",
@@ -703,9 +697,33 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .gap(GAP_SMALL)
         .child(boxes)
         .children(tag_key_line(track, notation, palette))
+        .children(stage_line(track, app, palette))
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
+}
+
+/// The set stage of the track, such as "Stage: Peak", explained on hover.
+/// Nothing when the track has no stage.
+fn stage_line(track: &Track, app: &EuphoriaApp, palette: &Palette) -> Option<AnyElement> {
+    let library = app.session.library();
+    let stage = library.stage_at(library.index_of(&track.path)?)?;
+    Some(
+        div()
+            .id("track-stage")
+            .flex()
+            .items_center()
+            .gap(GAP_TIGHT)
+            .text_size(LABEL_TEXT_SIZE)
+            .text_color(palette.text_tertiary)
+            .child("Stage:")
+            .child(div().text_color(palette.text).child(stage.label()))
+            .tooltip(|window, cx| {
+                Tooltip::new(crate::track_filters::STAGE_EXPLANATION).build(window, cx)
+            })
+            .test_support()
+            .into_any_element(),
+    )
 }
 
 /// What the key field of the file's tags says next to the key above: the
@@ -786,6 +804,14 @@ fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
         .child(text.into())
 }
 
+/// The word under a detected value: a low one is something to review.
+pub(crate) fn confidence_text(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::Low => "to review",
+        other => other.as_str(),
+    }
+}
+
 /// How far to trust a detected value, in a word, explained on hover.
 fn confidence_word(
     label: &'static str,
@@ -806,16 +832,17 @@ fn confidence_word(
         Confidence::Low => (
             palette.warning,
             format!(
-                "{label} confidence: low. Check it by ear; the track is listed under Needs review."
+                "{label} confidence: low. Check it by ear, then choose Looks right or correct it; the track is listed under Needs review until then."
             )
             .into(),
         ),
     };
+    let word = confidence_text(confidence);
     div()
         .id(id)
         .whitespace_nowrap()
         .text_color(colour)
-        .child(confidence.as_str())
+        .child(word)
         .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
         .test_support()
         .into_any_element()

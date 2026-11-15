@@ -3,18 +3,23 @@
 
 //! Checking the key by ear in the track detail: a drone of the key, and of
 //! the runner up when one is offered, a one octave piano with the key's
-//! scale marked, a volume for both, and the editor that corrects the key, the
+//! scale marked (all in the key the track is heard in, which "Hear it in
+//! another key" may have moved), a volume for both, and the editor that corrects the key, the
 //! tempo or the energy by hand.
 
 use euphoria_core::{Key, Mode};
 use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, hsla, px, relative};
+use gpui::{
+    ClickEvent, Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, hsla, px,
+    relative,
+};
 
 use crate::app::EuphoriaApp;
-use crate::key_by_ear::{LEVEL_STEPS, scale_of};
+use crate::key_by_ear::{ARPEGGIO_STEP, LEVEL_STEPS, scale_of};
 use crate::library::Track;
+use crate::tag_settings::NotationChoice;
 use crate::theme::Palette;
 use crate::views::controls::choice_button;
 use crate::views::inspector::shown_runner_up;
@@ -186,19 +191,41 @@ fn energy_picker(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         })
 }
 
+/// The key of `track` and its runner up, if one is offered, as heard when
+/// the track is moved `shift` semitones: what the tone, the piano and the
+/// chords of the section are built on.
+pub(crate) fn heard_keys(track: &Track, shift: i8) -> Option<(Key, Option<Key>)> {
+    let key = track.key()?.transposed(shift);
+    let runner_up = shown_runner_up(track).map(|runner_up| runner_up.transposed(shift));
+    Some((key, runner_up))
+}
+
+fn tone_label(notation: NotationChoice, key: Key) -> String {
+    format!("{} tone", notation.spell(&key))
+}
+
+/// A chord button says its key only when there are two to tell apart.
+fn chord_label(notation: NotationChoice, key: Key, has_runner_up: bool) -> String {
+    if has_runner_up {
+        format!("{} chord", notation.spell(&key))
+    } else {
+        "Play chord".to_string()
+    }
+}
+
 /// The section for checking the key by ear, for a track with a key.
 pub(crate) fn section(
     track: &Track,
     app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<Div> {
-    let key = track.key()?;
+    let (key, runner_up) = heard_keys(track, app.key_shift)?;
     let palette = app.theme.palette;
     let notation = app.tag_settings.key_notation;
     let sounding = app.by_ear.drone_key();
 
     let tones = std::iter::once(key)
-        .chain(shown_runner_up(track))
+        .chain(runner_up)
         .enumerate()
         .map(|(index, tone_key)| {
             let is_on = sounding == Some(tone_key);
@@ -212,13 +239,35 @@ pub(crate) fn section(
             };
             choice_button(
                 ("tone", index),
-                format!("{} tone", notation.spell(&tone_key)),
+                tone_label(notation, tone_key),
                 is_on,
                 &palette,
             )
             .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_drone(tone_key, cx)))
             .test_support()
+        });
+
+    let has_runner_up = runner_up.is_some();
+    let chords = std::iter::once(key)
+        .chain(runner_up)
+        .enumerate()
+        .map(|(index, chord_key)| {
+            let label = chord_label(notation, chord_key, has_runner_up);
+            let description = format!(
+                "Plays the {} triad of {chord_key}, its root, third and fifth, together on the piano. Shift-click plays it as an arpeggio, one note after another about {} ms apart.",
+                match chord_key.mode() {
+                    Mode::Major => "major",
+                    Mode::Minor => "minor",
+                },
+                ARPEGGIO_STEP.as_millis()
+            );
+            choice_button(("chord", index), label, false, &palette)
+                .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    this.play_chord(chord_key, event.modifiers().shift, cx)
+                }))
+                .test_support()
         });
 
     let level_step = app.by_ear.level_step();
@@ -270,10 +319,11 @@ pub(crate) fn section(
                     .items_center()
                     .gap(GAP_SMALL)
                     .children(tones)
+                    .children(chords)
                     .child(div().flex_1())
                     .child(volume),
             )
-            .child(piano(key, &palette, cx))
+            .child(piano(key, app, &palette, cx))
             .child(
                 div()
                     .text_size(SMALL_TEXT_SIZE)
@@ -288,7 +338,7 @@ pub(crate) fn section(
 
 /// One octave of piano from middle C, with the notes of `key`'s scale
 /// marked and its root named.
-fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let scale = scale_of(key);
     let in_scale = |pitch_class: u8| scale.contains(&pitch_class);
     let is_root = |pitch_class: u8| pitch_class == key.tonic();
@@ -306,9 +356,12 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
         ..palette.accent
     };
     let pressed = palette.accent;
+    let by_ear = &app.by_ear;
 
     let white_keys = WHITE_KEYS.iter().map(|&pitch_class| {
-        let background = if in_scale(pitch_class) {
+        let background = if by_ear.is_lit(pitch_class) {
+            pressed
+        } else if in_scale(pitch_class) {
             light_accent
         } else {
             ivory
@@ -345,7 +398,9 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
 
     let black_keys = BLACK_KEYS.iter().map(|&(pitch_class, after_white)| {
         let left = (after_white + 1) as f32 / WHITE_KEYS.len() as f32 - BLACK_KEY_WIDTH / 2.0;
-        let background = if in_scale(pitch_class) {
+        let background = if by_ear.is_lit(pitch_class) {
+            pressed
+        } else if in_scale(pitch_class) {
             deep_accent
         } else {
             ebony
@@ -404,5 +459,25 @@ mod tests {
         distinct.sort();
         distinct.dedup();
         assert_eq!(distinct.len(), 24);
+    }
+
+    #[test]
+    fn the_labels_name_the_key_the_track_is_heard_in() {
+        let seven_a = Key::new(2, Mode::Minor);
+        let heard = seven_a.transposed(2);
+        assert_eq!(heard.camelot(), "9A");
+        assert_eq!(
+            chord_label(NotationChoice::Camelot, heard, true),
+            "9A chord"
+        );
+        assert_eq!(tone_label(NotationChoice::Camelot, heard), "9A tone");
+        assert_eq!(
+            chord_label(NotationChoice::Camelot, heard, false),
+            "Play chord"
+        );
+        let seven_b = Key::new(3, Mode::Major);
+        assert_eq!(seven_b.camelot(), "5B");
+        assert_eq!(seven_b.transposed(7).camelot(), "6B");
+        assert_eq!(seven_b.transposed(0), seven_b);
     }
 }

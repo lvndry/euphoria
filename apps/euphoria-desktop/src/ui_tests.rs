@@ -78,6 +78,7 @@ fn fixture_tracks() -> Vec<DemoTrack> {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -1323,7 +1324,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
 const DJ_TRACKS: &str = "/music/DJ tracks";
 
 /// Index of the Folder column among the table's column headers.
-const FOLDER_COLUMN: usize = 11;
+const FOLDER_COLUMN: usize = 12;
 
 /// A made up DJ folder: two tracks in afro_house/warmup, one that failed in
 /// afro_house/peak, one in deep and one directly in the folder.
@@ -1348,6 +1349,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 key_runner_up: None,
                 key_score_margin: None,
                 key_source: None,
+                loudness_range_lu: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
                 beat_grid: None,
@@ -1911,7 +1913,7 @@ fn the_smallest_window_leaves_columns_out_before_squeezing_the_title(cx: &mut Te
 }
 
 /// Index of the Format column among the table's column headers.
-const FORMAT_COLUMN: usize = 10;
+const FORMAT_COLUMN: usize = 11;
 
 /// A window on scratch copies of the core's test files, each analyzed with
 /// a key, a tempo and an energy rating, writing its tag backups into the
@@ -2865,6 +2867,7 @@ fn track_changing_key() -> DemoTrack {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,
@@ -3488,6 +3491,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         key_runner_up: Some(euphoria_core::Key::new(4, euphoria_core::Mode::Minor)),
         key_score_margin: Some(key_margin),
         key_source: None,
+        loudness_range_lu: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
         beat_grid: None,
@@ -3764,6 +3768,7 @@ fn set_tracks() -> Vec<DemoTrack> {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             key_timeline: Vec::new(),
@@ -4873,6 +4878,342 @@ fn the_piano_plays_its_notes_and_the_volume_has_steps(cx: &mut TestAppContext) {
     cx.update(|cx| assert_eq!(view.read(cx).by_ear.level_step(), 5));
 }
 
+fn chord_notes(output: &ListeningOutput) -> Vec<f32> {
+    output
+        .heard()
+        .iter()
+        .map(|sound| sound.frequencies[0])
+        .collect()
+}
+
+fn lit_keys(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Vec<u8> {
+    cx.update(|cx| view.read(cx).by_ear.lit_keys())
+}
+
+#[gpui::test]
+fn the_chord_button_plays_the_triad_of_the_key_together_and_lights_its_keys(
+    cx: &mut TestAppContext,
+) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("chord", 0_usize), cx);
+    let heard = output.heard();
+    assert_eq!(heard.len(), 3, "root, third and fifth");
+    assert!(heard.iter().all(|sound| !sound.is_drone));
+    let expected = [440.0, 523.25, 659.26];
+    for (sound, expected) in heard.iter().zip(expected) {
+        assert!((sound.frequencies[0] - expected).abs() < 0.01, "A C E");
+    }
+    assert_eq!(output.sounding().len(), 3, "together");
+    assert_eq!(lit_keys(&view, cx), [0, 4, 9]);
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1900));
+    cx.run_until_parked();
+    assert_eq!(lit_keys(&view, cx), [0, 4, 9], "still ringing");
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(
+        lit_keys(&view, cx).is_empty(),
+        "the keys go dark when it ends"
+    );
+}
+
+#[gpui::test]
+fn the_chord_sounds_over_a_tone_without_stopping_it(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    click(window, ("chord", 0_usize), cx);
+    assert_eq!(
+        output.sounding().len(),
+        4,
+        "the drone stays under the chord"
+    );
+}
+
+#[gpui::test]
+fn a_major_key_gets_a_major_third(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.accept_key(euphoria_core::Key::new(0, euphoria_core::Mode::Major), cx)
+        })
+    });
+    cx.run_until_parked();
+    click(window, ("chord", 0_usize), cx);
+    let notes = chord_notes(&output);
+    for (note, expected) in notes.iter().zip([261.63, 329.63, 392.0]) {
+        assert!((note - expected).abs() < 0.01, "8B: C E G");
+    }
+    assert_eq!(lit_keys(&view, cx), [0, 4, 7]);
+}
+
+#[gpui::test]
+fn the_runner_up_gets_its_own_chord_button_only_when_there_is_one(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert!(is_shown(window, ("chord", 0_usize), cx));
+    assert!(is_shown(window, ("chord", 1_usize), cx), "key unsure");
+    click(window, ("chord", 1_usize), cx);
+    let notes = chord_notes(&output);
+    for (note, expected) in notes.iter().zip([329.63, 392.0, 493.88]) {
+        assert!(
+            (note - expected).abs() < 0.01,
+            "the runner up, E minor: E G B"
+        );
+    }
+
+    click(window, "runner-up-key", cx);
+    assert!(is_shown(window, ("chord", 0_usize), cx));
+    assert!(
+        !is_shown(window, ("chord", 1_usize), cx),
+        "a corrected key has no second candidate"
+    );
+    click(window, track(2), cx);
+    assert!(is_shown(window, ("chord", 0_usize), cx));
+    assert!(!is_shown(window, ("chord", 1_usize), cx), "a sure key");
+}
+
+#[gpui::test]
+fn a_shift_click_plays_the_chord_as_an_arpeggio_120_ms_apart(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click_with_modifiers(("chord", 0_usize), Modifiers::shift(), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 1, "the root first");
+    assert_eq!(lit_keys(&view, cx), [9]);
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(119));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 1, "not before 120 ms");
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 2, "the third at 120 ms");
+    assert_eq!(lit_keys(&view, cx), [0, 9]);
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(119));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 2);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 3, "the fifth at 240 ms");
+    assert_eq!(lit_keys(&view, cx), [0, 4, 9]);
+    let notes = chord_notes(&output);
+    assert!(notes[0] < notes[1] && notes[1] < notes[2], "rising");
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(2100));
+    cx.run_until_parked();
+    assert!(lit_keys(&view, cx).is_empty());
+}
+
+fn hear_in_another_key(view: &Entity<EuphoriaApp>, semitones: i8, cx: &mut TestAppContext) {
+    cx.update(|cx| view.update(cx, |app, cx| app.set_key_shift(semitones, cx)));
+    cx.run_until_parked();
+}
+
+fn set_shown_key(view: &Entity<EuphoriaApp>, key: euphoria_core::Key, cx: &mut TestAppContext) {
+    cx.update(|cx| view.update(cx, |app, cx| app.accept_key(key, cx)));
+    cx.run_until_parked();
+}
+
+fn pitch_classes(output: &ListeningOutput) -> Vec<u8> {
+    output
+        .heard()
+        .iter()
+        .map(|sound| {
+            let midi = 69.0 + 12.0 * (sound.frequencies[0] / 440.0).log2();
+            (midi.round() as i32).rem_euclid(12) as u8
+        })
+        .collect()
+}
+
+fn drone_key(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Option<euphoria_core::Key> {
+    cx.update(|cx| view.read(cx).by_ear.drone_key())
+}
+
+#[gpui::test]
+fn the_tone_the_piano_and_the_chord_follow_the_key_it_is_heard_in(cx: &mut TestAppContext) {
+    use euphoria_core::{Key, Mode};
+    let cases = [
+        (
+            Key::new(9, Mode::Minor),
+            1,
+            Key::new(10, Mode::Minor),
+            [10, 1, 5],
+            "3A",
+        ),
+        (
+            Key::new(9, Mode::Minor),
+            -2,
+            Key::new(7, Mode::Minor),
+            [7, 10, 2],
+            "6A",
+        ),
+        (
+            Key::new(9, Mode::Minor),
+            6,
+            Key::new(3, Mode::Minor),
+            [3, 6, 10],
+            "2A",
+        ),
+        (
+            Key::new(0, Mode::Major),
+            1,
+            Key::new(1, Mode::Major),
+            [1, 5, 8],
+            "3B",
+        ),
+        (
+            Key::new(0, Mode::Major),
+            -2,
+            Key::new(10, Mode::Major),
+            [10, 2, 5],
+            "6B",
+        ),
+        (
+            Key::new(0, Mode::Major),
+            6,
+            Key::new(6, Mode::Major),
+            [6, 10, 1],
+            "2B",
+        ),
+    ];
+    for (shown, semitones, heard_key, triad, camelot) in cases {
+        let (window, view, output) = open_tracks_to_check_by_ear(cx);
+        click(window, track(1), cx);
+        set_shown_key(&view, shown, cx);
+        hear_in_another_key(&view, semitones, cx);
+        assert_eq!(heard_key.camelot(), camelot);
+
+        cx.update(|cx| {
+            let app = view.read(cx);
+            let (key, _) =
+                crate::views::by_ear::heard_keys(app.selected_track().unwrap(), app.key_shift)
+                    .unwrap();
+            assert_eq!(key, heard_key, "{shown} moved {semitones:+}");
+            let mut marked = crate::key_by_ear::scale_of(key).to_vec();
+            marked.sort_unstable();
+            let mut expected: Vec<u8> = [0, 2, 3, 5, 7, 8, 10]
+                .iter()
+                .map(|step| (heard_key.tonic() + step) % 12)
+                .collect();
+            if heard_key.mode() == Mode::Major {
+                expected = [0, 2, 4, 5, 7, 9, 11]
+                    .iter()
+                    .map(|step| (heard_key.tonic() + step) % 12)
+                    .collect();
+            }
+            expected.sort_unstable();
+            assert_eq!(marked, expected, "the piano marks the notes of {camelot}");
+        });
+
+        click(window, ("tone", 0_usize), cx);
+        assert_eq!(drone_key(&view, cx), Some(heard_key));
+        let sounding = output.sounding();
+        let root_hz = 220.0 * 2f32.powf((f32::from(heard_key.tonic()) - 9.0) / 12.0);
+        let fifth_hz = root_hz * 2f32.powf(7.0 / 12.0);
+        let octaves_apart = |first: f32, second: f32| {
+            let semitones = 12.0 * (first / second).log2();
+            (semitones - 12.0 * (semitones / 12.0).round()).abs()
+        };
+        assert!(
+            octaves_apart(sounding[0].frequencies[1], fifth_hz) < 0.1
+                || octaves_apart(sounding[0].frequencies[1], root_hz) < 0.1,
+            "the tone is built on {camelot}"
+        );
+        click(window, ("tone", 0_usize), cx);
+
+        click(window, ("chord", 0_usize), cx);
+        let heard = pitch_classes(&output);
+        assert_eq!(heard[heard.len() - 3..], triad, "the triad of {camelot}");
+        let mut lit = triad.to_vec();
+        lit.sort_unstable();
+        assert_eq!(lit_keys(&view, cx), lit);
+    }
+}
+
+#[gpui::test]
+fn the_tone_stays_as_detected_at_zero_semitones_and_is_named_by_the_heard_key(
+    cx: &mut TestAppContext,
+) {
+    use euphoria_core::{Key, Mode};
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    let sounding = output.sounding();
+    assert!(
+        (sounding[0].frequencies[1] - 220.0).abs() < 0.01,
+        "0 semitones is A minor"
+    );
+    assert_eq!(drone_key(&view, cx), Some(Key::new(9, Mode::Minor)));
+    click(window, ("tone", 0_usize), cx);
+
+    set_shown_key(&view, Key::new(2, Mode::Minor), cx);
+    hear_in_another_key(&view, 2, cx);
+    click(window, ("tone", 0_usize), cx);
+    assert_eq!(
+        drone_key(&view, cx),
+        Some(Key::new(4, Mode::Minor)),
+        "7A heard 2 semitones up is E minor, 9A"
+    );
+}
+
+#[gpui::test]
+fn a_playing_tone_retunes_when_the_shift_changes(cx: &mut TestAppContext) {
+    use euphoria_core::{Key, Mode};
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    hear_in_another_key(&view, 2, cx);
+    assert_eq!(drone_key(&view, cx), Some(Key::new(11, Mode::Minor)));
+    let sounding = output.sounding();
+    assert_eq!(sounding.len(), 1, "one tone, retuned");
+    assert!((sounding[0].frequencies[1] - 220.0 * 2f32.powf(2.0 / 12.0)).abs() < 0.05);
+    hear_in_another_key(&view, -1, cx);
+    assert_eq!(drone_key(&view, cx), Some(Key::new(8, Mode::Minor)));
+    assert_eq!(output.sounding().len(), 1);
+    hear_in_another_key(&view, 0, cx);
+    assert_eq!(drone_key(&view, cx), Some(Key::new(9, Mode::Minor)));
+    click(window, ("tone", 0_usize), cx);
+    assert!(
+        output.sounding().is_empty(),
+        "the button shows it on, so it stops it"
+    );
+}
+
+#[gpui::test]
+fn the_runner_up_transposes_with_the_key(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert!(is_shown(window, ("chord", 1_usize), cx), "key unsure");
+    click(window, ("chord", 1_usize), cx);
+    assert_eq!(pitch_classes(&output), [4, 7, 11], "E minor at 0 semitones");
+    hear_in_another_key(&view, 2, cx);
+    click(window, ("chord", 1_usize), cx);
+    assert_eq!(
+        pitch_classes(&output)[3..],
+        [6, 9, 1],
+        "F# minor, the runner up +2"
+    );
+    click(window, ("tone", 1_usize), cx);
+    assert_eq!(
+        drone_key(&view, cx),
+        Some(euphoria_core::Key::new(6, euphoria_core::Mode::Minor))
+    );
+}
+
 #[gpui::test]
 fn a_tone_without_an_audio_output_says_so(cx: &mut TestAppContext) {
     let (window, view) = open_window_with(
@@ -4959,6 +5300,7 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: Some(euphoria_core::BeatGrid {
@@ -5680,6 +6022,7 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: Some(120.0),
             tempo_score_margin: None,
             beat_grid: has_grid.then_some(euphoria_core::BeatGrid {
@@ -6608,23 +6951,26 @@ fn the_deck_strip_shows_one_section_at_a_time_from_its_tabs(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn closing_the_decks_clears_the_notice_that_they_hold_the_player(cx: &mut TestAppContext) {
+fn the_track_player_hides_while_the_decks_are_open(cx: &mut TestAppContext) {
     let output = RenderedDecks::default();
-    let (_window, view) = open_window_on(deck_tracks(), Box::new(output), cx);
+    let (window, view) = open_window_on(deck_tracks(), Box::new(output), cx);
+    assert!(is_shown(window, "player-bar", cx));
     cx.update(|cx| {
         view.update(cx, |app, cx| {
             app.toggle_decks(cx);
             app.toggle_playback(cx);
         })
     });
+    cx.run_until_parked();
+    assert!(!is_shown(window, "player-bar", cx));
     cx.update(|cx| {
-        assert_eq!(
-            view.read(cx).notice.as_deref(),
-            Some(crate::decks::PLAYER_HELD_BY_DECKS)
-        )
+        let app = view.read(cx);
+        assert_eq!(app.notice, None, "no notice asks to close the decks");
+        assert!(!app.player.offers_pause(), "the player stays silent");
     });
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
-    cx.update(|cx| assert_eq!(view.read(cx).notice, None));
+    cx.run_until_parked();
+    assert!(is_shown(window, "player-bar", cx));
 }
 
 /// Six made up tracks, one for each reason to review, one with all three
@@ -6837,6 +7183,21 @@ fn looks_right_keeps_the_detected_values_and_settles_the_doubt(cx: &mut TestAppC
 
     assert!(reasons_of(&view, 3, cx).is_empty());
     assert_eq!(review_counts(&view, cx), (4, 4));
+    assert!(
+        !is_shown(window, "key-confidence", cx) && !is_shown(window, "tempo-confidence", cx),
+        "a value checked with Looks right no longer says it needs review"
+    );
+}
+
+#[gpui::test]
+fn a_low_confidence_value_says_it_is_to_review(cx: &mut TestAppContext) {
+    let (window, view) = open_tracks_with_reasons(cx);
+    select_track(&view, 3, cx);
+    assert!(is_shown(window, "tempo-confidence", cx));
+    assert_eq!(
+        crate::views::inspector::confidence_text(euphoria_core::Confidence::Low),
+        "to review"
+    );
 }
 
 #[gpui::test]

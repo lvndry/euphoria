@@ -20,6 +20,7 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::artwork::ThumbnailSize;
 use crate::camelot::CamelotPosition;
 use crate::focus::{
     CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
@@ -28,10 +29,11 @@ use crate::format;
 use crate::library::Track;
 use crate::mixes::keys_related_by;
 use crate::peaks::BandPeaks;
-use crate::stems::StemStatus;
+use crate::stems::{StemFocus, StemStatus};
 use crate::theme::Palette;
-use crate::track_overview::TimeRange;
+use crate::track_overview::{TimeRange, VocalLane};
 use crate::transition_plan::OPEN_PLANNER_LINK;
+use crate::views::artwork::cover_tile;
 use crate::views::controls::choice_button;
 use crate::views::cues;
 use crate::views::favorites::star_button;
@@ -59,7 +61,7 @@ const OVERVIEW_HEIGHT: f32 = 40.0;
 const SECTIONS_HEIGHT: f32 = 22.0;
 const DETAIL_HEIGHT: f32 = 150.0;
 const SLOT_HEIGHT: f32 = 28.0;
-const STEM_ROW_HEIGHT: f32 = 9.0;
+const STEM_ROW_HEIGHT: f32 = 14.0;
 const STEM_ROW_GAP: f32 = 2.0;
 const BOTTOM_HEIGHT: f32 = 320.0;
 
@@ -237,7 +239,7 @@ fn chip(label: &'static str, value: impl IntoElement, palette: &Palette) -> Div 
         .flex()
         .items_center()
         .gap(GAP_SMALL)
-        .h(px(30.0))
+        .min_h(px(30.0))
         .px(px(10.0))
         .rounded(RADIUS_MEDIUM)
         .border_1()
@@ -298,6 +300,14 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
         .items_center()
         .gap(GAP_LARGE)
         .flex_wrap()
+        .child(cover_tile(
+            app,
+            &track.path,
+            px(72.0),
+            ThumbnailSize::Large,
+            "focus-cover",
+            cx,
+        ))
         .child(
             div()
                 .flex()
@@ -340,15 +350,9 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                         .test_support(),
                 )
                 .child(
-                    chip(
-                        "BPM",
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(track.bpm().map_or_else(dash, format::bpm)),
-                        &palette,
-                    )
-                    .id("focus-chip-bpm")
-                    .test_support(),
+                    chip("BPM", bpm_stat(track, app), &palette)
+                        .id("focus-chip-bpm")
+                        .test_support(),
                 )
                 .child(
                     chip(
@@ -373,7 +377,41 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                     .test_support()
                 })),
         )
+        .children(crate::views::tempo::tempo_control(app, &palette, cx))
         .children(header_wheel(track, app))
+}
+
+/// The tempo in the BPM chip: the track's own, or while the playback tempo
+/// differs, the target with the original beneath it.
+fn bpm_stat(track: &Track, app: &EuphoriaApp) -> Div {
+    let palette = app.theme.palette;
+    let own = track.bpm();
+    let rate = app.tempo.rate_for(&track.path);
+    match own {
+        Some(own) if !crate::tempo_controls::is_original(rate) => div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("focus-bpm-target")
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(format::bpm(crate::tempo_controls::target_for_rate(
+                        own, rate,
+                    )))
+                    .test_support(),
+            )
+            .child(
+                div()
+                    .id("focus-bpm-original")
+                    .text_size(LABEL_TEXT_SIZE)
+                    .text_color(palette.text_tertiary)
+                    .child(format!("{} original", format::bpm(own)))
+                    .test_support(),
+            ),
+        _ => div()
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(own.map_or_else(|| "\u{2013}".to_string(), format::bpm)),
+    }
 }
 
 /// The side of the Camelot wheel in the header.
@@ -638,7 +676,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         },
         width: None,
         progress: None,
-        bounds: app.focus.lane_bounds.clone(),
+        bounds: app.focus.axis_bounds.clone(),
     };
     let mut data_lanes = overview_lanes(&LaneInputs {
         energy: match app.waveform_of(&track.path) {
@@ -662,16 +700,24 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         Some(data) => lane_row(div(), data.height, data.element),
         None => energy_slot(&palette),
     });
-    let has_stem_data = vocals_data.is_some()
-        || matches!(app.focus.stems_of(&track.path), Some(StemsLane::Ready(_)));
+    let stems_ready = matches!(app.focus.stems_of(&track.path), Some(StemsLane::Ready(_)));
+    let vocals_measured = matches!(app.vocal_lane_of(&track.path), VocalLane::Ready(_));
+    let has_stem_data = vocals_data.is_some() || stems_ready;
     let wants_stem_lanes = lanes.vocals || lanes.stems;
     let stems_card = (wants_stem_lanes && !has_stem_data).then(|| stems_empty_card(track, app, cx));
-    let vocals = (lanes.vocals && has_stem_data).then(|| match vocals_data {
+    let vocals = (lanes.vocals && has_stem_data && !stems_ready).then(|| match vocals_data {
+        Some(_) if vocals_measured => reading_stems_slot(&palette),
         Some(data) => lane_row(div(), data.height, data.element),
         None => vocals_slot(&palette),
     });
-    let stems =
-        (lanes.stems && has_stem_data).then(|| stems_lane(track, app, &viewport, duration, cx));
+    let shown_stems: Vec<Stem> = STEM_ROWS
+        .into_iter()
+        .filter(|stem| lanes.stems || (lanes.vocals && *stem == Stem::Vocals))
+        .collect();
+    let stems = (has_stem_data && (stems_ready || lanes.stems))
+        .then(|| stems_lane(track, app, &viewport, duration, &shown_stems, cx));
+    let stem_focus_control =
+        (stems_ready && !shown_stems.is_empty()).then(|| stem_focus_control(app, &palette, cx));
 
     let axis_probe = {
         let seen = app.focus.axis_bounds.clone();
@@ -730,6 +776,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .children(energy)
         .children(vocals)
         .children(stems)
+        .children(stem_focus_control)
         .children(stems_card)
         .child(axis_probe)
         .child(overlay)
@@ -800,6 +847,16 @@ fn energy_slot(palette: &Palette) -> Div {
         Lane::Energy,
         "focus-energy-slot",
         "No energy curve yet",
+        palette,
+    )
+}
+
+/// What the Vocals lane shows while the stems are still being measured.
+fn reading_stems_slot(palette: &Palette) -> Div {
+    slot(
+        Lane::Vocals,
+        "focus-vocals-reading",
+        "Reading the stems",
         palette,
     )
 }
@@ -907,49 +964,82 @@ fn stems_lane(
     app: &EuphoriaApp,
     viewport: &Viewport,
     duration: f64,
+    shown: &[Stem],
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Div {
     let palette = app.theme.palette;
+    let is_ready = matches!(app.focus.stems_of(&track.path), Some(StemsLane::Ready(_)));
+    let shown: &[Stem] = if is_ready { shown } else { &STEM_ROWS };
+    let focus = app.stems.focus();
     let height =
-        STEM_ROWS.len() as f32 * STEM_ROW_HEIGHT + (STEM_ROWS.len() - 1) as f32 * STEM_ROW_GAP;
+        shown.len() as f32 * STEM_ROW_HEIGHT + shown.len().saturating_sub(1) as f32 * STEM_ROW_GAP;
     let names = div()
         .flex()
         .flex_col()
         .gap(px(STEM_ROW_GAP))
-        .children(STEM_ROWS.map(|stem| {
-            div()
+        .children(shown.iter().map(|stem| {
+            let stem = *stem;
+            let name = div()
+                .id(("focus-stem-label", stem as usize))
                 .h(px(STEM_ROW_HEIGHT))
                 .flex()
                 .items_center()
                 .text_size(LABEL_TEXT_SIZE)
                 .line_height(px(STEM_ROW_HEIGHT))
-                .text_color(palette.text_tertiary)
+                .text_color(stem_label_colour(focus, stem, &palette))
+                .when(focus.is_some_and(|focus| !focus.is_audible(stem)), |name| {
+                    name.line_through()
+                })
                 .child(stem.label())
+                .test_support();
+            if !is_ready {
+                return name;
+            }
+            let hover_colour = palette.text;
+            name.cursor_pointer()
+                .hover(move |style| style.text_color(hover_colour))
+                .tooltip(move |window, cx| {
+                    Tooltip::new(format!(
+                        "Solo {} (\u{2325}-click to mute it instead)",
+                        stem.label()
+                    ))
+                    .build(window, cx)
+                })
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    this.click_stem_lane(stem, event.modifiers().alt, cx)
+                }))
         }));
     let body = match app.focus.stems_of(&track.path) {
         Some(StemsLane::Ready(activity)) => {
-            let rows = STEM_ROWS.map(|stem| {
+            let rows = shown.iter().map(|stem| {
+                let stem = *stem;
+                let is_heard = focus.is_none_or(|focus| focus.is_audible(stem));
                 let windows = activity.windows_of(stem);
                 let runs = runs_of(windows);
-                let bars = runs.into_iter().filter_map(|(first, length)| {
-                    let start_seconds = first as f64
-                        * f64::from(euphoria_core::stems::StemActivity::WINDOW_SECONDS);
-                    let end_seconds = start_seconds
-                        + length as f64
+                let bars = runs
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(run, (first, length))| {
+                        let start_seconds = first as f64
                             * f64::from(euphoria_core::stems::StemActivity::WINDOW_SECONDS);
-                    let start = viewport.fraction_of(start_seconds).max(0.0);
-                    let end = viewport.fraction_of(end_seconds.min(duration)).min(1.0);
-                    (end > start).then(|| {
-                        div()
-                            .absolute()
-                            .top_0()
-                            .bottom_0()
-                            .left(relative(start))
-                            .w(relative(end - start))
-                            .rounded(RADIUS_SMALL)
-                            .bg(palette.accent.opacity(0.7))
-                    })
-                });
+                        let end_seconds = start_seconds
+                            + length as f64
+                                * f64::from(euphoria_core::stems::StemActivity::WINDOW_SECONDS);
+                        let start = viewport.fraction_of(start_seconds).max(0.0);
+                        let end = viewport.fraction_of(end_seconds.min(duration)).min(1.0);
+                        (end > start).then(|| {
+                            div()
+                                .id(("focus-stem-run", stem as usize * 1000 + run))
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(relative(start))
+                                .w(relative(end - start))
+                                .rounded(RADIUS_SMALL)
+                                .bg(palette.accent.opacity(if is_heard { 0.7 } else { 0.2 }))
+                                .test_support()
+                        })
+                    });
                 div()
                     .id(("focus-stem-row", stem as usize))
                     .relative()
@@ -1009,6 +1099,61 @@ fn stems_lane(
         }
     };
     lane_row(names, height, body)
+}
+
+fn stem_label_colour(focus: Option<StemFocus>, stem: Stem, palette: &Palette) -> gpui::Hsla {
+    match focus {
+        Some(StemFocus::Solo(soloed)) if soloed == stem => palette.accent,
+        Some(StemFocus::Solo(_)) => palette.text_tertiary.opacity(0.55),
+        Some(StemFocus::Mute(muted)) if muted == stem => palette.text_tertiary.opacity(0.55),
+        _ => palette.text_tertiary,
+    }
+}
+
+/// What is heard of the stems, with the way back to the full track.
+fn stem_focus_control(
+    app: &EuphoriaApp,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let focus = app.stems.focus();
+    let hover_colour = palette.text;
+    let summary = match focus {
+        Some(focus) => focus.summary(),
+        None => "Click a stem to hear it alone".to_string(),
+    };
+    let full_track = div()
+        .id("focus-stem-full-track")
+        .child("Full track")
+        .when(focus.is_some(), |button| {
+            button
+                .cursor_pointer()
+                .text_color(palette.text_secondary)
+                .hover(move |style| style.text_color(hover_colour))
+                .on_click(cx.listener(|this, _, _, cx| this.set_stem_focus(None, cx)))
+        })
+        .when(focus.is_none(), |button| {
+            button.text_color(palette.text_tertiary)
+        })
+        .test_support();
+    div()
+        .id("focus-stem-control")
+        .flex()
+        .items_center()
+        .gap(GAP_SMALL)
+        .h(px(16.0))
+        .pl(px(GUTTER + LANE_GAP))
+        .text_size(LABEL_TEXT_SIZE)
+        .text_color(if focus.is_some() {
+            palette.accent
+        } else {
+            palette.text_tertiary
+        })
+        .child(summary)
+        .child(div().text_color(palette.text_tertiary).child("\u{b7}"))
+        .child(full_track)
+        .test_support()
+        .into_any_element()
 }
 
 /// The stretches of `windows` that are true, as (first window, length).

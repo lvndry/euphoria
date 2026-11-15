@@ -83,7 +83,7 @@ The keys type a letter when a text field has the keyboard, so S, A and Space do 
 
 Titles and artists are read from the files after they appear, so the file name shows for a moment first. Pointing at a title shows it in full.
 
-### Filter by tempo, energy and quality
+### Filter by tempo, energy, quality and stage
 
 The **Filter** button at the right of the heading, beside the track count, opens a bar of filters under the heading. Nothing else shows until you use it. The bar stays open while any filter is set, and the button closes it again once none is.
 
@@ -92,15 +92,22 @@ The **Filter** button at the right of the heading, beside the track count, opens
 | BPM | A minimum and a maximum, from 30 to 300, typed with a point or a comma (`127.5` or `127,5`), the same field rules as the [metronome](#metronome). Leave one side empty for no limit. It uses the tempo you corrected when there is one. |
 | ½ / 2× | Off by default. When on, a track also matches if half or double its tempo falls in the range, so 70 to 75 also shows a 142 BPM track (and a 36 BPM one). It does nothing without a BPM range. |
 | Energy | A minimum and a maximum, from 1 to 10. It uses the energy you corrected when there is one. |
+| Stage | Chips for Warm-up, Build and Peak, the [set stage](../concepts/set-stage.md) of each track among all the tracks of your library. A track matches when it has any of the chosen ones; a track with no tempo has no stage and is hidden while a chip is on. Pointing at a chip says what the stage means. It is not the energy. |
 | Quality | Chips for Lossless, Good, Acceptable, Weak, Limited BW, Re-encoded? and Damaged, named as in the Quality column (pointing at a chip shows the full verdict name). A track matches when it has any of the chosen ones; Damaged matches files with [dropped or missing audio](../concepts/audio-quality.md) whatever their verdict. |
 
 The filters combine with each other (a track must pass every filter that is set), with the folder, playlist, **Needs review** or **Favorites** you chose in the sidebar, and with the search box. They apply as you type. A value that is not a number in range leaves that side open.
 
-Tracks that are still queued, being analyzed, failed or missing have no tempo, energy or quality yet, so they are hidden while a BPM, energy or quality filter is set. They come back when you clear it.
+Tracks that are still queued, being analyzed, failed or missing have no tempo, energy, quality or stage yet, so they are hidden while a BPM, energy, quality or stage filter is set. They come back when you clear it.
 
 While a filter is set the heading says, for example, `37 of 1,284 tracks`. **Clear** at the end of the bar removes every filter and empties the fields; it leaves the ½ / 2× choice as it was. The filters are remembered between launches in `settings.json`, so the list opens narrowed the way you left it; a settings file from an older version opens with no filters.
 
 ![The track list with a BPM range of 120 to 126, energy from 6 and two quality chips set, and the heading counting the tracks that match](../images/desktop-app/track-filters.png)
+
+### Set stage
+
+The inspector shows a **Stage** line under the key, tempo and energy, such as `Stage: Peak`: where the track tends to sit in a set, from its tempo and loudness compared with the rest of your library. It is not the same as Energy; [set stage](../concepts/set-stage.md) explains the difference, how it is computed and how well it matches a DJ's own warm-up, build and peak folders. A track with no tempo has no stage, and no track has one until the library holds 10 tracks with a tempo. Stages are recomputed as the library changes.
+
+To see the stage in the table, turn on **Stage column** in the settings, under *Showing keys and tempos*. It is off by default, sits after Energy, is left out first when the window is narrow, and cannot be sorted by yet; the filter bar's Stage chips narrow the list instead.
 
 ### Resize the columns
 
@@ -180,8 +187,8 @@ The inspector shows the selected track. Three things are always in view, from th
 | Section | Holds | Open at first |
 | --- | --- | --- |
 | **Mixes well with** | The tracks in your library that mix with this one. | Yes |
-| **Check by ear** | The key tone and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key unsure** or **Tag says**. |
-| **Hear it in another key** | Transposes playback only. Nothing is saved; the exports of the shifted copy and stems are here. | No |
+| **Check by ear** | The key tone, the chord and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key unsure** or **Tag says**. |
+| **Hear it in another key** | Transposes playback only, and the tone, piano and chords of **Check by ear** follow it. Nothing is saved; the exports of the shifted copy and stems are here. | No |
 | **Stems** | Separate the track and choose what to hear. | No |
 | **Sound quality** | The verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak. | No, but it opens by itself for a weak, likely re-encoded or damaged file. |
 | **Location** | Where the file is on disk. | No |
@@ -192,9 +199,19 @@ The key and tempo boxes show the key name ("C# minor") and the unit ("per minute
 
 The waveform is read from the file when you select the track.
 
+### Cover art
+
+Euphoria shows the cover Finder shows. The inspector header has a 56 point square at its left with the cover of the selected track; the player bar shows it at 40 points before the title, the focus view at 72 points before the title, and each deck's header at 28 points before the track name. Corners are rounded like the other surfaces. A track with no cover keeps the music note.
+
+The cover is the picture inside the file (ID3 attached pictures in MP3, AIFF and WAV, `covr` in M4A, MP4 and AAC, the pictures of FLAC and Ogg), the front cover when there are several, and the first picture otherwise. Without one, Euphoria uses an image in the same folder named `cover`, `folder`, `front` or `albumart` (JPEG or PNG, any letter case). Euphoria only reads covers and never writes into your audio files.
+
+Covers are read only for the tracks on screen, never for the whole library, and always in the background: the window draws the note first and the cover when it is ready. The picture is cut to a square and reduced to 192 and 80 pixels, sharp at 2x. The last 64 covers stay in memory, and a cover is read again only when its audio file changed. Nothing is stored on disk, so a cover you change in a folder image shows after you restart or touch the audio file.
+
+Not there yet: covers in the table rows, the ⌘K palette and the "Next after" rows; the Deck theme's strip header shows no cover.
+
 ### How sure the key and the tempo are
 
-The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, on a line under the value. Low is shown in the warning colour, an amber, not the red of an error, and puts the track under **Needs review**. Point at the word for what it means.
+The Key and BPM boxes say quietly how far to trust the value: **high** or **medium** on a line under the value, and **to review**, in the warning colour (an amber, not the red of an error), when Euphoria is unsure and the track is under **Needs review**. Once you choose **Looks right** or correct the value, **to review** goes away. Point at the word for what it means.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
 
@@ -236,9 +253,10 @@ Open **Check by ear**, under the waveform, to settle a key you are not sure of w
 
 - **8A tone**, named in the key notation you chose, plays a soft drone of the key's root and fifth over the track. When the runner up key is offered, a second button plays its drone. The drone that sounds right under the music is the key; one that clashes is not. Click the button again to stop it. Only one drone plays at a time, and it stops when you select another track. The drone leaves out the third on purpose, so it sounds the same for a minor key and its parallel major; the piano settles that.
 - The **piano** covers one octave from middle C. The notes of the key's scale are tinted and named, and its root is marked. Click a key to play it over the track: notes of the right scale fit the melody, others stand out.
+- **Play chord** plays the key's tonic triad on the piano voice: the root, the third (minor or major, as the key is) and the fifth, together, stacked upward from the root in the octave of the piano. For 8A it plays A, C and E; for 8B, C, E and G. The three piano keys light up while the chord rings, about two seconds. When the runner up key is offered, the buttons read **8A chord** and **9A chord** so you can compare the two. A chord settles what the drone leaves open: whether the track sounds minor or major over that root. **Shift-click** plays the chord as an arpeggio, one note after another about 120 ms apart. The chord can sound over a drone.
 - **Volume** sets how loud the drone and the piano are over the track, in five steps, and moves a drone that is already playing.
 
-Both follow the tuning analysis measured, so a track tuned a little sharp or flat gets a reference that matches it.
+The tone, the piano and the chords follow **Hear it in another key**. Move the track up or down by N semitones and they move with it: the tone plays the new key's root and fifth, the piano tints the new key's notes, the chords play its triad, and the labels name it. Hearing a 7A track 2 semitones up, for example, gives **9A tone** and **9A chord**, and the runner up button moves the same way. At 0 semitones nothing changes. The control moves up to 6 semitones either way,, so +7 is out of reach; -5 gives the same key. The key shown in the inspector and the table is still the track's own; only what you hear and see in **Check by ear** moves. A drone that is already playing retunes to the new key at once. All of them follow the tuning analysis measured, so a track tuned a little sharp or flat gets a reference that matches it.
 
 When your ear disagrees with Euphoria, correct the value:
 
@@ -296,6 +314,22 @@ If a track cannot be played, the player says why in a few words, for example "Th
 
 If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence. Without `EUPHORIA_LOG`, the terminal shows Euphoria's own warnings and only errors from the libraries it uses; set `EUPHORIA_LOG=warn` to see library warnings as well, such as a decoder skipping a few junk bytes at the start of a file.
 
+### Media keys and Now Playing
+
+On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, length and position there.
+
+| Command | What it does |
+| --- | --- |
+| Play, Pause, play/pause key | Plays or pauses the track in the player. When the selected track is not the one the player holds, Play resumes the held one. |
+| Next, Previous | Select and play the next or previous row of the table as shown. In the [set builder](#build-a-set) with a set, they follow the set order, as the set does when a track ends. Previous goes back to the start of the track when more than 3 seconds in. |
+| Drag the position in Now Playing | Seeks the track. |
+
+While the [decks](#decks) are open, the keys control one deck: the one that plays, the favoured side of the crossfader first, so deck A while it is centered, and when neither plays, the favoured deck that has a track. Next and Previous do nothing on the decks.
+
+Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
+
+Not there yet: artwork in Now Playing, the playback rate of the tempo control, and Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
+
 ## Metronome
 
 The metronome button sits in the toolbar, at the right, beside the **Decks** button. Click it, or press **M** while the table has the keyboard (not while you type in a field), to start a steady click in 4/4 with an accented first beat. Click it again to stop. It plays through the same output as the track and the decks, so it sounds with or without a track playing.
@@ -311,7 +345,9 @@ The tempo field beside it takes the tempo of the metronome, from 30 to 300 beats
 
 Under **Settings > Metronome** you choose the sound (Classic click, Woodblock, Hi-hat or Beep, with a click played when you choose one), the volume in five steps, and whether the first beat of every bar is accented. They are kept in `settings.json`.
 
-The clicks are made in the app, not played from files, and are placed by counting audio frames, so they keep their tempo however long they run. The metronome does not follow a playing track's beat grid; it clicks at the tempo you see, starting when you press the button. Hearing it line up with a track's beats is not there yet.
+The clicks are made in the app, not played from files, and are placed by counting audio frames, so they keep their tempo however long they run.
+
+**Locked to the playing track.** While the metronome is on and the player is playing a track that has a beat grid, the clicks land on the track's beats instead of free-running: they are placed from the grid's first downbeat and tempo and the player's position, counted in audio frames at the output, not from a timer in the window. The accent falls on the first beat of each bar of the grid. The field then shows the tempo it follows, with "locked to track" after it. The clicks follow the [playback tempo](#change-the-tempo-of-the-playing-track) too: at +4% they come 4% faster, with key lock on or off. A seek, a click on a waveform or a cue jump re-aligns them on the new place, with no stray click. With no beat grid (or a tempo you set by hand, as on the decks), nothing playing, or the player paused, the metronome clicks at the tempo in the field as before. While it is not locked, and you have not typed a tempo, the field follows the selected track's tempo at the playback tempo you chose.
 
 ## Stems
 
@@ -332,7 +368,7 @@ Two decks under the table let you try a transition before the set: **Decks** in 
 - **The mixer** has a volume fader for each deck and a crossfader between them. The crossfader moves equal power from one deck to the other: at the middle both play at about 71 percent, and a deck at the near end of the fader plays at full. Use the deck faders to balance the combined level. Under the mixer, the share of one core each deck takes and any frames the decoders could not fill in time are shown, for checking that playback keeps up.
 - **Loop bars** 1, 2, 4, 8 and 16 loop that many bars of a deck from its next downbeat. The loop is marked on the waveform, and the lit button shows the length. The deck keeps the samples of the loop's first pass and plays them again, so every repeat is the same sound and joins the next on the beat, with no gap. Press the lit button again to leave: the loop plays to its end once more and the track carries on from there, still on the beat. Another length starts a new loop at the next downbeat. Moving the deck, playing a cue or loading a track ends the loop. Looping needs the track's beat grid, so a track whose tempo you corrected by hand does not loop.
 
-Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. The decks keep a quiet **Load** note under the faders; point at it for the share of a core each deck uses. It turns into an amber "N dropped frames" only while the decoders fall behind. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
+Time stretching is done by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library. The decks keep a quiet **Load** note under the faders; point at it for the share of a core each deck uses. It turns into an amber "Sound skipped: the computer was busy" when the decks could not prepare the next slice of sound in time, which you hear as a short click or gap; the tooltip gives how many samples were missed. It usually means another heavy program was running at the same moment. While the decks are open the track player at the bottom is hidden, since the decks hold the sound. Decks only line up on downbeats when both tracks have a beat grid, which is found during analysis; a track whose tempo you corrected by hand has no grid, since the grid was fitted to the detected tempo, and starts at once.
 
 ### Next on deck B
 
@@ -433,12 +469,29 @@ The header shows the title, artist, length, format and sound quality, with chips
 - **Overview**, the whole track as a small waveform, with the part the other lanes show outlined. Click or drag it to move that window.
 - **Sections**, coloured bands named Intro, Main, Breakdown, Drop and Outro, or Section on a track whose cues are numbered sections. They come from the track's automatic cues (Start, Main, Breakdown, Drop and Outro, or Section 2, Section 3 and so on), and follow a cue you drag. The lane reads them through one small interface, so a better section detector replaces only that.
 - **Detail**, a zoomed waveform of the outlined window, tinted by section, with the cue flags on top. Drag a flag to move its cue, as in the inspector: it lands on a beat, or on a bar with Shift. Double-click to add a cue, click to play from there. The **+** and **−** buttons zoom, Command and the wheel zoom about the pointer, and the wheel alone moves along the track. The waveform keeps 720 columns for a track, so the detail zooms in to a sixth of the track at most.
-- **Energy** and **Vocals**, the lanes described under [The lanes under the waveform](#the-lanes-under-the-waveform), over the same window.
-- **Stems**, four thin rows (vocals, drums, bass, other) showing where each stem sounds, measured second by second from the track's separated stems. A track without stems shows no rows and no label column: one card takes their place, "Stems not separated yet. Splits the track into vocals, drums, bass and the rest. Takes about a minute.", with a **Separate** button. While the stems are being separated the card shows the progress instead of the button.
+- **Energy**, the lane described under [The lanes under the waveform](#the-lanes-under-the-waveform), over the same window. Its tooltip names the time under the pointer.
+- **Vocals, Drums, Bass and Other**, four thin rows, each with its name at the left, showing where each stem sounds, measured second by second from the track's separated stems. With stems there is one Vocals row, the vocals stem's own: the Vocals lane of the waveform view, which judges the same stem in 4 second steps against the track's own vocal level, is not drawn here, so the two cannot disagree. A track without stems shows no rows and no label column: one card takes their place, "Stems not separated yet. Splits the track into vocals, drums, bass and the rest. Takes about a minute.", with a **Separate** button. While the stems are being separated the card shows the progress instead of the button.
+
+**Hear one stem.** Click the name of a row to solo it: only that stem plays, and its name takes the accent colour while the others dim. Click it again to return to the full track. Option-click mutes the stem instead and keeps the others: its name is struck through and its row fades. A small line under the rows says what is heard, for example **Solo: Vocals · Full track** or **Muted: Drums · Full track**; **Full track** in it also returns to the full track. While a track plays, going from one stem to another changes the stem levels within about 10 ms, with no restart. Going from the full track to a solo or a mute starts the stems from the same moment, as choosing Acapella does, so it can take a moment. Nothing in it animates, so Reduce motion changes nothing. Choosing another track returns to the full track, and so does choosing Full track, Acapella or Instrumental in the track detail, whose choice then shows as not picked while a stem is solo or muted. The clicks are tested in a headless window against the mixer's gains; the sound of the switch is not tested with real audio output.
 
 Every lane shares one playhead and one cursor. Point anywhere over the lanes and a single vertical line runs through all of them, with a line under them such as "2:51 · Breakdown · Energy 3 · no vocals · bass out", built from the lanes that have data. The **Layers** menu shows or hides each lane, and the choice is kept in `settings.json`.
 
 **Mixes into**, bottom left, lists the same tracks as **Mixes well with** in the inspector, in the same order with starred transitions first, and follows the same filter. Each row is 32 px high and has a star, the key, the title with the transition note or the artist after a dot, the tempo change with a **Tempo** chip, and the key relation in a column of its own, for example **One step on the wheel** or **Wheel diagonal** (point at it for "One step and a major/minor switch"), or **Your mix** for a transition you starred whose keys do not mix by the rules. The chip reads **Easy** for a change under 3 percent, **Pitch move** from 3 to 6 percent and **Big jump** over 6 percent, in a success, neutral and warning colour, never error red. The **Vocals and bass overlap** column plans the transition from the selected track into each row: a strip of up to 16 cells for the best window, coloured by what the two tracks do together (fine, both basslines, both vocals, not known), and a verdict, **Clean**, **Vocals overlap**, **Bass overlap**, or **Stems needed** when the stems of either track are missing. The plans are worked out off the main thread, two at a time, for the rows in view and the picked one, and kept in memory for the session, so scrolling stays smooth. A row reads **Checking** while its plan is made, and is left blank when the pair cannot be planned; point at the row for the reason. Euphoria never separates stems for this. Click a row to pick it for the plan, double-click to focus on it.
+
+### Change the tempo of the playing track
+
+Next to the BPM chip, the header has a tempo control for the track you hear:
+
+- **A field** with the target tempo, such as "124.0 BPM". Click it and type a tempo, with a point or a comma ("124,5"), then press Return; or use the up and down arrows at its edge (1 BPM, or 0.1 with Alt), the Up and Down keys while it is open, or scroll over it. It is the same field as the metronome's.
+- **A readout of the change**, such as "+3.3%".
+- **Reset**, which goes back to the track's own tempo.
+- **Key lock**, on by default: the pitch stays where it was. Turn it off and the pitch follows the speed, as on a turntable.
+
+The range is 16% either way of the track's tempo, the usual range of a pitch fader. A tempo outside it is clamped to the nearest end, and the tooltip says so. The rate changes while the track plays, with no restart; there is a brief gap of a fraction of a second as sound already prepared at the old tempo is replaced. With key lock on, the sound goes through the same Signalsmith Stretch time stretcher that the decks use; with it off, it is resampled. At exactly 100% the sound is not touched and nothing is delayed.
+
+While the tempo differs from the track's own, the BPM chip shows the target with the original beneath it, and the player bar shows "120.0 → 124.0 BPM" beside the title. The playhead, the time labels, cue flags and every lane stay in the track's own time, so a cue is still where it was. The metronome follows the target tempo, see [Metronome](#metronome).
+
+This changes playback only: the tooltips say "Changes playback only; the file is not changed." Nothing is written to the file, the tags or the cache, and the tempo goes back to the track's own as soon as another track is selected or played. Stems are meant to play at the same tempo, each stretched on its own; that path is built but not tested with real stems. The tempo of a track without a detected tempo cannot be set. The sound quality of a stretch is not measured here: the tests check the pitch of a steady tone and the position against the time heard, not how drums or voices sound at 16%, so listen and report anything off.
 
 **Plan**, bottom right, has three tabs. **Transition** plans the pick, see [Plan a transition](#plan-a-transition-in-the-focus-view). **Mashup** opens the decks in mashup mode. **Cues** is the cue list of the inspector.
 
@@ -769,6 +822,6 @@ The screenshots on this page and in the README show a demo library of GiantSteps
 - On the decks: mashups of more than two tracks, favorite transitions, nudging, pitch bend, and loops shorter than a bar or moved by hand.
 - Rating favorites (more than one star), and exporting favorite transitions with their notes.
 - Loops, and cue colours.
-- Following a playing track's beat grid with the metronome, and hearing the metronome on a real output has not been checked by an automated test, which checks the click timing and the headless interface only: listen for yourself and report anything off.
+- The metronome's lock to a playing track and the playback tempo are tested for click and playhead timing, pitch and the headless interface, not heard on a real output: listen for yourself and report anything off. The metronome and the track are separate sounds in the output, so a few milliseconds of difference between them from the device's buffers is possible.
 - Hearing the reference tone and piano has not been checked by an automated test, which can only check that their sound is made and mixed: listen for yourself and report anything off.
 - Windows builds. On Linux the app is built, linted and its headless interface tests run on every change, and each release's AppImage is started on a clean Ubuntu 22.04 under a virtual X server, but playback, the file dialogs and a real Wayland session are not checked by an automated test there yet. Linux has no menu bar: the theme is chosen from the toolbar, but **Reset Column Widths** has no other control there yet. The keyboard shortcuts use Control where macOS uses Command.

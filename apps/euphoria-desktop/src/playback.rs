@@ -26,6 +26,11 @@ use crate::deck_audio::DeckMix;
 use crate::metronome::Metronome;
 use crate::reference_sound::ReferenceSound;
 
+mod tempo_stage;
+
+use tempo_stage::TempoStage;
+pub(crate) use tempo_stage::{PlaybackTempo, TempoMode};
+
 /// How many decoded chunks wait between the decoder and the audio output. A
 /// chunk is one packet of the file, from about 25 milliseconds of an MP3 to
 /// about 90 of a FLAC, so this is one to four seconds of sound.
@@ -102,6 +107,13 @@ pub(crate) struct VoiceState {
     problem: Mutex<Option<PlaybackProblem>>,
     /// Semitones the sound is shifted by, changed while it plays.
     semitones: AtomicI8,
+    /// The speed the sound plays at, as f64 bits, changed while it plays.
+    tempo_rate: AtomicU64,
+    tempo_key_lock: AtomicBool,
+    /// What the tempo stage is doing, as a [`TempoMode`] number.
+    tempo_mode: AtomicU8,
+    /// The sound is held, so nothing follows its position.
+    is_held: AtomicBool,
 }
 
 impl VoiceState {
@@ -116,7 +128,87 @@ impl VoiceState {
             is_abandoned: AtomicBool::new(false),
             problem: Mutex::new(None),
             semitones: AtomicI8::new(0),
+            tempo_rate: AtomicU64::new(1.0_f64.to_bits()),
+            tempo_key_lock: AtomicBool::new(true),
+            tempo_mode: AtomicU8::new(0),
+            is_held: AtomicBool::new(false),
         }
+    }
+
+    /// The speed and key lock the sound is asked to play with.
+    pub(crate) fn tempo(&self) -> PlaybackTempo {
+        PlaybackTempo {
+            rate: f64::from_bits(self.tempo_rate.load(Ordering::Relaxed)),
+            key_lock: self.tempo_key_lock.load(Ordering::Relaxed),
+        }
+    }
+
+    /// What the tempo stage is doing now.
+    #[cfg(test)]
+    pub(crate) fn tempo_mode(&self) -> TempoMode {
+        match self.tempo_mode.load(Ordering::Relaxed) {
+            1 => TempoMode::Stretching,
+            2 => TempoMode::Resampling,
+            _ => TempoMode::Bypass,
+        }
+    }
+
+    fn note_tempo_mode(&self, mode: TempoMode) {
+        let number = match mode {
+            TempoMode::Bypass => 0,
+            TempoMode::Stretching => 1,
+            TempoMode::Resampling => 2,
+        };
+        self.tempo_mode.store(number, Ordering::Relaxed);
+    }
+
+    /// Plays at `tempo` from the current playhead on, without restarting:
+    /// what was decoded ahead at the old speed is dropped and decoding goes
+    /// on from the same place in the track.
+    pub(crate) fn set_tempo(&self, tempo: PlaybackTempo) {
+        let tempo = tempo.limited();
+        if self.tempo() == tempo {
+            return;
+        }
+        self.tempo_rate
+            .store(tempo.rate.to_bits(), Ordering::Relaxed);
+        self.tempo_key_lock.store(tempo.key_lock, Ordering::Relaxed);
+        self.seek_to_playhead();
+    }
+
+    /// Marks the sound as held (paused) or running again.
+    pub(crate) fn set_held(&self, is_held: bool) {
+        self.is_held.store(is_held, Ordering::Relaxed);
+    }
+
+    /// Whether the sound is held.
+    pub(crate) fn is_held(&self) -> bool {
+        self.is_held.load(Ordering::Relaxed)
+    }
+
+    /// The playhead in track frames as the audio thread has it, without
+    /// any pending seek.
+    pub(crate) fn playhead_frames(&self) -> u64 {
+        self.frames_played.load(Ordering::Relaxed)
+    }
+
+    /// Frames per second of the track.
+    pub(crate) fn sample_rate(&self) -> u32 {
+        self.sample_rate.get()
+    }
+
+    /// A state for a track of `sample_rate`, whose playhead a test moves.
+    #[cfg(test)]
+    pub(crate) fn for_tests(sample_rate: u32) -> Arc<Self> {
+        Arc::new(Self::new(
+            NonZeroU32::new(sample_rate).expect("a nonzero sample rate"),
+        ))
+    }
+
+    /// Puts the playhead at `frames` of the track.
+    #[cfg(test)]
+    pub(crate) fn set_playhead_frames(&self, frames: u64) {
+        self.frames_played.store(frames, Ordering::Relaxed);
     }
 
     /// How far the sound has got, in seconds from the beginning. Right after
@@ -167,14 +259,18 @@ impl VoiceState {
     /// otherwise be played twice in the new key.
     pub(crate) fn set_shift(&self, semitones: i8) {
         if self.semitones.swap(semitones, Ordering::Relaxed) != semitones {
-            let mut requests = self.lock_seek_requests();
-            let seconds = (self.frames_played.load(Ordering::Relaxed) as f32
-                / self.sample_rate.get() as f32)
-                .max(0.0);
-            requests.for_decoder = Some(seconds);
-            requests.shown = Some(seconds);
-            self.seek_count.fetch_add(1, Ordering::Release);
+            self.seek_to_playhead();
         }
+    }
+
+    fn seek_to_playhead(&self) {
+        let mut requests = self.lock_seek_requests();
+        let seconds = (self.frames_played.load(Ordering::Relaxed) as f32
+            / self.sample_rate.get() as f32)
+            .max(0.0);
+        requests.for_decoder = Some(seconds);
+        requests.shown = Some(seconds);
+        self.seek_count.fetch_add(1, Ordering::Release);
     }
 
     #[cfg(test)]
@@ -390,6 +486,8 @@ enum Decoded {
         seek_count: u64,
         /// The frame of the track the chunk starts at.
         start_frame: u64,
+        /// Frames of the track played per frame of the chunk.
+        rate: f64,
         samples: Vec<f32>,
     },
     /// The track has no more audio after this point.
@@ -405,7 +503,9 @@ struct Decoder {
     state: Arc<VoiceState>,
     decoded: SyncSender<Decoded>,
     seek_count: u64,
-    next_frame: u64,
+    /// The frame of the track the next chunk starts at, which moves by the
+    /// rate for every frame handed out.
+    next_frame: f64,
     is_at_end: bool,
     shift: Shift,
 }
@@ -420,6 +520,7 @@ struct Shift {
     channels: usize,
     layer_count: usize,
     sample_rate: u32,
+    tempo: TempoStage,
 }
 
 impl Shift {
@@ -428,6 +529,7 @@ impl Shift {
         layer_count: usize,
         sample_rate: u32,
         semitones: i8,
+        tempo: PlaybackTempo,
     ) -> Result<Self, PlaybackProblem> {
         let mut shift = Self {
             semitones,
@@ -435,6 +537,7 @@ impl Shift {
             channels,
             layer_count,
             sample_rate,
+            tempo: TempoStage::new(channels, layer_count, sample_rate, tempo)?,
         };
         shift.rebuild()?;
         Ok(shift)
@@ -451,17 +554,27 @@ impl Shift {
         } else {
             Vec::new()
         };
-        Ok(())
+        self.tempo.rebuild()
     }
 
     /// `samples` shifted by `semitones`, which may have changed since the
     /// last chunk. A DSP failure stops playback rather than substituting
     /// audio in the original key or losing held samples.
-    fn apply(&mut self, samples: Vec<f32>, semitones: i8) -> Result<Vec<f32>, PlaybackProblem> {
+    fn apply(
+        &mut self,
+        samples: Vec<f32>,
+        semitones: i8,
+        tempo: PlaybackTempo,
+    ) -> Result<Vec<f32>, PlaybackProblem> {
         if semitones != self.semitones {
             self.semitones = semitones;
             self.rebuild()?;
         }
+        let shifted = self.shifted(samples)?;
+        self.tempo.apply(shifted, tempo)
+    }
+
+    fn shifted(&mut self, samples: Vec<f32>) -> Result<Vec<f32>, PlaybackProblem> {
         if self.shifters.is_empty() {
             return Ok(samples);
         }
@@ -489,7 +602,10 @@ impl Shift {
             .map(PitchShifter::finish)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| PlaybackProblem::NotDecodable)?;
-        join_layers(tails, self.channels)
+        let tail = join_layers(tails, self.channels)?;
+        let mut tail = self.tempo.apply(tail, self.tempo.tempo())?;
+        tail.extend(self.tempo.finish()?);
+        Ok(tail)
     }
 }
 
@@ -556,7 +672,7 @@ impl Decoder {
         };
         match self.stream.seek(seconds) {
             Ok(reached) => {
-                self.next_frame = self.state.frames_at(reached);
+                self.next_frame = self.state.frames_at(reached) as f64;
                 self.is_at_end = false;
                 if let Err(problem) = self.shift.rebuild() {
                     self.state.stop_on(problem);
@@ -578,10 +694,11 @@ impl Decoder {
         loop {
             let mut samples = Vec::new();
             let samples = match self.stream.read_chunk(&mut samples) {
-                Ok(true) => match self
-                    .shift
-                    .apply(samples, self.state.semitones.load(Ordering::Relaxed))
-                {
+                Ok(true) => match self.shift.apply(
+                    samples,
+                    self.state.semitones.load(Ordering::Relaxed),
+                    self.state.tempo(),
+                ) {
                     Ok(samples) => samples,
                     Err(problem) => return Decoded::Problem(problem),
                 },
@@ -594,7 +711,7 @@ impl Decoder {
                         self.is_at_end = true;
                         return Decoded::End {
                             seek_count: self.seek_count,
-                            end_frame: self.next_frame,
+                            end_frame: self.next_frame.round() as u64,
                         };
                     }
                     tail
@@ -606,13 +723,16 @@ impl Decoder {
             if samples.is_empty() {
                 continue;
             }
-            let start_frame = self.next_frame;
+            let start_frame = self.next_frame.round() as u64;
             let samples_per_frame =
                 usize::from(self.stream.channel_count().get()) * self.stream.layer_count();
-            self.next_frame += (samples.len() / samples_per_frame) as u64;
+            let rate = self.shift.tempo.rate();
+            self.state.note_tempo_mode(self.shift.tempo.mode());
+            self.next_frame += (samples.len() / samples_per_frame) as f64 * rate;
             return Decoded::Chunk {
                 seek_count: self.seek_count,
                 start_frame,
+                rate,
                 samples,
             };
         }
@@ -675,6 +795,8 @@ pub(crate) struct TrackSource {
     fade_step: f32,
     /// The frame the current chunk starts at.
     chunk_start_frame: u64,
+    /// Frames of the track played per frame of the current chunk.
+    chunk_rate: f64,
     /// Whether to wait for the decoder rather than play silence, for tests
     /// that pull samples far faster than real time.
     is_patient: bool,
@@ -743,6 +865,7 @@ impl TrackSource {
             layer_count,
             stream.sample_rate().get(),
             semitones,
+            PlaybackTempo::default(),
         )?;
         let start_frame = state.frames_at(reached_seconds);
         state.frames_played.store(start_frame, Ordering::Relaxed);
@@ -754,7 +877,7 @@ impl TrackSource {
             let mut input = Vec::new();
             let has_audio = stream.read_chunk(&mut input).map_err(problem)?;
             first_chunk = if has_audio {
-                shift.apply(input, semitones)?
+                shift.apply(input, semitones, PlaybackTempo::default())?
             } else {
                 shift.finish()?
             };
@@ -787,6 +910,7 @@ impl TrackSource {
             gains,
             fade_step: 1.0 / (STEM_FADE_SECONDS * stream.sample_rate().get() as f32),
             chunk_start_frame: start_frame,
+            chunk_rate: 1.0,
             is_patient: false,
         };
         let decoder = Decoder {
@@ -794,7 +918,7 @@ impl TrackSource {
             state,
             decoded: decoded_sender,
             seek_count: 0,
-            next_frame: start_frame + frames_in_first_chunk,
+            next_frame: (start_frame + frames_in_first_chunk) as f64,
             is_at_end: !has_audio,
             shift,
         };
@@ -824,7 +948,13 @@ impl TrackSource {
             return self.state.frames_at(self.state.position_seconds());
         }
         let channel_count = usize::from(self.channel_count.get());
-        self.chunk_start_frame + (self.next_sample.min(self.chunk_samples()) / channel_count) as u64
+        self.chunk_start_frame
+            + self.track_frames((self.next_sample.min(self.chunk_samples()) / channel_count) as u64)
+    }
+
+    /// Frames of the track that `output_frames` of the current chunk cover.
+    fn track_frames(&self, output_frames: u64) -> u64 {
+        (output_frames as f64 * self.chunk_rate).round() as u64
     }
 
     /// The source, waiting for the decoder whenever it is behind rather
@@ -846,8 +976,10 @@ impl TrackSource {
                 Ok(Decoded::Chunk {
                     seek_count,
                     start_frame,
+                    rate,
                     samples,
                 }) => {
+                    self.chunk_rate = rate;
                     self.chunk = samples;
                     self.chunk_seek_count = seek_count;
                     self.next_sample = 0;
@@ -949,8 +1081,9 @@ impl Iterator for TrackSource {
                     // One whole frame of silence, so the channels stay in
                     // step, then look again.
                     if self.chunk_seek_count == latest_seek_count {
-                        self.chunk_start_frame +=
-                            (self.chunk_samples() / usize::from(self.channel_count.get())) as u64;
+                        self.chunk_start_frame += self.track_frames(
+                            (self.chunk_samples() / usize::from(self.channel_count.get())) as u64,
+                        );
                     }
                     self.chunk.clear();
                     self.next_sample = 0;
@@ -971,7 +1104,10 @@ impl Iterator for TrackSource {
             // in one piece. The lock is taken only at a frame boundary
             // (channel_count samples in), not per individual sample.
             let _counting_the_frame = self.state.lock_seek_requests();
-            self.state.frames_played.fetch_add(1, Ordering::Relaxed);
+            let channel_count = usize::from(self.channel_count.get());
+            let played = self.chunk_start_frame
+                + self.track_frames((self.next_sample / channel_count) as u64);
+            self.state.frames_played.store(played, Ordering::Relaxed);
         }
         Some(sample)
     }
@@ -1262,6 +1398,7 @@ pub(crate) mod testing {
                 .send(Decoded::Chunk {
                     seek_count: 0,
                     start_frame,
+                    rate: 1.0,
                     samples,
                 })
                 .expect("the controlled source is still alive");
@@ -1293,6 +1430,7 @@ pub(crate) mod testing {
             gains: vec![1.0],
             fade_step: 1.0,
             chunk_start_frame: start_frame,
+            chunk_rate: 1.0,
             is_patient: false,
         };
         (source, ControlledFeed(sender))
@@ -1301,6 +1439,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod stem_tests;
+#[cfg(test)]
+mod tempo_tests;
 
 #[cfg(test)]
 mod tests {

@@ -17,11 +17,13 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
+use crate::artwork::ThumbnailSize;
 use crate::deck_audio::DeckId;
 use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
 use crate::player::fraction_along;
 use crate::theme::Palette;
+use crate::views::artwork::cover_tile;
 use crate::views::controls::{choice_button, pressed_button, toggle_row};
 use crate::views::favorites;
 use crate::views::key_chip::key_chip;
@@ -268,6 +270,16 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(deck.letter()),
         )
+        .children(track.map(|track| {
+            cover_tile(
+                app,
+                &track.path,
+                px(28.0),
+                ThumbnailSize::Small,
+                deck_part("deck-cover", deck),
+                cx,
+            )
+        }))
         .children(
             track
                 .and_then(|track| track.key())

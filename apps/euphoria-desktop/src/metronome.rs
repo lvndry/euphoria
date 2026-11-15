@@ -19,11 +19,13 @@
 
 use std::f64::consts::TAU;
 use std::num::{NonZeroU16, NonZeroU32};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+
+use crate::playback::VoiceState;
 
 /// The sample rate the clicks are made at. The output converts it to the
 /// device's own.
@@ -139,6 +141,94 @@ struct ControlValues {
     volume: AtomicU32,
     sound: AtomicU8,
     accent: AtomicBool,
+    lock: Mutex<Option<TrackLock>>,
+    lock_generation: AtomicU64,
+}
+
+/// The longest step of the playhead between two frames that still counts as
+/// playing on, rather than as a seek, in seconds of the track.
+const SEEK_JUMP_SECONDS: f64 = 0.2;
+
+/// How soon after a beat the playhead may land, from a start or a seek,
+/// and still click that beat, in seconds of the track.
+const LANDING_TOLERANCE_SECONDS: f64 = 0.002;
+
+/// The beat grid of the playing track and the sound of its playhead, which
+/// the metronome follows while the track plays.
+#[derive(Clone)]
+pub(crate) struct TrackLock {
+    pub(crate) state: Arc<VoiceState>,
+    /// Where the first bar of the grid starts, in seconds of the track.
+    pub(crate) first_downbeat_seconds: f64,
+    /// The tempo of the grid in beats per minute of the track.
+    pub(crate) bpm: f64,
+}
+
+impl TrackLock {
+    fn is_same_as(&self, other: &TrackLock) -> bool {
+        Arc::ptr_eq(&self.state, &other.state)
+            && self.first_downbeat_seconds == other.first_downbeat_seconds
+            && self.bpm == other.bpm
+    }
+
+    /// Whether the track is sounding, so the clicks follow it.
+    fn is_following(&self) -> bool {
+        !self.state.is_held() && !self.state.is_finished()
+    }
+
+    /// The playhead of the track in seconds from its start.
+    fn position_seconds(&self) -> f64 {
+        self.state.playhead_frames() as f64 / f64::from(self.state.sample_rate())
+    }
+}
+
+/// Places clicks on the beats of a grid from the position of the playhead,
+/// one call per frame, so the clicks follow the track through a change of
+/// tempo and seeks.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LockedClicks {
+    last: Option<(f64, i64)>,
+}
+
+impl LockedClicks {
+    /// Forgets where the playhead was, as when the track starts again.
+    pub(crate) fn forget(&mut self) {
+        self.last = None;
+    }
+
+    /// The number of the beat the playhead reached since the last call, if
+    /// any. Beat zero is the first downbeat and numbers run on in both
+    /// directions, four to a bar. A jump of the playhead is a seek: the
+    /// clicks carry on from the new place, and a landing right on a beat
+    /// clicks it.
+    pub(crate) fn next_frame(
+        &mut self,
+        position_seconds: f64,
+        first_downbeat_seconds: f64,
+        bpm: f64,
+    ) -> Option<i64> {
+        let beat_seconds = 60.0 / bpm.max(1.0);
+        let beats = (position_seconds - first_downbeat_seconds) / beat_seconds;
+        let index = beats.floor() as i64;
+        let clicked = match self.last {
+            Some((last_position, last_index))
+                if position_seconds >= last_position
+                    && position_seconds - last_position <= SEEK_JUMP_SECONDS =>
+            {
+                (index > last_index).then_some(index)
+            }
+            _ => {
+                (beats - beats.floor() <= LANDING_TOLERANCE_SECONDS / beat_seconds).then_some(index)
+            }
+        };
+        self.last = Some((position_seconds, index));
+        clicked
+    }
+
+    /// Whether `beat` starts a bar.
+    pub(crate) fn is_downbeat(beat: i64) -> bool {
+        beat.rem_euclid(BEATS_PER_BAR as i64) == 0
+    }
 }
 
 /// The tempo, sound, volume and accent of a metronome, shared between the
@@ -155,6 +245,8 @@ impl MetronomeControl {
             volume: AtomicU32::new(0),
             sound: AtomicU8::new(0),
             accent: AtomicBool::new(true),
+            lock: Mutex::new(None),
+            lock_generation: AtomicU64::new(0),
         }));
         control.apply(settings);
         control
@@ -177,6 +269,29 @@ impl MetronomeControl {
         self.0
             .bpm
             .store(clamp_bpm(bpm).to_bits(), Ordering::Relaxed);
+    }
+
+    /// Follows the beats of a playing track, or goes back to clicking at the
+    /// tempo set. Setting the track already followed changes nothing.
+    pub(crate) fn set_track_lock(&self, lock: Option<TrackLock>) {
+        let mut held = self.0.lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let unchanged = match (&*held, &lock) {
+            (None, None) => true,
+            (Some(current), Some(new)) => current.is_same_as(new),
+            _ => false,
+        };
+        if !unchanged {
+            *held = lock;
+            self.0.lock_generation.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    /// The tempo the clicks follow the track at, while they follow it: the
+    /// tempo of its grid at the speed it plays.
+    pub(crate) fn locked_bpm(&self) -> Option<f32> {
+        let held = self.0.lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let lock = held.as_ref().filter(|lock| lock.is_following())?;
+        Some((lock.bpm * lock.state.tempo().rate) as f32)
     }
 
     /// The tempo clicked at now.
@@ -369,6 +484,9 @@ pub(crate) struct Metronome {
     playing: &'static [f32],
     position: usize,
     is_preview: bool,
+    locked: Option<TrackLock>,
+    seen_lock_generation: u64,
+    locked_clicks: LockedClicks,
 }
 
 impl Metronome {
@@ -391,7 +509,40 @@ impl Metronome {
             playing: &[],
             position: 0,
             is_preview,
+            locked: None,
+            seen_lock_generation: 0,
+            locked_clicks: LockedClicks::default(),
         }
+    }
+
+    /// Takes a new track to follow from the control, without waiting for
+    /// the window: when the control is busy it tries again on the next frame.
+    fn refresh_lock(&mut self) {
+        let generation = self.control.0.lock_generation.load(Ordering::Acquire);
+        if generation == self.seen_lock_generation {
+            return;
+        }
+        if let Ok(held) = self.control.0.lock.try_lock() {
+            self.locked = held.clone();
+            self.locked_clicks.forget();
+            self.seen_lock_generation = generation;
+        }
+    }
+
+    /// The beat of the followed track that starts on this frame: `None`
+    /// when the clicks are not following a track, `Some(None)` when they are
+    /// and no beat starts here.
+    fn locked_beat(&mut self) -> Option<Option<i64>> {
+        let lock = self.locked.as_ref().filter(|lock| lock.is_following());
+        let Some(lock) = lock else {
+            self.locked_clicks.forget();
+            return None;
+        };
+        Some(self.locked_clicks.next_frame(
+            lock.position_seconds(),
+            lock.first_downbeat_seconds,
+            lock.bpm,
+        ))
     }
 }
 
@@ -406,10 +557,18 @@ impl Iterator for Metronome {
             } else if self.position >= self.playing.len() {
                 return None;
             }
-        } else if let Some(beat) = self.scheduler.next_frame(self.control.bpm()) {
-            let accented = self.control.accent() && beat.is_downbeat();
-            self.playing = self.bank.click(self.control.sound(), accented);
-            self.position = 0;
+        } else {
+            self.refresh_lock();
+            let free_beat = self.scheduler.next_frame(self.control.bpm());
+            let accented_beat = match self.locked_beat() {
+                Some(locked) => locked.map(LockedClicks::is_downbeat),
+                None => free_beat.map(Beat::is_downbeat),
+            };
+            if let Some(is_downbeat) = accented_beat {
+                let accented = self.control.accent() && is_downbeat;
+                self.playing = self.bank.click(self.control.sound(), accented);
+                self.position = 0;
+            }
         }
         let sample = self.playing.get(self.position).copied().unwrap_or(0.0);
         self.position += 1;
@@ -682,5 +841,159 @@ mod tests {
         assert_eq!(partial.volume, 0.2);
         let empty: MetronomeSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, MetronomeSettings::default());
+    }
+
+    /// Plays `frames` frames of a metronome that follows a track whose
+    /// playhead moves `rate` track frames per frame heard from
+    /// `start_frames`, returning where each click started and whether it
+    /// was accented.
+    fn locked_clicks(
+        metronome: &mut Metronome,
+        state: &VoiceState,
+        start_frames: u64,
+        rate: f64,
+        range: std::ops::Range<u64>,
+    ) -> Vec<(u64, bool)> {
+        let accented = metronome
+            .bank
+            .click(metronome.control.sound(), true)
+            .as_ptr();
+        let mut clicks = Vec::new();
+        for frame in range {
+            state.set_playhead_frames(start_frames + (frame as f64 * rate).round() as u64);
+            metronome.next();
+            if metronome.position == 1 && !metronome.playing.is_empty() {
+                clicks.push((frame, metronome.playing.as_ptr() == accented));
+            }
+        }
+        clicks
+    }
+
+    fn following(first_downbeat_seconds: f64, bpm: f64) -> (Metronome, Arc<VoiceState>) {
+        let state = VoiceState::for_tests(SAMPLE_RATE);
+        let control = MetronomeControl::new(MetronomeSettings::default());
+        control.set_track_lock(Some(TrackLock {
+            state: Arc::clone(&state),
+            first_downbeat_seconds,
+            bpm,
+        }));
+        (Metronome::running(control), state)
+    }
+
+    #[test]
+    fn clicks_land_on_the_beats_of_the_grid_at_the_speed_the_track_plays() {
+        let (first, bpm) = (0.25, 120.0);
+        for rate in [1.0, 124.0 / 120.0, 0.9, 1.16, 0.84] {
+            let (mut metronome, state) = following(first, bpm);
+            let frames = (SAMPLE_RATE as f64 * 5.0 / rate) as u64;
+            let clicks = locked_clicks(&mut metronome, &state, 0, rate, 0..frames);
+            assert!(clicks.len() >= 8, "rate {rate}: {} clicks", clicks.len());
+            for (number, (frame, _)) in clicks.iter().enumerate() {
+                let beat_frames = (first + number as f64 * 60.0 / bpm) * f64::from(SAMPLE_RATE);
+                let expected = beat_frames / rate;
+                assert!(
+                    (*frame as f64 - expected).abs() <= 1.0,
+                    "rate {rate}, beat {number}: frame {frame}, expected {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_accent_falls_on_the_first_beat_of_each_bar_of_the_grid() {
+        let (mut metronome, state) = following(0.25, 120.0);
+        let clicks = locked_clicks(&mut metronome, &state, 0, 1.0, 0..SAMPLE_RATE as u64 * 6);
+        let accents: Vec<bool> = clicks.iter().map(|(_, accented)| *accented).collect();
+        assert_eq!(accents.len(), 12);
+        for (number, accented) in accents.iter().enumerate() {
+            assert_eq!(*accented, number % 4 == 0, "beat {number}");
+        }
+    }
+
+    #[test]
+    fn a_grid_that_starts_mid_bar_keeps_the_accent_on_its_downbeats() {
+        let (mut metronome, state) = following(0.25, 120.0);
+        let one_bar_in = (0.25 + 2.0 * 3.0 - 0.1) * f64::from(SAMPLE_RATE);
+        let clicks = locked_clicks(
+            &mut metronome,
+            &state,
+            one_bar_in as u64,
+            1.0,
+            0..SAMPLE_RATE as u64 * 3,
+        );
+        let accented: Vec<usize> = clicks
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, accented))| *accented)
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(accented, vec![0, 4], "beats 12 and 16 are downbeats");
+    }
+
+    #[test]
+    fn a_seek_realigns_the_clicks_on_the_new_place_without_a_stray_click() {
+        let (mut metronome, state) = following(0.25, 120.0);
+        let before = locked_clicks(&mut metronome, &state, 0, 1.0, 0..SAMPLE_RATE as u64 * 2);
+        assert_eq!(before.len(), 4);
+        let landing = 30.3 * f64::from(SAMPLE_RATE);
+        let after = locked_clicks(
+            &mut metronome,
+            &state,
+            landing as u64,
+            1.0,
+            SAMPLE_RATE as u64 * 2..SAMPLE_RATE as u64 * 4,
+        );
+        let first_expected_beat = (30.75 - 30.3) * f64::from(SAMPLE_RATE);
+        let first_frame = SAMPLE_RATE as f64 * 2.0 + first_expected_beat;
+        assert_eq!(after.len(), 4, "{after:?}");
+        assert!(
+            (after[0].0 as f64 - first_frame).abs() <= 1.0,
+            "{} against {first_frame}",
+            after[0].0
+        );
+        for pair in after.windows(2) {
+            assert_eq!(pair[1].0 - pair[0].0, 22_050);
+        }
+    }
+
+    #[test]
+    fn a_landing_right_on_a_beat_clicks_it() {
+        let (mut metronome, state) = following(0.0, 120.0);
+        let clicks = locked_clicks(&mut metronome, &state, 0, 1.0, 0..100);
+        assert_eq!(clicks, vec![(0, true)]);
+    }
+
+    #[test]
+    fn without_a_grid_or_while_held_it_clicks_freely_at_the_tempo_set() {
+        let control = MetronomeControl::new(MetronomeSettings::default());
+        control.set_bpm(120.0);
+        let mut free = Metronome::running(control);
+        let free_clicks: Vec<u64> = (0..SAMPLE_RATE as u64 * 2)
+            .filter(|_| {
+                free.next();
+                free.position == 1
+            })
+            .collect();
+        assert_eq!(free_clicks, vec![0, 22_050, 44_100, 66_150]);
+
+        let (mut held, state) = following(0.25, 120.0);
+        state.set_held(true);
+        let clicks = locked_clicks(&mut held, &state, 0, 1.0, 0..SAMPLE_RATE as u64 * 2);
+        let frames: Vec<u64> = clicks.iter().map(|(frame, _)| *frame).collect();
+        assert_eq!(frames, vec![0, 22_050, 44_100, 66_150], "free running");
+    }
+
+    #[test]
+    fn the_locked_tempo_is_the_grid_tempo_at_the_playing_speed() {
+        let (metronome, state) = following(0.25, 120.0);
+        assert_eq!(metronome.control.locked_bpm(), Some(120.0));
+        state.set_tempo(crate::playback::PlaybackTempo {
+            rate: 1.1,
+            key_lock: true,
+        });
+        let locked = metronome.control.locked_bpm().unwrap();
+        assert!((locked - 132.0).abs() < 1e-4, "{locked}");
+        state.set_held(true);
+        assert_eq!(metronome.control.locked_bpm(), None);
     }
 }

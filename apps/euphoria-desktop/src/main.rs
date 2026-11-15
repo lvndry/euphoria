@@ -10,6 +10,9 @@
 mod actions;
 mod analysis;
 mod app;
+mod artwork;
+#[cfg(test)]
+mod artwork_ui_tests;
 mod assets;
 mod auto_tags;
 #[cfg(test)]
@@ -52,6 +55,14 @@ mod library_export_ui_tests;
 mod logging;
 mod logo_motion;
 mod mashup;
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+mod media_keys;
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+mod media_keys_flow;
+#[cfg(target_os = "macos")]
+mod media_keys_macos;
+#[cfg(test)]
+mod media_keys_ui_tests;
 mod metronome;
 mod metronome_controls;
 #[cfg(test)]
@@ -89,6 +100,8 @@ mod row_actions_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;
+#[cfg(test)]
+mod set_stage_ui_tests;
 mod settings;
 mod sidebar_slide;
 mod state;
@@ -106,6 +119,9 @@ mod tag_flow;
 mod tag_reads;
 mod tag_settings;
 mod tag_writing;
+mod tempo_controls;
+#[cfg(test)]
+mod tempo_ui_tests;
 mod theme;
 mod toast;
 mod toast_flow;
@@ -253,6 +269,11 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
 
     register_commands(window, &view, cx);
     install_menus(theme, sidebar_folded, cx);
+    #[cfg(target_os = "macos")]
+    {
+        let (surface, commands) = media_keys_macos::connect();
+        media_keys::install(&view, Box::new(surface), commands, cx);
+    }
     cx.activate(true);
     Ok(())
 }

@@ -280,14 +280,28 @@ pub(crate) fn preview_rows(
 ) -> Vec<PreviewRow> {
     let mut rows = Vec::new();
     for plan in plans {
+        // A program can read the key or tempo from several tags, and the
+        // write fills each with the same text: show that once, by its name.
+        let mut shown: Vec<PreviewRow> = Vec::new();
+        for change in plan.changes() {
+            let (name, _) = crate::label_preview::field_name(plan.format(), preset, &change.field);
+            let name = (name != "Field").then_some(name);
+            let repeated = name.is_some()
+                && shown.iter().any(|row| {
+                    matches!(row, PreviewRow::Change(earlier, earlier_name)
+                        if *earlier_name == name
+                            && earlier.current == change.current
+                            && earlier.new == change.new)
+                });
+            if !repeated {
+                shown.push(PreviewRow::Change(change.clone(), name));
+            }
+        }
         rows.push(PreviewRow::File {
             path: plan.path().to_path_buf(),
-            change_count: plan.changes().len(),
+            change_count: shown.len(),
         });
-        rows.extend(plan.changes().iter().map(|change| {
-            let (name, _) = crate::label_preview::field_name(plan.format(), preset, &change.field);
-            PreviewRow::Change(change.clone(), (name != "Field").then_some(name))
-        }));
+        rows.extend(shown);
         rows.extend(
             plan.skipped()
                 .iter()
@@ -520,6 +534,7 @@ pub(crate) mod testing {
             key_runner_up: None,
             key_score_margin: None,
             key_source: None,
+            loudness_range_lu: None,
             tempo_estimate: None,
             tempo_score_margin: None,
             beat_grid: None,

@@ -31,7 +31,7 @@ const PIANO_GAIN: f32 = 0.3;
 const DRONE_FADE_IN_SECONDS: f64 = 0.4;
 
 /// How long a piano note rings before it ends.
-const PIANO_NOTE_SECONDS: f64 = 2.0;
+pub(crate) const PIANO_NOTE_SECONDS: f64 = 2.0;
 
 /// How quickly a piano note dies away: its loudness halves in this time.
 const PIANO_HALF_LIFE_SECONDS: f64 = 0.35;

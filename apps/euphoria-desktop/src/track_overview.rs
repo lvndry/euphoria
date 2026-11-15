@@ -295,6 +295,19 @@ pub(crate) fn pointer_fraction(pointer_x: f32, left: f32, width: f32) -> f32 {
     ((pointer_x - left) / width).clamp(0.0, 1.0)
 }
 
+/// How far along the track the pointer is, from 0 to 1, when it is at
+/// `pointer_x` over lanes starting at `left`, `width` wide and showing
+/// `range` of a track `duration_seconds` long.
+pub(crate) fn pointer_track_fraction(
+    range: TimeRange,
+    duration_seconds: f32,
+    pointer_x: f32,
+    left: f32,
+    width: f32,
+) -> f32 {
+    range.track_fraction(pointer_fraction(pointer_x, left, width), duration_seconds)
+}
+
 /// The shortest a key section may be for the timeline to be shown.
 pub(crate) const SHORTEST_SHOWN_KEY_SECTION_SECONDS: f32 = 30.0;
 
@@ -354,6 +367,44 @@ mod tests {
     use euphoria_core::Mode;
 
     use super::*;
+
+    #[test]
+    fn the_energy_tooltip_names_the_time_under_the_pointer() {
+        let duration = 200.0;
+        let steps = [
+            EnergyStep {
+                start: 0.0,
+                end: 0.5,
+                rating: Some(3),
+            },
+            EnergyStep {
+                start: 0.5,
+                end: 1.0,
+                rating: Some(8),
+            },
+        ];
+        let whole = TimeRange::whole(duration);
+        let reading = |range: TimeRange, pointer_x: f32| {
+            let fraction = pointer_track_fraction(range, duration, pointer_x, 100.0, 400.0);
+            energy_reading(&steps, duration, fraction)
+        };
+        assert_eq!(reading(whole, 100.0), "Energy 3 at 0:00");
+        assert_eq!(reading(whole, 200.0), "Energy 3 at 0:50");
+        assert_eq!(reading(whole, 290.0), "Energy 3 at 1:35");
+        assert_eq!(reading(whole, 350.0), "Energy 8 at 2:05");
+        assert_eq!(reading(whole, 400.0), "Energy 8 at 2:30");
+        assert_eq!(reading(whole, 500.0), "Energy 8 at 3:20");
+        assert_eq!(reading(whole, 9999.0), "Energy 8 at 3:20");
+        assert_eq!(reading(whole, -50.0), "Energy 3 at 0:00");
+
+        let zoomed = TimeRange {
+            start_seconds: 80.0,
+            end_seconds: 120.0,
+        };
+        assert_eq!(reading(zoomed, 100.0), "Energy 3 at 1:20");
+        assert_eq!(reading(zoomed, 300.0), "Energy 8 at 1:40");
+        assert_eq!(reading(zoomed, 500.0), "Energy 8 at 2:00");
+    }
 
     fn point(start_seconds: f32, duration_seconds: f32, rating: Option<u8>) -> EnergyCurvePoint {
         EnergyCurvePoint {

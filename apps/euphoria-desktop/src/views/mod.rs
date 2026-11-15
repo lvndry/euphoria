@@ -4,6 +4,7 @@
 //! The parts of the window. Each view reads the root view's state and turns
 //! it into elements, taking every colour from the theme.
 
+pub(crate) mod artwork;
 pub(crate) mod by_ear;
 pub(crate) mod command_palette;
 pub(crate) mod controls;
@@ -34,6 +35,7 @@ pub(crate) mod sidebar;
 pub(crate) mod stems;
 pub(crate) mod tag_editor;
 pub(crate) mod tag_panel;
+pub(crate) mod tempo;
 pub(crate) mod toast;
 pub(crate) mod toolbar;
 pub(crate) mod track_filter_bar;

@@ -412,8 +412,6 @@ pub(crate) struct FocusView {
     pub(crate) selected_match: Option<usize>,
     /// Where the time axis shared by the lanes was last drawn.
     pub(crate) axis_bounds: SeenBounds,
-    /// Where the energy and vocals lanes were last drawn, for their tooltips.
-    pub(crate) lane_bounds: SeenBounds,
     /// Where the overview was last drawn.
     pub(crate) overview_bounds: SeenBounds,
     pub(crate) is_moving_window: bool,
@@ -437,7 +435,6 @@ impl FocusView {
             lanes,
             selected_match: None,
             axis_bounds: SeenBounds::default(),
-            lane_bounds: SeenBounds::default(),
             overview_bounds: SeenBounds::default(),
             is_moving_window: false,
             mixes_scroll: gpui::ScrollHandle::new(),

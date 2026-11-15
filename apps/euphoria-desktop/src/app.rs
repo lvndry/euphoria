@@ -277,6 +277,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) metronome: crate::metronome_controls::MetronomeState,
     /// The field the metronome's tempo is typed in.
     pub(crate) metronome_input: Entity<InputState>,
+    /// The playback tempo of the selected track, set in the focus view.
+    pub(crate) tempo: crate::tempo_controls::TempoState,
+    /// The field the playback tempo is typed in.
+    pub(crate) tempo_input: Entity<InputState>,
     /// Moving, adding, renaming and deleting the selected track's cues.
     pub(crate) cue_editor: crate::cue_editing::CueEditor,
     /// The field the name of a cue is typed in.
@@ -300,6 +304,7 @@ pub(crate) struct EuphoriaApp {
     /// The command palette, opened with Command K or Command P.
     pub(crate) palette: crate::command_palette::CommandPalette,
     settings_path: Option<PathBuf>,
+    artwork: crate::artwork::ArtworkStore,
     waveforms: WaveformCache,
     vocal_lanes: HashMap<PathBuf, VocalLane>,
     waveform_task: Option<Task<()>>,
@@ -455,6 +460,16 @@ impl EuphoriaApp {
                 }
             },
         );
+        let tempo_input = cx.new(|cx| InputState::new(window, cx).placeholder("BPM"));
+        let tempo_entered = cx.subscribe_in(
+            &tempo_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.commit_tempo(window, cx);
+                }
+            },
+        );
         let cue_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Cue name"));
         let cue_named = cx.subscribe(
             &cue_name_input,
@@ -604,6 +619,8 @@ impl EuphoriaApp {
             bpm_input,
             metronome: crate::metronome_controls::MetronomeState::new(settings.metronome),
             metronome_input,
+            tempo: crate::tempo_controls::TempoState::default(),
+            tempo_input,
             cue_editor: crate::cue_editing::CueEditor::default(),
             cue_name_input,
             voice: None,
@@ -621,6 +638,7 @@ impl EuphoriaApp {
                 scroll: gpui::ScrollHandle::new(),
             },
             settings_path,
+            artwork: crate::artwork::ArtworkStore::new(crate::artwork::ARTWORK_CAPACITY),
             waveforms: WaveformCache::new(WAVEFORM_CAPACITY),
             vocal_lanes: HashMap::new(),
             waveform_task: None,
@@ -633,6 +651,7 @@ impl EuphoriaApp {
                 transition_noted,
                 bpm_entered,
                 metronome_entered,
+                tempo_entered,
                 cue_named,
                 search_changed,
                 palette_typed,
@@ -1008,7 +1027,12 @@ impl EuphoriaApp {
                 .width
                 / px(1.0)
         });
-        self.table_layout = TableLayout::new(table_width, &self.column_widths, longest_path);
+        self.table_layout = TableLayout::with_stage_column(
+            table_width,
+            &self.column_widths,
+            longest_path,
+            self.display.show_stage_column,
+        );
     }
 
     /// Reads the title and artist of `paths` from their tags, a batch at a
@@ -1207,6 +1231,9 @@ impl EuphoriaApp {
                 ColumnId::MusicalKey => track.key().map(|key| Cow::Owned(key.to_string())),
                 ColumnId::Bpm => track.bpm().map(|bpm| Cow::Owned(crate::format::bpm(bpm))),
                 ColumnId::Energy => track.energy().map(|_| Cow::Borrowed(WIDEST_ENERGY_TEXT)),
+                ColumnId::Stage => library
+                    .stage_at(*index)
+                    .map(|stage| Cow::Borrowed(stage.label())),
                 ColumnId::Cues => track
                     .cue_count()
                     .map(|count| Cow::Owned(crate::format::count(count))),
@@ -1386,6 +1413,12 @@ impl EuphoriaApp {
         self.session.set_tempo_range(range);
         self.refresh_visible();
         self.refresh_mixes();
+        self.remember_tag_settings(cx);
+    }
+
+    /// Shows or hides the Stage column of the track table.
+    pub(crate) fn toggle_stage_column(&mut self, cx: &mut Context<'_, Self>) {
+        self.display.show_stage_column = !self.display.show_stage_column;
         self.remember_tag_settings(cx);
     }
 
@@ -1706,6 +1739,9 @@ impl EuphoriaApp {
             self.palette.recent.record(&path);
         }
         self.key_shift = 0;
+        let selected_path = self.selected_track().map(|track| track.path.clone());
+        self.tempo.forget_unless_for(selected_path.as_deref());
+        self.set_stem_focus(None, cx);
         self.cue_editor.forget_selection();
         self.refresh_mixes();
         self.load_selected_waveform(cx);
@@ -1801,8 +1837,6 @@ impl EuphoriaApp {
     /// The play and pause button, or the space bar.
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<'_, Self>) {
         if self.decks.is_open {
-            self.notice = Some(crate::decks::PLAYER_HELD_BY_DECKS.to_string());
-            cx.notify();
             return;
         }
         if let Some(position) = self.set_row_to_play() {
@@ -1887,11 +1921,13 @@ impl EuphoriaApp {
             }
             Some(PlayerRequest::Pause) => {
                 if let Some(active) = &self.voice {
+                    active.state.set_held(true);
                     active.voice.pause();
                 }
             }
             Some(PlayerRequest::Resume) => {
                 if let Some(active) = &self.voice {
+                    active.state.set_held(false);
                     active.voice.resume();
                 }
                 self.follow_playhead(cx);
@@ -1925,6 +1961,9 @@ impl EuphoriaApp {
                 if self.player.started(attempt, source.duration_seconds()) {
                     // The control may have changed while the file opened.
                     state.set_shift(self.key_shift);
+                    if let Some(playing) = self.player.track() {
+                        state.set_tempo(self.tempo.playback_for(playing));
+                    }
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });
@@ -1988,6 +2027,30 @@ impl EuphoriaApp {
             return;
         }
         self.stems_changed(cx);
+    }
+
+    /// A click on a stem's label in the focus lanes: solo it, or with
+    /// `mutes` leave it out, or return to the full track when it already is.
+    /// The stem gains follow within milliseconds while the track plays.
+    pub(crate) fn click_stem_lane(
+        &mut self,
+        stem: euphoria_core::stems::Stem,
+        mutes: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let focus = crate::stems::StemFocus::after_click(self.stems.focus(), stem, mutes);
+        self.set_stem_focus(focus, cx);
+    }
+
+    /// Picks a stem out from the lanes, or returns to the full track.
+    pub(crate) fn set_stem_focus(
+        &mut self,
+        focus: Option<crate::stems::StemFocus>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.stems.set_focus(focus) {
+            self.stems_changed(cx);
+        }
     }
 
     /// The player's track is separated, or it is not, or the full track is
@@ -2574,6 +2637,11 @@ impl EuphoriaApp {
         }));
     }
 
+    /// The covers kept in memory.
+    pub(crate) fn artwork(&self) -> &crate::artwork::ArtworkStore {
+        &self.artwork
+    }
+
     /// The waveform of the track at `path`, when it was read.
     pub(crate) fn waveform_of(&self, path: &Path) -> Option<&Waveform> {
         self.waveforms.get(path)
@@ -2811,7 +2879,10 @@ impl Render for EuphoriaApp {
                 })
         };
 
-        let has_player_bar = !self.is_empty() && self.theme.layout == Layout::InspectorRight;
+        // The decks take the sound while they are open, so the track player
+        // would only offer buttons that cannot work: it is hidden instead.
+        let has_player_bar =
+            !self.is_empty() && self.theme.layout == Layout::InspectorRight && !self.decks.is_open;
 
         div()
             .id("euphoria")

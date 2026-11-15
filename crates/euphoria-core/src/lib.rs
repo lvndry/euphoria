@@ -7,6 +7,8 @@
 
 /// Analyzing files and batches of files.
 pub mod analysis;
+/// The cover art of a track: embedded in its tags, or an image beside it.
+pub mod artwork;
 /// Decoding audio files to mono samples.
 pub mod audio;
 pub mod audio_budget;
@@ -50,6 +52,9 @@ pub mod rekordbox_grid;
 pub mod relink;
 /// Why a track is worth checking by ear.
 pub mod review;
+/// Where a track tends to sit in a set: warm-up, build or peak, from its
+/// tempo and loudness compared with the rest of the library.
+pub mod set_stage;
 /// Changing the key of a track by shifting its pitch.
 #[cfg(feature = "pitch-shift")]
 pub mod shift;
@@ -125,6 +130,10 @@ pub use playlists::{
 };
 pub use relink::{RelinkMatch, check_relink, find_in_folder};
 pub use review::{ReviewReason, failed_reason, is_reviewed, review_reasons};
+pub use set_stage::{
+    LibraryDistribution, SetStage, StageFeatures, StagePercentiles, stage_of, stage_percentiles,
+    stage_score,
+};
 pub use tag_key::{KeyDifference, TagKey, TagKeyAgreement};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
