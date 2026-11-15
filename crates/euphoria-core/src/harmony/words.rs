@@ -1,8 +1,9 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The words a DJ reads for how two tracks fit: the key relation and the
-//! tempo move. Every surface that names them takes the words from here.
+//! The words a DJ reads for how two tracks fit: the key relation, the
+//! tempo move and the energy move. Every surface that names them takes the
+//! words from here.
 
 use super::Relation;
 
@@ -13,6 +14,35 @@ pub const BIG_JUMP_OVER_PERCENT: f32 = 6.0;
 
 /// The column and field name for the tempo change between two tracks.
 pub const TEMPO_LABEL: &str = "Tempo";
+
+/// An energy rating and how far it is from another track's, in whole
+/// points, with an arrow rather than a sign that reads as a dash: "3 ↓6"
+/// for a track 6 calmer, "8 ↑1" for one a point higher, "7 =" for the same.
+pub fn energy_move(energy: f32, difference: f32) -> String {
+    let energy = energy.round();
+    let change = difference.round();
+    if change > 0.0 {
+        format!("{energy:.0} \u{2191}{change:.0}")
+    } else if change < 0.0 {
+        format!("{energy:.0} \u{2193}{:.0}", -change)
+    } else {
+        format!("{energy:.0} =")
+    }
+}
+
+/// The energy move said in words, against `other`, such as "the track
+/// playing": "Energy 3, 6 calmer than the track playing".
+pub fn energy_move_hint(energy: f32, difference: f32, other: &str) -> String {
+    let energy = energy.round();
+    let change = difference.round();
+    if change > 0.0 {
+        format!("Energy {energy:.0}, {change:.0} higher than {other}")
+    } else if change < 0.0 {
+        format!("Energy {energy:.0}, {:.0} calmer than {other}", -change)
+    } else {
+        format!("Energy {energy:.0}, the same as {other}")
+    }
+}
 
 /// What the tempo change between two tracks asks of the pitch fader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,5 +219,19 @@ mod tests {
             Some("One step and a major/minor switch")
         );
         assert_eq!(relation_hint(Relation::Adjacent), None);
+    }
+
+    #[test]
+    fn energy_moves_read_with_arrows_and_whole_points() {
+        assert_eq!(energy_move(3.0, -6.0), "3 \u{2193}6");
+        assert_eq!(energy_move(8.0, 1.0), "8 \u{2191}1");
+        assert_eq!(energy_move(7.0, 0.2), "7 =");
+        assert_eq!(energy_move(6.6, -0.6), "7 \u{2193}1");
+        assert_eq!(
+            energy_move_hint(3.0, -6.0, "the track playing"),
+            "Energy 3, 6 calmer than the track playing"
+        );
+        assert_eq!(energy_move_hint(8.0, 1.0, "A"), "Energy 8, 1 higher than A");
+        assert_eq!(energy_move_hint(7.0, 0.0, "A"), "Energy 7, the same as A");
     }
 }

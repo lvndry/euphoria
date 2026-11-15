@@ -145,7 +145,14 @@ fn the_rows_carry_the_pills_and_the_tempo(cx: &mut TestAppContext) {
             .read(cx)
             .next_rows
             .iter()
-            .map(|row| (row.track_index, row.pills()))
+            .map(|row| {
+                let texts = row
+                    .pills(crate::views::next_rail::PLAYING)
+                    .into_iter()
+                    .map(|pill| pill.text)
+                    .collect();
+                (row.track_index, texts)
+            })
             .collect()
     });
     assert_eq!(
@@ -153,11 +160,11 @@ fn the_rows_carry_the_pills_and_the_tempo(cx: &mut TestAppContext) {
         [
             (
                 fixture.mp3,
-                vec!["one step".to_string(), "energy +1".to_string()]
+                vec!["one step".to_string(), "energy 7 \u{2191}1".to_string()]
             ),
             (
                 fixture.wav,
-                vec!["relative".to_string(), "energy \u{2212}1".to_string()]
+                vec!["relative".to_string(), "energy 5 \u{2193}1".to_string()]
             ),
         ]
     );
@@ -436,4 +443,32 @@ fn enter_loads_deck_b_when_the_decks_are_open(cx: &mut TestAppContext) {
         assert_eq!(app.decks.view(DeckId::B).track_index, Some(fixture.mp3));
         assert!(!app.player.offers_pause(), "the player stays out of it");
     });
+}
+
+#[gpui::test]
+fn the_energy_pill_stays_on_one_line_in_the_narrowest_inspector(cx: &mut TestAppContext) {
+    let fixture = open_with(
+        Settings {
+            panels: crate::panels::Panels {
+                inspector_width: crate::panels::NARROWEST_INSPECTOR as u32,
+                ..crate::panels::Panels::default()
+            },
+            ..Settings::default()
+        },
+        cx,
+    );
+    play_selected(&fixture, fixture.flac, cx);
+    cx.update_window(fixture.window, |_, window, cx| {
+        window.render_frame(cx);
+        for track_index in [fixture.mp3, fixture.wav] {
+            let row = window.try_find(row_id(track_index)).unwrap().bounds();
+            let energy = window
+                .try_find(("next-energy-pill", track_index))
+                .unwrap()
+                .bounds();
+            assert!(energy.size.height < px(20.0), "one line: {energy:?}");
+            assert!(energy.right() <= row.right(), "{energy:?} inside {row:?}");
+        }
+    })
+    .unwrap();
 }

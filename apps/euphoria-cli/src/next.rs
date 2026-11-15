@@ -300,14 +300,6 @@ fn write_notes(
     Ok(())
 }
 
-fn signed(value: i32) -> String {
-    if value > 0 {
-        format!("+{value}")
-    } else {
-        value.to_string()
-    }
-}
-
 fn percent_text(percent: f32) -> String {
     format!("{percent:+.1}%")
 }
@@ -393,7 +385,10 @@ pub fn write_table(
                 None => (theme.dim("-"), 1),
             };
             let energy = match (pick.energy_change, pick.track.analysis.energy) {
-                (Some(change), Some(energy)) => plain(format!("{energy} ({})", signed(change))),
+                (Some(change), Some(energy)) => plain(euphoria_core::harmony::energy_move(
+                    f32::from(energy),
+                    change as f32,
+                )),
                 (None, Some(energy)) => plain(energy.to_string()),
                 _ => (theme.dim("-"), 1),
             };

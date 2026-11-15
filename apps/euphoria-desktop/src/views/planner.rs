@@ -31,7 +31,7 @@ use crate::transition_plan::{
 };
 use crate::views::focus::section_colour;
 use crate::views::key_chip::key_chip;
-use crate::views::next_rail::{choice_control, pill};
+use crate::views::next_rail::{choice_control, row_pills};
 use crate::views::waveform::SeenBounds;
 use crate::views::{
     GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
@@ -758,83 +758,86 @@ fn candidates_column(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> im
             )
             .test_support()
     });
-    let rows: Vec<AnyElement> =
-        app.planner
-            .candidates
-            .iter()
-            .filter_map(|candidate| {
-                let track_index = candidate.track_index;
-                let track = app.session.library().track(track_index)?;
-                let is_picked = app.focus.selected_match == Some(track_index);
-                let hover_background = palette.raised;
-                Some(
-                    div()
-                        .id(("planner-candidate", track_index))
-                        .flex()
-                        .flex_shrink_0()
-                        .items_start()
-                        .gap(GAP_SMALL)
-                        .py(px(4.0))
-                        .px(px(4.0))
-                        .rounded(RADIUS_SMALL)
-                        .cursor_pointer()
-                        .map(|row| {
-                            if is_picked {
-                                row.bg(palette.selection)
-                            } else {
-                                row.hover(move |style| style.bg(hover_background))
-                            }
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.audition_candidate(track_index, cx)
-                        }))
-                        .child(div().flex().flex_shrink_0().w(px(38.0)).children(
+    let rows: Vec<AnyElement> = app
+        .planner
+        .candidates
+        .iter()
+        .filter_map(|candidate| {
+            let track_index = candidate.track_index;
+            let track = app.session.library().track(track_index)?;
+            let is_picked = app.focus.selected_match == Some(track_index);
+            let hover_background = palette.raised;
+            Some(
+                div()
+                    .id(("planner-candidate", track_index))
+                    .flex()
+                    .flex_shrink_0()
+                    .items_start()
+                    .gap(GAP_SMALL)
+                    .py(px(4.0))
+                    .px(px(4.0))
+                    .rounded(RADIUS_SMALL)
+                    .cursor_pointer()
+                    .map(|row| {
+                        if is_picked {
+                            row.bg(palette.selection)
+                        } else {
+                            row.hover(move |style| style.bg(hover_background))
+                        }
+                    })
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.audition_candidate(track_index, cx)),
+                    )
+                    .child(
+                        div().flex().flex_shrink_0().w(px(38.0)).children(
                             track.key().map(|key| {
                                 key_chip(&key, &app.theme, app.tag_settings.key_notation)
                             }),
-                        ))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_1()
-                                .min_w_0()
-                                .gap(GAP_TIGHT)
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(GAP_SMALL)
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .truncate()
-                                                .child(track.title().to_string()),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .text_size(SMALL_TEXT_SIZE)
-                                                .text_color(palette.text_secondary)
-                                                .children(
-                                                    candidate
-                                                        .tempo_difference_percent
-                                                        .map(format::signed_percent),
-                                                ),
-                                        ),
-                                )
-                                .child(div().flex().flex_wrap().gap(GAP_SMALL).children(
-                                    candidate.pills().into_iter().enumerate().map(
-                                        |(position, text)| pill(text, position == 0, &palette),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(GAP_TIGHT)
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(GAP_SMALL)
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .child(track.title().to_string()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .text_size(SMALL_TEXT_SIZE)
+                                            .text_color(palette.text_secondary)
+                                            .children(
+                                                candidate
+                                                    .tempo_difference_percent
+                                                    .map(format::signed_percent),
+                                            ),
                                     ),
-                                )),
-                        )
-                        .test_support()
-                        .into_any_element(),
-                )
-            })
-            .collect();
+                            )
+                            .child(div().flex().flex_wrap().gap(GAP_SMALL).children(row_pills(
+                                candidate.pills("A"),
+                                "plan-energy-pill",
+                                track_index,
+                                &palette,
+                            ))),
+                    )
+                    .test_support()
+                    .into_any_element(),
+            )
+        })
+        .collect();
     card(&palette)
         .id("planner-candidates-column")
         .w(px(CANDIDATES_WIDTH))

@@ -638,9 +638,9 @@ Candidates come from the folder of `TRACK`, or from `--from`. A candidate mixes 
 $ euphoria next "Low Tide.flac" --lift --limit 3
 After Low Tide  8A  124.0 BPM  energy 6  lifting the energy
 #  Key  BPM    Tempo        Move                   Energy  Track
-1   8A  125.0  +0.8% Easy   Same key               8 (+2)  Night Drive.flac
-2   9A  124.0  +0.0% Easy   One step on the wheel  7 (+1)  Glow.flac
-3   8B  126.0  +1.6% Easy   Relative               6 (0)   Low Tide (Dub).flac
+1   8A  125.0  +0.8% Easy   Same key               8 ↑2    Night Drive.flac
+2   9A  124.0  +0.0% Easy   One step on the wheel  7 ↑1    Glow.flac
+3   8B  126.0  +1.6% Easy   Relative               6 =     Low Tide (Dub).flac
 ```
 
 | Option | Effect |
@@ -655,7 +655,7 @@ After Low Tide  8A  124.0 BPM  energy 6  lifting the energy
 
 The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
 
-Each row has the key, the tempo, the tempo change as a percent with its move (`Easy`, `Pitch move` or `Big jump`), the key move in the [shared words](../concepts/keys-and-camelot.md#how-euphoria-names-a-move), and the energy with its change. The playing track is never listed. Starred transitions, which the app puts first, are not used by the command line.
+Each row has the key, the tempo, the tempo change as a percent with its move (`Easy`, `Pitch move` or `Big jump`), the key move in the [shared words](../concepts/keys-and-camelot.md#how-euphoria-names-a-move), and the energy with an arrow and the size of its change from the track's: `3 ↓6` is 6 calmer, `8 ↑1` one higher, `7 =` the same. The playing track is never listed. Starred transitions, which the app puts first, are not used by the command line.
 
 The JSON object has `schema_version` (1), `track` (path, artist, title, key, key_name, bpm, energy), `energy` (`keep`, `lift` or `drop`) and `next`: one object per candidate with `rank` from 1, the same fields as `track`, `key_move` (`same`, `adjacent`, `relative`, `diagonal`, `energy_boost`, `mood_change` or `semitone_boost`, as in `set build`), `key_move_label` (the words), `tempo_percent`, `tempo_move` (`easy`, `pitch_move` or `big_jump`), `tempo_scaling` (`direct`, `half` or `double`) and `energy_change`. Tempo and energy fields are `null` when a track has none.
 
@@ -679,12 +679,12 @@ Layer over Low Tide  8A  124.0 BPM  energy 6
    8A is the same key as A
    Same tempo, no stretch
    Vocals of A over the instrumental of B, and B has no vocals of its own; they sit in different ranges (12% overlap)
-   Same energy
+   Energy 6 = against A
 2  10A  Glow
    Shift B down 2 semitones: 10A becomes 8A, the same key as A
    Stretched 1.6% down to A's tempo
    Stems not compared: separate both tracks to check vocals against instruments
-   Energy +1 against A
+   Energy 7 ↑1 against A
 ```
 
 | Option | Effect |

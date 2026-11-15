@@ -15,12 +15,12 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::assets::{LOAD_ON_DECK_ICON_PATH, PLAY_ICON_PATH};
 use crate::format;
-use crate::next_rail::{EnergyChoice, NextRow};
+use crate::next_rail::{EnergyChoice, NextRow, RowPill};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
 use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, NEXT_RAIL_KEY_CONTEXT, SMALL_TEXT_SIZE, section_label};
-use crate::views::{primary_button, secondary_button};
+use crate::views::{primary_button, secondary_button, tabular_digits};
 
 const ROW_GROUP: &str = "next-row";
 
@@ -122,6 +122,7 @@ pub(crate) fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
         .border_1()
         .whitespace_nowrap()
         .text_size(LABEL_TEXT_SIZE)
+        .font_features(tabular_digits())
         .border_color(if is_key { palette.accent } else { palette.line })
         .text_color(if is_key {
             palette.text
@@ -129,6 +130,34 @@ pub(crate) fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
             palette.text_secondary
         })
         .child(text)
+}
+
+/// What the energy pills of the Next list and the Live panel compare with.
+pub(crate) const PLAYING: &str = "the track playing";
+
+/// The pills of a row, the first marked as the key's. A pill with a hint
+/// explains itself on hover, so it carries an id from `id_name` and the row.
+pub(crate) fn row_pills(
+    pills: Vec<RowPill>,
+    id_name: &'static str,
+    track_index: usize,
+    palette: &Palette,
+) -> Vec<AnyElement> {
+    pills
+        .into_iter()
+        .enumerate()
+        .map(|(position, row_pill)| {
+            let shown = pill(row_pill.text, position == 0, palette);
+            match row_pill.hint {
+                Some(hint) => shown
+                    .id((id_name, track_index))
+                    .tooltip(move |window, cx| Tooltip::new(hint.clone()).build(window, cx))
+                    .test_support()
+                    .into_any_element(),
+                None => shown.into_any_element(),
+            }
+        })
+        .collect()
 }
 
 fn icon_button(
@@ -165,7 +194,12 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
     let track = app.session.library().track(track_index)?;
     let hover_background = palette.raised;
     let decks_open = app.decks.is_open;
-    let pills = next.pills();
+    let pills = row_pills(
+        next.pills(PLAYING),
+        "next-energy-pill",
+        track_index,
+        &palette,
+    );
     let fraction = app.next_preview.fraction(track_index);
     let is_expanded = app.next_preview.expanded() == Some(track_index);
     let summary = div()
@@ -235,15 +269,17 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
                 .child(
                     div()
                         .flex()
-                        .items_center()
+                        .items_start()
                         .gap(GAP_SMALL)
-                        .children(
-                            pills
-                                .into_iter()
-                                .enumerate()
-                                .map(|(position, text)| pill(text, position == 0, &palette)),
+                        .child(
+                            div()
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .flex_wrap()
+                                .gap(GAP_TIGHT)
+                                .children(pills),
                         )
-                        .child(div().flex_1())
                         .child(
                             icon_button(
                                 play_id(track_index),
