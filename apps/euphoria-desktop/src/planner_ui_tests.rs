@@ -518,7 +518,7 @@ fn a_plan_that_fails_says_why_in_words(cx: &mut TestAppContext) {
             app.plan_state(b_index),
             Some(PlanState::Failed(PlanError::NoBeatGrid(Side::B)))
         ));
-        assert_eq!(app.clash_label(b_index), "No plan");
+        assert_eq!(app.clash_label(b_index), "");
         view.update(cx, |app, cx| app.open_planner(cx));
     });
     settle(window, cx);

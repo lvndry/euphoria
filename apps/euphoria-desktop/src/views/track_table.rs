@@ -30,6 +30,7 @@ use crate::views::key_chip::key_chip;
 use crate::views::playlists::{DragLabel, TrackMenuState, track_menu};
 use crate::views::review;
 use crate::views::row_actions;
+use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_SMALL, TEXT_SIZE};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE};
 use gpui::component::menu::ContextMenuExt;
 
@@ -244,7 +245,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
         .flex_shrink_0()
         .items_center()
         .justify_between()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .px(px(SIDE_PADDING))
         .py(px(8.0))
         .border_b_1()
@@ -257,7 +258,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(14.0))
+                        .text_size(TEXT_SIZE)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 )
@@ -283,7 +284,7 @@ fn heading(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaAp
                 .flex()
                 .flex_shrink_0()
                 .items_center()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .child(super::track_filter_bar::toggle(app, cx))
                 .child(
                     div()
@@ -312,7 +313,7 @@ fn header(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp
             let hover_colour = palette.text;
             cell(column, *width)
                 .id(header_id(column))
-                .gap(px(4.0))
+                .gap(GAP_TIGHT)
                 .items_center()
                 .when(is_sorted.is_some(), |cell| cell.text_color(palette.text))
                 .child(div().min_w_0().truncate().child(column.label()))
@@ -603,7 +604,7 @@ fn cell_contents(
                 .relative()
                 .flex()
                 .items_center()
-                .gap(px(4.0))
+                .gap(GAP_TIGHT)
                 .w_full()
                 .min_w_0()
                 .child(
@@ -710,7 +711,7 @@ fn cell_contents(
                     Some(mark) => div()
                         .flex()
                         .items_center()
-                        .gap(px(3.0))
+                        .gap(GAP_TIGHT)
                         .child(chip)
                         .child(mark)
                         .into_any_element(),
@@ -847,7 +848,7 @@ fn energy(track: &Track, palette: &Palette) -> Div {
         .flex()
         .flex_1()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(
             div()
                 .flex()
@@ -861,13 +862,13 @@ fn energy(track: &Track, palette: &Palette) -> Div {
             div()
                 .flex_1()
                 .h(px(4.0))
-                .rounded(px(2.0))
+                .rounded(RADIUS_SMALL)
                 .bg(palette.raised)
                 .child(
                     div()
                         .h_full()
                         .w(relative(f32::from(rating) / 10.0))
-                        .rounded(px(2.0))
+                        .rounded(RADIUS_SMALL)
                         .bg(palette.text_tertiary),
                 ),
         )

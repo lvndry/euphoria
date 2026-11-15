@@ -12,6 +12,7 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::surface_motion::{Strip, UNMEASURED_STRIP_HEIGHT};
 use crate::views::SMALL_TEXT_SIZE;
+use crate::views::{GAP_MEDIUM, RADIUS_SMALL};
 
 /// `strip` with its height grown to the share of its full height that its
 /// appearance has reached. The strip keeps its full height inside the clip,
@@ -63,7 +64,7 @@ fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<
             .flex()
             .flex_shrink_0()
             .items_center()
-            .gap(px(12.0))
+            .gap(GAP_MEDIUM)
             .px(px(14.0))
             .py(px(8.0))
             .border_t_1()
@@ -83,7 +84,7 @@ fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<
                     .flex_shrink_0()
                     .px(px(8.0))
                     .py(px(2.0))
-                    .rounded(px(4.0))
+                    .rounded(RADIUS_SMALL)
                     .text_color(palette.text_secondary)
                     .cursor_pointer()
                     .hover(move |style| style.bg(palette.raised).text_color(palette.text))
@@ -120,7 +121,7 @@ fn render_held_tags_strip(
             .flex_shrink_0()
             .px(px(8.0))
             .py(px(2.0))
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .text_color(palette.text_secondary)
             .cursor_pointer()
             .hover(move |style| style.bg(palette.raised).text_color(palette.text))
@@ -132,7 +133,7 @@ fn render_held_tags_strip(
             .flex()
             .flex_shrink_0()
             .items_center()
-            .gap(px(12.0))
+            .gap(GAP_MEDIUM)
             .px(px(14.0))
             .py(px(8.0))
             .border_t_1()
@@ -192,7 +193,7 @@ fn render_link_confirmation_strip(
             .flex_shrink_0()
             .px(px(8.0))
             .py(px(2.0))
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .text_color(palette.text_secondary)
             .cursor_pointer()
             .hover(move |style| style.bg(palette.raised).text_color(palette.text))
@@ -204,7 +205,7 @@ fn render_link_confirmation_strip(
             .flex()
             .flex_shrink_0()
             .items_center()
-            .gap(px(12.0))
+            .gap(GAP_MEDIUM)
             .px(px(14.0))
             .py(px(8.0))
             .border_t_1()
@@ -264,7 +265,7 @@ fn render_stem_export_confirmation_strip(
             .flex_shrink_0()
             .px(px(8.0))
             .py(px(2.0))
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .text_color(palette.text_secondary)
             .cursor_pointer()
             .hover(move |style| style.bg(palette.raised).text_color(palette.text))
@@ -276,7 +277,7 @@ fn render_stem_export_confirmation_strip(
             .flex()
             .flex_shrink_0()
             .items_center()
-            .gap(px(12.0))
+            .gap(GAP_MEDIUM)
             .px(px(14.0))
             .py(px(8.0))
             .border_t_1()

@@ -11,6 +11,7 @@ use gpui::prelude::*;
 use gpui::{Bounds, Div, ElementId, Hsla, Pixels, SharedString, Stateful, canvas, div, px};
 
 use crate::theme::{Palette, blend};
+use crate::views::RADIUS_MEDIUM;
 use crate::views::favorites::star_icon;
 use crate::views::player::{GLYPH_SIZE, paint_pause_glyph, paint_play_glyph};
 
@@ -46,7 +47,7 @@ pub(crate) fn icon_button(id: impl Into<ElementId>, palette: &Palette) -> Statef
         .items_center()
         .justify_center()
         .size(px(ICON_SIZE))
-        .rounded(px(5.0))
+        .rounded(RADIUS_MEDIUM)
         .bg(palette.raised)
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))

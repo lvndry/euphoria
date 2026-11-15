@@ -10,6 +10,7 @@ use crate::app::EuphoriaApp;
 use crate::views::SMALL_TEXT_SIZE;
 use crate::views::first_run;
 use crate::views::logo::logo;
+use crate::views::{GAP_LARGE, GAP_SMALL, RADIUS_MEDIUM};
 
 /// The first run screen: the three steps, with the first one current.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
@@ -18,7 +19,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
     let command_line = div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .pt(px(20.0))
         .border_t_1()
         .border_color(palette.line)
@@ -32,7 +33,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             div()
                 .px(px(12.0))
                 .py(px(8.0))
-                .rounded(px(6.0))
+                .rounded(RADIUS_MEDIUM)
                 .border_1()
                 .border_color(palette.line)
                 .bg(palette.raised)
@@ -58,7 +59,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .flex()
                 .flex_col()
                 .items_center()
-                .gap(px(20.0))
+                .gap(GAP_LARGE)
                 .w_full()
                 .max_w(px(760.0))
                 .child(logo(px(56.0), palette.text))

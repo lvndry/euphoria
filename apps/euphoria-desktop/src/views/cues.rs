@@ -18,6 +18,7 @@ use crate::app::EuphoriaApp;
 use crate::format;
 use crate::library::Track;
 use crate::theme::Palette;
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 
 /// Height of the row of markers above the waveform.
@@ -78,13 +79,13 @@ const TICK_WIDTH: f32 = 4.0;
 const MARKER_GAP: f32 = 2.0;
 
 /// How many rows of markers the lane has at most.
-const LANE_ROWS: usize = 2;
+const LANE_ROWS: usize = 3;
 
 /// What a marker shows, from most to least room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MarkerLabel {
-    /// The hot cue letter and the name, cut short when the next marker on
-    /// its row is close.
+    /// The hot cue letter and the whole name, only where it fits before the
+    /// next marker on its row.
     Full,
     /// The hot cue letter, or a dot for a memory cue.
     Letter,
@@ -128,9 +129,9 @@ fn text_width(text: &str) -> f32 {
 ///
 /// Each marker takes the first row where the labels before it, in full,
 /// leave room for its own in full, or else the row with room for its
-/// letter whose last marker ends earliest. A label then runs as far as its
-/// full text needs, up to the next marker on its row: cut short, or down
-/// to its letter. A marker with no row free even for a letter, a cue a few
+/// letter whose last marker ends earliest. A label is then its full text
+/// when that fits before the next marker on its row, and its letter when it
+/// does not: a name is never cut short, and hovering names every cue. A marker with no row free even for a letter, a cue a few
 /// pixels from others, is drawn as a bare tick on the last row. A label past
 /// [`LABEL_FLIP_FRACTION`] runs left of its line. Without a known width
 /// every marker gets its full label on the first row.
@@ -228,15 +229,10 @@ pub(crate) fn marker_places(
                 .unwrap_or(lane_width);
             next_start - lines[index] - MARKER_GAP
         };
-        let width = full_widths[index].min(room).max(LETTER_LABEL);
-        let label = if width >= LETTER_LABEL + 2.0 * LABEL_CHARACTER_WIDTH {
-            MarkerLabel::Full
+        let (label, width) = if full_widths[index] <= room {
+            (MarkerLabel::Full, full_widths[index])
         } else {
-            MarkerLabel::Letter
-        };
-        let width = match label {
-            MarkerLabel::Letter => LETTER_LABEL,
-            MarkerLabel::Full | MarkerLabel::Tick => width,
+            (MarkerLabel::Letter, LETTER_LABEL)
         };
         places.push(MarkerPlace { row, label, width });
     }
@@ -398,7 +394,7 @@ pub(crate) fn section(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .child(section_label("Cues", &palette))
         .when(track_cues.is_edited(), |heading| {
             heading.child(
@@ -461,7 +457,7 @@ pub(crate) fn section(
         .id("cue-list")
         .flex()
         .flex_col()
-        .gap(px(2.0))
+        .gap(GAP_TIGHT)
         .when_some(list_height, |list, height| {
             list.max_h(height).overflow_y_scroll()
         })
@@ -476,7 +472,7 @@ pub(crate) fn section(
     div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(heading)
         .child(list)
 }
@@ -499,7 +495,7 @@ fn cue_row(
         .justify_center()
         .w(px(22.0))
         .h(px(20.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .text_size(LABEL_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
@@ -536,7 +532,7 @@ fn cue_row(
             .min_w_0()
             .truncate()
             .cursor_pointer()
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .px(px(2.0))
             .hover(move |style| style.bg(hover_background))
             .when(cue.name.is_empty(), |name| {
@@ -560,7 +556,7 @@ fn cue_row(
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .h(px(CUE_ROW_HEIGHT))
         .child(pad)
         .child(name)
@@ -612,7 +608,7 @@ fn hot_cue_choice(
             .min_w(px(22.0))
             .h(px(20.0))
             .px(px(4.0))
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .text_size(LABEL_TEXT_SIZE)
             .font_weight(FontWeight::SEMIBOLD)
             .cursor_pointer()
@@ -647,7 +643,7 @@ fn hot_cue_choice(
         .id("cue-hot-cue-choices")
         .flex()
         .flex_wrap()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .pl(px(30.0))
         .pb(px(4.0))
         .children(pads)
@@ -692,12 +688,16 @@ mod tests {
 
     /// Fails when two labelled markers overlap or touch.
     fn assert_no_labels_overlap(fractions: &[f32], places: &[MarkerPlace]) {
+        assert_no_labels_overlap_in(LANE, fractions, places);
+    }
+
+    fn assert_no_labels_overlap_in(lane_width: f32, fractions: &[f32], places: &[MarkerPlace]) {
         let spans: Vec<(usize, f32, f32)> = places
             .iter()
             .zip(fractions)
             .filter(|(place, _)| place.label != MarkerLabel::Tick)
             .map(|(place, fraction)| {
-                let line = fraction * LANE;
+                let line = fraction * lane_width;
                 if *fraction > LABEL_FLIP_FRACTION {
                     (place.row, line - place.width, line)
                 } else {
@@ -736,18 +736,17 @@ mod tests {
     }
 
     #[test]
-    fn close_markers_alternate_rows_and_cut_their_labels_short() {
+    fn close_markers_take_turns_on_three_rows_and_never_cut_a_name_short() {
         let (fractions, places) = crowded(0.06);
         let rows: Vec<usize> = places.iter().map(|place| place.row).collect();
-        assert_eq!(rows, [0, 1, 0, 1, 0, 1, 0, 1]);
-        assert!(
-            places[..6]
-                .iter()
-                .all(|place| place.label == MarkerLabel::Full && place.width < 40.0),
-            "{places:?}"
-        );
-        assert_eq!(places[7].width, text_width("H Breakdown"));
-        assert_eq!(lane_height(&places), 2.0 * CUE_LANE_HEIGHT);
+        assert_eq!(rows, [0, 1, 2, 0, 1, 2, 0, 1]);
+        for place in &places {
+            assert!(
+                place.label == MarkerLabel::Letter || place.width == text_width("A Breakdown"),
+                "{places:?}"
+            );
+        }
+        assert_eq!(lane_height(&places), 3.0 * CUE_LANE_HEIGHT);
         assert_no_labels_overlap(&fractions, &places);
     }
 
@@ -755,7 +754,7 @@ mod tests {
     fn closer_markers_shrink_to_their_letter_and_the_closest_to_a_tick() {
         let (fractions, places) = crowded(0.04);
         assert!(
-            places[..6]
+            places[..4]
                 .iter()
                 .all(|place| place.label == MarkerLabel::Letter),
             "{places:?}"
@@ -763,9 +762,10 @@ mod tests {
         assert_no_labels_overlap(&fractions, &places);
 
         let (fractions, places) = crowded(0.01);
-        assert_eq!(places[0].label, MarkerLabel::Letter);
-        assert_eq!(places[1].label, MarkerLabel::Letter);
-        assert_eq!(places[2].label, MarkerLabel::Tick);
+        assert!(
+            places.iter().any(|place| place.label == MarkerLabel::Tick),
+            "{places:?}"
+        );
         assert_no_labels_overlap(&fractions, &places);
     }
 
@@ -831,5 +831,45 @@ mod tests {
                 assert_no_labels_overlap(&fractions, &places);
             }
         }
+    }
+
+    #[test]
+    fn the_cues_of_a_track_in_sections_keep_their_labels_apart_at_the_default_width() {
+        const INSPECTOR_LANE: f32 = 285.0;
+        let named = [
+            (0.0, "Section 1"),
+            (21.0, "Section 2"),
+            (28.0, "Section 3"),
+            (34.0, "Section 4"),
+            (110.0, "Drop"),
+            (200.0, "Breakdown"),
+            (300.0, "Outro"),
+        ];
+        let cues: Vec<Cue> = named
+            .iter()
+            .zip(HotCue::ALL)
+            .map(|((seconds, name), pad)| cue(*seconds, name, Some(pad.letter())))
+            .collect();
+        let fractions = fractions(&cues, 360.0);
+        let places = marker_places(&cues, &fractions, Some(INSPECTOR_LANE));
+        assert_no_labels_overlap_in(INSPECTOR_LANE, &fractions, &places);
+        assert!(
+            places.iter().all(|place| place.label != MarkerLabel::Tick),
+            "every cue keeps its letter: {places:?}"
+        );
+        for (place, cue) in places.iter().zip(&cues) {
+            if place.label == MarkerLabel::Full {
+                assert_eq!(
+                    place.width,
+                    text_width(&marker_text(cue, MarkerLabel::Full)),
+                    "a name is shown whole or not at all"
+                );
+            }
+        }
+        assert!(
+            places
+                .iter()
+                .any(|place| place.label == MarkerLabel::Letter)
+        );
     }
 }

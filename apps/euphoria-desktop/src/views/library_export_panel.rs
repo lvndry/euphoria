@@ -15,8 +15,11 @@ use crate::library_export::{
 };
 use crate::surface_motion::Modal;
 use crate::theme::Palette;
-use crate::views::tag_panel::choice_button;
-use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button, section_label};
+use crate::views::controls::{segment, segmented, text_link, toggle_row};
+use crate::views::{
+    GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, SMALL_TEXT_SIZE, TITLE_TEXT_SIZE, dialog_primary_button,
+    modal, secondary_button, section_label,
+};
 
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
     let panel = app.library_export.as_ref()?;
@@ -46,7 +49,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
             let mut contents = vec![title("Export finished")];
             contents.extend(report_lines(report, &palette));
             contents.push(buttons(vec![
-                primary_button("Done", &palette)
+                dialog_primary_button("Close", &palette)
                     .id("export-done")
                     .on_click(cx.listener(|this, _, _, cx| this.close_library_export(cx)))
                     .test_support()
@@ -74,12 +77,11 @@ fn key_notation_line(
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
-    let accent = palette.accent;
     div()
         .id("export-key-notation-line")
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child(
@@ -90,12 +92,7 @@ fn key_notation_line(
         )
         .child(div().text_color(palette.text_tertiary).child("\u{b7}"))
         .child(
-            div()
-                .id("export-change-key-notation")
-                .cursor_pointer()
-                .text_color(accent)
-                .hover(|style| style.underline())
-                .child("Change in Settings")
+            text_link("export-change-key-notation", "Change in Settings", palette)
                 .on_click(cx.listener(|this, _, _, cx| this.open_key_notation_setting(cx)))
                 .test_support(),
         )
@@ -116,105 +113,135 @@ fn setup_contents(
     let mut contents = vec![title("Export library")];
 
     contents.push(section_label("Program", palette).into_any_element());
-    contents.push(row(ExportProgram::ALL
-        .into_iter()
-        .map(|choice| {
-            choice_button(
-                format!("export-program-{}", choice.id()),
-                choice.label(),
-                choice == program,
-                palette,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.change_export_setup(|setup| setup.choose_program(choice), cx)
-            }))
-            .test_support()
-            .into_any_element()
-        })
-        .collect()));
+    contents.push(choices(
+        ExportProgram::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, choice)| {
+                segment(
+                    format!("export-program-{}", choice.id()),
+                    choice.label(),
+                    choice == program,
+                    index == 0,
+                    palette,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.change_export_setup(|setup| setup.choose_program(choice), cx)
+                }))
+                .test_support()
+                .into_any_element()
+            })
+            .collect(),
+        palette,
+    ));
 
     contents.push(section_label("Tracks", palette).into_any_element());
-    contents.push(row(vec![
-        choice_button(
-            "export-scope-library",
-            format!("Whole library ({})", format::count(total)),
-            setup.scope == ExportScope::Library,
-            palette,
-        )
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.change_export_setup(|setup| setup.scope = ExportScope::Library, cx)
-        }))
-        .test_support()
-        .into_any_element(),
-        choice_button(
-            "export-scope-shown",
-            format!("Tracks shown ({})", format::count(shown)),
-            setup.scope == ExportScope::Shown,
-            palette,
-        )
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.change_export_setup(|setup| setup.scope = ExportScope::Shown, cx)
-        }))
-        .test_support()
-        .into_any_element(),
-    ]));
+    contents.push(choices(
+        vec![
+            segment(
+                "export-scope-library",
+                format!("Whole library ({})", format::count(total)),
+                setup.scope == ExportScope::Library,
+                true,
+                palette,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.change_export_setup(|setup| setup.scope = ExportScope::Library, cx)
+            }))
+            .test_support()
+            .into_any_element(),
+            segment(
+                "export-scope-shown",
+                format!("Tracks shown ({})", format::count(shown)),
+                setup.scope == ExportScope::Shown,
+                false,
+                palette,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.change_export_setup(|setup| setup.scope = ExportScope::Shown, cx)
+            }))
+            .test_support()
+            .into_any_element(),
+        ],
+        palette,
+    ));
 
     if program.has_key_notation() {
         contents.push(key_notation_line(app, palette, cx));
     }
     if program.has_label() {
         contents.push(section_label("Key and energy label", palette).into_any_element());
-        contents.push(row(program
-            .labels()
-            .into_iter()
-            .map(|label| {
-                choice_button(
-                    format!("export-label-{label:?}"),
-                    label.label(),
-                    setup.label == label,
-                    palette,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.change_export_setup(|setup| setup.label = label, cx)
-                }))
-                .test_support()
-                .into_any_element()
-            })
-            .collect()));
+        contents.push(choices(
+            program
+                .labels()
+                .into_iter()
+                .enumerate()
+                .map(|(index, label)| {
+                    segment(
+                        format!("export-label-{label:?}"),
+                        label.label(),
+                        setup.label == label,
+                        index == 0,
+                        palette,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.change_export_setup(|setup| setup.label = label, cx)
+                    }))
+                    .test_support()
+                    .into_any_element()
+                })
+                .collect(),
+            palette,
+        ));
     }
     if program.has_beat_grid() {
         let mut toggles = vec![
             toggle(
                 "export-beat-grid",
                 "Beat grid",
+                "Where the beats fall, so the program can sync and loop.",
                 setup.beat_grid,
-                palette,
+                app,
                 cx,
                 |setup| setup.beat_grid = !setup.beat_grid,
             ),
             if setup.can_write_cues() {
-                toggle("export-cues", "Cues", setup.cues, palette, cx, |setup| {
-                    setup.cues = !setup.cues
-                })
+                toggle(
+                    "export-cues",
+                    "Cues",
+                    "The cues analysis placed on the bars, or yours.",
+                    setup.cues,
+                    app,
+                    cx,
+                    |setup| setup.cues = !setup.cues,
+                )
             } else {
-                choice_button("export-cues", "Cues", false, palette)
-                    .opacity(0.5)
-                    .test_support()
-                    .into_any_element()
+                toggle_row(
+                    "export-cues",
+                    "Cues",
+                    "The cues analysis placed on the bars, or yours.",
+                    false,
+                    &app.switches,
+                    palette,
+                )
+                .opacity(0.5)
+                .test_support()
+                .into_any_element()
             },
         ];
         if matches!(program, ExportProgram::Rekordbox | ExportProgram::Traktor) {
             toggles.push(toggle(
                 "export-playlists",
                 "A playlist per folder",
+                "Each folder of your library becomes a playlist in the program.",
                 setup.playlists,
-                palette,
+                app,
                 cx,
                 |setup| setup.playlists = !setup.playlists,
             ));
         }
         contents.push(section_label("Contents", palette).into_any_element());
-        contents.push(row(toggles));
+        contents.push(column(toggles));
         if !setup.can_write_cues() {
             contents.push(quiet(
                 if program.has_collection() {
@@ -235,11 +262,12 @@ fn setup_contents(
             palette,
         ));
         if setup.collection.is_some() {
-            contents.push(row(vec![toggle(
+            contents.push(column(vec![toggle(
                 "export-allow-unmatched",
-                "Export even though cued tracks that match no file cannot be protected",
+                "Export even though some cued tracks match no file",
+                "Those tracks' own cues cannot be protected.",
                 setup.allow_unmatched_cued_tracks,
-                palette,
+                app,
                 cx,
                 |setup| setup.allow_unmatched_cued_tracks = !setup.allow_unmatched_cued_tracks,
             )]));
@@ -275,20 +303,20 @@ fn setup_contents(
             div()
                 .id("export-problem")
                 .text_size(SMALL_TEXT_SIZE)
-                .text_color(palette.accent)
+                .text_color(palette.danger)
                 .child(problem.clone())
                 .test_support()
                 .into_any_element(),
         );
     }
     let review: AnyElement = if setup.is_complete() {
-        primary_button("Review", palette)
+        dialog_primary_button("Review", palette)
             .id("export-review")
             .on_click(cx.listener(|this, _, _, cx| this.review_library_export(cx)))
             .test_support()
             .into_any_element()
     } else {
-        primary_button("Review", palette)
+        dialog_primary_button("Review", palette)
             .id("export-review")
             .opacity(0.5)
             .test_support()
@@ -320,13 +348,13 @@ fn review_contents(
     };
     let can_write = report.track_count > 0 || !panel.setup.program.edits_in_place();
     let confirm: AnyElement = if can_write {
-        primary_button(label, palette)
+        dialog_primary_button(label, palette)
             .id("export-confirm")
             .on_click(cx.listener(|this, _, _, cx| this.confirm_library_export(cx)))
             .test_support()
             .into_any_element()
     } else {
-        primary_button(label, palette)
+        dialog_primary_button(label, palette)
             .id("export-confirm")
             .opacity(0.5)
             .test_support()
@@ -359,12 +387,13 @@ fn report_lines(report: &ExportReport, palette: &Palette) -> Vec<AnyElement> {
 fn toggle(
     id: &'static str,
     label: &'static str,
+    helper: &'static str,
     chosen: bool,
-    palette: &Palette,
+    app: &EuphoriaApp,
     cx: &mut Context<'_, EuphoriaApp>,
     change: fn(&mut ExportSetup),
 ) -> AnyElement {
-    choice_button(id, label, chosen, palette)
+    toggle_row(id, label, helper, chosen, &app.switches, &app.theme.palette)
         .on_click(cx.listener(move |this, _, _, cx| this.change_export_setup(change, cx)))
         .test_support()
         .into_any_element()
@@ -380,7 +409,7 @@ fn path_row(
     div()
         .flex()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .child(
             div()
                 .flex_1()
@@ -402,18 +431,25 @@ fn path_row(
         .into_any_element()
 }
 
-fn row(children: Vec<AnyElement>) -> AnyElement {
+fn choices(children: Vec<AnyElement>, palette: &Palette) -> AnyElement {
     div()
         .flex()
-        .flex_wrap()
-        .gap(px(6.0))
+        .child(segmented(children, palette))
+        .into_any_element()
+}
+
+fn column(children: Vec<AnyElement>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(GAP_TIGHT)
         .children(children)
         .into_any_element()
 }
 
 fn title(text: &str) -> AnyElement {
     div()
-        .text_size(px(15.0))
+        .text_size(TITLE_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_string())
         .into_any_element()
@@ -431,7 +467,7 @@ fn buttons(buttons: Vec<AnyElement>) -> AnyElement {
     div()
         .flex()
         .justify_end()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .pt(px(4.0))
         .children(buttons)
         .into_any_element()

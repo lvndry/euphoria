@@ -15,6 +15,7 @@ use crate::format;
 use crate::next_rail::{EnergyChoice, NextRow};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
+use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, NEXT_RAIL_KEY_CONTEXT, SMALL_TEXT_SIZE, section_label};
 
 const ROW_GROUP: &str = "next-row";
@@ -46,8 +47,8 @@ pub(crate) fn control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> O
             .flex_shrink_0()
             .items_center()
             .p(px(1.0))
-            .gap(px(1.0))
-            .rounded(px(6.0))
+            .gap(GAP_TIGHT)
+            .rounded(RADIUS_MEDIUM)
             .border_1()
             .border_color(palette.line)
             .children(EnergyChoice::ALL.into_iter().map(|choice| {
@@ -59,7 +60,7 @@ pub(crate) fn control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> O
                     .items_center()
                     .h(px(18.0))
                     .px(px(7.0))
-                    .rounded(px(5.0))
+                    .rounded(RADIUS_MEDIUM)
                     .text_size(LABEL_TEXT_SIZE)
                     .cursor_pointer()
                     .map(|segment| {
@@ -86,7 +87,7 @@ fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
         .items_center()
         .h(px(18.0))
         .px(px(7.0))
-        .rounded(px(9.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .whitespace_nowrap()
         .text_size(LABEL_TEXT_SIZE)
@@ -113,7 +114,7 @@ fn icon_button(
         .items_center()
         .justify_center()
         .size(px(20.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .cursor_pointer()
         .invisible()
         .group_hover(ROW_GROUP, |style| style.visible())
@@ -142,10 +143,10 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
             .flex()
             .flex_shrink_0()
             .items_start()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .py(px(4.0))
             .px(px(2.0))
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .cursor_pointer()
             .map(|row| {
                 if is_selected {
@@ -174,12 +175,12 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(3.0))
+                    .gap(GAP_TIGHT)
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(8.0))
+                            .gap(GAP_SMALL)
                             .child(
                                 div()
                                     .flex_1()
@@ -203,7 +204,7 @@ fn row(app: &EuphoriaApp, next: &NextRow, cx: &mut Context<'_, EuphoriaApp>) -> 
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(6.0))
+                            .gap(GAP_SMALL)
                             .children(
                                 pills
                                     .into_iter()
@@ -275,7 +276,7 @@ pub(crate) fn section(
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(
                 section_label(app.mixes_title(), &palette)
                     .flex_1()
@@ -290,7 +291,7 @@ pub(crate) fn section(
         .key_context(NEXT_RAIL_KEY_CONTEXT)
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .children(heading)
         .when(rows.is_empty(), |section| {
             section.child(

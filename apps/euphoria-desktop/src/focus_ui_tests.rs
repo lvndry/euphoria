@@ -198,7 +198,7 @@ fn every_lane_is_drawn_on_one_axis_with_the_sections_of_the_cues(cx: &mut TestAp
         "focus-sections",
         "focus-detail",
         "focus-energy-slot",
-        "focus-vocals-slot",
+        "focus-stems-empty",
         "focus-stems-separate",
         "focus-chip-key",
         "focus-chip-bpm",
@@ -472,4 +472,20 @@ fn the_plan_tabs_show_the_transition_card_the_mashup_link_and_the_cues(cx: &mut 
         assert!(app.decks.is_open);
         assert_eq!(app.decks.mode, crate::decks::DeckMode::Mashup);
     });
+}
+
+#[gpui::test]
+fn without_stems_one_card_replaces_the_vocals_and_stems_lanes(cx: &mut TestAppContext) {
+    let (window, _view) = open_cued_library(cx);
+    open_focus(window, cx);
+    assert!(is_shown(window, "focus-stems-empty", cx));
+    assert!(
+        is_shown(window, "focus-stems-separate", cx),
+        "with its button"
+    );
+    assert!(!is_shown(window, "focus-vocals-slot", cx));
+    assert!(
+        !is_shown(window, "focus-stems", cx),
+        "no label column or prompt"
+    );
 }

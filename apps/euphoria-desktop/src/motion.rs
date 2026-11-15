@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 /// A hover, a small state change.
 pub(crate) const FAST: Duration = Duration::from_millis(120);
+/// A switch sliding between off and on.
+pub(crate) const SWITCH: Duration = Duration::from_millis(150);
 /// A panel, dialog or card appearing.
 pub(crate) const PANEL: Duration = Duration::from_millis(180);
 /// A change of layout: a strip growing, the sidebar sliding.
@@ -239,6 +241,7 @@ mod tests {
     #[test]
     fn the_durations_are_the_agreed_ones() {
         assert_eq!(FAST, Duration::from_millis(120));
+        assert_eq!(SWITCH, Duration::from_millis(150));
         assert_eq!(PANEL, Duration::from_millis(180));
         assert_eq!(LAYOUT, Duration::from_millis(220));
         assert_eq!(THEME, Duration::from_millis(160));

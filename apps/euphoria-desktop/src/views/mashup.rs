@@ -16,9 +16,10 @@ use crate::deck_audio::DeckId;
 use crate::decks::DeckMode;
 use crate::format;
 use crate::mashup::{INSTRUMENTAL_ONLY, VOCALS_ONLY};
+use crate::views::controls::choice_button;
 use crate::views::decks::{deck_part, fader, filter_controls, scope_buttons};
 use crate::views::key_chip::key_chip;
-use crate::views::tag_panel::choice_button;
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_SMALL};
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
 
 /// Height of the list of ideas.
@@ -108,12 +109,12 @@ pub(crate) fn deck_controls(
                 .into_any_element(),
             );
         }
-        preset_row = Some(div().flex().gap(px(4.0)).children(buttons));
+        preset_row = Some(div().flex().gap(GAP_TIGHT).children(buttons));
     }
     let shift_row = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(label("Key"))
         .child(
             secondary_button("\u{2212}", &palette)
@@ -171,7 +172,7 @@ pub(crate) fn deck_controls(
         Some(
             div()
                 .flex()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .children(faders.collect::<Vec<_>>()),
         )
     } else if view.track_index.is_some()
@@ -190,7 +191,7 @@ pub(crate) fn deck_controls(
     div()
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .child(shift_row)
         .children(stems)
 }
@@ -212,7 +213,7 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .children(modes)
         .child(section_label("Layer over deck A", &palette))
         .child(
@@ -285,10 +286,10 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
                     .id(("mashup-idea", idea.track_index))
                     .flex()
                     .flex_col()
-                    .gap(px(2.0))
+                    .gap(GAP_TIGHT)
                     .py(px(4.0))
                     .px(px(6.0))
-                    .rounded(px(4.0))
+                    .rounded(RADIUS_SMALL)
                     .cursor_pointer()
                     .when(is_on_deck, |row| row.bg(chosen_background))
                     .hover(move |style| style.bg(hover_background))
@@ -296,7 +297,7 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(10.0))
+                            .gap(GAP_MEDIUM)
                             .child(div().w(px(38.0)).flex_shrink_0().children(
                                 track.key().map(|key| key_chip(&key, &app.theme, notation)),
                             ))
@@ -364,7 +365,7 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
     } else {
         None
     };
-    let mut root = div().flex().flex_col().gap(px(4.0)).child(heading);
+    let mut root = div().flex().flex_col().gap(GAP_TIGHT).child(heading);
     if !filters.is_empty() {
         root = root.child(
             div()
@@ -372,7 +373,7 @@ pub(crate) fn ideas(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div
                 .flex()
                 .flex_wrap()
                 .items_center()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .children(filters),
         );
     }

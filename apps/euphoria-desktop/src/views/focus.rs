@@ -35,14 +35,18 @@ use crate::stems::StemStatus;
 use crate::theme::Palette;
 use crate::track_overview::TimeRange;
 use crate::transition_plan::OPEN_PLANNER_LINK;
+use crate::views::controls::choice_button;
 use crate::views::cues;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
-use crate::views::tag_panel::choice_button;
 use crate::views::track_overview::{LaneFrame, LaneInputs, VOCALS_HEIGHT, overview_lanes};
 use crate::views::waveform::{WaveformColours, waveform};
 use crate::views::wheel::{emphasis_for, wheel};
-use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
+use crate::views::{
+    GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
+    TITLE_TEXT_SIZE,
+};
+use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, TEXT_SIZE, secondary_button, section_label};
 use crate::waveforms::Waveform;
 
 /// Width of the column of lane names.
@@ -92,7 +96,7 @@ pub(crate) fn render(
         .flex_1()
         .min_w_0()
         .min_h_0()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .p(px(18.0))
         .bg(palette.background)
         .overflow_y_scroll();
@@ -114,10 +118,10 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .id("focus-back")
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .h(px(28.0))
         .px(px(10.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .border_1()
         .border_color(palette.line)
         .bg(palette.raised)
@@ -140,7 +144,7 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .items_center()
             .justify_center()
             .size(px(28.0))
-            .rounded(px(6.0))
+            .rounded(RADIUS_MEDIUM)
             .border_1()
             .border_color(palette.line)
             .bg(palette.raised)
@@ -156,7 +160,7 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .items_center()
         .h(px(28.0))
         .px(px(10.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .border_1()
         .border_color(palette.line)
         .bg(if app.focus.lanes_menu_open {
@@ -179,7 +183,7 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .flex_col()
             .w(px(170.0))
             .p(px(4.0))
-            .rounded(px(8.0))
+            .rounded(RADIUS_LARGE)
             .border_1()
             .border_color(palette.line)
             .bg(palette.panel)
@@ -191,10 +195,10 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                     .id(("focus-lane-toggle", lane.number()))
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
+                    .gap(GAP_SMALL)
                     .h(px(26.0))
                     .px(px(8.0))
-                    .rounded(px(4.0))
+                    .rounded(RADIUS_SMALL)
                     .cursor_pointer()
                     .hover(move |style| style.bg(palette.raised))
                     .child(
@@ -220,7 +224,7 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(back)
         .child(div().flex_1())
         .child(zoom_button("focus-zoom-out", "\u{2212}", 2.0))
@@ -232,10 +236,10 @@ fn chip(label: &'static str, value: impl IntoElement, palette: &Palette) -> Div 
     div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .h(px(30.0))
         .px(px(10.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
@@ -277,7 +281,7 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
         Some(key) => div()
             .flex()
             .items_center()
-            .gap(px(6.0))
+            .gap(GAP_SMALL)
             .child(key_chip(&key, theme, notation))
             .child(
                 div()
@@ -292,7 +296,7 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(16.0))
+        .gap(GAP_LARGE)
         .flex_wrap()
         .child(
             div()
@@ -300,12 +304,12 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                 .flex_col()
                 .flex_1()
                 .min_w(px(260.0))
-                .gap(px(2.0))
+                .gap(GAP_TIGHT)
                 .child(
                     div()
                         .id("focus-title")
                         .truncate()
-                        .text_size(px(22.0))
+                        .text_size(TITLE_TEXT_SIZE)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(track.title().to_string()),
                 )
@@ -329,7 +333,7 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
             div()
                 .flex()
                 .flex_wrap()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .child(
                     chip("Key", key, &palette)
                         .id("focus-chip-key")
@@ -478,7 +482,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
             .id("focus-overview")
             .relative()
             .size_full()
-            .rounded(px(3.0))
+            .rounded(RADIUS_SMALL)
             .bg(palette.raised.opacity(0.5))
             .cursor_pointer()
             .child(waveform(
@@ -534,7 +538,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
             .id("focus-sections")
             .relative()
             .size_full()
-            .rounded(px(3.0))
+            .rounded(RADIUS_SMALL)
             .overflow_hidden()
             .bg(palette.raised.opacity(0.4))
             .children(bands)
@@ -595,7 +599,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
             .id("focus-detail")
             .relative()
             .size_full()
-            .rounded(px(3.0))
+            .rounded(RADIUS_SMALL)
             .overflow_hidden()
             .bg(palette.raised.opacity(0.4))
             .children(tints)
@@ -658,13 +662,16 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         Some(data) => lane_row(div(), data.height, data.element),
         None => energy_slot(&palette),
     });
-    let vocals = lanes.vocals.then(|| match vocals_data {
+    let has_stem_data = vocals_data.is_some()
+        || matches!(app.focus.stems_of(&track.path), Some(StemsLane::Ready(_)));
+    let wants_stem_lanes = lanes.vocals || lanes.stems;
+    let stems_card = (wants_stem_lanes && !has_stem_data).then(|| stems_empty_card(track, app, cx));
+    let vocals = (lanes.vocals && has_stem_data).then(|| match vocals_data {
         Some(data) => lane_row(div(), data.height, data.element),
         None => vocals_slot(&palette),
     });
-    let stems = lanes
-        .stems
-        .then(|| stems_lane(track, app, &viewport, duration, cx));
+    let stems =
+        (lanes.stems && has_stem_data).then(|| stems_lane(track, app, &viewport, duration, cx));
 
     let axis_probe = {
         let seen = app.focus.axis_bounds.clone();
@@ -717,12 +724,13 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .relative()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .children(section_lane)
         .children(detail)
         .children(energy)
         .children(vocals)
         .children(stems)
+        .children(stems_card)
         .child(axis_probe)
         .child(overlay)
         .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
@@ -757,9 +765,9 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .flex()
         .flex_shrink_0()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .p(px(12.0))
-        .rounded(px(8.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
@@ -791,7 +799,7 @@ fn energy_slot(palette: &Palette) -> Div {
     slot(
         Lane::Energy,
         "focus-energy-slot",
-        "Not worked out yet",
+        "No energy curve yet",
         palette,
     )
 }
@@ -801,7 +809,7 @@ fn vocals_slot(palette: &Palette) -> Div {
     slot(
         Lane::Vocals,
         "focus-vocals-slot",
-        "Not worked out yet",
+        "No vocals lane yet",
         palette,
     )
 }
@@ -813,7 +821,7 @@ fn slot(lane: Lane, id: &'static str, text: &'static str, palette: &Palette) -> 
         .items_center()
         .size_full()
         .px(px(8.0))
-        .rounded(px(3.0))
+        .rounded(RADIUS_SMALL)
         .border_1()
         .border_color(palette.line)
         .text_size(LABEL_TEXT_SIZE)
@@ -821,6 +829,77 @@ fn slot(lane: Lane, id: &'static str, text: &'static str, palette: &Palette) -> 
         .child(text)
         .test_support();
     lane_row(lane_name(lane, palette), SLOT_HEIGHT, content)
+}
+
+/// The one card the vocals and stems lanes give way to until the track's
+/// stems are separated.
+fn stems_empty_card(
+    track: &Track,
+    app: &EuphoriaApp,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> AnyElement {
+    let palette = app.theme.palette;
+    let status = app.stems.status(&track.path);
+    let is_separating = matches!(status, Some(StemStatus::Separating));
+    let (headline, body) = if is_separating {
+        (
+            "Separating the stems".to_string(),
+            app.stems
+                .progress()
+                .map_or_else(|| "Working on it.".to_string(), |phase| phase.description()),
+        )
+    } else {
+        (
+            "Stems not separated yet".to_string(),
+            "Splits the track into vocals, drums, bass and the rest. Takes about a minute."
+                .to_string(),
+        )
+    };
+    div()
+        .id("focus-stems-empty")
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(GAP_LARGE)
+        .px(GAP_LARGE)
+        .py(GAP_MEDIUM)
+        .rounded(RADIUS_MEDIUM)
+        .border_1()
+        .border_color(palette.line)
+        .bg(palette.raised.opacity(0.5))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(GAP_TIGHT)
+                .child(
+                    div()
+                        .text_size(TEXT_SIZE)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(palette.text)
+                        .child(headline),
+                )
+                .child(
+                    div()
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(body),
+                ),
+        )
+        .when(!is_separating, |card| {
+            card.child(
+                secondary_button("Separate", &palette)
+                    .id(if app.focus.lanes.stems {
+                        "focus-stems-separate"
+                    } else {
+                        "focus-vocals-separate"
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.request_stems(cx)))
+                    .test_support(),
+            )
+        })
+        .test_support()
+        .into_any_element()
 }
 
 fn stems_lane(
@@ -842,7 +921,7 @@ fn stems_lane(
                 .h(px(STEM_ROW_HEIGHT))
                 .flex()
                 .items_center()
-                .text_size(px(8.5))
+                .text_size(LABEL_TEXT_SIZE)
                 .line_height(px(STEM_ROW_HEIGHT))
                 .text_color(palette.text_tertiary)
                 .child(stem.label())
@@ -867,7 +946,7 @@ fn stems_lane(
                             .bottom_0()
                             .left(relative(start))
                             .w(relative(end - start))
-                            .rounded(px(1.0))
+                            .rounded(RADIUS_SMALL)
                             .bg(palette.accent.opacity(0.7))
                     })
                 });
@@ -875,7 +954,7 @@ fn stems_lane(
                     .id(("focus-stem-row", stem as usize))
                     .relative()
                     .h(px(STEM_ROW_HEIGHT))
-                    .rounded(px(1.0))
+                    .rounded(RADIUS_SMALL)
                     .bg(palette.raised.opacity(0.5))
                     .children(bars)
                     .test_support()
@@ -958,9 +1037,9 @@ fn panel(palette: &Palette) -> Div {
         .flex_col()
         .min_w_0()
         .h(px(BOTTOM_HEIGHT))
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .p(px(14.0))
-        .rounded(px(8.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
@@ -970,7 +1049,7 @@ fn bottom(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
     div()
         .flex()
         .flex_shrink_0()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .child(mixes_into(app, cx).flex_1())
         .child(plan(track, app, cx).w(px(380.0)).flex_shrink_0())
 }
@@ -987,7 +1066,7 @@ fn tempo_chip(
         .items_center()
         .px(px(6.0))
         .py(px(1.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .bg(colour.opacity(0.16))
         .text_size(LABEL_TEXT_SIZE)
         .font_weight(FontWeight::MEDIUM)
@@ -1051,10 +1130,10 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                     .flex()
                     .flex_shrink_0()
                     .items_center()
-                    .gap(px(10.0))
+                    .gap(GAP_MEDIUM)
                     .h(px(MIX_ROW_HEIGHT))
                     .px(px(6.0))
-                    .rounded(px(6.0))
+                    .rounded(RADIUS_MEDIUM)
                     .cursor_pointer()
                     .map(|row| {
                         if is_picked {
@@ -1075,7 +1154,7 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(6.0))
+                            .gap(GAP_SMALL)
                             .flex_1()
                             .min_w_0()
                             .overflow_hidden()
@@ -1146,7 +1225,7 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             div()
                 .flex()
                 .items_center()
-                .gap(px(10.0))
+                .gap(GAP_MEDIUM)
                 .child(section_label("Mixes into", &palette))
                 .child(
                     div()
@@ -1159,7 +1238,7 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             div()
                 .flex()
                 .items_center()
-                .gap(px(10.0))
+                .gap(GAP_MEDIUM)
                 .px(px(6.0))
                 .child(div().w(px(20.0)).flex_shrink_0())
                 .child(column_label("Key", Some(MIX_KEY_WIDTH), &palette))
@@ -1200,22 +1279,25 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
 
 fn plan(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
-    let tabs = div().flex().gap(px(6.0)).children(PlanTab::ALL.map(|tab| {
-        choice_button(
-            ("focus-plan-tab", tab as usize),
-            tab.label(),
-            app.focus.plan_tab == tab,
-            &palette,
-        )
-        .on_click(cx.listener(move |this, _, _, cx| this.set_plan_tab(tab, cx)))
-        .test_support()
-    }));
+    let tabs = div()
+        .flex()
+        .gap(GAP_SMALL)
+        .children(PlanTab::ALL.map(|tab| {
+            choice_button(
+                ("focus-plan-tab", tab as usize),
+                tab.label(),
+                app.focus.plan_tab == tab,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_plan_tab(tab, cx)))
+            .test_support()
+        }));
     let body = match app.focus.plan_tab {
         PlanTab::Transition => crate::views::planner::transition_tab(app, cx),
         PlanTab::Mashup => div()
             .flex()
             .flex_col()
-            .gap(px(10.0))
+            .gap(GAP_MEDIUM)
             .child(
                 div()
                     .text_color(palette.text_secondary)
@@ -1303,7 +1385,7 @@ fn clash_cell(app: &EuphoriaApp, track_index: usize, palette: &Palette) -> AnyEl
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .w(px(CLASH_COLUMN_WIDTH))
         .children(strip)
         .child(

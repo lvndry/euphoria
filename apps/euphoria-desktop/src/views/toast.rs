@@ -11,6 +11,7 @@ use gpui::{BoxShadow, Context, Div, FontWeight, SharedString, TestSupportExt, di
 use crate::app::EuphoriaApp;
 use crate::toast::{SLIDE_DISTANCE, ToastAction};
 use crate::views::SMALL_TEXT_SIZE;
+use crate::views::{GAP_MEDIUM, RADIUS_LARGE};
 
 /// Space between the toast and what lies below it.
 const GAP_ABOVE_BAR: f32 = 14.0;
@@ -33,11 +34,11 @@ pub(crate) fn render(app: &EuphoriaApp, now: Instant, cx: &mut Context<'_, Eupho
         .id("toast")
         .flex()
         .items_center()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .px(px(12.0))
         .py(px(8.0))
         .max_w(gpui::relative(0.9))
-        .rounded(px(10.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.raised)

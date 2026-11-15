@@ -7,8 +7,7 @@
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, SharedString, TestSupportExt, div, px, relative,
-    uniform_list,
+    AnyElement, Context, FontWeight, SharedString, TestSupportExt, div, px, relative, uniform_list,
 };
 
 use crate::app::EuphoriaApp;
@@ -18,6 +17,10 @@ use crate::tag_flow::{Preview, PreviewKind, TagPanel, WriteScope};
 use crate::tag_settings::TagSettings;
 use crate::tag_writing::{LeftOut, PreviewRow};
 use crate::theme::Palette;
+use crate::views::controls::{segment, segmented, text_link};
+use crate::views::{
+    GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_MEDIUM, RADIUS_SMALL, TITLE_TEXT_SIZE,
+};
 use crate::views::{SMALL_TEXT_SIZE, modal, primary_button, secondary_button};
 use euphoria_core::tags::{describe_serato_value, serato_field_name};
 
@@ -280,9 +283,9 @@ fn preview_contents(
                 .id("program-running-strip")
                 .flex_shrink_0()
                 .p(px(10.0))
-                .rounded(px(6.0))
+                .rounded(RADIUS_MEDIUM)
                 .border_1()
-                .border_color(palette.danger)
+                .border_color(palette.warning)
                 .text_size(SMALL_TEXT_SIZE)
                 .child(format!(
                     "{} is running. It may save a file at the same moment Euphoria writes it \
@@ -375,15 +378,14 @@ fn rules_in_use(
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
-    let accent = palette.accent;
     div()
         .id("tag-rules")
         .flex_shrink_0()
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .p(px(10.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .bg(palette.raised)
         .text_size(SMALL_TEXT_SIZE)
         .child(
@@ -398,12 +400,7 @@ fn rules_in_use(
                         .child("Rules in use"),
                 )
                 .child(
-                    div()
-                        .id("change-tag-settings")
-                        .cursor_pointer()
-                        .text_color(accent)
-                        .hover(|style| style.underline())
-                        .child("Change settings")
+                    text_link("change-tag-settings", "Change settings", palette)
                         .on_click(cx.listener(|this, _, _, cx| this.change_tag_settings(cx)))
                         .test_support(),
                 ),
@@ -416,7 +413,7 @@ fn rules_in_use(
                     div()
                         .id(("tag-rule", index))
                         .flex()
-                        .gap(px(6.0))
+                        .gap(GAP_SMALL)
                         .text_color(palette.text_secondary)
                         .child(div().text_color(palette.text_tertiary).child("\u{2022}"))
                         .child(rule)
@@ -435,72 +432,45 @@ fn scope_switch(
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
-    let option =
-        |id: &'static str, label: String, choice: WriteScope, cx: &mut Context<'_, EuphoriaApp>| {
-            let is_chosen = scope == choice;
-            choice_button(id, label, is_chosen, palette)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if !is_chosen {
-                        this.plan_tag_write(choice, cx);
-                    }
-                }))
-                .test_support()
-                .into_any_element()
-        };
+    let option = |id: &'static str,
+                  label: String,
+                  choice: WriteScope,
+                  is_first: bool,
+                  cx: &mut Context<'_, EuphoriaApp>| {
+        let is_chosen = scope == choice;
+        segment(id, label, is_chosen, is_first, palette)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if !is_chosen {
+                    this.plan_tag_write(choice, cx);
+                }
+            }))
+            .test_support()
+            .into_any_element()
+    };
     let selected = app.selected_tracks().len();
     let shown = app.visible.len();
     div()
         .flex()
-        .gap(px(6.0))
-        .child(option(
-            "scope-selection",
-            format!("Selected tracks ({})", format::count(selected)),
-            WriteScope::Selection,
-            cx,
-        ))
-        .child(option(
-            "scope-shown",
-            format!("All shown ({})", format::count(shown)),
-            WriteScope::Shown,
-            cx,
+        .child(segmented(
+            vec![
+                option(
+                    "scope-selection",
+                    format!("Selected tracks ({})", format::count(selected)),
+                    WriteScope::Selection,
+                    true,
+                    cx,
+                ),
+                option(
+                    "scope-shown",
+                    format!("All shown ({})", format::count(shown)),
+                    WriteScope::Shown,
+                    false,
+                    cx,
+                ),
+            ],
+            palette,
         ))
         .into_any_element()
-}
-
-/// A button among a few choices, filled when it is the one chosen.
-pub(crate) fn choice_button(
-    id: impl Into<gpui::ElementId>,
-    label: impl Into<SharedString>,
-    is_chosen: bool,
-    palette: &Palette,
-) -> gpui::Stateful<Div> {
-    let hover_background = palette.raised;
-    div()
-        .id(id)
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .h(px(26.0))
-        .px(px(10.0))
-        .rounded(px(6.0))
-        .border_1()
-        .text_size(SMALL_TEXT_SIZE)
-        .cursor_pointer()
-        .map(|button| {
-            if is_chosen {
-                button
-                    .border_color(palette.accent)
-                    .bg(palette.accent)
-                    .text_color(palette.accent_ink)
-                    .font_weight(FontWeight::MEDIUM)
-            } else {
-                button
-                    .border_color(palette.line)
-                    .text_color(palette.text_secondary)
-                    .hover(move |style| style.bg(hover_background))
-            }
-        })
-        .child(label.into())
 }
 
 /// Every change, a file at a time, in a list that builds only the lines in
@@ -519,7 +489,7 @@ fn preview_list(
         .h(px(height))
         .border_1()
         .border_color(line)
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .child(
             uniform_list(
                 "tag-preview-rows",
@@ -549,7 +519,7 @@ fn preview_row(index: usize, row: &PreviewRow, palette: &Palette) -> AnyElement 
         .w_full()
         .flex()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .h(px(PREVIEW_ROW_HEIGHT))
         .px(px(10.0))
         .text_size(SMALL_TEXT_SIZE);
@@ -720,7 +690,7 @@ fn problems(
             .flex()
             .flex_col()
             .flex_shrink_0()
-            .gap(px(4.0))
+            .gap(GAP_TIGHT)
             .text_size(SMALL_TEXT_SIZE)
             .child(
                 div()
@@ -767,7 +737,7 @@ fn problem_row(list: ProblemList, index: usize, file: &LeftOut, palette: &Palett
         .flex()
         .w_full()
         .items_center()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .h(px(PROBLEM_ROW_HEIGHT))
         .tooltip(move |window, cx| Tooltip::new(in_full.clone()).build(window, cx))
         .child(div().w(px(220.0)).flex_shrink_0().truncate().child(name))
@@ -793,13 +763,13 @@ fn progress_bar(done: usize, total: usize, palette: &Palette) -> AnyElement {
         .id("tag-progress")
         .h(px(6.0))
         .w_full()
-        .rounded(px(3.0))
+        .rounded(RADIUS_SMALL)
         .bg(palette.raised)
         .child(
             div()
                 .h_full()
                 .w(relative(fraction))
-                .rounded(px(3.0))
+                .rounded(RADIUS_SMALL)
                 .bg(palette.accent),
         )
         .test_support()
@@ -808,7 +778,7 @@ fn progress_bar(done: usize, total: usize, palette: &Palette) -> AnyElement {
 
 fn title(text: &str) -> AnyElement {
     div()
-        .text_size(px(15.0))
+        .text_size(TITLE_TEXT_SIZE)
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_string())
         .into_any_element()
@@ -826,7 +796,7 @@ fn buttons(buttons: Vec<AnyElement>) -> AnyElement {
     div()
         .flex()
         .justify_end()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .pt(px(4.0))
         .children(buttons)
         .into_any_element()

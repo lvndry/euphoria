@@ -145,9 +145,9 @@ A file that already has `----:com.apple.iTunes:BPM` in M4A or MP4, or `TEMPO` in
 
 `euphoria tags write` and the desktop app write a key or tempo only when it is safe to:
 
-- A key or tempo the file already has, and that can be read, is kept (`--overwrite`, or the setting **Replace existing key and tempo**, replaces it). A tempo is read with a point or a comma as the decimal mark, so `127,5` and `127.5` are the same, and a field that holds the same number is not rewritten.
+- A key or tempo the file already has, and that can be read, is kept (`--overwrite`, or the setting **Keep keys and tempos already in files** turned off, replaces it). A tempo is read with a point or a comma as the decimal mark, so `127,5` and `127.5` are the same, and a field that holds the same number is not rewritten.
 - A value Euphoria's analysis wrote earlier and that is still in the file as written is not kept: the write log records which values came from an analysis, and a newer analysis or a correction replaces them. Values typed by hand, written by another program or written by earlier versions are kept.
-- A key or tempo rated low confidence is left out (`--include-low-confidence`, or the setting **Also write low confidence values**). A value you corrected has no rating and is written.
+- A key or tempo rated low confidence is left out (`--include-low-confidence`, or the setting **Write low confidence values**). A value you corrected has no rating and is written.
 - A label is written only where asked for. The default of the generic preset is none.
 
 The preview lists what was left out and why. In the library, `plan_write` takes both choices in `TagWriteOptions` (`keep_existing` and `skip_low_confidence`, off by default there so that library callers get exactly what they ask for), `plan_write_with_history` takes the values the write log remembers, and `WritePlan::skipped` lists the values left out.

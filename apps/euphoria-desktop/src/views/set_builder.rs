@@ -21,9 +21,13 @@ use crate::journey::{
 };
 use crate::set_builder::{FEWEST_TRACKS, MOST_TRACKS, PlannedSet, SetPool};
 use crate::theme::Palette;
+use crate::views::controls::{choice_button, segment, segmented};
 use crate::views::key_chip::key_chip;
 use crate::views::player::{GLYPH_SIZE, paint_pause_glyph, paint_play_glyph};
-use crate::views::tag_panel::choice_button;
+use crate::views::{
+    GAP_LARGE, GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
+    TITLE_TEXT_SIZE,
+};
 use crate::views::{
     LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, primary_button, secondary_button, section_label,
 };
@@ -54,7 +58,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .bg(palette.background)
         .px(px(24.0))
         .py(px(20.0))
-        .gap(px(16.0))
+        .gap(GAP_LARGE)
         .child(heading(&palette))
         .child(controls(app, cx))
         .child(pool_choices(app, cx))
@@ -80,10 +84,10 @@ fn heading(palette: &Palette) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .child(
             div()
-                .text_size(px(18.0))
+                .text_size(TITLE_TEXT_SIZE)
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Set builder"),
         )
@@ -93,6 +97,10 @@ fn heading(palette: &Palette) -> Div {
                 .child("Draw the energy you want over the set, choose the tracks to pick from, and Euphoria orders a set that follows the curve with every mix in key and small tempo steps."),
         )
 }
+
+/// The button that writes the set to a file; the format is chosen in the
+/// dialog that opens.
+pub(crate) const EXPORT_ACTION: &str = "Export playlist\u{2026}";
 
 fn controls(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
@@ -110,19 +118,25 @@ fn controls(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     } else {
         "Build set"
     };
-    let mut presets = div().flex().items_center().gap(px(6.0));
-    for preset in CurvePreset::ALL {
-        presets = presets.child(
-            choice_button(
-                ("set-preset", preset as usize),
-                preset.label(),
-                builder.preset == Some(preset),
-                &palette,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.choose_set_preset(preset, cx)))
-            .test_support(),
-        );
-    }
+    let mut presets = div().flex().items_center().gap(GAP_SMALL).child(segmented(
+        CurvePreset::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, preset)| {
+                segment(
+                    ("set-preset", preset as usize),
+                    preset.label(),
+                    builder.preset == Some(preset),
+                    index == 0,
+                    &palette,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.choose_set_preset(preset, cx)))
+                .test_support()
+                .into_any_element()
+            })
+            .collect(),
+        &palette,
+    ));
     if builder.preset.is_none() {
         presets = presets.child(
             div()
@@ -135,14 +149,14 @@ fn controls(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(16.0))
+        .gap(GAP_LARGE)
         .child(labelled("Curve", presets, &palette))
         .child(labelled(
             "Length",
             div()
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .child(
                     secondary_button("−", &palette)
                         .id("set-shorter")
@@ -189,7 +203,7 @@ fn labelled(label: &'static str, control: Div, palette: &Palette) -> Div {
     div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(section_label(label, palette))
         .child(control)
 }
@@ -223,7 +237,7 @@ fn pool_choices(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             format!("{} ({})", playlist.name, playlist.tracks.len()),
         ));
     }
-    let mut row = div().flex().flex_wrap().items_center().gap(px(6.0));
+    let mut row = div().flex().flex_wrap().items_center().gap(GAP_SMALL);
     for (index, (pool, label)) in choices.into_iter().enumerate() {
         let is_chosen = &pool == current;
         row = row.child(
@@ -295,7 +309,7 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let legend = div()
         .flex()
         .items_center()
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .text_size(LABEL_TEXT_SIZE)
         .text_color(palette.text_tertiary)
         .child("Drag across the chart to draw the curve. Higher is more energy, from 1 to 10.")
@@ -338,13 +352,13 @@ fn curve_card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .p(px(12.0))
-        .rounded(px(10.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
-        .child(div().flex().gap(px(8.0)).child(axis).child(chart))
+        .child(div().flex().gap(GAP_SMALL).child(axis).child(chart))
         .child(legend)
 }
 
@@ -418,7 +432,7 @@ fn bar_column(
             .max_w(px(MAX_BAR_WIDTH))
             .min_w(px(3.0))
             .h(px(height))
-            .rounded_t(px(2.0))
+            .rounded_t(RADIUS_SMALL)
             .bg(colour)
             .cursor_pointer()
             .when(bar.is_selected, move |element| {
@@ -544,8 +558,14 @@ fn legend_swatch(label: &'static str, colour: Hsla) -> Div {
     div()
         .flex()
         .items_center()
-        .gap(px(5.0))
-        .child(div().w(px(12.0)).h(px(3.0)).rounded(px(2.0)).bg(colour))
+        .gap(GAP_TIGHT)
+        .child(
+            div()
+                .w(px(12.0))
+                .h(px(3.0))
+                .rounded(RADIUS_SMALL)
+                .bg(colour),
+        )
         .child(label)
 }
 
@@ -621,7 +641,7 @@ fn chip(summary_chip: &SummaryChip, index: usize, palette: &Palette) -> AnyEleme
         .id(("set-chip", index))
         .px(px(10.0))
         .py(px(3.0))
-        .rounded(px(12.0))
+        .rounded(RADIUS_LARGE)
         .bg(background)
         .text_color(text)
         .text_size(SMALL_TEXT_SIZE)
@@ -641,7 +661,7 @@ fn summary(
     let seconds: f32 = app.set_track_seconds(planned).iter().sum();
     let plan = &planned.plan;
     let is_open = app.set_builder.details_open;
-    let mut chips = div().flex().flex_wrap().items_center().gap(px(6.0));
+    let mut chips = div().flex().flex_wrap().items_center().gap(GAP_SMALL);
     for (index, summary_chip) in journey::summary_chips(plan, seconds).iter().enumerate() {
         chips = chips.child(chip(summary_chip, index, &palette));
     }
@@ -649,10 +669,10 @@ fn summary(
         .id("set-details-toggle")
         .flex()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .px(px(6.0))
         .py(px(2.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .cursor_pointer()
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
@@ -679,13 +699,13 @@ fn summary(
         .id("set-summary")
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(
             div()
                 .flex()
                 .flex_wrap()
                 .items_center()
-                .gap(px(10.0))
+                .gap(GAP_MEDIUM)
                 .child(chips)
                 .child(toggle)
                 .child(div().flex_1())
@@ -696,9 +716,9 @@ fn summary(
             .id("set-details")
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(GAP_TIGHT)
             .p(px(10.0))
-            .rounded(px(8.0))
+            .rounded(RADIUS_LARGE)
             .bg(palette.panel)
             .border_1()
             .border_color(palette.line)
@@ -736,7 +756,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
     let mut rows = div()
         .flex()
         .flex_col()
-        .rounded(px(10.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line);
     for (position, path) in planned.paths.iter().enumerate() {
@@ -791,11 +811,9 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                 palette.warning
             };
             with_rule_tooltip(
-                div().text_color(colour).child(
-                    transition
-                        .relation
-                        .map_or("Key clash", |relation| relation.label()),
-                ),
+                div()
+                    .text_color(colour)
+                    .child(crate::harmony_words::movement_label(transition.relation)),
                 "set-row-key",
             )
         });
@@ -804,7 +822,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                 .id(("set-energy", position))
                 .flex()
                 .px(px(6.0))
-                .rounded(px(4.0))
+                .rounded(RADIUS_SMALL)
                 .when(off_target, |cell| {
                     cell.bg(palette.warning.opacity(0.16))
                         .text_color(palette.warning)
@@ -848,7 +866,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
             }))
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(GAP_MEDIUM)
             .px(px(12.0))
             .py(px(6.0))
             .text_size(SMALL_TEXT_SIZE)
@@ -889,7 +907,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                     .items_center()
                     .justify_center()
                     .size(px(crate::views::row_actions::ICON_SIZE))
-                    .rounded(px(5.0))
+                    .rounded(RADIUS_MEDIUM)
                     .bg(if is_selected { line } else { raised })
                     .cursor_pointer()
                     .hover(move |style| style.bg(line))
@@ -922,21 +940,44 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                     .test_support(),
             )
             .child(
-                choice_button(
-                    ("set-lock", position),
-                    if is_locked { "Locked" } else { "Lock" },
-                    is_locked,
-                    &palette,
-                )
-                .tooltip(|window, cx| {
-                    Tooltip::new("Keep this track here when the set is built again.")
+                div()
+                    .id(("set-lock", position))
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .size(px(crate::views::row_actions::ICON_SIZE))
+                    .rounded(RADIUS_SMALL)
+                    .cursor_pointer()
+                    .map(|button| {
+                        if is_locked {
+                            button
+                                .bg(Palette::tint(palette.accent))
+                                .text_color(palette.accent)
+                        } else {
+                            button
+                                .text_color(palette.text_tertiary)
+                                .hover(move |style| style.bg(line))
+                        }
+                    })
+                    .tooltip(move |window, cx| {
+                        Tooltip::new(if is_locked {
+                            "Locked: this track stays here when the set is built again. Click to unlock."
+                        } else {
+                            "Keep this track here when the set is built again."
+                        })
                         .build(window, cx)
-                })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.toggle_set_lock(position, cx);
-                    cx.stop_propagation();
-                }))
-                .test_support(),
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_set_lock(position, cx);
+                        cx.stop_propagation();
+                    }))
+                    .child(
+                        Icon::default()
+                            .path(crate::assets::LOCK_ICON_PATH)
+                            .size(px(12.0)),
+                    )
+                    .test_support(),
             )
             .child(
                 div()
@@ -953,14 +994,14 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                 ),
             )
             .child(div().w(px(44.0)).children(step))
-            .child(div().w(px(96.0)).children(movement))
+            .child(div().w(px(144.0)).children(movement))
             .child(div().w(px(120.0)).children(energy))
             .child(div().w(px(104.0)).when(position > 0, |cell| {
                 cell.child(
                     div()
                         .id(("set-transition", position))
                         .px(px(6.0))
-                        .rounded(px(4.0))
+                        .rounded(RADIUS_SMALL)
                         .cursor_pointer()
                         .text_color(palette.text_secondary)
                         .hover(move |style| style.bg(raised))
@@ -1019,7 +1060,7 @@ fn set_rows(app: &EuphoriaApp, planned: &PlannedSet, cx: &mut Context<'_, Euphor
                 div()
                     .id(("set-remove", position))
                     .px(px(6.0))
-                    .rounded(px(4.0))
+                    .rounded(RADIUS_SMALL)
                     .text_color(palette.text_tertiary)
                     .map(|button| {
                         if is_locked {
@@ -1062,7 +1103,7 @@ fn row_button(
     div()
         .id(id)
         .p(px(4.0))
-        .rounded(px(4.0))
+        .rounded(RADIUS_SMALL)
         .text_color(palette.text_secondary)
         .child(Icon::new(icon).size(px(12.0)))
         .map(|button| {
@@ -1089,7 +1130,7 @@ fn set_actions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(
             secondary_button(
                 if saved.is_some() {
@@ -1106,7 +1147,7 @@ fn set_actions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .test_support(),
         )
         .child(
-            secondary_button("Export M3U8…", &palette)
+            secondary_button(EXPORT_ACTION, &palette)
                 .id("export-set")
                 .on_click(cx.listener(|this, _, _, cx| this.export_set(cx)))
                 .test_support(),

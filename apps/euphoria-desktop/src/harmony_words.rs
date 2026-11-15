@@ -60,6 +60,9 @@ impl TempoMove {
     }
 }
 
+/// What the key column says when two tracks have no relation on the wheel.
+pub(crate) const KEY_CLASH_LABEL: &str = "Key clash";
+
 /// The name of a key relation for a person mixing.
 pub(crate) fn relation_name(relation: Relation) -> &'static str {
     match relation {
@@ -67,6 +70,12 @@ pub(crate) fn relation_name(relation: Relation) -> &'static str {
         Relation::Diagonal => "Wheel diagonal",
         other => other.label(),
     }
+}
+
+/// What the key column of a set says for the move to a track: the name of
+/// its relation on the wheel, or [`KEY_CLASH_LABEL`] when it has none.
+pub(crate) fn movement_label(relation: Option<Relation>) -> &'static str {
+    relation.map_or(KEY_CLASH_LABEL, relation_name)
 }
 
 /// The hint that explains a relation name, where the name alone does not.
@@ -89,6 +98,26 @@ pub(crate) const LAYERS_LABEL: &str = "Layers";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_set_builder_names_moves_with_the_shared_words() {
+        assert_eq!(
+            movement_label(Some(Relation::Adjacent)),
+            "One step on the wheel"
+        );
+        assert_eq!(movement_label(Some(Relation::EnergyBoost)), "Energy boost");
+        assert_eq!(movement_label(None), "Key clash");
+        for relation in [
+            Relation::Same,
+            Relation::Adjacent,
+            Relation::Relative,
+            Relation::Diagonal,
+            Relation::EnergyBoost,
+        ] {
+            assert_ne!(movement_label(Some(relation)), "Adjacent");
+            assert_eq!(movement_label(Some(relation)), relation_name(relation));
+        }
+    }
 
     #[test]
     fn tempo_thresholds_pick_the_chip_and_its_tone() {

@@ -14,7 +14,8 @@ use crate::first_run::{StepState, Steps};
 use crate::format;
 use crate::tag_settings::ProgramChoice;
 use crate::theme::Palette;
-use crate::views::tag_panel::choice_button;
+use crate::views::controls::choice_button;
+use crate::views::{GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE};
 use crate::views::{SMALL_TEXT_SIZE, primary_button};
 
 /// What the third step promises, in the words of the tag settings.
@@ -142,7 +143,7 @@ pub(crate) fn card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div 
             .id("first-run")
             .grid()
             .grid_cols(3)
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .px(px(12.0))
             .py(px(10.0))
             .child(add_music.test_support())
@@ -172,10 +173,10 @@ fn step(
         .id(id)
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .min_w_0()
         .p(px(10.0))
-        .rounded(px(8.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(if state == StepState::Now {
             palette.accent
@@ -187,7 +188,7 @@ fn step(
         .child(
             div()
                 .font_family(mono.clone())
-                .text_size(px(11.0))
+                .text_size(LABEL_TEXT_SIZE)
                 .text_color(palette.text_tertiary)
                 .child(number.to_string()),
         )

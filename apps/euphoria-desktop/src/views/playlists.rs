@@ -21,6 +21,7 @@ use crate::playlist_flow::{DraggedPlaylist, DraggedTracks, PlaylistFormat};
 use crate::playlists::{LABELS, Playlist, PlaylistId, SetShape};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 
 /// Height of a playlist's row in the sidebar.
@@ -44,7 +45,7 @@ impl Render for DragLabel {
         div()
             .px(px(10.0))
             .py(px(4.0))
-            .rounded(px(6.0))
+            .rounded(RADIUS_MEDIUM)
             .bg(self.background)
             .text_color(self.foreground)
             .text_size(SMALL_TEXT_SIZE)
@@ -97,7 +98,7 @@ pub(crate) fn sidebar_section(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaAp
                         .items_center()
                         .justify_center()
                         .size(px(18.0))
-                        .rounded(px(4.0))
+                        .rounded(RADIUS_SMALL)
                         .text_color(palette.text_tertiary)
                         .cursor_pointer()
                         .hover(move |style| style.bg(hover_background))
@@ -126,7 +127,7 @@ pub(crate) fn sidebar_section(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaAp
                 .id("playlist-list")
                 .flex()
                 .flex_col()
-                .gap(px(1.0))
+                .gap(GAP_TIGHT)
                 .max_h(px(LIST_MAXIMUM_HEIGHT))
                 .overflow_y_scroll()
                 .children(rows)
@@ -175,10 +176,10 @@ fn playlist_row(
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .h(px(ROW_HEIGHT))
         .px(px(8.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .map(|row| {
             if is_current {
                 row.bg(palette.raised)
@@ -436,7 +437,7 @@ pub(crate) fn set_summary(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(2.0))
+        .gap(GAP_TIGHT)
         .min_w_0()
         .children(shape.keys.iter().take(KEY_PATH_LIMIT).enumerate().flat_map(
             |(position, (key, is_smooth))| {
@@ -508,7 +509,7 @@ pub(crate) fn set_summary(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
             .flex_shrink_0()
             .px(px(8.0))
             .py(px(2.0))
-            .rounded(px(5.0))
+            .rounded(RADIUS_MEDIUM)
             .border_1()
             .border_color(palette.line)
             .text_size(SMALL_TEXT_SIZE)
@@ -524,7 +525,7 @@ pub(crate) fn set_summary(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
         div()
             .flex()
             .items_center()
-            .gap(px(12.0))
+            .gap(GAP_MEDIUM)
             .min_w_0()
             .child(key_path)
             .children(tempo)
@@ -535,7 +536,7 @@ pub(crate) fn set_summary(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) 
                     .flex()
                     .flex_shrink_0()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(GAP_TIGHT)
                     .text_size(SMALL_TEXT_SIZE)
                     .text_color(palette.text_tertiary)
                     .child("Export")

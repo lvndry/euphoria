@@ -23,12 +23,13 @@ use crate::format;
 use crate::harmony_words::relation_name;
 use crate::player::fraction_along;
 use crate::theme::Palette;
+use crate::views::controls::{choice_button, pressed_button, toggle_row};
 use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::mashup;
-use crate::views::tag_panel::choice_button;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_SMALL};
 use crate::views::{SMALL_TEXT_SIZE, secondary_button, section_label};
 use crate::waveforms::Waveform;
 
@@ -136,7 +137,7 @@ where
                 .left_0()
                 .right_0()
                 .h(px(2.0))
-                .rounded(px(1.0))
+                .rounded(RADIUS_SMALL)
                 .bg(palette.line),
         )
         .child(
@@ -147,7 +148,7 @@ where
                 .ml(px(-4.0))
                 .w(px(8.0))
                 .h(px(12.0))
-                .rounded(px(3.0))
+                .rounded(RADIUS_SMALL)
                 .bg(palette.text_secondary),
         );
     press_and_drag(track, seen_bounds, cx, set)
@@ -162,7 +163,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .flex()
         .flex_col()
         .flex_shrink_0()
-        .gap(px(10.0))
+        .gap(GAP_MEDIUM)
         .p(px(12.0))
         .border_t_1()
         .border_color(palette.line)
@@ -170,7 +171,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             div()
                 .flex()
-                .gap(px(12.0))
+                .gap(GAP_MEDIUM)
                 .child(deck(app, DeckId::A, cx).test_support())
                 .child(mixer(app, cx))
                 .child(deck(app, DeckId::B, cx).test_support()),
@@ -238,12 +239,12 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
     let header = div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .child(
             div()
                 .flex_shrink_0()
                 .px(px(6.0))
-                .rounded(px(4.0))
+                .rounded(RADIUS_SMALL)
                 .bg(palette.accent)
                 .text_color(palette.accent_ink)
                 .font_weight(FontWeight::SEMIBOLD)
@@ -326,7 +327,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .child(
             div()
                 .text_size(SMALL_TEXT_SIZE)
@@ -335,7 +336,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         )
         .children(LOOP_BARS.map(|bars| {
             let is_looping = decks.is_looping(deck, bars);
-            choice_button(loop_id(deck, bars), bars.to_string(), is_looping, &palette)
+            pressed_button(loop_id(deck, bars), bars.to_string(), is_looping, &palette)
                 .when(!has_grid, |button| button.opacity(0.5).cursor_default())
                 .tooltip(move |window, cx| {
                     let text = if !has_grid {
@@ -358,41 +359,27 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(
-            choice_button(deck_part("deck-play", deck), play_label, view.playing, &palette)
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_deck_play(deck, cx)))
-                .test_support(),
+            pressed_button(
+                deck_part("deck-play", deck),
+                play_label,
+                view.playing,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_deck_play(deck, cx)))
+            .test_support(),
         )
         .child(
             div()
                 .text_size(SMALL_TEXT_SIZE)
                 .text_color(palette.text_secondary)
-                .child(format!("{} / {duration}", format::duration(position as f32))),
+                .child(format!(
+                    "{} / {duration}",
+                    format::duration(position as f32)
+                )),
         )
         .child(div().flex_1())
-        .child(
-            choice_button(deck_part("deck-keylock", deck), "Key lock", view.keylock, &palette)
-                .tooltip(|window, cx| {
-                    Tooltip::new(
-                        "Keep the pitch when the tempo changes. Off, the pitch follows the speed, as on a turntable.",
-                    )
-                    .build(window, cx)
-                })
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_keylock(deck, cx)))
-                .test_support(),
-        )
-        .when(deck == DeckId::B, |row| {
-            row.child(
-                choice_button("deck-sync", "Sync to A", app.decks.sync, &palette)
-                    .tooltip(|window, cx| {
-                        Tooltip::new("Play deck B at deck A's tempo, aligning their upcoming downbeats.")
-                            .build(window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sync(cx)))
-                    .test_support(),
-            )
-        })
         .child(
             secondary_button("Load selected", &palette)
                 .id(deck_part("deck-load", deck))
@@ -400,17 +387,51 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .test_support(),
         );
 
+    let switches = div()
+        .flex()
+        .flex_col()
+        .child(
+            toggle_row(
+                deck_part("deck-keylock", deck),
+                "Key lock",
+                "Keeps the pitch when the tempo changes.",
+                view.keylock,
+                &app.switches,
+                &palette,
+            )
+            .tooltip(|window, cx| {
+                Tooltip::new("Off, the pitch follows the speed, as on a turntable.")
+                    .build(window, cx)
+            })
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_keylock(deck, cx)))
+            .test_support(),
+        )
+        .when(deck == DeckId::B, |column| {
+            column.child(
+                toggle_row(
+                    "deck-sync",
+                    "Sync to A",
+                    "Plays at deck A's tempo, upcoming downbeats lined up.",
+                    app.decks.sync,
+                    &app.switches,
+                    &palette,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_sync(cx)))
+                .test_support(),
+            )
+        });
+
     div()
         .id(deck_part("deck", deck))
         .flex()
         .flex_col()
         .flex_1()
         .min_w_0()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(header)
         .child(waveform_area)
         .children(lanes.into_iter().flatten().map(|lane| lane.element))
-        .child(div().flex().flex_wrap().gap(px(4.0)).children(cues))
+        .child(div().flex().flex_wrap().gap(GAP_TIGHT).children(cues))
         .child(mashup::deck_controls(app, deck, cx))
         .children(view.problem.clone().map(|problem| {
             div()
@@ -419,6 +440,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 .child(problem)
         }))
         .child(transport)
+        .child(switches)
         .child(loops)
 }
 
@@ -531,7 +553,7 @@ fn mixer(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .flex_col()
         .flex_shrink_0()
         .w(px(132.0))
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .child(section_label("Mixer", &palette))
         .child(label("Volume A"))
         .child(fader(
@@ -569,7 +591,7 @@ fn mixer(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 div()
                     .id("deck-load-readout")
                     .pt(px(6.0))
-                    .text_size(px(10.0))
+                    .text_size(LABEL_TEXT_SIZE)
                     .text_color(crate::views::planner::amber())
                     .child(readout.dropped_text())
                     .tooltip(tooltip)
@@ -578,7 +600,7 @@ fn mixer(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 div()
                     .id("deck-load-hint")
                     .pt(px(6.0))
-                    .text_size(px(10.0))
+                    .text_size(LABEL_TEXT_SIZE)
                     .text_color(palette.text_tertiary)
                     .child("Load")
                     .tooltip(tooltip)
@@ -612,7 +634,7 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .children(mashup::mode_buttons(app, cx))
         .child(section_label("Next on deck B", &palette))
         .child(div().flex_1())
@@ -653,7 +675,7 @@ pub(crate) fn filter_controls(
     let mut window = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child("Tempo window")
@@ -667,7 +689,7 @@ pub(crate) fn filter_controls(
     let mut beat_row = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child("Tempo")
@@ -687,7 +709,7 @@ pub(crate) fn filter_controls(
     let mut energy_row = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child("Energy")
@@ -707,7 +729,7 @@ pub(crate) fn filter_controls(
     let mut genre_row = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .text_size(SMALL_TEXT_SIZE)
         .text_color(palette.text_secondary)
         .child("Genre");
@@ -806,10 +828,10 @@ fn suggestion_rows(
                 .id(("suggestion", track_index))
                 .flex()
                 .items_center()
-                .gap(px(10.0))
+                .gap(GAP_MEDIUM)
                 .h(px(26.0))
                 .px(px(6.0))
-                .rounded(px(4.0))
+                .rounded(RADIUS_SMALL)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover_background))
                 .child(
@@ -874,7 +896,7 @@ fn suggestion_rows(
     } else {
         None
     };
-    let mut root = div().flex().flex_col().gap(px(4.0)).child(heading);
+    let mut root = div().flex().flex_col().gap(GAP_TIGHT).child(heading);
     if !filters.is_empty() {
         root = root.child(
             div()
@@ -882,7 +904,7 @@ fn suggestion_rows(
                 .flex()
                 .flex_wrap()
                 .items_center()
-                .gap(px(6.0))
+                .gap(GAP_SMALL)
                 .children(filters),
         );
     }

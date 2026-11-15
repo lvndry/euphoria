@@ -6,6 +6,7 @@
 
 pub(crate) mod by_ear;
 pub(crate) mod command_palette;
+pub(crate) mod controls;
 pub(crate) mod cues;
 pub(crate) mod decks;
 pub(crate) mod empty_state;
@@ -58,16 +59,47 @@ pub(crate) const NEXT_RAIL_KEY_CONTEXT: &str = "NextRail";
 /// selected track.
 pub(crate) const PALETTE_KEY_CONTEXT: &str = "CommandPalette";
 
+/// Size of a screen's or dialog's title; used with semibold.
+pub(crate) const TITLE_TEXT_SIZE: Pixels = px(20.0);
 /// Size of ordinary interface text.
 pub(crate) const TEXT_SIZE: Pixels = px(13.0);
 /// Size of secondary text such as counts and progress.
 pub(crate) const SMALL_TEXT_SIZE: Pixels = px(12.0);
-/// Size of labels above sections and columns.
+/// Size of labels above sections and columns; used with semibold.
 pub(crate) const LABEL_TEXT_SIZE: Pixels = px(11.0);
+/// Size of a big figure such as a key, a tempo or an energy; used with
+/// semibold and tabular digits.
+pub(crate) const STAT_TEXT_SIZE: Pixels = px(22.0);
+
+/// Corner radius of small parts: bars, rows and tags.
+pub(crate) const RADIUS_SMALL: Pixels = px(4.0);
+/// Corner radius of buttons, fields and cards.
+pub(crate) const RADIUS_MEDIUM: Pixels = px(6.0);
+/// Corner radius of dialogs, panels and chips.
+pub(crate) const RADIUS_LARGE: Pixels = px(10.0);
 /// Corner radius of buttons and fields.
-pub(crate) const CONTROL_RADIUS: Pixels = px(6.0);
-/// Height of buttons and fields in the toolbar.
+pub(crate) const CONTROL_RADIUS: Pixels = RADIUS_MEDIUM;
+
+/// Gap between parts that belong together tightly.
+pub(crate) const GAP_TIGHT: Pixels = px(4.0);
+/// Gap between neighbouring controls and lines.
+pub(crate) const GAP_SMALL: Pixels = px(8.0);
+/// Gap between groups inside a card.
+pub(crate) const GAP_MEDIUM: Pixels = px(12.0);
+/// Gap between cards and sections.
+pub(crate) const GAP_LARGE: Pixels = px(16.0);
+/// Gap between the big parts of a screen.
+pub(crate) const GAP_HUGE: Pixels = px(24.0);
+
+/// Height of buttons and fields.
 pub(crate) const CONTROL_HEIGHT: Pixels = px(28.0);
+/// Height of the single primary action of a dialog.
+pub(crate) const DIALOG_ACTION_HEIGHT: Pixels = px(32.0);
+
+/// The font features that give digits one width, so figures do not jump.
+pub(crate) fn tabular_digits() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![("tnum".to_string(), 1)]))
+}
 
 /// The small bold label above a section.
 pub(crate) fn section_label(text: impl Into<SharedString>, palette: &Palette) -> Div {
@@ -86,11 +118,12 @@ pub(crate) fn secondary_button(label: impl Into<SharedString>, palette: &Palette
         .flex_shrink_0()
         .items_center()
         .h(CONTROL_HEIGHT)
-        .px(px(12.0))
+        .px(GAP_MEDIUM)
         .rounded(CONTROL_RADIUS)
         .border_1()
         .border_color(palette.line)
         .bg(palette.raised)
+        .text_size(TEXT_SIZE)
         .text_color(palette.text)
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
@@ -100,20 +133,28 @@ pub(crate) fn secondary_button(label: impl Into<SharedString>, palette: &Palette
 
 /// A filled accent button, as used for the main command of a screen.
 pub(crate) fn primary_button(label: impl Into<SharedString>, palette: &Palette) -> Div {
+    let look = controls::chip_look(controls::ChipRole::Primary, palette);
     let hover_background = palette.accent.opacity(0.9);
     div()
         .flex()
         .flex_shrink_0()
         .items_center()
-        .h(px(32.0))
-        .px(px(16.0))
+        .h(CONTROL_HEIGHT)
+        .px(GAP_LARGE)
         .rounded(CONTROL_RADIUS)
-        .bg(palette.accent)
-        .text_color(palette.accent_ink)
+        .bg(look.background.unwrap_or(palette.accent))
+        .text_size(TEXT_SIZE)
+        .text_color(look.text)
         .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
         .child(label.into())
+}
+
+/// The one filled button of a dialog: the same as [`primary_button`] but
+/// taller, the only button that is.
+pub(crate) fn dialog_primary_button(label: impl Into<SharedString>, palette: &Palette) -> Div {
+    primary_button(label, palette).h(DIALOG_ACTION_HEIGHT)
 }
 
 /// A card in the middle of the window over a dimmed backdrop, for a panel
@@ -143,14 +184,117 @@ pub(crate) fn modal(
         .w(width)
         .max_w(gpui::relative(0.92))
         .max_h(gpui::relative(0.86))
-        .gap(px(14.0))
+        .gap(GAP_MEDIUM)
         .p(px(20.0))
         .mt(px(2.0 * crate::surface_motion::CARD_RISE * (1.0 - fade)))
         .opacity(fade)
-        .rounded(px(10.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .border_color(palette.line)
         .bg(palette.panel)
         .shadow_lg();
     (backdrop, card)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    /// Calls that take a radius, a gap or a text size. Handed a literal
+    /// number they are strays: each is one of the tokens above, or a named
+    /// layout measurement.
+    const STRAY_LITERALS: [&str; 10] = [
+        ".rounded(px(",
+        ".rounded_t(px(",
+        ".rounded_b(px(",
+        ".rounded_l(px(",
+        ".rounded_r(px(",
+        ".gap(px(",
+        ".gap_x(px(",
+        ".gap_y(px(",
+        ".text_size(px(",
+        ".text_size(gpui::px(",
+    ];
+
+    fn view_sources() -> Vec<(String, String)> {
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/views");
+        let mut sources: Vec<(String, String)> = std::fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+            .map(|path| {
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                let text = std::fs::read_to_string(&path).unwrap();
+                let live = text
+                    .split("#[cfg(test)]")
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                (name, live)
+            })
+            .collect();
+        sources.sort();
+        sources
+    }
+
+    #[test]
+    fn views_take_radii_gaps_and_text_sizes_from_the_tokens() {
+        let mut strays = Vec::new();
+        for (name, text) in view_sources() {
+            for (number, line) in text.lines().enumerate() {
+                let has_literal = STRAY_LITERALS.iter().any(|stray| {
+                    line.match_indices(stray).any(|(at, _)| {
+                        line[at + stray.len()..]
+                            .chars()
+                            .next()
+                            .is_some_and(|next| next.is_ascii_digit())
+                    })
+                });
+                if has_literal {
+                    strays.push(format!("{name}:{}: {}", number + 1, line.trim()));
+                }
+            }
+        }
+        assert!(
+            strays.is_empty(),
+            "use RADIUS_*, GAP_* and the text sizes of views/mod.rs:\n{}",
+            strays.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_tokens_are_the_agreed_scale() {
+        assert_eq!(
+            [RADIUS_SMALL, RADIUS_MEDIUM, RADIUS_LARGE],
+            [px(4.0), px(6.0), px(10.0)]
+        );
+        assert_eq!(
+            [GAP_TIGHT, GAP_SMALL, GAP_MEDIUM, GAP_LARGE, GAP_HUGE],
+            [px(4.0), px(8.0), px(12.0), px(16.0), px(24.0)]
+        );
+        assert_eq!(
+            [
+                TITLE_TEXT_SIZE,
+                TEXT_SIZE,
+                SMALL_TEXT_SIZE,
+                LABEL_TEXT_SIZE,
+                STAT_TEXT_SIZE
+            ],
+            [px(20.0), px(13.0), px(12.0), px(11.0), px(22.0)]
+        );
+        assert_eq!((CONTROL_HEIGHT, DIALOG_ACTION_HEIGHT), (px(28.0), px(32.0)));
+    }
+
+    #[test]
+    fn digits_in_figures_have_one_width() {
+        let features = tabular_digits();
+        assert!(
+            features
+                .0
+                .iter()
+                .any(|(tag, value)| tag == "tnum" && *value == 1)
+        );
+    }
 }

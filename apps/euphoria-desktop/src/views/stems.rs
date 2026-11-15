@@ -6,13 +6,14 @@
 
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{Context, Div, SharedString, TestSupportExt, div, px};
+use gpui::{Context, Div, SharedString, TestSupportExt, div};
 
 use crate::app::EuphoriaApp;
 use crate::library::Track;
 use crate::stem_export::StemExportKind;
 use crate::stems::{StemMode, StemStatus};
-use crate::views::tag_panel::choice_button;
+use crate::views::GAP_SMALL;
+use crate::views::controls::{choice_button, segment, segmented};
 use euphoria_core::stems::Mixdown;
 
 /// The stems section of the track detail: separate the track, wait for it,
@@ -23,7 +24,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
     let body = match status {
         Some(StemStatus::Failed(problem)) => div()
             .flex_col()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(div().text_size(crate::views::SMALL_TEXT_SIZE).child(problem.clone()).text_color(palette.text_secondary))
             .child(
                 choice_button("stems-again", "Separate again", false, &palette)
@@ -38,35 +39,34 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                 .unwrap_or_else(|| "Separating".to_string());
             div()
                 .flex_col()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .child(div().text_size(crate::views::SMALL_TEXT_SIZE).child(caption).text_color(palette.text_secondary))
 
         }
         Some(StemStatus::Ready(_)) => div()
             .flex_col()
-            .gap(px(8.0))
-            .child(div()
-            .flex()
-            .flex_wrap()
-            .gap(px(8.0))
-            .children(
+            .gap(GAP_SMALL)
+            .child(div().flex().child(segmented(
                 StemMode::ALL
                     .iter()
                     .enumerate()
                     .map(|(index, mode)| {
-                        choice_button(
+                        segment(
                             ("stems-mode", index),
                             SharedString::from(mode.label()),
                             app.stems.mode() == *mode,
+                            index == 0,
                             &palette,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.set_stem_mode(*mode, cx)
                         }))
                         .test_support()
-
-                    }),
-            ))
+                        .into_any_element()
+                    })
+                    .collect(),
+                &palette,
+            )))
             .child(export_row(track, app, false, cx))
             .children(
                 (app.key_shift != 0 && track.key().is_some())
@@ -87,7 +87,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
             ),
         None => div()
             .flex_col()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(
                 choice_button("stems-separate", "Separate the stems", false, &palette)
                     .tooltip(
@@ -102,7 +102,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                     .test_support(),
             ),
     };
-    div().flex_col().gap(px(8.0)).child(body)
+    div().flex_col().gap(GAP_SMALL).child(body)
 }
 
 /// The buttons that save the separated stems, the acapella or the
@@ -144,7 +144,7 @@ fn export_row(
     div()
         .flex()
         .flex_wrap()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .children(choices.into_iter().map(|(kind, name, label)| {
             let id = if shifted {
                 format!("stems-export-{name}-shifted")

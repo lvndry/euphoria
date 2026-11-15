@@ -11,8 +11,9 @@ use gpui::{Context, Div, TestSupportExt, div, px};
 
 use crate::app::EuphoriaApp;
 use crate::library::Track;
+use crate::views::GAP_SMALL;
 use crate::views::SMALL_TEXT_SIZE;
-use crate::views::tag_panel::choice_button;
+use crate::views::controls::choice_button;
 
 /// The section for a track with a key, or `None` for one without, which
 /// has no key to change.
@@ -99,7 +100,7 @@ pub(crate) fn section(
         div()
             .flex()
             .flex_col()
-            .gap(px(8.0))
+            .gap(GAP_SMALL)
             .child(
                 div()
                     .text_size(SMALL_TEXT_SIZE)
@@ -111,7 +112,7 @@ pub(crate) fn section(
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(6.0))
+                    .gap(GAP_SMALL)
                     .child(down)
                     .child(amount)
                     .child(up)

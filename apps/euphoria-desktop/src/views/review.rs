@@ -14,8 +14,9 @@ use crate::app::EuphoriaApp;
 use crate::library::{ReviewReason, Track};
 use crate::tag_settings::NotationChoice;
 use crate::theme::Palette;
+use crate::views::controls::choice_button;
 use crate::views::key_chip::key_chip;
-use crate::views::tag_panel::choice_button;
+use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 
 /// The shortest words for a reason, for a chip in a row.
@@ -60,11 +61,10 @@ pub(crate) fn chips(
                 .flex_shrink_0()
                 .px(px(5.0))
                 .py(px(1.0))
-                .rounded(px(4.0))
-                .border_1()
-                .border_color(palette.danger)
+                .rounded(RADIUS_SMALL)
+                .bg(Palette::tint(palette.warning))
                 .text_size(LABEL_TEXT_SIZE)
-                .text_color(palette.danger)
+                .text_color(palette.warning)
                 .whitespace_nowrap()
                 .child(chip_label(reason, app.tag_settings.key_notation))
                 .tooltip(move |window, cx| Tooltip::new(explanation.clone()).build(window, cx))
@@ -220,12 +220,12 @@ pub(crate) fn section(
                 .id("review-box")
                 .flex()
                 .flex_col()
-                .gap(px(8.0))
+                .gap(GAP_SMALL)
                 .p(px(10.0))
-                .rounded(px(8.0))
+                .rounded(RADIUS_LARGE)
                 .border_1()
-                .border_color(palette.danger)
-                .child(section_label("Needs review", &palette).text_color(palette.danger))
+                .border_color(palette.warning.opacity(0.5))
+                .child(section_label("Needs review", &palette).text_color(palette.warning))
                 .children(lines)
                 .test_support(),
         ),
@@ -248,14 +248,14 @@ fn reason_line(
         .id(id)
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(GAP_SMALL)
         .child(
             div()
                 .text_size(SMALL_TEXT_SIZE)
                 .text_color(palette.text_secondary)
                 .child(text),
         )
-        .child(div().flex().flex_wrap().gap(px(6.0)).children(buttons))
+        .child(div().flex().flex_wrap().gap(GAP_SMALL).children(buttons))
         .test_support()
         .into_any_element()
 }
@@ -277,7 +277,7 @@ fn key_button(
     let palette = app.theme.palette;
     let notation = app.tag_settings.key_notation;
     choice_button(id, verb, false, &palette)
-        .gap(px(5.0))
+        .gap(GAP_TIGHT)
         .font_weight(FontWeight::MEDIUM)
         .child(key_chip(&key, &app.theme, notation))
         .on_click(on_click)

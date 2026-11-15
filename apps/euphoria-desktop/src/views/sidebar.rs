@@ -19,12 +19,13 @@ use crate::format;
 use crate::library::LibraryFilter;
 use crate::panels::SIDEBAR_WIDTH;
 use crate::theme::Palette;
+use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, section_label};
 
 const PRIVACY_NOTE: &str = if cfg!(target_os = "macos") {
-    "Works offline. Nothing leaves this Mac."
+    "Works offline. Your files stay on this Mac."
 } else {
-    "Works offline. Nothing leaves this computer."
+    "Works offline. Your files stay on this computer."
 };
 
 /// Height of every row of the sidebar.
@@ -58,7 +59,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .w(px(SIDEBAR_WIDTH))
         .px(px(8.0))
         .py(px(12.0))
-        .gap(px(1.0))
+        .gap(GAP_TIGHT)
         .bg(palette.sidebar)
         .border_r_1()
         .border_color(palette.line)
@@ -248,7 +249,7 @@ fn folder_row(
             .items_center()
             .justify_center()
             .size(px(DISCLOSURE_WIDTH))
-            .rounded(px(4.0))
+            .rounded(RADIUS_SMALL)
             .text_color(palette.text_tertiary)
             .hover(move |style| style.bg(hover_background))
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -277,7 +278,7 @@ fn folder_row(
         )
         .id(folder_row_id(node_index))
         .w_full()
-        .gap(px(4.0))
+        .gap(GAP_TIGHT)
         .pl(px(2.0 + INDENT_PER_LEVEL * node.depth as f32))
         .cursor_pointer()
         .when(!is_current, |row| {
@@ -356,10 +357,10 @@ fn row_after(
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(8.0))
+        .gap(GAP_SMALL)
         .h(px(ROW_HEIGHT))
         .px(px(8.0))
-        .rounded(px(6.0))
+        .rounded(RADIUS_MEDIUM)
         .map(|row| {
             if is_current {
                 row.bg(palette.raised)

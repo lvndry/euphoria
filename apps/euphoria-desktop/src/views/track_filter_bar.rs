@@ -16,6 +16,7 @@ use crate::metronome_controls::TEMPO_RANGE_RULE;
 use crate::theme::Palette;
 use crate::track_filters::QualityChoice;
 use crate::views::SMALL_TEXT_SIZE;
+use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_MEDIUM};
 
 const FIELD_WIDTH: f32 = 52.0;
 const CHIP_HEIGHT: f32 = 22.0;
@@ -32,7 +33,7 @@ pub(crate) fn toggle(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> im
         .items_center()
         .h(px(CHIP_HEIGHT))
         .px(px(8.0))
-        .rounded(px(5.0))
+        .rounded(RADIUS_MEDIUM)
         .text_size(SMALL_TEXT_SIZE)
         .cursor_pointer()
         .map(|button| {
@@ -76,7 +77,7 @@ pub(crate) fn render(
         div()
             .flex()
             .items_center()
-            .gap(px(4.0))
+            .gap(GAP_TIGHT)
             .child(
                 div()
                     .w(px(FIELD_WIDTH))
@@ -134,8 +135,8 @@ pub(crate) fn render(
             .flex_shrink_0()
             .flex_wrap()
             .items_center()
-            .gap_x(px(12.0))
-            .gap_y(px(6.0))
+            .gap_x(GAP_MEDIUM)
+            .gap_y(GAP_SMALL)
             .px(px(SIDE_PADDING))
             .py(px(6.0))
             .border_b_1()
@@ -145,7 +146,7 @@ pub(crate) fn render(
                     .id("filter-tempo")
                     .flex()
                     .items_center()
-                    .gap(px(6.0))
+                    .gap(GAP_SMALL)
                     .tooltip(|window, cx| Tooltip::new(TEMPO_RANGE_RULE).build(window, cx))
                     .child(label("BPM"))
                     .child(range(&inputs.bpm_from, &inputs.bpm_to, "filter-bpm"))
@@ -155,7 +156,7 @@ pub(crate) fn render(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(6.0))
+                    .gap(GAP_SMALL)
                     .child(label("Energy"))
                     .child(range(
                         &inputs.energy_from,
@@ -168,7 +169,7 @@ pub(crate) fn render(
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(GAP_TIGHT)
                     .child(label("Quality"))
                     .children(qualities),
             )
@@ -191,7 +192,7 @@ fn chip(
         .items_center()
         .h(px(CHIP_HEIGHT))
         .px(px(8.0))
-        .rounded(px(11.0))
+        .rounded(RADIUS_LARGE)
         .border_1()
         .text_size(SMALL_TEXT_SIZE)
         .cursor_pointer()
