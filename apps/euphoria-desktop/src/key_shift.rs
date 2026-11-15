@@ -32,7 +32,9 @@ impl EuphoriaApp {
         if semitones == self.key_shift {
             return;
         }
+        let moved_by = semitones - self.key_shift;
         self.key_shift = semitones;
+        self.retune_drone(moved_by, cx);
         self.apply_key_shift_to_playback();
         self.refresh_mixes();
         cx.notify();

@@ -5166,6 +5166,29 @@ fn the_tone_stays_as_detected_at_zero_semitones_and_is_named_by_the_heard_key(
 }
 
 #[gpui::test]
+fn a_playing_tone_retunes_when_the_shift_changes(cx: &mut TestAppContext) {
+    use euphoria_core::{Key, Mode};
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    hear_in_another_key(&view, 2, cx);
+    assert_eq!(drone_key(&view, cx), Some(Key::new(11, Mode::Minor)));
+    let sounding = output.sounding();
+    assert_eq!(sounding.len(), 1, "one tone, retuned");
+    assert!((sounding[0].frequencies[1] - 220.0 * 2f32.powf(2.0 / 12.0)).abs() < 0.05);
+    hear_in_another_key(&view, -1, cx);
+    assert_eq!(drone_key(&view, cx), Some(Key::new(8, Mode::Minor)));
+    assert_eq!(output.sounding().len(), 1);
+    hear_in_another_key(&view, 0, cx);
+    assert_eq!(drone_key(&view, cx), Some(Key::new(9, Mode::Minor)));
+    click(window, ("tone", 0_usize), cx);
+    assert!(
+        output.sounding().is_empty(),
+        "the button shows it on, so it stops it"
+    );
+}
+
+#[gpui::test]
 fn the_runner_up_transposes_with_the_key(cx: &mut TestAppContext) {
     let (window, view, output) = open_tracks_to_check_by_ear(cx);
     click(window, track(1), cx);

@@ -242,6 +242,16 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Moves the drone that is sounding, if any, by `semitones`, so it keeps
+    /// matching the key the track is heard in.
+    pub(crate) fn retune_drone(&mut self, semitones: i8, cx: &mut Context<'_, Self>) {
+        let Some(key) = self.by_ear.drone_key() else {
+            return;
+        };
+        self.by_ear.drone = None;
+        self.toggle_drone(key.transposed(semitones), cx);
+    }
+
     /// Strikes the piano key `pitch_class`, 0 (C) to 11 (B), in the octave
     /// from middle C.
     pub(crate) fn play_piano_note(&mut self, pitch_class: u8, cx: &mut Context<'_, Self>) {
