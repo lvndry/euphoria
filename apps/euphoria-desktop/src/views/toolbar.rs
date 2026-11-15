@@ -146,6 +146,13 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                 .ml_auto()
                 .children(progress(app, &palette, cx))
                 .child(metronome(app, &palette, cx))
+                .child(
+                    secondary_button("Live", &palette)
+                        .id("open-live")
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(|_, _, cx| crate::live_app::open_panel(cx))
+                        .test_support(),
+                )
                 .when(has_tracks, |commands| {
                     commands.child(
                         pressed_button("toggle-decks", "Decks", app.decks.is_open, &palette)

@@ -90,6 +90,10 @@ pub fn analyze_examples() -> StyledStr {
                 "Every track in detail",
             ),
             (
+                "euphoria analyze --notes track.flac",
+                "The notes the key was heard from",
+            ),
+            (
                 "euphoria analyze --quality weak,reencoded ~/Music/DJ",
                 "The files worth replacing",
             ),
@@ -98,7 +102,7 @@ pub fn analyze_examples() -> StyledStr {
                 "Everything, for a script",
             ),
         ],
-        "In the table, ●●● is high confidence, ●●○ medium and ●○○ low: worth checking by ear.",
+        "In the table, the Review column names the tracks worth checking by ear and why.",
     )
 }
 
@@ -271,6 +275,24 @@ pub fn set_render_examples() -> StyledStr {
     )
 }
 
+pub fn live_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            ("euphoria live", "The key and tempo of everything playing"),
+            (
+                "euphoria live --source rekordbox",
+                "Only the audio of rekordbox",
+            ),
+            (
+                "euphoria live --json --interval 1",
+                "One JSON object per second, for an overlay",
+            ),
+        ],
+        "Ctrl-C stops it. The audio is heard in memory only.",
+    )
+}
+
 pub fn next_examples() -> StyledStr {
     examples(
         "Examples",
@@ -289,6 +311,34 @@ pub fn next_examples() -> StyledStr {
             ),
         ],
         "Rows: key, tempo, how the tempo moves, how the key moves and the energy change.",
+    )
+}
+
+#[cfg(feature = "stems")]
+pub fn mashup_examples() -> StyledStr {
+    examples(
+        "Examples",
+        &[
+            (
+                "euphoria mashup a.flac",
+                "Tracks from its folder that layer over it",
+            ),
+            (
+                "euphoria mashup a.flac --library ~/Music/DJ --stems a=vocals",
+                "Tracks whose instrumental goes under the vocals of a.flac",
+            ),
+            (
+                "euphoria mashup a.flac b.flac --render pair.wav",
+                "The two layered into a WAV file, as an idea plays them",
+            ),
+            (
+                "euphoria mashup a.flac b.flac --render pair.wav --stems b=vocals --shift -2",
+                "B's vocals two semitones down over A's instrumental",
+            ),
+        ],
+        "Each idea says how B's key is shifted, how far its tempo is stretched and which \
+         stems layer. Stems come from euphoria stems; without them the vocals are not \
+         checked against the instruments.",
     )
 }
 

@@ -155,6 +155,8 @@ cat > "$bundle/Contents/Info.plist" << PLIST
   <string>$minimum_system</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.music</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Euphoria Live listens to the audio playing on this Mac to show its key and tempo. The audio stays in memory and is never recorded, saved or sent anywhere.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSHumanReadableCopyright</key>

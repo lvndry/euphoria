@@ -354,6 +354,7 @@ fn analysis(bpm: f64, bars: usize, has_grid: bool) -> TrackAnalysis {
         tempo_score_margin: None,
         beat_grid,
         cues: Vec::new(),
+        pitch_class_profile: None,
     }
 }
 

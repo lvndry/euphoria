@@ -57,7 +57,20 @@ pub(crate) enum PlayerRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StartAttempt(u64);
 
+/// A track asked for while another one sounds. The one sounding goes on,
+/// and stays the player's track, until the output has the new one ready.
+#[derive(Debug, Clone, PartialEq)]
+struct PendingTrack {
+    path: PathBuf,
+    duration_seconds: Option<f32>,
+    from_seconds: f32,
+    with_stems: bool,
+    attempt: StartAttempt,
+}
+
 /// The player: one track, a position in it, and whether it is sounding.
+/// The track, position and length are always those of what is heard; a
+/// track asked for while another sounds waits aside until its sound starts.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Player {
     track: Option<PathBuf>,
@@ -67,6 +80,13 @@ pub(crate) struct Player {
     starts_asked_for: u64,
     /// The track plays from its separated stems rather than its file.
     offers_stems: bool,
+    /// What the next track to replace the sounding one plays from, when
+    /// that changed while it sounds.
+    next_stems: Option<bool>,
+    pending: Option<PendingTrack>,
+    /// The track that was asked for while another sounded and could not be
+    /// opened, and why.
+    failed_switch: Option<(PathBuf, String)>,
 }
 
 impl Default for Player {
@@ -78,14 +98,32 @@ impl Default for Player {
             duration_seconds: None,
             starts_asked_for: 0,
             offers_stems: false,
+            next_stems: None,
+            pending: None,
+            failed_switch: None,
         }
     }
 }
 
 impl Player {
-    /// The track the player holds, when it holds one.
+    /// The track the player holds, when it holds one: the one heard while
+    /// sound comes out.
     pub(crate) fn track(&self) -> Option<&Path> {
         self.track.as_deref()
+    }
+
+    /// The track asked for while the held one sounds, until its sound
+    /// starts.
+    pub(crate) fn pending_track(&self) -> Option<&Path> {
+        self.pending.as_ref().map(|pending| pending.path.as_path())
+    }
+
+    /// The track asked for while another sounded that could not be opened,
+    /// and why, until another track is asked for.
+    pub(crate) fn failed_switch(&self) -> Option<(&Path, &str)> {
+        self.failed_switch
+            .as_ref()
+            .map(|(path, reason)| (path.as_path(), reason.as_str()))
     }
 
     /// What the player is doing.
@@ -121,9 +159,15 @@ impl Player {
     }
 
     /// The track plays from its separated stems, or from its file: the
-    /// next start opens one or the other.
+    /// next start opens one or the other. While a track sounds, it goes on
+    /// as it is until the track that replaces it starts.
     pub(crate) fn stems_ready(&mut self, ready: bool) {
-        self.offers_stems = ready;
+        if self.status == PlayerStatus::Playing {
+            self.next_stems = Some(ready);
+        } else {
+            self.offers_stems = ready;
+            self.next_stems = None;
+        }
     }
 
     /// How far through the track the position is, from 0.0 to 1.0, when the
@@ -151,40 +195,60 @@ impl Player {
         }
     }
 
-    /// Follows the selection in the table. While a track plays, it goes on
-    /// playing: selecting another one never changes the sound. Otherwise the
-    /// player takes the new track and waits at its beginning.
+    /// Follows the selection in the table. While a track plays or another
+    /// is on its way, they go on: selecting a track never changes the
+    /// sound. Otherwise the player takes the new track and waits at its
+    /// beginning.
     pub(crate) fn select(
         &mut self,
         path: Option<&Path>,
         duration_seconds: Option<f32>,
     ) -> Option<PlayerRequest> {
-        if path.is_some() && self.offers_pause() && self.track.as_deref() != path {
+        if path.is_some() && self.track.as_deref() == path {
+            if self.duration_seconds.is_none() {
+                self.duration_seconds = duration_seconds;
+            }
+            return None;
+        }
+        if path.is_some() && (self.offers_pause() || self.pending.is_some()) {
             return None;
         }
         self.switch_to(path, duration_seconds)
     }
 
     /// Takes `path` as the track, whatever the player was doing. A track
-    /// that was sounding is replaced by the new one, which starts playing.
+    /// that was sounding goes on until the new one is ready to be heard,
+    /// then the new one replaces it.
     pub(crate) fn switch_to(
         &mut self,
         path: Option<&Path>,
         duration_seconds: Option<f32>,
     ) -> Option<PlayerRequest> {
         if self.track.as_deref() == path {
+            self.pending = None;
             if self.duration_seconds.is_none() {
                 self.duration_seconds = duration_seconds;
             }
             return None;
         }
-        let was_sounding = self.offers_pause();
-        let held_a_voice = self.status == PlayerStatus::Paused || was_sounding;
+        if path.is_some() && self.pending_track() == path {
+            return None;
+        }
+        if let Some(path) = path
+            && self.status == PlayerStatus::Playing
+        {
+            return Some(self.start_replacing(path.to_path_buf(), duration_seconds, 0.0));
+        }
+        let was_starting = self.status == PlayerStatus::Starting;
+        let held_a_voice =
+            was_starting || matches!(self.status, PlayerStatus::Paused | PlayerStatus::Playing);
+        self.pending = None;
+        self.failed_switch = None;
         self.track = path.map(Path::to_path_buf);
         self.position_seconds = 0.0;
         self.duration_seconds = duration_seconds;
         match path {
-            Some(path) if was_sounding => Some(self.start(path.to_path_buf(), self.offers_stems)),
+            Some(path) if was_starting => Some(self.start(path.to_path_buf())),
             _ => {
                 self.status = PlayerStatus::Stopped;
                 held_a_voice.then_some(PlayerRequest::Stop)
@@ -192,8 +256,44 @@ impl Player {
         }
     }
 
+    /// Plays `path` from `from_seconds`, whatever the player was doing. A
+    /// track that sounds goes on until the new one is ready to be heard.
+    /// Returns the requests for the output, in order.
+    pub(crate) fn play_track(
+        &mut self,
+        path: &Path,
+        duration_seconds: Option<f32>,
+        from_seconds: f32,
+    ) -> Vec<PlayerRequest> {
+        if self.track.as_deref() == Some(path) {
+            if self.duration_seconds.is_none() {
+                self.duration_seconds = duration_seconds;
+            }
+            return self.play_from(from_seconds);
+        }
+        let from_seconds = from_seconds.max(0.0);
+        if self.status == PlayerStatus::Playing {
+            return vec![self.start_replacing(path.to_path_buf(), duration_seconds, from_seconds)];
+        }
+        let held_a_voice = self.status == PlayerStatus::Paused;
+        self.track = Some(path.to_path_buf());
+        self.duration_seconds = duration_seconds;
+        self.position_seconds = match duration_seconds {
+            Some(duration) => from_seconds.min(duration),
+            None => from_seconds,
+        };
+        let mut requests = Vec::new();
+        if held_a_voice {
+            requests.push(PlayerRequest::Stop);
+        }
+        requests.push(self.start(path.to_path_buf()));
+        requests
+    }
+
     /// The play and pause control, or the space bar.
     pub(crate) fn toggle(&mut self) -> Option<PlayerRequest> {
+        self.pending = None;
+        self.failed_switch = None;
         match self.status {
             PlayerStatus::Playing => {
                 self.status = PlayerStatus::Paused;
@@ -212,7 +312,7 @@ impl Player {
                 if self.is_at_the_end() {
                     self.position_seconds = 0.0;
                 }
-                Some(self.start(path, self.offers_stems))
+                Some(self.start(path))
             }
         }
     }
@@ -222,9 +322,13 @@ impl Player {
     /// and starts afresh when played.
     pub(crate) fn restart(&mut self) -> Option<PlayerRequest> {
         match self.status {
-            PlayerStatus::Playing | PlayerStatus::Starting => {
+            PlayerStatus::Playing => {
                 let path = self.track.clone()?;
-                Some(self.start(path, self.offers_stems))
+                Some(self.start_replacing(path, self.duration_seconds, self.position_seconds))
+            }
+            PlayerStatus::Starting => {
+                let path = self.track.clone()?;
+                Some(self.start(path))
             }
             PlayerStatus::Paused => {
                 self.status = PlayerStatus::Stopped;
@@ -234,21 +338,58 @@ impl Player {
         }
     }
 
-    /// Begins a new attempt to play `path` from the current position, in
-    /// `with_stems` the track's stems instead of the track.
-    fn start(&mut self, path: PathBuf, with_stems: bool) -> PlayerRequest {
+    fn next_attempt(&mut self) -> StartAttempt {
         self.starts_asked_for += 1;
+        StartAttempt(self.starts_asked_for)
+    }
+
+    /// Begins a new attempt to play the held track `path` from the current
+    /// position. Nothing is heard until it starts.
+    fn start(&mut self, path: PathBuf) -> PlayerRequest {
+        self.pending = None;
+        self.failed_switch = None;
+        if let Some(next_stems) = self.next_stems.take() {
+            self.offers_stems = next_stems;
+        }
         self.status = PlayerStatus::Starting;
         PlayerRequest::Start {
             path,
             from_seconds: self.position_seconds,
+            with_stems: self.offers_stems,
+            attempt: self.next_attempt(),
+        }
+    }
+
+    /// Begins a new attempt to play `path` from `from_seconds` in place of
+    /// the track that sounds, which goes on until the new one starts.
+    fn start_replacing(
+        &mut self,
+        path: PathBuf,
+        duration_seconds: Option<f32>,
+        from_seconds: f32,
+    ) -> PlayerRequest {
+        self.failed_switch = None;
+        let attempt = self.next_attempt();
+        let with_stems = self.next_stems.take().unwrap_or(self.offers_stems);
+        self.pending = Some(PendingTrack {
+            path: path.clone(),
+            duration_seconds,
+            from_seconds,
             with_stems,
-            attempt: StartAttempt(self.starts_asked_for),
+            attempt,
+        });
+        PlayerRequest::Start {
+            path,
+            from_seconds,
+            with_stems,
+            attempt,
         }
     }
 
     fn is_waiting_for(&self, attempt: StartAttempt) -> bool {
-        self.status == PlayerStatus::Starting && attempt.0 == self.starts_asked_for
+        self.pending.is_none()
+            && self.status == PlayerStatus::Starting
+            && attempt.0 == self.starts_asked_for
     }
 
     /// A click or drag on the waveform, `fraction` of the way along it.
@@ -272,6 +413,7 @@ impl Player {
         let Some(path) = self.track.clone() else {
             return Vec::new();
         };
+        self.pending = None;
         let end = self.duration_seconds.unwrap_or(f32::MAX);
         self.position_seconds = seconds.clamp(0.0, end);
         match self.status {
@@ -284,7 +426,7 @@ impl Player {
                 ]
             }
             PlayerStatus::Starting | PlayerStatus::Stopped | PlayerStatus::Failed(_) => {
-                vec![self.start(path, self.offers_stems)]
+                vec![self.start(path)]
             }
         }
     }
@@ -294,6 +436,14 @@ impl Player {
     /// for: it stopped, retried or moved on since. The output should then
     /// let go of the sound.
     pub(crate) fn started(&mut self, attempt: StartAttempt, duration_seconds: Option<f32>) -> bool {
+        if let Some(pending) = self.pending.take_if(|pending| pending.attempt == attempt) {
+            self.track = Some(pending.path);
+            self.position_seconds = pending.from_seconds;
+            self.duration_seconds = pending.duration_seconds.or(duration_seconds);
+            self.offers_stems = pending.with_stems;
+            self.status = PlayerStatus::Playing;
+            return true;
+        }
         if !self.is_waiting_for(attempt) {
             return false;
         }
@@ -307,6 +457,10 @@ impl Player {
     /// The output could not open the file of `attempt`. Ignored when that
     /// is not the attempt the player is waiting for.
     pub(crate) fn failed_to_start(&mut self, attempt: StartAttempt, reason: String) {
+        if let Some(pending) = self.pending.take_if(|pending| pending.attempt == attempt) {
+            self.failed_switch = Some((pending.path, reason));
+            return;
+        }
         if self.is_waiting_for(attempt) {
             self.status = PlayerStatus::Failed(reason);
         }
@@ -410,12 +564,20 @@ mod tests {
         }
     }
 
+    fn third() -> &'static Path {
+        Path::new("/music/third.flac")
+    }
+
     #[test]
     fn a_track_whose_stems_are_separated_is_started_with_them() {
         let mut player = playing();
         assert!(!player.offers_stems());
 
         player.stems_ready(true);
+        assert!(
+            !player.offers_stems(),
+            "the sounding track goes on from its file"
+        );
         let select = player.switch_to(Some(second()), Some(300.0));
         let attempt = match select {
             Some(PlayerRequest::Start {
@@ -426,10 +588,11 @@ mod tests {
             other => panic!("expected the stems of the new track, got {other:?}"),
         };
         assert!(player.started(attempt, Some(300.0)));
+        assert!(player.offers_stems());
         stems_request(player.switch_to(Some(first()), Some(420.0)), first());
 
         player.stems_ready(false);
-        starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        starts(player.switch_to(Some(third()), Some(300.0)), third(), 0.0);
     }
 
     #[test]
@@ -542,14 +705,110 @@ mod tests {
     }
 
     #[test]
-    fn switching_to_another_track_while_playing_starts_it() {
+    fn switching_while_playing_keeps_the_heard_track_until_the_new_one_starts() {
         let mut player = playing();
         player.advance_to(60.0);
-        starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        let attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        assert_eq!(player.track(), Some(first()));
+        assert_eq!(player.pending_track(), Some(second()));
+        assert_eq!(player.status(), &PlayerStatus::Playing);
+        assert_eq!(player.duration_seconds(), Some(420.0));
+        player.advance_to(61.0);
+        assert_eq!(player.position_seconds(), 61.0);
+        assert_eq!(player.time_label(), "1:01 / 7:00");
+
+        assert_eq!(player.switch_to(Some(second()), Some(300.0)), None);
+        assert!(player.started(attempt, Some(299.0)));
         assert_eq!(player.track(), Some(second()));
-        assert_eq!(player.status(), &PlayerStatus::Starting);
+        assert_eq!(player.pending_track(), None);
+        assert_eq!(player.status(), &PlayerStatus::Playing);
         assert_eq!(player.position_seconds(), 0.0);
         assert_eq!(player.duration_seconds(), Some(300.0));
+    }
+
+    #[test]
+    fn selecting_while_the_next_track_opens_leaves_both_alone() {
+        let mut player = playing();
+        let attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        assert_eq!(player.select(Some(first()), Some(420.0)), None);
+        assert_eq!(player.select(Some(third()), Some(200.0)), None);
+        assert_eq!(player.pending_track(), Some(second()));
+        assert!(player.started(attempt, Some(300.0)));
+        assert_eq!(player.track(), Some(second()));
+    }
+
+    #[test]
+    fn asking_for_the_heard_track_again_drops_the_one_on_its_way() {
+        let mut player = playing();
+        let attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        assert_eq!(player.switch_to(Some(first()), Some(420.0)), None);
+        assert_eq!(player.pending_track(), None);
+        assert!(!player.started(attempt, Some(300.0)));
+        assert_eq!(player.track(), Some(first()));
+        assert!(player.is_playing());
+    }
+
+    #[test]
+    fn pausing_while_the_next_track_opens_drops_it() {
+        let mut player = playing();
+        player.advance_to(30.0);
+        let attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        assert_eq!(player.toggle(), Some(PlayerRequest::Pause));
+        assert_eq!(player.pending_track(), None);
+        assert!(!player.started(attempt, Some(300.0)));
+        assert_eq!(player.track(), Some(first()));
+        assert_eq!(player.position_seconds(), 30.0);
+    }
+
+    #[test]
+    fn a_track_that_cannot_open_leaves_the_heard_one_playing_and_says_why() {
+        let mut player = playing();
+        let attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        player.failed_to_start(attempt, "File not found".to_string());
+        assert!(player.is_playing());
+        assert_eq!(player.track(), Some(first()));
+        assert_eq!(player.pending_track(), None);
+        assert_eq!(player.failure(), None);
+        assert_eq!(player.failed_switch(), Some((second(), "File not found")));
+
+        starts(player.switch_to(Some(third()), Some(200.0)), third(), 0.0);
+        assert_eq!(player.failed_switch(), None);
+    }
+
+    #[test]
+    fn the_heard_track_may_end_before_the_next_one_opens() {
+        let mut player = playing();
+        let attempt = starts(player.switch_to(Some(second()), Some(300.0)), second(), 0.0);
+        player.finished();
+        assert_eq!(player.status(), &PlayerStatus::Stopped);
+        assert_eq!(player.select(Some(third()), Some(200.0)), None);
+        assert!(player.started(attempt, Some(300.0)));
+        assert_eq!(player.track(), Some(second()));
+        assert!(player.is_playing());
+    }
+
+    #[test]
+    fn playing_a_track_from_a_moment_starts_there_once_it_is_heard() {
+        let mut player = playing();
+        player.advance_to(100.0);
+        let mut requests = player.play_track(second(), Some(300.0), 90.0);
+        let attempt = starts(requests.pop(), second(), 90.0);
+        assert!(requests.is_empty());
+        assert_eq!(player.position_seconds(), 100.0);
+        assert!(player.started(attempt, Some(300.0)));
+        assert_eq!(player.position_seconds(), 90.0);
+
+        assert_eq!(
+            player.play_track(second(), Some(300.0), 30.0),
+            vec![PlayerRequest::SeekTo(30.0)]
+        );
+
+        let mut stopped = Player::default();
+        stopped.select(Some(first()), Some(420.0));
+        let mut requests = stopped.play_track(second(), Some(300.0), 45.0);
+        starts(requests.pop(), second(), 45.0);
+        assert_eq!(stopped.track(), Some(second()));
+        assert_eq!(stopped.status(), &PlayerStatus::Starting);
     }
 
     #[test]
