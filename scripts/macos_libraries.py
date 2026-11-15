@@ -268,7 +268,7 @@ def bundle(root, executable, libraries, run_path):
                 pending.append((target, target, here))
                 continue
             # The copy is named as the reference names it, such as
-            # libkeyfinder.2.dylib rather than the file that link leads to,
+            # libexample.2.dylib rather than the file that link leads to,
             # and a file reached under two names is copied once.
             name = copy_names.setdefault(target, pathlib.PurePath(install_name).name)
             copy = libraries / name

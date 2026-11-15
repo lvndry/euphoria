@@ -72,12 +72,10 @@ roxmltree.workspace = true
 tempfile.workspace = true
 
 [features]
-default = ["libkeyfinder", "pitch-shift", "drone", "mp3"]
+default = ["pitch-shift", "drone", "mp3"]
 # Key detection with drone-v2, a small neural network that ships inside the
 # library and runs on the CPU in plain Rust.
 drone = ["dep:matrixmultiply"]
-# Key detection through libkeyfinder, a C++ library found with pkg-config.
-libkeyfinder = ["dep:cc", "dep:pkg-config"]
 # Changing the key of a track with Signalsmith Stretch, a C++ library vendored
 # in vendor/ and compiled with the crate: it needs a C++ compiler but not
 # libclang.
@@ -96,7 +94,6 @@ required-features = ["drone"]
 
 [build-dependencies]
 cc = { workspace = true, optional = true }
-pkg-config = { workspace = true, optional = true }
 
 [lints]
 workspace = true

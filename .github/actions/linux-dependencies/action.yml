@@ -18,7 +18,7 @@ runs:
         packages: ${{ steps.packages.outputs.names }}
         version: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/scripts/install-linux-dependencies.sh') }}
         execute_install_scripts: true
-    - name: Install libkeyfinder and the ONNX Runtime
+    - name: Install the ONNX Runtime
       shell: bash
       env:
         EUPHORIA_APT_PACKAGES_INSTALLED: ${{ steps.apt.outcome == 'success' && '1' || '0' }}

@@ -49,7 +49,9 @@ impl EuphoriaApp {
     }
 
     /// What Now Playing shows: the track of the transport while it plays or
-    /// is paused, and nothing while it is stopped.
+    /// is paused, and nothing while it is stopped. Without the decks, that is
+    /// the track heard: a track asked for waits aside until it sounds. The
+    /// cover is added by [`crate::media_keys::NowPlayingSync`].
     pub(crate) fn now_playing(&self) -> Option<NowPlaying> {
         let library = self.session.library();
         if self.decks.is_open {
@@ -57,12 +59,15 @@ impl EuphoriaApp {
             let view = self.decks.view(deck);
             let track = library.track(view.track_index?)?;
             return Some(NowPlaying {
+                path: Some(track.path.clone()),
                 title: track.title().to_string(),
                 artist: track.artist.clone(),
+                album: track.album.clone(),
                 duration_seconds: view.duration_seconds,
                 elapsed_seconds: self.decks.position_seconds(deck),
                 rate: if view.playing { view.rate } else { 0.0 },
                 playing: view.playing,
+                artwork: None,
             });
         }
         let path = self.player.track()?;
@@ -75,6 +80,7 @@ impl EuphoriaApp {
         let track = library.track_by_path(path);
         let playing = self.player.is_playing();
         Some(NowPlaying {
+            path: Some(path.to_path_buf()),
             title: track.map_or_else(
                 || {
                     path.file_name()
@@ -84,11 +90,21 @@ impl EuphoriaApp {
                 |track| track.title().to_string(),
             ),
             artist: track.and_then(|track| track.artist.clone()),
+            album: track.and_then(|track| track.album.clone()),
             duration_seconds: self.player.duration_seconds().map(f64::from),
             elapsed_seconds: f64::from(self.player.position_seconds()),
-            rate: if playing { 1.0 } else { 0.0 },
+            rate: if playing { self.player_rate() } else { 0.0 },
             playing,
+            artwork: None,
         })
+    }
+
+    /// Seconds of the player's track that go by in a second: the tempo its
+    /// sound plays at.
+    fn player_rate(&self) -> f64 {
+        self.voice
+            .as_ref()
+            .map_or(1.0, |active| active.state.tempo().rate)
     }
 
     /// Carries out a command from the keyboard, the headphones or the

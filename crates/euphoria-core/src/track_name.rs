@@ -14,9 +14,10 @@ use crate::tag_key::TagKey;
 /// shorter, and the size field of a damaged file can claim gigabytes.
 const LONGEST_INFO_VALUE: u32 = 4096;
 
-/// The `INFO` values that store a title, an artist and a key.
+/// The `INFO` values that store a title, an artist, an album and a key.
 const TITLE_ID: [u8; 4] = *b"INAM";
 const ARTIST_ID: [u8; 4] = *b"IART";
+const ALBUM_ID: [u8; 4] = *b"IPRD";
 const KEY_ID: [u8; 4] = *b"IPRE";
 
 /// The raw names under which file formats store a key: TKEY in ID3,
@@ -31,6 +32,8 @@ pub struct TrackName {
     pub title: Option<String>,
     /// The artist, or `None` when the file has none.
     pub artist: Option<String>,
+    /// The album, or `None` when the file has none.
+    pub album: Option<String>,
     /// The key field of the tags, or `None` when the file has none or it is
     /// empty. A field whose text is not a key is kept with no key, so that
     /// it can be reported.
@@ -39,7 +42,7 @@ pub struct TrackName {
     pub genre: Option<String>,
 }
 
-/// Reads the title, artist, genre and key stored in an audio file, without
+/// Reads the title, artist, album, genre and key stored in an audio file, without
 /// decoding its audio.
 ///
 /// Reads ID3v2 and ID3v1 tags (MP3, and the ID3 chunk of AIFF files), Vorbis
@@ -68,7 +71,7 @@ pub fn read_track_name(path: &Path) -> Result<TrackName, EuphoriaError> {
             break;
         }
     }
-    if tags.title.is_none() || tags.artist.is_none() || tags.key.is_none() {
+    if tags.title.is_none() || tags.artist.is_none() || tags.album.is_none() || tags.key.is_none() {
         fill_from_wav_info_list(&mut tags, path)?;
     }
     if tags
@@ -115,6 +118,9 @@ fn fill_from_tag(tags: &mut TrackName, tag: &Tag) {
     }
     if let Some(StandardTag::Artist(artist)) = &tag.std {
         fill_slot(&mut tags.artist, artist);
+    }
+    if let Some(StandardTag::Album(album)) = &tag.std {
+        fill_slot(&mut tags.album, album);
     }
     if let Some(StandardTag::Genre(genre)) = &tag.std {
         fill_slot(&mut tags.genre, genre);
@@ -210,7 +216,8 @@ fn read_info_values(
         let (value_id, value_size) = read_chunk_header(reader)?;
         unread -= 8 + padded(value_size);
         let value_is_long = value_size > LONGEST_INFO_VALUE;
-        if (value_id == TITLE_ID || value_id == ARTIST_ID || value_id == KEY_ID) && !value_is_long {
+        let is_wanted = [TITLE_ID, ARTIST_ID, ALBUM_ID, KEY_ID].contains(&value_id);
+        if is_wanted && !value_is_long {
             let mut value = vec![0_u8; padded(value_size) as usize];
             reader.read_exact(&mut value)?;
             value.truncate(value_size as usize);
@@ -219,6 +226,8 @@ fn read_info_values(
                 fill_slot(&mut tags.title, &text);
             } else if value_id == ARTIST_ID {
                 fill_slot(&mut tags.artist, &text);
+            } else if value_id == ALBUM_ID {
+                fill_slot(&mut tags.album, &text);
             } else {
                 fill_key(&mut tags.key, &text);
             }
@@ -305,6 +314,7 @@ mod tests {
                 chunk(b"ISFT", b"Some encoder\0"),
                 chunk(b"IART", b"Saffron\0"),
                 chunk(b"INAM", b"Low Tide\0\0"),
+                chunk(b"IPRD", b"Harbour Lights\0"),
             ]),
         ]);
         assert_eq!(
@@ -312,6 +322,7 @@ mod tests {
             TrackName {
                 title: Some("Low Tide".to_string()),
                 artist: Some("Saffron".to_string()),
+                album: Some("Harbour Lights".to_string()),
                 ..Default::default()
             }
         );
