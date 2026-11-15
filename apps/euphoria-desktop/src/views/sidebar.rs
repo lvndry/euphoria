@@ -67,7 +67,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "All tracks",
-                Some(RowCount::Settled(counts.total)),
+                Some(count_badge(
+                    "all-tracks-count",
+                    RowCount::Settled(counts.total),
+                    &palette,
+                )),
                 all_tracks_is_current,
                 &palette,
             )
@@ -82,7 +86,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Needs review",
-                Some(needs_review_count(app)),
+                Some(count_badge(
+                    "needs-review-count",
+                    needs_review_count(app),
+                    &palette,
+                )),
                 needs_review_is_current,
                 &palette,
             )
@@ -97,7 +105,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
         .child(
             row(
                 "Favorites",
-                Some(favorites_count(app)),
+                Some(count_badge(
+                    "favorites-count",
+                    favorites_count(app),
+                    &palette,
+                )),
                 favorites_are_current,
                 &palette,
             )
@@ -113,7 +125,11 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             sidebar.child(
                 row(
                     "Missing files",
-                    Some(RowCount::Settled(counts.missing)),
+                    Some(count_badge(
+                        "missing-files-count",
+                        RowCount::Settled(counts.missing),
+                        &palette,
+                    )),
                     missing_is_current,
                     &palette,
                 )
@@ -272,7 +288,11 @@ fn folder_row(
         row_after(
             Some(disclosure),
             node.name.clone(),
-            Some(RowCount::Settled(node.track_count)),
+            Some(count_badge(
+                ("folder-count", node_index),
+                RowCount::Settled(node.track_count),
+                &palette,
+            )),
             is_current,
             &palette,
         )
@@ -294,12 +314,15 @@ fn folder_row(
     )
 }
 
+/// What the count of a still moving number says when pointed at.
+pub(crate) const STILL_COUNTING: &str = "Still counting while analysis runs";
+
 /// The number at the end of a sidebar row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowCount {
     /// A number that is final.
     Settled(usize),
-    /// A number that analysis is still moving, shown with an ellipsis.
+    /// A number that analysis is still moving, shown dimmer.
     Settling(usize),
 }
 
@@ -312,12 +335,64 @@ impl RowCount {
         }
     }
 
-    pub(crate) fn text(self) -> String {
+    pub(crate) fn value(self) -> usize {
         match self {
-            RowCount::Settled(count) => format::count(count),
-            RowCount::Settling(count) => format!("{}\u{2026}", format::count(count)),
+            RowCount::Settled(count) | RowCount::Settling(count) => count,
         }
     }
+
+    pub(crate) fn is_settling(self) -> bool {
+        matches!(self, RowCount::Settling(_))
+    }
+
+    /// The number as the row shows it: exact below 1,000, then "2.2k".
+    pub(crate) fn text(self) -> String {
+        format::compact_count(self.value())
+    }
+
+    /// What the number says when pointed at: the exact count once the row
+    /// shortens it, and that it is still moving while analysis runs.
+    pub(crate) fn tooltip(self) -> Option<String> {
+        let count = self.value();
+        let is_shortened = count >= 1_000;
+        let exact = format!(
+            "{} {}",
+            format::count(count),
+            if count == 1 { "track" } else { "tracks" }
+        );
+        match (self.is_settling(), is_shortened) {
+            (false, false) => None,
+            (false, true) => Some(exact),
+            (true, false) => Some(STILL_COUNTING.to_string()),
+            (true, true) => Some(format!("{exact} so far. {STILL_COUNTING}")),
+        }
+    }
+}
+
+/// The count at the end of a sidebar row. It never shrinks, so the label
+/// beside it truncates instead.
+pub(crate) fn count_badge(
+    id: impl Into<ElementId>,
+    count: RowCount,
+    palette: &Palette,
+) -> AnyElement {
+    let tooltip = count.tooltip().map(SharedString::from);
+    div()
+        .id(id.into())
+        .flex_shrink_0()
+        .whitespace_nowrap()
+        .font_weight(FontWeight::NORMAL)
+        .text_color(if count.is_settling() {
+            palette.text_tertiary.opacity(0.55)
+        } else {
+            palette.text_tertiary
+        })
+        .when_some(tooltip, |badge, text| {
+            badge.tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+        })
+        .child(count.text())
+        .test_support()
+        .into_any_element()
 }
 
 /// The count on the Needs review row, tentative while analysis runs.
@@ -336,9 +411,9 @@ pub(crate) fn favorites_count(app: &EuphoriaApp) -> RowCount {
     )
 }
 
-fn row(
+pub(crate) fn row(
     label: impl Into<SharedString>,
-    count: Option<RowCount>,
+    count: Option<AnyElement>,
     is_current: bool,
     palette: &Palette,
 ) -> Div {
@@ -349,7 +424,7 @@ fn row(
 fn row_after(
     leading: Option<AnyElement>,
     label: impl Into<SharedString>,
-    count: Option<RowCount>,
+    count: Option<AnyElement>,
     is_current: bool,
     palette: &Palette,
 ) -> Div {
@@ -372,13 +447,7 @@ fn row_after(
         })
         .children(leading)
         .child(div().flex_1().min_w_0().truncate().child(label.into()))
-        .children(count.map(|count| {
-            div()
-                .flex_shrink_0()
-                .font_weight(FontWeight::NORMAL)
-                .text_color(palette.text_tertiary)
-                .child(count.text())
-        }))
+        .children(count)
 }
 
 /// The sidebar with `width` of it on show. It keeps its full width inside

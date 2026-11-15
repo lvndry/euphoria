@@ -21,6 +21,7 @@ use crate::playlist_flow::{DraggedPlaylist, DraggedTracks, PlaylistFormat};
 use crate::playlists::{LABELS, Playlist, PlaylistId, SetShape};
 use crate::theme::Palette;
 use crate::views::key_chip::key_chip;
+use crate::views::sidebar::{RowCount, count_badge};
 use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 
@@ -199,13 +200,11 @@ fn playlist_row(
                         .child(Input::new(&app.playlist_name_input).id("playlist-name")),
                 )
             } else {
-                row.child(label).child(
-                    div()
-                        .flex_shrink_0()
-                        .font_weight(FontWeight::NORMAL)
-                        .text_color(palette.text_tertiary)
-                        .child(format::count(in_library)),
-                )
+                row.child(label).child(count_badge(
+                    ("playlist-count", id.number()),
+                    RowCount::Settled(in_library),
+                    &palette,
+                ))
             }
         })
         .on_click(

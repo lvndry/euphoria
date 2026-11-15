@@ -407,6 +407,9 @@ pub(crate) struct FocusView {
     pub(crate) hover_seconds: Option<f64>,
     pub(crate) plan_tab: PlanTab,
     pub(crate) lanes_menu_open: bool,
+    /// Where the Layers button was last drawn, so a click on it is not
+    /// also a click outside its menu.
+    pub(crate) lanes_button_bounds: SeenBounds,
     pub(crate) lanes: FocusLanes,
     /// The track, as an index into the library, picked in the mixes list.
     pub(crate) selected_match: Option<usize>,
@@ -432,6 +435,7 @@ impl FocusView {
             hover_seconds: None,
             plan_tab: PlanTab::default(),
             lanes_menu_open: false,
+            lanes_button_bounds: SeenBounds::default(),
             lanes,
             selected_match: None,
             axis_bounds: SeenBounds::default(),
@@ -527,6 +531,13 @@ impl EuphoriaApp {
     pub(crate) fn toggle_focus_lanes_menu(&mut self, cx: &mut Context<'_, Self>) {
         self.focus.lanes_menu_open = !self.focus.lanes_menu_open;
         cx.notify();
+    }
+
+    pub(crate) fn close_focus_lanes_menu(&mut self, cx: &mut Context<'_, Self>) {
+        if self.focus.lanes_menu_open {
+            self.focus.lanes_menu_open = false;
+            cx.notify();
+        }
     }
 
     pub(crate) fn toggle_focus_lane(&mut self, lane: Lane, cx: &mut Context<'_, Self>) {

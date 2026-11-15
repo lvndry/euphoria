@@ -15,7 +15,7 @@ use crate::motion::{self, Transition};
 use crate::surface_motion::{Modal, ModalFades, Presence, Strip, StripGrowth};
 use crate::theme::ThemeName;
 use crate::ui_tests::{click, is_shown, open_fixture_library};
-use crate::views::sidebar::{RowCount, favorites_count, needs_review_count};
+use crate::views::sidebar::{RowCount, STILL_COUNTING, favorites_count, needs_review_count};
 
 fn render(window: AnyWindowHandle, cx: &mut TestAppContext) {
     cx.update_window(window, |_, window, cx| window.render_frame(cx))
@@ -262,20 +262,23 @@ fn a_theme_switch_blends_and_settles_on_the_new_palette(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
-fn counts_that_would_jump_show_an_ellipsis_while_analysis_runs(cx: &mut TestAppContext) {
+fn counts_that_would_jump_read_as_still_counting_while_analysis_runs(cx: &mut TestAppContext) {
     let (_window, view) = open_fixture_library(cx);
     cx.update(|cx| {
         view.update(cx, |app, _| {
             assert!(matches!(needs_review_count(app), RowCount::Settled(_)));
-            assert!(!favorites_count(app).text().ends_with('\u{2026}'));
+            assert!(!favorites_count(app).is_settling());
             app.session.pretend_queued(5);
-            assert!(needs_review_count(app).text().ends_with('\u{2026}'));
-            assert!(favorites_count(app).text().ends_with('\u{2026}'));
+            for count in [needs_review_count(app), favorites_count(app)] {
+                assert!(count.is_settling());
+                assert!(!count.text().contains('\u{2026}'), "no ellipsis takes room");
+                assert_eq!(count.tooltip().as_deref(), Some(STILL_COUNTING));
+            }
             for _ in 0..5 {
                 app.session.pretend_finished();
             }
-            assert!(!needs_review_count(app).text().ends_with('\u{2026}'));
-            assert!(!favorites_count(app).text().ends_with('\u{2026}'));
+            assert!(!needs_review_count(app).is_settling());
+            assert!(!favorites_count(app).is_settling());
         })
     });
 }
