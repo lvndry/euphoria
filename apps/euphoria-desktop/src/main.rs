@@ -92,6 +92,9 @@ mod player_wave_ui_tests;
 mod playlist_flow;
 mod playlists;
 mod progress;
+mod reanalyze;
+#[cfg(test)]
+mod reanalyze_ui_tests;
 mod reference_sound;
 mod relink_flow;
 mod reveal;
@@ -149,12 +152,12 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, AddToSet, BuildSet, CloseFocusView, EditTags, ExportLibrary,
-    FocusSearch, OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings, PlanTransition,
-    PlayNextRow, PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack, SelectAllTracks,
-    SeparateStems, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
-    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
-    WriteTags,
+    AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, EditTags,
+    ExportLibrary, FocusSearch, OpenCommandPalette, OpenFocusView, OpenSetBuilder, OpenSettings,
+    PlanTransition, PlayNextRow, PlayPaletteTrack, Quit, ResetColumnWidths, RevealTrack,
+    SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks, ToggleFavorite, ToggleMetronome,
+    TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme,
+    UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -427,6 +430,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
             .ok();
     });
 
+    register_view_command::<AnalyzeAgain>(view, cx, |view, cx| view.analyze_selection_again(cx));
+    register_view_command::<StopAnalysis>(view, cx, |view, cx| view.stop_analysis(cx));
     register_view_command::<SeparateStems>(view, cx, |view, cx| view.separate_selected_stems(cx));
 
     register_theme_command::<UseSlateTheme>(ThemeName::Slate, view, cx);
@@ -509,6 +514,10 @@ pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec
             MenuItem::action("Reset Column Widths", ResetColumnWidths),
             MenuItem::separator(),
             MenuItem::submenu(Menu::new("Theme").items(theme_items)),
+        ]),
+        Menu::new("Tracks").items([
+            MenuItem::action("Analyze Selected Tracks Again", AnalyzeAgain),
+            MenuItem::action("Stop Analysis", StopAnalysis),
         ]),
         Menu::new("Tags").items([
             MenuItem::action("Edit Tags\u{2026}", EditTags),

@@ -6,7 +6,7 @@
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -41,6 +41,9 @@ pub(crate) struct FinishedFile {
 pub(crate) enum AnalysisEvent {
     /// A worker took the file out of the queue and is analyzing it.
     Started(PathBuf),
+    /// The file was taken out of the queue without being analyzed, because
+    /// the run was cancelled.
+    Skipped(PathBuf),
     /// The file's analysis ended, with a result or a failure. Boxed, as an
     /// analysis is far larger than a path.
     Finished(Box<FinishedFile>),
@@ -104,7 +107,15 @@ pub(crate) struct AnalysisWorkers {
     event_sender: Sender<AnalysisEvent>,
     stop_signal: StopSignal,
     cache: Option<Arc<CachedAnalyzer>>,
+    run: Arc<AtomicUsize>,
+    #[cfg(test)]
+    stub: Option<StubAnalysis>,
 }
+
+/// An analysis that stands in for the core's in tests.
+#[cfg(test)]
+pub(crate) type StubAnalysis =
+    Arc<dyn Fn(&Path) -> Result<TrackAnalysis, TrackFailure> + Send + Sync>;
 
 impl AnalysisWorkers {
     /// Starts the workers. With a cache, each file is looked up there first
@@ -123,25 +134,74 @@ impl AnalysisWorkers {
             event_sender,
             stop_signal: StopSignal::default(),
             cache,
+            run: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            stub: None,
         };
         Ok((workers, event_receiver))
+    }
+
+    /// Workers that answer with `stub` instead of reading audio.
+    #[cfg(test)]
+    pub(crate) fn start_stubbed(
+        stub: StubAnalysis,
+    ) -> Result<(Self, Receiver<AnalysisEvent>), rayon::ThreadPoolBuildError> {
+        let (mut workers, receiver) = Self::start(None)?;
+        workers.stub = Some(stub);
+        Ok((workers, receiver))
+    }
+
+    /// Makes every file still waiting in the queue be skipped, each
+    /// reported as [`AnalysisEvent::Skipped`]. Files queued afterwards run
+    /// as usual, and files in the middle of analysis carry on.
+    pub(crate) fn cancel_queued(&self) {
+        self.run.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Queues files for analysis. Returns at once; each file is analyzed by
     /// the core when a worker is free.
     pub(crate) fn enqueue(&self, files: Vec<PathBuf>) {
+        self.enqueue_as(files, Reuse::Cached);
+    }
+
+    /// Queues files for analysis that ignores what the cache holds and
+    /// replaces it.
+    pub(crate) fn enqueue_fresh(&self, files: Vec<PathBuf>) {
+        self.enqueue_as(files, Reuse::Fresh);
+    }
+
+    fn enqueue_as(&self, files: Vec<PathBuf>, reuse: Reuse) {
+        let run_when_queued = self.run.load(Ordering::SeqCst);
         for path in files {
             let event_sender = self.event_sender.clone();
             let stop_signal = self.stop_signal.clone();
             let cache = self.cache.clone();
+            let run = self.run.clone();
+            #[cfg(test)]
+            let stub = self.stub.clone();
             self.thread_pool.spawn(move || {
+                if run.load(Ordering::SeqCst) != run_when_queued {
+                    let _ = event_sender.send(AnalysisEvent::Skipped(path));
+                    return;
+                }
                 if !stop_signal.begin_file() {
                     return;
                 }
                 // The receiver is gone once the app is closing, and then
                 // nobody is left to show the progress or the result to.
                 let _ = event_sender.send(AnalysisEvent::Started(path.clone()));
-                let finished_file = analyze(path, cache.as_deref());
+                #[cfg(test)]
+                let finished_file = match stub {
+                    Some(stub) => FinishedFile {
+                        outcome: stub(&path),
+                        path,
+                        from_cache: false,
+                        cache_problem: None,
+                    },
+                    None => analyze(path, cache.as_deref(), reuse),
+                };
+                #[cfg(not(test))]
+                let finished_file = analyze(path, cache.as_deref(), reuse);
                 let _ = event_sender.send(AnalysisEvent::Finished(Box::new(finished_file)));
                 stop_signal.finish_file();
             });
@@ -154,11 +214,21 @@ impl AnalysisWorkers {
     }
 }
 
+/// Whether an analysis may be served from the cache.
+#[derive(Debug, Clone, Copy)]
+enum Reuse {
+    Cached,
+    Fresh,
+}
+
 /// Asks the core for the analysis of one file, through the cache when there
 /// is one.
-fn analyze(path: PathBuf, cache: Option<&CachedAnalyzer>) -> FinishedFile {
+fn analyze(path: PathBuf, cache: Option<&CachedAnalyzer>, reuse: Reuse) -> FinishedFile {
     let (outcome, from_cache, cache_problem) = match cache {
-        Some(cache) => match cache.analyze_file(&path) {
+        Some(cache) => match match reuse {
+            Reuse::Cached => cache.analyze_file(&path),
+            Reuse::Fresh => cache.analyze_file_fresh(&path),
+        } {
             Ok(cached) => (
                 Ok(cached.analysis),
                 cached.from_cache,
