@@ -203,6 +203,11 @@ pub(crate) struct EuphoriaApp {
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans_in_progress: usize,
+    /// The window this view is in, for work that needs the window from a task.
+    pub(crate) window_handle: gpui::AnyWindowHandle,
+    /// A track Live asked to show that the library did not have yet, because
+    /// the window was just opened and is still reading its folders.
+    pub(crate) pending_reveal: Option<PathBuf>,
     /// Long actions running on threads that have no state of their own.
     pub(crate) background_jobs: crate::busy::BackgroundJobs,
     /// When the logo started moving, for the activity indicator.
@@ -215,11 +220,18 @@ pub(crate) struct EuphoriaApp {
     pub(crate) modal_fades: ModalFades,
     pub(crate) strip_growth: StripGrowth,
     pub(crate) focus_fade: Presence,
+    /// How far the Write tags preview has dimmed while it is worked out
+    /// again.
+    pub(crate) tag_preview_dim: Presence,
     pub(crate) theme_fade: Option<ThemeFade>,
     #[cfg(test)]
     pub(crate) revealed: Vec<PathBuf>,
     #[cfg(test)]
     pub(crate) last_written: Vec<PathBuf>,
+    /// How long each coming plan of Write tags waits before it starts, so
+    /// tests can make one finish after a later one.
+    #[cfg(test)]
+    pub(crate) tag_plan_delays: std::collections::VecDeque<Duration>,
     /// Which sections of the track detail are open, and their motion.
     pub(crate) inspector_sections: crate::inspector_sections::InspectorSections,
     /// The section the Deck strip shows, when the user picked one.
@@ -587,6 +599,8 @@ impl EuphoriaApp {
             table_focus: cx.focus_handle(),
             notice,
             scans_in_progress: 0,
+            window_handle: window.window_handle(),
+            pending_reveal: None,
             background_jobs: crate::busy::BackgroundJobs::default(),
             logo_clock: crate::logo_motion::LogoClock::default(),
             unavailable_folders: Vec::new(),
@@ -600,11 +614,14 @@ impl EuphoriaApp {
             modal_fades: ModalFades::default(),
             strip_growth: StripGrowth::default(),
             focus_fade: Presence::at_rest(false),
+            tag_preview_dim: Presence::at_rest(false),
             theme_fade: None,
             #[cfg(test)]
             revealed: Vec::new(),
             #[cfg(test)]
             last_written: Vec::new(),
+            #[cfg(test)]
+            tag_plan_delays: std::collections::VecDeque::new(),
             inspector_sections: crate::inspector_sections::InspectorSections::new(
                 settings.inspector_sections,
             ),
@@ -887,6 +904,7 @@ impl EuphoriaApp {
         self.start_collecting(cx);
         self.note_first_run_progress();
         cx.notify();
+        self.reveal_pending(cx);
     }
 
     /// Shows a problem in the notice strip, after any that is already there
@@ -1546,6 +1564,13 @@ impl EuphoriaApp {
         self.focus_fade
             .follow(self.focus.is_open, crate::motion::PANEL);
         self.focus_fade.drive(window);
+        let is_updating = matches!(
+            &self.tag_panel,
+            Some(TagPanel::Preview(preview)) if preview.updating
+        );
+        self.tag_preview_dim
+            .follow(is_updating, crate::motion::FAST);
+        self.tag_preview_dim.drive(window);
     }
 
     /// Chooses the DJ program tags are written for.
@@ -1609,6 +1634,7 @@ impl EuphoriaApp {
             self.report(problem);
         }
         self.refresh_label_preview(cx);
+        self.follow_tag_settings(cx);
         cx.notify();
     }
 

@@ -181,7 +181,11 @@ fn round_floats(value: &mut serde_json::Value, key: Option<&str>) {
     }
 }
 
-fn signals_of(cache: &SignalsCache, path: &Path, analysis: &TrackAnalysis) -> Result<TrackSignals> {
+pub(crate) fn signals_of(
+    cache: &SignalsCache,
+    path: &Path,
+    analysis: &TrackAnalysis,
+) -> Result<TrackSignals> {
     let hash = ContentHash::of_file(path)
         .with_context(|| format!("cannot read {}", Printable(path.display())))?;
     let mut signals = match cache.load(&hash) {

@@ -995,6 +995,7 @@ fn summary_and_actions(
                 .transition(&from.path, &to.path)
                 .is_some()
         });
+    let is_locked = app.planner_lock().is_some();
     card(&palette)
         .id("planner-plan")
         .child(
@@ -1004,6 +1005,28 @@ fn summary_and_actions(
                 .child(window_line(planned, window))
                 .test_support(),
         )
+        .when(is_locked, |card| {
+            card.child(
+                div()
+                    .id("planner-locked")
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(GAP_SMALL)
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_secondary)
+                    .child(crate::planner_locks::LOCKED_LINE)
+                    .child(
+                        secondary_button(crate::planner_locks::UNLOCK_ACTION, &palette)
+                            .id("planner-unlock")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.unlock_planner_transition(cx);
+                            }))
+                            .test_support(),
+                    )
+                    .test_support(),
+            )
+        })
         .child(
             div()
                 .flex()

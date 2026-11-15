@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">How the GiantSteps previews spread over the scale</title>
-<desc id="chart-desc">Column chart of how many of the 604 GiantSteps Key previews get each rating in version 3: 11, 20, 21, 60, 80, 95, 101, 103, 66 and 47 tracks for ratings 1 to 10. The previews cover the whole scale, with most between 4 and 8 and the peak at 8.</desc>
+<desc id="chart-desc">Column chart of how many of the 604 GiantSteps Key previews get each rating in version 4: 8, 22, 23, 68, 79, 105, 99, 89, 71 and 40 tracks for ratings 1 to 10. The previews cover the whole scale, with most between 4 and 8 and the peak at 6.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -39,26 +39,26 @@
 <text x="70" y="164.67" class="tick" text-anchor="end">80</text>
 <line x1="80" y1="96" x2="770" y2="96" class="grid"/>
 <text x="70" y="100" class="tick" text-anchor="end">120</text>
-<path class="series-fill" d="M102.5,290 V276.22 Q102.5,272.22 106.5,272.22 H122.5 Q126.5,272.22 126.5,276.22 V290 Z"/>
+<path class="series-fill" d="M102.5,290 V281.07 Q102.5,277.07 106.5,277.07 H122.5 Q126.5,277.07 126.5,281.07 V290 Z"/>
 <text x="114.5" y="310" class="tick" text-anchor="middle">1</text>
-<path class="series-fill" d="M171.5,290 V261.67 Q171.5,257.67 175.5,257.67 H191.5 Q195.5,257.67 195.5,261.67 V290 Z"/>
+<path class="series-fill" d="M171.5,290 V258.43 Q171.5,254.43 175.5,254.43 H191.5 Q195.5,254.43 195.5,258.43 V290 Z"/>
 <text x="183.5" y="310" class="tick" text-anchor="middle">2</text>
-<path class="series-fill" d="M240.5,290 V260.05 Q240.5,256.05 244.5,256.05 H260.5 Q264.5,256.05 264.5,260.05 V290 Z"/>
+<path class="series-fill" d="M240.5,290 V256.82 Q240.5,252.82 244.5,252.82 H260.5 Q264.5,252.82 264.5,256.82 V290 Z"/>
 <text x="252.5" y="310" class="tick" text-anchor="middle">3</text>
-<path class="series-fill" d="M309.5,290 V197 Q309.5,193 313.5,193 H329.5 Q333.5,193 333.5,197 V290 Z"/>
+<path class="series-fill" d="M309.5,290 V184.07 Q309.5,180.07 313.5,180.07 H329.5 Q333.5,180.07 333.5,184.07 V290 Z"/>
 <text x="321.5" y="310" class="tick" text-anchor="middle">4</text>
-<path class="series-fill" d="M378.5,290 V164.67 Q378.5,160.67 382.5,160.67 H398.5 Q402.5,160.67 402.5,164.67 V290 Z"/>
+<path class="series-fill" d="M378.5,290 V166.28 Q378.5,162.28 382.5,162.28 H398.5 Q402.5,162.28 402.5,166.28 V290 Z"/>
 <text x="390.5" y="310" class="tick" text-anchor="middle">5</text>
-<path class="series-fill" d="M447.5,290 V140.42 Q447.5,136.42 451.5,136.42 H467.5 Q471.5,136.42 471.5,140.42 V290 Z"/>
+<path class="series-fill" d="M447.5,290 V124.25 Q447.5,120.25 451.5,120.25 H467.5 Q471.5,120.25 471.5,124.25 V290 Z"/>
 <text x="459.5" y="310" class="tick" text-anchor="middle">6</text>
-<path class="series-fill" d="M516.5,290 V130.72 Q516.5,126.72 520.5,126.72 H536.5 Q540.5,126.72 540.5,130.72 V290 Z"/>
+<text x="459.5" y="110.25" class="value" text-anchor="middle">105 tracks</text>
+<path class="series-fill" d="M516.5,290 V133.95 Q516.5,129.95 520.5,129.95 H536.5 Q540.5,129.95 540.5,133.95 V290 Z"/>
 <text x="528.5" y="310" class="tick" text-anchor="middle">7</text>
-<path class="series-fill" d="M585.5,290 V127.48 Q585.5,123.48 589.5,123.48 H605.5 Q609.5,123.48 609.5,127.48 V290 Z"/>
+<path class="series-fill" d="M585.5,290 V150.12 Q585.5,146.12 589.5,146.12 H605.5 Q609.5,146.12 609.5,150.12 V290 Z"/>
 <text x="597.5" y="310" class="tick" text-anchor="middle">8</text>
-<text x="597.5" y="113.48" class="value" text-anchor="middle">103 tracks</text>
-<path class="series-fill" d="M654.5,290 V187.3 Q654.5,183.3 658.5,183.3 H674.5 Q678.5,183.3 678.5,187.3 V290 Z"/>
+<path class="series-fill" d="M654.5,290 V179.22 Q654.5,175.22 658.5,175.22 H674.5 Q678.5,175.22 678.5,179.22 V290 Z"/>
 <text x="666.5" y="310" class="tick" text-anchor="middle">9</text>
-<path class="series-fill" d="M723.5,290 V218.02 Q723.5,214.02 727.5,214.02 H743.5 Q747.5,214.02 747.5,218.02 V290 Z"/>
+<path class="series-fill" d="M723.5,290 V229.33 Q723.5,225.33 727.5,225.33 H743.5 Q747.5,225.33 747.5,229.33 V290 Z"/>
 <text x="735.5" y="310" class="tick" text-anchor="middle">10</text>
 <text x="425" y="334" class="label" text-anchor="middle">Energy rating</text>
 </svg>
