@@ -107,3 +107,20 @@ fn next_selects_and_plays_the_row_after(cx: &mut TestAppContext) {
         assert!(app.player.offers_pause());
     });
 }
+
+#[gpui::test]
+fn pausing_keeps_now_playing_as_paused(cx: &mut TestAppContext) {
+    let (_, view) = open_fixture_library(cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.select(flac, cx)));
+    let (sender, told) = connect(&view, cx);
+    send(&sender, RemoteCommand::Play, cx);
+    send(&sender, RemoteCommand::Pause, cx);
+    cx.update(|cx| {
+        let info = view.read(cx).now_playing().expect("a paused track stays");
+        assert!(!info.playing);
+        assert_eq!(info.rate, 0.0);
+    });
+    assert_eq!(told.borrow().cleared, 0);
+    assert!(!told.borrow().published.last().unwrap().playing);
+}

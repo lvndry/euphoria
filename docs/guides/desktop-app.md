@@ -309,7 +309,7 @@ On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, 
 
 While the [decks](#decks) are open, the keys control one deck: the one that plays, the favoured side of the crossfader first, so deck A while it is centered, and when neither plays, the favoured deck that has a track. Next and Previous do nothing on the decks.
 
-Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. It is cleared when nothing is playing or paused, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
+Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
 
 Not there yet: artwork in Now Playing, the playback rate of the tempo control, and Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
 

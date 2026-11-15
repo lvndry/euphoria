@@ -358,6 +358,26 @@ mod tests {
     }
 
     #[test]
+    fn pausing_keeps_the_info_as_paused_and_only_nothing_held_clears() {
+        let (mut publisher, told) = publisher();
+        let start = Instant::now();
+        publisher.update(Some(playing(30.0, 1.0)), start);
+        publisher.update(Some(playing(31.0, 0.0)), start + Duration::from_secs(1));
+        publisher.update(Some(playing(31.0, 0.0)), start + Duration::from_secs(30));
+        let told_so_far = told.borrow();
+        assert_eq!(told_so_far.len(), 2);
+        let Told::Published(paused) = &told_so_far[1] else {
+            panic!("pausing must publish, not clear");
+        };
+        assert!(!paused.playing);
+        assert_eq!(paused.rate, 0.0);
+        assert!(!told_so_far.contains(&Told::Cleared));
+        drop(told_so_far);
+        publisher.update(None, start + Duration::from_secs(31));
+        assert_eq!(told.borrow().last(), Some(&Told::Cleared));
+    }
+
+    #[test]
     fn stopping_clears_once() {
         let (mut publisher, told) = publisher();
         let start = Instant::now();
